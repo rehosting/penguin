@@ -7,6 +7,7 @@ from subprocess import check_output
 from queue import PriorityQueue
 import json
 
+from itertools import product
 
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -117,7 +118,7 @@ def asid_www(cpu, old_asid, new_asid):
     return 0
 
 web_files  = set()
-crawl_queue = PriorityQueue(500) # Prioritized queue of items to visit
+crawl_queue = PriorityQueue(1000) # Prioritized queue of items to visit
 queued = [] # list of everything ever queued (visited + to visit)
 requested = {}  # path: (meth, url, params, result_code)
 current_request = None
@@ -164,7 +165,9 @@ def do_queue(path, method="GET", args={}):
 
 # Find www files
 #do_queue("index.html")
-do_queue("cgi-bin/cfgconf.cgi") # TESTING
+#do_queue("cgi-bin/cfgconf.cgi") # TESTING
+do_queue("/cgi-bin/quickconf.cgi") # TESTING
+
 
 # It's not as simple as running find but there's some middle ground to try
 '''
@@ -234,8 +237,14 @@ def on_sys_execve_enter(cpu, pc, fname_ptr, argv_ptr, envp):
         return
     proc_name = ffi.string(proc.name).decode("utf8", errors="ignore")
 
-    if proc_name not in ['lighttpd']:
-        return
+    # Want to filter out background but if lighttpd spawns a shell script which spawns something
+    # interesting, we do want to report it
+    #if proc_name not in ['lighttpd'] and not ".cgi" in proc_name:
+    #    return
+
+    #if current_request is None:
+    #    return # Non-crawler request (i.e., find_auth)
+
     argv = []
     for ptr in ffi.from_buffer("int[]", argv_buf):
         if ptr == 0: break
@@ -247,15 +256,17 @@ def on_sys_execve_enter(cpu, pc, fname_ptr, argv_ptr, envp):
         if ptr == 0: break
         try: env.append(panda.read_str(cpu, ptr))
         except ValueError: env.append("(error)=(error)")
-    logger.info("Executing: " + ' '.join(argv) + " with args: " + str(env))
+    logger.info("Executing: " + ' '.join(argv)) #+ " with args: " + str(env))
 
+    # Keep quiet
     '''
-    for env_pair in env:
-        if len(env_pair.split("=")) == 2:
-            k,v = env_pair.split("=")
-            logger.info(f"\t{k}\t=\t{v}")
-        else:
-            logger.info(f"\t{env_pair}")
+    if ".cgi" in argv[0]:
+        for env_pair in env:
+            if len(env_pair.split("=")) == 2:
+                k,v = env_pair.split("=")
+                logger.info(f"\t{k}\t=\t{v}")
+            else:
+                logger.info(f"\t{env_pair}")
     '''
 
 @panda.ppp("syscalls2", "on_sys_open_enter")
@@ -296,10 +307,16 @@ def read_ret(cpu, pc, fd, buf, cnt):
     if ".cgi" not in proc_name: # Only want CGI inputs
         return
 
+    if not cnt == 0:
+        return
+
     try:
         data = panda.read_str(cpu, buf)
     except ValueError:
         # Read failed
+        return
+
+    if len(data) == 0:
         return
 
     logger.info(f"POSTDATA: {repr(data[:cnt])}")
@@ -308,7 +325,7 @@ def read_ret(cpu, pc, fd, buf, cnt):
 
 @panda.ppp("syscalls2", "on_sys_write_enter")
 def write_ent(cpu, pc, fd, buf, cnt):
-    if fd != 1: # Assuming standard STDOUT on FD 1
+    if fd not in [1, 2]: # Assuming standard STDOUT/STDERR on FD 1/2
         return
 
     proc = panda.plugins['osi'].get_current_process(cpu) 
@@ -325,7 +342,7 @@ def write_ent(cpu, pc, fd, buf, cnt):
         # Read failed
         return
 
-    logger.info(f"RESPONSE: {repr(data[:cnt])}")
+    #logger.info(f"RESPONSE: {repr(data[:cnt])}")
 
 
 
@@ -376,22 +393,80 @@ def scan_output(html_page):
         vals = {}
         for field in form.findAll('input'):
             name = field.get('name')
+            if not name:
+                continue
             in_type = field.get('type')
+
+            fuzz = []
+            default = field.get('value')
+
             if in_type in ['text', 'hidden']:
-                fuzz = "aaaaaaaaaaaaa"
+                #fuzz = "1.2.3.4; sleep 30s; aaaaaaaaaaa ' or '1' ='1'--"
+                if default:
+                    fuzz.append(default)
+                fuzz.append("aaaaaa; sleep 30")
+
             elif in_type in ["submit"]:
-                fuzz = ""
+                if default:
+                    fuzz.append(default)
+                else:
+                    fuzz.append("")
+
             elif in_type in ["checkbox", "button"]:
                 fuzz = field.get('value') # checked / clicked(?)  means it submits the 'value' field
+
+            elif in_type == "radio":
+                # Multiple inputs, each with one value. Add to list
+                # <input type="radio" id="male" name="gender" value="male">
+                # <input type="radio" id="female" name="gender" value="female">
+                fuzz.append(field.get('value'))
+
             else:
                 print("Unhandled form type:", in_type)
-                fuzz = "1"
+                fuzz = ["1"]
 
+            # Store mapping from name to a list of reasonable values
             vals[name] = fuzz
 
-        # Form is filled out - use METHOD to ACTIOn with vals
+        # transform {"foo": [1,2], "Zoo": [1], "Moo": [3,4]} into
+        # ([foo: 1, zoo:1, moo:3], [foo: 1, zoo:1, moo:4],
+        #  [foo: 2, zoo:1, moo:3], [foo: 2, zoo:1, moo:4])
+
+        # XXX: This is too many combinations. Should simplify
+        keys, values = zip(*vals.items())
+        params_list = [dict(zip(keys, v)) for v in product(*values)]
+
         abs_act = make_abs(action)
-        do_queue(abs_act, method=method, args=vals)
+        for idx, params in enumerate(params_list):
+            # Form is filled out - use METHOD to ACTION with vals
+            logger.warning(f"Queueing form to {action}: {params}")
+
+            do_queue(abs_act, method=method, args=params)
+
+            if idx > 5:
+                logger.warning(f"Abandoing subsequent permutations")
+                break
+
+        '''
+        # For each input, try submitting non default
+        # (default, non-def), (default), (default, non-def) should submit:
+        # default, default, default
+        # default, default, non-def
+        # non-def, default, default
+
+        for flip in range(len(vals)+1):
+            # Flip the selected value to non-default
+            this_vals =  {k:v[-1] for k,v in vals.items()}
+
+            mutate = vals.keys()[flip]
+            if len(vals[mutate]) > 1:
+                this_vals[mutate] = vals[mutate][0] # Change to non-default
+
+            if len(vals[mutate]) > 1 or flip == len(vals): # last one: all default
+                do_queue(abs_act, method=method, args=this_vals)
+
+        break # XXX DEBUG
+        '''
 
 
 #g_auth = (None, None, None) # type, user, pass
