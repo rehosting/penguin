@@ -30,6 +30,15 @@ authenticated-only areas of the web application.
 
 This is implemented by a simple expert-knowledge system. For each web server we support, we encode the library function name for checking auth and desired return value. We dynamically hook this name and set the correct return value.
 
+# CGI-Bin IO
+`cgi-bin` scripts are driven by stdin and environment variables and generate data on stdout. Inputs and outputs are printed to the log.
+
+(TODO) Take snapshots before postdata is processed (after relevant `sys_read_return`) and use these for fuzzing cgi-bin programs.
+
+# Future work
+* Identify crashes
+* Meaningful presentation of results 
+* Integrations (export URLs for burp?)
 
 # Supported webservers
 * Lighttpd with `mod_auth` (should work as long as it uses `http_auth_basic_check()`)

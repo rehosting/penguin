@@ -163,8 +163,8 @@ def do_queue(path, method="GET", args={}):
 
 
 # Find www files
-do_queue("index.html")
-#do_queue("cgi-bin/cfgconf.cgi") # TESTING
+#do_queue("index.html")
+do_queue("cgi-bin/cfgconf.cgi") # TESTING
 
 # It's not as simple as running find but there's some middle ground to try
 '''
@@ -247,13 +247,16 @@ def on_sys_execve_enter(cpu, pc, fname_ptr, argv_ptr, envp):
         if ptr == 0: break
         try: env.append(panda.read_str(cpu, ptr))
         except ValueError: env.append("(error)=(error)")
-    logger.info("Executing: " + ' '.join(argv) + "with args:")
+    logger.info("Executing: " + ' '.join(argv) + " with args: " + str(env))
+
+    '''
     for env_pair in env:
         if len(env_pair.split("=")) == 2:
             k,v = env_pair.split("=")
             logger.info(f"\t{k}\t=\t{v}")
         else:
             logger.info(f"\t{env_pair}")
+    '''
 
 @panda.ppp("syscalls2", "on_sys_open_enter")
 def on_sys_open_enter(cpu, pc, fname_ptr, flags, mode):
@@ -278,6 +281,53 @@ def on_sys_open_enter(cpu, pc, fname_ptr, flags, mode):
     if fname not in web_files:
         web_files.add(fname)
         analyze(fname)
+
+@panda.ppp("syscalls2", "on_sys_read_return")
+def read_ret(cpu, pc, fd, buf, cnt):
+
+    if fd != 0: # Assuming standard STDIN on FD 0
+        return
+
+    proc = panda.plugins['osi'].get_current_process(cpu) 
+    if proc == ffi.NULL:
+        return
+    proc_name = ffi.string(proc.name).decode("utf8", errors="ignore")
+
+    if ".cgi" not in proc_name: # Only want CGI inputs
+        return
+
+    try:
+        data = panda.read_str(cpu, buf)
+    except ValueError:
+        # Read failed
+        return
+
+    logger.info(f"POSTDATA: {repr(data[:cnt])}")
+
+    # Idea: take a snapshot *now* and mutate this buffer to fuzz target CGI bin
+
+@panda.ppp("syscalls2", "on_sys_write_enter")
+def write_ent(cpu, pc, fd, buf, cnt):
+    if fd != 1: # Assuming standard STDOUT on FD 1
+        return
+
+    proc = panda.plugins['osi'].get_current_process(cpu) 
+    if proc == ffi.NULL:
+        return
+    proc_name = ffi.string(proc.name).decode("utf8", errors="ignore")
+
+    if ".cgi" not in proc_name: # Only want CGI inputs
+        return
+
+    try:
+        data = panda.read_str(cpu, buf)
+    except ValueError:
+        # Read failed
+        return
+
+    logger.info(f"RESPONSE: {repr(data[:cnt])}")
+
+
 
 def make_abs(ref):
     '''
