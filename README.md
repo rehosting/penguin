@@ -8,12 +8,12 @@ Requests are processed from the queue until none are left.
 
 The queue is initially populated with `index.html`
 
-## Thurst 1: Simple scraping
+## Thrust 1: Simple scraping
 Load the next page from the queue Identify `SRC`, `HREF` and `form` data to find other
 pages to load. Add identified pages to the queue. For forms, generate junk data for each parameter.
 
 ## Thrust 2: FS Introspection
-When the webserver loads a file - examine other files in that directory and generate approperiate
+When the webserver loads a file - examine other files in that directory and generate appropriate
 paths to potentially access them. Add these to the queue.
 
 For example, if a request to `https://server/parent/child.html` triggers an open of `fw_dir/var/www/parent/child.html`, get the list of files in `fw_dir/var/www/parent/`:
@@ -25,7 +25,7 @@ for example `child2.html`, `child3.html`.
  (TODO) identify if submitted data is passed as args.
 
 # Auth Bypass
-Using PANDA, we dynamically identify andy bypass authentication functions so we can explore
+Using PANDA, we identify and bypass authentication functions so we can explore
 authenticated-only areas of the web application.
 
 This is implemented by a simple expert-knowledge system. For each web server we support, we encode the library function name for checking auth and desired return value. We dynamically hook this name and set the correct return value.
