@@ -221,11 +221,12 @@ def analyze(fname):
 
 
 @panda.ppp("syscalls2", "on_sys_execve_enter")
-def on_sys_execve_enter(cpu, pc, fname_ptr, argv_ptr, envp):  
+def on_sys_execve_enter(cpu, pc, fname_ptr, argv_ptr, envp):
     # Log commands and arguments passed to execve
     try:
         fname = panda.read_str(cpu, fname_ptr)
         argv_buf = panda.virtual_memory_read(cpu, argv_ptr, 100)
+        envp_buf = panda.virtual_memory_read(cpu, envp, 100)
     except ValueError: return
 
     proc = panda.plugins['osi'].get_current_process(cpu) 
@@ -240,7 +241,19 @@ def on_sys_execve_enter(cpu, pc, fname_ptr, argv_ptr, envp):
         if ptr == 0: break
         try: argv.append(panda.read_str(cpu, ptr))
         except ValueError: argv.append("(error)")
-    logger.info("Executing: " + ' '.join(argv))
+
+    env = []
+    for ptr in ffi.from_buffer("int[]", envp_buf):
+        if ptr == 0: break
+        try: env.append(panda.read_str(cpu, ptr))
+        except ValueError: env.append("(error)=(error)")
+    logger.info("Executing: " + ' '.join(argv) + "with args:")
+    for env_pair in env:
+        if len(env_pair.split("=")) == 2:
+            k,v = env_pair.split("=")
+            logger.info(f"\t{k}\t=\t{v}")
+        else:
+            logger.info(f"\t{env_pair}")
 
 @panda.ppp("syscalls2", "on_sys_open_enter")
 def on_sys_open_enter(cpu, pc, fname_ptr, flags, mode):
@@ -364,7 +377,6 @@ def find_auth(path):
 bypassed_auth = False
 def fetch(meth, path, params):
     # Fetch a page from the webserver. Update current_request so background analyses know what's up
-    logger.info(f"METH: {meth}")
     logger.info(f"{'Fetching' if meth=='GET' else meth} {path} (Queue contains {crawl_queue.qsize()})")
 
     global current_request, requested
