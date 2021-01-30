@@ -1,10 +1,7 @@
-# It's not as simple as running find but there's some middle ground to try
 '''
-webroot = mountpoint+"/var/www" # TODO: genericize
-files = check_output(f"find {webroot} -type f ", shell=True).decode("utf8", errors="ignore")
-for f in files.split("\n"):
-    this_file = f.replace(webroot, "").strip()
-    do_queue(this_file)
+TODOs:
+    Save state after crawling
+    Fuzz form queue
 '''
 
 import json
@@ -38,12 +35,15 @@ def make_abs(base, ref):
 
 class Crawler:
     '''
-    A PANDA-powered web crawler
-
+    A PANDA-powered web crawler. Analyzes syscalls and guest filesystem to identify attack surface
     '''
-    def __init__(self, panda, mountpoint, start_url="/index.html"):
+
+    def __init__(self, panda, domain, mountpoint, start_url="index.html"):
         self.panda = panda
         self.mountpoint = mountpoint # Host path to guest rootfs
+        self.domain = domain # proto+domain+port to connect to. E.g. https://localhost:5443
+        if not self.domain.endswith("/"):
+            self.domain += "/"
 
         # Queue management
         self.crawl_queue = PriorityQueue(1000) # Prioritized queue of items to visit
@@ -76,14 +76,24 @@ class Crawler:
         self.start_url = "/cgi-bin/quickcommit.cgi"
         self.basedir = "/var/www/" # TODO: dynamically figure this out
 
+        # DEBUG FORM
+        self.form_queue.put_nowait((40, ('POST', '/cgi-bin/alarmcommit.cgi', json.dumps({"commit_changes": {"type": "submit", "defaults": [""]}, "power_alarm": {"type": "checkbox", "defaults": ["1"]}, "ring_alarm_local": {"type": "checkbox", "defaults": ["1"]}, "ring_alarm_any": {"type": "checkbox", "defaults": ["1"]}, "link_1_": {"type": "checkbox", "defaults": ["1"]}, "link_2_": {"type": "checkbox", "defaults": ["1"]}, "link_3_": {"type": "checkbox", "defaults": ["1"]}, "link_4_": {"type": "checkbox", "defaults": ["1"]}, "link_5_": {"type": "checkbox", "defaults": ["1"]}, "link_6_": {"type": "checkbox", "defaults": ["1"]}, "link_7_": {"type": "checkbox", "defaults": ["1"]}, "link_8_": {"type": "checkbox", "defaults": ["1"]}, "link_9_": {"type": "checkbox", "defaults": ["1"]}, "NUMPORTS": {"type": "hidden", "defaults": ["10"]}}))))
+
         # PANDA callbacks registered within init using self.panda
 
         @self.panda.queue_async
         def driver():
-            # TODO: add form_queue
-            while not self.crawl_queue.empty():
-                (_, (meth, page))  = self.crawl_queue.get()
-                self.fetch(meth, page)
+            while not self.crawl_queue.empty() and not self.form_queue.empty():
+                if not self.form_queue.empty():
+                    (_, (meth, page, params_j))  = self.form_queue.get()
+                    params = json.loads(params_j)
+                    self.fuzz_form(meth, page, params)
+                    self.logger.error("QUIT EARLY - debug")
+                    break
+
+                if not self.crawl_queue.empty():
+                    (_, (meth, page))  = self.crawl_queue.get()
+                    self.fetch(meth, page)
 
             self.panda.end_analysis()
 
@@ -198,6 +208,51 @@ class Crawler:
         return results
     ############## / end of helpers
 
+    def fuzz_form(self, meth, page, params):
+        '''
+        Given a method / path / parameters, fuzz a form!
+
+        Goals:
+            Find bugs - params sent to system()
+            Hints of bugs - params sent to syscalls 
+            Measure coverage of parsing script
+            Obtain high coverage
+
+            params = {name: {type: foo, defaults: [1,2]}, ...}
+        '''
+        self.logger.error("DEBUG: fuzzin' %s", page)
+        for param_name, param_detail in params.items():
+            print(f"{param_name}: {param_detail['defaults']}")
+
+        # Throw junk in each parameter once and combine with defaults for all others
+
+        request_params = [] # [{param:value, ...}, ...]
+
+        for fuzz_target in params.keys():
+            # Mutate param[fuzz_target]
+            these_params = {fuzz_target: "aaaa ; sleep 30s; kill -9 1;"}
+
+            for normal_target in params.keys():
+                if normal_target == fuzz_target:
+                    continue
+                defaults = params[normal_target]['defaults']
+
+                if len(defaults) == 1:
+                    these_params[normal_target] = defaults[0]
+                else:
+                    logger.warning("Multiple defaults TODO")
+                    these_params[normal_target] = defaults[0]
+
+            request_params.append(these_params)
+
+        for params in request_params:
+            print("\n\n")
+            print(params)
+
+            base = self._fetch(meth, page, params)
+            print(base)
+
+
     def analyze_www_open(self, fname):
         '''
         Called after filter in on_sys_open_enter. If there's a current_request and
@@ -301,8 +356,12 @@ class Crawler:
         prio = 100 - len(form['params'].keys())
 
         if (path, method) not in self.queued_forms: # What if we get additional fields later?
-            self.form_queue.put_nowait((prio, (method, path, json.dumps(form)))) # Raises exn if queue is full
+            self.logger.warning("FORM QUEUE: %s", path)
+            self.form_queue.put_nowait((prio, (method, path, json.dumps(form['params'])))) # Raises exn if queue is full
             self.queued_forms.append((path, method))
+
+            self.logger.error("DEBUG- end after queueing")
+            self.panda.end_analysis()
 
 
 
@@ -373,7 +432,7 @@ class Crawler:
         # Username needs to be valid
         basic_users = ["admin", "user", "cli", "root", "test", "dev"]
         for user in basic_users:
-            resp = requests.get(f"https://localhost:5443/{path}", verify=False,
+            resp = requests.get(self.domain+path, verify=False,
                     auth=(user, 'PANDAPASS'))
             if resp.status_code != 401:
                 self.logger.info("Success!")
@@ -383,17 +442,12 @@ class Crawler:
         self.logger.warning("Failed to bypass auth")
         return False
 
-    def fetch(self, meth, path, params={}):
+    def _fetch(self, meth, path, params={}):
         '''
-        Fetch a page from the webserver.
-        Responsible for managing current_request to match the page being requested
+        GET/POST with our auth tokens. Returns Requests object
         '''
 
-        self.logger.info(f"{meth} {path} (Queue contains {self.crawl_queue.qsize()})")
-
-        self.current_request = path
-
-        url = f"https://localhost:5443/{path}"
+        url = self.domain + path
         if self.www_auth[0] is None:
             auth = None
         elif self.www_auth[0] == "basic":
@@ -407,6 +461,18 @@ class Crawler:
             resp = requests.post(url, verify=False, auth=auth, data=params)
         else:
             raise NotImplementedError("Unsupported method:"+ meth)
+        return resp 
+
+    def fetch(self, meth, path, params={}):
+        '''
+        Fetch a page from the webserver.
+        Responsible for managing current_request to match the page being requested
+        '''
+
+        self.logger.info(f"{meth} {path} (Queue contains {self.crawl_queue.qsize()})")
+
+        self.current_request = path
+        resp = self._fetch(meth, path, params)
 
         fail = False
         if resp.status_code == 401:
@@ -453,7 +519,7 @@ class Crawler:
 
         # Emulation finished - print stats
         print("\n"*4 + "===========")
-        statuses = {[x[3] for x in self.crawl_results.values()]}
+        statuses = {x[3] for x in self.crawl_results.values()}
         print(f"Visited {len(self.crawl_results)} pages")
         for status in statuses:
             print(f"Status [{status}]")

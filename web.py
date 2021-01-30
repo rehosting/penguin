@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import readline # XXX: Workaround for #864
 from pandare import Panda, ffi
 from pandare.extras.file_faker import FileFaker, FakeFile
 from pandare.extras.ioctl_faker import IoctlFaker
@@ -115,6 +116,6 @@ def asid_www(cpu, old_asid, new_asid):
 
 from crawl import Crawler
 
-c = Crawler(panda, mountpoint)
+c = Crawler(panda, "https://localhost:5443", mountpoint)
 
 c.crawl()
