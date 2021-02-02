@@ -8,10 +8,13 @@ import json
 import logging
 import os
 from queue import PriorityQueue
+from time import sleep
 import urllib3
 import requests
 from bs4 import BeautifulSoup
 import coloredlogs
+
+from StateTreeFilter import StateTreeFilter
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 coloredlogs.DEFAULT_LOG_FORMAT = '%(name)s %(levelname)s %(message)s'
@@ -33,7 +36,7 @@ def make_abs(base, ref):
     return abs_ref
 
 
-class Crawler:
+class Crawler():
     '''
     A PANDA-powered web crawler. Analyzes syscalls and guest filesystem to identify attack surface
     '''
@@ -44,6 +47,19 @@ class Crawler:
         self.domain = domain # proto+domain+port to connect to. E.g. https://localhost:5443
         if not self.domain.endswith("/"):
             self.domain += "/"
+
+        # State management
+        # States:
+        # crawl: Crawling active (TODO more detailed sub-states)
+        # findauth: Analyzing authentication on a 401-protected page (TODO: sub-states?)
+
+        # formfuzz.analyze: Fuzzing a form - analyzing
+        # formfuzz.send: Request sent to guest, but not yet parsed by webserver
+        # formfuzz.introspection: Analyzing guest behavior
+        # formfuzz.introspection.on_tree: Active process created by webserver or children
+
+        self.s = StateTreeFilter('formfuzz.analyze') # DEBUG
+        #self.s = StateTreeFilter('crawl')
 
         # Queue management
         self.crawl_queue = PriorityQueue(1000) # Prioritized queue of items to visit
@@ -77,30 +93,53 @@ class Crawler:
         self.basedir = "/var/www/" # TODO: dynamically figure this out
 
         # DEBUG FORM
+        self.recording_coverage = False
         self.form_queue.put_nowait((40, ('POST', '/cgi-bin/alarmcommit.cgi', json.dumps({"commit_changes": {"type": "submit", "defaults": [""]}, "power_alarm": {"type": "checkbox", "defaults": ["1"]}, "ring_alarm_local": {"type": "checkbox", "defaults": ["1"]}, "ring_alarm_any": {"type": "checkbox", "defaults": ["1"]}, "link_1_": {"type": "checkbox", "defaults": ["1"]}, "link_2_": {"type": "checkbox", "defaults": ["1"]}, "link_3_": {"type": "checkbox", "defaults": ["1"]}, "link_4_": {"type": "checkbox", "defaults": ["1"]}, "link_5_": {"type": "checkbox", "defaults": ["1"]}, "link_6_": {"type": "checkbox", "defaults": ["1"]}, "link_7_": {"type": "checkbox", "defaults": ["1"]}, "link_8_": {"type": "checkbox", "defaults": ["1"]}, "link_9_": {"type": "checkbox", "defaults": ["1"]}, "NUMPORTS": {"type": "hidden", "defaults": ["10"]}}))))
 
         # PANDA callbacks registered within init using self.panda
 
-        @self.panda.queue_async
+        @self.panda.queue_blocking
         def driver():
-            while not self.crawl_queue.empty() and not self.form_queue.empty():
-                if not self.form_queue.empty():
-                    (_, (meth, page, params_j))  = self.form_queue.get()
-                    params = json.loads(params_j)
-                    self.fuzz_form(meth, page, params)
-                    self.logger.error("QUIT EARLY - debug")
-                    break
+            '''
+            Do a task depending on current mode
+            '''
 
-                if not self.crawl_queue.empty():
-                    (_, (meth, page))  = self.crawl_queue.get()
-                    self.fetch(meth, page)
+            while not self.crawl_queue.empty() or not self.form_queue.empty():
+                if self.s.state_matches('crawl'):
+                    if not self.crawl_queue.empty():
+                        (_, (meth, page))  = self.crawl_queue.get()
+                        self.fetch(meth, page)
+                    else:
+                        # Exhaused crawl queue, switch to form fuzzing
+                        # (if both queues are empty, loop terminates)
+                        #self.set_mode('formfuzz')
+                        pass
+                elif self.s.state_matches('formfuzz.analyze'):
+                    if not self.form_queue.empty():
+                        self.logger.error("Formfuzz sending")
+                        (_, (meth, page, params_j))  = self.form_queue.get()
+                        params = json.loads(params_j)
+                        self.fuzz_form(meth, page, params)
+                        self.logger.error("QUIT EARLY - debug")
+                        break
+                    else:
+                        # Exhaused form fuzz queue, switch to crawling
+                        # (if both queues are empty, loop terminates)
+                        #self.set_mode('crawl')
+                        pass
+                else:
+                    # Driver is passive - a target analysis is ongoing (i.e., findauth)
+                    sleep(1)
+                    return None # Maybe need a sleep?
 
+            self.logger.info("Driver finished both queues")
             self.panda.end_analysis()
 
+        @self.s.state_filter("crawl")
         @self.panda.ppp("syscalls2", "on_sys_open_enter")
         def on_sys_open_enter(cpu, pc, fname_ptr, flags, mode):
             '''
-            Identify files opened by WWW
+            Identify files opened by WWW during crawl
             '''
             if self.current_request is None:
                 return # Non-crawler request (i.e., find_auth)
@@ -114,6 +153,7 @@ class Crawler:
             if fname not in self.observed_file_opens:
                 self.analyze_www_open(fname)
 
+        @self.s.state_filter("crawl")
         @self.panda.ppp("syscalls2", "on_sys_execve_enter")
         def on_sys_execve_enter(cpu, pc, fname_ptr, argv_ptr, envp):
             # Log commands and arguments passed to execve
@@ -130,15 +170,54 @@ class Crawler:
             self.logger.info("Executing: " + ' '.join(argv)) #+ " with args: " + str(env))
             # Could print environment data too?
 
+        ##### FORMFUZZ State machine in syscalls
+        # When we're in fuzzform.send and we see a sys_accept + sys_read
+        # on the FD and it contains our data, switch to fuzzform.introspect
+        # UGH does it do weird stuff like dup the FD directly to a cgi-bin binary?
+        self.fuzzform_fds = []
+
+        @self.s.state_filter("formfuzz.send")
+        @self.panda.ppp("syscalls2", "on_sys_accept_return")
+        def ffs_accept(cpu, pc, sockfd, addr, addrlen):
+            returned_fd = self.panda.plugins['syscalls2'].get_syscall_retval(cpu)
+            self.fuzzform_fds.append(returned_fd)
+            self.logger.info("Fuzzform accepted on socket. File descriptor %d",
+                                returned_fd)
+
+        @self.s.state_filter("formfuzz.send")
         @self.panda.ppp("syscalls2", "on_sys_read_return")
+        def introspect_read(cpu, pc, fd, buf, cnt):
+            '''
+            When accepted FD is read from check if its our data
+            '''
+            if fd not in self.fuzzform_fds:
+                self.logger.warn("FD %d not in %s", fd, ", ".join([str(x) for x in self.fuzzform_fds]))
+                #return
+
+            try:
+                data = panda.read_str(cpu, buf)
+            except ValueError:
+                self.logger.warn("Could not read buffer from fd%d read()", fd)
+                return
+
+            print(repr(data))
+            if "aaa" in data:
+                proc_name = self._active_proc_name(cpu)
+                print("HIT BY", proc_name)
+                self.fuzzform_fds = []
+                self.fuzzform_fd = fd
+                self.s.change_state(".introspect")
+            else:
+                print("MISS")
+
+
+        #@self.s.state_filter("formfuzz.introspect")
+        #@self.panda.ppp("syscalls2", "on_sys_read_return")
+        # ### DISABLED
         def read_ret(cpu, pc, fd, buf, cnt):
             '''
             Searching for data fed into cgi-bin scripts via STDIN
             '''
-
-            if self.current_request is None:
-                return # Non-crawler request (i.e., find_auth)
-
             if fd != 0: # Assuming standard STDIN on FD 0
                 return
 
@@ -157,6 +236,18 @@ class Crawler:
 
             # Idea: take a snapshot *now* and mutate this buffer to fuzz target CGI bin
 
+            # Load coverage plugin to analyze process
+            pn_b = proc_name.encode()
+            
+            # only do if first time
+            '''
+            print("SETUP COVERAGE")
+            self.panda.load_plugin("coverage", {"filename": "out_"+proc_name, 
+                "mode": "osi-block","privilege": "user"})
+            self.panda.enable_callback("cov")
+            '''
+
+        @self.s.state_filter("formfuzz")
         @self.panda.ppp("syscalls2", "on_sys_write_enter")
         def write_ent(cpu, pc, fd, buf, cnt):
             '''
@@ -175,6 +266,32 @@ class Crawler:
 
             out = "STDOUT" if fd == 1 else "STDERR"
             self.logger.info(f"{proc_name}:{out}: {repr(data[:cnt])}")
+
+        @self.s.state_filter("formfuzz")
+        @self.panda.ppp("syscalls2", "on_sys_close_enter")
+        def close_fd(cpu, pc, fd):
+            '''
+            STDOUT (response to request) is closed - end of request processing by binary
+            '''
+            if fd != 1: # Stdout only
+                return
+
+            proc_name = self._active_proc_name(cpu)
+
+            if ".cgi" not in proc_name: # only want cgi inputs
+                return
+
+            #self.panda.disable_callback("cov")
+            self.logger.info(f"{proc_name} finished")
+            self.panda.end_analysis()
+
+            '''
+            for name, bbs in self.cov.items():
+                for bb in sorted(bbs):
+                    print(name, hex(bb))
+            '''
+
+
 
     ################################## / end of init
 
@@ -209,6 +326,7 @@ class Crawler:
     ############## / end of helpers
 
     def fuzz_form(self, meth, page, params):
+        # state == formfuzz.analyze
         '''
         Given a method / path / parameters, fuzz a form!
 
@@ -240,7 +358,7 @@ class Crawler:
                 if len(defaults) == 1:
                     these_params[normal_target] = defaults[0]
                 else:
-                    logger.warning("Multiple defaults TODO")
+                    self.logger.warning("Multiple defaults TODO")
                     these_params[normal_target] = defaults[0]
 
             request_params.append(these_params)
@@ -249,7 +367,15 @@ class Crawler:
             print("\n\n")
             print(params)
 
+            # Send request -> change to fuzzform.send
+            # Another thread will transition from .send->.introspect
+            self.s.change_state('.send')
             base = self._fetch(meth, page, params)
+            # Request finished. Should have reached .introspect
+            if self.s.state_matches('fuzzform.introspect'):
+                self.logger.warning("Failed to reach introspection state")
+            # Now switch back to fuzzform.analyze until we send next request
+            self.s.change_state('.analyze')
             print(base)
 
 
@@ -448,6 +574,7 @@ class Crawler:
         '''
 
         url = self.domain + path
+        self.logger.warn("Fetching %s in mode %s", url, self.s.state())
         if self.www_auth[0] is None:
             auth = None
         elif self.www_auth[0] == "basic":

@@ -1,6 +1,27 @@
 PANData
 ====
 
+```
+Lifecycle of a guest web application
+Kernel:
+Parse packets from NIC, identify userspace FDs to send to
+
+Webserver main:
+sock_fd = create_socket(port)->bind(sock_fd)->listen(sock_fd)->new_fd = accept(sock_fd)
+
+Webserver worker (thread):
+Validate HTTP request: recv(new_fd). Identify requested file from path, compare to config rules to map to host path and to handle auth requirements. Auth validation.
+
+IF STATIC:
+  Read requested file (if allowed), write back to FD with send(new_fd)
+
+IF DYNAMIC:
+  Execute binary or interpreter on script. Varies per format (cgi-bin, python, php, etc)
+  Input via environment and stdio. Output returned via stdout
+
+
+```
+
 # Idea
 Two-pronged approach to exploring attack surface of a web application.
 As we identify new pages/forms/requests to make, add to a queue.

@@ -115,7 +115,5 @@ def asid_www(cpu, old_asid, new_asid):
 # END Rehosting + Auth bypass
 
 from crawl import Crawler
-
 c = Crawler(panda, "https://localhost:5443", mountpoint)
-
 c.crawl()
