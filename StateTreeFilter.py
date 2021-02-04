@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
+import logging
 from functools import wraps
+
+class StateAdapter(logging.LoggerAdapter):
+    '''
+    Logger that includes current a StateTreeFilter's state with each message.
+
+    Usage:
+        logger = StateAdapter(logging.getLogger('panda.crawler'), {'state': StateObj})
+        logger.info('testing')
+    '''
+    def process(self, msg, kwargs):
+        return '[%s] %s' % (self.extra['state'].state(), msg), kwargs
 
 class StateTreeFilter:
     '''
@@ -134,16 +146,19 @@ class StateTreeFilter:
         else:
             self.states = [prefix+self._parse(new_state)]
 
-    def state_filter(self, mode):
+    def state_filter(self, mode, default_ret=None):
         '''
-        Run a function if it's decorated mode matches our current mode
+        Run a function if it's decorated mode matches our current mode.
+        If function shouldn't run, it will return None or `default_ret`
         '''
         def __state_filter(func):
             @wraps(func)
             def wrapper(*args, **kwargs):
                 if self.state_matches(mode):
                     # Mode matches - run it!
-                    func(*args, **kwargs)
+                    return func(*args, **kwargs)
+                elif default_ret is not None:
+                    return default_ret
             return wrapper
         return __state_filter
 
