@@ -9,12 +9,13 @@ import logging
 import os
 from queue import PriorityQueue
 from time import sleep
+from subprocess import check_output
 import urllib3
 import requests
 from bs4 import BeautifulSoup
 import coloredlogs
 
-from StateTreeFilter import StateTreeFilter
+from StateTreeFilter import StateTreeFilter, StateAdapter
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 coloredlogs.DEFAULT_LOG_FORMAT = '%(name)s %(levelname)s %(message)s'
@@ -34,7 +35,6 @@ def make_abs(base, ref):
         base_dir = os.path.dirname("/"+base)
         abs_ref =  os.path.abspath(base_dir + "/" + ref)
     return abs_ref
-
 
 class Crawler():
     '''
@@ -84,8 +84,10 @@ class Crawler():
         self.start_url = start_url
         self.www_procs = ['lighttpd']
 
-        self.logger = logging.getLogger('panda.crawler')
-        self.logger.setLevel(logging.DEBUG) # Not helpful
+        local_log = logging.getLogger('panda.crawler')
+        self.logger = StateAdapter(local_log, {'state': self.s})
+
+
 
         # Debugging ONLY
         self.www_auth = ("basic", "admin", "foo")
@@ -177,39 +179,227 @@ class Crawler():
         self.fuzzform_fds = []
 
         @self.s.state_filter("formfuzz.send")
+        @self.panda.ppp("syscalls2", "on_sys_accept4_return")
+        def ffs_accept(cpu, pc, sockfd, addr, addrlen, flags):
+            returned_fd = self.panda.plugins['syscalls2'].get_syscall_retval(cpu)
+            if returned_fd > 0:
+                self.fuzzform_fds.append(returned_fd)
+                self.logger.info("Fuzzform ACCEPT4ED on socket. File descriptor %d",
+                                    returned_fd)
+            else:
+                self.logger.info("Fuzzform ACCEPT4 returned error %d", returned_fd)
+
+
+
+        @self.s.state_filter("formfuzz.send")
         @self.panda.ppp("syscalls2", "on_sys_accept_return")
         def ffs_accept(cpu, pc, sockfd, addr, addrlen):
             returned_fd = self.panda.plugins['syscalls2'].get_syscall_retval(cpu)
-            self.fuzzform_fds.append(returned_fd)
-            self.logger.info("Fuzzform accepted on socket. File descriptor %d",
-                                returned_fd)
+            if returned_fd > 0:
+                self.fuzzform_fds.append(returned_fd)
+                self.logger.info("Fuzzform ACCEPTED on socket. File descriptor %d",
+                                    returned_fd)
+            else:
+                self.logger.info("Fuzzform ACCEPT returned error %d", returned_fd)
+
+        # FD manipulation - unlikely to actually be used?
+        '''
+        @self.s.state_filter("formfuzz.send")
+        @self.panda.ppp("syscalls2", "on_all_sys_return")
+        def ffs_debug_all(cpu, pc, no):
+            proc_name = self._active_proc_name(cpu)
+            if proc_name == "lighttpd":
+                print(f"{proc_name}: {no}")
+
+            if no == 221: # FNCTL64
+                proc_name = self._active_proc_name(cpu)
+                if proc_name == "lighttpd" or proc_name.endswith(".cgi"):
+                    # TODO use Luke's cleaner version of this from dynamic_symbols PR
+                    fd      = panda.arch.get_reg(cpu, "r0")
+                    cmd     = panda.arch.get_reg(cpu, "r1")
+                    opt_arg = panda.arch.get_reg(cpu, "r2")
+                    print(f"{proc_name}: fnctl64: fd={fd} cmd={cmd} arg={opt_arg}")
+
+                    if fd in self.fuzzform_fds:
+                        print("FNCTL HIT")
+                        """
+                        #define F_DUPFD     0   /* dup */
+                        #define F_GETFD     1   /* get close_on_exec */
+                        #define F_SETFD     2   /* set/clear close_on_exec */
+                        #define F_GETFL     3   /* get file->f_flags */
+                        #define F_SETFL     4   /* set file->f_flags */
+                        #ifndef F_GETLK
+                        #define F_GETLK     5
+                        #define F_SETLK     6
+                        #define F_SETLKW    7
+                        #endif
+                        #ifndef F_SETOWN
+                        #define F_SETOWN    8   /* for sockets. */
+                        #define F_GETOWN    9   /* for sockets. */
+                        #endif
+                        #ifndef F_SETSIG
+                        #define F_SETSIG    10  /* for sockets. */
+                        #define F_GETSIG    11  /* for sockets. */
+                        """
+
+                        if cmd == 0: # dup
+                            print("DUP")
+                        else:
+                            print("Unhandled fnctl", cmd)
+
+        @self.s.state_filter("formfuzz.send")
+        @self.panda.ppp("syscalls2", "on_sys_dup_return")
+        def ffs_dup(cpu, pc, src):
+            if src in self.fuzzform_fds:
+                dst = self.panda.plugins['syscalls2'].get_syscall_retval(cpu)
+                print("DUP TO", dst)
+                self.fuzzform_fds.append(dst)
+
+        @self.s.state_filter("formfuzz.send")
+        @self.panda.ppp("syscalls2", "on_sys_dup2_return")
+        def ffs_dup2(cpu, pc, src, dst):
+            if src in self.fuzzform_fds:
+                print("DUP TO", dst)
+                self.fuzzform_fds.append(dst)
+
+        @self.s.state_filter("formfuzz.send")
+        @self.panda.ppp("syscalls2", "on_sys_dup3_return")
+        def ffs_dup3(cpu, pc, src, dst, flags):
+            if src in self.fuzzform_fds:
+                print("DUP TO", dst)
+                self.fuzzform_fds.append(dst)
+        '''
+
+        # Decrypt
+        @self.s.state_filter("formfuzz.send.decrypt", default_ret=0)
+        def decrypt_hook(cpu, tb):
+            # SSL_read(Encrypted, char* decrypted, int num)
+            ret_addr = self.panda.arch.get_reg(cpu, "lr")
+
+            # XXX: Gets registered multiple times? Should use names and update if exists
+            self.panda.hook(ret_addr)(decrypt_ret_hook)
+
+            # If first SSL_read for this request - setup buffers
+            # XXX: must clear when request is finished!
+            if not hasattr(self, 'decrypted_buf'):
+                self.decrypted_buf = self.panda.arch.get_reg(cpu, "r1")
+                self.decrypted_cnt = self.panda.arch.get_reg(cpu, "r2")
+                self.decrypted_msg = "" # Full buffer
+
+                self.decrypted_in_headers = True # before \r\n\r\n
+                self.decrypted_headers = "" # up to \r\n\r\n
+                self.decrypted_postdata = "" # after \r\n\r\n
+
+                self.decrypted_content_len = None
+            return 0
+
+        @self.s.state_filter("formfuzz.send.decrypt", default_ret=0)
+        def decrypt_ret_hook(cpu, tb):
+            if not hasattr(self, 'decrypted_buf'):
+                # Need to disable this hook better
+                return 0
+
+            if self.decrypted_cnt == 0:
+                return 0
+
+            try:
+                data = panda.read_str(cpu, self.decrypted_buf)[:self.decrypted_cnt]
+            except ValueError:
+                self.logger.warn("Could not read buffer from 0x%x", self.decrypted_buf)
+                return 0
+
+            done = False
+            if self.decrypted_in_headers:
+                if "Content-Length: " in data:
+                    cl = data.split("Content-Length: ")[1].split("\n")[0]
+                    self.decrypted_content_len = int(cl)
+
+                self.decrypted_msg += data
+                self.decrypted_headers += data
+
+                if "\r\n\r\n" in self.decrypted_headers:
+                    # end of headers
+                    self.decrypted_in_headers = False
+
+                    # Make sure we don't have any postdata in decrypted_headers
+                    if "\r\n\r\n" in self.decrypted_headers:
+                        self.decrypted_headers = self.decrypted_headers.\
+                                                    split("\r\n\r\n")[0]
+
+                    if self.decrypted_content_len is not None:
+                        # Expecting postdata
+                        self.logger.info("Decrypted headers: %s", self.decrypted_headers)
+                    else:
+                        # Not expecting postdata, all done
+                        self.logger.info("Decrypted Request: %s", self.decrypted_msg)
+                        done = True
+
+            if not self.decrypted_in_headers:
+                # Now we're in postdata - however data may overlap so clean it first
+                if "\r\n\r\n" in data:
+                    data = data.split("\r\n\r\n")[1]
+                self.decrypted_postdata += data
+
+                if len(self.decrypted_postdata) >= self.decrypted_content_len:
+                    self.logger.info("Decrypted POSTDATA: %s", self.decrypted_postdata)
+                    done = True
+
+            if done:
+                # IDEA: This would be a great place to snapshot for fuzzing
+                # since we now have a plaintext buffer about to be parsed
+                self.s.change_state("fuzzform.introspect")
+                del self.decrypted_buf
+            return 0
 
         @self.s.state_filter("formfuzz.send")
         @self.panda.ppp("syscalls2", "on_sys_read_return")
         def introspect_read(cpu, pc, fd, buf, cnt):
             '''
             When accepted FD is read from check if its our data
+
+            Note date may be encrypted (HTTPS) if so we move to that state
             '''
+
             if fd not in self.fuzzform_fds:
-                self.logger.warn("FD %d not in %s", fd, ", ".join([str(x) for x in self.fuzzform_fds]))
-                #return
+                return
+
+            proc_name = self._active_proc_name(cpu)
+            print(f"{proc_name} READ fd {fd} up to {cnt} bytes")
 
             try:
-                data = panda.read_str(cpu, buf)
+                data = panda.read_str(cpu, buf)[:cnt]
             except ValueError:
                 self.logger.warn("Could not read buffer from fd%d read()", fd)
                 return
 
-            print(repr(data))
-            if "aaa" in data:
-                proc_name = self._active_proc_name(cpu)
-                print("HIT BY", proc_name)
-                self.fuzzform_fds = []
-                self.fuzzform_fd = fd
+            # TODO: is there just one read from the FD? Should we wait until it closes
+            # Probably want to wait for the close?
+
+            if 'HTTP' in data: # Unencrypted - go right to introspect
+                self.logger.warn("Unencrypted")
+                print("Plaintext request:", repr(data))
                 self.s.change_state(".introspect")
             else:
-                print("MISS")
+                # Encrypted - wait for decryption to happen before introspecting
+                self.logger.warn("Guest is reading encrypted traffic - decrypting")
+                if not hasattr(self, 'decrypting_crypto'):
+                    # Dynamically find crypto library + hook if we haven't previously
+                    decrypt_addr = self.find_crypto_offset(cpu)
+                    assert(decrypt_addr is not None), "Failed to find decryptor"
+                    self.decrypting_crypto = True
+                    self.panda.hook(decrypt_addr)(decrypt_hook)
 
+                self.s.change_state("formfuzz.send.decrypt")
+
+        @self.s.state_filter("formfuzz")
+        @self.panda.ppp("syscalls2", "on_sys_read_return")
+        def dbg_read(cpu, pc, fd, buf, cnt):
+            try:
+                data = panda.read_str(cpu, buf)[:cnt]
+            except ValueError:
+                return
+            if 'HTTP' in data:
+                print("HIT ON READ")
 
         #@self.s.state_filter("formfuzz.introspect")
         #@self.panda.ppp("syscalls2", "on_sys_read_return")
@@ -323,6 +513,31 @@ class Crawler():
                 results.append(None)
 
         return results
+
+    def _find_offset(self, libname, func_name):
+        '''
+        Find offset of a symbol in a given executable
+        '''
+        fs_bin = check_output(f"find {self.mountpoint} -name {libname}",
+                                shell=True).strip().decode('utf8', errors='ignore')
+        offset = check_output(f"objdump -T {fs_bin} | grep {func_name}",
+                            shell=True).decode('utf8', errors='ignore').split(" ")[0]
+        return int("0x"+offset, 16)
+
+    def find_crypto_offset(self, cpu):
+        '''
+        Search currently loaded libraries for crypto (TODO parameterize for other libs)
+        '''
+
+        for mapping in self.panda.get_mappings(cpu):
+            if mapping.name != self.panda.ffi.NULL:
+                name = self.panda.ffi.string(mapping.name).decode()
+                if name.startswith("libssl.so"):
+                    offset = self._find_offset("libssl.so", "SSL_read")
+                    self.logger.info("Found SSL_read at: 0x%x", mapping.base+offset)
+                    return mapping.base + offset
+        return None
+
     ############## / end of helpers
 
     def fuzz_form(self, meth, page, params):
@@ -376,7 +591,7 @@ class Crawler():
                 self.logger.warning("Failed to reach introspection state")
             # Now switch back to fuzzform.analyze until we send next request
             self.s.change_state('.analyze')
-            print(base)
+            print("\nREQUEST RESPONSE:", repr(base))
 
 
     def analyze_www_open(self, fname):

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import readline # XXX: Workaround for #864
-from pandare import Panda, ffi
+from pandare import Panda
 from pandare.extras.file_faker import FileFaker, FakeFile
 from pandare.extras.ioctl_faker import IoctlFaker
 from subprocess import check_output
@@ -74,11 +74,15 @@ def first_syscall(cpu, pc, callno):
 
 @panda.cb_asid_changed(enabled=False)
 def asid_www(cpu, old_asid, new_asid):
-    # If the current process is WWW, find auth library and set up hook
+    '''
+    For the first basic block in the WWW process we want to scan its memory
+    and setup some hooks - auth bypass + ssl decryption
+    '''
+
     proc = panda.plugins['osi'].get_current_process(cpu) 
-    if proc == ffi.NULL:
+    if proc == panda.ffi.NULL:
         return
-    proc_name = ffi.string(proc.name).decode("utf8", errors="ignore")
+    proc_name = panda.ffi.string(proc.name).decode("utf8", errors="ignore")
 
     if proc_name not in ['lighttpd']:
         return 0
@@ -89,26 +93,30 @@ def asid_www(cpu, old_asid, new_asid):
     #   ... that's it for now. TODO: use dynamic symbol resolution to support across builds/versions
 
     def _find_offset(libname, func_name):
-        fs_bin = check_output(f"find {mountpoint} -name mod_auth.so", shell=True).strip().decode('utf8', errors='ignore')
-        offset = check_output(f"objdump -T {fs_bin} | grep http_auth_basic_check", shell=True).decode('utf8', errors='ignore').split(" ")[0]
+        fs_bin = check_output(f"find {mountpoint} -name {libname}", shell=True).strip().decode('utf8', errors='ignore')
+        offset = check_output(f"objdump -T {fs_bin} | grep {func_name}", shell=True).decode('utf8', errors='ignore').split(" ")[0]
         return int("0x"+offset, 16)
 
     hook_addr = None
     for mapping in panda.get_mappings(cpu):
-        if mapping.name != ffi.NULL:
-            name = ffi.string(mapping.name).decode()
+        if mapping.name != panda.ffi.NULL:
+            name = panda.ffi.string(mapping.name).decode()
             if name == "mod_auth.so":
                 offset = _find_offset("mod_auth.so", "http_auth_basic_check")
                 hook_addr = mapping.base + offset
                 global hook_config
                 hook_config[hook_addr] = 1 # Want to return 1
                 break
+
     if hook_addr is None:
         logger.warning("No auth library found to hook")
     else:
         logger.info("Found auth library to hook")
         panda.hook(hook_addr)(hook_auth)
-        panda.disable_callback('asid_www')
+
+
+
+    panda.disable_callback('asid_www')
 
     return 0
 
