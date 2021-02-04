@@ -87,6 +87,11 @@ class Crawler():
         local_log = logging.getLogger('panda.crawler')
         self.logger = StateAdapter(local_log, {'state': self.s})
 
+        # Formfuzz fields
+        self.decrypted_buf = None
+        # Pending FD reads
+        self.proc_fds = [] # {asid: {(fd)1: current_buffer}
+
 
 
         # Debugging ONLY
@@ -137,8 +142,8 @@ class Crawler():
             self.logger.info("Driver finished both queues")
             self.panda.end_analysis()
 
-        @self.s.state_filter("crawl")
         @self.panda.ppp("syscalls2", "on_sys_open_enter")
+        @self.s.state_filter("crawl")
         def on_sys_open_enter(cpu, pc, fname_ptr, flags, mode):
             '''
             Identify files opened by WWW during crawl
@@ -155,8 +160,8 @@ class Crawler():
             if fname not in self.observed_file_opens:
                 self.analyze_www_open(fname)
 
-        @self.s.state_filter("crawl")
         @self.panda.ppp("syscalls2", "on_sys_execve_enter")
+        @self.s.state_filter("crawl")
         def on_sys_execve_enter(cpu, pc, fname_ptr, argv_ptr, envp):
             # Log commands and arguments passed to execve
             try:
@@ -178,8 +183,8 @@ class Crawler():
         # UGH does it do weird stuff like dup the FD directly to a cgi-bin binary?
         self.fuzzform_fds = []
 
-        @self.s.state_filter("formfuzz.send")
         @self.panda.ppp("syscalls2", "on_sys_accept4_return")
+        @self.s.state_filter("formfuzz.send")
         def ffs_accept(cpu, pc, sockfd, addr, addrlen, flags):
             returned_fd = self.panda.plugins['syscalls2'].get_syscall_retval(cpu)
             if returned_fd > 0:
@@ -191,8 +196,8 @@ class Crawler():
 
 
 
-        @self.s.state_filter("formfuzz.send")
         @self.panda.ppp("syscalls2", "on_sys_accept_return")
+        @self.s.state_filter("formfuzz.send")
         def ffs_accept(cpu, pc, sockfd, addr, addrlen):
             returned_fd = self.panda.plugins['syscalls2'].get_syscall_retval(cpu)
             if returned_fd > 0:
@@ -204,8 +209,8 @@ class Crawler():
 
         # FD manipulation - unlikely to actually be used?
         '''
-        @self.s.state_filter("formfuzz.send")
         @self.panda.ppp("syscalls2", "on_all_sys_return")
+        @self.s.state_filter("formfuzz.send")
         def ffs_debug_all(cpu, pc, no):
             proc_name = self._active_proc_name(cpu)
             if proc_name == "lighttpd":
@@ -247,112 +252,72 @@ class Crawler():
                         else:
                             print("Unhandled fnctl", cmd)
 
-        @self.s.state_filter("formfuzz.send")
         @self.panda.ppp("syscalls2", "on_sys_dup_return")
+        @self.s.state_filter("formfuzz.send")
         def ffs_dup(cpu, pc, src):
             if src in self.fuzzform_fds:
                 dst = self.panda.plugins['syscalls2'].get_syscall_retval(cpu)
                 print("DUP TO", dst)
                 self.fuzzform_fds.append(dst)
 
-        @self.s.state_filter("formfuzz.send")
         @self.panda.ppp("syscalls2", "on_sys_dup2_return")
+        @self.s.state_filter("formfuzz.send")
         def ffs_dup2(cpu, pc, src, dst):
             if src in self.fuzzform_fds:
                 print("DUP TO", dst)
                 self.fuzzform_fds.append(dst)
 
-        @self.s.state_filter("formfuzz.send")
         @self.panda.ppp("syscalls2", "on_sys_dup3_return")
+        @self.s.state_filter("formfuzz.send")
         def ffs_dup3(cpu, pc, src, dst, flags):
             if src in self.fuzzform_fds:
                 print("DUP TO", dst)
                 self.fuzzform_fds.append(dst)
         '''
 
-        # Decrypt
-        @self.s.state_filter("formfuzz.send.decrypt", default_ret=0)
+        # Decryption hooks - in two parts - on start and on ret
+        @self.s.state_filter("formfuzz.decrypt", default_ret=0)
         def decrypt_hook(cpu, tb):
             # SSL_read(Encrypted, char* decrypted, int num)
             ret_addr = self.panda.arch.get_reg(cpu, "lr")
 
+            # If first SSL_read for this request - reset buffers
+            if not hasattr(self, 'decrypting') or not self.decrypting:
+                self.decrypting = True
+                self.decrypting_buf = self.panda.arch.get_reg(cpu, "r1")
+                self.decrypting_cnt = self.panda.arch.get_reg(cpu, "r2")
+
             # XXX: Gets registered multiple times? Should use names and update if exists
+            # each time ret hook is triggered it should disable itself
             self.panda.hook(ret_addr)(decrypt_ret_hook)
 
-            # If first SSL_read for this request - setup buffers
-            # XXX: must clear when request is finished!
-            if not hasattr(self, 'decrypted_buf'):
-                self.decrypted_buf = self.panda.arch.get_reg(cpu, "r1")
-                self.decrypted_cnt = self.panda.arch.get_reg(cpu, "r2")
-                self.decrypted_msg = "" # Full buffer
-
-                self.decrypted_in_headers = True # before \r\n\r\n
-                self.decrypted_headers = "" # up to \r\n\r\n
-                self.decrypted_postdata = "" # after \r\n\r\n
-
-                self.decrypted_content_len = None
             return 0
 
-        @self.s.state_filter("formfuzz.send.decrypt", default_ret=0)
+        @self.s.state_filter("formfuzz.decrypt", default_ret=0)
         def decrypt_ret_hook(cpu, tb):
             if not hasattr(self, 'decrypted_buf'):
                 # Need to disable this hook better
                 return 0
 
-            if self.decrypted_cnt == 0:
+            if self.decrypting_cnt == 0:
                 return 0
 
             try:
-                data = panda.read_str(cpu, self.decrypted_buf)[:self.decrypted_cnt]
+                data = panda.read_str(cpu, self.decrypting_buf)[:self.decrypting_cnt]
             except ValueError:
-                self.logger.warn("Could not read buffer from 0x%x", self.decrypted_buf)
+                self.logger.warn("Could not read buffer from 0x%x", self.decrypting_buf)
                 return 0
 
-            done = False
-            if self.decrypted_in_headers:
-                if "Content-Length: " in data:
-                    cl = data.split("Content-Length: ")[1].split("\n")[0]
-                    self.decrypted_content_len = int(cl)
-
-                self.decrypted_msg += data
-                self.decrypted_headers += data
-
-                if "\r\n\r\n" in self.decrypted_headers:
-                    # end of headers
-                    self.decrypted_in_headers = False
-
-                    # Make sure we don't have any postdata in decrypted_headers
-                    if "\r\n\r\n" in self.decrypted_headers:
-                        self.decrypted_headers = self.decrypted_headers.\
-                                                    split("\r\n\r\n")[0]
-
-                    if self.decrypted_content_len is not None:
-                        # Expecting postdata
-                        self.logger.info("Decrypted headers: %s", self.decrypted_headers)
-                    else:
-                        # Not expecting postdata, all done
-                        self.logger.info("Decrypted Request: %s", self.decrypted_msg)
-                        done = True
-
-            if not self.decrypted_in_headers:
-                # Now we're in postdata - however data may overlap so clean it first
-                if "\r\n\r\n" in data:
-                    data = data.split("\r\n\r\n")[1]
-                self.decrypted_postdata += data
-
-                if len(self.decrypted_postdata) >= self.decrypted_content_len:
-                    self.logger.info("Decrypted POSTDATA: %s", self.decrypted_postdata)
-                    done = True
-
-            if done:
-                # IDEA: This would be a great place to snapshot for fuzzing
-                # since we now have a plaintext buffer about to be parsed
+            if self._parse_request(data):
+                # IDEA: Right as we enter fuzzform.introspect would be a good place
+                # to snapshot for fuzzing since we now have a plaintext buffer
+                # about to be parsed
                 self.s.change_state("fuzzform.introspect")
-                del self.decrypted_buf
+                self.decrypting = False
             return 0
 
-        @self.s.state_filter("formfuzz.send")
         @self.panda.ppp("syscalls2", "on_sys_read_return")
+        @self.s.state_filter("formfuzz.send")
         def introspect_read(cpu, pc, fd, buf, cnt):
             '''
             When accepted FD is read from check if its our data
@@ -363,8 +328,9 @@ class Crawler():
             if fd not in self.fuzzform_fds:
                 return
 
+            assert len(self.fuzzform_fds)==1, "Unsupported: multiple accepted FDs"
+
             proc_name = self._active_proc_name(cpu)
-            print(f"{proc_name} READ fd {fd} up to {cnt} bytes")
 
             try:
                 data = panda.read_str(cpu, buf)[:cnt]
@@ -372,16 +338,18 @@ class Crawler():
                 self.logger.warn("Could not read buffer from fd%d read()", fd)
                 return
 
-            # TODO: is there just one read from the FD? Should we wait until it closes
-            # Probably want to wait for the close?
+            # When we see reads it's either encrypted or not.
+            # If it's encrypted, we push our parsing logic ahead to run
+            # upon decryption (entering state formfuzz.introspect.decrypt)
+            # otherwise we can run it here using this FD.
 
             if 'HTTP' in data: # Unencrypted - go right to introspect
-                self.logger.warn("Unencrypted")
+                self.logger.info(f"{proc_name} reading unencrypted data")
                 print("Plaintext request:", repr(data))
                 self.s.change_state(".introspect")
             else:
                 # Encrypted - wait for decryption to happen before introspecting
-                self.logger.warn("Guest is reading encrypted traffic - decrypting")
+                self.logger.info(f"{proc_name} potentially reading encrypted traffic from FD{fd} - attempting decryption")
                 if not hasattr(self, 'decrypting_crypto'):
                     # Dynamically find crypto library + hook if we haven't previously
                     decrypt_addr = self.find_crypto_offset(cpu)
@@ -389,20 +357,10 @@ class Crawler():
                     self.decrypting_crypto = True
                     self.panda.hook(decrypt_addr)(decrypt_hook)
 
-                self.s.change_state("formfuzz.send.decrypt")
+                self.s.change_state(".decrypt")
 
-        @self.s.state_filter("formfuzz")
-        @self.panda.ppp("syscalls2", "on_sys_read_return")
-        def dbg_read(cpu, pc, fd, buf, cnt):
-            try:
-                data = panda.read_str(cpu, buf)[:cnt]
-            except ValueError:
-                return
-            if 'HTTP' in data:
-                print("HIT ON READ")
-
-        #@self.s.state_filter("formfuzz.introspect")
         #@self.panda.ppp("syscalls2", "on_sys_read_return")
+        #@self.s.state_filter("formfuzz.introspect")
         # ### DISABLED
         def read_ret(cpu, pc, fd, buf, cnt):
             '''
@@ -437,8 +395,8 @@ class Crawler():
             self.panda.enable_callback("cov")
             '''
 
-        @self.s.state_filter("formfuzz")
         @self.panda.ppp("syscalls2", "on_sys_write_enter")
+        @self.s.state_filter("formfuzz")
         def write_ent(cpu, pc, fd, buf, cnt):
             '''
             Report data written by cgi-bin processes to stdout/stderr
@@ -457,8 +415,8 @@ class Crawler():
             out = "STDOUT" if fd == 1 else "STDERR"
             self.logger.info(f"{proc_name}:{out}: {repr(data[:cnt])}")
 
-        @self.s.state_filter("formfuzz")
         @self.panda.ppp("syscalls2", "on_sys_close_enter")
+        @self.s.state_filter("formfuzz")
         def close_fd(cpu, pc, fd):
             '''
             STDOUT (response to request) is closed - end of request processing by binary
@@ -513,6 +471,62 @@ class Crawler():
                 results.append(None)
 
         return results
+
+    def _parse_request(self, data):
+        '''
+        A request may be read in multiple bytes. Assuming only one is ever processed
+        at a time, this will manage that read and combine into a single buffer.
+        Returns `True` if request is finished or `False` if additional data is expected
+        '''
+        if not hasattr(self, "parse_req") or not self.parse_req:
+            self.parse_req = True
+            self.parse_req_buf         = ""   # Full buffer
+            self.parse_req_in_headers  = True # before \r\n\r\n
+            self.parse_req_headers     = ""   # up to  \r\n\r\n
+            self.parse_req_postdata    = ""   # after  \r\n\r\n
+            self.parse_req_content_len = None
+
+        done = False
+        if self.parse_req_in_headers:
+            if "Content-Length: " in data:
+                cl = data.split("Content-Length: ")[1].split("\n")[0]
+                self.parse_req_content_len = int(cl)
+
+            self.parse_req_buf += data
+            self.parse_req_headers += data
+
+            if "\r\n\r\n" in self.parse_req_headers:
+                # end of headers
+                self.parse_req_in_headers = False
+
+                # Make sure we don't have any postdata in headers
+                if "\r\n\r\n" in self.parse_req_headers:
+                    self.parse_req_headers = self.parse_req_headers.\
+                                                split("\r\n\r\n")[0]
+
+                if self.parse_req_content_len is not None:
+                    # Expecting postdata
+                    self.logger.info("Recv'd headers: %s", self.parse_req_headers)
+                else:
+                    # Not expecting postdata, all done
+                    self.logger.info("Recv'd request: %s", self.parse_req_headers)
+                    done = True
+
+        if not self.parse_req_in_headers:
+            # Now we're in postdata - however data may overlap so clean it first
+            if "\r\n\r\n" in data:
+                data = data.split("\r\n\r\n")[1]
+            self.parse_req_postdata += data
+
+            if len(self.parse_req_postdata) >= self.parse_req_content_len:
+                self.logger.info("Recv'd POSTDATA: %s", self.parse_req_postdata)
+                done = True
+
+        if done:
+            # Have all expected data from request, cleanup state
+            self.parse_req = False
+
+        return done
 
     def _find_offset(self, libname, func_name):
         '''
@@ -587,11 +601,11 @@ class Crawler():
             self.s.change_state('.send')
             base = self._fetch(meth, page, params)
             # Request finished. Should have reached .introspect
-            if self.s.state_matches('fuzzform.introspect'):
+            if not self.s.state_matches('fuzzform.introspect'):
                 self.logger.warning("Failed to reach introspection state")
             # Now switch back to fuzzform.analyze until we send next request
             self.s.change_state('.analyze')
-            print("\nREQUEST RESPONSE:", repr(base))
+            print("\nREQUEST RESPONSE:", repr(base.text))
 
 
     def analyze_www_open(self, fname):
@@ -788,8 +802,16 @@ class Crawler():
         GET/POST with our auth tokens. Returns Requests object
         '''
 
+        # Normalize path. Domain ends with /
+        while "//" in path:
+            path = path.replace("//", "/")
+
+        if path.startswith("/"):
+            path = path[1:]
+
         url = self.domain + path
-        self.logger.warn("Fetching %s in mode %s", url, self.s.state())
+
+        self.logger.warn("Fetching %s", url)
         if self.www_auth[0] is None:
             auth = None
         elif self.www_auth[0] == "basic":
