@@ -36,6 +36,37 @@ def make_abs(base, ref):
         abs_ref =  os.path.abspath(base_dir + "/" + ref)
     return abs_ref
 
+def get_calltree(panda, cpu):
+    # Print the calltree to the current process
+    proc = panda.plugins['osi'].get_current_process(cpu)
+    if proc == panda.ffi.NULL:
+        logger.warning("Error determining current process")
+        return
+    procs = panda.get_processes_dict(cpu)
+    chain = [{'name': panda.ffi.string(proc.name).decode('utf8', 'ignore'),
+              'pid': proc.pid, 'parent_pid': proc.ppid}]
+    while chain[-1]['pid'] > 1 and chain[-1]['parent_pid'] in procs.keys():
+        chain.append(procs[chain[-1]['parent_pid']])
+    return " -> ".join(f"{item['name']} ({item['pid']})" for item in chain[::-1])
+
+def is_child_of(panda, cpu, parent_names):
+    # Return true IFF current_proc is or has a parent in parent_names
+
+    proc = panda.plugins['osi'].get_current_process(cpu)
+    if proc == panda.ffi.NULL:
+        logger.warning("Error determining current process")
+        return
+    procs = panda.get_processes_dict(cpu)
+    chain = [{'name': panda.ffi.string(proc.name).decode('utf8', 'ignore'),
+              'pid': proc.pid, 'parent_pid': proc.ppid}]
+    while chain[-1]['pid'] > 1 and chain[-1]['parent_pid'] in procs.keys():
+        chain.append(procs[chain[-1]['parent_pid']])
+
+    for item in chain:
+        if item['name'] in parent_names:
+            return True
+    return False
+
 class Crawler():
     '''
     A PANDA-powered web crawler. Analyzes syscalls and guest filesystem to identify attack surface
@@ -55,7 +86,10 @@ class Crawler():
 
         # formfuzz.analyze: Fuzzing a form - analyzing
         # formfuzz.send: Request sent to guest, but not yet parsed by webserver
-        # formfuzz.introspection: Analyzing guest behavior
+        # formfuzz.decrypt: Guest is decrypting connection
+        # formfuzz.introspection: Guest is responding to request - deep analysis enabled
+
+        # maybe:
         # formfuzz.introspection.on_tree: Active process created by webserver or children
 
         self.s = StateTreeFilter('formfuzz.analyze') # DEBUG
@@ -86,13 +120,6 @@ class Crawler():
 
         local_log = logging.getLogger('panda.crawler')
         self.logger = StateAdapter(local_log, {'state': self.s})
-
-        # Formfuzz fields
-        self.decrypted_buf = None
-        # Pending FD reads
-        self.proc_fds = [] # {asid: {(fd)1: current_buffer}
-
-
 
         # Debugging ONLY
         self.www_auth = ("basic", "admin", "foo")
@@ -128,7 +155,7 @@ class Crawler():
                         params = json.loads(params_j)
                         self.fuzz_form(meth, page, params)
                         self.logger.error("QUIT EARLY - debug")
-                        break
+                        return
                     else:
                         # Exhaused form fuzz queue, switch to crawling
                         # (if both queues are empty, loop terminates)
@@ -178,10 +205,10 @@ class Crawler():
             # Could print environment data too?
 
         ##### FORMFUZZ State machine in syscalls
-        # When we're in fuzzform.send and we see a sys_accept + sys_read
-        # on the FD and it contains our data, switch to fuzzform.introspect
+        # When we're in formfuzz.send and we see a sys_accept + sys_read
+        # on the FD and it contains our data, switch to formfuzz.introspect
         # UGH does it do weird stuff like dup the FD directly to a cgi-bin binary?
-        self.fuzzform_fds = []
+        self.fuzzform_fds = [] # Only supports exactly 1 FD for now
 
         @self.panda.ppp("syscalls2", "on_sys_accept4_return")
         @self.s.state_filter("formfuzz.send")
@@ -202,7 +229,7 @@ class Crawler():
             returned_fd = self.panda.plugins['syscalls2'].get_syscall_retval(cpu)
             if returned_fd > 0:
                 self.fuzzform_fds.append(returned_fd)
-                self.logger.info("Fuzzform ACCEPTED on socket. File descriptor %d",
+                self.logger.info("Fuzzform accepted on socket. File descriptor %d",
                                     returned_fd)
             else:
                 self.logger.info("Fuzzform ACCEPT returned error %d", returned_fd)
@@ -295,7 +322,7 @@ class Crawler():
 
         @self.s.state_filter("formfuzz.decrypt", default_ret=0)
         def decrypt_ret_hook(cpu, tb):
-            if not hasattr(self, 'decrypted_buf'):
+            if not hasattr(self, 'decrypting') or not self.decrypting:
                 # Need to disable this hook better
                 return 0
 
@@ -309,10 +336,10 @@ class Crawler():
                 return 0
 
             if self._parse_request(data):
-                # IDEA: Right as we enter fuzzform.introspect would be a good place
+                # IDEA: Right as we enter formfuzz.introspect would be a good place
                 # to snapshot for fuzzing since we now have a plaintext buffer
                 # about to be parsed
-                self.s.change_state("fuzzform.introspect")
+                self.s.change_state("formfuzz.introspect")
                 self.decrypting = False
             return 0
 
@@ -346,6 +373,8 @@ class Crawler():
             if 'HTTP' in data: # Unencrypted - go right to introspect
                 self.logger.info(f"{proc_name} reading unencrypted data")
                 print("Plaintext request:", repr(data))
+                # TODO HANLDE THIS
+
                 self.s.change_state(".introspect")
             else:
                 # Encrypted - wait for decryption to happen before introspecting
@@ -359,85 +388,143 @@ class Crawler():
 
                 self.s.change_state(".decrypt")
 
-        #@self.panda.ppp("syscalls2", "on_sys_read_return")
-        #@self.s.state_filter("formfuzz.introspect")
-        # ### DISABLED
-        def read_ret(cpu, pc, fd, buf, cnt):
+        ### formfuzz.introspect state
+        # Here we analyze calls to execve (interesting),
+        # stdin/err/out from www and child processes, and
+        # close syscalls (to identify end)
+
+        @self.panda.ppp("syscalls2", "on_sys_execve_enter")
+        @self.s.state_filter("formfuzz.introspect")
+        def introspect_execve(cpu, pc, fname_ptr, argv_ptr, envp):
             '''
-            Searching for data fed into cgi-bin scripts via STDIN
+            When WWW responds to request, capture all execs. Add PIDs
+            to self.www_children
             '''
-            if fd != 0: # Assuming standard STDIN on FD 0
+            try:
+                fname = panda.read_str(cpu, fname_ptr)
+            except ValueError:
                 return
 
-            proc_name = self._active_proc_name(cpu)
+            if is_child_of(self.panda, cpu, self.www_procs):
+                proc = panda.plugins['osi'].get_current_process(cpu)
+                pname = self.panda.ffi.string(proc.name).decode()
 
-            if ".cgi" not in proc_name: # Only want CGI inputs
+                args = self._read_str_buf(cpu, argv_ptr)
+                cmd = "  ".join(args)
+                callers = get_calltree(self.panda, cpu)
+                self.logger.warn("EXEC from %s %d: %s [%s]", pname, proc.pid, callers, cmd)
+                self.introspect_children.append(proc.pid)
+
+            else:
+                # DEBUG - off tree
+                proc = panda.plugins['osi'].get_current_process(cpu)
+                pname = self.panda.ffi.string(proc.name).decode()
+
+                args = self._read_str_buf(cpu, argv_ptr)
+                cmd = "  ".join(args)
+                callers = get_calltree(self.panda, cpu)
+                self.logger.info("Off-tree EXEC from %s: %s [%s]", pname, callers, cmd)
+
+        @self.panda.ppp("syscalls2", "on_all_sys_enter2")
+        @self.s.state_filter("formfuzz")
+        def on_tree_syscall(cpu, pc, call, rp):
+            '''
+            Look at all string args to syscalls for www children during request
+            processing. If any contain attacker-controlled data, alert user -
+            this will highlight potential path-traversal and command injection
+            vulnerabilities
+            '''
+
+            if call == self.panda.ffi.NULL:
+                #self.logger.warn("Unsupported syscall") # No additional info :(
+                # Happens often, but for syscalls we probably don't care about?
+                return
+            if rp == self.panda.ffi.NULL:
+                self.logger.warn("Syscall info (RP) null") # Unlikely
                 return
 
-            try: data = panda.read_str(cpu, buf)
-            except ValueError: return
-
-            if len(data) == 0:
+            proc = self.panda.plugins['osi'].get_current_process(cpu)
+            if proc.pid not in self.introspect_children:
                 return
 
-            self.logger.info(f"POSTDATA: {repr(data[:cnt])}")
+            pname = self.panda.ffi.string(proc.name).decode()
+            for arg_idx in range(call.nargs):
+                arg_type = call.argt[arg_idx]
+                if arg_type == self.panda.libpanda.SYSCALL_ARG_STR_PTR:
+                    arg_val = rp.args[arg_idx]
 
-            # Idea: take a snapshot *now* and mutate this buffer to fuzz target CGI bin
+                    # arg is actually a mess. We have a guest pointer
+                    # stored in a uint8_t array. Cast it to guest-ptr-size
+                    # then we actually read it
+                    argsz = call.argsz[arg_idx]
+                    if argsz == 4:
+                        cast_type = 'uint32_t'
+                    elif argsz == 8:
+                        cast_type = 'uint64_t'
+                    else:
+                        raise ValueError(f"Unhandled case for arg size {argsz}")
 
-            # Load coverage plugin to analyze process
-            pn_b = proc_name.encode()
-            
-            # only do if first time
-            '''
-            print("SETUP COVERAGE")
-            self.panda.load_plugin("coverage", {"filename": "out_"+proc_name, 
-                "mode": "osi-block","privilege": "user"})
-            self.panda.enable_callback("cov")
-            '''
+                    str_ptr = self.panda.ffi.cast(f'{cast_type}[{arg_idx+1}]',
+                                                    arg_val)[arg_idx]
+
+                    try:
+                        str_val = self.panda.read_str(cpu, str_ptr)
+                    except ValueError:
+                        return
+
+                    for attacker_data in self.fuzzform_data:
+                        if len(attacker_data) <= 2:
+                            # Lots of false positives for short strings
+                            continue
+                        if attacker_data in str_val:
+                            cname = self.panda.ffi.string(call.name).decode()
+                            arg_name = self.panda.ffi.string(call.argn[arg_idx]).decode()
+                            self.logger.error(f"Attacker controlled data `{attacker_data}` in {cname} syscall's arg {arg_name}: `{str_val}`")
+
 
         @self.panda.ppp("syscalls2", "on_sys_write_enter")
         @self.s.state_filter("formfuzz")
         def write_ent(cpu, pc, fd, buf, cnt):
             '''
-            Report data written by cgi-bin processes to stdout/stderr
+            Data written by child processes
             '''
-            if fd not in [1, 2]: # assuming standard stdout/stderr on fd 1/2
-                return
-
             proc_name = self._active_proc_name(cpu)
+
+            if proc_name not in self.www_procs:
+                # TODO: check if pid or ppid matches www
+
+                callers = get_calltree(self.panda, cpu)
+
 
             if ".cgi" not in proc_name: # only want cgi inputs
                 return
 
-            try: data = panda.read_str(cpu, buf)
-            except ValueError: return
+            try:
+                data = self.panda.read_str(cpu, buf)
+            except ValueError:
+                return
 
-            out = "STDOUT" if fd == 1 else "STDERR"
+            out = [None, "STDOUT", "STDERR"][fd] if fd <= 2 else str(fd)
             self.logger.info(f"{proc_name}:{out}: {repr(data[:cnt])}")
 
         @self.panda.ppp("syscalls2", "on_sys_close_enter")
-        @self.s.state_filter("formfuzz")
+        @self.s.state_filter("formfuzz.introspect")
         def close_fd(cpu, pc, fd):
             '''
-            STDOUT (response to request) is closed - end of request processing by binary
+            WWW closes connection  - done with formfuzz.introspection
+            But sometimes there's more processing in the background
+            so let's leave our introspection running a little longer,
+            until we get the response back in fuzz_form()
             '''
-            if fd != 1: # Stdout only
+
+            if fd not in self.fuzzform_fds:
                 return
 
             proc_name = self._active_proc_name(cpu)
 
-            if ".cgi" not in proc_name: # only want cgi inputs
-                return
-
-            #self.panda.disable_callback("cov")
-            self.logger.info(f"{proc_name} finished")
-            self.panda.end_analysis()
-
-            '''
-            for name, bbs in self.cov.items():
-                for bb in sorted(bbs):
-                    print(name, hex(bb))
-            '''
+            if proc_name in self.www_procs:
+                self.logger.info(f"{proc_name} closed network socket")
+                #self.s.change_state(".analyze")
 
 
 
@@ -592,20 +679,30 @@ class Crawler():
 
             request_params.append(these_params)
 
+        idx = 0
         for params in request_params:
+            idx +=1 
             print("\n\n")
             print(params)
 
-            # Send request -> change to fuzzform.send
+            # Send request -> change to formfuzz.send
             # Another thread will transition from .send->.introspect
+            self.introspect_children = []
+            self.fuzzform_data = params.values()
             self.s.change_state('.send')
             base = self._fetch(meth, page, params)
             # Request finished. Should have reached .introspect
-            if not self.s.state_matches('fuzzform.introspect'):
-                self.logger.warning("Failed to reach introspection state")
-            # Now switch back to fuzzform.analyze until we send next request
-            self.s.change_state('.analyze')
+            if not self.s.state_matches('formfuzz.analyze'):
+                self.logger.warning("Failed to introspect on parsing")
+                self.s.change_state('.analyze')
+
+            # Now switch back to formfuzz.analyze until we send next request
             print("\nREQUEST RESPONSE:", repr(base.text))
+
+            if idx > 1:
+                self.logger.error("DEBUG - quit early")
+                self.panda.end_analysis()
+                return
 
 
     def analyze_www_open(self, fname):
@@ -800,6 +897,8 @@ class Crawler():
     def _fetch(self, meth, path, params={}):
         '''
         GET/POST with our auth tokens. Returns Requests object
+
+        Note we explicitly close the connection to ensure sockets aren't reused(?)
         '''
 
         # Normalize path. Domain ends with /
@@ -820,9 +919,11 @@ class Crawler():
             raise NotImplementedError("Unsupported auth:"+ self.www_auth[0])
 
         if meth == "GET":
-            resp = requests.get( url, verify=False, auth=auth)
+            resp = requests.get( url, verify=False, auth=auth,
+                                headers={'Connection':'close'})
         elif meth == "POST":
-            resp = requests.post(url, verify=False, auth=auth, data=params)
+            resp = requests.post(url, verify=False, auth=auth, data=params,
+                                headers={'Connection':'close'})
         else:
             raise NotImplementedError("Unsupported method:"+ meth)
         return resp 

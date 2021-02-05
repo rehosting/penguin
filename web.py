@@ -39,7 +39,7 @@ panda = Panda("arm", mem="1G", raw_monitor=True, extra_args=
 
 panda.set_os_name("linux-32-debian.4.9.99")
 panda.load_plugin("callstack_instr", {"stack_type": "asid"})
-panda.load_plugin("syscalls2")
+panda.load_plugin("syscalls2", {"load-info": True})
 
 # Not rehosting - TODO migrate into class
 
