@@ -36,6 +36,21 @@ def make_abs(base, ref):
         abs_ref =  os.path.abspath(base_dir + "/" + ref)
     return abs_ref
 
+def longestSubstringFinder(string1, string2):
+	# From https://stackoverflow.com/a/42882629
+    answer = ""
+    len1, len2 = len(string1), len(string2)
+    for i in range(len1):
+        for j in range(len2):
+            lcs_temp=0
+            match=''
+            while ((i+lcs_temp < len1) and (j+lcs_temp<len2) and string1[i+lcs_temp] == string2[j+lcs_temp]):
+                match += string2[j+lcs_temp]
+                lcs_temp+=1
+            if (len(match) > len(answer)):
+                answer = match
+    return answer
+
 def get_calltree(panda, cpu):
     # Print the calltree to the current process
     proc = panda.plugins['osi'].get_current_process(cpu)
@@ -92,8 +107,8 @@ class Crawler():
         # maybe:
         # formfuzz.introspection.on_tree: Active process created by webserver or children
 
-        self.s = StateTreeFilter('formfuzz.analyze') # DEBUG
-        #self.s = StateTreeFilter('crawl')
+        #self.s = StateTreeFilter('formfuzz.analyze') # enable to debug
+        self.s = StateTreeFilter('crawl')
 
         # Queue management
         self.crawl_queue = PriorityQueue(1000) # Prioritized queue of items to visit
@@ -122,13 +137,20 @@ class Crawler():
         self.logger = StateAdapter(local_log, {'state': self.s})
 
         # Debugging ONLY
-        self.www_auth = ("basic", "admin", "foo")
-        self.start_url = "/cgi-bin/quickcommit.cgi"
+        #self.www_auth = ("basic", "admin", "foo")
+        #self.start_url = "/cgi-bin/quickcommit.cgi"
         self.basedir = "/var/www/" # TODO: dynamically figure this out
 
         # DEBUG FORM
-        self.recording_coverage = False
-        self.form_queue.put_nowait((40, ('POST', '/cgi-bin/alarmcommit.cgi', json.dumps({"commit_changes": {"type": "submit", "defaults": [""]}, "power_alarm": {"type": "checkbox", "defaults": ["1"]}, "ring_alarm_local": {"type": "checkbox", "defaults": ["1"]}, "ring_alarm_any": {"type": "checkbox", "defaults": ["1"]}, "link_1_": {"type": "checkbox", "defaults": ["1"]}, "link_2_": {"type": "checkbox", "defaults": ["1"]}, "link_3_": {"type": "checkbox", "defaults": ["1"]}, "link_4_": {"type": "checkbox", "defaults": ["1"]}, "link_5_": {"type": "checkbox", "defaults": ["1"]}, "link_6_": {"type": "checkbox", "defaults": ["1"]}, "link_7_": {"type": "checkbox", "defaults": ["1"]}, "link_8_": {"type": "checkbox", "defaults": ["1"]}, "link_9_": {"type": "checkbox", "defaults": ["1"]}, "NUMPORTS": {"type": "hidden", "defaults": ["10"]}}))))
+        #self.form_queue.put_nowait((40, ('POST', '/cgi-bin/alarmcommit.cgi', json.dumps({"commit_changes": {"type": "submit", "defaults": [""]}, "power_alarm": {"type": "checkbox", "defaults": ["1"]}, "ring_alarm_local": {"type": "checkbox", "defaults": ["1"]}, "ring_alarm_any": {"type": "checkbox", "defaults": ["1"]}, "link_1_": {"type": "checkbox", "defaults": ["1"]}, "link_2_": {"type": "checkbox", "defaults": ["1"]}, "link_3_": {"type": "checkbox", "defaults": ["1"]}, "link_4_": {"type": "checkbox", "defaults": ["1"]}, "link_5_": {"type": "checkbox", "defaults": ["1"]}, "link_6_": {"type": "checkbox", "defaults": ["1"]}, "link_7_": {"type": "checkbox", "defaults": ["1"]}, "link_8_": {"type": "checkbox", "defaults": ["1"]}, "link_9_": {"type": "checkbox", "defaults": ["1"]}, "NUMPORTS": {"type": "hidden", "defaults": ["10"]}}))))
+        '''
+        self.form_queue.put_nowait((40, ('POST', '/cgi-bin/quickcommit.cgi',
+            json.dumps({"gateway": {"type": "text", "defaults": ["none"]},
+                        "use_dhcp": {"type": "checkbox", "defaults": ["0"]},
+                        "ip_address": {"type": "text", "defaults": ["192.168.0.1/24"]},
+                        "netmask": {"type": "text", "defaults": ["255.255.255.0"]},
+                        }))))
+        '''
 
         # PANDA callbacks registered within init using self.panda
 
@@ -146,25 +168,23 @@ class Crawler():
                     else:
                         # Exhaused crawl queue, switch to form fuzzing
                         # (if both queues are empty, loop terminates)
-                        #self.set_mode('formfuzz')
-                        pass
+                        self.set_mode('formfuzz.analyze')
+                        self.logger.info("Switching to form fuzzing")
+
                 elif self.s.state_matches('formfuzz.analyze'):
                     if not self.form_queue.empty():
-                        self.logger.error("Formfuzz sending")
                         (_, (meth, page, params_j))  = self.form_queue.get()
                         params = json.loads(params_j)
                         self.fuzz_form(meth, page, params)
-                        self.logger.error("QUIT EARLY - debug")
-                        return
                     else:
                         # Exhaused form fuzz queue, switch to crawling
                         # (if both queues are empty, loop terminates)
-                        #self.set_mode('crawl')
-                        pass
+                        self.set_mode('crawl')
+                        self.logger.info("Switching to crawling")
                 else:
                     # Driver is passive - a target analysis is ongoing (i.e., findauth)
                     sleep(1)
-                    return None # Maybe need a sleep?
+                    return None
 
             self.logger.info("Driver finished both queues")
             self.panda.end_analysis()
@@ -189,7 +209,7 @@ class Crawler():
 
         @self.panda.ppp("syscalls2", "on_sys_execve_enter")
         @self.s.state_filter("crawl")
-        def on_sys_execve_enter(cpu, pc, fname_ptr, argv_ptr, envp):
+        def crawl_execve(cpu, pc, fname_ptr, argv_ptr, envp):
             # Log commands and arguments passed to execve
             try:
                 fname = panda.read_str(cpu, fname_ptr)
@@ -212,14 +232,12 @@ class Crawler():
 
         @self.panda.ppp("syscalls2", "on_sys_accept4_return")
         @self.s.state_filter("formfuzz.send")
-        def ffs_accept(cpu, pc, sockfd, addr, addrlen, flags):
+        def ffs_accept4(cpu, pc, sockfd, addr, addrlen, flags):
             returned_fd = self.panda.plugins['syscalls2'].get_syscall_retval(cpu)
             if returned_fd > 0:
                 self.fuzzform_fds.append(returned_fd)
                 self.logger.info("Fuzzform ACCEPT4ED on socket. File descriptor %d",
                                     returned_fd)
-            else:
-                self.logger.info("Fuzzform ACCEPT4 returned error %d", returned_fd)
 
 
 
@@ -229,10 +247,8 @@ class Crawler():
             returned_fd = self.panda.plugins['syscalls2'].get_syscall_retval(cpu)
             if returned_fd > 0:
                 self.fuzzform_fds.append(returned_fd)
-                self.logger.info("Fuzzform accepted on socket. File descriptor %d",
+                self.logger.debug("Fuzzform accepted on socket. File descriptor %d",
                                     returned_fd)
-            else:
-                self.logger.info("Fuzzform ACCEPT returned error %d", returned_fd)
 
         # FD manipulation - unlikely to actually be used?
         '''
@@ -372,13 +388,14 @@ class Crawler():
 
             if 'HTTP' in data: # Unencrypted - go right to introspect
                 self.logger.info(f"{proc_name} reading unencrypted data")
+                self.logger.error("TODO: handle plaintext")
                 print("Plaintext request:", repr(data))
                 # TODO HANLDE THIS
 
                 self.s.change_state(".introspect")
             else:
                 # Encrypted - wait for decryption to happen before introspecting
-                self.logger.info(f"{proc_name} potentially reading encrypted traffic from FD{fd} - attempting decryption")
+                self.logger.debug(f"{proc_name} potentially reading encrypted traffic from FD{fd} - attempting decryption")
                 if not hasattr(self, 'decrypting_crypto'):
                     # Dynamically find crypto library + hook if we haven't previously
                     decrypt_addr = self.find_crypto_offset(cpu)
@@ -410,11 +427,31 @@ class Crawler():
                 pname = self.panda.ffi.string(proc.name).decode()
 
                 args = self._read_str_buf(cpu, argv_ptr)
-                cmd = "  ".join(args)
-                callers = get_calltree(self.panda, cpu)
-                self.logger.warn("EXEC from %s %d: %s [%s]", pname, proc.pid, callers, cmd)
+                cmd = " ".join(args)
+                #callers = get_calltree(self.panda, cpu)
+                #self.logger.warn("EXEC from %s %d: %s [%s]", pname, proc.pid, callers, cmd)
+                # Maybe raise level, it's interesting
+                self.logger.debug("WWW execs from %s: [%s]", pname, cmd)
                 self.introspect_children.append(proc.pid)
 
+                # Check if exec contains attacker-controlled data.
+                # This should really be done on each arg - not the " ".join'd version
+                # because execve ("/bin/ls" "attacker data") is very different from
+                # execve("/bin/ls", "attacker", "data")
+                for attacker_key, attacker_data in self.fuzzform_data.items():
+                    # Are there any 6 bytes of attacker-controlled data
+                    # that made it to the syscall arg string (anywhere?)
+                    if len(attacker_data) <= 6 or len(cmd) <= 6:
+                        continue
+
+                    # slow :(
+                    common_str = longestSubstringFinder(attacker_data, cmd)
+
+                    if len(common_str) >= 6:
+                        self.logger.error(f"Potential attacker controlled data `{common_str}` (from `{attacker_key}={attacker_data}` page=`{self.fuzzform_url}`) in execve: {args}")
+
+
+            '''
             else:
                 # DEBUG - off tree
                 proc = panda.plugins['osi'].get_current_process(cpu)
@@ -424,6 +461,7 @@ class Crawler():
                 cmd = "  ".join(args)
                 callers = get_calltree(self.panda, cpu)
                 self.logger.info("Off-tree EXEC from %s: %s [%s]", pname, callers, cmd)
+            '''
 
         @self.panda.ppp("syscalls2", "on_all_sys_enter2")
         @self.s.state_filter("formfuzz")
@@ -472,14 +510,20 @@ class Crawler():
                     except ValueError:
                         return
 
-                    for attacker_data in self.fuzzform_data:
-                        if len(attacker_data) <= 2:
-                            # Lots of false positives for short strings
+                    # Mostly duplicated with execve syscall
+                    for attacker_key, attacker_data in self.fuzzform_data.items():
+                        # Are there any 6 bytes of attacker-controlled data
+                        # that made it to the syscall arg string (anywhere?)
+                        if len(attacker_data) <= 6 or len(str_val) <= 6:
                             continue
-                        if attacker_data in str_val:
+
+                        # slow :(
+                        common_str = longestSubstringFinder(attacker_data, str_val)
+
+                        if len(common_str) >= 6:
                             cname = self.panda.ffi.string(call.name).decode()
                             arg_name = self.panda.ffi.string(call.argn[arg_idx]).decode()
-                            self.logger.error(f"Attacker controlled data `{attacker_data}` in {cname} syscall's arg {arg_name}: `{str_val}`")
+                            self.logger.error(f"Potential attacker controlled data `{common_str}` (from `{attacker_key}={attacker_data}` page=`{self.fuzzform_url}`) in {cname} syscall's arg {arg_name}: `{str_val}`")
 
 
         @self.panda.ppp("syscalls2", "on_sys_write_enter")
@@ -523,7 +567,7 @@ class Crawler():
             proc_name = self._active_proc_name(cpu)
 
             if proc_name in self.www_procs:
-                self.logger.info(f"{proc_name} closed network socket")
+                self.logger.debug(f"{proc_name} closed network socket")
                 #self.s.change_state(".analyze")
 
 
@@ -593,10 +637,10 @@ class Crawler():
 
                 if self.parse_req_content_len is not None:
                     # Expecting postdata
-                    self.logger.info("Recv'd headers: %s", self.parse_req_headers)
+                    self.logger.debug("Recv'd headers: %s", self.parse_req_headers)
                 else:
                     # Not expecting postdata, all done
-                    self.logger.info("Recv'd request: %s", self.parse_req_headers)
+                    self.logger.debug("Recv'd request: %s", self.parse_req_headers)
                     done = True
 
         if not self.parse_req_in_headers:
@@ -606,7 +650,7 @@ class Crawler():
             self.parse_req_postdata += data
 
             if len(self.parse_req_postdata) >= self.parse_req_content_len:
-                self.logger.info("Recv'd POSTDATA: %s", self.parse_req_postdata)
+                self.logger.debug("Recv'd POSTDATA: %s", self.parse_req_postdata)
                 done = True
 
         if done:
@@ -635,7 +679,7 @@ class Crawler():
                 name = self.panda.ffi.string(mapping.name).decode()
                 if name.startswith("libssl.so"):
                     offset = self._find_offset("libssl.so", "SSL_read")
-                    self.logger.info("Found SSL_read at: 0x%x", mapping.base+offset)
+                    self.logger.debug("Found SSL_read at: 0x%x", mapping.base+offset)
                     return mapping.base + offset
         return None
 
@@ -654,9 +698,9 @@ class Crawler():
 
             params = {name: {type: foo, defaults: [1,2]}, ...}
         '''
-        self.logger.error("DEBUG: fuzzin' %s", page)
-        for param_name, param_detail in params.items():
-            print(f"{param_name}: {param_detail['defaults']}")
+        self.logger.info("Fuzzing form at %s", page)
+        #for param_name, param_detail in params.items():
+        #    print(f"{param_name}: {param_detail['defaults']}")
 
         # Throw junk in each parameter once and combine with defaults for all others
 
@@ -664,7 +708,8 @@ class Crawler():
 
         for fuzz_target in params.keys():
             # Mutate param[fuzz_target]
-            these_params = {fuzz_target: "aaaa ; sleep 30s; kill -9 1;"}
+            #these_params = {fuzz_target: "PANDA1PANDA ; `PANDA2PANDA` && $(PANDA3PANDA); PANDA4PANDA ' PANDA5PANDA \"PANDA6PANDA"}
+            these_params = {fuzz_target: "PANDA1PANDA ; `PANDA2PANDA`"}
 
             for normal_target in params.keys():
                 if normal_target == fuzz_target:
@@ -679,31 +724,23 @@ class Crawler():
 
             request_params.append(these_params)
 
-        idx = 0
         for params in request_params:
-            idx +=1 
-            print("\n\n")
-            print(params)
-
             # Send request -> change to formfuzz.send
             # Another thread will transition from .send->.introspect
             self.introspect_children = []
-            self.fuzzform_data = params.values()
+            self.fuzzform_data = params
+            self.fuzzform_url = page
             self.s.change_state('.send')
             base = self._fetch(meth, page, params)
             # Request finished. Should have reached .introspect
+            # No longer true - we stay in .introspect after socket closes until 
+            # we come back here to handle any (immediate) post-request processing
             if not self.s.state_matches('formfuzz.analyze'):
-                self.logger.warning("Failed to introspect on parsing")
+                #self.logger.warning("Failed to introspect on parsing")
                 self.s.change_state('.analyze')
 
             # Now switch back to formfuzz.analyze until we send next request
-            print("\nREQUEST RESPONSE:", repr(base.text))
-
-            if idx > 1:
-                self.logger.error("DEBUG - quit early")
-                self.panda.end_analysis()
-                return
-
+            #print("\nREQUEST RESPONSE:", repr(base.text))
 
     def analyze_www_open(self, fname):
         '''
@@ -887,7 +924,7 @@ class Crawler():
             resp = requests.get(self.domain+path, verify=False,
                     auth=(user, 'PANDAPASS'))
             if resp.status_code != 401:
-                self.logger.info("Success!")
+                self.logger.info("Successfully bypassed authentication")
                 self.www_auth = ("basic", user, "PANDAPASS")
                 return True
 
