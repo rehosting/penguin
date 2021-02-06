@@ -27,7 +27,9 @@ append = "root=/dev/mtdblock0 rw init=/sbin/init rootfstype=jffs2 \
 qcow = "fs1.qcow"
 mountpoint = "/home/fasano/git/router-rehosting/_stride-ms5_3_174.fwb.extracted/jffs2-root/fs_1"
 
-panda = Panda("arm", mem="1G", raw_monitor=True, extra_args=
+panda = Panda("arm", mem="1G",
+            #raw_monitor=True,
+            extra_args=
             ["-M", "virt", "-kernel", kernel, "-append", append, "-nographic",
             "-net", "nic,netdev=net0", # NET
             "-netdev", "user,id=net0,hostfwd=tcp::5443-:443,hostfwd=tcp::5580-:80,"\

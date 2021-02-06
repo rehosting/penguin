@@ -7,6 +7,7 @@ TODOs:
 import json
 import logging
 import os
+import re
 from queue import PriorityQueue
 from time import sleep
 from subprocess import check_output
@@ -82,6 +83,30 @@ def is_child_of(panda, cpu, parent_names):
             return True
     return False
 
+def _strip_url(url):
+    '''
+    Remove any redundant properties from URLs
+
+    Remove duplicate /s and anything after #
+    '''
+
+    if "://" in url:
+        meth, body = url.split("://")
+    else:
+        meth = None
+        body = url
+
+    while "//" in body:
+        body = body.replace("//", "/")
+
+    if "#" in body:
+        body = body.split("#")[0]
+
+    if meth:
+        return meth + "://" + body
+    else:
+        return body
+
 class Crawler():
     '''
     A PANDA-powered web crawler. Analyzes syscalls and guest filesystem to identify attack surface
@@ -137,7 +162,9 @@ class Crawler():
         self.logger = StateAdapter(local_log, {'state': self.s})
 
         # Debugging ONLY
-        #self.www_auth = ("basic", "admin", "foo")
+        self.www_auth = ("basic", "admin", "foo")
+        #self.start_url = "/safe/menubar.html"
+        self.start_url = "/safe/mactable.js"
         #self.start_url = "/cgi-bin/quickcommit.cgi"
         self.basedir = "/var/www/" # TODO: dynamically figure this out
 
@@ -156,20 +183,25 @@ class Crawler():
 
         @self.panda.queue_blocking
         def driver():
-            '''
-            Do a task depending on current mode
-            '''
+            # Do a task depending on current mode
 
             while not self.crawl_queue.empty() or not self.form_queue.empty():
                 if self.s.state_matches('crawl'):
                     if not self.crawl_queue.empty():
                         (_, (meth, page))  = self.crawl_queue.get()
-                        self.fetch(meth, page)
+                        self.crawl_fetch(meth, page)
                     else:
                         # Exhaused crawl queue, switch to form fuzzing
                         # (if both queues are empty, loop terminates)
                         self.set_mode('formfuzz.analyze')
                         self.logger.info("Switching to form fuzzing")
+                        # DEBUG SAVE QUEUE
+                        import pickle
+                        try:
+                            with open("form.pickle", "w") as f:
+                                pickle.dump(self.form_queue, f)
+                        except Exception as e:
+                            print("ERROR PICKLING:", e)
 
                 elif self.s.state_matches('formfuzz.analyze'):
                     if not self.form_queue.empty():
@@ -204,25 +236,69 @@ class Crawler():
             if self._active_proc_name(cpu) not in self.www_procs:
                 return
 
-            if fname not in self.observed_file_opens:
-                self.analyze_www_open(fname)
-
-        @self.panda.ppp("syscalls2", "on_sys_execve_enter")
-        @self.s.state_filter("crawl")
-        def crawl_execve(cpu, pc, fname_ptr, argv_ptr, envp):
-            # Log commands and arguments passed to execve
-            try:
-                fname = panda.read_str(cpu, fname_ptr)
-            except ValueError: return
-
-            # Other processes are interesting too...
-            if self._active_proc_name(cpu) not in self.www_procs:
+            if fname in self.observed_file_opens:
                 return
 
-            argv = self._read_str_buf(cpu, argv_ptr)
-            env  = self._read_str_buf(cpu, envp)
-            self.logger.info("Executing: " + ' '.join(argv)) #+ " with args: " + str(env))
-            # Could print environment data too?
+            '''
+            This is a file we're opening for the first time. Here
+            explore the directory being opened for other files to queue.
+            Somewhere else we identify forms
+            '''
+            self.logger.info(f"Observed first open of: {fname} by guest www")
+
+            assert self.current_request # ensured by caller
+            self.observed_file_opens.add(fname)
+
+            if fname.startswith("/etc/"): # Not a webserver
+                self.logger.warning(f"Ignoring WWW load of non-served(?) file {fname}")
+                return
+
+            # Need to resolve mountpoint/fname
+            if fname.startswith("/"):
+                fname = fname[1:]
+            host_path = os.path.join(self.mountpoint, fname)
+
+            if not os.path.isfile(host_path):
+                self.logger.warning(f"File doesn't exist in FS at {host_path}")
+                return
+
+            # Current request is for /a/b and we see files /z/a/c, z/a/d - need to build URL: a/c, a/d
+            # First identify common path - e.g.,
+            # FS: /var/www/dir/page1.html       # FS: /var/www/page1.html
+            # WWW:        /dir/page0.html        # WWW:        /page0.html
+
+            host_dir_name = os.path.dirname(host_path)
+            guest_dir_name = host_dir_name.replace(self.mountpoint+"/", "")
+
+            if guest_dir_name not in self.observed_dir_accesses:
+                self.observed_dir_accesses.add(guest_dir_name)
+                dir_files = os.listdir(host_dir_name)
+
+                for sibling_file in dir_files: # files or subdirs
+                    base_dir = os.path.abspath(os.path.dirname("/"+self.current_request))
+                    host_file = host_dir_name + "/" + sibling_file
+                    rel_file = base_dir + "/" + sibling_file.replace(self.basedir, "")
+                    rel_file = _strip_url(rel_file)
+
+                    if os.path.isfile(host_file):
+                        # sibling files - queue them all up
+                        if rel_file not in self.queued_paths:
+                            self.do_queue(rel_file)
+                    elif os.path.isdir(host_file):
+                        # Directory - queue up all files in the directory
+                        # Could go deeper and queue up in dir/sub/sub2/.../file
+                        subfiles = [x for x in os.listdir(host_file)
+                                       if os.path.isfile(host_file + "/" + x)]
+                        for subfile in subfiles:
+                            rel_subdir_file = rel_file +"/" + subfile
+                            self.do_queue(rel_subdir_file)
+
+                    else:
+                        self.logger.warn(f"Not a file not dir: {host_file}")
+                        pass
+
+
+            # TODO: walk parent directories up to webroot and queue up additional files
 
         ##### FORMFUZZ State machine in syscalls
         # When we're in formfuzz.send and we see a sys_accept + sys_read
@@ -732,6 +808,10 @@ class Crawler():
             self.fuzzform_url = page
             self.s.change_state('.send')
             base = self._fetch(meth, page, params)
+
+            if not base:
+                continue
+
             # Request finished. Should have reached .introspect
             # No longer true - we stay in .introspect after socket closes until 
             # we come back here to handle any (immediate) post-request processing
@@ -752,47 +832,6 @@ class Crawler():
             2) Mine files for parameters (TODO)
         '''
 
-        self.logger.info(f"Observed open of: {fname} by guest www")
-
-        assert self.current_request # ensured by caller
-        self.observed_file_opens.add(fname)
-
-        if fname.startswith("/etc/"): # Not a webserver
-            self.logger.warning(f"Ignoring WWW load of non-served(?) file {fname}")
-            return
-
-        # Need to resolve mountpoint/fname
-        if fname.startswith("/"):
-            fname = fname[1:]
-        host_path = os.path.join(self.mountpoint, fname)
-
-        if not os.path.isfile(host_path):
-            self.logger.warning(f"File doesn't exist in FS at {host_path}")
-            return
-
-        # Current request is for /a/b and we see files /z/a/c, z/a/d - need to build URL: a/c, a/d
-        # First identify common path - e.g.,
-        # FS: /var/www/dir/page1.html       # FS: /var/www/page1.html
-        # WWW:        /dir/page0.html        # WWW:        /page0.html
-
-        host_dir_name = os.path.dirname(host_path)
-        guest_dir_name = host_dir_name.replace(self.mountpoint+"/", "")
-
-        if guest_dir_name not in self.observed_dir_accesses:
-            self.observed_dir_accesses.add(guest_dir_name)
-            dir_files = os.listdir(host_dir_name)
-
-            for sibling_files in dir_files: # files or subdirs
-                base_dir = os.path.abspath(os.path.dirname("/"+self.current_request))
-                rel_file = base_dir + "/" + sibling_files.replace(self.basedir, "")
-
-                if rel_file not in self.queued_paths:
-                    self.do_queue(rel_file)
-
-        # TODO: walk parent directories up to webroot and queue up additional files
-
-        if "." in fname and fname.split(".") == "cgi":
-            self.logger.debug(f"TODO: Should statically analyze {fname}")
 
     def do_queue(self, path, method="GET"):
         '''
@@ -805,21 +844,20 @@ class Crawler():
         if not path:
             return
 
-        while "//" in path:
-            path = path.replace("//", "/")
+        path = _strip_url(path)
 
-        if "#" in path:
-            path = path.split("#")[0]
-
-        if path in self.crawl_results.keys(): # Already visited (TODO this is dumb, we want to request some pages more than once)
-            self.logger.warning(f"Skipping duplicate(?) request to {path}")
+        if path in self.crawl_results.keys():
+            #self.logger.warning(f"Skipping duplicate(?) request to {path}")
             return
+        else:
+            self.logger.debug(f"Queue {path}")
 
         # Priority ranges from +100 to 0. Higher is less important
         prio = 50
 
         if path.endswith(".gif") or path.endswith(".jpg"): prio += 50
         if path.endswith(".css") or path.endswith(".js"): prio += 40
+
         if "help" in path: prio += 10
         if "cgi-bin" in path: prio -= 40
         if method != "GET": prio = 0 # Highest
@@ -840,19 +878,17 @@ class Crawler():
                 raise ValueError(f"Forms to be queued must have {k}")
 
         method = form['method']
+        path = _strip_url(path)
 
         # More parameters = more exciting
         prio = 100 - len(form['params'].keys())
 
-        if (path, method) not in self.queued_forms: # What if we get additional fields later?
+        if (path, method) not in self.queued_forms:
+            # TODO: What if we find additional fields later? Should merge if exists
+            # but params are different
             self.logger.warning("FORM QUEUE: %s", path)
             self.form_queue.put_nowait((prio, (method, path, json.dumps(form['params'])))) # Raises exn if queue is full
             self.queued_forms.append((path, method))
-
-            self.logger.error("DEBUG- end after queueing")
-            self.panda.end_analysis()
-
-
 
     def parse_form(self, bs_form):
         '''
@@ -863,7 +899,7 @@ class Crawler():
         TODO: combine with some static analysis to identify additional params
         '''
         form = {
-                "action": bs_form.get('action'), # Destination URL
+                "action": _strip_url(bs_form.get('action')), # Destination URL
                 "method": bs_form.get('method').upper(), # always caps
                 "params": {}
         }
@@ -882,23 +918,49 @@ class Crawler():
                 form['params'][name]['defaults'].append(field.get('value'))
 
         abs_act = make_abs(self.current_request, bs_form.get('action'))
+        self.logger.info(f"Recording form that {form['method']}s to {abs_act}")
         self.do_form_queue(abs_act, form)
 
-    def scan_output(self, raw_html):
+    def scan_output(self, raw_html, path=None):
         '''
-        Analyze response from server (called by fetch).
+        Analyze response from server (called by crawl_fetch).
         Look for:
           Reference to other pages (possibly with url params?)
-            - src, href
+            - src, href, url
           Forms
           Buttons with actions (need for headless browser?)
         '''
-        soup = BeautifulSoup(raw_html, 'lxml') # XXX using html.parser causes segfaults (threading?)
 
-        # Find all SRC and HREF
+        if path and "." in path:
+            _, ext = os.path.splitext(path)
+        else:
+            ext = ""
+
+        # First check if it's not HTML - note extension might not match
+        # but if it contains <html> it's probably HTML. Probably...
+        if "<html>" not in raw_html and ext != ".html":
+
+            if ext == ".js":
+                # Look for xhr.send('get/post' 'url', ...)
+                # Could also pull params from here but they're more likely to be js vars
+                xhr_re = re.compile(r"send\(\s*(?:'|\")(?:GET|POST)(?:'|\"),\s*(?:'|\")([-a-zA-Z0-9_/]*)(?:'|\")")
+                for match in xhr_re.findall(raw_html):
+                    # If we find any, queue them up. Could improve by grabbing params
+                    self.do_queue(make_abs(self.current_request, match))
+            else:
+                self.logger.warning(f"Parsing unsupported for non-HTML/JS ({ext}).")
+            return
+
+        # It's HTML - parse with BS4
+        self.logger.debug("Searching HTML for references...")
+        soup = BeautifulSoup(raw_html, 'lxml') # XXX using html.parser causes segfaults (threading?)
+        # Find all SRCs and HREFs
         for elm in soup.findAll():
-            if elm.get('src'):   self.do_queue(make_abs(self.current_request, elm.get('src')))
-            if elm.get('href'):  self.do_queue(make_abs(self.current_request, elm.get('href')))
+            for attr in ['src', 'href']:
+                if elm.get(attr):
+                    self.logger.debug(f"Found {attr} ref: {elm.get(attr)}")
+                    self.do_queue(make_abs(self.current_request, elm.get(attr)))
+
 
         # FORM, send to helper
         for form in soup.findAll('form'):
@@ -931,23 +993,17 @@ class Crawler():
         self.logger.warning("Failed to bypass auth")
         return False
 
-    def _fetch(self, meth, path, params={}):
+    def _fetch(self, meth, path, params={}, retry=True):
         '''
         GET/POST with our auth tokens. Returns Requests object
+        If the connection fails and retry is set, we'll revert the guest and retry
 
         Note we explicitly close the connection to ensure sockets aren't reused(?)
         '''
 
-        # Normalize path. Domain ends with /
-        while "//" in path:
-            path = path.replace("//", "/")
+        url = _strip_url(self.domain + path)
 
-        if path.startswith("/"):
-            path = path[1:]
-
-        url = self.domain + path
-
-        self.logger.warn("Fetching %s", url)
+        self.logger.info("Fetching %s", url)
         if self.www_auth[0] is None:
             auth = None
         elif self.www_auth[0] == "basic":
@@ -955,26 +1011,48 @@ class Crawler():
         else:
             raise NotImplementedError("Unsupported auth:"+ self.www_auth[0])
 
-        if meth == "GET":
-            resp = requests.get( url, verify=False, auth=auth,
-                                headers={'Connection':'close'})
-        elif meth == "POST":
-            resp = requests.post(url, verify=False, auth=auth, data=params,
-                                headers={'Connection':'close'})
-        else:
-            raise NotImplementedError("Unsupported method:"+ meth)
+        try:
+            if meth == "GET":
+                resp = requests.get( url, verify=False, auth=auth,
+                                    timeout=10, headers={'Connection':'close'})
+            elif meth == "POST":
+                resp = requests.post(url, verify=False, auth=auth, data=params,
+                                    timeout=10, headers={'Connection':'close'})
+            else:
+                raise NotImplementedError("Unsupported method:"+ meth)
+        except (requests.exceptions.ConnectionError,
+                requests.exceptions.ConnectTimeout,
+                requests.exceptions.ReadTimeout) as e:
+
+            # Something went wrong. Just revert guest and retry
+            # If that fails, log and return None
+            
+            # TODO: this doesn't work with OSI :(
+
+            if not retry:
+                self.logger.error(f"Connection failed {e} and retries exhausted")
+                raise
+
+            self.logger.warning(f"Reverting guest after connection failure ({e})")
+            self.panda.revert_sync("www")
+            sleep(5)
+            return self._fetch(meth, path, params, retry=False)
+        
         return resp 
 
-    def fetch(self, meth, path, params={}):
+    def crawl_fetch(self, meth, path, params={}):
         '''
         Fetch a page from the webserver.
         Responsible for managing current_request to match the page being requested
         '''
 
-        self.logger.info(f"{meth} {path} (Queue contains {self.crawl_queue.qsize()})")
+        #self.logger.info(f"{meth} {path} (Queue contains {self.crawl_queue.qsize()})")
 
         self.current_request = path
         resp = self._fetch(meth, path, params)
+        if resp is None:
+            self.current_request = None
+            return
 
         fail = False
         if resp.status_code == 401:
@@ -986,7 +1064,7 @@ class Crawler():
                 if self.find_auth(path):
                     self.logger.info("Bypassed authentication. Resuming crawl with discovered credentials.")
                     # Reset this request now that we know how to auth
-                    self.fetch(meth, path, params)
+                    self.crawl_fetch(meth, path, params)
                     return
                 self.current_request = this_req # Restore
 
@@ -1001,12 +1079,13 @@ class Crawler():
         else:
             self.logger.error(f"Unhandled status: {resp.status_code}")
 
+        # TODO: trim anything after # if present
         if path not in self.crawl_results:
             self.crawl_results[path] = ((meth, path, params, resp.status_code))
 
         assert self.current_request is not None
         if not fail:
-            self.scan_output(resp.text)
+            self.scan_output(resp.text, path)
 
         self.current_request = None
 
