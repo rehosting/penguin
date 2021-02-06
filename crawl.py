@@ -1,9 +1,3 @@
-'''
-TODOs:
-    Save state after crawling
-    Fuzz form queue
-'''
-
 import json
 import logging
 import os
@@ -119,6 +113,8 @@ class Crawler():
         if not self.domain.endswith("/"):
             self.domain += "/"
 
+        self.hook_config = {} # pc: retval
+
         # State management
         # States:
         # crawl: Crawling active (TODO more detailed sub-states)
@@ -227,8 +223,6 @@ class Crawler():
             '''
             Identify files opened by WWW during crawl
             '''
-            if self.current_request is None:
-                return # Non-crawler request (i.e., find_auth)
 
             try: fname = self.panda.read_str(cpu, fname_ptr)
             except ValueError: return
@@ -246,7 +240,6 @@ class Crawler():
             '''
             self.logger.info(f"Observed first open of: {fname} by guest www")
 
-            assert self.current_request # ensured by caller
             self.observed_file_opens.add(fname)
 
             if fname.startswith("/etc/"): # Not a webserver
@@ -490,8 +483,8 @@ class Crawler():
         @self.s.state_filter("formfuzz.introspect")
         def introspect_execve(cpu, pc, fname_ptr, argv_ptr, envp):
             '''
-            When WWW responds to request, capture all execs. Add PIDs
-            to self.www_children
+            When WWW responds to request, capture all execs.
+            TODO: maybe store child PIDs so we can simplify is_child_of(www) later
             '''
             try:
                 fname = panda.read_str(cpu, fname_ptr)
@@ -646,6 +639,71 @@ class Crawler():
                 self.logger.debug(f"{proc_name} closed network socket")
                 #self.s.change_state(".analyze")
 
+        def crawl_first_syscall(cpu, pc, callno):
+            self.panda.disable_ppp("crawl_first_syscall")
+
+            self.logger.info("Loading (or reloading) OSI")
+            self.panda.load_plugin("osi", {"disable-autoload": True})
+            self.panda.load_plugin("osi_linux",
+                {'kconf_file': os.path.dirname(os.path.realpath(__file__))+'/virt.conf',
+                 'kconf_group': 'linux:virt_4.9.99:64'})
+
+        # This is gross. The function needs access to self but not
+        # by taking self as an argument (e.g., a child method). So we define
+        # a local function here in init which has a closure on self, then
+        # store it so it can be setup as a panda PPP callback
+        self.on_first_syscall = crawl_first_syscall
+
+        def hook_return(cpu, tb):
+            '''
+            Registered as a hook to bypass auth by changing return value
+            See call to panda.hook(...)(hook_return)
+            '''
+            self.logger.debug("Bypassing auth")
+            self.panda.arch.set_reg(cpu, "r0", self.hook_config[tb.pc]) # ret val
+            self.panda.arch.set_reg(cpu, "ip", self.panda.arch.get_reg(cpu, "lr"))
+            return True
+
+        @self.panda.cb_asid_changed(enabled=False)
+        @self.s.state_filter("findauth", default_ret=0)
+        def findauth_hook(cpu, old_asid, new_asid):
+            '''
+            When WWW is next running, scan memory and find auth fn to hook
+            '''
+
+            proc_name = self._active_proc_name(cpu)
+
+            if proc_name not in self.www_procs:
+                return 0
+
+            # Scan memory for loaded authentication libraries and hook
+            # to always auth valid users
+
+            # Supported auth bypasses:
+            #   1) lighttpd 1.4
+            #   ... that's it for now.
+
+            hook_addr = None
+            for mapping in panda.get_mappings(cpu):
+                if mapping.name != panda.ffi.NULL:
+                    name = panda.ffi.string(mapping.name).decode()
+                    if name == "mod_auth.so":
+                        offset = self._find_offset("mod_auth.so", "http_auth_basic_check")
+                        hook_addr = mapping.base + offset
+                        self.hook_config[hook_addr] = 1 # Want to return 1
+                        break
+
+            if hook_addr is None:
+                self.logger.warning("No auth library found to hook")
+            else:
+                self.logger.info("Found auth library to hook")
+                self.panda.hook(hook_addr)(hook_return)
+
+            self.panda.disable_callback('findauth_hook')
+
+            return 0
+
+
 
 
     ################################## / end of init
@@ -745,6 +803,7 @@ class Crawler():
                             shell=True).decode('utf8', errors='ignore').split(" ")[0]
         return int("0x"+offset, 16)
 
+
     def find_crypto_offset(self, cpu):
         '''
         Search currently loaded libraries for crypto (TODO parameterize for other libs)
@@ -761,6 +820,19 @@ class Crawler():
 
     ############## / end of helpers
 
+    def reset_snap(self):
+        '''
+        Unload OSI, revert snapshot, then setup OSI to reload.
+        '''
+        self.panda.unload_plugin("osi_linux")
+        self.panda.unload_plugin("osi")
+
+        self.panda.revert_sync("www")
+
+        # This is a bad hack - we can't disable and then re-enable PPP callbacks so
+        # we just re-register it here
+        self.panda.ppp("syscalls2", "on_all_sys_enter")(self.on_first_syscall)
+
     def fuzz_form(self, meth, page, params):
         # state == formfuzz.analyze
         '''
@@ -768,7 +840,7 @@ class Crawler():
 
         Goals:
             Find bugs - params sent to system()
-            Hints of bugs - params sent to syscalls 
+            Hints of bugs - params sent to syscalls
             Measure coverage of parsing script
             Obtain high coverage
 
@@ -813,7 +885,7 @@ class Crawler():
                 continue
 
             # Request finished. Should have reached .introspect
-            # No longer true - we stay in .introspect after socket closes until 
+            # No longer true - we stay in .introspect after socket closes until
             # we come back here to handle any (immediate) post-request processing
             if not self.s.state_matches('formfuzz.analyze'):
                 #self.logger.warning("Failed to introspect on parsing")
@@ -969,18 +1041,25 @@ class Crawler():
     def find_auth(self, path):
         '''
         How do we log into this thing? Try a bunch of creds, methods until
-        something works. Only partly implemented
+        something works.
 
-        Currently works by hooks (setup on start) to bypass auth function.
+        Change mode to findauth restore old mode at end
+
+        Currently works using hooks (setup on start) to bypass auth function.
         Could also ID creds on rootfs and try offline cracking or patching.
         May be challenging with snapshot-based analysis if webserver has already loaded creds
-
-        TODO: split into another class?
         '''
-        self.logger.info("Attempting authentication bypass...")
-        self.current_request = None
 
-        # Username needs to be valid
+        old_state = self.s.state()
+        self.s.change_state('findauth')
+        self.logger.info("Attempting authentication bypass...")
+
+        if len(self.hook_config.keys()) == 0:
+            self.logger.info("Enable findauth hook")
+            self.panda.enable_callback('findauth_hook')
+
+        # Username needs to be valid, try a bunch of common ones
+        # Could parse /etc/passwd for more names to test
         basic_users = ["admin", "user", "cli", "root", "test", "dev"]
         for user in basic_users:
             resp = requests.get(self.domain+path, verify=False,
@@ -988,9 +1067,11 @@ class Crawler():
             if resp.status_code != 401:
                 self.logger.info("Successfully bypassed authentication")
                 self.www_auth = ("basic", user, "PANDAPASS")
+                self.s.change_state(old_state)
                 return True
 
-        self.logger.warning("Failed to bypass auth")
+        self.logger.error("Failed to bypass auth")
+        self.s.change_state(old_state)
         return False
 
     def _fetch(self, meth, path, params={}, retry=True):
@@ -1026,19 +1107,18 @@ class Crawler():
 
             # Something went wrong. Just revert guest and retry
             # If that fails, log and return None
-            
-            # TODO: this doesn't work with OSI :(
-
             if not retry:
+                # We reset the guest so it's probably not an issue with guest state,
+                # the page is probably just broken
                 self.logger.error(f"Connection failed {e} and retries exhausted")
-                raise
+                return None
 
             self.logger.warning(f"Reverting guest after connection failure ({e})")
-            self.panda.revert_sync("www")
-            sleep(5)
-            return self._fetch(meth, path, params, retry=False)
-        
-        return resp 
+            self.reset_snap()
+
+            return self._fetch(meth, path, params, retry=False) # Don't retry agian
+
+        return resp
 
     def crawl_fetch(self, meth, path, params={}):
         '''
@@ -1066,6 +1146,8 @@ class Crawler():
                     # Reset this request now that we know how to auth
                     self.crawl_fetch(meth, path, params)
                     return
+                # find_auth failed
+                fail = True
                 self.current_request = this_req # Restore
 
         elif resp.status_code == 404:
@@ -1093,6 +1175,9 @@ class Crawler():
         '''
         Emulate guest, and explore all pages found
         '''
+        # Load OSI on first syscall
+        self.panda.ppp("syscalls2", "on_all_sys_enter")(self.on_first_syscall)
+
         self.do_queue(self.start_url)
 
         # Start emulation in main thread
