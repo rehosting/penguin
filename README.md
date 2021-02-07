@@ -66,3 +66,14 @@ This is implemented by a simple expert-knowledge system. For each web server we 
 
 ### PANData?
 It's like `POSTDATA`, but with some more PANDA!
+
+
+### Application Lifecycle - WIP
+1. Rehosting script setups on `on_init` function which registers rehosting
+hooks
+2. Rehosting script initializes `Crawler` object with panda, base URL, mount point, and init function.
+3. Rehosting script calls `.crawl()` on Crawler object.
+
+
+Crawler reverts to www snapshot
+Crawler waits for first WWW BB, enables OSI, and calls rehosting script's init fn.

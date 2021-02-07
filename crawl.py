@@ -2,7 +2,8 @@ import json
 import logging
 import os
 import re
-from queue import PriorityQueue
+#from queue import PriorityQueue
+from collections import deque
 from time import sleep
 from subprocess import check_output
 import urllib3
@@ -28,7 +29,10 @@ def make_abs(base, ref):
         return None
     else:
         base_dir = os.path.dirname("/"+base)
-        abs_ref =  os.path.abspath(base_dir + "/" + ref)
+        delim = "/"
+        if base_dir.endswith("/") or ref.startswith("/"):
+            delim = ""
+        abs_ref =  os.path.abspath(base_dir + delim + ref)
     return abs_ref
 
 def longestSubstringFinder(string1, string2):
@@ -48,9 +52,10 @@ def longestSubstringFinder(string1, string2):
 
 def get_calltree(panda, cpu):
     # Print the calltree to the current process
+
     proc = panda.plugins['osi'].get_current_process(cpu)
     if proc == panda.ffi.NULL:
-        logger.warning("Error determining current process")
+        print("Error determining current process")
         return
     procs = panda.get_processes_dict(cpu)
     chain = [{'name': panda.ffi.string(proc.name).decode('utf8', 'ignore'),
@@ -64,7 +69,7 @@ def is_child_of(panda, cpu, parent_names):
 
     proc = panda.plugins['osi'].get_current_process(cpu)
     if proc == panda.ffi.NULL:
-        logger.warning("Error determining current process")
+        print("Error determining current process")
         return
     procs = panda.get_processes_dict(cpu)
     chain = [{'name': panda.ffi.string(proc.name).decode('utf8', 'ignore'),
@@ -128,15 +133,14 @@ class Crawler():
         # maybe:
         # formfuzz.introspection.on_tree: Active process created by webserver or children
 
-        #self.s = StateTreeFilter('formfuzz.analyze') # enable to debug
         self.s = StateTreeFilter('crawl')
 
         # Queue management
-        self.crawl_queue = PriorityQueue(1000) # Prioritized queue of items to visit
+        self.crawl_queue = deque() # push right with append(), pop left with popleft()
         self.queued = [] # list of everything ever queued (tuples)
         self.queued_paths = [] # list of everything ever queued (url, method)
 
-        self.form_queue = PriorityQueue(1000) # Prioritized queue of forms to fuzz
+        self.form_queue = deque()
         self.queued_forms = [] # list of forms we've ever queued (action, method)
 
         self.crawl_results = {}  # path: (meth, url, params, result_code)
@@ -156,64 +160,65 @@ class Crawler():
 
         local_log = logging.getLogger('panda.crawler')
         self.logger = StateAdapter(local_log, {'state': self.s})
+        self.introspect_children = []
 
         # Debugging ONLY
+        # DEBUG: analyze forms
+        self.s.change_state('formfuzz.analyze')
+        import pickle
+        with open("form.pickle", "rb") as f:
+            self.form_queue = pickle.loads(f.read())
+
+        # DEBUG: creds and basedir
         self.www_auth = ("basic", "admin", "foo")
-        #self.start_url = "/safe/menubar.html"
-        self.start_url = "/safe/mactable.js"
-        #self.start_url = "/cgi-bin/quickcommit.cgi"
         self.basedir = "/var/www/" # TODO: dynamically figure this out
 
-        # DEBUG FORM
-        #self.form_queue.put_nowait((40, ('POST', '/cgi-bin/alarmcommit.cgi', json.dumps({"commit_changes": {"type": "submit", "defaults": [""]}, "power_alarm": {"type": "checkbox", "defaults": ["1"]}, "ring_alarm_local": {"type": "checkbox", "defaults": ["1"]}, "ring_alarm_any": {"type": "checkbox", "defaults": ["1"]}, "link_1_": {"type": "checkbox", "defaults": ["1"]}, "link_2_": {"type": "checkbox", "defaults": ["1"]}, "link_3_": {"type": "checkbox", "defaults": ["1"]}, "link_4_": {"type": "checkbox", "defaults": ["1"]}, "link_5_": {"type": "checkbox", "defaults": ["1"]}, "link_6_": {"type": "checkbox", "defaults": ["1"]}, "link_7_": {"type": "checkbox", "defaults": ["1"]}, "link_8_": {"type": "checkbox", "defaults": ["1"]}, "link_9_": {"type": "checkbox", "defaults": ["1"]}, "NUMPORTS": {"type": "hidden", "defaults": ["10"]}}))))
-        '''
-        self.form_queue.put_nowait((40, ('POST', '/cgi-bin/quickcommit.cgi',
-            json.dumps({"gateway": {"type": "text", "defaults": ["none"]},
-                        "use_dhcp": {"type": "checkbox", "defaults": ["0"]},
-                        "ip_address": {"type": "text", "defaults": ["192.168.0.1/24"]},
-                        "netmask": {"type": "text", "defaults": ["255.255.255.0"]},
-                        }))))
-        '''
 
-        # PANDA callbacks registered within init using self.panda
+        # PANDA callbacks registered within init so they can access self
+        # without it being an argument
 
         @self.panda.queue_blocking
         def driver():
             # Do a task depending on current mode
 
-            while not self.crawl_queue.empty() or not self.form_queue.empty():
+            while len(self.crawl_queue) > 0 or len(self.form_queue) > 0:
                 if self.s.state_matches('crawl'):
-                    if not self.crawl_queue.empty():
-                        (_, (meth, page))  = self.crawl_queue.get()
+                    if len(self.crawl_queue):
+                        (meth, page)  = self.crawl_queue.popleft()
+                        self.logger.info("Fetching %s (%d in queue)", page, len(self.crawl_queue))
                         self.crawl_fetch(meth, page)
                     else:
                         # Exhaused crawl queue, switch to form fuzzing
                         # (if both queues are empty, loop terminates)
-                        self.set_mode('formfuzz.analyze')
+                        self.s.change_state('formfuzz.analyze')
                         self.logger.info("Switching to form fuzzing")
+                        """
                         # DEBUG SAVE QUEUE
                         import pickle
                         try:
-                            with open("form.pickle", "w") as f:
+                            with open("form.pickle", "wb") as f:
                                 pickle.dump(self.form_queue, f)
                         except Exception as e:
                             print("ERROR PICKLING:", e)
+                        """
 
                 elif self.s.state_matches('formfuzz.analyze'):
-                    if not self.form_queue.empty():
-                        (_, (meth, page, params_j))  = self.form_queue.get()
+                    if len(self.form_queue):
+                        self.logger.info("FORMFUZZ")
+                        (meth, page, params_j)  = self.form_queue.popleft()
                         params = json.loads(params_j)
                         self.fuzz_form(meth, page, params)
                     else:
                         # Exhaused form fuzz queue, switch to crawling
                         # (if both queues are empty, loop terminates)
-                        self.set_mode('crawl')
+                        self.s.change_state('crawl')
                         self.logger.info("Switching to crawling")
                 else:
                     # Driver is passive - a target analysis is ongoing (i.e., findauth)
                     sleep(1)
                     return None
 
+            self.logger.info("END")
             self.logger.info("Driver finished both queues")
             self.panda.end_analysis()
 
@@ -238,7 +243,7 @@ class Crawler():
             explore the directory being opened for other files to queue.
             Somewhere else we identify forms
             '''
-            self.logger.info(f"Observed first open of: {fname} by guest www")
+            #self.logger.info(f"Observed first open of: {fname} by guest www")
 
             self.observed_file_opens.add(fname)
 
@@ -417,7 +422,7 @@ class Crawler():
             try:
                 data = panda.read_str(cpu, self.decrypting_buf)[:self.decrypting_cnt]
             except ValueError:
-                self.logger.warn("Could not read buffer from 0x%x", self.decrypting_buf)
+                self.logger.debug("Could not read buffer from 0x%x", self.decrypting_buf)
                 return 0
 
             if self._parse_request(data):
@@ -492,6 +497,7 @@ class Crawler():
                 return
 
             if is_child_of(self.panda, cpu, self.www_procs):
+
                 proc = panda.plugins['osi'].get_current_process(cpu)
                 pname = self.panda.ffi.string(proc.name).decode()
 
@@ -549,6 +555,7 @@ class Crawler():
             if rp == self.panda.ffi.NULL:
                 self.logger.warn("Syscall info (RP) null") # Unlikely
                 return
+
 
             proc = self.panda.plugins['osi'].get_current_process(cpu)
             if proc.pid not in self.introspect_children:
@@ -659,7 +666,10 @@ class Crawler():
             Registered as a hook to bypass auth by changing return value
             See call to panda.hook(...)(hook_return)
             '''
-            self.logger.debug("Bypassing auth")
+            if tb.pc not in self.hook_config:
+                # Outdated hook
+                return False
+            #self.logger.info(f"Bypassing auth at 0x{tb.pc:x}")
             self.panda.arch.set_reg(cpu, "r0", self.hook_config[tb.pc]) # ret val
             self.panda.arch.set_reg(cpu, "ip", self.panda.arch.get_reg(cpu, "lr"))
             return True
@@ -691,6 +701,7 @@ class Crawler():
                         offset = self._find_offset("mod_auth.so", "http_auth_basic_check")
                         hook_addr = mapping.base + offset
                         self.hook_config[hook_addr] = 1 # Want to return 1
+                        self.logger.warn("AUTH HOOK: 0x%x", hook_addr)
                         break
 
             if hook_addr is None:
@@ -771,10 +782,10 @@ class Crawler():
 
                 if self.parse_req_content_len is not None:
                     # Expecting postdata
-                    self.logger.debug("Recv'd headers: %s", self.parse_req_headers)
+                    self.logger.info("Recv'd headers: %s", self.parse_req_headers)
                 else:
                     # Not expecting postdata, all done
-                    self.logger.debug("Recv'd request: %s", self.parse_req_headers)
+                    self.logger.info("Recv'd request: %s", self.parse_req_headers)
                     done = True
 
         if not self.parse_req_in_headers:
@@ -784,7 +795,7 @@ class Crawler():
             self.parse_req_postdata += data
 
             if len(self.parse_req_postdata) >= self.parse_req_content_len:
-                self.logger.debug("Recv'd POSTDATA: %s", self.parse_req_postdata)
+                self.logger.info("Recv'd POSTDATA: %s", self.parse_req_postdata)
                 done = True
 
         if done:
@@ -822,16 +833,37 @@ class Crawler():
 
     def reset_snap(self):
         '''
-        Unload OSI, revert snapshot, then setup OSI to reload.
-        '''
-        self.panda.unload_plugin("osi_linux")
-        self.panda.unload_plugin("osi")
+        Revert snapshot and ensure WWW is up. Reset hooks
 
+        Should be called in blocking thread
+        '''
+        # TODO: Can we directly interact with monitor through a new panda api fn?
+        # or is the issue here not snapshots?
+
+        # ISSUE IS OSI not working post revert! - Fixed now?
+
+        # TODO: Why do hooks need to be reset on restore?
+        if len(self.hook_config):
+            #self.logger.warn("Clearing hooks")
+            self.bypassed_auth = False # No longer have hook
+            self.hook_config = {}
+
+        # Explicitly reset system, then do revert - maybe fix some network bugs?
+        #self.panda.run_monitor_cmd("system_reset")
         self.panda.revert_sync("www")
+
+        # Ensure after reset loading index works
+        valid_page = self._fetch("GET", self.start_url, retry=False)
+
+        if valid_page is None:
+            raise RuntimeError(f"Failed to connect to {self.start_url} even after revert")
+
+        valid_page.raise_for_status() # Should have 200
+        return valid_page
 
         # This is a bad hack - we can't disable and then re-enable PPP callbacks so
         # we just re-register it here
-        self.panda.ppp("syscalls2", "on_all_sys_enter")(self.on_first_syscall)
+        #self.panda.ppp("syscalls2", "on_all_sys_enter")(self.on_first_syscall)
 
     def fuzz_form(self, meth, page, params):
         # state == formfuzz.analyze
@@ -867,7 +899,7 @@ class Crawler():
                 if len(defaults) == 1:
                     these_params[normal_target] = defaults[0]
                 else:
-                    self.logger.warning("Multiple defaults TODO")
+                    self.logger.warning("Multiple defaults TODO: %s = %s", normal_target, str(defaults))
                     these_params[normal_target] = defaults[0]
 
             request_params.append(these_params)
@@ -913,6 +945,9 @@ class Crawler():
         Updates self.crawl_queue, self.queued, self.queued_paths
 
         '''
+        #self.logger.warn("DEBUG NOP in do_queue")
+        #return
+
         if not path:
             return
 
@@ -935,7 +970,7 @@ class Crawler():
         if method != "GET": prio = 0 # Highest
 
         if (method, path) not in self.queued:
-            self.crawl_queue.put_nowait((prio, (method, path))) # Raises exn if queue is full
+            self.crawl_queue.append((method, path)) # Raises exn if queue is full
             self.queued.append((method, path))
             self.queued_paths.append(path)
 
@@ -958,8 +993,7 @@ class Crawler():
         if (path, method) not in self.queued_forms:
             # TODO: What if we find additional fields later? Should merge if exists
             # but params are different
-            self.logger.warning("FORM QUEUE: %s", path)
-            self.form_queue.put_nowait((prio, (method, path, json.dumps(form['params'])))) # Raises exn if queue is full
+            self.form_queue.append((method, path, json.dumps(form['params'])))
             self.queued_forms.append((path, method))
 
     def parse_form(self, bs_form):
@@ -989,7 +1023,7 @@ class Crawler():
                 # Duplicate name - e.g., a set of radio buttons. Add to defaults
                 form['params'][name]['defaults'].append(field.get('value'))
 
-        abs_act = make_abs(self.current_request, bs_form.get('action'))
+        abs_act = make_abs(self.current_request, _strip_url(bs_form.get('action')))
         self.logger.info(f"Recording form that {form['method']}s to {abs_act}")
         self.do_form_queue(abs_act, form)
 
@@ -1020,7 +1054,8 @@ class Crawler():
                     # If we find any, queue them up. Could improve by grabbing params
                     self.do_queue(make_abs(self.current_request, match))
             else:
-                self.logger.warning(f"Parsing unsupported for non-HTML/JS ({ext}).")
+                #self.logger.warning(f"Parsing unsupported for non-HTML/JS ({ext}).")
+                pass
             return
 
         # It's HTML - parse with BS4
@@ -1077,14 +1112,15 @@ class Crawler():
     def _fetch(self, meth, path, params={}, retry=True):
         '''
         GET/POST with our auth tokens. Returns Requests object
-        If the connection fails and retry is set, we'll revert the guest and retry
+        If the connection fails and retry is set, we'll revert the guest
+        with self.reset_snap() and then retry
 
-        Note we explicitly close the connection to ensure sockets aren't reused(?)
+        Note we explicitly send Connection: close to ensure sockets aren't reused(?)
         '''
 
         url = _strip_url(self.domain + path)
 
-        self.logger.info("Fetching %s", url)
+        #self.logger.info("Fetching %s", url)
         if self.www_auth[0] is None:
             auth = None
         elif self.www_auth[0] == "basic":
@@ -1095,10 +1131,10 @@ class Crawler():
         try:
             if meth == "GET":
                 resp = requests.get( url, verify=False, auth=auth,
-                                    timeout=10, headers={'Connection':'close'})
+                                    timeout=20, headers={'Connection':'close'})
             elif meth == "POST":
                 resp = requests.post(url, verify=False, auth=auth, data=params,
-                                    timeout=10, headers={'Connection':'close'})
+                                    timeout=20, headers={'Connection':'close'})
             else:
                 raise NotImplementedError("Unsupported method:"+ meth)
         except (requests.exceptions.ConnectionError,
@@ -1110,14 +1146,13 @@ class Crawler():
             if not retry:
                 # We reset the guest so it's probably not an issue with guest state,
                 # the page is probably just broken
-                self.logger.error(f"Connection failed {e} and retries exhausted")
+                self.logger.error(f"Fetch failed to load {path} and retries exhausted")
                 return None
 
-            self.logger.warning(f"Reverting guest after connection failure ({e})")
+            self.logger.warning(f"Attempting revert & retry to confirm failure reaching {path}")
             self.reset_snap()
 
             return self._fetch(meth, path, params, retry=False) # Don't retry agian
-
         return resp
 
     def crawl_fetch(self, meth, path, params={}):
@@ -1129,46 +1164,52 @@ class Crawler():
         #self.logger.info(f"{meth} {path} (Queue contains {self.crawl_queue.qsize()})")
 
         self.current_request = path
-        resp = self._fetch(meth, path, params)
-        if resp is None:
-            self.current_request = None
-            return
-
         fail = False
-        if resp.status_code == 401:
-            self.logger.warning(f"Unauthenticated: {path}")
-            if not self.bypassed_auth:
-                this_req = self.current_request # Save current request in case we can't auth
-                self.current_request = None
-                self.bypassed_auth = True
-                if self.find_auth(path):
-                    self.logger.info("Bypassed authentication. Resuming crawl with discovered credentials.")
-                    # Reset this request now that we know how to auth
-                    self.crawl_fetch(meth, path, params)
-                    return
-                # find_auth failed
-                fail = True
-                self.current_request = this_req # Restore
 
-        elif resp.status_code == 404:
-            self.logger.warning(f"Missing file {path}")
+        resp = self._fetch(meth, path, params)
+
+        if resp is None:
             fail = True
-        elif resp.status_code == 500:
-            self.logger.warning(f"Server error: {path}")
-            fail = True
-        elif resp.status_code == 200:
-            fail = False
+            status = 408 # HTTP Timeout
         else:
-            self.logger.error(f"Unhandled status: {resp.status_code}")
+            status = resp.status_code
 
-        # TODO: trim anything after # if present
+            if status == 401:
+                self.logger.warning(f"Unauthenticated: {path}")
+                if not self.bypassed_auth:
+                    this_req = self.current_request # Save current request in case we can't auth
+                    self.current_request = None
+                    self.bypassed_auth = True # True indicates we attempted
+                    if self.find_auth(path):
+                        self.logger.info("Bypassed authentication. Resuming crawl with discovered credentials.")
+                        # Reset this request now that we know how to auth
+                        self.crawl_fetch(meth, path, params)
+                        return
+                    self.current_request = this_req # Restore
+
+                # find_auth failed or was previously setup and didn't work
+                fail = True
+
+            elif status == 404:
+                self.logger.warning(f"Missing file {path}")
+                fail = True
+            elif status == 500:
+                self.logger.warning(f"Server error: {path}")
+                fail = True
+            elif status == 200:
+                fail = False
+            else:
+                self.logger.error(f"Unhandled status: {status}")
+
         if path not in self.crawl_results:
-            self.crawl_results[path] = ((meth, path, params, resp.status_code))
+            self.crawl_results[path] = ((meth, path, params, status))
+        else:
+            print("Crawled path twice?", path)
 
+        # Must have current_reuqest when we go into scan_output
         assert self.current_request is not None
         if not fail:
             self.scan_output(resp.text, path)
-
         self.current_request = None
 
     def crawl(self):
