@@ -134,6 +134,8 @@ class StateTreeFilter:
         Note we accomplish this by dropping the last element in self.states
         (if one is present) and appending the new state.
         '''
+        #old_state = self.state()
+
         prefix = []
         if new_state.startswith('.') and len(self.states):
             prefix = self.states[-1]
@@ -145,6 +147,8 @@ class StateTreeFilter:
             self.states = self.states[:-1] + [prefix+self._parse(new_state)]
         else:
             self.states = [prefix+self._parse(new_state)]
+
+        #print(f"STATE CHANGE {old_state} -> {self.state()}")
 
     def state_filter(self, mode, default_ret=None):
         '''
