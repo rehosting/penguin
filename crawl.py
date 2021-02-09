@@ -36,42 +36,34 @@ def make_abs(base, ref):
         abs_ref =  os.path.abspath(base_dir + delim + ref)
     return abs_ref
 
-def longestSubstringFinder(string1, string2):
-	# From https://stackoverflow.com/a/42882629
+def longest_substr(string1, string2):
+    '''
+    Find longest substring between two strings.
+    From https://stackoverflow.com/a/42882629
+    '''
     answer = ""
     len1, len2 = len(string1), len(string2)
     for i in range(len1):
         for j in range(len2):
             lcs_temp=0
             match=''
-            while ((i+lcs_temp < len1) and (j+lcs_temp<len2) and string1[i+lcs_temp] == string2[j+lcs_temp]):
+            while ((i+lcs_temp < len1) and (j+lcs_temp<len2) and
+                    string1[i+lcs_temp] == string2[j+lcs_temp]):
                 match += string2[j+lcs_temp]
                 lcs_temp+=1
-            if (len(match) > len(answer)):
+            if len(match) > len(answer):
                 answer = match
     return answer
 
-def get_calltree(panda, cpu):
-    # Print the calltree to the current process
-
-    proc = panda.plugins['osi'].get_current_process(cpu)
-    if proc == panda.ffi.NULL:
-        print("Error determining current process")
-        return
-    procs = panda.get_processes_dict(cpu)
-    chain = [{'name': panda.ffi.string(proc.name).decode('utf8', 'ignore'),
-              'pid': proc.pid, 'parent_pid': proc.ppid}]
-    while chain[-1]['pid'] > 1 and chain[-1]['parent_pid'] in procs.keys():
-        chain.append(procs[chain[-1]['parent_pid']])
-    return " -> ".join(f"{item['name']} ({item['pid']})" for item in chain[::-1])
-
 def is_child_of(panda, cpu, parent_names):
-    # Return true IFF current_proc is or has a parent in parent_names
+    '''
+    Return true IFF current_proc is or has a parent in parent_names
+    '''
 
     proc = panda.plugins['osi'].get_current_process(cpu)
     if proc == panda.ffi.NULL:
         print("Error determining current process")
-        return
+        return False
     procs = panda.get_processes_dict(cpu)
     chain = [{'name': panda.ffi.string(proc.name).decode('utf8', 'ignore'),
               'pid': proc.pid, 'parent_pid': proc.ppid}]
@@ -104,8 +96,7 @@ def _strip_url(url):
 
     if meth:
         return meth + "://" + body
-    else:
-        return body
+    return body
 
 class Crawler():
     '''
@@ -154,6 +145,7 @@ class Crawler():
         self.observed_dir_accesses = set()
 
         self.bypassed_auth = False
+        self.decrypting = (None, None)
 
         self.www_auth = (None, None, None) # type, user, pass
         self.start_url = start_url
@@ -161,7 +153,12 @@ class Crawler():
 
         local_log = logging.getLogger('panda.crawler')
         self.logger = StateAdapter(local_log, {'state': self.s})
+
         self.introspect_children = []
+        self.formfuzz_fds = []
+        self.formfuzz_data = {}
+        self.formfuzz_url = ""
+        self.parse_req = False
 
         # Debugging ONLY
         # DEBUG: analyze forms
@@ -191,20 +188,10 @@ class Crawler():
 
         @self.panda.queue_blocking
         def driver():
-            # Do a task depending on current mode
-
-            '''
-            self.logger.error("JUST REVERTING")
-            for x in range(10):
-                self.reset_snap()
-
-            self.logger.error("Finished REVERTING")
-            self.panda.end_analysis()
-            '''
 
             while len(self.crawl_queue) > 0 or len(self.form_queue) > 0:
                 if self.s.state_matches('crawl'):
-                    if len(self.crawl_queue):
+                    if self.crawl_queue:
                         (meth, page)  = self.crawl_queue.popleft()
                         self.logger.info("Fetching %s (%d in queue)", page, len(self.crawl_queue))
                         self.crawl_one(meth, page)
@@ -224,7 +211,7 @@ class Crawler():
                         """
 
                 elif self.s.state_matches('formfuzz.analyze'):
-                    if len(self.form_queue):
+                    if self.form_queue:
                         #(meth, page, params_j)  = self.form_queue.popleft()
                         (meth, page, params_j)  = self.form_queue.pop()
                         params = json.loads(params_j)
@@ -252,8 +239,10 @@ class Crawler():
             Identify files opened by WWW during crawl
             '''
 
-            try: fname = self.panda.read_str(cpu, fname_ptr)
-            except ValueError: return
+            try:
+                fname = self.panda.read_str(cpu, fname_ptr)
+            except ValueError:
+                return
 
             if self._active_proc_name(cpu) not in self.www_procs:
                 return
@@ -316,7 +305,6 @@ class Crawler():
 
                     else:
                         self.logger.warn(f"Not a file not dir: {host_file}")
-                        pass
 
 
             # TODO: walk parent directories up to webroot and queue up additional files
@@ -465,8 +453,7 @@ class Crawler():
             ret_addr = self.panda.arch.get_reg(cpu, "lr")
 
             # If first SSL_read for this request - reset buffers
-            self.decrypting_buf = self.panda.arch.get_reg(cpu, "r1")
-            self.decrypting_cnt = self.panda.arch.get_reg(cpu, "r2")
+            self.decrypting = (self.panda.arch.get_reg(cpu, "r1"), self.panda.arch.get_reg(cpu, "r2"))
 
             self.panda.hook(ret_addr, kernel=False, asid=panda.current_asid(cpu))(self.decrypt_hook_ret)
 
@@ -476,20 +463,23 @@ class Crawler():
         #@self.s.state_filter("formfuzz.decrypt")
         def decrypt_hook_ret(cpu, tb, hook):
             hook.enabled = False # Disable
-            self.logger.debug("Hit decrypt ret hook")
 
             if not self.s.state_matches('formfuzz.decrypt'):
                 # Not sure why we're here, but it's faster to disable+bail
                 # than to filter
+                self.logger.warn("Entered decrypt_hook when in wrong state %s", self.s.stae())
                 return
 
-            if self.decrypting_cnt == 0:
+            (buf, cnt) = self.decrypting
+            self.decrypting = (None, None)
+
+            if not cnt or not buf: # cnt may be 0 or None. Either way, bail
                 return
 
             try:
-                data = panda.read_str(cpu, self.decrypting_buf)[:self.decrypting_cnt]
+                data = panda.read_str(cpu, buf)[:cnt]
             except ValueError:
-                self.logger.debug("Could not read buffer from 0x%x", self.decrypting_buf)
+                self.logger.warn("Could not read 0x%x bytes from buffer from 0x%x", cnt, buf)
                 return
 
             if self._parse_request(data):
@@ -498,9 +488,9 @@ class Crawler():
                 # about to be parsed
                 self.s.change_state("formfuzz.introspect")
                 # Should disable decrypt_hook somehow
+
             # if _parse_request returned false, we need to keep hooking to get more of this request
             # so we don't change states
-            return
 
         # forgive me for this terrible hack
         self.decrypt_hook_ret = decrypt_hook_ret
@@ -514,11 +504,9 @@ class Crawler():
             panda.disable_ppp("crawl_first_syscall")
             self.panda.load_plugin("hooks")
             self.panda.hook_symbol("libssl", "SSL_read")(self.decrypt_hook)
-            self.panda.hook_symbol("mod_auth", "http_auth_basic_check", kernel=False, 
+            self.panda.hook_symbol("mod_auth", "http_auth_basic_check", kernel=False,
                         cb_type="before_block_exec_invalidate_opt")(self.hook_auth_check)
-            #XXX: cb_type is ignored for hook_symbol
-
-            print("Hooks setup!\n")
+            #XXX: cb_type is ignored for hook_symbol - plugin currently changed to register as bbe_io
 
         @self.panda.ppp("syscalls2", "on_sys_read_return")
         @self.s.state_filter("formfuzz.send")
@@ -548,23 +536,16 @@ class Crawler():
             # otherwise we can run it here using this FD.
 
             if 'HTTP/1.1\r\n' in data: # Unencrypted - Just ignore it for now
-                self.logger.warning(f"{proc_name} may be reading unencrypted data - ignoring: %s", repr(data))
+                self.logger.warning(f"{proc_name} may be reading unencrypted"
+                                      " data - ignoring: %s", repr(data))
                 #self.s.change_state(".introspect")
                 #else: ...
 
-            if True: # Assume always encrypted...
-                # Encrypted - wait for decryption to happen before introspecting
-                self.logger.info(f"{proc_name} potentially reading encrypted traffic from FD{fd} - attempting decryption")
+            # Assume always encrypted for now.
+            # Encrypted - wait for decryption to happen before introspecting
+            #self.logger.info(f"{proc_name} potentially reading encrypted traffic from FD{fd} - attempting decryption")
 
-                '''
-                if not hasattr(self, 'decrypting_crypto') or not self.decrypting_crypto:
-                    # Dynamically find crypto library + hook if we haven't previously
-                    self.decrypt_addr = self.find_crypto_offset(cpu)
-                    assert(self.decrypt_addr is not None), "Failed to find decryptor"
-                    self.decrypting_crypto = True
-                '''
-
-                self.s.change_state(".decrypt")
+            self.s.change_state(".decrypt")
 
         ### formfuzz.introspect state
         # Here we analyze calls to execve (interesting),
@@ -589,11 +570,11 @@ class Crawler():
 
                 args = self._read_str_buf(cpu, argv_ptr)
                 cmd = " ".join(args)
-                #callers = get_calltree(self.panda, cpu)
                 #self.logger.warn("EXEC from %s %d: %s [%s]", pname, proc.pid, callers, cmd)
 
-                if False:
-                    self.logger.debug("WWW execs from %s: [%s]", pname, cmd)
+                # This is interesting, may want to bump priority level
+                self.logger.debug("WWW execs from %s: [%s]", pname, cmd)
+
                 self.introspect_children.append(proc.pid)
 
                 # Check if exec contains attacker-controlled data.
@@ -607,23 +588,10 @@ class Crawler():
                         continue
 
                     # slow :(
-                    common_str = longestSubstringFinder(attacker_data, cmd)
+                    common_str = longest_substr(attacker_data, cmd)
 
                     if len(common_str) >= 6:
                         self.logger.error(f"Potential attacker controlled data `{common_str}` (from `{attacker_key}={attacker_data}` page=`{self.formfuzz_url}`) in execve: {args}")
-
-
-            '''
-            else:
-                # DEBUG - off tree
-                proc = panda.plugins['osi'].get_current_process(cpu)
-                pname = self.panda.ffi.string(proc.name).decode()
-
-                args = self._read_str_buf(cpu, argv_ptr)
-                cmd = "  ".join(args)
-                callers = get_calltree(self.panda, cpu)
-                self.logger.info("Off-tree EXEC from %s: %s [%s]", pname, callers, cmd)
-            '''
 
         @self.panda.ppp("syscalls2", "on_all_sys_enter2")
         @self.s.state_filter("formfuzz")
@@ -651,6 +619,7 @@ class Crawler():
             if proc.pid not in self.introspect_children and pname not in self.www_procs:
                 return
 
+            # Log all syscalls issued by all child processes by uncommenting:
             #pname = self.panda.ffi.string(proc.name).decode()
             #cname = self.panda.ffi.string(call.name).decode()
             #self.logger.warn(f"Process {pname} issued syscall {cname}")
@@ -687,7 +656,7 @@ class Crawler():
                             continue
 
                         # slow :(
-                        common_str = longestSubstringFinder(attacker_data, str_val)
+                        common_str = longest_substr(attacker_data, str_val)
 
                         if len(common_str) >= 6:
                             cname = self.panda.ffi.string(call.name).decode()
@@ -732,29 +701,6 @@ class Crawler():
 
             # This is informative and useful for RE, but a pain for debugging
             #self.logger.info(f"{pname} write to {out} ({out_name_s}): {repr(data[:cnt])}")
-
-        #@self.panda.ppp("syscalls2", "on_sys_close_enter")
-        @self.s.state_filter("formfuzz.introspect")
-        def close_fd(cpu, pc, fd):
-            '''
-            WWW closes connection  - done with formfuzz.introspection
-            But sometimes there's more processing in the background
-            so let's leave our introspection running a little longer,
-            until we get the response back in fuzz_form()
-            '''
-
-            # XXX: Disabled. Socket we care about was getting closed before it should?
-            return
-
-            if fd not in self.formfuzz_fds:
-                return
-
-            proc_name = self._active_proc_name(cpu)
-
-            if proc_name in self.www_procs:
-                self.logger.warn(f"{proc_name} closed socket {fd}")
-                self.formfuzz_fds = [x for x in self.formfuzz_fds if x != fd]
-                #self.s.change_state(".analyze")
 
         def hook_auth_check(cpu, tb, hook):
             '''
@@ -807,7 +753,7 @@ class Crawler():
         at a time, this will manage that read and combine into a single buffer.
         Returns `True` if request is finished or `False` if additional data is expected
         '''
-        if not hasattr(self, "parse_req") or not self.parse_req:
+        if not self.parse_req:
             self.parse_req = True
             self.parse_req_buf         = ""   # Full buffer
             self.parse_req_in_headers  = True # before \r\n\r\n
@@ -896,7 +842,7 @@ class Crawler():
         # Do revert
         #print(self.panda.run_monitor_cmd("info network"))
         #self.logger.warning("Disconnect: %s", self.panda.run_monitor_cmd("set_link virtio-net-pci.0 off"))
-        self.panda.unload_plugin("dynamic_symbols")
+        #self.panda.unload_plugin("dynamic_symbols")
         self.logger.warning("Revert: %s", self.panda.revert_sync("www"))
         #self.logger.warning("Connect: %s", self.panda.run_monitor_cmd("set_link virtio-net-pci.0 on"))
 
@@ -937,7 +883,7 @@ class Crawler():
 
         # Switch to sending. Async activity will happen in various callbacks
         self.s.change_state('.send')
-        base = self._fetch(meth, page, params) # XXX If the very first request we sent needs auth and breaks the server, we'll have a bad time
+        base = self._fetch(meth, page, params)
 
         # Request finished. Should be in .introspect unless something went wrong. Move back to .analyze
         if not self.s.state_matches('formfuzz.introspect'):
@@ -952,7 +898,8 @@ class Crawler():
                 if self.find_auth(page, meth, params):
                     self.logger.info("Bypassed authentication. Resuming formfuzz with discovered credentials.")
                     # Retry with auth
-                    return self._fuzz_one(meth, page, params)
+                    self._fuzz_one(meth, page, params)
+                    return
 
         if base is None:
             self.logger.warn("Request failed")
@@ -989,12 +936,12 @@ class Crawler():
             return
         '''
 
-        if not len(params):
+        if len(params) == 0:
             self.logger.warning(f"No parameters on form to {page}")
             return
 
         # Values we try in every parameter - check for CLI injection and XSS
-        for fuzz_val in ["PANDA1PANDA ; `PANDA2PANDA`", "<pandascript>"]:
+        for input_idx, fuzz_val in enumerate(["PANDA1PANDA ; `PANDA2PANDA`", "<pandascript>"]):
             request_params = [] # [{param:value, ...}, ...]
 
             for fuzz_target in params.keys():
@@ -1013,47 +960,42 @@ class Crawler():
                         #print(normal_target)
 
                     if 'defaults' not in params[normal_target]:
-                        defaults = ['bbbb']
+                        defaults = []
                     else:
                         defaults = [x for x in params[normal_target]['defaults'] if x is not None]
 
+                    # Create reasonable default depending on type
                     if len(defaults) == 0:
                         elm_typ = params[normal_target]['type']
                         if elm_typ == 'text':
-                            these_params[normal_target] = "aaa"
+                            these_params[normal_target] = "BBBB"
                         elif elm_typ == 'file':
                             these_params[normal_target] = "AAAAAA"
                         elif elm_typ == 'hidden':
-                            these_params[normal_target] = "" # Hidden attr will be unset until fuzzed
+                            these_params[normal_target] = "" # Hidden attr will be unset until it's fuzz_target
                         else:
-                            raise RuntimeError(f"Unsupported default gen for {elm_typ}")
+                            self.logger.warning(f"Unsupported default gen for {elm_typ}")
+                            these_params[normal_target] = "1"
+                            #raise RuntimeError(f"Unsupported default gen for {elm_typ}")
 
                     elif len(defaults) == 1:
                         these_params[normal_target] = defaults[0]
 
                     elif len(defaults) > 1:
-                        #self.logger.warning("Multiple defaults TODO: %s = %s", normal_target, str(defaults))
-                        '''
-                        # Just take longest string
-                        longest_len = max([len(x) for x in defaults])
-                        longest = [x for x in defaults if len(x) == longest_len][0]
-                        these_params[normal_target] = longest
-                        '''
-                        # Select at random
+                        # Multiple defaults - select at random
                         these_params[normal_target] = random.choice(defaults)
-
 
                 request_params.append(these_params)
 
-            for idx, params in enumerate(request_params):
-                print()
+            for idx, param_dict in enumerate(request_params):
                 # XXX: Message is confusing, need to include fuzz_val loop
-                self.logger.warn("Fuzzing form at %s: request %d of %d. (%d forms remain)", page, idx, len(request_params), len(self.form_queue))
-                self._fuzz_one(meth, page, params)
+                this_idx   = len(request_params)*input_idx + idx
+                total_idx = len(request_params)*(input_idx+1)
+                self.logger.warn("Fuzzing form at %s: request %d of %d. (%d forms remain)", page, this_idx, total_idx, len(self.form_queue))
+                self._fuzz_one(meth, page, param_dict)
 
-                #if idx > 1:
-                #    self.logger.error("Debug: quit early")
-                #    return
+            # DEBUG: skip 2nd input
+            continue
 
 
     def do_queue(self, path, method="GET"):
@@ -1075,20 +1017,9 @@ class Crawler():
         if path in self.crawl_results.keys():
             #self.logger.warning(f"Skipping duplicate(?) request to {path}")
             return
-        else:
-            self.logger.debug(f"Queue {path}")
-
-        # Priority ranges from +100 to 0. Higher is less important
-        prio = 50
-
-        if path.endswith(".gif") or path.endswith(".jpg"): prio += 50
-        if path.endswith(".css") or path.endswith(".js"): prio += 40
-
-        if "help" in path: prio += 10
-        if "cgi-bin" in path: prio -= 40
-        if method != "GET": prio = 0 # Highest
 
         if (method, path) not in self.queued:
+            self.logger.debug(f"Queue {path}")
             self.crawl_queue.append((method, path)) # Raises exn if queue is full
             self.queued.append((method, path))
             self.queued_paths.append(path)
@@ -1105,9 +1036,6 @@ class Crawler():
 
         method = form['method']
         path = _strip_url(path)
-
-        # More parameters = more exciting
-        prio = 100 - len(form['params'].keys())
 
         if (path, method) not in self.queued_forms:
             # TODO: What if we find additional fields later? Should merge if exists
@@ -1131,7 +1059,8 @@ class Crawler():
 
         for field in bs_form.findAll('input'):
             name = field.get('name')
-            if not name: continue
+            if not name:
+                continue
 
             if name not in form['params']:
                 form['params'][name] = {
@@ -1192,7 +1121,7 @@ class Crawler():
         for form in soup.findAll('form'):
             self.parse_form(form)
 
-    def find_auth(self, path, meth='GET', params={}):
+    def find_auth(self, path, meth='GET', params=None):
         '''
         How do we log into this thing? Try a bunch of creds, methods until
         something works.
@@ -1207,6 +1136,8 @@ class Crawler():
         old_state = self.s.state()
         self.s.change_state('findauth')
         #self.logger.info("Attempting authentication bypass...")
+        if params is None:
+            params = {}
 
         # Username needs to be valid, try a bunch of common ones
         # Could parse /etc/passwd for more names to test
@@ -1239,7 +1170,7 @@ class Crawler():
         self.s.change_state(old_state)
         return False
 
-    def _fetch(self, meth, path, params={}, retries=1):
+    def _fetch(self, meth, path, params=None, retries=1):
         '''
         GET/POST with our auth tokens. Returns Requests object
         If the connection fails and retryies is set, we'll revert the guest
@@ -1258,8 +1189,9 @@ class Crawler():
         else:
             raise NotImplementedError("Unsupported auth:"+ self.www_auth[0])
 
-        #print("\nRequest:")
-        #print(url, auth, params)
+        if params is None:
+            params = {}
+
         try:
             if meth == "GET":
                 resp = requests.get( url, verify=False, auth=auth,
@@ -1299,7 +1231,7 @@ class Crawler():
         self.logger.info(f"{meth} resp from {path} took {resp.elapsed.total_seconds()}s")
         return resp
 
-    def crawl_one(self, meth, path, params={}):
+    def crawl_one(self, meth, path, params=None):
         '''
         Crawl a single from the webserver.
         Responsible for managing current_request to match the page being requested
@@ -1309,6 +1241,9 @@ class Crawler():
 
         self.current_request = path
         fail = False
+
+        if params is None:
+            params = {}
 
         resp = self._fetch(meth, path, params)
 
@@ -1375,3 +1310,5 @@ class Crawler():
                 page = self.crawl_results[page_name]
                 if page[3] == status:
                     print(f"\t {page[0]} {page[1]}")
+        #print("\nRequest:")
+        #print(url, auth, params)

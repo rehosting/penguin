@@ -75,9 +75,6 @@ def first_syscall(cpu, pc, callno):
     # when it mknod's the entry in /dev. 4=tty which is relatively inoffensive
     file_faker.replace_file("/proc/devices", FakeFile("4 dsa\n"))
 
-    # prints:
-    # handle_hook_return @ 0x6d4c2 for "http_auth_basic_check" in "mod_auth" @ 0xb6bc7910 ASID: 0x6d5d8000
-
 from crawl import Crawler
 c = Crawler(panda, "https://localhost:5443", mountpoint)
 
