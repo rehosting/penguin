@@ -134,7 +134,7 @@ class Crawler():
         # maybe:
         # formfuzz.introspection.on_tree: Active process created by webserver or children
 
-        self.s = StateTreeFilter('crawl', debug=True)
+        self.s = StateTreeFilter('crawl', debug=False) #enable to get state changes logged
 
         # Queue management
         self.crawl_queue = deque() # push right with append(), pop left with popleft()
@@ -333,7 +333,7 @@ class Crawler():
             returned_fd = self.panda.plugins['syscalls2'].get_syscall_retval(cpu)
             if returned_fd > 0:
                 self.formfuzz_fds.append(returned_fd)
-                self.logger.warn("Fuzzform accepted on socket. File descriptor %d",
+                self.logger.info("Fuzzform accepted on socket. File descriptor %d",
                                     returned_fd)
 
         # TODO: somehow lighttpd closes the network FD and then writes to it and closes it again
@@ -446,62 +446,67 @@ class Crawler():
 
 
         # Decryption hooks - in two parts - on start and on ret
-        @self.s.state_filter("formfuzz.decrypt", default_ret=0)
-        def decrypt_hook(cpu, tb):
-            #print(f"\nDECRYPT HOOK at 0x{self.decrypt_addr:x} (pc=0x{tb.pc:x})")
-            if tb.pc != self.decrypt_addr:
-                #print(f"\tMISMATCH")
-                # Outdated hook
-                return
-
+        @self.s.state_filter("formfuzz.decrypt")
+        def decrypt_hook(cpu, tb, hook):
             # SSL_read(Encrypted, char* decrypted, int num)
+            self.logger.debug("Hit decrypt hook")
             ret_addr = self.panda.arch.get_reg(cpu, "lr")
 
             # If first SSL_read for this request - reset buffers
-            if not hasattr(self, 'decrypting') or not self.decrypting:
-                self.decrypting = True
-                self.decrypting_buf = self.panda.arch.get_reg(cpu, "r1")
-                self.decrypting_cnt = self.panda.arch.get_reg(cpu, "r2")
+            self.decrypting_buf = self.panda.arch.get_reg(cpu, "r1")
+            self.decrypting_cnt = self.panda.arch.get_reg(cpu, "r2")
 
-            # XXX: Gets registered multiple times? Should use names and update if exists
-            # each time ret hook is triggered it should disable itself
-            self.panda.hook(ret_addr)(decrypt_ret_hook)
-
-            return 0
+            self.panda.hook(ret_addr, kernel=False, asid=panda.current_asid(cpu))(self.decrypt_hook_ret)
 
         # forgive me for this terrible hack
         self.decrypt_hook = decrypt_hook
 
-        # DEBUG
-        self.logger.error("DEBUG: directly hooking decrypt")
-        self.decrypt_addr = 0xb6f1229c
-        self.panda.hook(self.decrypt_addr)(self.decrypt_hook)
+        #@self.s.state_filter("formfuzz.decrypt")
+        def decrypt_hook_ret(cpu, tb, hook):
+            hook.enabled = False # Disable
+            self.logger.debug("Hit decrypt ret hook")
 
-        @self.s.state_filter("formfuzz.decrypt", default_ret=0)
-        def decrypt_ret_hook(cpu, tb):
-            if not hasattr(self, 'decrypting') or not self.decrypting:
-                # Need to disable this hook better
-                return 0
+            if not self.s.state_matches('formfuzz.decrypt'):
+                # Not sure why we're here, but it's faster to disable+bail
+                # than to filter
+                return
 
             if self.decrypting_cnt == 0:
-                return 0
+                return
 
             try:
                 data = panda.read_str(cpu, self.decrypting_buf)[:self.decrypting_cnt]
             except ValueError:
                 self.logger.debug("Could not read buffer from 0x%x", self.decrypting_buf)
-                return 0
+                return
 
             if self._parse_request(data):
                 # IDEA: Right as we enter formfuzz.introspect would be a good place
                 # to snapshot for fuzzing since we now have a plaintext buffer
                 # about to be parsed
                 self.s.change_state("formfuzz.introspect")
-                self.decrypting = False
-
+                # Should disable decrypt_hook somehow
             # if _parse_request returned false, we need to keep hooking to get more of this request
             # so we don't change states
-            return 0
+            return
+
+        # forgive me for this terrible hack
+        self.decrypt_hook_ret = decrypt_hook_ret
+
+        @self.panda.ppp("syscalls2", "on_all_sys_enter")
+        def crawl_first_syscall(cpu, pc, callno):
+            '''
+            XXX: This is gross. Can't use dynamic_symbols until after OSI is loaded.
+            Need a better way to defer this
+            '''
+            panda.disable_ppp("crawl_first_syscall")
+            self.panda.load_plugin("hooks")
+            self.panda.hook_symbol("libssl", "SSL_read")(self.decrypt_hook)
+            self.panda.hook_symbol("mod_auth", "http_auth_basic_check", kernel=False, 
+                        cb_type="before_block_exec_invalidate_opt")(self.hook_auth_check)
+            #XXX: cb_type is ignored for hook_symbol
+
+            print("Hooks setup!\n")
 
         @self.panda.ppp("syscalls2", "on_sys_read_return")
         @self.s.state_filter("formfuzz.send")
@@ -538,12 +543,14 @@ class Crawler():
             if True: # Assume always encrypted...
                 # Encrypted - wait for decryption to happen before introspecting
                 self.logger.info(f"{proc_name} potentially reading encrypted traffic from FD{fd} - attempting decryption")
+
+                '''
                 if not hasattr(self, 'decrypting_crypto') or not self.decrypting_crypto:
                     # Dynamically find crypto library + hook if we haven't previously
                     self.decrypt_addr = self.find_crypto_offset(cpu)
                     assert(self.decrypt_addr is not None), "Failed to find decryptor"
                     self.decrypting_crypto = True
-                    self.panda.hook(self.decrypt_addr)(decrypt_hook)
+                '''
 
                 self.s.change_state(".decrypt")
 
@@ -737,71 +744,19 @@ class Crawler():
                 self.formfuzz_fds = [x for x in self.formfuzz_fds if x != fd]
                 #self.s.change_state(".analyze")
 
-        def hook_return(cpu, tb):
+        def hook_auth_check(cpu, tb, hook):
             '''
             Registered as a hook to bypass auth by changing return value
-            See call to panda.hook(...)(hook_return)
             '''
-            #print(f"\nAUTH RET HOOK at 0x{self.auth_hook:x} (pc=0x{tb.pc:x})")
-            if tb.pc != self.auth_hook:
-                # Outdated hook
-                #print(f"\tMISMATCH")
-                return False
-            #self.logger.info(f"Bypassing auth at 0x{tb.pc:x}")
+            ret = self.panda.arch.get_reg(cpu, "lr")
+            self.logger.debug("Change auth at 0x%x and ret to 0x%x", tb.pc, ret)
             self.panda.arch.set_reg(cpu, "r0", 1) # TODO: parameterize this return value
-            self.panda.arch.set_reg(cpu, "ip", self.panda.arch.get_reg(cpu, "lr"))
-            return True
+            self.panda.arch.set_reg(cpu, "ip", ret)
+
+            return True # invalidate bb
 
         # forgive me for this terrible hack
-        self.hook_return = hook_return
-
-        # DEBUG ONLY
-        self.logger.error("DEBUG: directly hooking auth")
-        self.auth_hook = 0xb6bc7910
-        self.panda.hook(self.auth_hook)(self.hook_return)
-
-        @self.panda.cb_asid_changed(enabled=False)
-        @self.s.state_filter("findauth", default_ret=0)
-        def findauth_hook(cpu, old_asid, new_asid):
-            '''
-            When WWW is next running, scan memory and find auth fn to hook
-            '''
-
-            proc_name = self._active_proc_name(cpu)
-
-            if proc_name not in self.www_procs:
-                return 0
-
-            # Scan memory for loaded authentication libraries and hook
-            # to always auth valid users
-
-            # Supported auth bypasses:
-            #   1) lighttpd 1.4
-            #   ... that's it for now.
-
-            hook_addr = None
-            for mapping in panda.get_mappings(cpu):
-                if mapping.name != panda.ffi.NULL:
-                    name = panda.ffi.string(mapping.name).decode()
-                    if name == "mod_auth.so":
-                        offset = self._find_offset("mod_auth.so", "http_auth_basic_check")
-                        hook_addr = mapping.base + offset
-                        self.auth_hook = hook_addr
-                        self.logger.info("Auth hook at 0x%x", hook_addr)
-                        break
-
-            if hook_addr is None:
-                self.logger.warning("No auth library found to hook")
-            else:
-                self.logger.debug("Found auth library to hook")
-                self.panda.hook(hook_addr)(hook_return)
-
-            self.panda.disable_callback('findauth_hook')
-
-            return 0
-
-
-
+        self.hook_auth_check = hook_auth_check
 
     ################################## / end of init
 
@@ -902,6 +857,7 @@ class Crawler():
         return int("0x"+offset, 16)
 
 
+    """
     def find_crypto_offset(self, cpu):
         '''
         Search currently loaded libraries for crypto (TODO parameterize for other libs)
@@ -915,6 +871,7 @@ class Crawler():
                     self.logger.debug("Found SSL_read at: 0x%x", mapping.base+offset)
                     return mapping.base + offset
         return None
+    """
 
     ############## / end of helpers
 
@@ -930,7 +887,7 @@ class Crawler():
         '''
         if self.auth_hook is not None:
             self.logger.warning("Re-registering auth hooks")
-            self.panda.hook(self.auth_hook)(self.hook_return)
+            self.panda.hook(self.auth_hook)(self.hook_auth_check)
 
         if self.decrypt_addr is not None:
             self.logger.warning("Re-registering decrypt hooks")
@@ -993,7 +950,7 @@ class Crawler():
                 self.logger.warn(f"Reflected parameter value {name}: {param}")
 
         # Now switch back to formfuzz.analyze until we send next request
-        print("\nREQUEST RESPONSE:", repr(base.text))
+        #print("\nREQUEST RESPONSE:", repr(base.text))
 
     def fuzz_form(self, meth, page, params):
         # state == formfuzz.analyze
@@ -1010,9 +967,11 @@ class Crawler():
             params = {name: {type: foo, defaults: [1,2]}, ...}
         '''
 
+        '''
         if 'quickcommit' not in page:
             self.logger.warn("Debug: skip %s", page)
             return
+        '''
 
         if not len(params):
             self.logger.warning(f"No parameters on form to {page}")
@@ -1072,6 +1031,7 @@ class Crawler():
 
             for idx, params in enumerate(request_params):
                 print()
+                # XXX: Message is confusing, need to include fuzz_val loop
                 self.logger.warn("Fuzzing form at %s: request %d of %d. (%d forms remain)", page, idx, len(request_params), len(self.form_queue))
                 self._fuzz_one(meth, page, params)
 
@@ -1232,10 +1192,6 @@ class Crawler():
         self.s.change_state('findauth')
         #self.logger.info("Attempting authentication bypass...")
 
-        if self.auth_hook is None:
-            #self.logger.info("Enable findauth hook")
-            self.panda.enable_callback('findauth_hook')
-
         # Username needs to be valid, try a bunch of common ones
         # Could parse /etc/passwd for more names to test
         basic_users = ["admin", "user", "cli", "root", "test", "dev"]
@@ -1299,6 +1255,9 @@ class Crawler():
                 requests.exceptions.ConnectTimeout,
                 requests.exceptions.ReadTimeout) as e:
 
+            #self.logger.error("DEBUG QUIT")
+            #self.panda.end_analysis()
+
             # Something went wrong. Just revert guest and retry
             # If that fails, log and return None
             if not retry:
@@ -1315,6 +1274,7 @@ class Crawler():
             self.reset_snap()
 
             return self._fetch(meth, path, params, retry=False) # Don't retry agian
+
         return resp
 
     def crawl_one(self, meth, path, params={}):

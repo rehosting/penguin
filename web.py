@@ -43,6 +43,17 @@ panda.set_os_name("linux-32-debian.4.9.99")
 panda.load_plugin("callstack_instr", {"stack_type": "asid"})
 panda.load_plugin("syscalls2", {"load-info": True})
 
+from subprocess import check_output
+def find_offset(libname, func_name):
+    '''
+    Find offset of a symbol in a given executable
+    '''
+    fs_bin = check_output(f"find {mountpoint} -name {libname}",
+                            shell=True).strip().decode('utf8', errors='ignore')
+    offset = check_output(f"objdump -T {fs_bin} | grep {func_name}",
+                        shell=True).decode('utf8', errors='ignore').split(" ")[0]
+    return int("0x"+offset, 16)
+
 @panda.ppp("syscalls2", "on_all_sys_enter")
 def first_syscall(cpu, pc, callno):
     panda.disable_ppp("first_syscall")
@@ -64,6 +75,11 @@ def first_syscall(cpu, pc, callno):
     # when it mknod's the entry in /dev. 4=tty which is relatively inoffensive
     file_faker.replace_file("/proc/devices", FakeFile("4 dsa\n"))
 
+    # prints:
+    # handle_hook_return @ 0x6d4c2 for "http_auth_basic_check" in "mod_auth" @ 0xb6bc7910 ASID: 0x6d5d8000
+
 from crawl import Crawler
 c = Crawler(panda, "https://localhost:5443", mountpoint)
-c.crawl()
+
+
+panda.run()
