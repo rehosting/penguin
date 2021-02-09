@@ -1,39 +1,26 @@
 PANData
 ====
 
-```
-Lifecycle of a guest web application
-Kernel:
-Parse packets from NIC, identify userspace FDs to send to
-
-Webserver main:
-sock_fd = create_socket(port)->bind(sock_fd)->listen(sock_fd)->new_fd = accept(sock_fd)
-
-Webserver worker (thread):
-Validate HTTP request: recv(new_fd). Identify requested file from path, compare to config rules to map to host path and to handle auth requirements. Auth validation.
-
-IF STATIC:
-  Read requested file (if allowed), write back to FD with send(new_fd)
-
-IF DYNAMIC:
-  Execute binary or interpreter on script. Varies per format (cgi-bin, python, php, etc)
-  Input via environment and stdio. Output returned via stdout
-
-
-```
-
 # Idea
-Two-pronged approach to exploring attack surface of a web application.
-As we identify new pages/forms/requests to make, add to a queue.
-Requests are processed from the queue until none are left.
+Gray-box fuzzing of whole-system web applications. Start at a given page, queue up crawling of all href/src attributes we see.
+While we crawl, analyze how the guest maps our requests into the filesystem. Use ground truth FS knowledge to populate queue
+with additional pages to visit.  During crawling, record all forms observed - action, method, parameters and default values.
 
-The queue is initially populated with `index.html`
+Once crawl-queue is exhausted, begin fuzzing forms.
+For each form we see, mutate each parameter.
+Using PANDA's introspection (in particular, `OSI`, `hooks` and `dynamic_symbols`) we drive a state machine
+around each fuzzed request we send. This lets us identify precisely when the request is fully decrypted, at which point we begin a detailed analysis of how
+the guest responds to the network request.
 
-## Thrust 1: Simple scraping
+While processing a request, we analyze all system calls to determine if attacker-controlled POSTdata is passed as a string. In particular, we examine arguments to `execve`. 
+We also search for reflected data in responses which may indicate the presense of cross site scripting bugs.
+
+## State 1: Crawling
+### 1a: Simple scraping
 Load the next page from the queue Identify `SRC`, `HREF` and `form` data to find other
 pages to load. Add identified pages to the queue. For forms, generate junk data for each parameter.
 
-## Thrust 2: FS Introspection
+### 1b: FS Introspection
 When the webserver loads a file - examine other files in that directory and generate appropriate
 paths to potentially access them. Add these to the queue.
 
@@ -41,39 +28,51 @@ For example, if a request to `https://server/parent/child.html` triggers an open
 for example `child2.html`, `child3.html`.
  Then rewrite each filename into a potentially-correct web-reachable path: `https://server/parent/child2.html`,  `https://server/parent/child3.html`.
 
- Record and report calls to execve.
- 
- (TODO) identify if submitted data is passed as args.
+![Crawl anddriver state machine](https://github.com/panda-re/pandata/blob/main/docs/crawl_driver.png?raw=true)
 
-# Auth Bypass
+## State 2: Fuzzing
+We issue a bunch of requests to each form and determine if the webserver launches any child processes (and if they launch children as well).
+We analyze all system call string arguments to compare with attacker-controlled data sent into the form.
+
+![Fuzz state machine](https://github.com/panda-re/pandata/blob/main/docs/fuzz.png?raw=true)
+
+
+
+# General techniques
+## Auth Bypass
 Using PANDA, we identify and bypass authentication functions so we can explore
 authenticated-only areas of the web application.
 
-This is implemented by a simple expert-knowledge system. For each web server we support, we encode the library function name for checking auth and desired return value. We dynamically hook this name and set the correct return value.
+This is implemented by a simple configuration powered by PANDA's `dynamic_symbols` plugin.
+For each web server we support, we simply provide the library and function names to hook and a desired return value.
+If a web server does not use a library function for hooking, the address of a function to bypass must be provided explicitly.
+When the guest executes the authentication logic, we immediately return with the specified result.
 
-# CGI-Bin IO
-`cgi-bin` scripts are driven by stdin and environment variables and generate data on stdout. Inputs and outputs are printed to the log.
-
-(TODO) Take snapshots before postdata is processed (after relevant `sys_read_return`) and use these for fuzzing cgi-bin programs.
+## Snapshot restore
+If the webserver fails to respond to a request (i.e., times out), we reset the guest to a snapshot and try again. If repeating the request still
+fails, we revert (again) and indicate the request as fatal.
 
 # Future work
-* Identify crashes
-* Meaningful presentation of results 
-* Integrations (export URLs for burp?)
+## Collect coverage information of child processes
+Identify how mutating form parameters affects the amount of code covered
+In particular, look at measuring coverage of CGI-BIN binaries and PHP scripts
+
+## Snapshot-based fuzzing
+We identify precisely when a guest has a decrypted buffer of attacker-controlled data.
+We could snapshot at this point and mutate the buffer to fuzz.
+
+## Identify crashes
+When child processes die it should be reported
+
+## Result presentation
+It's ugly right now.
+
+## Integrations
+Perhaps we should export URLs we identify to burp for fuzzing? Or maybe we just do it all on our own.
 
 # Supported webservers
-* Lighttpd with `mod_auth` (should work as long as it uses `http_auth_basic_check()`)
+Lighttpd with `mod_auth` (should work as long as it uses `http_auth_basic_check()`)
 
-### PANData?
+
+# PANData?
 It's like `POSTDATA`, but with some more PANDA!
-
-
-### Application Lifecycle - WIP
-1. Rehosting script setups on `on_init` function which registers rehosting
-hooks
-2. Rehosting script initializes `Crawler` object with panda, base URL, mount point, and init function.
-3. Rehosting script calls `.crawl()` on Crawler object.
-
-
-Crawler reverts to www snapshot
-Crawler waits for first WWW BB, enables OSI, and calls rehosting script's init fn.
