@@ -119,7 +119,7 @@ class Crawler():
         if not self.domain.endswith("/"):
             self.domain += "/"
 
-        self.hook_config = {} # pc: retval
+        self.auth_hook = None
 
         # State management
         # States:
@@ -134,7 +134,7 @@ class Crawler():
         # maybe:
         # formfuzz.introspection.on_tree: Active process created by webserver or children
 
-        self.s = StateTreeFilter('crawl')
+        self.s = StateTreeFilter('crawl', debug=True)
 
         # Queue management
         self.crawl_queue = deque() # push right with append(), pop left with popleft()
@@ -148,8 +148,7 @@ class Crawler():
 
         self.current_request = None # None or path we are currently requesting
 
-        # When WWW tries to open a file we analyze it and queue up other files with
-        # analyze_www_open. Only want to do once per file and directory
+        # When WWW tries to open a file we analyze it and queue up other files
         self.observed_file_opens  = set()
         self.observed_dir_accesses = set()
 
@@ -196,7 +195,7 @@ class Crawler():
                     if len(self.crawl_queue):
                         (meth, page)  = self.crawl_queue.popleft()
                         self.logger.info("Fetching %s (%d in queue)", page, len(self.crawl_queue))
-                        self.crawl_fetch(meth, page)
+                        self.crawl_one(meth, page)
                     else:
                         # Exhaused crawl queue, switch to form fuzzing
                         # (if both queues are empty, loop terminates)
@@ -314,11 +313,11 @@ class Crawler():
         # When we're in formfuzz.send and we see a sys_accept + sys_read
         # on the FD and it contains our data, switch to formfuzz.introspect
         # UGH does it do weird stuff like dup the FD directly to a cgi-bin binary?
-        self.formfuzz_fds = [] # Only supports exactly 1 FD for now
 
         @self.panda.ppp("syscalls2", "on_sys_accept4_return")
         @self.s.state_filter("formfuzz.send")
         def ffs_accept4(cpu, pc, sockfd, addr, addrlen, flags):
+            # TODO: should filter for WWW proc
             returned_fd = self.panda.plugins['syscalls2'].get_syscall_retval(cpu)
             if returned_fd > 0:
                 self.formfuzz_fds.append(returned_fd)
@@ -330,11 +329,51 @@ class Crawler():
         @self.panda.ppp("syscalls2", "on_sys_accept_return")
         @self.s.state_filter("formfuzz.send")
         def ffs_accept(cpu, pc, sockfd, addr, addrlen):
+            # TODO: should filter for WWW proc
             returned_fd = self.panda.plugins['syscalls2'].get_syscall_retval(cpu)
             if returned_fd > 0:
                 self.formfuzz_fds.append(returned_fd)
-                self.logger.debug("Fuzzform accepted on socket. File descriptor %d",
+                self.logger.warn("Fuzzform accepted on socket. File descriptor %d",
                                     returned_fd)
+
+        # TODO: somehow lighttpd closes the network FD and then writes to it and closes it again
+        # I can't find any syscalls explaining how it holds on to the FD or gets it again
+        # Is there a bug in syscalls?
+        '''
+        @self.panda.ppp("syscalls2", "on_all_sys_return2")
+        @self.s.state_filter("formfuzz")
+        def on_sc(cpu, pc, call, rp):
+            if call == self.panda.ffi.NULL or rp == self.panda.ffi.NULL:
+                return
+            if call.name == self.panda.ffi.NULL:
+                return
+            pname = self._active_proc_name(cpu)
+            #if pname != "lighttpd":
+            #    return
+
+            cname = self.panda.ffi.string(call.name).decode()
+            rv_raw = self.panda.arch.get_reg(cpu, 'r0')
+            rv = int(self.panda.ffi.cast(f'int', rv_raw))
+            self.logger.info(f"{pname} syscall: {cname} => {rv}")
+            for idx in range(call.nargs):
+                arg_name = call.argn[idx]
+                if arg_name == self.panda.ffi.NULL:
+                    continue
+                arg_s = self.panda.ffi.string(arg_name).decode()
+                if arg_s == 'fd':
+                    argsz = call.argsz[idx]
+                    if argsz == 4:
+                        cast_type = 'uint32_t'
+                    elif argsz == 8:
+                        cast_type = 'uint64_t'
+                    else:
+                        raise ValueError(f"Unhandled case for arg size {argsz}")
+
+                    arg_val = rp.args[idx]
+                    val = self.panda.ffi.cast(f'{cast_type}[{idx+1}]', arg_val)[idx]
+                    self.logger.info(f"\t arg {idx} fd = {val}")
+        '''
+
 
         # FD manipulation - unlikely to actually be used?
         '''
@@ -382,7 +421,7 @@ class Crawler():
                             print("Unhandled fnctl", cmd)
 
         @self.panda.ppp("syscalls2", "on_sys_dup_return")
-        @self.s.state_filter("formfuzz.send")
+        @self.s.state_filter("formfuzz")
         def ffs_dup(cpu, pc, src):
             if src in self.formfuzz_fds:
                 dst = self.panda.plugins['syscalls2'].get_syscall_retval(cpu)
@@ -390,23 +429,31 @@ class Crawler():
                 self.formfuzz_fds.append(dst)
 
         @self.panda.ppp("syscalls2", "on_sys_dup2_return")
-        @self.s.state_filter("formfuzz.send")
+        @self.s.state_filter("formfuzz")
         def ffs_dup2(cpu, pc, src, dst):
             if src in self.formfuzz_fds:
                 print("DUP TO", dst)
                 self.formfuzz_fds.append(dst)
 
         @self.panda.ppp("syscalls2", "on_sys_dup3_return")
-        @self.s.state_filter("formfuzz.send")
+        @self.s.state_filter("formfuzz")
         def ffs_dup3(cpu, pc, src, dst, flags):
             if src in self.formfuzz_fds:
                 print("DUP TO", dst)
                 self.formfuzz_fds.append(dst)
         '''
 
+
+
         # Decryption hooks - in two parts - on start and on ret
         @self.s.state_filter("formfuzz.decrypt", default_ret=0)
         def decrypt_hook(cpu, tb):
+            #print(f"\nDECRYPT HOOK at 0x{self.decrypt_addr:x} (pc=0x{tb.pc:x})")
+            if tb.pc != self.decrypt_addr:
+                #print(f"\tMISMATCH")
+                # Outdated hook
+                return
+
             # SSL_read(Encrypted, char* decrypted, int num)
             ret_addr = self.panda.arch.get_reg(cpu, "lr")
 
@@ -421,6 +468,14 @@ class Crawler():
             self.panda.hook(ret_addr)(decrypt_ret_hook)
 
             return 0
+
+        # forgive me for this terrible hack
+        self.decrypt_hook = decrypt_hook
+
+        # DEBUG
+        self.logger.error("DEBUG: directly hooking decrypt")
+        self.decrypt_addr = 0xb6f1229c
+        self.panda.hook(self.decrypt_addr)(self.decrypt_hook)
 
         @self.s.state_filter("formfuzz.decrypt", default_ret=0)
         def decrypt_ret_hook(cpu, tb):
@@ -443,11 +498,14 @@ class Crawler():
                 # about to be parsed
                 self.s.change_state("formfuzz.introspect")
                 self.decrypting = False
+
+            # if _parse_request returned false, we need to keep hooking to get more of this request
+            # so we don't change states
             return 0
 
         @self.panda.ppp("syscalls2", "on_sys_read_return")
         @self.s.state_filter("formfuzz.send")
-        def introspect_read(cpu, pc, fd, buf, cnt):
+        def read_after_send(cpu, pc, fd, buf, cnt):
             '''
             When accepted FD is read from check if its our data
 
@@ -457,9 +515,9 @@ class Crawler():
             if fd not in self.formfuzz_fds:
                 return
 
-            #assert len(self.formfuzz_fds)==1, "Unsupported: multiple accepted FDs"
-
             proc_name = self._active_proc_name(cpu)
+            if proc_name not in self.www_procs:
+                return
 
             try:
                 data = panda.read_str(cpu, buf)[:cnt]
@@ -472,24 +530,20 @@ class Crawler():
             # upon decryption (entering state formfuzz.decrypt)
             # otherwise we can run it here using this FD.
 
-            if 'HTTP' in data: # Unencrypted - go right to introspect
-                self.logger.info(f"{proc_name} reading unencrypted data")
-                self.logger.error("TODO: handle plaintext")
-                print("Plaintext request:", repr(data))
-                # TODO HANLDE THIS
-
-                self.s.change_state(".introspect")
-            #else:
+            if 'HTTP/1.1\r\n' in data: # Unencrypted - Just ignore it for now
+                self.logger.warning(f"{proc_name} may be reading unencrypted data - ignoring: %s", repr(data))
+                #self.s.change_state(".introspect")
+                #else: ...
 
             if True: # Assume always encrypted...
                 # Encrypted - wait for decryption to happen before introspecting
-                self.logger.debug(f"{proc_name} potentially reading encrypted traffic from FD{fd} - attempting decryption")
-                if not hasattr(self, 'decrypting_crypto'):
+                self.logger.info(f"{proc_name} potentially reading encrypted traffic from FD{fd} - attempting decryption")
+                if not hasattr(self, 'decrypting_crypto') or not self.decrypting_crypto:
                     # Dynamically find crypto library + hook if we haven't previously
-                    decrypt_addr = self.find_crypto_offset(cpu)
-                    assert(decrypt_addr is not None), "Failed to find decryptor"
+                    self.decrypt_addr = self.find_crypto_offset(cpu)
+                    assert(self.decrypt_addr is not None), "Failed to find decryptor"
                     self.decrypting_crypto = True
-                    self.panda.hook(decrypt_addr)(decrypt_hook)
+                    self.panda.hook(self.decrypt_addr)(decrypt_hook)
 
                 self.s.change_state(".decrypt")
 
@@ -518,8 +572,9 @@ class Crawler():
                 cmd = " ".join(args)
                 #callers = get_calltree(self.panda, cpu)
                 #self.logger.warn("EXEC from %s %d: %s [%s]", pname, proc.pid, callers, cmd)
-                # Maybe raise level, it's interesting
-                self.logger.debug("WWW execs from %s: [%s]", pname, cmd)
+
+                if False:
+                    self.logger.debug("WWW execs from %s: [%s]", pname, cmd)
                 self.introspect_children.append(proc.pid)
 
                 # Check if exec contains attacker-controlled data.
@@ -622,20 +677,25 @@ class Crawler():
 
 
         @self.panda.ppp("syscalls2", "on_sys_write_enter")
-        @self.s.state_filter("formfuzz")
+        @self.s.state_filter("formfuzz.introspect")
         def write_ent(cpu, pc, fd, buf, cnt):
             '''
-            Data written by child processes
+            Data written by www & children processes
+            '''
+
             '''
             proc_name = self._active_proc_name(cpu)
-
             if proc_name not in self.www_procs:
                 # TODO: check if pid or ppid matches www
 
                 callers = get_calltree(self.panda, cpu)
+            '''
 
+            # TODO: Test this - log for www + all children, not just CGIs
 
-            if ".cgi" not in proc_name: # only want cgi inputs
+            proc = self.panda.plugins['osi'].get_current_process(cpu)
+            pname = self.panda.ffi.string(proc.name).decode()
+            if proc.pid not in self.introspect_children and pname not in self.www_procs:
                 return
 
             try:
@@ -643,10 +703,18 @@ class Crawler():
             except ValueError:
                 return
 
-            out = [None, "STDOUT", "STDERR"][fd] if fd <= 2 else str(fd)
-            self.logger.info(f"{proc_name}:{out}: {repr(data[:cnt])}")
+            if pname in self.www_procs and fd in self.formfuzz_fds:
+                # Webserver is reading encrypted request, we already logged this before
+                return
 
-        @self.panda.ppp("syscalls2", "on_sys_close_enter")
+            out = [None, "STDOUT", "STDERR"][fd] if fd <= 2 else f"FD:{fd}"
+            out_name_ptr = self.panda.plugins['osi_linux'].osi_linux_fd_to_filename(cpu, proc, fd)
+            out_name_s = self.panda.ffi.string(out_name_ptr).decode(errors="ignore") if out_name_ptr != self.panda.ffi.NULL else "error"
+
+            # This is informative and useful for RE, but a pain for debugging
+            #self.logger.info(f"{pname} write to {out} ({out_name_s}): {repr(data[:cnt])}")
+
+        #@self.panda.ppp("syscalls2", "on_sys_close_enter")
         @self.s.state_filter("formfuzz.introspect")
         def close_fd(cpu, pc, fd):
             '''
@@ -656,13 +724,16 @@ class Crawler():
             until we get the response back in fuzz_form()
             '''
 
+            # XXX: Disabled. Socket we care about was getting closed before it should?
+            return
+
             if fd not in self.formfuzz_fds:
                 return
 
             proc_name = self._active_proc_name(cpu)
 
             if proc_name in self.www_procs:
-                self.logger.debug(f"{proc_name} closed network socket")
+                self.logger.warn(f"{proc_name} closed socket {fd}")
                 self.formfuzz_fds = [x for x in self.formfuzz_fds if x != fd]
                 #self.s.change_state(".analyze")
 
@@ -671,13 +742,23 @@ class Crawler():
             Registered as a hook to bypass auth by changing return value
             See call to panda.hook(...)(hook_return)
             '''
-            if tb.pc not in self.hook_config:
+            #print(f"\nAUTH RET HOOK at 0x{self.auth_hook:x} (pc=0x{tb.pc:x})")
+            if tb.pc != self.auth_hook:
                 # Outdated hook
+                #print(f"\tMISMATCH")
                 return False
             #self.logger.info(f"Bypassing auth at 0x{tb.pc:x}")
-            self.panda.arch.set_reg(cpu, "r0", self.hook_config[tb.pc]) # ret val
+            self.panda.arch.set_reg(cpu, "r0", 1) # TODO: parameterize this return value
             self.panda.arch.set_reg(cpu, "ip", self.panda.arch.get_reg(cpu, "lr"))
             return True
+
+        # forgive me for this terrible hack
+        self.hook_return = hook_return
+
+        # DEBUG ONLY
+        self.logger.error("DEBUG: directly hooking auth")
+        self.auth_hook = 0xb6bc7910
+        self.panda.hook(self.auth_hook)(self.hook_return)
 
         @self.panda.cb_asid_changed(enabled=False)
         @self.s.state_filter("findauth", default_ret=0)
@@ -705,8 +786,8 @@ class Crawler():
                     if name == "mod_auth.so":
                         offset = self._find_offset("mod_auth.so", "http_auth_basic_check")
                         hook_addr = mapping.base + offset
-                        self.hook_config[hook_addr] = 1 # Want to return 1
-                        self.logger.debug("Auth hook at 0x%x", hook_addr)
+                        self.auth_hook = hook_addr
+                        self.logger.info("Auth hook at 0x%x", hook_addr)
                         break
 
             if hook_addr is None:
@@ -801,7 +882,7 @@ class Crawler():
             self.parse_req_postdata += data
 
             if len(self.parse_req_postdata) >= self.parse_req_content_len:
-                self.logger.debug("Recv'd POSTDATA: %s", self.parse_req_postdata)
+                self.logger.info("Recv'd POSTDATA: %s", repr(self.parse_req_postdata))
                 done = True
 
         if done:
@@ -843,26 +924,18 @@ class Crawler():
 
         Should be called in blocking thread
         '''
-        # TODO: Can we directly interact with monitor through a new panda api fn?
-        # or is the issue here not snapshots?
-
-        # ISSUE IS OSI not working post revert! - Fixed now?
-
-        # TODO: Why do hooks need to be reset on restore?
-        if len(self.hook_config):
-            #self.logger.warn("Clearing hooks")
-            self.bypassed_auth = False # No longer have hook
-            self.hook_config = {}
-        
-        '''
-        # Maybe just re-hooking same addrs will work faster? - Doesn't work
-        if len(self.hook_config):
-            for hook_addr in self.hook_config.keys():
-                self.panda.hook(hook_addr)(hook_return)
-        '''
-
         # Do revert
         self.panda.revert_sync("www")
+
+        '''
+        if self.auth_hook is not None:
+            self.logger.warning("Re-registering auth hooks")
+            self.panda.hook(self.auth_hook)(self.hook_return)
+
+        if self.decrypt_addr is not None:
+            self.logger.warning("Re-registering decrypt hooks")
+            self.panda.hook(self.decrypt_addr)(self.decrypt_hook)
+        '''
 
         # Ensure after reset loading index works
         valid_page = self._fetch("GET", self.start_url, retry=False)
@@ -875,6 +948,52 @@ class Crawler():
 
         # This is a bad hack - we can't disable and then re-enable PPP callbacks so
         # we just re-register it here
+
+    def _fuzz_one(self, meth, page, params):
+        '''
+        Send a request to a single form with a single set of "fuzzed" params
+
+        Kicks off state machine for panda-based analysis
+        '''
+        # Send request -> change to formfuzz.send
+        # Another thread will transition from .send->.introspect
+        self.introspect_children = []
+        self.formfuzz_fds = []
+        self.formfuzz_data = params
+        self.formfuzz_url = page
+
+        # Switch to sending. Async activity will happen in various callbacks
+        self.s.change_state('.send')
+        base = self._fetch(meth, page, params) # XXX If the very first request we sent needs auth and breaks the server, we'll have a bad time
+
+        # Request finished. Should be in .introspect unless something went wrong. Move back to .analyze
+        if not self.s.state_matches('formfuzz.introspect'):
+            self.logger.warning(f"Failed to introspect on parsing - requested ended in state {self.s.state()}")
+        self.s.change_state('.analyze')
+
+        # Unlikely that we'd be here without bypassing auth previously, but just in case (and for debugging)
+        if base is not None and base.status_code == 401:
+            self.logger.warning(f"Unauthenticated: {page}")
+            if not self.bypassed_auth:
+                self.bypassed_auth = True # True indicates we attempted
+                if self.find_auth(page, meth, params):
+                    self.logger.info("Bypassed authentication. Resuming formfuzz with discovered credentials.")
+                    # Retry with auth
+                    return self._fuzz_one(meth, page, params)
+
+        if base is None:
+            self.logger.warn("Request failed")
+            return
+
+        for name, param in params.items():
+            if len(param) < 4:
+                # False positives
+                continue
+            if param in base.text: # XSS test
+                self.logger.warn(f"Reflected parameter value {name}: {param}")
+
+        # Now switch back to formfuzz.analyze until we send next request
+        print("\nREQUEST RESPONSE:", repr(base.text))
 
     def fuzz_form(self, meth, page, params):
         # state == formfuzz.analyze
@@ -891,8 +1010,9 @@ class Crawler():
             params = {name: {type: foo, defaults: [1,2]}, ...}
         '''
 
-        #if 'quickcommit' not in page:
-        #    return
+        if 'quickcommit' not in page:
+            self.logger.warn("Debug: skip %s", page)
+            return
 
         if not len(params):
             self.logger.warning(f"No parameters on form to {page}")
@@ -950,59 +1070,14 @@ class Crawler():
 
                 request_params.append(these_params)
 
-            self.logger.warn("Fuzzing form %s with %d permutations (%d forms remain)",
-                                page, len(request_params), len(self.form_queue))
-            for params in request_params:
-                # Send request -> change to formfuzz.send
-                # Another thread will transition from .send->.introspect
-                self.introspect_children = []
-                self.formfuzz_data = params
-                self.formfuzz_url = page
-                self.s.change_state('.send')
-                base = self._fetch(meth, page, params)
+            for idx, params in enumerate(request_params):
+                print()
+                self.logger.warn("Fuzzing form at %s: request %d of %d. (%d forms remain)", page, idx, len(request_params), len(self.form_queue))
+                self._fuzz_one(meth, page, params)
 
-                self.s.change_state('.analyze')
-
-                # Unlikely that we'd be here without bypassing auth previously, but just in case
-                if base is not None and base.status_code == 401:
-                    #self.logger.warning(f"Unauthenticated: {page}")
-                    if not self.bypassed_auth:
-                        self.bypassed_auth = True # True indicates we attempted
-                        if self.find_auth(page, meth, params):
-                            self.logger.debug("Bypassed authentication. Resuming formfuzz with discovered credentials.")
-                            # Retry with auth
-                            base = self._fetch(meth, page, params, retry=False)
-                            
-                if base is None:
-                    self.logger.warn("Request failed")
-                    continue
-
-                for name, param in params.items():
-                    if len(param) < 4:
-                        # False positives
-                        continue
-                    if param in base.text: # XSS test
-                        self.logger.warn(f"Reflected parameter value {name}: {param}")
-
-
-                # Request finished. Should have reached .introspect
-                # No longer true - we stay in .introspect after socket closes until
-                # we come back here to handle any (immediate) post-request processing
-                if not self.s.state_matches('formfuzz.analyze'):
-                    #self.logger.warning("Failed to introspect on parsing")
-                    self.s.change_state('.analyze')
-
-                # Now switch back to formfuzz.analyze until we send next request
-                #print("\nREQUEST RESPONSE:", repr(base.text))
-    def analyze_www_open(self, fname):
-        '''
-        Called after filter in on_sys_open_enter. If there's a current_request and
-        the webserver is opening a file, let's analyze the path and file contents.
-
-        Affects:
-            1) Identify new files to add to crawl queue
-            2) Mine files for parameters (TODO)
-        '''
+                #if idx > 1:
+                #    self.logger.error("Debug: quit early")
+                #    return
 
 
     def do_queue(self, path, method="GET"):
@@ -1097,7 +1172,7 @@ class Crawler():
 
     def scan_output(self, raw_html, path=None):
         '''
-        Analyze response from server (called by crawl_fetch).
+        Analyze response from server (called by crawl_one).
         Look for:
           Reference to other pages (possibly with url params?)
             - src, href, url
@@ -1157,7 +1232,7 @@ class Crawler():
         self.s.change_state('findauth')
         #self.logger.info("Attempting authentication bypass...")
 
-        if len(self.hook_config.keys()) == 0:
+        if self.auth_hook is None:
             #self.logger.info("Enable findauth hook")
             self.panda.enable_callback('findauth_hook')
 
@@ -1165,16 +1240,24 @@ class Crawler():
         # Could parse /etc/passwd for more names to test
         basic_users = ["admin", "user", "cli", "root", "test", "dev"]
         for user in basic_users:
-            if meth == 'GET':
-                resp = requests.get(self.domain+path, verify=False,
-                        params=params, auth=(user, 'PANDAPASS'))
-            elif meth == 'POST':
-                resp = requests.post(self.domain+path, verify=False,
-                        params=params, auth=(user, 'PANDAPASS'))
-            else:
-                raise ValueError(f"Unsupported method {meth}")
+            try:
+                if meth == 'GET':
+                    resp = requests.get(self.domain+path, verify=False,
+                            params=params, timeout=20, auth=(user, 'PANDAPASS'))
+                elif meth == 'POST':
+                    resp = requests.post(self.domain+path, verify=False,
+                            params=params, timeout=20, auth=(user, 'PANDAPASS'))
+                else:
+                    raise ValueError(f"Unsupported method {meth}")
+            except (requests.exceptions.ConnectionError,
+                    requests.exceptions.ConnectTimeout,
+                    requests.exceptions.ReadTimeout) as e:
+                resp = None
+                # Note that a timeout is OK - it used to 401, now it timed out - we probably just send a bad input to it
+                # but we did figure out auth
+                self.logger.warn(f"NEW PATH: {e}")
 
-            if resp.status_code != 401:
+            if resp is None or resp.status_code != 401:
                 #self.logger.info("Successfully bypassed authentication")
                 self.www_auth = ("basic", user, "PANDAPASS")
                 self.s.change_state(old_state)
@@ -1222,17 +1305,21 @@ class Crawler():
                 # We reset the guest so it's probably not an issue with guest state,
                 # the page is probably just broken
                 self.logger.error(f"Fetch failed to load {path} and retries exhausted")
+
+                # If the request we just submitted *broke* the whole thing, we have now sent it
+                # twice and broken the server twice. Need to reset a second time so subsequent requests are OK
+                self.reset_snap()
                 return None
 
-            #self.logger.warning(f"Attempting revert & retry to confirm failure reaching {path} {e}")
+            self.logger.warning(f"_fetch- attempting revert & retry to confirm failure reaching {path} {e}")
             self.reset_snap()
 
             return self._fetch(meth, path, params, retry=False) # Don't retry agian
         return resp
 
-    def crawl_fetch(self, meth, path, params={}):
+    def crawl_one(self, meth, path, params={}):
         '''
-        Fetch a page from the webserver.
+        Crawl a single from the webserver.
         Responsible for managing current_request to match the page being requested
         '''
 
@@ -1258,7 +1345,7 @@ class Crawler():
                     if self.find_auth(path):
                         self.logger.debug("Bypassed authentication. Resuming crawl with discovered credentials.")
                         # Reset this request now that we know how to auth
-                        self.crawl_fetch(meth, path, params)
+                        self.crawl_one(meth, path, params)
                         return
                     self.current_request = this_req # Restore
 
@@ -1279,7 +1366,7 @@ class Crawler():
         if path not in self.crawl_results:
             self.crawl_results[path] = ((meth, path, params, status))
         else:
-            print("Crawled path twice?", path)
+            self.logger.warning("Crawled path twice?", path)
 
         # Must have current_reuqest when we go into scan_output
         assert self.current_request is not None

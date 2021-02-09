@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import logging
+import inspect
 from functools import wraps
 
 class StateAdapter(logging.LoggerAdapter):
@@ -42,14 +43,15 @@ class StateTreeFilter:
     `change_state('.finished')`
     '''
 
-    def __init__(self, start_state=None):
+    def __init__(self, start_state=None, debug=False):
         '''
         States are tracked in a list of lists where the newest state is at the end of the list.
-        Within each element, individual sub-states are split apart. 
+        Within each element, individual sub-states are split apart.
         So self.states looks like [[least_recent, sub_state], [least_recent], ... [most_recent, recent_sub_state]]
         '''
         self.states = []
         self.delimiter = '.'
+        self.debug=debug
         if start_state:
             self.change_state(start_state)
 
@@ -96,7 +98,7 @@ class StateTreeFilter:
         Push the full current state to the state stack and switch to new_state.
 
         If new_state begins with a '.' treat it as a sub-state of current state.
-        E.g., from `apple` running `change_state('.eating')` would go to 
+        E.g., from `apple` running `change_state('.eating')` would go to
         `apple.eating`.
 
         Note current state is already stored as last element in self.states so
@@ -134,7 +136,8 @@ class StateTreeFilter:
         Note we accomplish this by dropping the last element in self.states
         (if one is present) and appending the new state.
         '''
-        #old_state = self.state()
+        if self.debug:
+            old_state = self.state()
 
         prefix = []
         if new_state.startswith('.') and len(self.states):
@@ -148,7 +151,9 @@ class StateTreeFilter:
         else:
             self.states = [prefix+self._parse(new_state)]
 
-        #print(f"STATE CHANGE {old_state} -> {self.state()}")
+        if self.debug:
+            frame = inspect.stack()[1]
+            print(f"STATE CHANGE [{old_state} -> {self.state()}] in {frame.function} at {frame.filename}:{frame.lineno}")
 
     def state_filter(self, mode, default_ret=None):
         '''
