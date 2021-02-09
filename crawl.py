@@ -112,10 +112,11 @@ class Crawler():
     A PANDA-powered web crawler. Analyzes syscalls and guest filesystem to identify attack surface
     '''
 
-    def __init__(self, panda, domain, mountpoint, start_url="index.html"):
+    def __init__(self, panda, domain, mountpoint, start_url="index.html", timeout=40):
         self.panda = panda
         self.mountpoint = mountpoint # Host path to guest rootfs
         self.domain = domain # proto+domain+port to connect to. E.g. https://localhost:5443
+        self.timeout = timeout
         if not self.domain.endswith("/"):
             self.domain += "/"
 
@@ -164,7 +165,9 @@ class Crawler():
 
         # Debugging ONLY
         # DEBUG: analyze forms
+        #panda.load_plugin("speedtest")
         self.s.change_state('formfuzz.analyze')
+        #self.s.change_state('debug')
         import pickle
         with open("form.pickle", "rb") as f:
             self.form_queue = pickle.loads(f.read())
@@ -189,6 +192,15 @@ class Crawler():
         @self.panda.queue_blocking
         def driver():
             # Do a task depending on current mode
+
+            '''
+            self.logger.error("JUST REVERTING")
+            for x in range(10):
+                self.reset_snap()
+
+            self.logger.error("Finished REVERTING")
+            self.panda.end_analysis()
+            '''
 
             while len(self.crawl_queue) > 0 or len(self.form_queue) > 0:
                 if self.s.state_matches('crawl'):
@@ -882,7 +894,11 @@ class Crawler():
         Should be called in blocking thread
         '''
         # Do revert
-        self.panda.revert_sync("www")
+        #print(self.panda.run_monitor_cmd("info network"))
+        #self.logger.warning("Disconnect: %s", self.panda.run_monitor_cmd("set_link virtio-net-pci.0 off"))
+        self.panda.unload_plugin("dynamic_symbols")
+        self.logger.warning("Revert: %s", self.panda.revert_sync("www"))
+        #self.logger.warning("Connect: %s", self.panda.run_monitor_cmd("set_link virtio-net-pci.0 on"))
 
         '''
         if self.auth_hook is not None:
@@ -894,8 +910,8 @@ class Crawler():
             self.panda.hook(self.decrypt_addr)(self.decrypt_hook)
         '''
 
-        # Ensure after reset loading index works
-        valid_page = self._fetch("GET", self.start_url, retry=False)
+        # Ensure after reset loading index works - don't recurse back into reset if it fails
+        valid_page = self._fetch("GET", self.start_url, retries=-1)
 
         if valid_page is None:
             raise RuntimeError(f"Failed to connect to {self.start_url} even after revert")
@@ -1199,10 +1215,10 @@ class Crawler():
             try:
                 if meth == 'GET':
                     resp = requests.get(self.domain+path, verify=False,
-                            params=params, timeout=20, auth=(user, 'PANDAPASS'))
+                            params=params, timeout=self.timeout, auth=(user, 'PANDAPASS'))
                 elif meth == 'POST':
                     resp = requests.post(self.domain+path, verify=False,
-                            params=params, timeout=20, auth=(user, 'PANDAPASS'))
+                            params=params, timeout=self.timeout, auth=(user, 'PANDAPASS'))
                 else:
                     raise ValueError(f"Unsupported method {meth}")
             except (requests.exceptions.ConnectionError,
@@ -1223,10 +1239,10 @@ class Crawler():
         self.s.change_state(old_state)
         return False
 
-    def _fetch(self, meth, path, params={}, retry=True):
+    def _fetch(self, meth, path, params={}, retries=1):
         '''
         GET/POST with our auth tokens. Returns Requests object
-        If the connection fails and retry is set, we'll revert the guest
+        If the connection fails and retryies is set, we'll revert the guest
         with self.reset_snap() and then retry
 
         Note we explicitly send Connection: close to ensure sockets aren't reused(?)
@@ -1242,13 +1258,15 @@ class Crawler():
         else:
             raise NotImplementedError("Unsupported auth:"+ self.www_auth[0])
 
+        #print("\nRequest:")
+        #print(url, auth, params)
         try:
             if meth == "GET":
                 resp = requests.get( url, verify=False, auth=auth,
-                                    timeout=20, headers={'Connection':'close'})
+                                    timeout=self.timeout, headers={'Connection':'close'})
             elif meth == "POST":
                 resp = requests.post(url, verify=False, auth=auth, data=params,
-                                    timeout=20, headers={'Connection':'close'})
+                                    timeout=self.timeout, headers={'Connection':'close'})
             else:
                 raise NotImplementedError("Unsupported method:"+ meth)
         except (requests.exceptions.ConnectionError,
@@ -1260,7 +1278,7 @@ class Crawler():
 
             # Something went wrong. Just revert guest and retry
             # If that fails, log and return None
-            if not retry:
+            if retries == 0:
                 # We reset the guest so it's probably not an issue with guest state,
                 # the page is probably just broken
                 self.logger.error(f"Fetch failed to load {path} and retries exhausted")
@@ -1268,13 +1286,17 @@ class Crawler():
                 # If the request we just submitted *broke* the whole thing, we have now sent it
                 # twice and broken the server twice. Need to reset a second time so subsequent requests are OK
                 self.reset_snap()
+
+            if retries <= 0:
+                # Retries -1 indicates we shouldn't retry
                 return None
 
-            self.logger.warning(f"_fetch- attempting revert & retry to confirm failure reaching {path} {e}")
+            self.logger.warning(f"_fetch timed out: attempting revert & retry to confirm failure reaching {path} {e}")
             self.reset_snap()
 
-            return self._fetch(meth, path, params, retry=False) # Don't retry agian
+            return self._fetch(meth, path, params, retries=0) # Don't retry agian
 
+        self.logger.info(f"{meth} resp from {path} took {resp.elapsed.total_seconds()}s")
         return resp
 
     def crawl_one(self, meth, path, params={}):

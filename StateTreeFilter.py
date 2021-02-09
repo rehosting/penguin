@@ -43,7 +43,7 @@ class StateTreeFilter:
     `change_state('.finished')`
     '''
 
-    def __init__(self, start_state=None, debug=False):
+    def __init__(self, start_state=None, debug=False, logger=None):
         '''
         States are tracked in a list of lists where the newest state is at the end of the list.
         Within each element, individual sub-states are split apart.
@@ -52,6 +52,12 @@ class StateTreeFilter:
         self.states = []
         self.delimiter = '.'
         self.debug=debug
+
+        if not logger:
+            logger = logging.getLogger('statetreefilter')
+
+        self.logger = logger
+
         if start_state:
             self.change_state(start_state)
 
@@ -153,7 +159,8 @@ class StateTreeFilter:
 
         if self.debug:
             frame = inspect.stack()[1]
-            print(f"STATE CHANGE [{old_state} -> {self.state()}] in {frame.function} at {frame.filename}:{frame.lineno}")
+            fname = frame.filename.split("/")[-1]
+            self.logger.info(f"[{old_state: >18} -> {self.state(): <18}] in {frame.function} at {fname}:{frame.lineno}")
 
     def state_filter(self, mode, default_ret=None):
         '''
