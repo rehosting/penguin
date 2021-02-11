@@ -61,6 +61,9 @@ In particular, look at measuring coverage of CGI-BIN binaries and PHP scripts
 We identify precisely when a guest has a decrypted buffer of attacker-controlled data.
 We could snapshot at this point and mutate the buffer to fuzz.
 
+## SOAP-fuzzing
+If we identify WSDLs or soap endpoints, we should use the WSDL to create valid messages and fuzz
+
 ## Identify crashes
 When child processes die it should be reported
 
@@ -76,3 +79,22 @@ Lighttpd with `mod_auth` (should work as long as it uses `http_auth_basic_check(
 
 # PANData?
 It's like `POSTDATA`, but with some more PANDA!
+
+Supported Webstacks
+====
+## Auth hooking
+lighttpd: `mod_auth.so`'s `http_auth_basic_check` should return 1
+apache2 - ret 1 from `ap_get_basic_auth_components` or `mod_authnz_fcgi`'s `ap_get_basic_auth_pw`  TODO
+
+## SSL Decryption
+lighttpd OR apache2 `libssl.so`'s `SSL_read` function places decrypted data in an argumnet buffer
+
+
+Target firmwares tested
+====
+## Stride Router
+Arm. Lighttpd with cgi-bin executables
+Two post-auth command-injection vulnerabilities identified
+
+## Firmadyne IID2: `DIR-300_fw_revb1_212wwb02_ALL_en_20120118.tar.gz`
+mipsel php

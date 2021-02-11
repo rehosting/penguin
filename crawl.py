@@ -103,7 +103,7 @@ class Crawler():
     A PANDA-powered web crawler. Analyzes syscalls and guest filesystem to identify attack surface
     '''
 
-    def __init__(self, panda, domain, mountpoint, start_url="index.html", timeout=40):
+    def __init__(self, panda, domain, mountpoint, start_url="index.html", timeout=60):
         self.panda = panda
         self.mountpoint = mountpoint # Host path to guest rootfs
         self.domain = domain # proto+domain+port to connect to. E.g. https://localhost:5443
@@ -167,7 +167,13 @@ class Crawler():
         #self.s.change_state('debug')
         import pickle
         with open("form.pickle", "rb") as f:
-            self.form_queue = pickle.loads(f.read())
+            #self.form_queue = pickle.loads(f.read())
+            fq = pickle.loads(f.read())
+
+        # Biggest to smallest
+        for x in sorted(fq, key=lambda k: len(k[2]), reverse=True):
+            self.form_queue.append(x)
+
         self.logger.error("Have %d targets in form_queue", len(self.form_queue))
         for (meth, page, params) in self.form_queue:
             params_dec = json.loads(params)
@@ -333,7 +339,7 @@ class Crawler():
             returned_fd = self.panda.plugins['syscalls2'].get_syscall_retval(cpu)
             if returned_fd > 0:
                 self.formfuzz_fds.append(returned_fd)
-                self.logger.info("Fuzzform accepted on socket. File descriptor %d",
+                self.logger.debug("Fuzzform accepted on socket. File descriptor %d",
                                     returned_fd)
 
         # TODO: somehow lighttpd closes the network FD and then writes to it and closes it again
@@ -467,7 +473,7 @@ class Crawler():
             if not self.s.state_matches('formfuzz.decrypt'):
                 # Not sure why we're here, but it's faster to disable+bail
                 # than to filter
-                self.logger.warn("Entered decrypt_hook when in wrong state %s", self.s.stae())
+                self.logger.warn("Entered decrypt_hook when in wrong state %s", self.s.state())
                 return
 
             (buf, cnt) = self.decrypting
@@ -782,19 +788,18 @@ class Crawler():
                 if self.parse_req_content_len is not None:
                     # Expecting postdata
                     self.logger.debug("Recv'd headers: %s", self.parse_req_headers)
-                    pass
                 else:
                     # Not expecting postdata, all done
                     self.logger.debug("Recv'd request: %s", self.parse_req_headers)
                     done = True
 
-        if not self.parse_req_in_headers:
+        if not done and not self.parse_req_in_headers:
             # Now we're in postdata - however data may overlap so clean it first
             if "\r\n\r\n" in data:
                 data = data.split("\r\n\r\n")[1]
             self.parse_req_postdata += data
 
-            if len(self.parse_req_postdata) >= self.parse_req_content_len:
+            if self.parse_req_content_len is not None and len(self.parse_req_postdata) >= self.parse_req_content_len:
                 self.logger.info("Recv'd POSTDATA: %s", repr(self.parse_req_postdata))
                 done = True
 
@@ -840,27 +845,17 @@ class Crawler():
         Should be called in blocking thread
         '''
         # Do revert
-        #print(self.panda.run_monitor_cmd("info network"))
-        #self.logger.warning("Disconnect: %s", self.panda.run_monitor_cmd("set_link virtio-net-pci.0 off"))
-        #self.panda.unload_plugin("dynamic_symbols")
-        self.logger.warning("Revert: %s", self.panda.revert_sync("www"))
-        #self.logger.warning("Connect: %s", self.panda.run_monitor_cmd("set_link virtio-net-pci.0 on"))
-
-        '''
-        if self.auth_hook is not None:
-            self.logger.warning("Re-registering auth hooks")
-            self.panda.hook(self.auth_hook)(self.hook_auth_check)
-
-        if self.decrypt_addr is not None:
-            self.logger.warning("Re-registering decrypt hooks")
-            self.panda.hook(self.decrypt_addr)(self.decrypt_hook)
-        '''
+        self.panda.revert_sync("www")
 
         # Ensure after reset loading index works - don't recurse back into reset if it fails
         valid_page = self._fetch("GET", self.start_url, retries=-1)
 
         if valid_page is None:
-            raise RuntimeError(f"Failed to connect to {self.start_url} even after revert")
+            # Try one more time with an increased timeout
+            self.timeout = self.timeout*2
+            valid_page = self._fetch("GET", self.start_url, retries=-1)
+            if valid_page is None:
+                raise RuntimeError(f"Failed to connect to {self.start_url} even after revert")
 
         valid_page.raise_for_status() # Should have 200
         return valid_page
@@ -873,6 +868,8 @@ class Crawler():
         Send a request to a single form with a single set of "fuzzed" params
 
         Kicks off state machine for panda-based analysis
+
+        return True if OK, false if page failed to load
         '''
         # Send request -> change to formfuzz.send
         # Another thread will transition from .send->.introspect
@@ -898,12 +895,11 @@ class Crawler():
                 if self.find_auth(page, meth, params):
                     self.logger.info("Bypassed authentication. Resuming formfuzz with discovered credentials.")
                     # Retry with auth
-                    self._fuzz_one(meth, page, params)
-                    return
+                    return self._fuzz_one(meth, page, params)
 
         if base is None:
             self.logger.warn("Request failed")
-            return
+            return False
 
         for name, param in params.items():
             if len(param) < 4:
@@ -914,6 +910,7 @@ class Crawler():
 
         # Now switch back to formfuzz.analyze until we send next request
         #print("\nREQUEST RESPONSE:", repr(base.text))
+        return True
 
     def fuzz_form(self, meth, page, params):
         # state == formfuzz.analyze
@@ -931,7 +928,7 @@ class Crawler():
         '''
 
         '''
-        if 'quickcommit' not in page:
+        if 'rmtcommit' not in page:
             self.logger.warn("Debug: skip %s", page)
             return
         '''
@@ -940,8 +937,10 @@ class Crawler():
             self.logger.warning(f"No parameters on form to {page}")
             return
 
+        page_fails = 0
+        page_oks = 0
         # Values we try in every parameter - check for CLI injection and XSS
-        for input_idx, fuzz_val in enumerate(["PANDA1PANDA ; `PANDA2PANDA`", "<pandascript>"]):
+        for input_idx, fuzz_val in enumerate(["PANDA1PANDA ; `PANDA2PANDA`", "<panda3pand>"]):
             request_params = [] # [{param:value, ...}, ...]
 
             for fuzz_target in params.keys():
@@ -992,7 +991,14 @@ class Crawler():
                 this_idx   = len(request_params)*input_idx + idx
                 total_idx = len(request_params)*(input_idx+1)
                 self.logger.warn("Fuzzing form at %s: request %d of %d. (%d forms remain)", page, this_idx, total_idx, len(self.form_queue))
-                self._fuzz_one(meth, page, param_dict)
+                if self._fuzz_one(meth, page, param_dict):
+                    page_oks += 1
+                else:
+                    # page has failed. If we've made more than 5 requests and more than half have failed, bail
+                    page_fails += 1
+                    if (page_oks + page_fails) > 5 and (page_fails > page_oks):
+                        self.logger.warn("Form at %s fails for majority of initial inputs. Skipping fuzzing", page)
+                        return
 
             # DEBUG: skip 2nd input
             continue
