@@ -11,6 +11,7 @@ import urllib3
 import requests
 from bs4 import BeautifulSoup
 import coloredlogs
+from pathlib import Path
 
 from StateTreeFilter import StateTreeFilter, StateAdapter
 
@@ -80,6 +81,9 @@ def _strip_url(url):
     Remove any redundant properties from URLs
 
     Remove duplicate /s and anything after #
+
+    Also remove anything after ? - TODO: get params might be part of form attack surface we want to fuzz
+    so maybe we should add these to the fuzz queue
     '''
 
     if "://" in url:
@@ -93,6 +97,10 @@ def _strip_url(url):
 
     if "#" in body:
         body = body.split("#")[0]
+
+    if "?" in body:
+        # TODO: maybe add to fuzz queue as a GET target?
+        body = body.split("?")[0]
 
     if meth:
         return meth + "://" + body
@@ -126,7 +134,7 @@ class Crawler():
         # maybe:
         # formfuzz.introspection.on_tree: Active process created by webserver or children
 
-        self.s = StateTreeFilter('crawl', debug=False) #enable to get state changes logged
+        self.s = StateTreeFilter('crawl', debug=True) #enable to get state changes logged
 
         # Queue management
         self.crawl_queue = deque() # push right with append(), pop left with popleft()
@@ -149,7 +157,7 @@ class Crawler():
 
         self.www_auth = (None, None, None) # type, user, pass
         self.start_url = start_url
-        self.www_procs = ['lighttpd']
+        self.www_procs = ['lighttpd', 'phpcgi', 'httpd'] # maybe httpd?
 
         local_log = logging.getLogger('panda.crawler')
         self.logger = StateAdapter(local_log, {'state': self.s})
@@ -161,6 +169,7 @@ class Crawler():
         self.parse_req = False
 
         # Debugging ONLY
+        '''
         # DEBUG: analyze forms
         #panda.load_plugin("speedtest")
         self.s.change_state('formfuzz.analyze')
@@ -183,16 +192,18 @@ class Crawler():
             #    print(param)
             #    print(params_dec[param])
             #    print(params_dec[param]['defaults'])
+        '''
 
         # DEBUG: creds and basedir
         self.www_auth = ("basic", "admin", "foo")
-        self.basedir = "/var/www/" # TODO: dynamically figure this out
+        #self.basedir = "/var/www/" # TODO: dynamically figure this out - LIGHTTPD test
+        self.basedir = "" # TODO: dynamically figure this out - PHP test
 
 
         # PANDA callbacks registered within init so they can access self
         # without it being an argument
 
-        @self.panda.queue_blocking
+        #@self.panda.queue_blocking
         def driver():
 
             while len(self.crawl_queue) > 0 or len(self.form_queue) > 0:
@@ -206,15 +217,13 @@ class Crawler():
                         # (if both queues are empty, loop terminates)
                         self.s.change_state('formfuzz.analyze')
                         self.logger.info("Switching to form fuzzing")
-                        """
                         # DEBUG SAVE QUEUE
                         import pickle
                         try:
-                            with open("form.pickle", "wb") as f:
+                            with open("form2.pickle", "wb") as f:
                                 pickle.dump(self.form_queue, f)
                         except Exception as e:
                             print("ERROR PICKLING:", e)
-                        """
 
                 elif self.s.state_matches('formfuzz.analyze'):
                     if self.form_queue:
@@ -245,6 +254,9 @@ class Crawler():
             Identify files opened by WWW during crawl
             '''
 
+            if self.current_request is None:
+                return # Shouldn't be here
+
             try:
                 fname = self.panda.read_str(cpu, fname_ptr)
             except ValueError:
@@ -265,55 +277,44 @@ class Crawler():
 
             self.observed_file_opens.add(fname)
 
+            #Bad logic - wanted for lighttpd, but not PHP
+            '''
             if fname.startswith("/etc/"): # Not a webserver
                 self.logger.warning(f"Ignoring WWW load of non-served(?) file {fname}")
                 return
+            '''
 
-            # Need to resolve mountpoint/fname
-            if fname.startswith("/"):
-                fname = fname[1:]
-            host_path = os.path.join(self.mountpoint, fname)
+            # Find common host root path between self.current_reuqest and the file we saw opened
+            # I.e., if requests is /a/b/c/d and fs request is root/c/d common path is root/c/d
+            path = _strip_url(self.current_request) # trim ?...#...
 
-            if not os.path.isfile(host_path):
-                self.logger.warning(f"File doesn't exist in FS at {host_path}")
+            www_components = self.current_request.split("/")[::-1] # /b/c -> [c,b]
+            fs_components = fname.replace(self.mountpoint, "").split("/")[::-1] # mountpoint/a/b/c -> [c,b,a]
+
+            common = []
+            for (www, fs) in zip(www_components, fs_components):
+                if www == fs:
+                    common.append(www)
+                else:
+                    break
+
+            common = "/".join(common[::-1])
+            # Now we have /b/c
+
+            if not len(common):
+                # No overlap - assume it's an unrelated request - i.e., we open /index.html guest opened /foo
                 return
 
-            # Current request is for /a/b and we see files /z/a/c, z/a/d - need to build URL: a/c, a/d
-            # First identify common path - e.g.,
-            # FS: /var/www/dir/page1.html       # FS: /var/www/page1.html
-            # WWW:        /dir/page0.html        # WWW:        /page0.html
+            # Subtract common from mountpoint to get common root
+            assert(fname.endswith(common)), f"Common path is {common} but {fname} doesn't end with it"
+            common_root = Path(self.mountpoint + "/" +  common.join(fname.split(common)[:-1]))
+            # Now we have mountpoint/a/ in common_root
 
-            host_dir_name = os.path.dirname(host_path)
-            guest_dir_name = host_dir_name.replace(self.mountpoint+"/", "")
+            for discovered_file in self._fs_crawl(common_root):
+                web_file = str(discovered_file).replace(str(common_root), "")
+                if web_file not in self.queued_paths:
+                    self.do_queue(web_file)
 
-            if guest_dir_name not in self.observed_dir_accesses:
-                self.observed_dir_accesses.add(guest_dir_name)
-                dir_files = os.listdir(host_dir_name)
-
-                for sibling_file in dir_files: # files or subdirs
-                    base_dir = os.path.abspath(os.path.dirname("/"+self.current_request))
-                    host_file = host_dir_name + "/" + sibling_file
-                    rel_file = base_dir + "/" + sibling_file.replace(self.basedir, "")
-                    rel_file = _strip_url(rel_file)
-
-                    if os.path.isfile(host_file):
-                        # sibling files - queue them all up
-                        if rel_file not in self.queued_paths:
-                            self.do_queue(rel_file)
-                    elif os.path.isdir(host_file):
-                        # Directory - queue up all files in the directory
-                        # Could go deeper and queue up in dir/sub/sub2/.../file
-                        subfiles = [x for x in os.listdir(host_file)
-                                       if os.path.isfile(host_file + "/" + x)]
-                        for subfile in subfiles:
-                            rel_subdir_file = rel_file +"/" + subfile
-                            self.do_queue(rel_subdir_file)
-
-                    else:
-                        self.logger.warn(f"Not a file not dir: {host_file}")
-
-
-            # TODO: walk parent directories up to webroot and queue up additional files
 
         ##### FORMFUZZ State machine in syscalls
         # When we're in formfuzz.send and we see a sys_accept + sys_read
@@ -501,6 +502,38 @@ class Crawler():
         # forgive me for this terrible hack
         self.decrypt_hook_ret = decrypt_hook_ret
 
+        '''
+        def httpd_auth(cpu, tb, hook):
+            # XXX all these registers are arch-specific, need to genericize
+            ret_addr = self.panda.arch.get_reg(cpu, "ra")
+            self.panda.arch.set_reg(cpu, "v0", 1)
+            self.panda.arch.set_pc(cpu, ret_addr)
+            self.logger.error("Hit HTTPD auth check, ret at 0x%x, return immediately with rv=1", ret_addr)
+            return True # invalidate
+
+            #self.panda.hook(ret_addr, kernel=False, asid=panda.current_asid(cpu))(self.auth_hook_ret)
+        # forgive me for this terrible hack
+        self.httpd_auth = httpd_auth
+        '''
+
+        def auth_hook_ret(cpu, tb, hook):
+            hook.enabled = False
+            old = self.panda.arch.get_reg(cpu, "v0")
+            self.logger.error("HTTPD auth check returns: %d", old)
+            self.panda.arch.set_reg(cpu, "v0", 1)
+            return True # Invalidate
+
+        self.auth_hook_ret = auth_hook_ret
+
+        '''
+        def test(cpu, tb, hook):
+            print("TESTING")
+            self.logger.error("TEST\n")
+        self.test = test
+        '''
+
+
+
         @self.panda.ppp("syscalls2", "on_all_sys_enter")
         def crawl_first_syscall(cpu, pc, callno):
             '''
@@ -510,9 +543,23 @@ class Crawler():
             panda.disable_ppp("crawl_first_syscall")
             self.panda.load_plugin("hooks")
             self.panda.hook_symbol("libssl", "SSL_read")(self.decrypt_hook)
-            self.panda.hook_symbol("mod_auth", "http_auth_basic_check", kernel=False,
-                        cb_type="before_block_exec_invalidate_opt")(self.hook_auth_check)
+            #self.panda.hook_symbol("mod_auth", "http_auth_basic_check", kernel=False,
+            #            cb_type="before_block_exec_invalidate_opt")(self.hook_auth_check)
+
             #XXX: cb_type is ignored for hook_symbol - plugin currently changed to register as bbe_io
+            
+            # HTTPD
+            # TODO why doesn't hook_symbol work here? Bc non lib?
+            #self.panda.hook_symbol("httpd", "webuserok")(self.testing)
+            # Address from ghidra, but we have symbols so it was easy
+            # Could add asid filter
+            #self.panda.hook(0x401e30, enabled=True, kernel=False,
+            #        cb_type="before_block_exec_invalidate_opt")(self.httpd_auth)
+
+            #self.panda.hook_symbol("libc", "strcmp")(self.test)
+            
+            #XXX TODO: the non 401-based auth login needs to actually fil out forms, not just send Basic
+
 
         @self.panda.ppp("syscalls2", "on_sys_read_return")
         @self.s.state_filter("formfuzz.send")
@@ -559,7 +606,7 @@ class Crawler():
         # close syscalls (to identify end)
 
         @self.panda.ppp("syscalls2", "on_sys_execve_enter")
-        @self.s.state_filter("formfuzz.introspect")
+        #@self.s.state_filter("formfuzz.introspect")
         def introspect_execve(cpu, pc, fname_ptr, argv_ptr, envp):
             '''
             When WWW responds to request, capture all execs.
@@ -570,7 +617,7 @@ class Crawler():
             except ValueError:
                 return
 
-            if is_child_of(self.panda, cpu, self.www_procs):
+            if True or is_child_of(self.panda, cpu, self.www_procs): # XXX DEBUG
                 proc = panda.plugins['osi'].get_current_process(cpu)
                 pname = self.panda.ffi.string(proc.name).decode()
 
@@ -579,7 +626,8 @@ class Crawler():
                 #self.logger.warn("EXEC from %s %d: %s [%s]", pname, proc.pid, callers, cmd)
 
                 # This is interesting, may want to bump priority level
-                self.logger.debug("WWW execs from %s: [%s]", pname, cmd)
+                #self.logger.info("WWW execs from %s: [%s]", pname, cmd)
+                self.logger.info("XXX execs from %s: [%s]", pname, cmd)
 
                 self.introspect_children.append(proc.pid)
 
@@ -722,6 +770,26 @@ class Crawler():
         # forgive me for this terrible hack
         self.hook_auth_check = hook_auth_check
 
+        self.dbg_procs = set()
+
+        self.dbg_ctr = 0
+
+        @self.panda.cb_before_block_exec(enabled=False)
+        def dump_maps(cpu, *args):
+            # Debug helper - print process mapping for WWW during findauth
+
+            name = self._active_proc_name(cpu)
+            if name not in self.www_procs:
+                return
+
+            for mapping in self.panda.get_mappings(cpu):
+                if mapping.name != self.panda.ffi.NULL:
+                    mapname = self.panda.ffi.string(mapping.name).decode()
+                    self.logger.error("Proc %s library %s at 0x%x", name, mapname, mapping.base)
+            self.panda.disable_callback("dump_maps")
+        
+
+
     ################################## / end of init
 
 
@@ -739,17 +807,17 @@ class Crawler():
         '''
 
         try:
-            ptr_buf = self.panda.virtual_memory_read(cpu, ptr, length)
+            ptr_buf = self.panda.virtual_memory_read(cpu, ptr, length, fmt='ptrlist')
         except ValueError:
             return []
 
         results = []
-        for read_ptr in self.panda.ffi.from_buffer("int[]", ptr_buf):
+        for read_ptr in ptr_buf:
             if read_ptr == 0: break
             try:
                 results.append(self.panda.read_str(cpu, read_ptr))
             except ValueError:
-                results.append(None)
+                results.append("Error")
 
         return results
 
@@ -820,23 +888,40 @@ class Crawler():
         return int("0x"+offset, 16)
 
 
-    """
-    def find_crypto_offset(self, cpu):
+    def _fs_crawl(self, root):
         '''
-        Search currently loaded libraries for crypto (TODO parameterize for other libs)
+        Given a directory (pathlib.Path), find all child files.
+        return a list Path objects
         '''
 
-        for mapping in self.panda.get_mappings(cpu):
-            if mapping.name != self.panda.ffi.NULL:
-                name = self.panda.ffi.string(mapping.name).decode()
-                if name.startswith("libssl.so"):
-                    offset = self._find_offset("libssl.so", "SSL_read")
-                    self.logger.debug("Found SSL_read at: 0x%x", mapping.base+offset)
-                    return mapping.base + offset
-        return None
-    """
+        # base case, it's a file
+        if os.path.isfile(root):
+            return [root]
 
+        if root.is_dir():
+            subdir_results = []
+            for subdir in os.listdir(root):
+                subdir_results.extend(self._fs_crawl(root / subdir))
+            return subdir_results
+
+        if root.is_symlink():
+            # Symlink - Note this is probably broken on the hostfs, it should be a link
+            # relative to the rootfs
+
+            # If we don't make the 2nd path relative (to /) it's absolute and pathlib just ignores
+            # the first mountpoint path
+            resolved = Path(self.mountpoint)  / (Path(root).resolve()).relative_to('/')
+            return self._fs_crawl(resolved)
+
+        if root.exists():
+            # File exists but we didn't handle it. Oops
+            self.logger.warn("Unhandled filetype: {host_file}")
+
+        #self.logger.warn("No exists %s", root)
+        # File doesn't exist or is unhandled type
+        return []
     ############## / end of helpers
+
 
     def reset_snap(self):
         '''
@@ -1057,9 +1142,14 @@ class Crawler():
 
         TODO: combine with some static analysis to identify additional params
         '''
+        raw_act = bs_form.get('action') # may be none if it should post to current page
+        abs_act = make_abs(self.current_request, _strip_url(raw_act) if raw_act else "")
+
+        raw_meth = bs_form.get('method')
+        meth = raw_meth.upper() if raw_meth else 'GET'
         form = {
-                "action": _strip_url(bs_form.get('action')), # Destination URL
-                "method": bs_form.get('method').upper(), # always caps
+                "action": abs_act,
+                "method": meth, # always caps
                 "params": {}
         }
 
@@ -1077,7 +1167,6 @@ class Crawler():
                 # Duplicate name - e.g., a set of radio buttons. Add to defaults
                 form['params'][name]['defaults'].append(field.get('value'))
 
-        abs_act = make_abs(self.current_request, _strip_url(bs_form.get('action')))
         self.logger.info(f"Recording form that {form['method']}s to {abs_act}")
         self.do_form_queue(abs_act, form)
 
@@ -1164,10 +1253,11 @@ class Crawler():
                 resp = None
                 # Note that a timeout is OK - it used to 401, now it timed out - we probably just send a bad input to it
                 # but we did figure out auth
-                self.logger.warn(f"NEW PATH: {e}")
+                self.logger.warn(f"Exception in find_auth: {e}")
+            #self.panda.enable_callback("dump_maps")
 
-            if resp is None or resp.status_code != 401:
-                #self.logger.info("Successfully bypassed authentication")
+            if resp is None or (resp.status_code not in [401, 404] and "login" not in resp.text):
+                self.logger.info("Successfully bypassed authentication")
                 self.www_auth = ("basic", user, "PANDAPASS")
                 self.s.change_state(old_state)
                 return True
@@ -1234,7 +1324,7 @@ class Crawler():
 
             return self._fetch(meth, path, params, retries=0) # Don't retry agian
 
-        self.logger.info(f"{meth} resp from {path} took {resp.elapsed.total_seconds()}s")
+        self.logger.info(f"{meth} resp from {path} took {resp.elapsed.total_seconds()}s {resp.status_code}")
         return resp
 
     def crawl_one(self, meth, path, params=None):
@@ -1243,7 +1333,7 @@ class Crawler():
         Responsible for managing current_request to match the page being requested
         '''
 
-        #self.logger.info(f"{meth} {path} (Queue contains {self.crawl_queue.qsize()})")
+        self.logger.info(f"{meth} {path} (Queue contains {len(self.crawl_queue)})")
 
         self.current_request = path
         fail = False
@@ -1253,13 +1343,20 @@ class Crawler():
 
         resp = self._fetch(meth, path, params)
 
+        login_form = False
+        # did we request a page that replied with 200 but a login form? If so,
+        # we want to bypass auth!
+        if "login" not in path and "index" not in path and "Login" in resp.text: # XXX how to handle false positives?
+            # not a login url, but we're getting a login prompt - real content may be hidden
+            login_form = True
+
         if resp is None:
             fail = True
             status = 408 # HTTP Timeout
         else:
             status = resp.status_code
 
-            if status == 401:
+            if status == 401 or login_form:
                 self.logger.warning(f"Unauthenticated: {path}")
                 if not self.bypassed_auth:
                     this_req = self.current_request # Save current request in case we can't auth
@@ -1270,13 +1367,18 @@ class Crawler():
                         # Reset this request now that we know how to auth
                         self.crawl_one(meth, path, params)
                         return
+                    else:
+                        self.logger.debug("Bypassed authentication. Resuming crawl with discovered credentials.")
                     self.current_request = this_req # Restore
+                else:
+                    self.logger.warn("Unauthenticated and auth technique failed. Bail")
+                    self.panda.end_analysis()
 
                 # find_auth failed or was previously setup and didn't work
                 fail = True
 
             elif status == 404:
-                self.logger.warning(f"Missing file {path}")
+                self.logger.warning(f"Missing file {path} (maybe a directory)")
                 fail = True
             elif status == 500:
                 self.logger.warning(f"Server error: {path}")
@@ -1302,6 +1404,12 @@ class Crawler():
         Emulate guest, and explore all pages found
         '''
         self.do_queue(self.start_url)
+
+        '''
+        # Shut up a bunch of the error messages
+        from pandare.extras.ioctl_faker import IoctlFaker
+        IoctlFaker(self.panda)
+        '''
 
         # Start emulation in main thread
         self.panda.run()
