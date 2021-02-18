@@ -18,26 +18,30 @@ logger.setLevel(logging.DEBUG)
 logger2 = logging.getLogger('panda.hooking')
 logger2.setLevel(logging.ERROR)
 
+netargs='-netdev tap,id=net0,ifname=tap1_0,script=no,downscript=no -device e1000,netdev=net0'.split(" ")
+
 kernel = "./zImage"
 append = "root=/dev/mtdblock0 rw init=/sbin/init rootfstype=jffs2 \
-       block2mtd.block2mtd=/dev/vda,0x40000 ip=dhcp sxid=0190_9MG-xx \
-       earlyprintk=serial,ttyAMA0 console=ttyAMA0"
+       block2mtd.block2mtd=/dev/vda,0x40000 sxid=0190_9MG-xx \
+       earlyprintk=serial,ttyAMA0 console=ttyAMA0 \
+       ip=192.168.1.1::192.168.1.2:255.255.255.0:eth0::on"
+
+
 
 # dynamicly mount guest FS ro from qcow (TODO - for now just use binwalked dir)
 qcow = "fs1.qcow"
 mountpoint = "/home/fasano/git/router-rehosting/_stride-ms5_3_174.fwb.extracted/jffs2-root/fs_1"
 
 panda = Panda("arm", mem="1G",
-            #raw_monitor=True,
+            raw_monitor=True,
             extra_args=
-            ["-M", "virt", "-kernel", kernel, "-append", append, "-display", "none",
-            "-net", "nic,netdev=net0", # NET
-            "-netdev", "user,id=net0,hostfwd=tcp::5443-:443,hostfwd=tcp::5580-:80,"\
-                       "hostfwd=tcp::2222-:22",
+            ["-M", "virt", "-kernel", kernel, "-append", append,
+            #"-display", "none",
+            "-nographic",
             "-drive", f"if=none,file={qcow},id=vda,format=qcow2",
             "-device", "virtio-blk-device,drive=vda",
-	    "-loadvm", "www"
-            ])
+	    #"-loadvm", "www"
+            ] + netargs)
 
 panda.set_os_name("linux-32-debian.4.9.99")
 panda.load_plugin("callstack_instr", {"stack_type": "asid"})
@@ -76,6 +80,7 @@ def first_syscall(cpu, pc, callno):
     file_faker.replace_file("/proc/devices", FakeFile("4 dsa\n"))
 
 from crawl import Crawler
-c = Crawler(panda, "https://localhost:5443", mountpoint)
+#c = Crawler(panda, "https://localhost:5443", mountpoint)
+#c = Crawler(panda, "https://192.168.0.1:443", mountpoint)
 
 panda.run()
