@@ -102,6 +102,9 @@ def _strip_url(url):
         # TODO: maybe add to fuzz queue as a GET target?
         body = body.split("?")[0]
 
+    if body.startswith("/"):
+        body = body[1:]
+
     if meth:
         return meth + "://" + body
     return body
@@ -114,12 +117,14 @@ class Crawler():
     def __init__(self, panda, domain, mountpoint, start_url="index.html", timeout=60):
         self.panda = panda
         self.mountpoint = mountpoint # Host path to guest rootfs
-        self.domain = domain # proto+domain+port to connect to. E.g. https://localhost:5443
+        self.domain = domain # proto+domain+port to connect to. E.g. https://localhost:5443/ always trailing /
         self.timeout = timeout
         if not self.domain.endswith("/"):
             self.domain += "/"
 
         self.auth_hook = None
+
+        self.drive = True
 
         # State management
         # States:
@@ -169,7 +174,8 @@ class Crawler():
         self.parse_req = False
 
         # Debugging ONLY
-        '''
+        #self.php_asid = None
+
         # DEBUG: analyze forms
         #panda.load_plugin("speedtest")
         self.s.change_state('formfuzz.analyze')
@@ -192,10 +198,9 @@ class Crawler():
             #    print(param)
             #    print(params_dec[param])
             #    print(params_dec[param]['defaults'])
-        '''
 
         # DEBUG: creds and basedir
-        self.www_auth = ("basic", "admin", "foo")
+        #self.www_auth = ("basic", "admin", "foo")
         #self.basedir = "/var/www/" # TODO: dynamically figure this out - LIGHTTPD test
         self.basedir = "" # TODO: dynamically figure this out - PHP test
 
@@ -203,20 +208,64 @@ class Crawler():
         # PANDA callbacks registered within init so they can access self
         # without it being an argument
 
-        #@self.panda.queue_blocking
+        @self.panda.queue_blocking
         def driver():
+
+            """
+            if not self.drive:
+                self.logger.warn("Not driving guest (drive=False). Debug only")
+                return
+
+            self.logger.warn("ONLY REQUEST DEBUG")
+
+            import requests
+
+            burp0_url = self.domain+"authentication.cgi"
+            burp0_cookies = {"uid": "57ZdZR2dOI"}
+            burp0_headers = {"Accept": "*/*",
+                    "Accept-Language": "en-US,en;q=0.5",
+                    "Accept-Encoding": "gzip, deflate",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Connection": "close"}
+            burp0_data = {"id": "Admin", "password": "WRONG"}
+            self.active = True
+
+            @self.panda.ppp("callstack_instr", "on_call")
+            def oncall(cpu, pc):
+                if is_child_of(self.panda, cpu, self.www_procs): # XXX DEBUG
+                    print("CALLING", hex(pc))
+
+            print("SENDING")
+            r = requests.post(burp0_url, headers=burp0_headers, cookies=burp0_cookies, data=burp0_data)
+            self.active = False
+            print("DONE.\nResults:")
+
+            print("BBS:", self.ctr)
+            
+            print(r.text)
+            self.panda.end_analysis()
+            return
+
+            # END DEBUG
+
+            self.logger.warn("ONLY FINDAUTH DEBUG")
+            self.timeout = 120
+            self.find_auth_cookie("adv_wlan.php")
+            self.panda.end_analysis()
+            """
 
             while len(self.crawl_queue) > 0 or len(self.form_queue) > 0:
                 if self.s.state_matches('crawl'):
                     if self.crawl_queue:
                         (meth, page)  = self.crawl_queue.popleft()
-                        self.logger.info("Fetching %s (%d in queue)", page, len(self.crawl_queue))
+                        self.logger.info("Fetching %s (%d remain in queue)", page, len(self.crawl_queue))
                         self.crawl_one(meth, page)
                     else:
                         # Exhaused crawl queue, switch to form fuzzing
                         # (if both queues are empty, loop terminates)
                         self.s.change_state('formfuzz.analyze')
                         self.logger.info("Switching to form fuzzing")
+                        '''
                         # DEBUG SAVE QUEUE
                         import pickle
                         try:
@@ -224,6 +273,7 @@ class Crawler():
                                 pickle.dump(self.form_queue, f)
                         except Exception as e:
                             print("ERROR PICKLING:", e)
+                        '''
 
                 elif self.s.state_matches('formfuzz.analyze'):
                     if self.form_queue:
@@ -456,7 +506,7 @@ class Crawler():
         @self.s.state_filter("formfuzz.decrypt")
         def decrypt_hook(cpu, tb, hook):
             # SSL_read(Encrypted, char* decrypted, int num)
-            self.logger.debug("Hit decrypt hook")
+            self.logger.info("Hit decrypt hook")
             ret_addr = self.panda.arch.get_reg(cpu, "lr")
 
             # If first SSL_read for this request - reset buffers
@@ -514,7 +564,6 @@ class Crawler():
             #self.panda.hook(ret_addr, kernel=False, asid=panda.current_asid(cpu))(self.auth_hook_ret)
         # forgive me for this terrible hack
         self.httpd_auth = httpd_auth
-        '''
 
         def auth_hook_ret(cpu, tb, hook):
             hook.enabled = False
@@ -524,15 +573,14 @@ class Crawler():
             return True # Invalidate
 
         self.auth_hook_ret = auth_hook_ret
-
-        '''
-        def test(cpu, tb, hook):
-            print("TESTING")
-            self.logger.error("TEST\n")
-        self.test = test
         '''
 
-
+        @panda.cb_asid_changed(enabled=False)
+        def asid_change(cpu, a, b):
+            proc = panda.plugins['osi'].get_current_process(cpu)
+            pname = self.panda.ffi.string(proc.name).decode()
+            print(f"ASID CHANGE 0x{a:x} =>  0x{b:x} {pname} with asid 0x{proc.asid:x}")
+            return False
 
         @self.panda.ppp("syscalls2", "on_all_sys_enter")
         def crawl_first_syscall(cpu, pc, callno):
@@ -542,13 +590,15 @@ class Crawler():
             '''
             panda.disable_ppp("crawl_first_syscall")
             self.panda.load_plugin("hooks")
-            self.panda.hook_symbol("libssl", "SSL_read")(self.decrypt_hook)
+            #self.panda.hook_symbol("libssl", "SSL_read")(self.decrypt_hook)
             #self.panda.hook_symbol("mod_auth", "http_auth_basic_check", kernel=False,
             #            cb_type="before_block_exec_invalidate_opt")(self.hook_auth_check)
 
             #XXX: cb_type is ignored for hook_symbol - plugin currently changed to register as bbe_io
             
-            # HTTPD
+            # HTTPD 401 basic auth
+            # XXX this isn't how auth happens for php target
+
             # TODO why doesn't hook_symbol work here? Bc non lib?
             #self.panda.hook_symbol("httpd", "webuserok")(self.testing)
             # Address from ghidra, but we have symbols so it was easy
@@ -605,8 +655,76 @@ class Crawler():
         # stdin/err/out from www and child processes, and
         # close syscalls (to identify end)
 
-        @self.panda.ppp("syscalls2", "on_sys_execve_enter")
+        # DEBUG
+        self.ctr = 0
+        @self.panda.ppp("syscalls2", "on_sys_open_enter")
+        def debug_opens(cpu, pc, fname_ptr, flags, mode):
+            try:
+                fname = self.panda.read_str(cpu, fname_ptr)
+            except ValueError:
+                return
+
+            if is_child_of(self.panda, cpu, self.www_procs): # XXX DEBUG
+                name = self._active_proc_name(cpu)
+                asid = self.panda.current_asid(cpu)
+                if fname != "/etc/TZ":
+                    print(f"FILE {fname} OPENED BY {name}, asid 0x{asid:x}. CTR = 0x{self.ctr:x}")
+
+        @self.panda.cb_after_block_exec
+        def abe(cpu, tb, exit):
+            if not self.panda.in_kernel(cpu):
+                self.ctr+=1
+
+        @self.panda.hook(0x409e44, kernel=False)
+        def authenticate(cpu, tb, h):
+            print("AUTH HOOK HIT\n") # AUTH
+            #self.panda.arch.dump_state(cpu)
+
+        '''
+        @self.panda.hook(0x40cb64, kernel=False)
+        def hack(cpu, tb, h):
+            print("AUTH hack HIT\n") # AUTH
+            self.panda.arch.set_reg(cpu, "a0", 2)
+            #self.panda.arch.dump_state(cpu)
+
+        @self.panda.hook(0x40cb4c, kernel=False)
+        def checkuid(cpu, tb, h):
+            print("check uid")
+
+            self.ctr = 0
+
+            @self.panda.cb_before_block_exec
+            def bbe_dbg(cpu, tb):
+                self.ctr+=1
+                if panda.in_kernel(cpu):
+                    return
+
+                if tb.pc > 0x20000000:
+                    return
+
+                print(f"BBE: 0x{tb.pc:x}")
+                if self.ctr > 10:
+                    self.panda.end_analysis()
+
+        @self.panda.hook(0x40cb78, kernel=False)
+        def uidfix(cpu, tb, h):
+            print("fix uid")
+            self.panda.arch.dump_state(cpu)
+
+
+
+        @self.panda.hook(0x40c680, kernel=False)
+        def authing(cpu, tb, h):
+            print("AUTHING")
+
+        @self.panda.hook(0x40c76c, kernel=False)
+        def cmp(cpu, tb, h):
+            print("COMPARE PASS\n") # AUTH
+            self.panda.arch.dump_state(cpu)
+        '''
+
         #@self.s.state_filter("formfuzz.introspect")
+        @self.panda.ppp("syscalls2", "on_sys_execve_enter")
         def introspect_execve(cpu, pc, fname_ptr, argv_ptr, envp):
             '''
             When WWW responds to request, capture all execs.
@@ -617,17 +735,16 @@ class Crawler():
             except ValueError:
                 return
 
-            if True or is_child_of(self.panda, cpu, self.www_procs): # XXX DEBUG
+            if is_child_of(self.panda, cpu, self.www_procs): # XXX DEBUG
                 proc = panda.plugins['osi'].get_current_process(cpu)
                 pname = self.panda.ffi.string(proc.name).decode()
 
                 args = self._read_str_buf(cpu, argv_ptr)
                 cmd = " ".join(args)
-                #self.logger.warn("EXEC from %s %d: %s [%s]", pname, proc.pid, callers, cmd)
+                self.logger.warn("EXEC from %s %d: [%s]", pname, proc.pid, cmd)
 
                 # This is interesting, may want to bump priority level
                 #self.logger.info("WWW execs from %s: [%s]", pname, cmd)
-                self.logger.info("XXX execs from %s: [%s]", pname, cmd)
 
                 self.introspect_children.append(proc.pid)
 
@@ -770,8 +887,8 @@ class Crawler():
         # forgive me for this terrible hack
         self.hook_auth_check = hook_auth_check
 
+        '''
         self.dbg_procs = set()
-
         self.dbg_ctr = 0
 
         @self.panda.cb_before_block_exec(enabled=False)
@@ -787,6 +904,7 @@ class Crawler():
                     mapname = self.panda.ffi.string(mapping.name).decode()
                     self.logger.error("Proc %s library %s at 0x%x", name, mapname, mapping.base)
             self.panda.disable_callback("dump_maps")
+        '''
         
 
 
@@ -797,7 +915,12 @@ class Crawler():
     def _active_proc_name(self, cpu):
         proc = self.panda.plugins['osi'].get_current_process(cpu)
         if proc == self.panda.ffi.NULL: return ""
-        return self.panda.ffi.string(proc.name).decode("utf8", errors="ignore")
+        n = self.panda.ffi.string(proc.name).decode("utf8", errors="ignore")
+
+        if n == "phpcgi":
+            self.php_asid = self.panda.current_asid(cpu)
+
+        return n
 
     def _read_str_buf(self, cpu, ptr, length=100):
         '''
@@ -977,7 +1100,7 @@ class Crawler():
             self.logger.warning(f"Unauthenticated: {page}")
             if not self.bypassed_auth:
                 self.bypassed_auth = True # True indicates we attempted
-                if self.find_auth(page, meth, params):
+                if self.find_auth_cookie(page, meth, params):
                     self.logger.info("Bypassed authentication. Resuming formfuzz with discovered credentials.")
                     # Retry with auth
                     return self._fuzz_one(meth, page, params)
@@ -1097,8 +1220,6 @@ class Crawler():
         Updates self.crawl_queue, self.queued, self.queued_paths
 
         '''
-        #self.logger.warn("DEBUG NOP in do_queue")
-        #return
 
         if not path:
             return
@@ -1216,7 +1337,117 @@ class Crawler():
         for form in soup.findAll('form'):
             self.parse_form(form)
 
-    def find_auth(self, path, meth='GET', params=None):
+    def find_auth_cookie(self, path, meth='GET', params=None):
+        '''
+        Guest appears to send a login form for unauth'd pages (i.e., you visit /admin and it says 200 + form)
+
+        Assume it's assigning us a cookie (i.e., a UID). (TODO find cookie name)
+
+        Then we'll change the value of this cookie and examine how it's passed as args to fns.
+        Hopefully there's a function somewhere taking it as an arg which simply must return true
+
+        raw_www parses cookies
+        php-cgi takes cooke as env
+        php-cgi makes auth determination
+        '''
+
+        old_state = self.s.state()
+        self.s.change_state('findauth')
+        self.logger.info("Attempting COOKIE authentication bypass for %s", path)
+        if params is None:
+            params = {}
+
+
+        # First send a baseline request and see if it gives us a cookie.
+        # If so, we'll need to get some check involving that cookie value
+
+        cookie_name = "uid" # TODO get it dynamically
+        cookie_str = "PAND4"
+
+        '''
+        # Search for string refs
+        self.panda.load_plugin("stringsearch", args={"str": cookie_str})
+
+        @self.panda.ppp("stringsearch", "on_ssm")
+        def string_hit(cpu, pc, addr, str_ptr, strlen, is_write, in_mem):
+            if is_child_of(self.panda, cpu, self.www_procs): # XXX DEBUG
+                name = self._active_proc_name(cpu)
+                print(f"String hit in {name} at 0x{addr:x}")
+
+        self.panda.load_plugin("callstack_instr")
+
+        self.cookie_call = False
+        @self.panda.ppp("callstack_instr", "on_call")
+        def calling(cpu, func):
+            name = self._active_proc_name(cpu)
+            if name != "phpcgi":
+                return
+
+            for reg in ["a0", "a1", "a2", "a3"]:
+                val = self.panda.arch.get_reg(cpu, reg)
+                try:
+                    strval = self.panda.read_str(cpu, val)
+                except ValueError:
+                    continue
+                if strval == cookie_str:
+                    #for mapping in self.panda.get_mappings(cpu):
+                    #    if mapping.name != self.panda.ffi.NULL:
+                    #        mapname = self.panda.ffi.string(mapping.name).decode()
+                    #        self.logger.error("Proc %s library %s at 0x%x", name, mapname, mapping.base)
+                    print("ARG HIT:", name, hex(func))
+                    self.panda.arch.dump_state(cpu)
+                    self.cookie_call = True
+
+        @self.panda.ppp("callstack_instr", "on_ret")
+        def reting(cpu, func):
+            if self.cookie_call:
+                name = self._active_proc_name(cpu)
+                rv = self.panda.arch.get_reg(cpu, 'v0')
+                print('COOKIE CALL RET', name, "ret", hex(func), hex(rv), "\n")
+                self.cookie_call = False
+            #if rv != 0:
+            #    print(name, "ret", hex(func), hex(rv))
+            #else:
+            #    print(name, "ret HACK THE PLANET", hex(func), hex(rv))
+            #    self.panda.arch.set_reg(cpu, 'v0', 1)
+
+
+        if self.php_asid is not None:
+            @self.panda.hook(0x40a408, asid=self.php_asid)
+            def valid_phpcgi(cpu, tb, h):
+                print("HIT VALIDATE")
+        '''
+
+        @self.panda.ppp("syscalls2", "on_sys_open_enter")
+        def open_php(cpu, pc, fname_ptr, flags, mode):
+            try:
+                fname = self.panda.read_str(cpu, fname_ptr)
+            except ValueError:
+                return
+
+            # XXX not we're not using this right now
+            if ("/"+path).split("/")[-1] in fname:
+                name = self._active_proc_name(cpu)
+                print(f"FILE {fname} OPENED BY {name}")
+
+
+        #self.panda.enable_callback("asid_change")
+        # Make the request again but with a cookie, figure out
+        resp = requests.get(self.domain+path, verify=False,
+                params=params, timeout=self.timeout,
+                cookies={cookie_name: cookie_str})
+        #self.panda.enable_callback("disable_change")
+
+        # TODO: how to do this programatically?
+        if "Advanced Wireless settings<" in resp.text:
+            print("VALID AUTH\n\n")
+        else:
+            print("bad auth\n\n")
+        #print(resp.text)
+
+        self.panda.end_analysis()
+
+    def find_auth_basic(self, path, meth='GET', params=None):
         '''
         How do we log into this thing? Try a bunch of creds, methods until
         something works.
@@ -1230,7 +1461,7 @@ class Crawler():
 
         old_state = self.s.state()
         self.s.change_state('findauth')
-        #self.logger.info("Attempting authentication bypass...")
+        self.logger.info("Attempting authentication bypass...")
         if params is None:
             params = {}
 
@@ -1257,7 +1488,7 @@ class Crawler():
             #self.panda.enable_callback("dump_maps")
 
             if resp is None or (resp.status_code not in [401, 404] and "login" not in resp.text):
-                self.logger.info("Successfully bypassed authentication")
+                self.logger.info("Successfully bypassed basic authentication")
                 self.www_auth = ("basic", user, "PANDAPASS")
                 self.s.change_state(old_state)
                 return True
@@ -1333,7 +1564,9 @@ class Crawler():
         Responsible for managing current_request to match the page being requested
         '''
 
-        self.logger.info(f"{meth} {path} (Queue contains {len(self.crawl_queue)})")
+        assert(not path.startswith("/")), "Paths must not start with /"
+
+        self.logger.info(f"{meth} {self.domain}{path} (Queue contains {len(self.crawl_queue)} additional)")
 
         self.current_request = path
         fail = False
@@ -1346,9 +1579,11 @@ class Crawler():
         login_form = False
         # did we request a page that replied with 200 but a login form? If so,
         # we want to bypass auth!
-        if "login" not in path and "index" not in path and "Login" in resp.text: # XXX how to handle false positives?
+        if "login" not in path and "index" not in path and "Login" in resp.text:
             # not a login url, but we're getting a login prompt - real content may be hidden
-            login_form = True
+            if not ".js" in path:
+                # XXX how to handle false positives?
+                login_form = True
 
         if resp is None:
             fail = True
@@ -1362,7 +1597,14 @@ class Crawler():
                     this_req = self.current_request # Save current request in case we can't auth
                     self.current_request = None
                     self.bypassed_auth = True # True indicates we attempted
-                    if self.find_auth(path):
+                    if status == 401:
+                        self.logger.info("Requesting findauth in basic mode")
+                        auth_fn = self.find_auth_basic
+                    elif login_form:
+                        auth_fn = self.find_auth_cookie
+                        self.logger.info("Requesting findauth in login_form mode")
+
+                    if auth_fn(path):
                         self.logger.debug("Bypassed authentication. Resuming crawl with discovered credentials.")
                         # Reset this request now that we know how to auth
                         self.crawl_one(meth, path, params)
@@ -1399,17 +1641,12 @@ class Crawler():
             self.scan_output(resp.text, path)
         self.current_request = None
 
-    def crawl(self):
+    def crawl(self, drive=True):
         '''
         Emulate guest, and explore all pages found
         '''
         self.do_queue(self.start_url)
-
-        '''
-        # Shut up a bunch of the error messages
-        from pandare.extras.ioctl_faker import IoctlFaker
-        IoctlFaker(self.panda)
-        '''
+        self.drive=drive
 
         # Start emulation in main thread
         self.panda.run()
