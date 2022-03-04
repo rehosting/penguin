@@ -14,7 +14,7 @@ import threading
 from queue import Queue
 from threading import Lock
 import requests
-from vmsockadapter import VMSockAdapter
+from vsockadapter import VSockAdapter
 
 from pandare import PyPlugin
 from pandarepyplugins import CallTree
@@ -114,6 +114,11 @@ class PandaCrawl(PyPlugin):
 
             # Get target path to build URL
             path = details['pending'].get()
+
+            if not path:
+                self.logger.warning(f"No path?: {path}")
+                continue
+
             if sock_family == 10:
                 sock_ip = f"[{sock_ip}]"
 
@@ -129,7 +134,7 @@ class PandaCrawl(PyPlugin):
             # Set up session
             if details['session'] is None:
                 s = requests.Session()
-                vmsa = VMSockAdapter(self.cid, vport)
+                vmsa = VSockAdapter(self.cid, vport)
                 s.mount('http://', vmsa)
                 s.mount('https://', vmsa)
                 details['session'] = s
@@ -154,13 +159,24 @@ class PandaCrawl(PyPlugin):
 
         this_target = self.targets[target_key]
         # Add targ_url if not in this_target['visited']
-        if targ_url not in this_target['visited'] and targ_url not in this_target['pages']:
+        if targ_url and targ_url not in this_target['visited'] and targ_url not in this_target['pages']:
             self.logger.warning(f"ADDING TARGET {targ_url}. Already know about: {this_target['pages']}")
             this_target['pages'].add(targ_url)
             this_target['pending'].put(targ_url)
 
     def analyze_response(self, target_key, url, request):
-        self.logger.info(f"Analyzing {url} => {repr(request.text)}")
+        self.logger.info(f"Analyzing {url} => {repr(request.text[:500])}")
+
+        if request.status_code == 401:
+            self.logger.error("UNAUTHORIZED - retrying with admin/admin") # TODO: better
+            # Auth denied - need to log in. Hmph
+            request = self.targets[target_key]['session'].get(url, auth=('admin', 'admin'))
+            try:
+                request.raise_for_status()
+            except Exception as e:
+                self.logger.warning(f"FAIL: {e}")
+            self.logger.info(f"AUTH'd: {request.text}")
+
 
         if request.status_code != 200:
             print("TODO code", request.status_code)

@@ -21,7 +21,7 @@ append = f"root={config['rootfs']} console=ttyS0 nandsim.parts=64,64,64,64,64,64
           user_debug=31 firmadyne.syscall=0"
 append += " sxid=0190S_8MS-8 "
 #append += " init=/firmadyne/utils/busybox -- nc -v -l -p 8000" # DEBUG
-append += " init=/usr/sbin/lighttpd -- -D -f /etc/lighttpd/lighttpd.conf"
+#append += " init=/usr/sbin/lighttpd -- -D -f /etc/lighttpd/lighttpd.conf"
 
 args = ['-M',      config['qemu_machine'],
         '-kernel', config['kernel'],
