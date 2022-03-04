@@ -16,28 +16,45 @@ class _Response(object):
         # Consume response - try to find Content Length in a loop, then just read that size
         response = b""
         content_length = None
+        header_length = 0
         while True:
+            s.settimeout(5)
             chunk = s.recv(4096)
-            if len(chunk) == 0:     # No more data received, quitting
+            if len(chunk) == 0:
+                # No more data, but we didn't see the end of headers. Uh oh
                 break
             response = response + chunk;
 
-            if b"Content-Length: " in response:
-                len_msg = response[response.index(b"Content-Length: ")+len("Content-Lenght: "):][:200]
-                if b"\r\n" in len_msg:
-                    content_length = int(len_msg.split(b"\r\n")[0])
-                    break
+            if b"\r\n\r\n" in response:
+                # Finished reading headers
+                break
 
-        if len(response) < content_length:
-            remainder = s.recv(content_length - len(response))
+
+        # After headers - should have content length. Hopefully?
+        if b"Content-Length: " in response:
+            len_msg = response[response.index(b"Content-Length: ")+len("Content-Lenght: "):][:200]
+            if b"\r\n" in len_msg:
+                content_length = int(len_msg.split(b"\r\n")[0])
+        else:
+            print(f"WARNING: no content length in {response}")
+
+        header_length = len(response.split(b"\r\n\r\n")[0])+4 # 4 is for the end
+
+        expected_length = header_length + content_length
+
+        if len(response) < expected_length:
+            s.settimeout(10)
+            remainder = s.recv(expected_length - len(response))
             response += remainder
+
+        #print("RESP:", repr(response))
 
         self.from_data(response)
 
     def from_data(self, data):
         self.raw_data = data
         # parse payload
-        headers, body = data.split(b"\r\n\r\n")
+        headers, *body = data.split(b"\r\n\r\n") # body might contain the terminator - we'll fix it up later
         header_lines = headers.split(b"\r\n")
 
         proto = header_lines[0].split(b" ")[0]
@@ -48,7 +65,7 @@ class _Response(object):
             key, value = header_line.split(b": ")
             self.headers[key] = value
 
-        self.raw_data = body # XXX does it want body or the whole thing?
+        self.raw_data = b"\r\n\r\n".join(body)
 
     def read(self, size):
         data = self.raw_data[self.pos:self.pos+size]
@@ -103,7 +120,7 @@ class VMSockAdapter(requests.adapters.HTTPAdapter):
 if __name__ == '__main__':
     # Need to set up a server on CID 4 vport 1000 for this test to work
     s = requests.Session()
-    a = VMSockAdapter(4, 1000)
+    a = VMSockAdapter(4, 1001)
     s.mount('http://', a)
 
     resp = s.get("http://example.com")
