@@ -18,7 +18,7 @@ from queue import Queue
 from threading import Lock
 import requests
 from vsockadapter import VSockAdapter
-from urlparse import urlparse
+from urllib.parse import urlparse
 
 from pandare import PyPlugin
 from pandarepyplugins import CallTree
@@ -85,6 +85,21 @@ def _strip_url(url):
         return meth + "://" + body
     return body
 
+def _build_url(sock_family, sock_ip, sock_port, path):
+    if sock_family == 10:
+        sock_ip = f"[{sock_ip}]"
+
+    if not sock_ip.endswith("/"):
+        sock_ip += "/"
+
+    url = sock_ip + path # Do we need proto?
+    if sock_port == 443:
+        url = "https://" + url
+    else:
+        url = "http://" + url
+    return url
+
+
 
 class PageDetails(object):
     '''
@@ -100,9 +115,15 @@ class PageDetails(object):
         self.info = urlparse(full_url)
         self.method = method
 
-    def __eq__(self, other)
+    def __eq__(self, other):
         # TODO: does comparison of .info work?
         return self.method == other.method and self.info == other.info
+
+    def __str__(self):
+        return f"{self.info}: {self.method}"
+
+    def __hash__(self):
+        return hash(str(self))
 
 class TargetInfo(object):
     '''
@@ -132,8 +153,10 @@ class TargetInfo(object):
         '''
         Get the next page to visit.
         '''
+        assert(self.has_next_url())
+
         # Pop path from pending
-        return self.pending.pop()
+        return self.pending.pop(0)
 
     def _add_ref(self, url, match):
         '''
@@ -141,10 +164,13 @@ class TargetInfo(object):
         '''
         targ_url = make_abs(url, match)
 
+        if targ_url is None:
+            return
+
         if targ_url not in self.visited:
             self.pending.append(targ_url)
 
-    def parse_response(self, url, request, response):
+    def parse_response(self, url, response):
         '''
         Given a request+response pair for a given url,
         parse it to find more URLs to visit and store the results
@@ -152,22 +178,25 @@ class TargetInfo(object):
         
         self.visited.append(url)
 
-        # TODO: handle this one better?
-        self.results[request] = response
+        # Store raw response
+        pd_url = PageDetails(url)
+        if pd_url not in self.results:
+            self.results[pd_url] = []
+        self.results[pd_url].append(response)
 
         # Analysis will depend on content type
-        if any([url.endswith(x) for x in [".png", ".jpg"]):
+        if any([url.endswith(x) for x in [".png", ".jpg"]]):
             # Binary data, ignore
             pass
 
         elif url.endswith(".js"):
             # Javascript, manually scrape for src=
-            for match in re.findall(f'src=.([a-zA-Z0-9._/]*).', request.text):
+            for match in re.findall(f'src=.([a-zA-Z0-9._/]*).', response.text):
                 self._add_ref(url, match)
 
         else:
             # Fallback, assume HTML
-            soup = BeautifulSoup(request.context, 'lxml') # XXX: lxml or html.parser. Latter segfaults?
+            soup = BeautifulSoup(response.content, 'lxml') # XXX: lxml or html.parser. Latter segfaults?
 
             # Simple extraction: src, href, and url properties
             for elm in soup.findAll():
@@ -187,6 +216,12 @@ class TargetInfo(object):
                 print(f"TODO: parse form {repr(form)}")
                 #self.parse_form(form, url, target_key)
 
+    def dump_stats(self):
+        # Print health details
+        for page, details in self.results.items():
+            print(page)
+            for response in details:
+                print(f"\tSTATUS: {response.status_code}\t\tSIZE:{len(response.text)}")
 
 class PandaCrawl(PyPlugin):
     '''
@@ -198,13 +233,7 @@ class PandaCrawl(PyPlugin):
         self.logger = logging.getLogger('PandaCrawl')
         self.cid = int(self.get_arg("cid"))
 
-        self.targets = {} # (service_name, family, ip, port): {
-                          #     pending: {},        
-                          #     visited: {},
-                          #     pages: set(),
-                          #     pending_forms: {} (path, method, json(params))
-                          #     forms: set() => (path, method)
-                          #}
+        self.targets = {} # (service_name, family, ip, port): Target()
         self.have_targets = Lock()
         self.have_targets.acquire() # Lock it immediately
 
@@ -224,28 +253,7 @@ class PandaCrawl(PyPlugin):
 
         key = (name, vport, sock_family, sock_ip, sock_port)
         if key not in self.targets:
-            self.targets[key] = {'pending': Queue(),
-                    'visited': [], 'pages': set(),
-                    'pending_forms': set(), 'forms': set(),
-                    'session': None}
-
-            # Read all target_X.pickle files to see if any match this
-            # if so, seed state with that
-            for possible_pickle in glob.glob("./target_*.pickle"):
-                with open(possible_pickle, "rb") as f:
-                    (targ_info, pending_q, pages, visited, pending_forms, forms) = pickle.load(f)
-
-                if targ_info == key:
-                    self.logger.warning("Loading data from cache")
-                    [self.targets[key]["pending"].put(x) for x in pending_q]
-                    self.targets[key]["pages"] = pages
-                    self.targets[key]["visited"] = visited
-                    self.targets[key]["pending_forms"] = pending_forms
-                    self.targets[key]["forms"] = forms
-                    break
-            else:
-                # Didn't break
-                self.targets[key]['pending'].put("/")
+            self.targets[key] = TargetInfo(sock_family, sock_ip, sock_port, name)
 
             if len(self.targets) == 1 and self.have_targets.locked():
                 print("unlock have_targets")
@@ -263,136 +271,39 @@ class PandaCrawl(PyPlugin):
         self.have_targets.acquire() # Wait until first entry
 
         while True:
-            for target_key, details in self.targets.items():
-                if details['pending'].qsize() > 0:
+            for (name, vport, sock_family, sock_ip, sock_port), target in self.targets.items():
+                if target.has_next_url():
                     # We have stuff pending on this target - great!
                     break
             else:
                 self.logger.warning("No targets left - finished in crawl_manager")
                 break
-                return
 
-            # Get details of target
-            (name, vport, sock_family, sock_ip, sock_port) = target_key
+            # Get a URL to crawl
+            path = target.get_next_url()
+            url = _build_url(sock_family, sock_ip, sock_port, path)
 
-            # Get target path to build URL
-            path = details['pending'].get()
-
-            if not path:
-                self.logger.warning(f"No path?: {path}")
-                continue
-
-            if sock_family == 10:
-                sock_ip = f"[{sock_ip}]"
-
-            if not sock_ip.endswith("/"):
-                sock_ip += "/"
-
-            url = sock_ip + path # Do we need proto?
-            if sock_port == 443:
-                url = "https://" + url
-            else:
-                url = "http://" + url
-
-            # Set up session
-            if details['session'] is None:
-                s = requests.Session()
+            # Set up session if necessary
+            if target.session is None:
+                target.session = requests.Session()
                 vmsa = VSockAdapter(self.cid, vport)
-                s.mount('http://', vmsa)
-                s.mount('https://', vmsa)
-                details['session'] = s
+                target.session.mount('http://', vmsa)
+                target.session.mount('https://', vmsa)
 
-            session = details['session']
-            #self.logger.info(f"Targeting {target_key}: {url} (path={path}) with session {session}")
-
-            self.crawl_one(session, url, target_key)
-            #break # XXX DEBUG
+            # Crawl it. TODO: support params / non-get methods
+            response = target.session.get(url)
+            target.parse_response(url, response)
 
         self.logger.info("Finished crawling")
-        for idx, targ_info in enumerate(self.targets.keys()):
-            details = self.targets[targ_info]
-            try:
-                with open(f"target_{idx}.pickle", "wb") as f:
-                    pending_q = []
-                    while not details['pending'].empty():
-                        pending_q.append(details['pending'].get())
 
-                    pickle.dump((targ_info,
-                        pending_q, details['pages'], details['visited'],
-                        details['pending_forms'], details['forms']), f)
-            except Exception as e:
-                print("ERROR PICKLING:", e)
-                raise
+        for t in self.targets.values():
+            t.dump_stats()
 
-        print("\n\nDONE")
+        # TODO: pickle state?
         import sys
         sys.exit()
 
-    def crawl_one(self, session, url, target_key):
-        '''
-        Crawl a page. Select a target from self.targets or stall if none available.
-
-        Once a target is selected, get requests, and populate details
-        '''
-        req = session.get(url)
-        self.analyze_response(target_key, url, req)
-
-    def add_ref(self, target_key, url, new_elm):
-        targ_url = make_abs(url, new_elm)
-        self.logger.info(f"At {url} found ref to: {new_elm} -> {targ_url}")
-
-        this_target = self.targets[target_key]
-        # Add targ_url if not in this_target['visited']
-        if targ_url and targ_url not in this_target['visited'] and targ_url not in this_target['pages']:
-            self.logger.warning(f"ADDING TARGET {targ_url}. Already know about: {this_target['pages']}")
-            this_target['pages'].add(targ_url)
-            this_target['pending'].put(targ_url)
-
-    def analyze_response(self, target_key, url, request):
-        self.logger.info(f"Analyzing {url} ({len(self.targets[target_key]['pages'])}of {self.targets[target_key]['pending'].qsize()} => {repr(request.text[:500])}")
-
-        if request.status_code == 401:
-            self.logger.error("UNAUTHORIZED - retrying with admin/admin") # TODO: better
-            # Auth denied - need to log in. Hmph
-            request = self.targets[target_key]['session'].get(url, auth=('admin', 'admin'))
-            try:
-                request.raise_for_status()
-            except Exception as e:
-                self.logger.warning(f"FAIL: {e}")
-            self.logger.info(f"AUTH'd: {request.text}")
-
-
-        if request.status_code != 200:
-            print("TODO code", request.status_code)
-            return
-
-        this_target = self.targets[target_key]
-        if url.endswith(".js"):
-            for match in re.findall(f'src=.([a-zA-Z0-9._/]*).', request.text):
-                self.add_ref(target_key, url, match)
-
-        if url.endswith(".png") or url.endswith(".jpg"):
-            pass
-        else:
-            # Fallthrough: HTML
-            raw_html = request.text
-            soup = BeautifulSoup(raw_html, 'lxml') # XXX using html.parser causes segfaults (threading?)
-
-            for elm in soup.findAll():
-                for attr in ['src', 'href', 'url']:
-                    if elm.get(attr):
-                        self.add_ref(target_key, url, elm.get(attr))
-
-            for meta in soup.find_all("meta"):
-                if redir := meta.get("content"):
-                    if "url=" in redir:
-                        dest = redir.split("url=")[1]
-                        self.add_ref(target_key, url, dest)
-
-            for form in soup.findAll('form'):
-                print(f"TODO: parse form {repr(form)}")
-                self.parse_form(form, url, target_key)
-
+    """
     def parse_form(self, bs_form, url, target_key):
         '''
         Given a bs4.form, generate permutations of submitting it and add to queue
@@ -448,3 +359,4 @@ class PandaCrawl(PyPlugin):
             # but params are different
             self.targets[target_key]['pending_forms'].add((path, method, json.dumps(form['params'])))
             self.targets[target_key]['forms'].add((path, method))
+    """
