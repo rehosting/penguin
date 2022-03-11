@@ -117,31 +117,75 @@ class TargetInfo(object):
 
         self.session = None # Session object for requests to use
 
-        # Queue of pages to be visited
-        self.pending = Queue()
-
-        # List of pages that have been visited
+        # List of pages to be visited and that have been visited
+        self.pending = ["/"]
         self.visited = []
 
-        # Set of known pages
-        self.pages = set()
+        # List of forms to fuzz and that have been fuzzed (data format TBD)
+        self.forms_pending = []
+        self.forms_visited = []
 
-        # Queue of forms to 
-        self.pending_forms = Queue()
-        self.froms = set()
+    def has_next_url(self):
+        return len(self.pending) > 0
 
-    def get_next_page(self):
+    def get_next_url(self):
         '''
         Get the next page to visit.
         '''
-        pass
+        # Pop path from pending
+        return self.pending.pop()
 
-    def store_and_parse_response(self, request, response):
+    def _add_ref(self, url, match):
         '''
-        Store the response for the given request
-        and parse it for more URLs to queue up
+        When analyzing `url` we found page `match` - make absolute and queue if necessary
         '''
-        pass
+        targ_url = make_abs(url, match)
+
+        if targ_url not in self.visited:
+            self.pending.append(targ_url)
+
+    def parse_response(self, url, request, response):
+        '''
+        Given a request+response pair for a given url,
+        parse it to find more URLs to visit and store the results
+        '''
+        
+        self.visited.append(url)
+
+        # TODO: handle this one better?
+        self.results[request] = response
+
+        # Analysis will depend on content type
+        if any([url.endswith(x) for x in [".png", ".jpg"]):
+            # Binary data, ignore
+            pass
+
+        elif url.endswith(".js"):
+            # Javascript, manually scrape for src=
+            for match in re.findall(f'src=.([a-zA-Z0-9._/]*).', request.text):
+                self._add_ref(url, match)
+
+        else:
+            # Fallback, assume HTML
+            soup = BeautifulSoup(request.context, 'lxml') # XXX: lxml or html.parser. Latter segfaults?
+
+            # Simple extraction: src, href, and url properties
+            for elm in soup.findAll():
+                for attr in ['src', 'href', 'url']:
+                    if elm.get(attr):
+                        self._add_ref(url, elm.get(attr))
+
+            # meta tag for redirect is a bit annoying
+            for meta in soup.find_all("meta"):
+                if redir := meta.get("content"):
+                    if "url=" in redir:
+                        dest = redir.split("url=")[1]
+                        self._add_ref(url, dest)
+
+            # Also record forms - useful for dynamic data
+            for form in soup.findAll('form'):
+                print(f"TODO: parse form {repr(form)}")
+                #self.parse_form(form, url, target_key)
 
 
 class PandaCrawl(PyPlugin):
