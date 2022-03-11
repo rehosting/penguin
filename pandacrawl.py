@@ -23,6 +23,8 @@ from urllib.parse import urlparse
 from pandare import PyPlugin
 from pandarepyplugins import CallTree
 
+TIMEOUT=10
+
 def make_abs(url, ref):
     '''
     REF is a relative/absolute path valid when at url
@@ -162,13 +164,25 @@ class TargetInfo(object):
         '''
         When analyzing `url` we found page `match` - make absolute and queue if necessary
         '''
+
         targ_url = make_abs(url, match)
 
         if targ_url is None:
             return
 
-        if targ_url not in self.visited:
+        if targ_url not in self.visited and targ_url not in self.pending:
             self.pending.append(targ_url)
+
+    def log_failure(self, url):
+        '''
+        We were unable to connect to URL (time out)
+        '''
+        self.visited.append(url)
+
+        pd_url = PageDetails(url)
+        if pd_url not in self.results:
+            self.results[pd_url] = []
+        self.results[pd_url].append(None)
 
     def parse_response(self, url, response):
         '''
@@ -191,7 +205,7 @@ class TargetInfo(object):
 
         elif url.endswith(".js"):
             # Javascript, manually scrape for src=
-            for match in re.findall(f'src=.([a-zA-Z0-9._/]*).', response.text):
+            for match in re.findall(f'src=(?:["\']?)([a-zA-Z0-9+._/]*)(?:["\']?)', response.text):
                 self._add_ref(url, match)
 
         else:
@@ -213,15 +227,29 @@ class TargetInfo(object):
 
             # Also record forms - useful for dynamic data
             for form in soup.findAll('form'):
-                print(f"TODO: parse form {repr(form)}")
+                print(f"TODO: parse form {repr(form)[:100]}")
                 #self.parse_form(form, url, target_key)
 
     def dump_stats(self):
         # Print health details
+        codes = {} # code: count, None = unreachable
         for page, details in self.results.items():
             print(page)
             for response in details:
-                print(f"\tSTATUS: {response.status_code}\t\tSIZE:{len(response.text)}")
+                code = None
+                sz = None
+
+                if response is not None:
+                    code = response.status_code
+                    sz = len(response.text)
+                if code not in codes:
+                    codes[code] = 0
+                codes[code] += 1
+
+                print(f"\tSTATUS: {code}\t\tSIZE:{sz}")
+
+        for code, count in codes.items():
+            print(f"{count} responses with code {code}")
 
 class PandaCrawl(PyPlugin):
     '''
@@ -256,16 +284,13 @@ class PandaCrawl(PyPlugin):
             self.targets[key] = TargetInfo(sock_family, sock_ip, sock_port, name)
 
             if len(self.targets) == 1 and self.have_targets.locked():
-                print("unlock have_targets")
                 # First item was just added, release the lock
                 self.have_targets.release()
 
     def crawl_manager(self):
         '''
-        Select a target from self.targets. If none, wait.
-
-        With a given target, make a request based off pending. Update visited, pages, forms
-        then update pending to add newly-discovered pages
+        Wait until we have at least one target, then crawl pages
+        as necessary from our targets.
         '''
 
         self.have_targets.acquire() # Wait until first entry
@@ -291,7 +316,29 @@ class PandaCrawl(PyPlugin):
                 target.session.mount('https://', vmsa)
 
             # Crawl it. TODO: support params / non-get methods
-            response = target.session.get(url)
+            try:
+                response = target.session.get(url, timeout=TIMEOUT)
+            except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
+                target.log_failure(url)
+                self.logger.warning(f"Failed to visit {url} => {e}")
+                continue
+
+
+            if response.status_code == 401:
+                self.logger.error(f"UNAUTHORIZED {url} - retrying with admin/admin") # TODO: do better
+                # Auth denied - need to log in. Hmph - can we persist this or do it with library hooking?
+                try:
+                    response = target.session.get(url, auth=('admin', 'admin'), timeout=TIMEOUT)
+                except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
+                    target.log_failure(url)
+                    self.logger.warning(f"Failed to visit {url}")
+                    continue
+
+                try:
+                    response.raise_for_status()
+                except Exception as e:
+                    self.logger.warning(f"Request error for {url}: {e}")
+
             target.parse_response(url, response)
 
         self.logger.info("Finished crawling")
@@ -299,6 +346,7 @@ class PandaCrawl(PyPlugin):
         for t in self.targets.values():
             t.dump_stats()
 
+        self.panda.end_analysis()
         # TODO: pickle state?
         import sys
         sys.exit()
