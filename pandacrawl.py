@@ -250,6 +250,13 @@ class TargetInfo(object):
 
         for code, count in codes.items():
             print(f"{count} responses with code {code}")
+            if code != 200:
+                for page, details in self.results.items():
+                    for response in details:
+                        if (response is not None and response.status_code == code) or (response is None and code is None):
+                            print(page, end=", ")
+                print()
+            # STatus None: /cgi-bin/sysinfo.cgi, stpstat.cgi, ringstat.cgi
 
 class PandaCrawl(PyPlugin):
     '''
