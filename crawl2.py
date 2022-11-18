@@ -103,6 +103,9 @@ def make_abs(url, ref):
     Must Not include http://foo.com
     '''
 
+    if ref is None:
+        return url
+
     if ref.startswith("/"): # absolute url - easy mode
         abs_ref = ref[1:]
     elif "://" in ref: # External URL?
@@ -259,9 +262,9 @@ class TargetInfo(object):
         # Pop path from pending
         return self.pending.pop(0)
 
-    def _add_ref(self, url, match):
+    def _add_ref(self, url, match, params=None):
         '''
-        When analyzing `url` we found page `match` - make absolute and queue if necessary
+        When analyzing `url` we found page `match` with `params` - make absolute and queue if necessary. Match can be null if it's just a resbumission of the current url
         '''
 
         targ_url = make_abs(url, match)
@@ -286,9 +289,25 @@ class TargetInfo(object):
         while targ_url.startswith("/"):
             targ_url = targ_url[1:]
 
-        if targ_url not in self.visited and targ_url not in self.pending:
-            self.logger.debug(f"Add url to pending: {targ_url}") # Must be just a path, no leading / - we have the slash in the base URL
-            self.pending.append(targ_url)
+        # Hacky: add URL with variations on get get params if we have any
+        urls = [targ_url]
+
+        if params is None:
+            params = []
+
+        param_base = targ_url
+        param_append = ('?' in param_base)
+        for p in params:
+            suffix = '&' if param_append else '?'
+            suffix += p +'='
+
+            for payload in ['PANDA1PANDA', 'aaaaaaaaaaaaaaaaaaaaaaa', '../', '0', '1', 'true']:
+                urls.append(targ_url + suffix + payload)
+
+        for url in urls:
+            if url not in self.visited and url not in self.pending:
+                self.logger.debug(f"Add url to pending: {url}") # Must be just a path, no leading / - we have the slash in the base URL
+                self.pending.append(url)
 
     def record_visited(self, url):
         u = make_rel(url)
@@ -410,6 +429,17 @@ class PandaCrawl(PyPlugin):
         self.fwdir = os.path.dirname(self.get_arg("fw")) # has image.tar
 
         self.panda_introspection_enabled = not self.get_arg_bool("disable_introspection")
+        if not self.panda_introspection_enabled:
+            self.logger.warning("PANDA Introspection disabled during crawl")
+        else:
+            try:
+                panda.pyplugins.ppp.CollectCoverage.ppp_reg_cb('on_get_param',
+                                                            self.on_get_param)
+                panda.pyplugins.ppp.CollectCoverage.ppp_reg_cb('on_post_param',
+                                                            self.on_post_param)
+            except AttributeError as e:
+                self.logger.warning("Crawling without on_{get,post}_param callbacks from CollectCoverage")
+
 
         self.targets = {} # (service_name, family, ip, port): Target()
         self.have_targets = Lock()
@@ -474,6 +504,62 @@ class PandaCrawl(PyPlugin):
                 except ValueError:
                     return
                 self.check_syscall(fname, 'unlink')
+
+    def on_get_param(self, param):
+        if self.active_request is None:
+            self.logger.warning(f"Told of GET param {param} with no active request")
+            return
+
+        self.logger.info(f"Informed of GET param by coverage analysis: {param}")
+        active_target = self.active_request[0]
+        active_req = self.active_request[1]
+
+        active_target._add_ref(active_req.url, None, params=[param])
+
+    def on_post_param(self, param):
+        if self.active_request is None:
+            self.logger.warning(f"Told of POST param {param} with no active request")
+            return
+
+        active_target = self.active_request[0]
+        active_req = self.active_request[1]
+        path = _strip_url(active_req.url)
+        method = 'POST'
+        form_key = (path, method)
+        if active_req.method == 'POST':
+            if form_key in active_target.forms:
+                params_j = active_target.forms[form_key]
+                params = json.loads(params_j)
+                if param in params:
+                    pass # Already knew about this one
+                else:
+                    params[param] = {'type': 'text', 'defaults': []}
+                    if form_key not in self.forms_pending: # already visited, before we found this - re-visit
+                        self.forms_pending.append(form_key)
+            else:
+                # New form, probably want to reuse existing logic but that assumes it has a form so let's just make it up
+                form = {
+                    "method": 'POST',
+                    "action": path,
+                    "params": {param: {'type': 'text', 'defaults': []}}
+                }
+                if form_key not in active_target.forms:
+                    active_target.forms[form_key] = json.dumps(form['params'])
+                    active_target.forms_pending.append(form_key)
+                else:
+                    self.logger.warning("TODO: Form changed")
+        else:
+            # Add POST to queue
+            form = {
+                "method": 'POST',
+                "action": path,
+                "params": {param: {'type': 'text', 'defaults': []}}
+            }
+            if form_key not in active_target.forms:
+                active_target.forms[form_key] = json.dumps(form['params'])
+                active_target.forms_pending.append(form_key)
+            else:
+                self.logger.warning("TODO: Form changed")
 
     def ls_filesystem(self, path):
         '''
