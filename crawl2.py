@@ -142,6 +142,19 @@ if __name__ == '__main__':
     assert (v1 == "foo/boo.html"), v1
 '''
 
+def _strip_domain(url):
+    '''
+    Remove domain (doesn't handle http://user:pass@domain/)
+    should handle http/https://domain:port/path
+    '''
+    #'http://asdf:port/"
+    url = url.replace("http://", "").replace("https://", "")
+    if '/' in url and url != '/':
+        url = url[url.index('/')+1:]
+    else:
+        url = ''
+    return url
+
 def _strip_url(url):
     '''
     Remove any redundant properties from URLs
@@ -440,7 +453,6 @@ class PandaCrawl(PyPlugin):
             except AttributeError as e:
                 self.logger.warning("Crawling without on_{get,post}_param callbacks from CollectCoverage")
 
-
         self.targets = {} # (service_name, family, ip, port): Target()
         self.have_targets = Lock()
         self.have_targets.acquire() # Lock it immediately
@@ -448,7 +460,6 @@ class PandaCrawl(PyPlugin):
 
         self.all_progs = set() # All distinct programs run in guest (argv[0])
         self.all_execs = set() # All distinct commands run in guest (full argv)
-
 
         try:
             self.ppp.VsockVPN.ppp_reg_cb('on_bind', self.on_bind)
@@ -523,7 +534,8 @@ class PandaCrawl(PyPlugin):
 
         active_target = self.active_request[0]
         active_req = self.active_request[1]
-        path = _strip_url(active_req.url)
+        path = _strip_domain(_strip_url(active_req.url))
+        self.logger.info(f"POST PARAM for {path}")
         method = 'POST'
         form_key = (path, method)
         if active_req.method == 'POST':
@@ -543,11 +555,9 @@ class PandaCrawl(PyPlugin):
                     "action": path,
                     "params": {param: {'type': 'text', 'defaults': []}}
                 }
-                if form_key not in active_target.forms:
-                    active_target.forms[form_key] = json.dumps(form['params'])
-                    active_target.forms_pending.append(form_key)
-                else:
-                    self.logger.warning("TODO: Form changed")
+                # form key can't already be in there since we're in the else
+                active_target.forms[form_key] = json.dumps(form['params'])
+                active_target.forms_pending.append(form_key)
         else:
             # Add POST to queue
             form = {
@@ -559,7 +569,19 @@ class PandaCrawl(PyPlugin):
                 active_target.forms[form_key] = json.dumps(form['params'])
                 active_target.forms_pending.append(form_key)
             else:
-                self.logger.warning("TODO: Form changed")
+                params_j = active_target.forms[form_key]
+                params = json.loads(params_j)
+                if param in params:
+                    # (For now): If we get here we just learned the name and we already
+                    # knew it - nothing better to add.
+                    self.logger.info(f"Rediscovered param {param} that we already had in {form_key}: {params}")
+                else:
+                    # We knew about the form, but not this value.
+                    self.logger.warning("Updating form for {form_key} to add {param}")
+                    params[param] = {'type': 'text', 'defaults': []}
+                    active_target.forms[form_key] = json.dumps(params)
+                    if form_key not in active_target.forms_pending:
+                        active_target.forms_pending.append(form_key)
 
     def ls_filesystem(self, path):
         '''
@@ -667,7 +689,7 @@ class PandaCrawl(PyPlugin):
 
         if active_req.method == 'POST':
             for p in active_req.params:
-                print(p) # TODO
+                print("POST has param", p) # TODO
 
 
     def on_call(self, cpu, args):
@@ -675,10 +697,11 @@ class PandaCrawl(PyPlugin):
         On every exec, log arguments, check if any might be from an active request
         '''
 
-        if self.active_request is not None:
-            # This mirrors the check_syscall logic, but simplified and just for debugigng
-            self.logger.info(f"During request saw execution of: {repr(args)}")
+        #if self.active_request is not None:
+        #    # This mirrors the check_syscall logic, but simplified and just for debugigng
+        #    self.logger.info(f"During request saw execution of: {repr(args)}")
 
+        # Do we care about these?
         self.all_progs.add(str(args[0]))
         self.all_execs.add(tuple([str(x) for x in args]))
 
@@ -775,7 +798,6 @@ class PandaCrawl(PyPlugin):
                     finally:
                         self.active_request = None
 
-                    print(response.status_code)
                     #if response.status_code == 401: # 500, ...
                     try:
                         response.raise_for_status()
