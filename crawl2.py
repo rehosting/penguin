@@ -9,6 +9,7 @@ from collections import deque
 from bs4 import BeautifulSoup
 import coloredlogs
 import subprocess
+import hashlib
 
 import pickle
 import glob
@@ -18,21 +19,23 @@ from queue import Queue
 from threading import Lock
 import requests
 from urllib.parse import urlparse
+from time import sleep
 
 from pandare import PyPlugin
 
 coloredlogs.install(level='INFO')
 
-TIMEOUT=10
+TIMEOUT=30
 
 class MyCallTree(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
-        self.outfile = self.get_arg("outfile") # may be None
-        self.quiet = self.get_arg_bool("quiet")
+        self.outdir = self.get_arg("outdir") # may be None
+        self.quiet = True
         self.ppp_cb_boilerplate('on_call')
 
-        if self.outfile:
+        if self.outdir:
+            self.outfile = self.outdir + "/crawl.log"
             # Clear / create the file
             open(self.outfile, "w").close()
 
@@ -52,7 +55,7 @@ class MyCallTree(PyPlugin):
 
             result = self.get_calltree(cpu) + " => " + ' '.join([x if x else "(error)" for x in argv])
             if self.outfile:
-                with open(result, "a") as f:
+                with open(self.outfile, "a") as f:
                     f.write(result+"\n")
             elif not self.quiet:
                 print(result)
@@ -224,7 +227,7 @@ class TargetInfo(object):
         self.session = None # Session object for requests to use
 
         # List of pages to be visited and that have been visited. Neither should start with /es
-        self.pending = [""]
+        self.pending = ["", "index.php", "robots.txt"]
         self.visited = []
 
         # List of forms to fuzz and that have been fuzzed (data format TBD)
@@ -318,7 +321,10 @@ class TargetInfo(object):
         pd_url = PageDetails(url)
         if pd_url not in self.results:
             self.results[pd_url] = []
-        self.results[pd_url].append(response)
+
+        if response not in self.results[pd_url]:
+            # If we (accidentally?) make the same request twice, only record if the response is the same
+            self.results[pd_url].append(response)
 
         # Analysis will depend on content type
         if any([url.endswith(x) for x in [".png", ".jpg"]]):
@@ -355,7 +361,9 @@ class TargetInfo(object):
     def dump_stats(self):
         # Print health details
         codes = {} # code: count, None = unreachable
+        print(f"Have {len(self.results)} items for {self}:")
         for page, details in self.results.items():
+            print(page)
             for response in details:
                 code = None
                 sz = None
@@ -366,7 +374,7 @@ class TargetInfo(object):
                 if code not in codes:
                     codes[code] = 0
                 codes[code] += 1
-                print(f"{page}\t\tSTATUS: {code}\t\tSIZE:{sz}")
+                print(f"\t\tSTATUS: {code}\t\tSIZE:{sz}")
 
         for code, count in codes.items():
             print(f"{count} responses with code {code}")
@@ -378,6 +386,17 @@ class TargetInfo(object):
                 print()
             # Status None: /cgi-bin/sysinfo.cgi, stpstat.cgi, ringstat.cgi
 
+        # Hash every result, store hashes in a set
+        # Note we might want to do something more fuzzy, some pages will probably
+        # include a date string or something kind of useless like that
+        page_hashes = set()
+        for page, details in self.results.items():
+            for response in details:
+                if response is None:
+                    continue
+                page_hashes.add(hashlib.sha1(response.text.encode('utf8')))
+        print(f"Saw a total of {len(page_hashes)} distinct responses")
+
 class PandaCrawl(PyPlugin):
     '''
     Track vsockify listening services in a guest. Identify services
@@ -388,7 +407,9 @@ class PandaCrawl(PyPlugin):
         self.logger = logging.getLogger('PandaCrawl')
         logging.getLogger("urllib3").setLevel("INFO")
         self.outdir = self.get_arg("outdir")
-        self.fwdir = self.get_arg("fwdir") # has image.tar
+        self.fwdir = os.path.dirname(self.get_arg("fw")) # has image.tar
+
+        self.panda_introspection_enabled = not self.get_arg_bool("disable_introspection")
 
         self.targets = {} # (service_name, family, ip, port): Target()
         self.have_targets = Lock()
@@ -397,6 +418,13 @@ class PandaCrawl(PyPlugin):
 
         self.all_progs = set() # All distinct programs run in guest (argv[0])
         self.all_execs = set() # All distinct commands run in guest (full argv)
+
+
+        try:
+            self.ppp.VsockVPN.ppp_reg_cb('on_bind', self.on_bind)
+        except AttributeError:
+            self.logger.error("VsockVPN does not provide an on_bind callback - is VSOCK support enabled? Crawler quitting")
+            return
 
         # File analyzer does async file system queries such as finding sibling files
         self.file_thread = threading.Thread(target=self.file_manager,
@@ -410,49 +438,55 @@ class PandaCrawl(PyPlugin):
         self.crawl_thread.name = "crawler"
         self.crawl_thread.start()
 
-        self.ppp.VsockVPN.ppp_reg_cb('on_bind', self.on_bind)
-
-        panda.pyplugins.load(MyCallTree, {'quiet': True})
+        # Note MyCallTree is auto-loaded when this file is loaded!
         self.ppp.MyCallTree.ppp_reg_cb('on_call', self.on_call)
         self.active_request = None
 
-        @panda.ppp("syscalls2", "on_sys_open_return")
-        def open(cpu, pc, fname_ptr, flags, mode):
-            try:
-                fname = panda.read_str(cpu, fname_ptr)
-            except ValueError:
-                return
-            self.check_syscall(fname, 'open')
+        if self.panda_introspection_enabled:
+            @panda.ppp("syscalls2", "on_sys_open_return")
+            def open(cpu, pc, fname_ptr, flags, mode):
+                try:
+                    fname = panda.read_str(cpu, fname_ptr)
+                except ValueError:
+                    return
+                self.check_syscall(fname, 'open')
 
-        @panda.ppp("syscalls2", "on_sys_openat_return")
-        def openat(cpu, pc, fd, fname_ptr, flags):
-            try:
-                fname = panda.read_str(cpu, fname_ptr)
-            except ValueError:
-                return
-            self.check_syscall(fname, 'openat')
+            @panda.ppp("syscalls2", "on_sys_openat_return")
+            def openat(cpu, pc, fd, fname_ptr, flags):
+                try:
+                    fname = panda.read_str(cpu, fname_ptr)
+                except ValueError:
+                    return
+                self.check_syscall(fname, 'openat')
 
-        @panda.ppp("syscalls2", "on_sys_creat_return")
-        def creat(cpu, pc, fname_ptr, mode):
-            try:
-                fname = panda.read_str(cpu, fname_ptr)
-            except ValueError:
-                return
-            self.check_syscall(fname, 'creat')
+            @panda.ppp("syscalls2", "on_sys_creat_return")
+            def creat(cpu, pc, fname_ptr, mode):
+                try:
+                    fname = panda.read_str(cpu, fname_ptr)
+                except ValueError:
+                    return
+                self.check_syscall(fname, 'creat')
 
-        @panda.ppp("syscalls2", "on_sys_unlink_return")
-        def unlink(cpu, pc, fname_ptr):
-            try:
-                fname = panda.read_str(cpu, fname_ptr)
-            except ValueError:
-                return
-            self.check_syscall(fname, 'unlink')
+            @panda.ppp("syscalls2", "on_sys_unlink_return")
+            def unlink(cpu, pc, fname_ptr):
+                try:
+                    fname = panda.read_str(cpu, fname_ptr)
+                except ValueError:
+                    return
+                self.check_syscall(fname, 'unlink')
 
     def ls_filesystem(self, path):
         '''
         Get the files form a directory out of the tarfs, if we can. This should be run in another
         thread from the main emulation loop because it's slow!
         '''
+
+        # Prevviously we'd just extract files on demand, but we were running into deadlocks, so let's just do this once and store results
+        #lines = subprocess.check_output(f"tar -tf '{self.fwdir}/image.tar' {path}", shell=True).decode()
+        #return [l.strip() for l in lines.splitlines()]
+
+        if not hasattr(self, 'filesystem_contents'):
+            self.filesystem_contents = subprocess.check_output(f"tar -tf '{self.fwdir}/image.tar'", shell=True).decode().splitlines()
 
         if not hasattr(self, 'tarbase'):
             self.tarbase = subprocess.check_output(f"tar -tf '{self.fwdir}/image.tar' | head -n1", shell=True).decode().strip()
@@ -465,8 +499,7 @@ class PandaCrawl(PyPlugin):
         else:
             path = self.tarbase + path
 
-        lines = subprocess.check_output(f"tar -tf '{self.fwdir}/image.tar' {path}", shell=True).decode()
-        return [l.strip() for l in lines.splitlines()]
+        return [x for x in self.filesystem_contents if x.startswith(path)]
 
     def file_manager(self, queue):
             while True:
@@ -503,14 +536,21 @@ class PandaCrawl(PyPlugin):
         if self.active_request is None:
             return
 
+        # Ignore when our infrastructure is writing results
+        if sysc_string.startswith('/tmp/igloo') or sysc_string.startswith('/igloo/utils'):
+            return
+
         active_target = self.active_request[0]
         active_req = self.active_request[1]
         url = urlparse(active_req.url)
 
         # Be less verbose
-        #print(f"While requesting {active_req} ({url.path}) we saw a {sysname} with {sysc_string}")
-        #if context:
-        #    print("\tContext: ", context)
+        '''
+        if '/proc' not in sysc_string and '/lib' not in sysc_string:
+            print(f"While requesting {active_req} ({url.path}) we saw a {sysname} with {sysc_string}")
+            if context:
+                print("\tContext: ", context)
+        '''
 
         # Check if the provided syscall arg could be from our request. If we need to look at the FS
         # do it asynchronously so we don't block emulation
@@ -520,8 +560,7 @@ class PandaCrawl(PyPlugin):
             self.pending_file_queue.put((active_target, "full_url_match", url.path, sysc_string))
 
         else:
-
-            return # XXX DEBUG ONLY
+            return # XXX TODO: handle these other cases
 
             # TODO: when should partial path matches be a cause for searching the filesystem?
             for tok in url.path.split("/"):
@@ -557,16 +596,19 @@ class PandaCrawl(PyPlugin):
         self.all_progs.add(str(args[0]))
         self.all_execs.add(tuple([str(x) for x in args]))
 
-        s = ", ".join([x for x in args if x is not None])
-        for x in [x for x in args if x is not None]:
-            self.check_syscall(x, 'exec', context=s)
+        if self.panda_introspection_enabled:
+            s = ", ".join([x for x in args if x is not None])
+            for x in [x for x in args if x is not None]:
+                self.check_syscall(x, 'exec', context=s)
 
-    def on_bind(self, proto, guest_ip, guest_port, host_port, procname): # was vport, name, sock_family, sock_ip, sock_port
+    def on_bind(self, proto, guest_ip, guest_port, host_port, procname):
         self.logger.info(f"Saw bind from {procname} {proto} to {guest_ip}:{guest_port}, mapped to host port {host_port}")
 
         if guest_port != 80 or proto != 'tcp':
             self.logger.info("\tIgnoring non tcp::80")
             return
+
+        sleep(5) # Give VPN a second to process event
 
         key = (procname, proto, host_port, guest_ip, guest_port)
         if key not in self.targets:
@@ -717,8 +759,8 @@ class PandaCrawl(PyPlugin):
             for x in self.all_execs:
                 f.write(str(x)+"\n")
 
-
-        self.panda.end_analysis()
+        print("PANDA Crawl finished")
+        #self.panda.end_analysis()
 
     def parse_form(self, bs_form, url, target_key):
         '''
