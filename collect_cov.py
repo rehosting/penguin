@@ -18,6 +18,7 @@ class CollectCoverage(PyPlugin):
         outdir = self.get_arg("outdir") # may be None
         self.ppp_cb_boilerplate('on_post_param') # Triggered when we see a post param accessed in source
         self.ppp_cb_boilerplate('on_get_param') # Triggered when we see a get param accessed in source
+        self.ppp_cb_boilerplate('on_cookie_param') # Triggered when we see an access of a cookie value (Not yet implemented)
 
         self.outfiles = {}
         if outdir:
@@ -30,15 +31,20 @@ class CollectCoverage(PyPlugin):
         from phptrace2 import PhpTrace2
         panda.pyplugins.load(PhpTrace2, {'only_new': True})
         panda.pyplugins.ppp.PhpTrace2.ppp_reg_cb('on_php_coverage', self.on_php_coverage)
-        self.php_post_re = re.compile(r"""\$_post\[['"]([a-za-z0-9_]*)['"]""")
-        self.php_get_re = re.compile(r"""\$_get\[['"]([a-za-z0-9_]*)['"]""")
+        self.php_post_re = re.compile(r"""\$_POST\[['"]([a-zA-Z0-9_]*)['"]""")
+        self.php_get_re = re.compile(r"""\$_GET\[['"]([a-zA-Z0-9_]*)['"]""")
+        self.php_request_re = re.compile(r"""\$_REQUEST\[['"]([a-zA-Z0-9_]*)['"]""")
 
     def on_php_coverage(self, file, line_no, code):
 
-        if param := self.php_post_re.findall(code):
+        for param in self.php_post_re.findall(code):
             self.ppp_run_cb('on_post_param', param)
 
-        if param := self.php_get_re.findall(code):
+        for param in self.php_request_re.findall(code):
+            # REQUEST pulls data from GET and POST, for now just assume post?
+            self.ppp_run_cb('on_post_param', param)
+
+        for param in self.php_get_re.findall(code):
             self.ppp_run_cb('on_get_param', param)
 
         self.logger.info(f"PHP: {file}:{line_no}")
