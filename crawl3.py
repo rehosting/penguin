@@ -1,5 +1,3 @@
-from pandare import PyPlugin
-
 import json
 import logging
 import os
@@ -21,77 +19,13 @@ import requests
 from urllib.parse import urlparse
 from time import sleep
 
-from pandare import PyPlugin
+from sys import path
+path.append("/igloo/")
+from qemuPython import QemuPyplugin
 
 coloredlogs.install(level='INFO')
 
 TIMEOUT=30
-
-class MyCallTree(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
-        self.outdir = self.get_arg("outdir") # may be None
-        self.quiet = True
-        self.ppp_cb_boilerplate('on_call')
-
-        if self.outdir:
-            self.outfile = self.outdir + "/crawl.log"
-            # Clear / create the file
-            open(self.outfile, "w").close()
-
-        @panda.ppp("syscalls2", "on_sys_execve_enter")
-        def calltree_on_sys_execve_enter(cpu, pc, fname_ptr, argv_ptr, envp):
-            # Log commands and arguments passed to execve
-            try:
-                fname = self.panda.read_str(cpu, fname_ptr)
-                argv_buf = panda.virtual_memory_read(cpu, argv_ptr, 100, fmt='ptrlist')
-            except ValueError: return
-            argv = []
-            for ptr in argv_buf:
-                if ptr == 0: break
-                try: argv.append(panda.read_str(cpu, ptr))
-                except ValueError: argv.append(None)
-            self.ppp_run_cb("on_call", cpu, argv)
-
-            result = self.get_calltree(cpu) + " => " + ' '.join([x if x else "(error)" for x in argv])
-            if self.outfile:
-                with open(self.outfile, "a") as f:
-                    f.write(result+"\n")
-            elif not self.quiet:
-                print(result)
-
-    def get_calltree(self, cpu):
-        # Print the calltree to the current process
-        proc = self.panda.plugins['osi'].get_current_process(cpu)
-        if proc == self.panda.ffi.NULL:
-            print("[CallTree] Error determining current process")
-            return
-        procs = self.panda.get_processes_dict(cpu)
-        chain = [{'name': self.panda.ffi.string(proc.name).decode('utf8', 'ignore'),
-                  'pid': proc.pid, 'parent_pid': proc.ppid}]
-        while chain[-1]['pid'] > 1 and chain[-1]['parent_pid'] in procs.keys():
-            chain.append(procs[chain[-1]['parent_pid']])
-        return " -> ".join(f"{item['name']} ({item['pid']})" for item in chain[::-1])
-
-
-def is_child_of(panda, cpu, parent_names):
-    # Return true IFF current_proc is or has a parent in parent_names
-
-    proc = panda.plugins['osi'].get_current_process(cpu)
-    if proc == panda.ffi.NULL:
-        print("Error determining current process")
-        return
-    procs = panda.get_processes_dict(cpu)
-    chain = [{'name': panda.ffi.string(proc.name).decode('utf8', 'ignore'),
-              'pid': proc.pid, 'parent_pid': proc.ppid}]
-    while chain[-1]['pid'] > 1 and chain[-1]['parent_pid'] in procs.keys():
-        chain.append(procs[chain[-1]['parent_pid']])
-
-    for item in chain:
-        if item['name'] in parent_names:
-            return True
-    return False
-
 
 def make_abs(url, ref):
     '''
@@ -429,29 +363,26 @@ class TargetInfo(object):
                 page_hashes.add(hashlib.sha1(response.text.encode('utf8')))
         print(f"Saw a total of {len(page_hashes)} distinct responses")
 
-class PandaCrawl(PyPlugin):
+class PandaCrawl(QemuPyplugin):
     '''
     Track vsockify listening services in a guest. Identify services
     and crawl aproperiately.
     '''
-    def __init__(self, panda):
-        self.panda = panda
+    def __init__(self, arch, args, CID, fw, outdir):
         self.logger = logging.getLogger('PandaCrawl')
         logging.getLogger("urllib3").setLevel("INFO")
-        self.outdir = self.get_arg("outdir")
-        self.fwdir = os.path.dirname(self.get_arg("fw")) # has image.tar
+        self.outdir = outdir
+        self.fwdir = os.path.dirname(fw) # has image.tar
 
-        self.panda_introspection_enabled = not self.get_arg_bool("disable_introspection")
-        if not self.panda_introspection_enabled:
-            self.logger.warning("PANDA Introspection disabled during crawl")
-        else:
-            try:
-                panda.pyplugins.ppp.CollectCoverage.ppp_reg_cb('on_get_param',
-                                                            self.on_get_param)
-                panda.pyplugins.ppp.CollectCoverage.ppp_reg_cb('on_post_param',
-                                                            self.on_post_param)
-            except AttributeError as e:
-                self.logger.warning("Crawling without on_{get,post}_param callbacks from CollectCoverage")
+        '''
+        try:
+            panda.pyplugins.ppp.CollectCoverage.ppp_reg_cb('on_get_param',
+                                                        self.on_get_param)
+            panda.pyplugins.ppp.CollectCoverage.ppp_reg_cb('on_post_param',
+                                                        self.on_post_param)
+        except AttributeError as e:
+            self.logger.warning("Crawling without on_{get,post}_param callbacks from CollectCoverage")
+        '''
 
         self.targets = {} # (service_name, family, ip, port): Target()
         self.have_targets = Lock()
@@ -461,11 +392,13 @@ class PandaCrawl(PyPlugin):
         self.all_progs = set() # All distinct programs run in guest (argv[0])
         self.all_execs = set() # All distinct commands run in guest (full argv)
 
+        '''
         try:
             self.ppp.VsockVPN.ppp_reg_cb('on_bind', self.on_bind)
         except AttributeError:
             self.logger.error("VsockVPN does not provide an on_bind callback - is VSOCK support enabled? Crawler quitting")
             return
+        '''
 
         # File analyzer does async file system queries such as finding sibling files
         self.file_thread = threading.Thread(target=self.file_manager,
@@ -479,10 +412,7 @@ class PandaCrawl(PyPlugin):
         self.crawl_thread.name = "crawler"
         self.crawl_thread.start()
 
-        # Note MyCallTree is auto-loaded when this file is loaded!
-        self.ppp.MyCallTree.ppp_reg_cb('on_call', self.on_call)
-        self.active_request = None
-
+        '''
         if self.panda_introspection_enabled:
             @panda.ppp("syscalls2", "on_sys_open_return")
             def open(cpu, pc, fname_ptr, flags, mode):
@@ -515,7 +445,9 @@ class PandaCrawl(PyPlugin):
                 except ValueError:
                     return
                 self.check_syscall(fname, 'unlink')
+        '''
 
+    '''
     def on_get_param(self, param):
         if self.active_request is None:
             self.logger.warning(f"Told of GET param {param} with no active request")
@@ -582,6 +514,7 @@ class PandaCrawl(PyPlugin):
                     active_target.forms[form_key] = json.dumps(params)
                     if form_key not in active_target.forms_pending:
                         active_target.forms_pending.append(form_key)
+    '''
 
     def ls_filesystem(self, path):
         '''
@@ -637,34 +570,41 @@ class PandaCrawl(PyPlugin):
                     raise ValueError(f"Unexpected match type: {match_type}")
                 queue.task_done()
 
-    def check_syscall(self, sysc_string, sysname, context=None):
-        if sysc_string is None:
-            return
+    def check_execve(self, active_request, argv, envp):
+        active_target = active_request[0]
+        active_req = active_request[1]
+        url = urlparse(active_req.url)
+        self.logger.info(f"Execve {argv} {envp} when fetching/posting {url}")
 
-        if self.active_request is None:
-            return
+    def check_syscalls(self, active_request):
+        '''
+        We issued and finished the provided request. Now check the syscalls that were run during it
+        '''
+        for (sc_name, file, details) in self.qp.consume_files():
+            # TODO after integrating coverag, will need to handle that boht here and in QemuPyplugin
+            if sc_name == 'execve':
+                self.check_execve(active_request, file, details)
+            else:
+                self.check_file_access(active_request, sc_name, file)
+
+    def check_file_access(self, active_request, sysname, sysc_string):
+        assert(active_request is not None)
+        assert(sysc_string is not None) # This is the contents of the syscall
 
         # Ignore when our infrastructure is writing results
         if sysc_string.startswith('/tmp/igloo') or sysc_string.startswith('/igloo/utils'):
+            print("Ignoring:", sysc_string) # Should filter these in userspace helper
             return
 
-        active_target = self.active_request[0]
-        active_req = self.active_request[1]
+        active_target = active_request[0]
+        active_req = active_request[1]
         url = urlparse(active_req.url)
 
-        # Be less verbose
-        '''
-        if '/proc' not in sysc_string and '/lib' not in sysc_string:
-            print(f"While requesting {active_req} ({url.path}) we saw a {sysname} with {sysc_string}")
-            if context:
-                print("\tContext: ", context)
-        '''
+        #if '/proc' not in sysc_string and '/lib' not in sysc_string:
+        #    print(f"While requesting {active_req} ({url.path}) we saw a {sysname} with {sysc_string}")
 
-        # Check if the provided syscall arg could be from our request. If we need to look at the FS
-        # do it asynchronously so we don't block emulation
-
+        # TODO this can be synchrnous now
         if url.path in sysc_string and len(url.path) > 4:
-            #print("Full URL match:", url.path, sysc_string)
             self.pending_file_queue.put((active_target, "full_url_match", url.path, sysc_string))
 
         else:
@@ -692,6 +632,7 @@ class PandaCrawl(PyPlugin):
                 print("POST has param", p) # TODO
 
 
+    """
     def on_call(self, cpu, args):
         '''
         On every exec, log arguments, check if any might be from an active request
@@ -709,15 +650,15 @@ class PandaCrawl(PyPlugin):
             s = ", ".join([x for x in args if x is not None])
             for x in [x for x in args if x is not None]:
                 self.check_syscall(x, 'exec', context=s)
+    """
 
+    # Called directly by qvpn when it sees a bind 5s after it tells the vpn to bridge it
     def on_bind(self, proto, guest_ip, guest_port, host_port, procname):
         self.logger.info(f"Saw bind from {procname} {proto} to {guest_ip}:{guest_port}, mapped to host port {host_port}")
 
         if guest_port != 80 or proto != 'tcp':
             self.logger.info("\tIgnoring non tcp::80")
             return
-
-        sleep(5) # Give VPN a second to process event
 
         key = (procname, proto, host_port, guest_ip, guest_port)
         if key not in self.targets:
@@ -791,15 +732,17 @@ class PandaCrawl(PyPlugin):
                     try:
                         # TODO generate data based off params_j and submit with request
                         self.logger.info(f"FORM fetch {url} with {params}")
-                        self.active_request = (target, requests.Request(method, url, data=params, headers={'Connection':'close'}), params)
-                        response = target.session.send(self.active_request[1].prepare(), timeout=TIMEOUT)
+                        dropped_files = self.qp.consume_files() # Drop any old files accessed
+                        #print(f"Dropped {len(dropped_files)} file accesses prior to request")
+
+                        active_request = (target, requests.Request(method, url, data=params, headers={'Connection':'close'}), params)
+                        response = target.session.send(active_request[1].prepare(), timeout=TIMEOUT)
                     except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
-                        self.active_request = None
                         target.log_failure(url)
                         self.logger.warning(f"Failed to visit from at {url} with {params} => {e}")
                         continue
                     finally:
-                        self.active_request = None
+                        self.check_syscalls(active_request)
 
                     #if response.status_code == 401: # 500, ...
                     try:
@@ -824,15 +767,16 @@ class PandaCrawl(PyPlugin):
 
                 # Crawl it. TODO: support params / non-get methods for non-forms
                 try:
-                    self.active_request = (target, requests.Request('GET', url))
-                    response = target.session.send(self.active_request[1].prepare(), timeout=TIMEOUT)
+                    active_request = (target, requests.Request('GET', url))
+                    response = target.session.send(active_request[1].prepare(), timeout=TIMEOUT)
+                    dropped_files = self.qp.consume_files() # Drop any old files accessed
+                    #print(f"Dropped {len(dropped_files)} file accesses prior to request")
                 except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
-                    self.active_request = None
                     target.log_failure(url)
                     self.logger.warning(f"Failed to visit {url} => {e}")
                     continue
                 finally:
-                    self.active_request = None
+                    self.check_syscalls(active_request)
 
 
                 if response.status_code == 401:

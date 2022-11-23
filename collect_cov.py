@@ -10,8 +10,6 @@ path.append(dirname(__file__))
 
 coloredlogs.install(level='INFO')
 
-# TODO: refactor to be generic collector
-
 class CollectCoverage(PyPlugin):
     def __init__(self, panda):
         self.logger = logging.getLogger('CollectCoverage')
