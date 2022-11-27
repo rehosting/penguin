@@ -130,8 +130,6 @@ def _build_url(sock_family, sock_ip, sock_port, path):
         url = "http://" + url
     return url
 
-
-
 class PageDetails(object):
     '''
     Given a URL and method, store info in a standardized format
@@ -360,7 +358,7 @@ class TargetInfo(object):
 class PandaCrawl(QemuPyplugin):
     '''
     Track vsockify listening services in a guest. Identify services
-    and crawl aproperiately.
+    and crawl appropriately.
     '''
     def __init__(self, arch, args, CID, fw, outdir):
         self.logger = logging.getLogger('PandaCrawl')
@@ -373,10 +371,8 @@ class PandaCrawl(QemuPyplugin):
         self.have_targets.acquire() # Lock it immediately
         self.pending_file_queue = Queue()
 
-        self.all_progs = set() # All distinct programs run in guest (argv[0])
-        self.all_execs = set() # All distinct commands run in guest (full argv)
-
         self.pending_execve = False
+        self.execve_runner = []
         self.execve_args = []
         self.execve_env = []
 
@@ -496,9 +492,10 @@ class PandaCrawl(QemuPyplugin):
                 # Note we could also patch the kernel to log 'execve END' after env.
 
                 # Execves are always a little interesting
-                self.logger.info(f"execve: {self.execve_args} env={self.execve_env}")
+                self.logger.info(f"execve: {self.execve_runner} args={self.execve_args} env={self.execve_env}")
                 self.seen_execs.append((self.execve_args, self.execve_env))
 
+                self.execve_runner = []
                 self.execve_args = []
                 self.execve_env = []
                 self.pending_execve = False
@@ -509,6 +506,10 @@ class PandaCrawl(QemuPyplugin):
             #self.logger.info(f"{procname} ({pid}) does {sc_name} on {filename}")
             # TODO process syscall (sync?)
             #QemuPython.on_sc(pending_files, pending_cbs, sc_name, pid, procname, tail)
+            if sc_name == 'execve':
+                self.execve_runner = (procname, pid)
+                self.pending_execve = True
+
             self.seen_files.append((sc_name, pid, procname, filename))
 
     def ls_filesystem(self, path):
@@ -612,10 +613,58 @@ class PandaCrawl(QemuPyplugin):
             self.on_get_param(active_request, param)
 
     def check_execve(self, active_request, argv, envp):
+        '''
+        Bug finding: command injection
+        '''
         active_target = active_request[0]
         active_req = active_request[1]
         url = urlparse(active_req.url)
         self.logger.info(f"Execve {argv} {envp} when fetching/posting {url}")
+
+        # Do we want to record thse?
+        #self.all_progs.add(str(argsv[0]))
+        #self.all_execs.add(tuple([str(x) for x in argv]))
+
+        def _check_get(tok, sc_file):
+            if "=" not in tok:
+                if tok in sc_file and len(tok) > 4:
+                    print("QUERY MATCH:", tok)
+            else:
+                k, v = tok.split("=")
+                if k in sc_file and len(k) > 4:
+                    print("QUERY KEY:", k)
+                if v in sc_file and len(v) > 4:
+                    print("QUERY VAL:", v)
+
+        def _check_post(key, val, sc_file):
+            if key in file and len(key) > 4:
+                print(f"POST: key: {key}")
+            if val in file and len(val) > 4:
+                print(f"POST: key[{key}]'s value: {val}")
+
+        # Is URL in exec/env?
+        for arg in argv:
+            for comp in url.split("/"):
+                if comp in arg:
+                    print("URL MATCH:", comp, arg)
+
+        # Are any get params in exec / env?
+        for tok in url.query.split("&"):
+            for arg in argv:
+                _check_get(tok, arg)
+            for env in envp:
+                _check_get(tok, env)
+
+        # Are any postdata in exec / evn
+        if active_req.method == 'POST':
+            for arg in argv:
+                for k, v in active_req.params.items():
+                    _check_post(k, v, arg)
+            for env in envp:
+                for k, v in active_req.params.items():
+                    _check_post(k, v, env)
+
+
 
     def check_file_access(self, active_request, sysname, pid, procname, sysc_string):
         assert(active_request is not None)
@@ -661,26 +710,6 @@ class PandaCrawl(QemuPyplugin):
             for p in active_req.params:
                 print("POST has param", p) # TODO
 
-
-    """
-    def on_call(self, cpu, args):
-        '''
-        On every exec, log arguments, check if any might be from an active request
-        '''
-
-        #if self.active_request is not None:
-        #    # This mirrors the check_syscall logic, but simplified and just for debugigng
-        #    self.logger.info(f"During request saw execution of: {repr(args)}")
-
-        # Do we care about these?
-        self.all_progs.add(str(args[0]))
-        self.all_execs.add(tuple([str(x) for x in args]))
-
-        if self.panda_introspection_enabled:
-            s = ", ".join([x for x in args if x is not None])
-            for x in [x for x in args if x is not None]:
-                self.check_syscall(x, 'exec', context=s)
-    """
 
     def on_bind(self, proto, guest_ip, guest_port, host_port, procname):
         '''
@@ -765,7 +794,7 @@ class PandaCrawl(QemuPyplugin):
                 for params in request_params:
                     try:
                         # TODO generate data based off params_j and submit with request
-                        self.logger.info(f"FORM fetch {url} with {params}")
+                        self.logger.debug(f"FORM fetch {url} with {params}")
                         self.reset_seen()
                         #print(f"Dropped {len(dropped_files)} file accesses prior to request")
 
@@ -836,19 +865,8 @@ class PandaCrawl(QemuPyplugin):
 
         self.logger.info("Finished crawling")
 
-        for t in self.targets.values():
-            t.dump_stats()
-
-        print(f"Saw a total of {len(self.all_progs)} unique programs run during analysis. Saved to {self.outdir}/progs.txt")
-        print(f"Saw a total of {len(self.all_execs)} unique program executions during analysis. Saved to {self.outdir}/execs.txt")
-
-        with open(self.outdir + "/progs.txt", "w") as f:
-            for x in self.all_progs:
-                f.write(str(x)+"\n")
-
-        with open(self.outdir + "/execs.txt", "w") as f:
-            for x in self.all_execs:
-                f.write(str(x)+"\n")
+        #for t in self.targets.values():
+        #    t.dump_stats()
 
         print("PANDA Crawl finished")
         #self.panda.end_analysis()
@@ -893,7 +911,7 @@ class PandaCrawl(QemuPyplugin):
                 # Duplicate name - e.g., a set of radio buttons. Add to defaults
                 form['params'][name]['defaults'].append(field.get('value'))
 
-        self.logger.info(f"Recording form that {form['method']}s to {abs_act}")
+        self.logger.debug(f"Recording form that {form['method']}s to {abs_act}")
         self.do_form_queue(abs_act, form, target_key)
 
     def do_form_queue(self, path, form, target_key):
