@@ -70,12 +70,6 @@ def make_rel(url):
 
     return path
 
-'''
-if __name__ == '__main__':
-    v1 = make_abs("http://example.com/foo/zoo.html", "boo.html")
-    assert (v1 == "foo/boo.html"), v1
-'''
-
 def _strip_domain(url):
     '''
     Remove domain (doesn't handle http://user:pass@domain/)
@@ -392,60 +386,23 @@ class PandaCrawl(QemuPyplugin):
         self.all_progs = set() # All distinct programs run in guest (argv[0])
         self.all_execs = set() # All distinct commands run in guest (full argv)
 
-        '''
-        try:
-            self.ppp.VsockVPN.ppp_reg_cb('on_bind', self.on_bind)
-        except AttributeError:
-            self.logger.error("VsockVPN does not provide an on_bind callback - is VSOCK support enabled? Crawler quitting")
-            return
-        '''
+        self.pending_execve = False
+        self.execve_args = []
+        self.execve_env = []
 
-        # File analyzer does async file system queries such as finding sibling files
-        self.file_thread = threading.Thread(target=self.file_manager,
-                                              args=(self.pending_file_queue,))
-        self.file_thread.daemon = True
-        self.file_thread.name = "file_analyzer"
-        self.file_thread.start()
+        self.sc_line_re = re.compile(r'([a-z0-9_]*) \[PID: (\d*) \(([a-zA-Z0-9/\-:_\. ]*)\)], file: (.*)')
+
+        self.reset_seen()
 
         self.crawl_thread = threading.Thread(target=self.crawl_manager)
         self.crawl_thread.daemon = True
         self.crawl_thread.name = "crawler"
         self.crawl_thread.start()
 
-        '''
-        if self.panda_introspection_enabled:
-            @panda.ppp("syscalls2", "on_sys_open_return")
-            def open(cpu, pc, fname_ptr, flags, mode):
-                try:
-                    fname = panda.read_str(cpu, fname_ptr)
-                except ValueError:
-                    return
-                self.check_syscall(fname, 'open')
-
-            @panda.ppp("syscalls2", "on_sys_openat_return")
-            def openat(cpu, pc, fd, fname_ptr, flags):
-                try:
-                    fname = panda.read_str(cpu, fname_ptr)
-                except ValueError:
-                    return
-                self.check_syscall(fname, 'openat')
-
-            @panda.ppp("syscalls2", "on_sys_creat_return")
-            def creat(cpu, pc, fname_ptr, mode):
-                try:
-                    fname = panda.read_str(cpu, fname_ptr)
-                except ValueError:
-                    return
-                self.check_syscall(fname, 'creat')
-
-            @panda.ppp("syscalls2", "on_sys_unlink_return")
-            def unlink(cpu, pc, fname_ptr):
-                try:
-                    fname = panda.read_str(cpu, fname_ptr)
-                except ValueError:
-                    return
-                self.check_syscall(fname, 'unlink')
-        '''
+    def reset_seen(self):
+        self.seen_files = []
+        self.seen_execs = []
+        self.seen_covs = []
 
     '''
     def on_get_param(self, param):
@@ -516,6 +473,62 @@ class PandaCrawl(QemuPyplugin):
                         active_target.forms_pending.append(form_key)
     '''
 
+    def on_output(self, line):
+        '''
+        Non-blocking function to process a line of guest output via dedicated serial.
+        Called automatically by qemuPython. Blocks output parsing while running.
+
+        Three things to watch for:
+            1) File-based syscalls
+            2) Execves
+            3) Coverage
+
+        We store these in:
+            self.seen_files,
+            self.seen_execs,
+            self.seen_covs
+
+        then parse after each request
+        '''
+
+        if line.startswith('COV: '):
+            lang, file, line, code = line[5:].split(",", 3)
+            # TODO QUEUE?
+            #self.logger.info(f"coverage: {lang} {file}:{line}")
+            self.seen_covs.append((lang, file, line, code))
+
+        if self.pending_execve:
+            # If it's a syscall and we're parsing an execve, consume
+            # and combine details until we get a non-execve output
+            if line.startswith('execve ARG '):
+                self.execve_args.append(line.split('execve ARG ')[1])
+                return
+            elif line.startswith('execve ENV: '):
+                self.execve_env.append(line.split('execve ENV: ')[1])
+                return
+            else:
+                # We were in an execve output, but now we're not
+                # Note we could also patch the kernel to log 'execve END' after env.
+
+                #QemuPython.on_sc(pending_files, pending_cbs, self.pending_execve[0],
+                #                 self.pending_execve[1], self.pending_execve[2], None,
+                #                 args=self.execve_args, env=self.execve_env)
+                self.logger.info(f"execve: {self.execve_args} env={self.execve_env}")
+
+                self.seen_execs.append((self.execve_args, self.execve_env))
+
+                self.execve_args = []
+                self.execve_env = []
+                self.pending_execve = False
+
+        # Note we won't get here if self.pending_execve is still True
+        if m := self.sc_line_re.match(line):
+            (sc_name , pid, procname, filename) = m.groups()
+            #self.logger.info(f"{procname} ({pid}) does {sc_name} on {filename}")
+            # TODO process syscall (sync?)
+            #QemuPython.on_sc(pending_files, pending_cbs, sc_name, pid, procname, tail)
+            self.seen_files.append((sc_name, pid, procname, filename))
+
     def ls_filesystem(self, path):
         '''
         Get the files form a directory out of the tarfs, if we can. This should be run in another
@@ -542,33 +555,47 @@ class PandaCrawl(QemuPyplugin):
 
         return [x for x in self.filesystem_contents if x.startswith(path)]
 
-    def file_manager(self, queue):
-            while True:
-                (target, match_type, path, sysc_string) = queue.get()
+    def analyze_fs(self, target, match_type, path, sysc_string):
+        if match_type == "full_url_match":
+            '''
+            Imagine a get of /dir/file that opens /var/www/dir/file
+            We calculate fs_base of /var/www. Then we ls /var/www/dir/file
+            in the filesystem. Drop /var/www from each and those are the URLs to visit
+            '''
+            sysc_dir  = os.path.dirname(sysc_string)    # /var/www/dir
+            files = self.ls_filesystem(sysc_dir)        # /var/www/dir/other_file
+            fs_base = sysc_string.replace(path, "")     # /var/www/
 
-                if match_type == "full_url_match":
-                    '''
-                    Imagine a get of /dir/file that opens /var/www/dir/file
-                    We calculate fs_base of /var/www. Then we ls /var/www/dir/file
-                    in the filesystem. Drop /var/www from each and those are the URLs to visit
-                    '''
-                    sysc_dir  = os.path.dirname(sysc_string)    # /var/www/dir
-                    files = self.ls_filesystem(sysc_dir)        # /var/www/dir/other_file
-                    fs_base = sysc_string.replace(path, "")     # /var/www/
+            for f in files:
+                new_url = f.replace(fs_base, "")        # dir/other_file
+                if f == "./":
+                    continue
+                if f.startswith("./"):
+                    f = f[1:] # make ./foo /foo. It will become relative later?
+                #print(f"Possible sibling. Browsing to {url.path} accessed {sysc_string}. So we should be able to hit {f} if we browse to {new_url}?")
+                if not new_url.startswith("/"):
+                    new_url = "/" + new_url
+                target._add_ref(path, new_url)
+        else:
+            raise ValueError(f"Unexpected match type: {match_type}")
 
-                    for f in files:
-                        new_url = f.replace(fs_base, "")        # dir/other_file
-                        if f == "./":
-                            continue
-                        if f.startswith("./"):
-                            f = f[1:] # make ./foo /foo. It will become relative later?
-                        #print(f"Possible sibling. Browsing to {url.path} accessed {sysc_string}. So we should be able to hit {f} if we browse to {new_url}?")
-                        if not new_url.startswith("/"):
-                            new_url = "/" + new_url
-                        target._add_ref(path, new_url)
-                else:
-                    raise ValueError(f"Unexpected match type: {match_type}")
-                queue.task_done()
+    def check_syscalls(self, active_request):
+        '''
+        We issued and finished the provided request. Now check the syscalls that were run during it
+        Check: seen_files, seen_execs, and seen_covs
+        '''
+
+        for seen_file in self.seen_files:
+            self.check_file_access(active_request, *seen_file)
+
+        for seen_exec in self.seen_execs:
+            self.check_execve(active_request, *seen_exec)
+
+        for seen_cov in self.seen_covs:
+            self.check_cov(active_request, *seen_cov)
+
+    def check_cov(self, active_request, lang, file, line, code):
+        self.logger.info(f"Coverage {lang} {file}:{line}")
 
     def check_execve(self, active_request, argv, envp):
         active_target = active_request[0]
@@ -576,18 +603,7 @@ class PandaCrawl(QemuPyplugin):
         url = urlparse(active_req.url)
         self.logger.info(f"Execve {argv} {envp} when fetching/posting {url}")
 
-    def check_syscalls(self, active_request):
-        '''
-        We issued and finished the provided request. Now check the syscalls that were run during it
-        '''
-        for (sc_name, file, details) in self.qp.consume_files():
-            # TODO after integrating coverag, will need to handle that boht here and in QemuPyplugin
-            if sc_name == 'execve':
-                self.check_execve(active_request, file, details)
-            else:
-                self.check_file_access(active_request, sc_name, file)
-
-    def check_file_access(self, active_request, sysname, sysc_string):
+    def check_file_access(self, active_request, sysname, pid, procname, sysc_string):
         assert(active_request is not None)
         assert(sysc_string is not None) # This is the contents of the syscall
 
@@ -603,9 +619,9 @@ class PandaCrawl(QemuPyplugin):
         #if '/proc' not in sysc_string and '/lib' not in sysc_string:
         #    print(f"While requesting {active_req} ({url.path}) we saw a {sysname} with {sysc_string}")
 
-        # TODO this can be synchrnous now
         if url.path in sysc_string and len(url.path) > 4:
-            self.pending_file_queue.put((active_target, "full_url_match", url.path, sysc_string))
+            # Note this can be block now
+            self.analyze_fs(active_target, "full_url_match", url.path, sysc_string)
 
         else:
             return # XXX TODO: handle these other cases
@@ -652,12 +668,16 @@ class PandaCrawl(QemuPyplugin):
                 self.check_syscall(x, 'exec', context=s)
     """
 
-    # Called directly by qvpn when it sees a bind 5s after it tells the vpn to bridge it
     def on_bind(self, proto, guest_ip, guest_port, host_port, procname):
+        '''
+        Called directly by qvpn when it sees a bind 5s after it tells the vpn to bridge it.
+        Blocking in here blocks qvpn as well so we don't block
+        '''
+
         self.logger.info(f"Saw bind from {procname} {proto} to {guest_ip}:{guest_port}, mapped to host port {host_port}")
 
         if guest_port != 80 or proto != 'tcp':
-            self.logger.info("\tIgnoring non tcp::80")
+            self.logger.info(f"\tIgnoring non tcp:80 (actual {proto}:{guest_port})")
             return
 
         key = (procname, proto, host_port, guest_ip, guest_port)
@@ -732,7 +752,7 @@ class PandaCrawl(QemuPyplugin):
                     try:
                         # TODO generate data based off params_j and submit with request
                         self.logger.info(f"FORM fetch {url} with {params}")
-                        dropped_files = self.qp.consume_files() # Drop any old files accessed
+                        self.reset_seen()
                         #print(f"Dropped {len(dropped_files)} file accesses prior to request")
 
                         active_request = (target, requests.Request(method, url, data=params, headers={'Connection':'close'}), params)
@@ -768,8 +788,10 @@ class PandaCrawl(QemuPyplugin):
                 # Crawl it. TODO: support params / non-get methods for non-forms
                 try:
                     active_request = (target, requests.Request('GET', url))
+
+                    self.reset_seen() # Drop any old files accessed
+
                     response = target.session.send(active_request[1].prepare(), timeout=TIMEOUT)
-                    dropped_files = self.qp.consume_files() # Drop any old files accessed
                     #print(f"Dropped {len(dropped_files)} file accesses prior to request")
                 except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
                     target.log_failure(url)
