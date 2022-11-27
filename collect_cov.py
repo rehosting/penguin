@@ -24,29 +24,94 @@ class CollectCoverage(QemuPyplugin):
         self.outdir = outdir
         self.seen_cov = set()
         self.started_logging = set()
+        self.coverage = {}
+        self.log_no = 0
 
-    def log_cov(self, lang, file, line, code):
+        self.all_progs = set() # All distinct programs run in guest (argv[0])
+        self.all_execs = set() # All distinct commands run in guest (full argv)
+
+        self.pending_execve = False
+        self.execve_args = []
+        self.execve_env = []
+        self.execve_line_re = re.compile(r'execve \[PID: (\d*) \(([a-zA-Z0-9/\-:_\. ]*)\)], file: ')
+
+    def log_procs(self):
+        with open(self.outdir + "/all_progs.txt", "w") as f:
+            for x in self.all_progs:
+                f.write(str(x)+"\n")
+
+        with open(self.outdir + "/all_execs.txt", "w") as f:
+            for x in self.all_execs:
+                f.write(str(x)+"\n")
+
+    def log_cov(self):
+        # At "log" we sort and write to file for final results
+        for lang, files in self.coverage.items():
+            path = self.outdir + f"/coverage.{lang}"
+
+            # Reset file contents
+            with open(path, "w") as f:
+                f.write(f"filename, line_number, code_repr\n")
+                for file, data in files.items():
+                    for line, code in sorted(data.items()):
+                        f.write(f"{file},{line},{repr(code)}\n")
+
+    def record_cov(self, lang, file, line, code):
+        # At "record" we append to file for intermediate results
+        if (lang, file, line) in self.seen_cov:
+            return # Skip duplicates
+        self.seen_cov.add((lang, file, line))
+        if "IGLOOIZED" in code:
+            return # Artifact from our introspection, ignore these lines
+
         path = self.outdir + f"/coverage.{lang}"
-
-        # Clear / create the output files the first time
         if lang not in self.started_logging:
+            # Clear / create the output files the first write
             open(path, "w").close()
             self.started_logging.add(lang)
 
         with open(path, "a") as f:
+            # Append
             f.write(f"{file},{line},{repr(code)}\n")
+
+        if lang not in self.coverage:
+            self.coverage[lang] = {}
+
+        if file not in self.coverage[lang]:
+            self.coverage[lang][file] = {}
+
+        self.coverage[lang][file][line] = code
 
     def on_output(self, line):
         if line.startswith('COV: '):
             lang, file, line, code = line[5:].split(",", 3)
-            if (lang, file, line) in self.seen_cov:
-                # Skip duplicates
+            line = int(line)
+            self.record_cov(lang, file, line, code)
+            return
+
+        elif self.pending_execve:
+            # If it's a syscall and we're parsing an execve, consume
+            # and combine details until we get a non-execve output
+            if line.startswith('execve ARG '):
+                self.execve_args.append(line.split('execve ARG ')[1])
                 return
-
-            self.seen_cov.add((lang, file, line))
-
-            if "IGLOOIZED" in line:
-                # Artifact from our introspection, ignore these lines
+            elif line.startswith('execve ENV: '):
+                self.execve_env.append(line.split('execve ENV: ')[1])
                 return
+            else:
+                # We were in an execve output, but now we're not
+                # Note we could also patch the kernel to log 'execve END' after env.
 
-            self.log_cov(lang, file, line, code)
+                self.all_progs.add(str(self.execve_args[0]))
+                self.all_execs.add(tuple([str(x) for x in self.execve_args + self.execve_env]))
+
+                self.execve_args = []
+                self.execve_env = []
+                self.pending_execve = False
+
+        if m := self.execve_line_re.match(line):
+            pending_execve = True
+
+    def uninit(self):
+        self.log_cov()
+        self.log_procs()
