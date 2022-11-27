@@ -368,16 +368,6 @@ class PandaCrawl(QemuPyplugin):
         self.outdir = outdir
         self.fwdir = os.path.dirname(fw) # has image.tar
 
-        '''
-        try:
-            panda.pyplugins.ppp.CollectCoverage.ppp_reg_cb('on_get_param',
-                                                        self.on_get_param)
-            panda.pyplugins.ppp.CollectCoverage.ppp_reg_cb('on_post_param',
-                                                        self.on_post_param)
-        except AttributeError as e:
-            self.logger.warning("Crawling without on_{get,post}_param callbacks from CollectCoverage")
-        '''
-
         self.targets = {} # (service_name, family, ip, port): Target()
         self.have_targets = Lock()
         self.have_targets.acquire() # Lock it immediately
@@ -393,6 +383,11 @@ class PandaCrawl(QemuPyplugin):
         self.sc_line_re = re.compile(r'([a-z0-9_]*) \[PID: (\d*) \(([a-zA-Z0-9/\-:_\. ]*)\)], file: (.*)')
 
         self.reset_seen()
+        self.seen_cov_set = set()
+        self.php_post_re = re.compile(r"""\$_POST\[['"]([a-zA-Z0-9_]*)['"]""")
+        self.php_get_re = re.compile(r"""\$_GET\[['"]([a-zA-Z0-9_]*)['"]""")
+        self.php_request_re = re.compile(r"""\$_REQUEST\[['"]([a-zA-Z0-9_]*)['"]""")
+
 
         self.crawl_thread = threading.Thread(target=self.crawl_manager)
         self.crawl_thread.daemon = True
@@ -404,25 +399,17 @@ class PandaCrawl(QemuPyplugin):
         self.seen_execs = []
         self.seen_covs = []
 
-    '''
-    def on_get_param(self, param):
-        if self.active_request is None:
-            self.logger.warning(f"Told of GET param {param} with no active request")
-            return
-
+    def on_get_param(self, active_request, param):
         self.logger.info(f"Informed of GET param by coverage analysis: {param}")
-        active_target = self.active_request[0]
-        active_req = self.active_request[1]
+        active_target = active_request[0]
+        active_req = active_request[1]
 
         active_target._add_ref(active_req.url, None, params=[param])
 
-    def on_post_param(self, param):
-        if self.active_request is None:
-            self.logger.warning(f"Told of POST param {param} with no active request")
-            return
+    def on_post_param(self, active_request, param):
 
-        active_target = self.active_request[0]
-        active_req = self.active_request[1]
+        active_target = active_request[0]
+        active_req = active_request[1]
         path = _strip_domain(_strip_url(active_req.url))
         self.logger.info(f"POST PARAM for {path}")
         method = 'POST'
@@ -471,7 +458,6 @@ class PandaCrawl(QemuPyplugin):
                     active_target.forms[form_key] = json.dumps(params)
                     if form_key not in active_target.forms_pending:
                         active_target.forms_pending.append(form_key)
-    '''
 
     def on_output(self, line):
         '''
@@ -493,9 +479,8 @@ class PandaCrawl(QemuPyplugin):
 
         if line.startswith('COV: '):
             lang, file, line, code = line[5:].split(",", 3)
-            # TODO QUEUE?
-            #self.logger.info(f"coverage: {lang} {file}:{line}")
             self.seen_covs.append((lang, file, line, code))
+            return
 
         if self.pending_execve:
             # If it's a syscall and we're parsing an execve, consume
@@ -510,11 +495,8 @@ class PandaCrawl(QemuPyplugin):
                 # We were in an execve output, but now we're not
                 # Note we could also patch the kernel to log 'execve END' after env.
 
-                #QemuPython.on_sc(pending_files, pending_cbs, self.pending_execve[0],
-                #                 self.pending_execve[1], self.pending_execve[2], None,
-                #                 args=self.execve_args, env=self.execve_env)
+                # Execves are always a little interesting
                 self.logger.info(f"execve: {self.execve_args} env={self.execve_env}")
-
                 self.seen_execs.append((self.execve_args, self.execve_env))
 
                 self.execve_args = []
@@ -583,6 +565,10 @@ class PandaCrawl(QemuPyplugin):
         '''
         We issued and finished the provided request. Now check the syscalls that were run during it
         Check: seen_files, seen_execs, and seen_covs
+
+        TODO: to avoid race conditions, this should block emulation until log reader is all caught up
+        then parse log output. Otherwise we could be missing later syscalls that were run during
+        processing request, but not yet captured while processing serial output.
         '''
 
         for seen_file in self.seen_files:
@@ -595,7 +581,35 @@ class PandaCrawl(QemuPyplugin):
             self.check_cov(active_request, *seen_cov)
 
     def check_cov(self, active_request, lang, file, line, code):
-        self.logger.info(f"Coverage {lang} {file}:{line}")
+        #self.logger.info(f"Coverage {lang} {file}:{line}")
+        if (lang, file, line) in self.seen_cov_set:
+            # Don't re-analyze duplicates
+            return
+
+        self.seen_cov_set.add((lang, file, line))
+
+        if "IGLOOIZED" in line:
+            # Artifact from our introspection, ignore these lines
+            return
+
+        if hasattr(self, f'on_{lang}_coverage'): # on_php_coverage
+            getattr(self, f'on_{lang}_coverage')(active_request, file, line, code)
+        else:
+            self.logger.error(f'No parser for {lang} coverage')
+
+    def on_php_coverage(self, active_request, file, line_no, code):
+        for param in self.php_post_re.findall(code):
+            #self.logger.info("POST:", param)
+            self.on_post_param(active_request, param)
+
+        for param in self.php_request_re.findall(code):
+            # REQUEST pulls data from GET and POST, for now just assume post?
+            #self.logger.info("REQUEST:", param)
+            self.on_post_param(active_request, param)
+
+        for param in self.php_get_re.findall(code):
+            #self.logger.info("GET:", param)
+            self.on_get_param(active_request, param)
 
     def check_execve(self, active_request, argv, envp):
         active_target = active_request[0]
