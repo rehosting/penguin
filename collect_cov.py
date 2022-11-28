@@ -15,25 +15,27 @@ coloredlogs.install(level='INFO')
 
 class CollectCoverage(QemuPyplugin):
     '''
-    Collect all coverage from IGLOO-aware interpreters run by any
-    process in the guest. Record into outdir.
+    Collect three types of coverage:
+    1) Execve-based: name of unique programs run                -> outdir/all_progs.txt
+    2) Execve-based with args/envp: unique argv+envp lists seen -> outdir/all_execs.txt
+    3) For IGLOO-aware interpreters, source line coverage       -> outdir/coverage.[lang]
     '''
     def __init__(self, arch, args, CID, fw, outdir):
         self.logger = logging.getLogger('CollectCoverage')
 
         self.outdir = outdir
         self.seen_cov = set()
-        self.started_logging = set()
+        self.started_logging = set() # Track which lang-specific covfiles we've written to
         self.coverage = {}
         self.log_no = 0
 
         self.all_progs = set() # All distinct programs run in guest (argv[0])
-        self.all_execs = set() # All distinct commands run in guest (full argv)
+        self.all_execs = set() # All distinct commands run in guest (full argv+envp)
 
-        self.pending_execve = False
+        self.pending_execve = None
         self.execve_args = []
         self.execve_env = []
-        self.execve_line_re = re.compile(r'execve \[PID: (\d*) \(([a-zA-Z0-9/\-:_\. ]*)\)], file: ')
+        self.execve_line_re = re.compile(r'execve \[PID: (\d*) \(([a-zA-Z0-9/\-:_\. ]*)\)]')
 
     def log_procs(self):
         with open(self.outdir + "/all_progs.txt", "w") as f:
@@ -70,16 +72,16 @@ class CollectCoverage(QemuPyplugin):
             open(path, "w").close()
             self.started_logging.add(lang)
 
+        # Write intermediate result to file (not-sorted)
         with open(path, "a") as f:
             # Append
             f.write(f"{file},{line},{repr(code)}\n")
 
+        # Store coverage info so we can later output sorted
         if lang not in self.coverage:
             self.coverage[lang] = {}
-
         if file not in self.coverage[lang]:
             self.coverage[lang][file] = {}
-
         self.coverage[lang][file][line] = code
 
     def on_output(self, line):
@@ -89,28 +91,32 @@ class CollectCoverage(QemuPyplugin):
             self.record_cov(lang, file, line, code)
             return
 
-        elif self.pending_execve:
+        elif self.pending_execve is not None:
             # If it's a syscall and we're parsing an execve, consume
             # and combine details until we get a non-execve output
             if line.startswith('execve ARG '):
                 self.execve_args.append(line.split('execve ARG ')[1])
                 return
-            elif line.startswith('execve ENV: '):
+            elif line.startswith('execve ENV: '): # This one has a :, the others don't
                 self.execve_env.append(line.split('execve ENV: ')[1])
                 return
-            else:
-                # We were in an execve output, but now we're not
-                # Note we could also patch the kernel to log 'execve END' after env.
-
-                self.all_progs.add(str(self.execve_args[0]))
-                self.all_execs.add(tuple([str(x) for x in self.execve_args + self.execve_env]))
+            elif line == 'execve END':
+                # Note argv will be empty for init, but shouldn't be anything else
+                arg0 = self.execve_args[0] if len(self.execve_args) else 'init'
+                self.all_progs.add((self.pending_execve, arg0))
+                self.all_execs.add((self.pending_execve, tuple(str(x) for x in self.execve_args), tuple(str(x) for x in self.execve_env)))
 
                 self.execve_args = []
                 self.execve_env = []
-                self.pending_execve = False
+                self.pending_execve = None
+                return
+            else:
+                self.logger.warning(f"Unexpected: in execve got other log message: {line}")
 
         if m := self.execve_line_re.match(line):
-            pending_execve = True
+            # If this line is an execve, parse it
+            m = m.groups()
+            self.pending_execve = m[1] # Name of the process doing the execve
 
     def uninit(self):
         self.log_cov()

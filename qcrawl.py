@@ -482,15 +482,12 @@ class PandaCrawl(QemuPyplugin):
             # If it's a syscall and we're parsing an execve, consume
             # and combine details until we get a non-execve output
             if line.startswith('execve ARG '):
-                self.execve_args.append(line.split('execve ARG ')[1])
+                self.execve_args.append(line.split('execve ARG ')[1]) # This one has a :, the others don't
                 return
             elif line.startswith('execve ENV: '):
                 self.execve_env.append(line.split('execve ENV: ')[1])
                 return
-            else:
-                # We were in an execve output, but now we're not
-                # Note we could also patch the kernel to log 'execve END' after env.
-
+            elif line == 'execve END':
                 # Execves are always a little interesting
                 self.logger.info(f"execve: {self.execve_runner} args={self.execve_args} env={self.execve_env}")
                 self.seen_execs.append((self.execve_args, self.execve_env))
@@ -499,8 +496,10 @@ class PandaCrawl(QemuPyplugin):
                 self.execve_args = []
                 self.execve_env = []
                 self.pending_execve = False
+                return
+            else:
+                self.logger.warning(f"Unexpected: in execve got other log message: {line}")
 
-        # Note we won't get here if self.pending_execve is still True
         if m := self.sc_line_re.match(line):
             (sc_name , pid, procname, filename) = m.groups()
             #self.logger.info(f"{procname} ({pid}) does {sc_name} on {filename}")
