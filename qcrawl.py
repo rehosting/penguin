@@ -6,7 +6,6 @@ import random
 from collections import deque
 from bs4 import BeautifulSoup
 import coloredlogs
-import subprocess
 import hashlib
 
 import pickle
@@ -21,114 +20,14 @@ from time import sleep
 
 from sys import path
 path.append("/igloo/")
+path.append("/pandata/")
 from qemuPython import QemuPyplugin
 
+from crawl_utils import make_abs, make_rel, _strip_domain, _strip_url, _build_url
+from crawl_fs import FsHelper
+
 coloredlogs.install(level='INFO')
-
 TIMEOUT=30
-
-def make_abs(url, ref):
-    '''
-    REF is a relative/absolute path valid when at url
-    Transform into an absolute path relative to the root of the domain
-    e.g., if we're at http://foo.com/zoo and we see a ref to ./boo, we should
-    return "/zoo/boo"
-
-    Must Not include http://foo.com
-    '''
-
-    if ref is None:
-        return url
-
-    if ref.startswith("/"): # absolute url - easy mode
-        abs_ref = ref[1:]
-    elif "://" in ref: # External URL?
-        return None
-    else:
-        # Relative path. if we have /foo/zoo.html we want to make the ref relative to /foo
-        #                if we have /zoo.html we want to make the ref relative to /
-        full = url + "/../" + ref
-        base_url = "/".join(url.split("/")[:3])
-        abs_ref = os.path.abspath(full.replace(base_url, ""))
-        if abs_ref.startswith("/"):
-            abs_ref = abs_ref[1:]
-
-    return abs_ref
-
-def make_rel(url):
-    '''
-    Given a url we just visited, turn it into a relative path on from the host:
-    http://example.com:1234/asdf/basdf should turn into asdf/basdf
-    '''
-    path = urlparse(url).path
-    while '//' in path:
-        path = path.replace('//', '/')
-
-    # Drop leading / in path
-    while path.startswith("/"):
-        path = path[1:]
-
-    return path
-
-def _strip_domain(url):
-    '''
-    Remove domain (doesn't handle http://user:pass@domain/)
-    should handle http/https://domain:port/path
-    '''
-    #'http://asdf:port/"
-    url = url.replace("http://", "").replace("https://", "")
-    if '/' in url and url != '/':
-        url = url[url.index('/')+1:]
-    else:
-        url = ''
-    return url
-
-def _strip_url(url):
-    '''
-    Remove any redundant properties from URLs
-
-    Remove duplicate /s and anything after #
-
-    Also remove anything after ? - TODO: get params might be part of form attack surface we want to fuzz
-    so maybe we should add these to the fuzz queue
-    '''
-
-    if "://" in url:
-        meth, body = url.split("://")
-    else:
-        meth = None
-        body = url
-
-    while "//" in body:
-        body = body.replace("//", "/")
-
-    if "#" in body:
-        body = body.split("#")[0]
-
-    if "?" in body:
-        # TODO: maybe add to fuzz queue as a GET target?
-        body = body.split("?")[0]
-
-    if body.startswith("/"):
-        body = body[1:]
-
-    if meth:
-        return meth + "://" + body
-    return body
-
-def _build_url(sock_family, sock_ip, sock_port, path):
-    if sock_family == 10:
-        sock_ip = f"[{sock_ip}]"
-
-    if not sock_ip.endswith("/"):
-        sock_ip += "/"
-
-    url = sock_ip + path # Do we need proto?
-    if sock_port == 443:
-        url = "https://" + url
-    else:
-        url = "http://" + url
-    return url
 
 class PageDetails(object):
     '''
@@ -162,11 +61,13 @@ class TargetInfo(object):
     Maybe needs to be thread-safe
     '''
 
-    def __init__(self, family, ip, port, service_name=None):
+    def __init__(self, family, ip, port, host_port, service_name=None):
         self.results = {} # PageDetails -> Response
         self.logger = logging.getLogger(f'CrawlTarget_{id(self)}')
 
         self.session = None # Session object for requests to use
+        self.guest_port = port
+        self.host_port = host_port
 
         # List of pages to be visited and that have been visited. Neither should start with /es
         self.pending = ["", "index.php", "robots.txt"]
@@ -176,6 +77,14 @@ class TargetInfo(object):
         self.forms = {} # (path, method) -> Form details (Json? Ugh)
         self.forms_pending = []
         self.forms_visited = []
+
+    def get_base_url(self):
+        base_url = f"localhost:{self.host_port}/"
+        if self.guest_port == 443:
+            base_url = 'https://' + base_url
+        else:
+            base_url = 'http://' + base_url
+        return base_url
 
     def has_next_form(self):
         return len(self.forms_pending) > 0
@@ -255,7 +164,11 @@ class TargetInfo(object):
 
     def log_failure(self, url):
         '''
-        We were unable to connect to URL (time out)
+        We were unable to connect to URL (time out, redirect loop, 500 error, etc)
+
+        TODO: can we detect a base url is failing and drop it from the queue?
+        If we hit a redirect loop page that looks like it maps the whole rootfs, we get stuck
+        retrying pointless requests for a long time...
         '''
         self.record_visited(url)
 
@@ -365,6 +278,8 @@ class PandaCrawl(QemuPyplugin):
         logging.getLogger("urllib3").setLevel("INFO")
         self.outdir = outdir
         self.fwdir = os.path.dirname(fw) # has image.tar
+
+        self.FSH = FsHelper(self.fwdir + "/image.tar")
 
         self.targets = {} # (service_name, family, ip, port): Target()
         self.have_targets = Lock()
@@ -612,87 +527,16 @@ class PandaCrawl(QemuPyplugin):
                 for k, v in request.params.items():
                     _check_post(k, v, env)
 
-    def find_fs_subpaths(self, path):
-        '''
-        Return files in the guest filesystem that start with the provided path.
-        On first run, get full list of files and store in self.filesystem_contents by running tar as a subproc
-        '''
-        if not hasattr(self, 'filesystem_contents'):
-            self.filesystem_contents = subprocess.check_output(f"tar -tf '{self.fwdir}/image.tar'", shell=True).decode().splitlines()
-            self.tarbase = subprocess.check_output(f"tar -tf '{self.fwdir}/image.tar' | head -n1", shell=True).decode().strip()
-
-        # Tarbase is either / or ./ then path might be foo or /foo. Make sure we don't have .//foo
-        if self.tarbase.endswith("/") and path.startswith("/"):
-            path = self.tarbase + path[1:]
-        elif not self.tarbase.endswith("/") and not path.startswith("/"):
-            path = self.tarbase + "/" + path
-        else:
-            path = self.tarbase + path
-
-        return [x for x in self.filesystem_contents if x.startswith(path)]
-
-    def analyze_fs(self, target, match_type, path, sysc_string):
-        if match_type == "full_url_match":
-            '''
-            Imagine a get of /dir/file that opens /var/www/dir/file
-            We calculate fs_base of /var/www. Then we ls /var/www/dir/file
-            in the filesystem. Drop /var/www from each and those are the URLs to visit
-            '''
-            sysc_dir  = os.path.dirname(sysc_string)    # /var/www/dir
-            files = self.find_fs_subpaths(sysc_dir)     # /var/www/dir/other_file
-            fs_base = sysc_string.replace(path, "")     # /var/www/
-
-            for f in files:
-                new_url = f.replace(fs_base, "")        # dir/other_file
-                if f == "./":
-                    continue
-                if f.startswith("./"):
-                    f = f[1:] # make ./foo /foo. It will become relative later?
-                #print(f"Possible sibling. Browsing to {url.path} accessed {sysc_string}. So we should be able to hit {f} if we browse to {new_url}?")
-                if not new_url.startswith("/"):
-                    new_url = "/" + new_url
-                target._add_ref(path, new_url)
-        else:
-            raise ValueError(f"Unexpected match type: {match_type}")
 
     def check_file_access(self, request, target, sysname, pid, procname, sysc_string):
         '''
         A file was accessed during a request. Check and see if this file access could be attacker-controlled.
         If so, identify other promising paths in the filesystem and form requests that might reach those.
         '''
+        for path in self.FSH.check(request, target, sysname, pid, procname, sysc_string):
+            # XXX: what if these paths are all broken, then we'd queue up a ton of bad ones
+            target._add_ref(request.url, path)
 
-        # Ignore when our infrastructure is writing results
-        if sysc_string.startswith('/tmp/igloo') or sysc_string.startswith('/igloo/utils'):
-            print("Ignoring:", sysc_string) # Should filter these in userspace helper
-            return
-
-        url = urlparse(request.url)
-        if url.path in sysc_string and len(url.path) > 4:
-            self.analyze_fs(target, "full_url_match", url.path, sysc_string)
-
-        else:
-            return # XXX TODO: handle these other cases
-
-            # TODO: when should partial path matches be a cause for searching the filesystem?
-            for tok in url.path.split("/"):
-                if tok in sysc_string and len(tok) > 4:
-                    print("URL token match:", tok, url.path)
-                    # TODO: can we figure out if this is a directory we should search for siblings?
-
-        for tok in url.query.split("&"):
-            if "=" not in tok:
-                if tok in sysc_string and len(tok) > 4:
-                    print("QUERY MATCH:", tok)
-            else:
-                k, v = tok.split("=")
-                if k in sysc_string and len(k) > 4:
-                    print("QUERY KEY:", k)
-                if v in sysc_string and len(v) > 4:
-                    print("QUERY VAL:", v)
-
-        if request.method == 'POST':
-            for p in request.params:
-                print("POST has param", p) # TODO
 
 
     def on_bind(self, proto, guest_ip, guest_port, host_port, procname):
@@ -709,7 +553,7 @@ class PandaCrawl(QemuPyplugin):
 
         key = (procname, proto, host_port, guest_ip, guest_port)
         if key not in self.targets:
-            self.targets[key] = TargetInfo(proto, guest_ip, guest_port, procname)
+            self.targets[key] = TargetInfo(proto, guest_ip, guest_port, host_port, service_name=procname)
 
             if len(self.targets) == 1 and self.have_targets.locked():
                 # First item was just added, release the lock
@@ -763,11 +607,7 @@ class PandaCrawl(QemuPyplugin):
                 break
 
             #url = _build_url(sock_family, sock_ip, sock_port, path)
-            base_url = f"localhost:{host_port}/"
-            if guest_port == 443:
-                base_url = 'https://' + base_url
-            else:
-                base_url = 'http://' + base_url
+            base_url = target.get_base_url()
 
             # Get a URL to crawl - Is this just paths, should we explore params?
 
@@ -799,6 +639,10 @@ class PandaCrawl(QemuPyplugin):
                         target.log_failure(url)
                         self.logger.warning(f"Failed to visit from at {url} with {params} => {e}")
                         continue
+                    except (requests.exceptions.TooManyRedirects) as e:
+                        target.log_failure(url)
+                        self.logger.warning(f"Guest url {url} hits redirect loop with {params} => {e}")
+                        continue
                     finally:
                         self.check_syscalls(r, target, params=params)
 
@@ -812,10 +656,11 @@ class PandaCrawl(QemuPyplugin):
                             self.logger.warning(f"Failed to visit {url}")
                             continue
 
-                    try:
-                        response.raise_for_status()
-                    except Exception as e:
-                        self.logger.warning(f"Request error for {url}: {e}")
+                    if response.status_code != 404:
+                        try:
+                            response.raise_for_status()
+                        except Exception as e:
+                            self.logger.warning(f"Request error for {url}: {e}")
 
                     for form_text in target.parse_response(url, response):
                         self.parse_form(form_text, url, (procname, proto, host_port, guest_ip, guest_port))
