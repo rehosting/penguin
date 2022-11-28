@@ -94,11 +94,17 @@ class CollectCoverage(QemuPyplugin):
         elif self.pending_execve is not None:
             # If it's a syscall and we're parsing an execve, consume
             # and combine details until we get a non-execve output
-            if line.startswith('execve ARG '):
-                self.execve_args.append(line.split('execve ARG ')[1])
+            if line.startswith('execve ARG'):
+                if 'execve ARG ' in line:
+                    self.execve_args.append(line.split('execve ARG ')[1])
+                else:
+                    self.execve_args.append("")
                 return
-            elif line.startswith('execve ENV: '): # This one has a :, the others don't
-                self.execve_env.append(line.split('execve ENV: ')[1])
+            elif line.startswith('execve ENV:'): # This one has a :, the others don't
+                if "execve ENV: "in line:
+                    self.execve_env.append(line.split('execve ENV: ')[1])
+                else:
+                    self.execve_env.append("")
                 return
             elif line == 'execve END':
                 # Note argv will be empty for init, but shouldn't be anything else
@@ -111,7 +117,7 @@ class CollectCoverage(QemuPyplugin):
                 self.pending_execve = None
                 return
             else:
-                self.logger.warning(f"Unexpected: in execve got other log message: {line}")
+                self.logger.warning(f"Unexpected: in execve got other log message: '{line}', startswith={line.startswith('execve ARG ')}")
 
         if m := self.execve_line_re.match(line):
             # If this line is an execve, parse it

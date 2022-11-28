@@ -395,24 +395,18 @@ class PandaCrawl(QemuPyplugin):
         self.seen_execs = []
         self.seen_covs = []
 
-    def on_get_param(self, active_request, param):
+    def on_get_param(self, request, target, param):
         self.logger.info(f"Informed of GET param by coverage analysis: {param}")
-        active_target = active_request[0]
-        active_req = active_request[1]
+        target._add_ref(request.url, None, params=[param])
 
-        active_target._add_ref(active_req.url, None, params=[param])
-
-    def on_post_param(self, active_request, param):
-
-        active_target = active_request[0]
-        active_req = active_request[1]
-        path = _strip_domain(_strip_url(active_req.url))
+    def on_post_param(self, request, target, param):
+        path = _strip_domain(_strip_url(request.url))
         self.logger.info(f"POST PARAM for {path}")
         method = 'POST'
         form_key = (path, method)
-        if active_req.method == 'POST':
-            if form_key in active_target.forms:
-                params_j = active_target.forms[form_key]
+        if request.method == 'POST':
+            if form_key in target.forms:
+                params_j = target.forms[form_key]
                 params = json.loads(params_j)
                 if param in params:
                     pass # Already knew about this one
@@ -428,8 +422,8 @@ class PandaCrawl(QemuPyplugin):
                     "params": {param: {'type': 'text', 'defaults': []}}
                 }
                 # form key can't already be in there since we're in the else
-                active_target.forms[form_key] = json.dumps(form['params'])
-                active_target.forms_pending.append(form_key)
+                target.forms[form_key] = json.dumps(form['params'])
+                target.forms_pending.append(form_key)
         else:
             # Add POST to queue
             form = {
@@ -437,11 +431,11 @@ class PandaCrawl(QemuPyplugin):
                 "action": path,
                 "params": {param: {'type': 'text', 'defaults': []}}
             }
-            if form_key not in active_target.forms:
-                active_target.forms[form_key] = json.dumps(form['params'])
-                active_target.forms_pending.append(form_key)
+            if form_key not in target.forms:
+                target.forms[form_key] = json.dumps(form['params'])
+                target.forms_pending.append(form_key)
             else:
-                params_j = active_target.forms[form_key]
+                params_j = target.forms[form_key]
                 params = json.loads(params_j)
                 if param in params:
                     # (For now): If we get here we just learned the name and we already
@@ -451,9 +445,9 @@ class PandaCrawl(QemuPyplugin):
                     # We knew about the form, but not this value.
                     self.logger.warning(f"Updating form for {form_key} to add {param}")
                     params[param] = {'type': 'text', 'defaults': []}
-                    active_target.forms[form_key] = json.dumps(params)
-                    if form_key not in active_target.forms_pending:
-                        active_target.forms_pending.append(form_key)
+                    target.forms[form_key] = json.dumps(params)
+                    if form_key not in target.forms_pending:
+                        target.forms_pending.append(form_key)
 
     def on_output(self, line):
         '''
@@ -481,9 +475,11 @@ class PandaCrawl(QemuPyplugin):
         if self.pending_execve:
             # If it's a syscall and we're parsing an execve, consume
             # and combine details until we get a non-execve output
-            if line.startswith('execve ARG '):
-                self.execve_args.append(line.split('execve ARG ')[1]) # This one has a :, the others don't
-                return
+            if line.startswith('execve ARG'):
+                if 'execve ARG ' in line:
+                    self.execve_args.append(line.split('execve ARG ')[1])
+                else:
+                    self.execve_args.append("")
             elif line.startswith('execve ENV: '):
                 self.execve_env.append(line.split('execve ENV: ')[1])
                 return
@@ -511,20 +507,115 @@ class PandaCrawl(QemuPyplugin):
 
             self.seen_files.append((sc_name, pid, procname, filename))
 
-    def ls_filesystem(self, path):
+    def check_syscalls(self, request, target, params=None):
         '''
-        Get the files form a directory out of the tarfs, if we can. This should be run in another
-        thread from the main emulation loop because it's slow!
+        We issued and finished the provided request. Now check the syscalls that were run during it
+        Check: seen_files, seen_execs, and seen_covs
+
+        TODO: to avoid race conditions, this should block emulation until log reader is all caught up
+        then parse log output. Otherwise we could be missing later syscalls that were run during
+        processing request, but not yet captured while processing serial output.
+
+        TODO: handle params
         '''
 
-        # Prevviously we'd just extract files on demand, but we were running into deadlocks, so let's just do this once and store results
-        #lines = subprocess.check_output(f"tar -tf '{self.fwdir}/image.tar' {path}", shell=True).decode()
-        #return [l.strip() for l in lines.splitlines()]
+        for seen_file in self.seen_files:
+            self.check_file_access(request, target, *seen_file)
 
+        for seen_exec in self.seen_execs:
+            self.check_execve(request, target, *seen_exec)
+
+        for seen_cov in self.seen_covs:
+            self.check_cov(request, target, *seen_cov)
+
+    def check_cov(self, request, target, lang, file, line, code):
+        #self.logger.info(f"Coverage {lang} {file}:{line}")
+        if (lang, file, line) in self.seen_cov_set:
+            # Don't re-analyze duplicates
+            return
+
+        self.seen_cov_set.add((lang, file, line))
+
+        if "IGLOOIZED" in line:
+            # Artifact from our introspection, ignore these lines
+            return
+
+        if hasattr(self, f'on_{lang}_coverage'): # on_php_coverage
+            getattr(self, f'on_{lang}_coverage')(request, target, file, line, code)
+        else:
+            self.logger.error(f'No parser for {lang} coverage')
+
+    def on_php_coverage(self, request, target, file, line_no, code):
+        for param in self.php_post_re.findall(code):
+            #self.logger.info("POST:", param)
+            self.on_post_param(request, target, param)
+
+        for param in self.php_request_re.findall(code):
+            # REQUEST pulls data from GET and POST, for now just assume post?
+            #self.logger.info("REQUEST:", param)
+            self.on_post_param(request, target, param)
+
+        for param in self.php_get_re.findall(code):
+            #self.logger.info("GET:", param)
+            self.on_get_param(request, target, param)
+
+    def check_execve(self, request, target, argv, envp):
+        '''
+        Bug finding: command injection
+        '''
+        url = urlparse(request.url)
+        self.logger.info(f"Execve {argv} {envp} when fetching/posting {url}")
+
+        # Do we want to record thse?
+        #self.all_progs.add(str(argsv[0]))
+        #self.all_execs.add(tuple([str(x) for x in argv]))
+
+        def _check_get(tok, sc_file):
+            if "=" not in tok:
+                if tok in sc_file and len(tok) > 4:
+                    print("QUERY MATCH:", tok)
+            else:
+                k, v = tok.split("=")
+                if k in sc_file and len(k) > 4:
+                    print("QUERY KEY:", k)
+                if v in sc_file and len(v) > 4:
+                    print("QUERY VAL:", v)
+
+        def _check_post(key, val, sc_file):
+            if key in sc_file and len(key) > 4:
+                print(f"POST: key: {key}")
+            if val in sc_file and len(val) > 4:
+                print(f"POST: key[{key}]'s value: {val}")
+
+        # Is URL in exec/env?
+        for arg in argv:
+            for comp in str(url).split("/"):
+                if comp in arg:
+                    print("URL MATCH:", comp, arg)
+
+        # Are any get params in exec / env?
+        for tok in url.query.split("&"):
+            for arg in argv:
+                _check_get(tok, arg)
+            for env in envp:
+                _check_get(tok, env)
+
+        # Are any postdata in exec / evn
+        if request.method == 'POST':
+            for arg in argv:
+                for k, v in request.params.items():
+                    _check_post(k, v, arg)
+            for env in envp:
+                for k, v in request.params.items():
+                    _check_post(k, v, env)
+
+    def find_fs_subpaths(self, path):
+        '''
+        Return files in the guest filesystem that start with the provided path.
+        On first run, get full list of files and store in self.filesystem_contents by running tar as a subproc
+        '''
         if not hasattr(self, 'filesystem_contents'):
             self.filesystem_contents = subprocess.check_output(f"tar -tf '{self.fwdir}/image.tar'", shell=True).decode().splitlines()
-
-        if not hasattr(self, 'tarbase'):
             self.tarbase = subprocess.check_output(f"tar -tf '{self.fwdir}/image.tar' | head -n1", shell=True).decode().strip()
 
         # Tarbase is either / or ./ then path might be foo or /foo. Make sure we don't have .//foo
@@ -545,7 +636,7 @@ class PandaCrawl(QemuPyplugin):
             in the filesystem. Drop /var/www from each and those are the URLs to visit
             '''
             sysc_dir  = os.path.dirname(sysc_string)    # /var/www/dir
-            files = self.ls_filesystem(sysc_dir)        # /var/www/dir/other_file
+            files = self.find_fs_subpaths(sysc_dir)     # /var/www/dir/other_file
             fs_base = sysc_string.replace(path, "")     # /var/www/
 
             for f in files:
@@ -561,129 +652,20 @@ class PandaCrawl(QemuPyplugin):
         else:
             raise ValueError(f"Unexpected match type: {match_type}")
 
-    def check_syscalls(self, active_request):
+    def check_file_access(self, request, target, sysname, pid, procname, sysc_string):
         '''
-        We issued and finished the provided request. Now check the syscalls that were run during it
-        Check: seen_files, seen_execs, and seen_covs
-
-        TODO: to avoid race conditions, this should block emulation until log reader is all caught up
-        then parse log output. Otherwise we could be missing later syscalls that were run during
-        processing request, but not yet captured while processing serial output.
+        A file was accessed during a request. Check and see if this file access could be attacker-controlled.
+        If so, identify other promising paths in the filesystem and form requests that might reach those.
         '''
-
-        for seen_file in self.seen_files:
-            self.check_file_access(active_request, *seen_file)
-
-        for seen_exec in self.seen_execs:
-            self.check_execve(active_request, *seen_exec)
-
-        for seen_cov in self.seen_covs:
-            self.check_cov(active_request, *seen_cov)
-
-    def check_cov(self, active_request, lang, file, line, code):
-        #self.logger.info(f"Coverage {lang} {file}:{line}")
-        if (lang, file, line) in self.seen_cov_set:
-            # Don't re-analyze duplicates
-            return
-
-        self.seen_cov_set.add((lang, file, line))
-
-        if "IGLOOIZED" in line:
-            # Artifact from our introspection, ignore these lines
-            return
-
-        if hasattr(self, f'on_{lang}_coverage'): # on_php_coverage
-            getattr(self, f'on_{lang}_coverage')(active_request, file, line, code)
-        else:
-            self.logger.error(f'No parser for {lang} coverage')
-
-    def on_php_coverage(self, active_request, file, line_no, code):
-        for param in self.php_post_re.findall(code):
-            #self.logger.info("POST:", param)
-            self.on_post_param(active_request, param)
-
-        for param in self.php_request_re.findall(code):
-            # REQUEST pulls data from GET and POST, for now just assume post?
-            #self.logger.info("REQUEST:", param)
-            self.on_post_param(active_request, param)
-
-        for param in self.php_get_re.findall(code):
-            #self.logger.info("GET:", param)
-            self.on_get_param(active_request, param)
-
-    def check_execve(self, active_request, argv, envp):
-        '''
-        Bug finding: command injection
-        '''
-        active_target = active_request[0]
-        active_req = active_request[1]
-        url = urlparse(active_req.url)
-        self.logger.info(f"Execve {argv} {envp} when fetching/posting {url}")
-
-        # Do we want to record thse?
-        #self.all_progs.add(str(argsv[0]))
-        #self.all_execs.add(tuple([str(x) for x in argv]))
-
-        def _check_get(tok, sc_file):
-            if "=" not in tok:
-                if tok in sc_file and len(tok) > 4:
-                    print("QUERY MATCH:", tok)
-            else:
-                k, v = tok.split("=")
-                if k in sc_file and len(k) > 4:
-                    print("QUERY KEY:", k)
-                if v in sc_file and len(v) > 4:
-                    print("QUERY VAL:", v)
-
-        def _check_post(key, val, sc_file):
-            if key in file and len(key) > 4:
-                print(f"POST: key: {key}")
-            if val in file and len(val) > 4:
-                print(f"POST: key[{key}]'s value: {val}")
-
-        # Is URL in exec/env?
-        for arg in argv:
-            for comp in url.split("/"):
-                if comp in arg:
-                    print("URL MATCH:", comp, arg)
-
-        # Are any get params in exec / env?
-        for tok in url.query.split("&"):
-            for arg in argv:
-                _check_get(tok, arg)
-            for env in envp:
-                _check_get(tok, env)
-
-        # Are any postdata in exec / evn
-        if active_req.method == 'POST':
-            for arg in argv:
-                for k, v in active_req.params.items():
-                    _check_post(k, v, arg)
-            for env in envp:
-                for k, v in active_req.params.items():
-                    _check_post(k, v, env)
-
-
-
-    def check_file_access(self, active_request, sysname, pid, procname, sysc_string):
-        assert(active_request is not None)
-        assert(sysc_string is not None) # This is the contents of the syscall
 
         # Ignore when our infrastructure is writing results
         if sysc_string.startswith('/tmp/igloo') or sysc_string.startswith('/igloo/utils'):
             print("Ignoring:", sysc_string) # Should filter these in userspace helper
             return
 
-        active_target = active_request[0]
-        active_req = active_request[1]
-        url = urlparse(active_req.url)
-
-        #if '/proc' not in sysc_string and '/lib' not in sysc_string:
-        #    print(f"While requesting {active_req} ({url.path}) we saw a {sysname} with {sysc_string}")
-
+        url = urlparse(request.url)
         if url.path in sysc_string and len(url.path) > 4:
-            # Note this can be block now
-            self.analyze_fs(active_target, "full_url_match", url.path, sysc_string)
+            self.analyze_fs(target, "full_url_match", url.path, sysc_string)
 
         else:
             return # XXX TODO: handle these other cases
@@ -705,8 +687,8 @@ class PandaCrawl(QemuPyplugin):
                 if v in sysc_string and len(v) > 4:
                     print("QUERY VAL:", v)
 
-        if active_req.method == 'POST':
-            for p in active_req.params:
+        if request.method == 'POST':
+            for p in request.params:
                 print("POST has param", p) # TODO
 
 
@@ -797,14 +779,14 @@ class PandaCrawl(QemuPyplugin):
                         self.reset_seen()
                         #print(f"Dropped {len(dropped_files)} file accesses prior to request")
 
-                        active_request = (target, requests.Request(method, url, data=params, headers={'Connection':'close'}), params)
-                        response = target.session.send(active_request[1].prepare(), timeout=TIMEOUT)
+                        r = requests.Request(method, url, data=params, headers={'Connection':'close'})
+                        response = target.session.send(r.prepare(), timeout=TIMEOUT)
                     except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
                         target.log_failure(url)
                         self.logger.warning(f"Failed to visit from at {url} with {params} => {e}")
                         continue
                     finally:
-                        self.check_syscalls(active_request)
+                        self.check_syscalls(r, target, params=params)
 
                     #if response.status_code == 401: # 500, ...
                     try:
@@ -829,18 +811,18 @@ class PandaCrawl(QemuPyplugin):
 
                 # Crawl it. TODO: support params / non-get methods for non-forms
                 try:
-                    active_request = (target, requests.Request('GET', url))
+                    r = requests.Request('GET', url)
 
                     self.reset_seen() # Drop any old files accessed
 
-                    response = target.session.send(active_request[1].prepare(), timeout=TIMEOUT)
+                    response = target.session.send(r.prepare(), timeout=TIMEOUT)
                     #print(f"Dropped {len(dropped_files)} file accesses prior to request")
                 except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
                     target.log_failure(url)
                     self.logger.warning(f"Failed to visit {url} => {e}")
                     continue
                 finally:
-                    self.check_syscalls(active_request)
+                    self.check_syscalls(r, target)
 
 
                 if response.status_code == 401:
