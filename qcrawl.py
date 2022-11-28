@@ -486,7 +486,7 @@ class PandaCrawl(QemuPyplugin):
             elif line == 'execve END':
                 # Execves are always a little interesting
                 self.logger.info(f"execve: {self.execve_runner} args={self.execve_args} env={self.execve_env}")
-                self.seen_execs.append((self.execve_args, self.execve_env))
+                self.seen_execs.append((self.pending_execve, self.execve_args, self.execve_env))
 
                 self.execve_runner = []
                 self.execve_args = []
@@ -520,12 +520,15 @@ class PandaCrawl(QemuPyplugin):
         '''
 
         for seen_file in self.seen_files:
+            # each seen_file is (sc_name, pid, procname, filename)
             self.check_file_access(request, target, *seen_file)
 
         for seen_exec in self.seen_execs:
+            # each seen_execs is parent, args, env
             self.check_execve(request, target, *seen_exec)
 
         for seen_cov in self.seen_covs:
+            # each seen_covs is lang, file, line, source code
             self.check_cov(request, target, *seen_cov)
 
     def check_cov(self, request, target, lang, file, line, code):
@@ -559,7 +562,7 @@ class PandaCrawl(QemuPyplugin):
             #self.logger.info("GET:", param)
             self.on_get_param(request, target, param)
 
-    def check_execve(self, request, target, argv, envp):
+    def check_execve(self, request, target, parent_proc, argv, envp):
         '''
         Bug finding: command injection
         '''
@@ -812,9 +815,7 @@ class PandaCrawl(QemuPyplugin):
                 # Crawl it. TODO: support params / non-get methods for non-forms
                 try:
                     r = requests.Request('GET', url)
-
                     self.reset_seen() # Drop any old files accessed
-
                     response = target.session.send(r.prepare(), timeout=TIMEOUT)
                     #print(f"Dropped {len(dropped_files)} file accesses prior to request")
                 except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
@@ -849,8 +850,8 @@ class PandaCrawl(QemuPyplugin):
         #for t in self.targets.values():
         #    t.dump_stats()
 
-        print("PANDA Crawl finished")
-        #self.panda.end_analysis()
+        self.logger.warning("Auto-shutdown: (remove for real experiments)")
+        self.panda.end_analysis() # XXX only for now, we should normalize runtime with another plugin
 
     def parse_form(self, bs_form, url, target_key):
         '''
