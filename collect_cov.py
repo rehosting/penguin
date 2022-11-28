@@ -109,8 +109,12 @@ class CollectCoverage(QemuPyplugin):
             elif line == 'execve END':
                 # Note argv will be empty for init, but shouldn't be anything else
                 arg0 = self.execve_args[0] if len(self.execve_args) else 'init'
-                self.all_progs.add((self.pending_execve, arg0))
-                self.all_execs.add((self.pending_execve, tuple(str(x) for x in self.execve_args), tuple(str(x) for x in self.execve_env)))
+
+                if 'IGLOOIZED' not in str(self.execve):
+                    # XXX: If we introduce new execs, we should try filtering them here
+                    # E.g., our custom php interpreter does a grep for IGLOOIZED and for >?
+                    self.all_progs.add((self.pending_execve, arg0))
+                    self.all_execs.add((self.pending_execve, tuple(str(x) for x in self.execve_args), tuple(str(x) for x in self.execve_env)))
 
                 self.execve_args = []
                 self.execve_env = []
