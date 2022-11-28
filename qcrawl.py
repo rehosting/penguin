@@ -715,6 +715,36 @@ class PandaCrawl(QemuPyplugin):
                 # First item was just added, release the lock
                 self.have_targets.release()
 
+    def generate_form_fuzz_requests(self, target, path, method):
+        params_j = target.forms[(path, method)]
+        params = json.loads(params_j)
+        self.logger.info(f"Crawling a form:{method} {path}: {params}")
+
+        requests = {(method, path): []}
+
+        for fuzz_target in params.keys():
+            # Mutate param[fuzz_target]
+            #these_params = {fuzz_target: "PANDA1PANDA ; `PANDA2PANDA` && $(PANDA3PANDA); PANDA4PANDA ' PANDA5PANDA \"PANDA6PANDA"}
+            these_params = {fuzz_target: "PANDA1PANDA ; `PANDA2PANDA`"}
+
+            for normal_target in params.keys():
+                if normal_target == fuzz_target:
+                    continue
+                defaults = params[normal_target]['defaults']
+
+                if len(defaults) == 0:
+                    these_params[normal_target] = "PANDA3PANDA" # XXX should we fuzz this? We don't know the expected value
+
+                elif len(defaults) == 1:
+                    these_params[normal_target] = defaults[0]
+                else:
+                    self.logger.warning("Multiple defaults TODO")
+                    these_params[normal_target] = defaults[0]
+
+            requests[(method, path)].append(these_params)
+        return requests
+
+
     def crawl_manager(self):
         '''
         Wait until we have at least one target, then crawl pages
@@ -740,49 +770,30 @@ class PandaCrawl(QemuPyplugin):
                 base_url = 'http://' + base_url
 
             # Get a URL to crawl - Is this just paths, should we explore params?
+
+            # pending_requests = {(method, path): [[param_set1], [param_set2]]}
             if target.has_next_form():
-                # Have forms
-                (path, method) = target.get_next_form()
-                params_j = target.forms[(path, method)]
-                params = json.loads(params_j)
+                # Next up is a form, let's generate a bunch of requests for it
+                pending_requests = self.generate_form_fuzz_requests(target, *target.get_next_form())
+            elif target.has_next_url():
+                # Just a URL, generate one or more requests for it
+                path = target.get_next_url()
+                pending_requests = {('GET', path): [{}] } # One request within this GET+path, and it has no params
+            else:
+                break
+
+            # Now we should have some data in requests, let's crawl those page(s)
+            if target.session is None:
+                target.session = requests.Session()
+
+            for (method, path), params in pending_requests.items():
                 url = base_url + path
-                self.logger.info(f"Crawling a form:{method} {path}: {params}")
 
-
-                request_params = [] # [{param:value, ...}, ...]
-                for fuzz_target in params.keys():
-                    # Mutate param[fuzz_target]
-                    #these_params = {fuzz_target: "PANDA1PANDA ; `PANDA2PANDA` && $(PANDA3PANDA); PANDA4PANDA ' PANDA5PANDA \"PANDA6PANDA"}
-                    these_params = {fuzz_target: "PANDA1PANDA ; `PANDA2PANDA`"}
-
-                    for normal_target in params.keys():
-                        if normal_target == fuzz_target:
-                            continue
-                        defaults = params[normal_target]['defaults']
-
-                        if len(defaults) == 0:
-                            these_params[normal_target] = "PANDA3PANDA" # XXX should we fuzz this? We don't know the expected value
-
-                        elif len(defaults) == 1:
-                            these_params[normal_target] = defaults[0]
-                        else:
-                            self.logger.warning("Multiple defaults TODO")
-                            these_params[normal_target] = defaults[0]
-
-                    request_params.append(these_params)
-
-                if target.session is None:
-                    target.session = requests.Session()
-
-                # Now we have a list of dicts to request
-                for params in request_params:
+                for req_params in params:
+                    # Clear any pending syscall info we've seen
+                    self.reset_seen()
                     try:
-                        # TODO generate data based off params_j and submit with request
-                        self.logger.debug(f"FORM fetch {url} with {params}")
-                        self.reset_seen()
-                        #print(f"Dropped {len(dropped_files)} file accesses prior to request")
-
-                        r = requests.Request(method, url, data=params, headers={'Connection':'close'})
+                        r = requests.Request(method, url, data=req_params, headers={'Connection':'close'})
                         response = target.session.send(r.prepare(), timeout=TIMEOUT)
                     except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
                         target.log_failure(url)
@@ -791,7 +802,16 @@ class PandaCrawl(QemuPyplugin):
                     finally:
                         self.check_syscalls(r, target, params=params)
 
-                    #if response.status_code == 401: # 500, ...
+                    if response.status_code == 401:
+                        self.logger.error(f"UNAUTHORIZED {url} - retrying with admin/admin") # TODO: do better
+                        # Auth denied - need to log in. Hmph - can we persist this or do it with library hooking?
+                        try:
+                            response = target.session.get(url, auth=('admin', 'admin'), timeout=TIMEOUT)
+                        except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
+                            target.log_failure(url)
+                            self.logger.warning(f"Failed to visit {url}")
+                            continue
+
                     try:
                         response.raise_for_status()
                     except Exception as e:
@@ -800,58 +820,11 @@ class PandaCrawl(QemuPyplugin):
                     for form_text in target.parse_response(url, response):
                         self.parse_form(form_text, url, (procname, proto, host_port, guest_ip, guest_port))
 
-            elif target.has_next_url():
-                # No forms - crawl more pages
-
-                path = target.get_next_url()
-                url = base_url + path
-
-                # Set up session if necessary
-                if target.session is None:
-                    target.session = requests.Session()
-
-                self.logger.debug(f"Visiting {url}")
-
-                # Crawl it. TODO: support params / non-get methods for non-forms
-                try:
-                    r = requests.Request('GET', url)
-                    self.reset_seen() # Drop any old files accessed
-                    response = target.session.send(r.prepare(), timeout=TIMEOUT)
-                    #print(f"Dropped {len(dropped_files)} file accesses prior to request")
-                except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
-                    target.log_failure(url)
-                    self.logger.warning(f"Failed to visit {url} => {e}")
-                    continue
-                finally:
-                    self.check_syscalls(r, target)
-
-
-                if response.status_code == 401:
-                    self.logger.error(f"UNAUTHORIZED {url} - retrying with admin/admin") # TODO: do better
-                    # Auth denied - need to log in. Hmph - can we persist this or do it with library hooking?
-                    try:
-                        response = target.session.get(url, auth=('admin', 'admin'), timeout=TIMEOUT)
-                    except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
-                        target.log_failure(url)
-                        self.logger.warning(f"Failed to visit {url}")
-                        continue
-
-                try:
-                    response.raise_for_status()
-                except Exception as e:
-                    self.logger.warning(f"Request error for {url}: {e}")
-
-                for form_text in target.parse_response(url, response):
-                    self.parse_form(form_text, url, (procname, proto, host_port, guest_ip, guest_port))
-
 
         self.logger.info("Finished crawling")
 
         #for t in self.targets.values():
         #    t.dump_stats()
-
-        self.logger.warning("Auto-shutdown: (remove for real experiments)")
-        self.panda.end_analysis() # XXX only for now, we should normalize runtime with another plugin
 
     def parse_form(self, bs_form, url, target_key):
         '''
