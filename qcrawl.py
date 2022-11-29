@@ -69,9 +69,8 @@ class TargetInfo(object):
         self.guest_port = port
         self.host_port = host_port
 
-        # Dictionary with keys of pages to visit. These dicts can be updated.
-        # elements can be moved into visited, then moved back to pending if they need to be udpated
-        self.pending = {"": {}, "index.php": {}, "robots.txt": {}}
+        # List of pages to be visited and that have been visited. Neither should start with /es
+        self.pending = ["", "index.php", "robots.txt"]
         self.visited = []
 
         # List of forms to fuzz and that have been fuzzed (data format TBD)
@@ -104,13 +103,12 @@ class TargetInfo(object):
 
     def get_next_url(self):
         '''
-        Get the next page to visit. Return a tuple of (url, data)
+        Get the next page to visit.
         '''
         assert(self.has_next_url())
 
-        # Pop next item from pending
-        pk = next(iter(self.pending.keys()))
-        return (pk, self.pending.pop(pk))
+        # Pop path from pending
+        return self.pending.pop(0)
 
     def _add_ref(self, url, match, params=None):
         '''
@@ -143,28 +141,27 @@ class TargetInfo(object):
             self.logger.debug(f"Add url to pending: {targ_url}") # Must be just a path, no leading / - we have the slash in the base URL
             self.pending.append(targ_url)
 
-    #def record_visited(self, url):
-    #    u = make_rel(url)
-    #    self.logger.debug(f"Recording that we visited {u}")
-    #    self.visited.append(u)
+    def record_visited(self, url):
+        u = make_rel(url)
+        self.logger.debug(f"Recording that we visited {u}")
+        self.visited.append(u)
 
-    def save_results(self, updated_page, failure=False):
+    def log_failure(self, url):
         '''
-        Updated_page is a single-element {url: {details, ...}} dict
+        We were unable to connect to URL (time out, redirect loop, 500 error, etc)
 
-        If failure, we were unable to connect to URL (time out, redirect loop, 500 error, etc)
-        Otherwise success.
-
-        The updated_page has been dropped from self.pending, and we need to now move it into
-        self.visited
+        TODO: can we detect a base url is failing and drop it from the queue?
+        If we hit a redirect loop page that looks like it maps the whole rootfs, we get stuck
+        retrying pointless requests for a long time...
         '''
+        self.record_visited(url)
 
         pd_url = PageDetails(url)
         if pd_url not in self.results:
             self.results[pd_url] = []
         self.results[pd_url].append(None)
 
-    def parse_response(self, page, url, response):
+    def parse_response(self, url, response):
         '''
         Given a request+response pair for a given url,
         parse it to find more URLs to visit and store the results.
@@ -172,9 +169,8 @@ class TargetInfo(object):
         Return list of form_texts (i.e., text of html forms) discovered
         '''
 
-        self.save_results(page)
-
         discovered_forms = []
+        self.record_visited(url)
 
         # Store raw response
         pd_url = PageDetails(url)
@@ -555,25 +551,12 @@ class PandaCrawl(QemuPyplugin):
                 # First item was just added, release the lock
                 self.have_targets.release()
 
-    def generate_get_fuzz_requests(self, target, page):
-        '''
-        Given the dict from self.pending, configure the entry as necessary,
-        generate a bunch of requests, then return a tuple of (page, [requests])
-        '''
-
-        if not hasattr(page, 'method'):
-            page['method'] = GET
-
-        if not hasattr(page, 'params'):
-            page['params'] = {} # key: {default: "", values: ["guessA", "fuzzB"}}
-
-        # We should start by making a request to this page. If it 404s, no more requests
-        # otherwise, we'll fuzz the parameters we know and guess at a few others.
-
+    def generate_get_fuzz_requests(self, target, path, method='GET', params=None):
         if params is None:
             params = {'page': {}, 'command': {}, 'cmd': {}, 'debug': {}}
 
-        requests = []
+        self.logger.info(f"Crawling a page:{method} {path}: {params}")
+        requests = {(method, path): []}
 
         for p in params.keys():
             if not hasattr(params[p], 'defaults') or len(params[p]['defaults']) == 0:
@@ -636,43 +619,6 @@ class PandaCrawl(QemuPyplugin):
                 requests[(method, path)].append(these_params)
         return requests
 
-    def generate_requests(self, target, page_tuple):
-        '''
-        Unified method for forms and urls to generate permutations to explore.
-
-        Page should be a tuple with a url (no leading /) and a dict of page details
-        the page details can optionally have:
-            method: "GET" or "POST"
-            params: {key_name: {default: "default_val", values: ["observedA", "observedB"], fuzz_vals: ["guessA"]}
-            fuzz_params: {key_name: fuzz_values: ["guessA", ...]}
-        '''
-        url, page = page_tuple
-        if not hasattr(page, 'method'):
-            page['method'] = "GET"
-
-        if not hasattr(page, 'params'):
-            page['params'] = {} # key: {default: "", values: ["observedA", "observedB"], fuzz_vals: ["GuessA"]}}
-
-        if not hasattr(page, 'fuzz_params'):
-            page['fuzz_params'] = {}
-
-        for param, param_data in page['params']:
-            if not hasattr(param_data['default']):
-                param_data['default'] = None
-
-            if not hasattr(param_data['values']):
-                param_data['values'] = []
-
-            if not hasattr(param_data['fuzz_vals']):
-                param_data['fuzz_vals'] = ['PANDATEST'] # TODO more
-
-        # First send a (non-instrumented) teste case to make sure the URL with known params
-        # isn't going to 404
-        # TODO
-
-        # Then, generate a list of many request for us to issue and return it
-        # TODO
-
 
     def crawl_manager(self):
         '''
@@ -691,21 +637,24 @@ class PandaCrawl(QemuPyplugin):
                 self.logger.warning("No targets left - finished in crawl_manager")
                 break
 
+            #url = _build_url(sock_family, sock_ip, sock_port, path)
             base_url = target.get_base_url()
-            if target.session is None:
-                target.session = requests.Session()
 
-            # Get a page to crawl. Select forms first
-            if target.has_next_form() and False: # XXX TODO
-                target_page = target.get_next_form()
+            # Get a URL to crawl - Is this just paths, should we explore params?
+
+            # pending_requests = {(method, path): [[param_set1], [param_set2]]}
+            if target.has_next_form():
+                # Next up is a form, let's generate a bunch of requests for it
+                pending_requests = self.generate_form_fuzz_requests(target, *target.get_next_form())
             elif target.has_next_url():
-                target_page = target.get_next_url()
+                # Just a URL, generate requests for it with various params
+                pending_requests = self.generate_get_fuzz_requests(target, target.get_next_url())
             else:
                 break
 
-            # Parse the target_page, update its fields as necessary
-            # and generate a list of requests to issue
-            (updated_page, pending_requests) = self.generate_requests(target, target_page)
+            # Now we should have some data in requests, let's crawl those page(s)
+            if target.session is None:
+                target.session = requests.Session()
 
             for (method, path), params in pending_requests.items():
                 url = base_url + path
@@ -721,11 +670,11 @@ class PandaCrawl(QemuPyplugin):
                         r = requests.Request(method, url, headers={'Connection':'close'}, **{param_name: req_params})
                         response = target.session.send(r.prepare(), timeout=TIMEOUT, verify=False)
                     except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
-                        target.save_result(updated_page, failure=True)
+                        target.log_failure(url)
                         self.logger.warning(f"Failed to visit from at {url} with {req_params} => {e}")
                         continue
                     except (requests.exceptions.TooManyRedirects) as e:
-                        target.save_result(updated_page, failure=True)
+                        target.log_failure(url)
                         self.logger.warning(f"Guest url {url} hits redirect loop with {req_params} => {e}")
                         continue
                     finally:
@@ -733,15 +682,24 @@ class PandaCrawl(QemuPyplugin):
 
                     if response.status_code == 401:
                         self.logger.error(f"UNAUTHORIZED {url} - retrying with admin/admin") # TODO: do better
-                    elif response.status_code == 400:
+                        # Auth denied - need to log in. Hmph - can we persist this or do it with library hooking?
+                        try:
+                            response = target.session.get(url, auth=('admin', 'admin'), timeout=TIMEOUT)
+                        except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
+                            target.log_failure(url)
+                            self.logger.warning(f"Failed to visit {url}")
+                            continue
+
+                    if response.status_code == 400:
                         self.logger.error(f"Generated a bad request to {method} {url} with params {req_params}: {r.url}")
-                    elif response.status_code != 404:
+
+                    if response.status_code != 404:
                         try:
                             response.raise_for_status()
                         except Exception as e:
                             self.logger.warning(f"Request error for {url}: {e}")
 
-                    for form_text in target.parse_response(updated_page, url, response):
+                    for form_text in target.parse_response(url, response):
                         self.parse_form(form_text, url, (procname, proto, host_port, guest_ip, guest_port))
 
 
