@@ -137,25 +137,9 @@ class TargetInfo(object):
         while targ_url.startswith("/"):
             targ_url = targ_url[1:]
 
-        # Hacky: add URL with variations on get get params if we have any
-        urls = [targ_url]
-
-        if params is None:
-            params = []
-
-        param_base = targ_url
-        param_append = ('?' in param_base)
-        for p in params:
-            suffix = '&' if param_append else '?'
-            suffix += p +'='
-
-            for payload in ['PANDA1PANDA', 'aaaaaaaaaaaaaaaaaaaaaaa', '../', '0', '1', 'true']:
-                urls.append(targ_url + suffix + payload)
-
-        for url in urls:
-            if url not in self.visited and url not in self.pending:
-                self.logger.debug(f"Add url to pending: {url}") # Must be just a path, no leading / - we have the slash in the base URL
-                self.pending.append(url)
+        if targ_url not in self.visited and targ_url not in self.pending:
+            self.logger.debug(f"Add url to pending: {targ_url}") # Must be just a path, no leading / - we have the slash in the base URL
+            self.pending.append(targ_url)
 
     def record_visited(self, url):
         u = make_rel(url)
@@ -275,7 +259,12 @@ class PandaCrawl(QemuPyplugin):
     '''
     def __init__(self, arch, args, CID, fw, outdir):
         self.logger = logging.getLogger('PandaCrawl')
-        logging.getLogger("urllib3").setLevel("INFO")
+        # make urllib3 log all requests (managed by the requests library) to requests.log
+        log = logging.getLogger('urllib3')
+        log.setLevel(logging.DEBUG)
+        fh = logging.FileHandler(f"{outdir}/requests.log")
+        log.addHandler(fh)
+
         self.outdir = outdir
         self.fwdir = os.path.dirname(fw) # has image.tar
 
@@ -305,18 +294,21 @@ class PandaCrawl(QemuPyplugin):
         self.crawl_thread.name = "crawler"
         self.crawl_thread.start()
 
+
+
     def reset_seen(self):
         self.seen_files = []
         self.seen_execs = []
         self.seen_covs = []
 
     def on_get_param(self, request, target, param):
-        self.logger.info(f"Informed of GET param by coverage analysis: {param}")
+        path = _strip_domain(_strip_url(request.url))
+        self.logger.info(f"Informed of GET param by coverage analysis for {path}: {param}")
         target._add_ref(request.url, None, params=[param])
 
     def on_post_param(self, request, target, param):
         path = _strip_domain(_strip_url(request.url))
-        self.logger.info(f"POST PARAM for {path}")
+        self.logger.info(f"Informed of POST param by coverage analysis for {path}: {param}")
         method = 'POST'
         form_key = (path, method)
         if request.method == 'POST':
@@ -327,8 +319,8 @@ class PandaCrawl(QemuPyplugin):
                     pass # Already knew about this one
                 else:
                     params[param] = {'type': 'text', 'defaults': []}
-                    if form_key not in self.forms_pending: # already visited, before we found this - re-visit
-                        self.forms_pending.append(form_key)
+                    if form_key not in target.forms_pending: # already visited, before we found this - re-visit
+                        target.forms_pending.append(form_key)
             else:
                 # New form, probably want to reuse existing logic but that assumes it has a form so let's just make it up
                 form = {
@@ -559,6 +551,40 @@ class PandaCrawl(QemuPyplugin):
                 # First item was just added, release the lock
                 self.have_targets.release()
 
+    def generate_get_fuzz_requests(self, target, path, method='GET', params=None):
+        if params is None:
+            params = {'page': {}, 'command': {}, 'cmd': {}, 'debug': {}}
+
+        self.logger.info(f"Crawling a page:{method} {path}: {params}")
+        requests = {(method, path): []}
+
+        for p in params.keys():
+            if not hasattr(params[p], 'defaults') or len(params[p]['defaults']) == 0:
+                # No recorded default, try setting it to empty string
+                params[p]['defaults'] = [""]
+
+        # Try some queries, always
+        for fuzz_value in ["true", "false", "0", "1",
+                           "../PANDApath/", "..%2fPANDA",
+                           "PANDAtraversal/PANDA/../PANDA2"]:
+            for param in params:
+                # Mutate each param
+                for fuzz_target in params.keys():
+                    these_params = {fuzz_target: fuzz_value}
+                for normal_target in params.keys():
+                    if normal_target == fuzz_target:
+                        continue
+                    defaults = params[normal_target]['defaults']
+                    if len(defaults) == 1:
+                        these_params[normal_target] = defaults[0]
+                    else:
+                        self.logger.warning("Multiple GET defaults TODO")
+                        these_params[normal_target] = defaults[0]
+
+                requests[(method, path)].append(these_params)
+        return requests
+
+
     def generate_form_fuzz_requests(self, target, path, method):
         params_j = target.forms[(path, method)]
         params = json.loads(params_j)
@@ -566,26 +592,31 @@ class PandaCrawl(QemuPyplugin):
 
         requests = {(method, path): []}
 
-        for fuzz_target in params.keys():
-            # Mutate param[fuzz_target]
-            #these_params = {fuzz_target: "PANDA1PANDA ; `PANDA2PANDA` && $(PANDA3PANDA); PANDA4PANDA ' PANDA5PANDA \"PANDA6PANDA"}
-            these_params = {fuzz_target: "PANDA1PANDA ; `PANDA2PANDA`"}
+        for p in params.keys():
+            # No recorded default, try setting it to 'yes'
+            if len(params[p]['defaults']) == 0:
+                params[p]['defaults'].append("yes")
 
-            for normal_target in params.keys():
-                if normal_target == fuzz_target:
-                    continue
-                defaults = params[normal_target]['defaults']
+        # For each fuzz_value, set each parameter to it and queue that up
+        for fuzz_value in ["PANDA1PANDA ; `PANDA2PANDA` && $(PANDA3PANDA); PANDA4PANDA ' PANDA5PANDA",
+                           "../PANDApath/", "..%2fPANDA",
+                           "PANDAtraversal/PANDA/../PANDA2"]:
 
-                if len(defaults) == 0:
-                    these_params[normal_target] = "PANDA3PANDA" # XXX should we fuzz this? We don't know the expected value
+            for fuzz_target in params.keys():
+                these_params = {fuzz_target: fuzz_value}
 
-                elif len(defaults) == 1:
-                    these_params[normal_target] = defaults[0]
-                else:
-                    self.logger.warning("Multiple defaults TODO")
-                    these_params[normal_target] = defaults[0]
+                for normal_target in params.keys():
+                    if normal_target == fuzz_target:
+                        continue
+                    defaults = params[normal_target]['defaults']
 
-            requests[(method, path)].append(these_params)
+                    if len(defaults) == 1:
+                        these_params[normal_target] = defaults[0]
+                    else:
+                        self.logger.warning("Multiple defaults TODO")
+                        these_params[normal_target] = defaults[0]
+
+                requests[(method, path)].append(these_params)
         return requests
 
 
@@ -616,9 +647,8 @@ class PandaCrawl(QemuPyplugin):
                 # Next up is a form, let's generate a bunch of requests for it
                 pending_requests = self.generate_form_fuzz_requests(target, *target.get_next_form())
             elif target.has_next_url():
-                # Just a URL, generate one or more requests for it
-                path = target.get_next_url()
-                pending_requests = {('GET', path): [{}] } # One request within this GET+path, and it has no params
+                # Just a URL, generate requests for it with various params
+                pending_requests = self.generate_get_fuzz_requests(target, target.get_next_url())
             else:
                 break
 
@@ -632,19 +662,23 @@ class PandaCrawl(QemuPyplugin):
                 for req_params in params:
                     # Clear any pending syscall info we've seen
                     self.reset_seen()
+                    param_name = 'data'
+                    if method == 'GET':
+                        param_name = 'params'
+
                     try:
-                        r = requests.Request(method, url, data=req_params, headers={'Connection':'close'})
-                        response = target.session.send(r.prepare(), timeout=TIMEOUT)
+                        r = requests.Request(method, url, headers={'Connection':'close'}, **{param_name: req_params})
+                        response = target.session.send(r.prepare(), timeout=TIMEOUT, verify=False)
                     except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
                         target.log_failure(url)
-                        self.logger.warning(f"Failed to visit from at {url} with {params} => {e}")
+                        self.logger.warning(f"Failed to visit from at {url} with {req_params} => {e}")
                         continue
                     except (requests.exceptions.TooManyRedirects) as e:
                         target.log_failure(url)
-                        self.logger.warning(f"Guest url {url} hits redirect loop with {params} => {e}")
+                        self.logger.warning(f"Guest url {url} hits redirect loop with {req_params} => {e}")
                         continue
                     finally:
-                        self.check_syscalls(r, target, params=params)
+                        self.check_syscalls(r, target, params=req_params)
 
                     if response.status_code == 401:
                         self.logger.error(f"UNAUTHORIZED {url} - retrying with admin/admin") # TODO: do better
@@ -655,6 +689,9 @@ class PandaCrawl(QemuPyplugin):
                             target.log_failure(url)
                             self.logger.warning(f"Failed to visit {url}")
                             continue
+
+                    if response.status_code == 400:
+                        self.logger.error(f"Generated a bad request to {method} {url} with params {req_params}: {r.url}")
 
                     if response.status_code != 404:
                         try:
@@ -732,12 +769,23 @@ class PandaCrawl(QemuPyplugin):
         if form_key not in self.targets[target_key].forms:
             self.targets[target_key].forms[form_key] = json.dumps(form['params'])
             self.targets[target_key].forms_pending.append(form_key)
-        elif json.dumps(form['params']) != self.targets[target_key].forms[form_key]:
-            # TODO: What if we find additional fields later? Should merge if exists
-            # but params are different
-            print("TODO ran into a form with new params")
-            print("\tHAD:", self.targets[target_key].forms[form_key])
-            print("\tNEW:", form['params'])
         else:
-            # Nothing new to do with this form
-            return
+            new_params_s = json.dumps(form['params'])
+            old_params_s = self.targets[target_key].forms[form_key]
+
+            if new_params_s != old_params_s:
+                # XXX: We found additional fields, let's merge them in a sane way. Don't delete defaults
+                # but do add new fields
+
+                old_params = json.loads(self.targets[target_key].forms[form_key])
+                new_params = form['params']
+
+                for param, new_param_data in new_params.items():
+                    if param not in old_params:
+                        old_params[param] = new_param_data
+                    elif old_params[param] != new_param_data:
+                        print("TODO merge:", old_params[param], new_param_data)
+                self.targets[target_key].forms[form_key] = json.dumps(old_params)
+            else:
+                # Nothing to do with this form
+                pass
