@@ -91,9 +91,16 @@ class VsockVPNQ(QemuPyplugin):
             f.write(f"bind {proto} {ip}:{port} 0.0.0.0:{host_port}\n")
 
         # inform PandaCrawl if it's loaded (TODO: should this be in pandacrawl?)
-        if 'PandaCrawl' in self.qp.plugins:
-            sleep(5)
-            self.qp.plugins['PandaCrawl'].on_bind(proto, ip, port, host_port, procname)
+        sleep(5)
+        call_count = 0
+        for plugin in self.qp.plugins.keys():
+            if f := getattr(self.qp.plugins[plugin], 'on_bind', None):
+                self.logger.info(f"Notifying {plugin} of bind")
+                f(proto, ip, port, host_port, procname)
+                call_count += 1
+
+        if call_count == 0:
+            self.logger.warning("No on_bind consumers for qvpn")
 
     def uninit(self):
         self.host_vpn.kill()
