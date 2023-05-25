@@ -3,6 +3,7 @@ import subprocess
 import time
 import socket
 import random
+import threading
 
 from zapv2 import ZAPv2
 from contextlib import closing
@@ -21,7 +22,16 @@ class Zap(PyPlugin):
         self.process = subprocess.Popen(["/zap/zap.sh", "-daemon", "-config", f"api.key={self.api_key}", "-port", str(self.port)], stdout=self.output_file, stderr=self.output_file)
 
         self.api_base = f"http://127.0.0.1:{self.port}/JSON/"
-        print("ZAP listening on port", self.port)
+        print("Launching ZAP with proxy on port", self.port)
+
+        # XXX here we block main thread - should be okay? Up to 30s
+        for i in range(10):
+            try:
+                requests.get(f"http://127.0.0.1:{self.port}")
+                break
+            except Exception as e:
+                time.sleep(3)
+                print("Waiting for zap to start...")
 
         #self.ppp.VsockVPN.ppp_reg_cb('on_bind', self.zap_on_bind)
         self.ppp.SyscallProxy.ppp_reg_cb('on_pbind', self.zap_on_bind)
@@ -46,7 +56,13 @@ class Zap(PyPlugin):
         if guest_port not in [80] or proto != 'tcp':
             # Ignore
             return
+        
+        # Launch a thread to analyze this request
+        t = threading.Thread(target=self.crawl_thread, args=(host_port,))
+        t.daemon = True
+        t.start()
 
+    def crawl_thread(self, host_port):
         '''
         self.spider(f"http://localhost:{host_port}/", recurse=True)
 
@@ -56,6 +72,9 @@ class Zap(PyPlugin):
 
         self.active_scan(f"http://localhost:{host_port}/")
         '''
+
+        # Make sure syscall proxy is up. Not in main thread so this is okay?
+        time.sleep(5)
 
         # proxies are zap's proxies - yep
         localProxy = {'http': f'http://127.0.0.1:{self.port}',
@@ -67,6 +86,27 @@ class Zap(PyPlugin):
         self.ppp.Introspect.set_zap(host_port, self)
         print(f"Connecting to syscall proxy on {target}")
 
+        # Do we block the guest here?
+        # Open our URL, through ZAP proxy?
+        try:
+            print(f"DIRECT TEST: Can we talk to ZAP?")
+            r = requests.get(f"http://127.0.0.1:{self.port}", verify=False)
+            print(r.text)
+        except Exception as e:
+            print(e)
+            print("BAIL FOR DEBUG")
+            return
+        
+        # Now try talking to target
+        try:
+            print(f"DIRECT TEST: Can we talk to target?")
+            r = requests.get(target, proxies=localProxy, verify=False)
+            print(r.text)
+        except Exception as e:
+            print(e)
+            print("BAIL2 FOR DEBUG")
+            return
+        
         #zap.core.access_url(url=target, followredirects=True)
         try:
             zap.urlopen(target)
@@ -109,61 +149,6 @@ class Zap(PyPlugin):
         print('All URLs:')
         for url in zap.core.urls():
             print(url)
-
-    '''
-    def add_url_to_tree(self, target_url):
-        # XXX broken??
-        # Data payload for the API request
-        data = {
-            'url': target_url,
-        }
-
-        return self.do_api("ascan/action/addScanItem/", data)
-
-    def dump_spider_results(self):
-        data = {}
-        results = self.do_api("spider/view/results/", data, return_results=True)
-        print(results)
-
-    def spider(self, url, recurse=False):
-        # Spider
-        #r = requests.get(f"{self.api_base}/spider/action/scan/?zapapiformat=JSON&formMethod=GET&url=http://localhost:{host_port}/")
-
-        data = {
-            'url': url
-        }
-
-        if recurse:
-            data['recurse'] = 'true'
-
-        return self.do_api("spider/action/scan", data)
-
-    def active_scan(self, url):
-        #"/&recurse=&inScopeOnly=&scanPolicyName=&method=&postData=&contextId=")
-        data = {
-            'url': url,
-        }
-        return self.do_api("ascan/action/scan/", data)
-
-    def do_api(self, endpoint, data, return_results=False):
-        data['zapapiformat'] = 'JSON'
-        data['formMethod'] = 'POST'
-
-        r = requests.post(f"{self.api_base}{endpoint}", data=data, headers={'Accept': 'application/json'})
-
-        print(r.json())
-        if not return_results:
-            # key is scan, code, message, and others. Never seen Result?
-            try:
-                if r.json()['Result'] != 'OK':
-                    print(f"Error at {endpoint}:", r.json(), "with data:", data)
-                    return False
-            except KeyError:
-                print(f"Error at {endpoint}: no 'Result' key in JSON: {r.text}, with data:", data)
-                return False
-            return True
-        return r.json()
-    '''
 
     def uninit(self):
         if self.output_file:
