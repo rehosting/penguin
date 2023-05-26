@@ -97,6 +97,12 @@ class FailDetect(PyPlugin):
                 if ignore_ioctl_path(filename):
                     return
 
+                # Check if it's hooked with our ioctl faker (TODO: only if this is loaded?)
+                if self.ppp.IoctlFakerC.is_ioctl_hooked(filename, request):
+                    # We need to dynamically check this, unlike with files becasue we don't know
+                    # the order in which the IoctlFakerC vs faildetect will run
+                    return
+
                 if filename not in self.ioctl_failures:
                     self.ioctl_failures[filename] = {}
 
