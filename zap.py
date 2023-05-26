@@ -142,8 +142,8 @@ class Zap(PyPlugin):
 
         # Now print scan results
         print('Hosts: ' + ', '.join(zap.core.hosts))
-        print('Alerts: ')
-        print(zap.core.alerts())
+        #print('Alerts: ')
+        #print(zap.core.alerts())
 
         # Print each URL we visited
         print('All URLs:')

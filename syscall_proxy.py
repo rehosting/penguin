@@ -130,7 +130,7 @@ class MyProxyRequest(ProxyRequest):
         s = self.content.read()
         clientFactory = class_(self.method, rest, self.clientproto, headers, s, self)
 
-        self.panda.pyplugins.ppp.Introspect.start_request(None, None, None, None, None)
+        #self.panda.pyplugins.ppp.Introspect.start_request(None, None, None, None, None)
         self.reactor.connectTCP(host, port, clientFactory)
         '''
         with self.panda.pyplugins.ppp.Introspect as introspection:
@@ -144,9 +144,9 @@ class MyProxyRequest(ProxyRequest):
         self.host, self.port = self.remote_host, self.remote_port
         self.ssl = ssl
 
-    def connectionLost(self, *args, **kwargs):
-        self.panda.pyplugins.ppp.Introspect.finish_request(None)
-        super().connectionLost(*args, **kwargs)
+    #def connectionLost(self, *args, **kwargs):
+    #    self.panda.pyplugins.ppp.Introspect.finish_request(None)
+    #    super().connectionLost(*args, **kwargs)
         
 class MyProxy(Proxy):
     def __init__(self, panda, remote_host, remote_port, *args, **kwargs):
@@ -197,7 +197,7 @@ class SyscallProxy(PyPlugin):
             s.bind(('localhost', 0))
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             return s.getsockname()[1]
-        
+
     def start_proxy_server(self, listen_port, target_port, guest_procname, guest_ip, guest_port):
         print(f'Starting server on port {listen_port}, forwarding to port {target_port}')
         t = threading.Thread(target=run_proxy, args=(self.panda, 'localhost', listen_port, 'localhost', target_port))
