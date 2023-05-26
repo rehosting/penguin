@@ -1,6 +1,6 @@
 import sys
+import yaml
 from pandare import PyPlugin
-import heapq
 
 # Paths we don't care about:
 # /firmadyne/libnvram anything - this reveals the nvram values read though
@@ -46,30 +46,10 @@ def path_interesting(path):
 
     return False
 
-class WeightedItem:
-    def __init__(self, item, weight):
-        self.item = item
-        self.weight = weight
-
-    def __lt__(self, other):
-        return self.weight < other.weight
-
-class WeightedList:
-    def __init__(self):
-        self.items = []
-
-    def insert(self, item, weight):
-        weighted_item = WeightedItem(item, weight)
-        heapq.heappush(self.items, weighted_item)
-
-    def iterweight(self):
-        while self.items:
-            weighted_item = heapq.heappop(self.items)
-            yield weighted_item.item
-
 class FailDetect(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
+        self.outdir = self.get_arg("outdir")
 
         self.ioctl_failures = {} # path: {IOCTL: count}
         self.file_failures = {} # path: {mode: count}
@@ -142,6 +122,9 @@ class FailDetect(PyPlugin):
     def log_open_failure(self, path, rv, mode):
         if not path_interesting(path):
             return
+        
+        if rv != -2: # ENOENT - we only care about files that don't exist
+            return
 
         if path not in self.file_failures:
             self.file_failures[path] = {}
@@ -151,49 +134,20 @@ class FailDetect(PyPlugin):
         self.file_failures[path][mode] += 1
 
 
-    def propose_mitigation(self, fail_class, *args):
-        '''
-        For a given failure, propose one or more mitigations
-        '''
-        if fail_class == 'open':
-            path = args[0]
-            if path.startswith("/proc"):
-                print(f"NYI: handle open failure on /proc: {path}", file=sys.stderr)
-                return
-
-            print(f"PROPOSED MITIGATION: create {path}", file=sys.stderr)
-
-        elif fail_class == 'ioctl':
-            ioctl, path = args[0], args[1]
-            
-            # Let's say we can either return 0, 1, or 0xffffffff
-            for result in [0, 1, 0xffffffff]:
-                print(f"PROPOSED MITIGATION: handle ioctl {ioctl:#x} on {path} to return {result}", file=sys.stderr)
-
     def uninit(self):
         if self.did_uninit:
-            return
+            return # We're setting ourself up to work via ctrl-C or graceful shutdown
         self.did_uninit = True
 
-        mitigations = WeightedList()
 
-        # Here we just calculate failure weights - we *don't* propose mitigations
+        # Create .ran to indicate we ran this config
+        open(self.outdir + "/.ran", "w").close()
 
-        # File failures: weight is 2 * count by default
-        for path, failures in self.file_failures.items():
-            print(f"Saw {len(failures)} failures trying to open {path}", file=sys.stderr)
-            mitigations.insert(('open', path), 2*len(failures))
-        
-        # Ioctl failures: weight is 1 * count
-        for path, failures in self.ioctl_failures.items():
-            # Iterate through failures, sorted by key (low to high)
-            for ioctl, count in sorted(failures.items()):
-                print(f"Saw {count} failures trying to run ioctl {ioctl:#x} on {path}", file=sys.stderr)
-                mitigations.insert(('ioctl', ioctl, path), len(failures))
-
-
-        for mitigation in mitigations.iterweight():
-            self.propose_mitigation(*mitigation)
+        with open(self.outdir + "/failures.yaml", "w") as f:
+            yaml.dump({
+                "file_failures": self.file_failures,
+                "ioctl_failures": self.ioctl_failures
+            }, f)
 
     def __del__(self):
         self.uninit()
