@@ -56,7 +56,7 @@ class Zap(PyPlugin):
         if guest_port not in [80] or proto != 'tcp':
             # Ignore
             return
-        
+
         # Launch a thread to analyze this request
         t = threading.Thread(target=self.crawl_thread, args=(host_port,))
         t.daemon = True
@@ -96,7 +96,7 @@ class Zap(PyPlugin):
             print(e)
             print("BAIL FOR DEBUG")
             return
-        
+
         # Now try talking to target
         try:
             print(f"DIRECT TEST: Can we talk to target?")
@@ -106,7 +106,7 @@ class Zap(PyPlugin):
             print(e)
             print("BAIL2 FOR DEBUG")
             return
-        
+
         #zap.core.access_url(url=target, followredirects=True)
         try:
             zap.urlopen(target)
