@@ -1,3 +1,4 @@
 *.qcow
 *-rr-*
 *.sw*
+__pycache__/
