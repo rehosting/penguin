@@ -5,79 +5,93 @@ from contextlib import closing
 
 from pandare import PyPlugin
 
-from twisted.web import proxy, http
-from twisted.internet import defer
-from twisted.python import log
+from twisted.web import proxy, server 
 from twisted.internet import reactor
-from queue import Queue
-
+from twisted.internet.defer import Deferred
 
 # Need to run outside main thread
 reactor._handleSignals = lambda: None
 
-class QueuedReverseProxyRequest(proxy.ReverseProxyRequest):
-    def process(self):
-        # This is where you add the request to the queue instead of processing it immediately
-        self.channel.factory.queue.put(self)
-        #self.channel.factory.processNextRequest() # Hmm? Infinite loop?
+class MyProxyClient(proxy.ProxyClient):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.requestHeaders = []
+        self.responseParts = []
 
-class QueuedReverseProxy(proxy.ReverseProxy):
-    requestFactory = QueuedReverseProxyRequest
+    def handleHeader(self, key, value):
+        self.requestHeaders.append((key, value))
+        super().handleHeader(key, value)
 
-class QueuedReverseProxyResource(proxy.ReverseProxyResource):
-    def getChild(self, path, request):
-        return QueuedReverseProxy(self.host, self.port, path)
+    def handleResponseBegin(self):
+        print("MyProxyClient.handleResponseBegin")
+        super().handleResponseBegin()
 
-class QueuedReverseProxyHTTPChannel(proxy.ProxyClientFactory):
-    requestFactory = QueuedReverseProxy
+    def handleResponsePart(self, buffer):
+        print("MyProxyClient.handleResponsePart")
+        self.responseParts.append(buffer)
+        super().handleResponsePart(buffer)
 
-class QueuedReverseProxyHTTPFactory(http.HTTPFactory):
-    protocol = QueuedReverseProxy
+    def handleResponseEnd(self):
+        print("MyProxyClient.handleResponseEnd", id(self))
+        print(f"Response Headers: {self.requestHeaders}")
+        print(f"Response Body: {repr(b''.join(self.responseParts).decode('utf-8', 'replace'))[:1000]}")
 
-    def __init__(self, panda, addr, port, reactor):
-        http.HTTPFactory.__init__(self)
-        self.addr = addr
-        self.port = port
-        self.reactor = reactor
-        self.queue = Queue()  # This is where we'll store the requests
-        self.processing = False
+        if getattr(self.father, 'call_finish', False):
+            self.father.call_finish = False
+            self.father.finish_deferred.callback(self.father) # Signal that the response is processed
+
+        super().handleResponseEnd()
+
+class MyProxyClientFactory(proxy.ProxyClientFactory):
+    protocol = MyProxyClient
+
+class MySingleRequestReverseProxy(proxy.ReverseProxyResource):
+    proxyClientFactoryClass = MyProxyClientFactory
+
+    def __init__(self, panda, host, port, path, request_in_flight, rif_lock, reactor=reactor):
+        proxy.ReverseProxyResource.__init__(self, host, port, path, reactor=reactor)
+        self.request_in_flight = request_in_flight
+        self.rif_lock = rif_lock
         self.panda = panda
 
-    def startFactory(self):
-        http.HTTPFactory.startFactory(self)
-        self.processNextRequest()
+    def getChild(self, path, request):
+        return MySingleRequestReverseProxy(
+            self.panda, self.host, self.port, self.path + b'/' + path, self.request_in_flight, self.rif_lock)
 
-    def processNextRequest(self):
-        if self.processing or self.queue.empty():
-            return
-        self.processing = True
-        request = self.queue.get()
-        print("PROCESS:", request)
-        
-        # Call Introspect.start_request before forwarding request to upstream server
+    def before_request(self, request):
+        print("MySingleRequestReverseProxy.before_request", request)
+        request.finish_deferred = Deferred()
+        while self.panda.pyplugins.ppp.Introspect.has_lock():
+            print("ERROR??? BEFORE REQUEST BUT INTRO HAS LOCK - stall", request)
+            sleep(5)
         self.panda.pyplugins.ppp.Introspect.start_request(request)
-        
-        # Use callLater to prevent blocking
-        d = defer.Deferred()
-        self.reactor.callLater(0, d.callback, request)
-        d.addCallback(lambda _: super(QueuedReverseProxyRequest, request).process())
-        d.addBoth(self.requestFinished)
+        request.call_finish = True
+        return request  # Return request to pass it to the next callback in the chain.
 
-    def requestFinished(self, result):
-        self.processing = False
-        print("FINISHED:", result)
-        
-        # Call Introspect.end_request after response from upstream server is received
-        self.panda.pyplugins.ppp.Introspect.end_request(result)
-        
-        self.processNextRequest()
-        return result
+    def after_request(self, request):
+        print("MySingleRequestReverseProxy.after_request", request)
+        self.panda.pyplugins.ppp.Introspect.end_request(request)
+        return server.NOT_DONE_YET  # Return NOT_DONE_YET to Twisted signaling that the response is not ready yet.
 
-def run_proxy(panda, local_host, port, upstream_host, upstream_port):
-    site = QueuedReverseProxyHTTPFactory(panda, upstream_host, upstream_port, reactor)
-    reactor.listenTCP(port, site)
+    def render(self, request):
+        print(f"New incoming request:", request)
+        d = Deferred()
+        d.addCallback(self.before_request)  # 1) call Introspect.start_request(request)
+        d.addCallback(lambda req: proxy.ReverseProxyResource.render(self, req))  # 2) Do the standard reverse proxy logic
+        d.addCallback(lambda _: request.finish_deferred)  # Wait for the upstream response to be processed
+        d.addCallback(self.after_request)  # 3) call Introspect.end_request(request)
+
+        d.addErrback(lambda *args: print("ERROR", args))
+
+        d.callback(request)  # Initiate the callback chain with the request as an argument.
+        return server.NOT_DONE_YET
+    
+def run_proxy(panda, local_host, local_port, remote_host, remote_port, request_in_flight, rif_lock):
+    # Remost host is ignored, will always be localhost
+    site = server.Site(MySingleRequestReverseProxy(panda, local_host, remote_port, b'', request_in_flight, rif_lock))
+    #site = MySite(MySingleRequestReverseProxy(panda, local_host, remote_port, b'', request_in_flight, rif_lock))
+    reactor.listenTCP(local_port, site)
     reactor.run()
-
 
 class SyscallProxy2(PyPlugin):
     def __init__(self, panda):
@@ -89,6 +103,9 @@ class SyscallProxy2(PyPlugin):
 
         # Register sp_on_bind to trigger when we see a target service bind to aport
         self.ppp.VsockVPN.ppp_reg_cb('on_bind', self.sp_on_bind)
+
+        self.request_in_flight_lock = threading.Lock()
+        self.request_in_flight = Deferred()
 
     @staticmethod
     def find_free_port():
@@ -102,7 +119,7 @@ class SyscallProxy2(PyPlugin):
 
     def start_proxy_server(self, listen_port, target_port, guest_procname, guest_ip, guest_port):
         print(f'Starting server on port {listen_port}, forwarding to port {target_port}')
-        t = threading.Thread(target=run_proxy, args=(self.panda, 'localhost', listen_port, 'localhost', target_port))
+        t = threading.Thread(target=run_proxy, args=(self.panda, 'localhost', listen_port, 'localhost', target_port, self.request_in_flight, self.request_in_flight_lock))
         t.daemon = True
         t.start()
 
