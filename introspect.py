@@ -186,10 +186,8 @@ class Introspect(PyPlugin):
 
                     if fname not in self.hypotheses[port][url_hypo]:
                         self.hypotheses[port][url_hypo].add(fname)
-                        # First time seeing this file, so we should add it to the mappings, log, and (TODO) trigger PPP callback
-                        print(f"\tRequest to {url_hypo} might go to {fname}")
-                        # TODO inform ZAP
-                        self.zaps[port].add_url(url_hypo}
+                        # First time seeing this file, so we should add it to the mappings and tell ZAP
+                        self.zaps[port].add_url(url_hypo)
 
 
             except ValueError:
