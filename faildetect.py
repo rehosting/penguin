@@ -148,6 +148,3 @@ class FailDetect(PyPlugin):
                 "file_failures": self.file_failures,
                 "ioctl_failures": self.ioctl_failures
             }, f)
-
-    def __del__(self):
-        self.uninit()
