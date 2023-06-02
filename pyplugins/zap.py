@@ -20,10 +20,16 @@ class Zap(PyPlugin):
 
         self.url_queue = []
         self.url_queue_lock = threading.Lock()
+        self.log_files = []
 
         # Run zap, listening with random API key and free port
         self.port = self.find_free_port()
-        self.process = subprocess.Popen(["/zap/zap.sh", "-daemon", "-config", f"api.key={self.api_key}", "-port", str(self.port)], stdout=self.output_file, stderr=self.output_file)
+        self.process = subprocess.Popen(["/zap/zap.sh",
+                                         "-dir", f"/root/.ZAP/{self.api_key}", # This is terrible, but we need something unique
+                                         "-daemon",
+                                         "-config", f"api.key={self.api_key}",
+                                         "-port", str(self.port)],
+                                           stdout=self.output_file, stderr=self.output_file)
 
         self.api_base = f"http://127.0.0.1:{self.port}/JSON/"
         print("Launching ZAP with proxy on port", self.port)
@@ -61,9 +67,12 @@ class Zap(PyPlugin):
         if guest_port not in [80] or proto != 'tcp':
             # Ignore
             return
+        
+        f = open(self.outdir + f"/zap_{proto}_{guest_port}.log", "w")
+        self.log_files.append(f)
 
         # Launch a thread to analyze this request
-        t = threading.Thread(target=self.crawl_thread, args=(host_port,))
+        t = threading.Thread(target=self.crawl_thread, args=(host_port,f))
         t.daemon = True
         t.start()
 
@@ -76,7 +85,7 @@ class Zap(PyPlugin):
         with self.url_queue_lock:
             self.url_queue.append(url)
 
-    def crawl_thread(self, host_port):
+    def crawl_thread(self, host_port, log_file):
         '''
         self.spider(f"http://localhost:{host_port}/", recurse=True)
 
@@ -98,42 +107,34 @@ class Zap(PyPlugin):
 
         target = f"http://127.0.0.1:{host_port}/"
         self.ppp.Introspect.set_zap(host_port, self)
-        print(f"ZAP SETUP: Will talk through syscall proxy on {target}")
 
         # Do we block the guest here?
         # Open our URL, through ZAP proxy?
         try:
-            print(f"DIRECT TEST: Can we talk to ZAP?")
             r = requests.get(f"http://127.0.0.1:{self.port}", verify=False)
-            print(r.text)
-
         except Exception as e:
-            print(e)
-            print("BAIL FOR DEBUG")
-            return
+            print(e, file=log_file)
+            self.panda.end_analysis()
+            raise
 
         # Now try talking to target
         try:
-            print(f"DIRECT TEST: Can we talk to target through our proxy?")
             r = requests.get(target, proxies=localProxy, verify=False)
             #r = requests.get(target, proxies=localProxy, verify=False, headers={'Host': 'http://127.0.0.1:80'})
-            print(r.text)
-
             r.raise_for_status()
         except Exception as e:
-            print(e)
-            print("BAIL2 FOR DEBUG")
-            return
+            print(e, file=log_file)
+            self.panda.end_analysis()
+            raise
 
         # First we just browse to the main URL to update the sites tree
         #zap.core.access_url(url=target, followredirects=True)
         try:
             zap.urlopen(target)
         except Exception as e:
-            print()
-            print(f"EXCEPTION connecting to {target}: {e}")
-            #self.panda.end_analysis()
-            return
+            print(f"EXCEPTION connecting to {target}: {e}", file=log_file)
+            self.panda.end_analysis()
+            raise
         time.sleep(2) # Give the sites tree a chance to get updated
 
         # Next we passively scan
@@ -147,16 +148,16 @@ class Zap(PyPlugin):
                 while len(self.url_queue) > 0:
                     url = target + self.url_queue.pop(0)
                     zap.spider.scan(url)
-                    print(f"Adding url from introspect to spider: {url}")
+                    print(f"Adding url from introspect to spider: {url}", file=log_file)
 
-            print(f"Spider progress: {zap.spider.status()}")
+            print(f"Spider progress: {zap.spider.status()}", file=log_file)
             time.sleep(2)
 
-        print('Spider completed')
+        print('Spider completed', file=log_file)
         time.sleep(5) # Give the passive scanner a chance to finish
 
         # Now we actively scan
-        print(f"Scanning target: {target}")
+        print(f"Scanning target: {target}", file=log_file)
         zap.ascan.scan(target)
         # Wait for both scan to finish AND for the queue to be empty
         while len(self.url_queue) > 0 or (int(zap.ascan.status()) < 100):
@@ -165,25 +166,27 @@ class Zap(PyPlugin):
                 while len(self.url_queue) > 0:
                     url = target + self.url_queue.pop(0)
                     zap.ascan.scan(url)
-                    print(f"Adding url from introspect to scan {url}")
+                    print(f"Adding url from introspect to scan {url}", file=log_file)
 
-            print(f"Scan progress: {zap.ascan.status()}")
+            print(f"Scan progress: {zap.ascan.status()}", file=log_file)
             time.sleep(5)
 
-        print('Scan completed')
+        print('Scan completed', file=log_file)
 
         # Now print scan results
-        print('Hosts: ' + ', '.join(zap.core.hosts))
+        print('Hosts: ' + ', '.join(zap.core.hosts), file=log_file) 
         #print('Alerts: ')
         #print(zap.core.alerts())
 
         # Print each URL we visited
-        print('All URLs:')
+        print('All URLs:', file=log_file)
         for url in zap.core.urls():
-            print(url)
+            print(url, file=log_file)
 
     def uninit(self):
         if self.output_file:
             self.output_file.close()
         if hasattr(self, 'process'):
             self.process.terminate()
+        for f in self.log_files:
+            f.close()
