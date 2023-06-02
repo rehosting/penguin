@@ -16,11 +16,19 @@ class Coverage(PyPlugin):
         self.current_proc = None
         self.total_coverage = {} # procname: set of (modname, offset) tuples
 
-        @panda.cb_start_block_exec
-        def cov_sbe(cpu, tb):
-            if self.current_proc is None or self.current_proc['ignore'] or self.current_proc['name'] == "vpn":
+        @panda.cb_after_block_exec
+        def cov_abe(cpu, tb, exit_code):
+            if exit_code != 0:
+                # We only want blocks that ended "naturally" i.e., not through interrupt
                 return
+
+            # If we don't know the process, it's a kernel thread (ignored) or the VPN, don't bother
+            if self.current_proc is None or self.current_proc['ignore'] or self.current_proc['name'] in ["vpn", "tokio-runtime-w"]:
+                return
+
+            # tb's PC is start of block
             pc = tb.pc
+
             if name_mod_off := self.addr_to_mod_offset(pc):
                 name, mod, off = name_mod_off
                 #print(f"{name}: {mod}+{off}")
@@ -30,10 +38,11 @@ class Coverage(PyPlugin):
 
         @panda.cb_guest_hypercall
         def on_hypercall(cpu):
-            # Stride is... arm. Arg 0 (r0) is the hypercall number, r1 is arg
+            # Stride is arm. Arg 0 (r0) is the hypercall number, r1 is arg
+            #mips is ???
             num = panda.arch.get_arg(cpu, 0)
             arg = panda.arch.get_arg(cpu, 1)
-                
+
             if num == 590:
                 try:
                     self.pending_proc['name' ] = panda.read_str(cpu, arg)
