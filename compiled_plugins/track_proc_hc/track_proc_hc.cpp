@@ -29,12 +29,12 @@
 extern "C" {
   PPP_PROT_REG_CB(on_hc_proc_change);
   PPP_PROT_REG_CB(on_hc_proc_exec);
-  //PPP_PROT_REG_CB(on_hc_proc_vma_update);
+  PPP_PROT_REG_CB(on_hc_proc_vma_update);
 }
 
 PPP_CB_BOILERPLATE(on_hc_proc_change);
 PPP_CB_BOILERPLATE(on_hc_proc_exec);
-//PPP_CB_BOILERPLATE(on_hc_proc_vma_update);
+PPP_CB_BOILERPLATE(on_hc_proc_vma_update);
 
 bool in_vma_loop = false;
 proc_t pending_proc;
@@ -45,13 +45,6 @@ void debug_print_proc(const char* msg, proc_t* p) {
 #ifdef DEBUG_PRINT
   printf("[track_proc_hc] %s process %s pid %d\n", msg, p->comm, p->pid);
 #endif
-}
-
-// Track coverage with after_block_exec callback
-void abe(CPUState *env, TranslationBlock *tb, uint8_t exit_code) {
-  if (exit_code != 0) return;
-  //printf("EBE " TARGET_FMT_lx "\n", tb->pc);
-  return;
 }
 
 bool before_hypercall(CPUState *cpu) {
@@ -65,7 +58,7 @@ uint32_t num, arg = {0};
   return false;
 #endif
 
-  printf("Hypercall %d: 0x%x\n", num, arg);
+  //printf("Hypercall %d: 0x%x\n", num, arg);
   switch (num) {
     /////////// PROCESS SWITCH
     case 590: // Process switch starts with reporting  name
@@ -120,7 +113,7 @@ uint32_t num, arg = {0};
         vmas->clear(); // Always clear VMAs for current proc on VMA update
         // XXX if someone (proc_map) tries to use VMAs while we're updating, they'll be invalid pointers!
         // to hack around this, we call the callback an extra time with an empty list
-        //PPP_RUN_CB(on_hc_proc_vma_update, (gpointer)vmas, NULL);
+        PPP_RUN_CB(on_hc_proc_vma_update, (gpointer)vmas, NULL);
 
         pending_vma = new vma_t;
 
@@ -135,8 +128,8 @@ uint32_t num, arg = {0};
         // Finished with all VMAs. Note the last pending_vma we allocated is junk so we'll free it
         delete pending_vma;
         in_vma_loop = false;
-        debug_print_proc("vma update", &pending_proc);
-        //PPP_RUN_CB(on_hc_proc_vma_update, (gpointer)vmas, NULL);
+        //debug_print_proc("vma update", &pending_proc);
+        PPP_RUN_CB(on_hc_proc_vma_update, (gpointer)vmas, NULL);
         vmas->clear();
 
       } else {
@@ -185,18 +178,9 @@ uint32_t num, arg = {0};
 
 extern "C" bool init_plugin(void *self) {
   #if defined(TARGET_ARM) || defined(TARGET_MIPS)
-    // ABE callback for coverage
-    panda_cb pcb = { .after_block_exec = abe };
-    panda_register_callback(self, PANDA_CB_AFTER_BLOCK_EXEC, pcb);
-    // Disable tb chaining for ABE
-    panda_disable_tb_chaining(); // XXX could we use end_block_exec instead to avoid this?
-
-
     // Hypercall calback for proc tracking
     panda_cb pcb2 = { .guest_hypercall = before_hypercall };
     panda_register_callback(self, PANDA_CB_GUEST_HYPERCALL, pcb2);
-
-
     return true;
   #else
     printf("This plugin is only supported on ARM and MIPS\n");

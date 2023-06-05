@@ -20,9 +20,9 @@ typedef struct {
   char comm[64];
   bool ignore;
   std::vector<vma_t*>* vmas;
-  uint32_t prev_location;
-  uint32_t last_bb_end;
+  //uint32_t prev_location;
   uint32_t last_bb_start;
+  uint32_t last_bb_end;
 } proc_t;
 
 #endif

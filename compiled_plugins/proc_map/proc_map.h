@@ -19,6 +19,7 @@ uint32_t hash(char *input) {
     return rv;
 }
 
+#if 0
 struct hash_tuple {
   //https://www.geeksforgeeks.org/how-to-create-an-unordered_map-of-tuples-in-c/
   template <class T1, class T2>
@@ -26,5 +27,16 @@ struct hash_tuple {
       return std::get<0>(x) ^ std::get<1>(x);
     }
 };
+#endif
+
+//gpt4
+struct hash_tuple {
+    size_t operator() (const std::tuple<uint32_t, uint32_t>& key) const {
+        size_t hash1 = std::hash<uint32_t>()(std::get<0>(key));
+        size_t hash2 = std::hash<uint32_t>()(std::get<1>(key));
+        return hash1 ^ (hash2 << 1);  // Bitwise shift and XOR
+    }
+};
+
 
 #endif

@@ -14,6 +14,7 @@
 #include <time.h>
 #include <byteswap.h>
 #include <netdb.h>
+#include <iostream>
 
 #include <algorithm>    // std::find
 #include <string.h>
@@ -32,67 +33,104 @@ PPP_CB_BOILERPLATE(on_current_proc_change);
 
 static GMutex lock;
 
+// DEBUG
+#define DEBUG_PRINT
+
 #ifdef DEBUG_PRINT
 char last_printed[16];
 #endif
 
+// If this isn't on the heap it will vanish before our plugin_exit is called. Ugh!
+std::unordered_map<std::tuple<uint32_t, uint32_t>, proc_t*, hash_tuple> *proc_map = NULL;
+
+proc_t *current_proc = new proc_t;
+
 void debug_print_proc(const char* msg, proc_t* p) {
 #ifdef DEBUG_PRINT
-  if (strcpy(p->comm, last_printed) != 0) {
+  if (p == NULL) {
+      printf("[proc_map] %s process NULL\n", msg);
+      return;
+  }
+  if (p->comm == NULL) {
+      printf("[proc_map] %s comm NULL\n", msg);
+      return;
+  }
+
+  if (strcmp(p->comm, last_printed) != 0) {
     printf("[proc_map] %s process '%s' pid %d\n", msg, p->comm, p->pid);
-    strcpy(last_printed, p->comm);
+    strncpy(last_printed, p->comm, sizeof(last_printed)-1);
+    last_printed[sizeof(last_printed)-1] = '\0';
   }
 #endif
 }
 
-// If this isn't on the heap it will vanish before our plugin_exit is called. Ugh!
-std::unordered_map<std::tuple<uint32_t, uint32_t>, proc_t*, hash_tuple> *proc_map = \
-    new std::unordered_map<std::tuple<uint32_t, uint32_t>, proc_t*, hash_tuple>;
-
-proc_t *current_proc = NULL;
-
-bool should_ignore(proc_t* p)  {
-  return p->ignore ||
-         strncmp(p->comm, "vpn", sizeof(p->comm)) == 0 ||
+void set_ignore_flag(proc_t* p) {
+  // If we already ignored it we keep it ignored, otherwise check and set if we should
+  if (p->ignore) return;
+  p->ignore = \
+          strncmp(p->comm, "vpn", sizeof(p->comm)) == 0 ||
           strncmp(p->comm, "tokio-runtime-w", sizeof(p->comm)) == 0;
 }
 
-
-/* TODO
-QEMU_PLUGIN_EXPORT void* get_current_proc(void) {
-  return (void*)&current_proc;
-}
-*/
-
 void on_proc_change(gpointer evdata, gpointer udata) {
-  // Just changed to a new process
+  // Just changed to a new process - if we haven't seen it before we need to add it to the map
+  // and we always update current_proc to the relevant map entry
+
   proc_t pending_proc = *(proc_t*)evdata;
   auto k = std::make_tuple(pending_proc.pid, pending_proc.create_time);
+
+  // Create a hash_tuple object
+  hash_tuple ht;
+  // Print the hash of the key
+  printf("Hash of the key (%d,%d): %ld\n", pending_proc.pid, pending_proc.create_time, ht(k));
+
   if (proc_map->find(k) == proc_map->end()) {
-    // Insert into proc map if we the process we're switching to isn't in there already
     g_mutex_lock(&lock);
-    (*proc_map)[k] = (proc_t*)malloc(sizeof(proc_t));
-    (*proc_map)[k]->pid = pending_proc.pid;
-    (*proc_map)[k]->ignore = pending_proc.ignore;
-    (*proc_map)[k]->ppid = pending_proc.ppid;
-    (*proc_map)[k]->create_time = pending_proc.create_time;
-    (*proc_map)[k]->prev_location = hash(pending_proc.comm);
-    (*proc_map)[k]->vmas = new std::vector<vma_t*>;
-    //(*proc_map)[k]->blocks = new std::set<bb_entry_t*, block_cmp>;
-    strncpy((*proc_map)[k]->comm, pending_proc.comm, sizeof((*proc_map)[k]->comm));
+    (*proc_map)[k] = new proc_t({
+      .pid = pending_proc.pid,
+      .ppid = pending_proc.ppid,
+      .create_time = pending_proc.create_time,
+      // .comm gets memcpy'd below
+      .ignore = pending_proc.ignore,
+      .vmas = new std::vector<vma_t*>,
+      .last_bb_start = 0,
+      .last_bb_end = 0
+    });
+
+    memcpy((*proc_map)[k]->comm, pending_proc.comm, sizeof((*proc_map)[k]->comm));
+    (*proc_map)[k]->comm[sizeof((*proc_map)[k]->comm) - 1] = '\0';  // Ensure null-termination
+
     g_mutex_unlock(&lock);
+    
 #ifdef DEBUG_PRINT
-    printf("[proc_map] New process %s (%d) with prev_location hash init to %x\n",
+    printf("[proc_map] Added new process to map %s (%d,%d). Size is now %ld\n",
+            (*proc_map)[k]->comm,
+            (*proc_map)[k]->pid, 
+            (*proc_map)[k]->create_time,
+            proc_map->size());
+  } else {
+    printf("[proc_map] Process %s (%d,%d) already in map. Size is now %ld\n",
             (*proc_map)[k]->comm,
             (*proc_map)[k]->pid,
-            (*proc_map)[k]->prev_location);
+            (*proc_map)[k]->create_time,
+            proc_map->size());
 #endif
   }
 
-  current_proc = (*proc_map)[k];
-  if (should_ignore(current_proc)) current_proc->ignore = true;
-  debug_print_proc("proc changed", current_proc);
+  // DEBUG: print all
+  hash_tuple hasher;
+  for (const auto& entry : *proc_map) {
+    const auto& key = entry.first;
+    size_t key_hash = hasher(key);
+    std::cout << "Key: (" << std::get<0>(key) << ", " << std::get<1>(key) << "), Hash: " << key_hash << std::endl;
+  }
 
+
+
+  // By here k must be in the map so this should be safe
+  current_proc = (*proc_map)[k];
+  set_ignore_flag(current_proc); // Set ignore flag if necessary (kernel thread)
+  //debug_print_proc("proc changed to", current_proc);
   PPP_RUN_CB(on_current_proc_change, (gpointer)current_proc, (gpointer)1);
 }
 
@@ -102,16 +140,16 @@ void on_proc_exec(gpointer evdata, gpointer udata) {
   char* new_name = (char*)evdata;
   if (current_proc != NULL) {
     strncpy(current_proc->comm, new_name, sizeof(current_proc->comm)-1); // Copy up to 64(?) chars
-    if (should_ignore(current_proc)) current_proc->ignore = true;
+    set_ignore_flag(current_proc);
 
     // Deterministically reset hash state since we're in a new program now
-    current_proc->prev_location = hash(current_proc->comm);
+    //current_proc->prev_location = hash(current_proc->comm);
 
     PPP_RUN_CB(on_current_proc_change, (gpointer)current_proc, (gpointer)2);
    
 #ifdef DEBUG_PRINT
     printf("Exec'd process %s with PID %d and PPID %d\n", current_proc->comm, current_proc->pid,
-                                                              current_proc->ppid);
+           current_proc->ppid);
 #endif
   }
 }
@@ -124,8 +162,6 @@ void on_proc_vma_update(gpointer evdata, gpointer udata) {
   for (auto &e : *(std::vector<vma_t*>*)evdata) {
     (*current_proc->vmas).push_back(e);
   }
-
-
 
 #ifdef DEBUG_PRINT
   printf("[proc map] current_proc is %s %d\n", current_proc->comm, current_proc->pid);
@@ -154,16 +190,21 @@ void after_snapshot(CPUState *cpu) {
 
 
 extern "C" bool init_plugin(void *self) {
-    // after loadvm reset map
-    panda_cb pcb = { .after_loadvm = after_snapshot };
-    panda_register_callback(self, PANDA_CB_GUEST_HYPERCALL, pcb);
+  g_mutex_init(&lock);
+  proc_map = new std::unordered_map<std::tuple<uint32_t, uint32_t>, proc_t*, hash_tuple>;
 
-    // On events from track_proc_hc, update our map
-    PPP_REG_CB("track_proc_hc", on_hc_proc_change, on_proc_change);
-    PPP_REG_CB("track_proc_hc", on_hc_proc_exec, on_proc_exec);
-    PPP_REG_CB("track_proc_hc", on_hc_proc_vma_update, on_proc_vma_update);
+  // after loadvm reset map
+  panda_cb pcb = { .after_loadvm = after_snapshot };
+  panda_register_callback(self, PANDA_CB_GUEST_HYPERCALL, pcb);
 
-    return true;
+  current_proc = NULL;
+
+  // On events from track_proc_hc, update our map
+  PPP_REG_CB("track_proc_hc", on_hc_proc_change, on_proc_change);
+  //PPP_REG_CB("track_proc_hc", on_hc_proc_exec, on_proc_exec);
+  //PPP_REG_CB("track_proc_hc", on_hc_proc_vma_update, on_proc_vma_update);
+
+  return true;
 }
 
 extern "C" void uninit_plugin(void *self) { }
