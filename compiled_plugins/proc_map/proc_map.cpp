@@ -67,8 +67,10 @@ void debug_print_proc(const char* msg, proc_t* p) {
 void set_ignore_flag(proc_t* p) {
   // If we already ignored it we keep it ignored, otherwise check and set if we should
   if (p->ignore) return;
+
+  // Set ignore flag if it's a VPN process or a tokio thread
   p->ignore = \
-          strncmp(p->comm, "vpn", sizeof(p->comm)) == 0 ||
+          strncmp(p->comm, "/igloo/utils/vpn", sizeof(p->comm)) == 0 ||
           strncmp(p->comm, "tokio-runtime-w", sizeof(p->comm)) == 0;
 }
 
