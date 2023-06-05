@@ -20,29 +20,21 @@
 #include <byteswap.h> // bswap_32
 
 #define __STDC_FORMAT_MACROS
+#include "track_proc_hc.h"
 #include "panda/plugin.h"
 
-//#define TARGET_ARM  // XXX just for VSCODE
+//#define TARGET_ARM  // XXX just for vscode highlight
 #define DEBUG_PRINT
 
+extern "C" {
+  PPP_PROT_REG_CB(on_hc_proc_change);
+  PPP_PROT_REG_CB(on_hc_proc_exec);
+  //PPP_PROT_REG_CB(on_hc_proc_vma_update);
+}
 
-typedef struct {
-  uint32_t vma_start;
-  uint32_t vma_end;
-  char filename[64];
-} vma_t;
-
-typedef struct {
-  uint32_t pid;
-  uint32_t ppid;
-  uint32_t create_time;
-  char comm[64];
-  bool ignore;
-  std::vector<vma_t*>* vmas;
-  uint32_t prev_location;
-  uint32_t last_bb_end;
-  uint32_t last_bb_start;
-} proc_t;
+PPP_CB_BOILERPLATE(on_hc_proc_change);
+PPP_CB_BOILERPLATE(on_hc_proc_exec);
+//PPP_CB_BOILERPLATE(on_hc_proc_vma_update);
 
 bool in_vma_loop = false;
 proc_t pending_proc;
@@ -99,7 +91,7 @@ uint32_t num, arg = {0};
     case 594: { // Is/isn't kernel thread. Update proc_map & set current_pro
       pending_proc.ignore = (arg != 0);
       debug_print_proc("process switch", &pending_proc);
-      //qemu_plugin_run_callback(self_id, "on_hc_proc_change", (gpointer)&pending_proc, NULL);
+      PPP_RUN_CB(on_hc_proc_change, (gpointer)&pending_proc, NULL);
       break;
     }
 
@@ -113,7 +105,7 @@ uint32_t num, arg = {0};
         printf("ERROR: unable to read process name on execve: GVA %x\n", arg);
       }
       debug_print_proc("process execve", &pending_proc);
-      //qemu_plugin_run_callback(self_id, "on_hc_proc_exec", (gpointer)comm, NULL);
+      PPP_RUN_CB(on_hc_proc_exec, (gpointer)comm, NULL);
     break;
 
     /// VMA LOOP. Build up a list of VMAs
@@ -128,7 +120,7 @@ uint32_t num, arg = {0};
         vmas->clear(); // Always clear VMAs for current proc on VMA update
         // XXX if someone (proc_map) tries to use VMAs while we're updating, they'll be invalid pointers!
         // to hack around this, we call the callback an extra time with an empty list
-        //qemu_plugin_run_callback(self_id, "on_hc_proc_vma_update", (gpointer)vmas, NULL);
+        //PPP_RUN_CB(on_hc_proc_vma_update, (gpointer)vmas, NULL);
 
         pending_vma = new vma_t;
 
@@ -144,7 +136,7 @@ uint32_t num, arg = {0};
         delete pending_vma;
         in_vma_loop = false;
         debug_print_proc("vma update", &pending_proc);
-        //qemu_plugin_run_callback(self_id, "on_hc_proc_vma_update", (gpointer)vmas, NULL);
+        //PPP_RUN_CB(on_hc_proc_vma_update, (gpointer)vmas, NULL);
         vmas->clear();
 
       } else {
@@ -197,7 +189,7 @@ extern "C" bool init_plugin(void *self) {
     panda_cb pcb = { .after_block_exec = abe };
     panda_register_callback(self, PANDA_CB_AFTER_BLOCK_EXEC, pcb);
     // Disable tb chaining for ABE
-    panda_enable_tb_chaining(); // XXX could we use end_block_exec instead to avoid this?
+    panda_disable_tb_chaining(); // XXX could we use end_block_exec instead to avoid this?
 
 
     // Hypercall calback for proc tracking
