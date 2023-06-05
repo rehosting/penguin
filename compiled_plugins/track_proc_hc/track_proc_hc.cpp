@@ -24,7 +24,7 @@
 #include "panda/plugin.h"
 
 //#define TARGET_ARM  // XXX just for vscode highlight
-#define DEBUG_PRINT
+//#define DEBUG_PRINT
 
 extern "C" {
   PPP_PROT_REG_CB(on_hc_proc_change);

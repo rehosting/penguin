@@ -34,7 +34,7 @@ PPP_CB_BOILERPLATE(on_current_proc_change);
 static GMutex lock;
 
 // DEBUG
-#define DEBUG_PRINT
+//#define DEBUG_PRINT
 
 #ifdef DEBUG_PRINT
 char last_printed[16];
@@ -79,11 +79,6 @@ void on_proc_change(gpointer evdata, gpointer udata) {
   proc_t pending_proc = *(proc_t*)evdata;
   auto k = std::make_tuple(pending_proc.pid, pending_proc.create_time);
 
-  // Create a hash_tuple object
-  hash_tuple ht;
-  // Print the hash of the key
-  printf("Hash of the key (%d,%d): %ld\n", pending_proc.pid, pending_proc.create_time, ht(k));
-
   if (proc_map->find(k) == proc_map->end()) {
     g_mutex_lock(&lock);
     (*proc_map)[k] = new proc_t({
@@ -116,16 +111,6 @@ void on_proc_change(gpointer evdata, gpointer udata) {
             proc_map->size());
 #endif
   }
-
-  // DEBUG: print all
-  hash_tuple hasher;
-  for (const auto& entry : *proc_map) {
-    const auto& key = entry.first;
-    size_t key_hash = hasher(key);
-    std::cout << "Key: (" << std::get<0>(key) << ", " << std::get<1>(key) << "), Hash: " << key_hash << std::endl;
-  }
-
-
 
   // By here k must be in the map so this should be safe
   current_proc = (*proc_map)[k];
@@ -195,14 +180,14 @@ extern "C" bool init_plugin(void *self) {
 
   // after loadvm reset map
   panda_cb pcb = { .after_loadvm = after_snapshot };
-  panda_register_callback(self, PANDA_CB_GUEST_HYPERCALL, pcb);
+  panda_register_callback(self, PANDA_CB_AFTER_LOADVM, pcb);
 
   current_proc = NULL;
 
   // On events from track_proc_hc, update our map
   PPP_REG_CB("track_proc_hc", on_hc_proc_change, on_proc_change);
-  //PPP_REG_CB("track_proc_hc", on_hc_proc_exec, on_proc_exec);
-  //PPP_REG_CB("track_proc_hc", on_hc_proc_vma_update, on_proc_vma_update);
+  PPP_REG_CB("track_proc_hc", on_hc_proc_exec, on_proc_exec);
+  PPP_REG_CB("track_proc_hc", on_hc_proc_vma_update, on_proc_vma_update);
 
   return true;
 }
