@@ -28,7 +28,9 @@ class Zap(PyPlugin):
                                          "-dir", f"/root/.ZAP/{self.api_key}", # This is terrible, but we need something unique
                                          "-daemon",
                                          "-config", f"api.key={self.api_key}",
-                                         "-port", str(self.port)],
+                                         "-port", str(self.port),
+                                         "-Xmx1024m", # Default is EIGHT! Is 1G okay?
+                                         ],
                                            stdout=self.output_file, stderr=self.output_file)
 
         self.api_base = f"http://127.0.0.1:{self.port}/JSON/"
@@ -82,6 +84,11 @@ class Zap(PyPlugin):
         if url.startswith("/"):
             raise ValueError("URL should not start with /, but got " + url)
 
+        if self.url_queue_lock.locked():
+            print("ERROR ignoring request to add url", url, "while locked", file=self.output_file)
+            #raise ValueError("Cannot add url while locked")
+            return
+
         with self.url_queue_lock:
             self.url_queue.append(url)
 
@@ -128,9 +135,9 @@ class Zap(PyPlugin):
             raise
 
         # First we just browse to the main URL to update the sites tree
-        #zap.core.access_url(url=target, followredirects=True)
+        #print(zap.core.access_url(url=target, followredirects=True))
         try:
-            zap.urlopen(target)
+            print(zap.urlopen(target))
         except Exception as e:
             print(f"EXCEPTION connecting to {target}: {e}", file=log_file)
             self.panda.end_analysis()
@@ -139,19 +146,26 @@ class Zap(PyPlugin):
 
         # Next we passively scan
         print(f"Spidering target: {target}")
-        zap.spider.scan(target)
+        #scanids = set([zap.spider.scan(target)]) # Set of all scans we're running - I think the scan is called 'no_implementor' ?? We get a status for that?
+        zap.spider.scan(target) 
         time.sleep(2) # Give the Spider a chance to start
 
         # Wait for both spider to finish AND for the queue to be empty
-        while len(self.url_queue) > 0 or (int(zap.spider.status()) < 100):
+        # not sure what's up with the no_implementor - hopefully it's an init thing?
+        while len(self.url_queue) > 0 or int(zap.spider.status()) < 100: # Are any scans pending?
+            url = None
             with self.url_queue_lock:
-                while len(self.url_queue) > 0:
+                if len(self.url_queue) > 0:
                     url = target + self.url_queue.pop(0)
-                    zap.spider.scan(url)
-                    print(f"Adding url from introspect to spider: {url}", file=log_file)
+            if url:
+                zap.spider.scan(url)
+                print(f"Adding url from introspect to spider: {url}", file=log_file)
+                #print("SCANIDS now:", scanids)
 
-            print(f"Spider progress: {zap.spider.status()}", file=log_file)
-            time.sleep(2)
+            # Only sleep when queue is empty
+            if len(self.url_queue) == 0:
+                print(f"Spider progress: zap.spider.status()", file=log_file)
+                time.sleep(2)
 
         print('Spider completed', file=log_file)
         time.sleep(5) # Give the passive scanner a chance to finish
@@ -160,28 +174,45 @@ class Zap(PyPlugin):
         print(f"Scanning target: {target}", file=log_file)
         zap.ascan.scan(target)
         # Wait for both scan to finish AND for the queue to be empty
-        while len(self.url_queue) > 0 or (int(zap.ascan.status()) < 100):
+        while len(self.url_queue) > 0 or int(zap.ascan.status()) < 100:
             # Pop any new URLs off the queue and queue them for scanning
+            url = None
             with self.url_queue_lock:
-                while len(self.url_queue) > 0:
+                if len(self.url_queue) > 0:
                     url = target + self.url_queue.pop(0)
-                    zap.ascan.scan(url)
-                    print(f"Adding url from introspect to scan {url}", file=log_file)
+            if url:
+               zap.ascan.scan(url)
+               print(f"Adding url from introspect to scan {url}", file=log_file)
 
-            print(f"Scan progress: {zap.ascan.status()}", file=log_file)
-            time.sleep(5)
+            # Only sleep when queue is empty
+            if len(self.url_queue) == 0:
+                print(f"Scan progress: {zap.ascan.status()}", file=log_file)
+                time.sleep(5)
 
         print('Scan completed', file=log_file)
 
         # Now print scan results
-        print('Hosts: ' + ', '.join(zap.core.hosts), file=log_file) 
-        #print('Alerts: ')
-        #print(zap.core.alerts())
+        print('\nHosts: ' + ', '.join(zap.core.hosts), file=log_file) 
+
+        print('\nAlerts: ', file=log_file)
+        # Get all unique URLs that raised alerts.
+        # This is about as good as we can do for finding all valid URLs since zap
+        # doesn't expose status codes to us
+        alert_urls = set()
+        for x in zap.core.alerts():
+            print(x, file=log_file)
+            alert_urls.add(x.get('url'))
+
+        print('\nAlerts URLs: ', file=log_file)
+        print('\n'.join(alert_urls), file=log_file)
 
         # Print each URL we visited
-        print('All URLs:', file=log_file)
+        print('\nAll URLs visited:', file=log_file)
         for url in zap.core.urls():
             print(url, file=log_file)
+
+        # Shut down PANDA
+        self.panda.end_analysis()
 
     def uninit(self):
         if self.output_file:

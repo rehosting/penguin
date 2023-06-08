@@ -27,8 +27,13 @@ class Introspect(PyPlugin):
         self.mappings = {} # path -> all things we've seen with it
         self.hypotheses = {} # url -> set of guest dirs it may map to
 
-        self.fs_path = self.get_arg("outdir") + "/../repack/fs.tar"
-        assert(os.path.exists(self.fs_path))
+        self.fs_path = self.get_arg("fs") 
+        if self.fs_path is None:
+            # If we run directly (e.g., from a generated run.py), fs.tar should in the run.py directory / repack/fs.tar OR outdir ../ repack/fs.tar
+            self.fs_path = os.path.dirname(self.get_arg("outdir")) + "/repack/fs.tar"
+
+        if not os.path.exists(self.fs_path):
+            raise ValueError(f"Filesystem tar {self.fs_path} does not exist")
         self.guest_fs = TarDir(self.fs_path)
 
         # Parse fs_path tar

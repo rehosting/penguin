@@ -25,21 +25,6 @@
 unsigned int bb_count = 0;
 proc_t *current_proc = NULL; // TODO: do we want the more complete type
 
-#if 0
-struct hash_tuple3 {
-struct hash_tuple3 {
-    size_t operator()(const std::tuple<std::string, std::string, uint32_t>& key) const {
-        size_t hash1 = std::hash<std::string>{}(std::get<0>(key));
-        size_t hash2 = std::hash<std::string>{}(std::get<1>(key));
-        size_t hash3 = std::hash<uint32_t>{}(std::get<2>(key));
-        return hash1 ^ (hash2 << 1) ^ (hash3 << 2);
-    }
-};
-
-// program, module, offset
-std::set<std::tuple<std::string, std::string, uint32_t>, hash_tuple3> covered;
-#endif
-
 using Covered = std::tuple<std::string, std::string, uint32_t>;
 std::set<Covered> covered;
 
@@ -102,12 +87,6 @@ void on_current_proc_change(gpointer evdata, gpointer udata) {
   //}
 }
 
-//void after_snapshot(qemu_plugin_id_t id, unsigned int cpu_index) {
-//    printf("[coverage] revert (BB count = %d)\n", bb_count);
-//    bb_count = 0;
-//}
-
-
 extern "C" bool init_plugin(void *self) {
   panda_arg_list *args = panda_get_args("pandata_cov");
   const char *outfile = panda_parse_string(args, "outfile", NULL);
@@ -124,9 +103,6 @@ extern "C" bool init_plugin(void *self) {
 
   // On proc change callback
   PPP_REG_CB("proc_map", on_current_proc_change, on_current_proc_change);
-
-  //panda_cb pcb2 { .after_loadvm = after_snapshot };
-  //panda_register_callback(self, PANDA_CB_AFTER_LOADVM, pcb2);
   return true;
 }
 

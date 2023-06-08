@@ -2,7 +2,7 @@ from pandare import PyPlugin
 import time
 import threading
 
-TIMEOUT=60*5
+TIMEOUT=60*20 # 20 minute max - normal end should be from zap?
 
 class Shutdown(PyPlugin):
     def __init__(self, panda):
