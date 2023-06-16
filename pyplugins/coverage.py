@@ -8,5 +8,5 @@ class Coverage(PyPlugin):
 
         # TODO: create and load coverage plugin, then pass outdir to coverage
         panda.load_plugin("track_proc_hc")
-        panda.load_plugin("proc_map")
+        panda.load_plugin("proc_map", {"outfile": self.outdir + "/proc_tree.csv"})
         panda.load_plugin("pandata_cov", {"outfile": self.outdir + "/pandata_cov.csv"})
