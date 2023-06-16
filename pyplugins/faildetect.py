@@ -139,8 +139,14 @@ class FailDetect(PyPlugin):
             return # We're setting ourself up to work via ctrl-C or graceful shutdown
         self.did_uninit = True
 
+        # Examine console.log for any "BUG" messages
+        with open(self.outdir + "/console.log", "r") as f:
+            for line in f:
+                if "BUG" in line:
+                    print("Found BUG LINE:", line)
+                    raise ValueError("Found BUG in console.log")
 
-        # Create .ran to indicate we ran this config
+        # Create .ran to indicate we ran this config - only if there's no bug!
         open(self.outdir + "/.ran", "w").close()
 
         with open(self.outdir + "/failures.yaml", "w") as f:
