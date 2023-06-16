@@ -128,6 +128,7 @@ class SyscallProxy2(PyPlugin):
         self.panda = panda
         self.port_map = {} # listen port -> (guest port, VPN host port)
         self.outdir = self.get_arg("outdir")
+        self.output_file = open(self.outdir + "/syscall_proxy.log", "w")
 
         # Register sp_on_bind to trigger when we see a target service bind to aport
         self.ppp.VsockVPN.ppp_reg_cb('on_bind', self.sp_on_bind)
@@ -143,7 +144,7 @@ class SyscallProxy2(PyPlugin):
             return s.getsockname()[1]
 
     def start_proxy_server(self, listen_port, target_port, guest_procname, guest_ip, guest_port):
-        print(f'Starting server on port {listen_port}, forwarding to port {target_port}')
+        print(f'Starting server on port {listen_port}, forwarding to port {target_port}', file=self.output_file)
         t = threading.Thread(target=run_proxy, args=(self.panda, self.outdir, 'localhost', listen_port, 'localhost', target_port))
         t.daemon = True
         t.start()
@@ -162,3 +163,8 @@ class SyscallProxy2(PyPlugin):
         sleep(1) # Give the server a chance to start
 
         self.ppp_run_cb('on_pbind', proto, guest_ip, guest_port, port, procname)
+
+    def uninit(self):
+        if self.output_file:
+            self.output_file.close()
+            self.output_file = None

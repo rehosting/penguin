@@ -219,5 +219,15 @@ class Zap(PyPlugin):
             self.output_file.close()
         if hasattr(self, 'process'):
             self.process.terminate()
+
+            ctr = 0
+            while self.process.poll() is None:
+                time.sleep(1)
+                ctr+=1
+                if ctr > 10:
+                    print("ERROR - could not terminate process")
+                    self.process.kill()
+            self.process.wait()
+
         for f in self.log_files:
             f.close()
