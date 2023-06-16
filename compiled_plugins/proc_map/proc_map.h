@@ -27,9 +27,19 @@ struct hash_tuple {
       return std::get<0>(x) ^ std::get<1>(x);
     }
 };
+
+struct TupleHash4 {
+    template <class T1, class T2, class T3, class T4>
+    std::size_t operator() (const std::tuple<T1, T2, T3, T4>& t) const {
+        auto h1 = std::hash<T1>{}(std::get<0>(t));
+        auto h2 = std::hash<T2>{}(std::get<1>(t));
+        auto h3 = std::hash<T3>{}(std::get<2>(t));
+        auto h4 = std::hash<T4>{}(std::get<3>(t));
+        return h1 ^ h2 ^ h3 ^ h4;
+    }
+};
 #endif
 
-//gpt4
 struct hash_tuple {
     size_t operator() (const std::tuple<uint32_t, uint32_t>& key) const {
         size_t hash1 = std::hash<uint32_t>()(std::get<0>(key));
@@ -38,5 +48,14 @@ struct hash_tuple {
     }
 };
 
+struct TupleHash {
+    template <class T1, class T2, class T3>
+    std::size_t operator() (const std::tuple<T1, T2, T3>& t) const {
+        auto h1 = std::hash<T1>{}(std::get<0>(t));
+        auto h2 = std::hash<T2>{}(std::get<1>(t));
+        auto h3 = std::hash<T3>{}(std::get<2>(t));
+        return h1 ^ h2 ^ h3;
+    }
+};
 
 #endif

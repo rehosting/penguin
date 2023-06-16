@@ -66,6 +66,11 @@ uint32_t num, arg = {0};
 
       if (panda_virtual_memory_read(cpu, arg, (uint8_t*)&pending_proc.comm, sizeof(pending_proc.comm)) == -1) {
         strncpy(pending_proc.comm, "[error]", sizeof(pending_proc.comm));
+        // If there's a newline, make it a null byte
+        char* newline = strchr(pending_proc.comm, '\n');
+        if (newline != NULL) {
+          *newline = '\0';
+        }
       }
       break;
 
@@ -81,8 +86,12 @@ uint32_t num, arg = {0};
       pending_proc.create_time = arg;
       break;
 
-    case 594: { // Is/isn't kernel thread. Update proc_map & set current_pro
+    case 594: // Is/isn't kernel thread. Update proc_map & set current_proc
       pending_proc.ignore = (arg != 0);
+      break;
+
+    case 1595: { // parent create_time. XXX SKIP NUM
+      pending_proc.parent_create_time = arg;
       debug_print_proc("process switch", &pending_proc);
       PPP_RUN_CB(on_hc_proc_change, (gpointer)&pending_proc, NULL);
       break;
@@ -93,12 +102,31 @@ uint32_t num, arg = {0};
     // i.e., we were in bash but now we're in cat, same PID/TGID/create_time/etc
     case 595: // update proc name: kernel task
     case 596: // update proc name: non-kernel task
-      char comm[64];
-      if (panda_virtual_memory_read(cpu, arg, (uint8_t*)comm, 64) != 0) {
+      if (arg == 0) {
+        pending_proc.comm[0] = '\0';
+      }else if (panda_virtual_memory_read(cpu, arg, (uint8_t*)pending_proc.comm, sizeof(pending_proc.comm)) != 0) {
         printf("ERROR: unable to read process name on execve: GVA %x\n", arg);
       }
+    break;
+
+    case 597: // argv[1] (first arument, maybe NULL)
+      if (arg == 0) {
+        pending_proc.arg1[0] = '\0';
+      } else if (panda_virtual_memory_read(cpu, arg, (uint8_t*)pending_proc.arg1, sizeof(pending_proc.arg1)) != 0) {
+        printf("ERROR: unable to read arg1 to %s on execve: GVA %x\n", pending_proc.comm, arg);
+      }
+      break;
+
+    case 598: // argv[2] (second arument, maybe NULL)
+      if (arg == 0) {
+        pending_proc.arg2[0] = '\0';
+      } else if (panda_virtual_memory_read(cpu, arg, (uint8_t*)pending_proc.arg2, sizeof(pending_proc.arg2)) != 0) {
+        printf("ERROR: unable to read arg2 to %s %s on execve: GVA %x\n", pending_proc.comm, arg, pending_proc.arg1);
+      //} else {
+        //printf("Process %s gets arg[1,2] %s, %s\n", pending_proc.comm, pending_proc.arg1, pending_proc.arg2);
+      }
       debug_print_proc("process execve", &pending_proc);
-      PPP_RUN_CB(on_hc_proc_exec, (gpointer)comm, NULL);
+      PPP_RUN_CB(on_hc_proc_exec, (gpointer)&pending_proc, NULL);
     break;
 
     /// VMA LOOP. Build up a list of VMAs

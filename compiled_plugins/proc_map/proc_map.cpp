@@ -15,6 +15,7 @@
 #include <byteswap.h>
 #include <netdb.h>
 #include <iostream>
+#include <fstream>
 
 #include <algorithm>    // std::find
 #include <string.h>
@@ -88,15 +89,20 @@ void on_proc_change(gpointer evdata, gpointer udata) {
       .pid = pending_proc.pid,
       .ppid = pending_proc.ppid,
       .create_time = pending_proc.create_time,
-      // .comm gets memcpy'd below
+      .parent_create_time = pending_proc.parent_create_time,
+      // .comm and .arg{1,2} gets memcpy'd below
       .ignore = pending_proc.ignore,
       .vmas = new std::vector<vma_t*>,
-      .last_bb_start = 0,
-      .last_bb_end = 0
+      //.last_bb_start = 0,
+      //.last_bb_end = 0
     });
 
     memcpy((*proc_map)[k]->comm, pending_proc.comm, sizeof((*proc_map)[k]->comm));
+    memcpy((*proc_map)[k]->arg1, pending_proc.arg1, sizeof((*proc_map)[k]->arg2));
+    memcpy((*proc_map)[k]->arg2, pending_proc.arg2, sizeof((*proc_map)[k]->arg2));
     (*proc_map)[k]->comm[sizeof((*proc_map)[k]->comm) - 1] = '\0';  // Ensure null-termination
+    (*proc_map)[k]->arg1[sizeof((*proc_map)[k]->arg1) - 1] = '\0';  // Ensure null-termination
+    (*proc_map)[k]->arg2[sizeof((*proc_map)[k]->arg2) - 1] = '\0';  // Ensure null-termination
 
     g_mutex_unlock(&lock);
     
@@ -125,9 +131,11 @@ void on_proc_change(gpointer evdata, gpointer udata) {
 void on_proc_exec(gpointer evdata, gpointer udata) {
   // Current process just changed it's name. Update comm and ignore as necessary
   // Note ignore will automatically be set to true by track_proc_hc if it's a kernel thread
-  char* new_name = (char*)evdata;
+  proc_t *updated = (proc_t*)evdata;
   if (current_proc != NULL) {
-    strncpy(current_proc->comm, new_name, sizeof(current_proc->comm)-1); // Copy up to 64(?) chars
+    strncpy(current_proc->comm, updated->comm, sizeof(current_proc->comm)); // Copy up to 64(?) chars
+    strncpy(current_proc->arg1, updated->arg1, sizeof(current_proc->arg1)); // Copy up to 64(?) chars
+    strncpy(current_proc->arg2, updated->arg2, sizeof(current_proc->arg2)); // Copy up to 64(?) chars
     set_ignore_flag(current_proc);
 
     // Deterministically reset hash state since we're in a new program now
@@ -176,8 +184,22 @@ void after_snapshot(CPUState *cpu) {
     PPP_RUN_CB(on_current_proc_change, (gpointer)current_proc, (gpointer)0);
 }
 
+std::ofstream *tree_file = NULL;
 
 extern "C" bool init_plugin(void *self) {
+  panda_arg_list *args = panda_get_args("proc_map");
+  const char *outfile = panda_parse_string(args, "outfile", NULL);
+
+  if (!outfile) {
+    printf("proc_map must be given an outfile argument for the tree\n");
+    return false;
+  }
+  tree_file = new std::ofstream(outfile);
+  if (tree_file == NULL) {
+    printf("Couldn't open %s for writing\n", outfile);
+    return false;
+  }
+
   g_mutex_init(&lock);
   proc_map = new std::unordered_map<std::tuple<uint32_t, uint32_t>, proc_t*, hash_tuple>;
 
@@ -195,4 +217,16 @@ extern "C" bool init_plugin(void *self) {
   return true;
 }
 
-extern "C" void uninit_plugin(void *self) { }
+extern "C" void uninit_plugin(void *self) {
+  // Dump the proc_tree to a file
+
+  if (tree_file) {
+    // Dump tree as (pid, create_time, ppid, parent_create_time, comm) csv  
+    g_mutex_lock(&lock);
+    for (auto& k : *proc_map) {
+      *tree_file  << k.second->pid << "," << k.second->create_time << ";" << k.second->ppid << "," << k.second->parent_create_time << ";" << k.second->comm << ";" << k.second->arg1 << ";" << k.second->arg2 << std::endl;
+    }
+    g_mutex_unlock(&lock);
+    tree_file->close();
+  }
+}
