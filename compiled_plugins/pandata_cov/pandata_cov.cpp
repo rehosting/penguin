@@ -108,9 +108,10 @@ extern "C" void uninit_plugin(void *self) {
     *log_file  << std::get<0>(key) << "," << std::get<1>(key) << "," << std::get<2>(key) << std::endl;
   }
 
-  // Now write out the process names in the order we saw them
+  // Now write out the process names in the order we saw them. Ignore the igloo VPN though
   for (const auto& name : proc_names) {
-    *proc_log << std::get<0>(name) << "," << std::get<1>(name) << std::endl;
+    if (std::get<0>(name) != "vpn")
+      *proc_log << std::get<0>(name) << "," << std::get<1>(name) << std::endl;
   }
 
   printf("[pandata_cov] BB count = %d\n", bb_count);
