@@ -121,7 +121,7 @@ uint32_t num, arg = {0};
       if (arg == 0) {
         pending_proc.arg2[0] = '\0';
       } else if (panda_virtual_memory_read(cpu, arg, (uint8_t*)pending_proc.arg2, sizeof(pending_proc.arg2)) != 0) {
-        printf("ERROR: unable to read arg2 to %s %s on execve: GVA %x\n", pending_proc.comm, arg, pending_proc.arg1);
+        printf("ERROR: unable to read arg2 to %s %s on execve: GVA %x\n", pending_proc.comm, pending_proc.arg1, arg);
       //} else {
         //printf("Process %s gets arg[1,2] %s, %s\n", pending_proc.comm, pending_proc.arg1, pending_proc.arg2);
       }
