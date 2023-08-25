@@ -2,3 +2,5 @@
 *-rr-*
 *.sw*
 __pycache__/
+*.json
+*.pkl

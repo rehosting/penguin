@@ -2,32 +2,24 @@ from pandare import PyPlugin
 import time
 import threading
 
-BB_MAX=1000000 # Halt after a fixed number of blocks (1M)
-TIMEOUT=60*20 # 20 minute max - normal end should be from zap of BB count
+#BB_MAX=1000000 # Halt after a fixed number of blocks (1M)
+#TIMEOUT=60*20 # 20 minute max - normal end should be from zap of BB count
+
+#BB_MAX=1000000 # 1M
+#UNIQUE=0 # Non-unique
+BB_MAX=200000 # 100k DEBUG
+UNIQUE=1 # 100k DEBUG
+TIMEOUT=120
 
 class Shutdown(PyPlugin):
     def __init__(self, panda):
-        self.outdir = self.get_arg("outdir")
-        self.bb_count = 0
+        # XXX don't pass TIMEOUT to timeout plugin, the C shutdown breaks pypanda uninit
+        panda.load_plugin("timeout", {"bb_limit": BB_MAX, 'unique_bbs': UNIQUE})
 
-        if BB_MAX is not None:
-            @panda.cb_before_block_translate
-            def shutdown_bbt(cpu, pc):
-                self.bb_count += 1
-
-                if self.bb_count > BB_MAX:
-                    self.panda.end_analysis()
-                    with open(self.outdir + "/shutdown.log", "w") as f:
-                        f.write(f"Shutting down from shutdown.py after {self.bb_count} BBs\n")
-
-        if TIMEOUT is not None:
-            # Start a thread that waits for TIMEOUT seconds and then shuts down
-            self.thread = threading.Thread(target=self.run, args=(panda,))
-            self.thread.daemon = True
-            self.thread.start()
-
-    def run(self, panda):
-        time.sleep(TIMEOUT)
+        # Create a thread that sleeps until TIMEOUT, then shuts down the VM
+        self.shutdown_thread = threading.Thread(target=self.shutdown_after_timeout, args=(panda, TIMEOUT))
+        self.shutdown_thread.start()
+    
+    def shutdown_after_timeout(self, panda, timeout):
+        time.sleep(timeout)
         panda.end_analysis()
-        with open(self.outdir + "/shutdown.log", "w") as f:
-            f.write(f"Shutting down from shutdown.py after timeout\n")
