@@ -1,5 +1,12 @@
 from pandare import PyPlugin
 
+from sys import path
+from os.path import dirname
+# Add this directory to python path so we can import symex
+path.append(dirname(__file__))
+
+from symex import PathExpIoctl
+
 # Parse a given config to fake ioctls
 '''
 example_config = {
@@ -20,6 +27,8 @@ class IoctlFakerC(PyPlugin):
         self.panda = panda
         self.default_retval = {} # path -> default_retval
         self.printed = set()
+
+        self.symex = PathExpIoctl(self.get_arg("outdir"))
 
         if self.get_arg("conf") is None or "ioctls" not in self.get_arg("conf"):
             raise ValueError("No ioctls in config: {self.get_arg('conf')}")
@@ -55,7 +64,10 @@ class IoctlFakerC(PyPlugin):
 
                 name = panda.get_file_name(cpu, fd)
                 if name == panda.ffi.NULL or name is None:
-                    if rv < 0:
+                    sfd = panda.from_unsigned_guest(fd) 
+                    if sfd < 0:
+                        print(f"WARN: ioctl {cmd:#x} on invalid FD: {sfd}")
+                    elif rv < 0:
                         print(f"WARN: ioctl {cmd:#x} failed with {rv} - but we can't find name for fd {fd}")
                     return
 
@@ -68,6 +80,13 @@ class IoctlFakerC(PyPlugin):
                 model_type = ioctl_info['type']
                 if not hasattr(self, "do_" + model_type):
                     raise ValueError(f"Unknown ioctl type: {model_type}")
+                
+                # Decode the ioctl and report it's details
+                #decoded_ioctl = self.decode_ioctl(cmd)
+                #for key, value in decoded_ioctl.items():
+                #    print(f"{key}: {value}")
+
+                print(f"Modeling ioctl {cmd:#x} on {name} using model {model_type}")
                 f = getattr(self, "do_" + model_type)
                 if new_rv := f(cpu, ioctl_info, name=name, cmd=cmd, argp=argp):
                     print(f"Faked ioctl {cmd:#x} on {name} using model {model_type}: had rv={rv:#x} changed to rv={new_rv:#x} {'default' if is_default else ''}")
@@ -76,6 +95,10 @@ class IoctlFakerC(PyPlugin):
                         new_rv = panda.to_unsigned_guest(rv)
                         fail = True
                     self.panda.arch.set_retval(cpu, new_rv, convention='syscall', failure=fail)
+
+    def uninit(self):
+        # Tell angrypanda to save results
+        self.symex.save_results()
 
     def get_model(self, name, cmd):
         ''' return model, is_default '''
@@ -109,20 +132,22 @@ class IoctlFakerC(PyPlugin):
     def do_symbolic(self, cpu, conf, name, cmd, argp):
         with open(self.get_arg("outdir") + "/ioctl.log", "a") as f:
             f.write(f"Trying symbolic model for ioctl {cmd:#x} on {name}...\n")
+            results = self.symex.do_symex(self.panda, name, cmd, argp)
+            f.write(f"\t{' '.join([hex(x) for x in results])}\n")
 
-        results = self.ppp.PathExpIoctl.do_symex(cpu, name, cmd, argp)
         print(f"Symbolic model of ioctl {cmd:#x} on {name} gives us: {results}")
 
-        pos = [x for x in results if x > 0]
+        pos = [x for x in results if x >= 0]
 
-        # Try a positive retval, if none try 0, if 0 isn't an option, try anything
+        rv = None
+        # Select the lowest positive value
         if len(pos):
-            return pos[0]
-        elif 0 in results:
-            return 0
+            rv = min(pos)
         elif len(results):
-            return results[0]
-        return None
+            rv = results[0]
+        print(f"\tSelecting {rv:#x}")
+
+        return rv
     
     def do_model_arg(self, cpu, conf, **kwargs):
         # Return a specified arg
@@ -156,4 +181,20 @@ class IoctlFakerC(PyPlugin):
         # Update offset to bytes read and return count
         self.panda.virtual_memory_write(cpu, offset_ptr, 8, offset+count, fmt='int')
         self.panda.arch.set_retval(cpu, count, convention='syscall', failure=False)
-        return rv
+        return count
+
+    @staticmethod
+    def decode_ioctl(ioctl_number):
+        direction_enum = ["IO", "IOW", "IOR", "IOWR"]
+        direction = (ioctl_number >> 30) & 0x03
+        arg_size = (ioctl_number >> 16) & 0x3FFF
+        cmd_num = (ioctl_number >> 8) & 0xFF
+        type_num = ioctl_number & 0xFF
+
+        return {
+            "Direction": direction_enum[direction],
+            "Argument Size": arg_size,
+            "Command Number": cmd_num,
+            "Type Number": type_num
+        }
+
