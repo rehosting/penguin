@@ -18,67 +18,120 @@ example_config = {
 class IoctlFakerC(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
-        
+        self.default_retval = {} # path -> default_retval
+        self.printed = set()
+
         if self.get_arg("conf") is None or "ioctls" not in self.get_arg("conf"):
             raise ValueError("No ioctls in config: {self.get_arg('conf')}")
-
+        
+        conf_ioctls = self.get_arg("conf")["ioctls"]
+        # Look through ioctls, if one has a 'cmd' of 'default'
+        # store those details and then drop it
+        # and should be saved + deleted
         # Dict of path -> ioctl info
         # Given lists with path, type, cmd, val. Want {path: {cmd: {type, val}}
+        # Also support 'default' command with path and val
         self.ioctls = {}
-        for x in self.get_arg("conf")["ioctls"]:
-            if x['path'] not in self.ioctls:
-                self.ioctls[x['path']] = {}
-            self.ioctls[x['path']][x['cmd']] = x
+        for x in conf_ioctls:
+            if x['cmd'] == '*':
+                self.default_retval[x['path']] = x
+            else:
+                if x['path'] not in self.ioctls:
+                    self.ioctls[x['path']] = {}
+                self.ioctls[x['path']][x['cmd']] = x
 
-        if len(self.ioctls):
-            # If config gave us any ioctls, we need to dynamically check and change them
+        if len(self.ioctls) or self.default_retval is not None:
+            # If config gave us any ioctls or a default, we need
+            # to check every ioctl return
+
             @panda.ppp("syscalls2", "on_sys_ioctl_return")
-            def ioctlc_fake_ret(cpu, pc, fd, cmd, arg):
-                # On every ioctl return we check path and cmd to see if config says to change
-
-                rv = self.panda.arch.get_retval(cpu, convention="syscall") # Test only
-
-                name = panda.get_file_name(cpu, fd)
-                if name == panda.ffi.NULL:
-                    if rv < 0:
-                        print(f"WARN: ioctl {cmd:#x} failed with {rv} - but we can't find name for fd {fd}")
-                    return # Hmm
-                
-                name = name.decode(errors='ignore')
-
-                if name not in self.ioctls or cmd not in self.ioctls[name]:
-                    # Not one of ours - maybe we should log (especially on error?)
+            def ioctlc_fake_ret(cpu, pc, fd, cmd, argp):
+                rv = self.panda.arch.get_retval(cpu, convention="syscall")
+                # If it's a non-negative retval, we probably don't need to fake it
+                # unless It happens to match the cmd
+                if rv >= 0 and not any(cmd in x for x in self.ioctls.values()) and not len(self.default_retval):
+                    # Before looking at the name we know we don't care
                     return
 
-                # It's one of ours - need to fake it!
-                ioctl_info = self.ioctls[name][cmd]
+                name = panda.get_file_name(cpu, fd)
+                if name == panda.ffi.NULL or name is None:
+                    if rv < 0:
+                        print(f"WARN: ioctl {cmd:#x} failed with {rv} - but we can't find name for fd {fd}")
+                    return
+
+                name = name.decode(errors='ignore')
+
+                ioctl_info, is_default = self.get_model(name, cmd)
+                if not ioctl_info:
+                    return
+
                 model_type = ioctl_info['type']
                 if not hasattr(self, "do_" + model_type):
                     raise ValueError(f"Unknown ioctl type: {model_type}")
-                new_rv = getattr(self, "do_" + model_type)(cpu, ioctl_info)
-                print(f"Faked ioctl {cmd:#x} on {name} using model {model_type}: had rv={rv} changed to rv={new_rv}")
+                f = getattr(self, "do_" + model_type)
+                if new_rv := f(cpu, ioctl_info, name=name, cmd=cmd, argp=argp):
+                    print(f"Faked ioctl {cmd:#x} on {name} using model {model_type}: had rv={rv:#x} changed to rv={new_rv:#x} {'default' if is_default else ''}")
+                    fail = False
+                    if new_rv < 0:
+                        new_rv = panda.to_unsigned_guest(rv)
+                        fail = True
+                    self.panda.arch.set_retval(cpu, new_rv, convention='syscall', failure=fail)
 
+    def get_model(self, name, cmd):
+        ''' return model, is_default '''
+        # First check if we have a mapping for this specific name+cmd
+        if name in self.ioctls and cmd in self.ioctls[name]:
+            # It's one of ours - need to fake it!
+            return self.ioctls[name][cmd], False
+        elif name in self.default_retval:
+            return self.default_retval[name], True
+        else:
+            # Not one of ours
+            return None, False
 
     @PyPlugin.ppp_export
     def is_ioctl_hooked(self, path, cmd):
-        rv = path in self.ioctls and cmd in self.ioctls[path]
-        return rv
+        ioctl_info, is_default = self.get_model(path, cmd)
 
-    def do_return_const(self, cpu, conf):
+        if not ioctl_info:
+            return False
+        
+        if ioctl_info['type'] == 'symbolic': # XXX do we want this?
+            return False
+
+    def do_return_const(self, cpu, conf, **kwargs):
         # Return a specified const
         rv = conf['val']
         fail = getattr(conf, 'fail', False) #  Optional
         self.panda.arch.set_retval(cpu, rv, convention='syscall', failure=fail)
         return rv
+
+    def do_symbolic(self, cpu, conf, name, cmd, argp):
+        with open(self.get_arg("outdir") + "/ioctl.log", "a") as f:
+            f.write(f"Trying symbolic model for ioctl {cmd:#x} on {name}...\n")
+
+        results = self.ppp.PathExpIoctl.do_symex(cpu, name, cmd, argp)
+        print(f"Symbolic model of ioctl {cmd:#x} on {name} gives us: {results}")
+
+        pos = [x for x in results if x > 0]
+
+        # Try a positive retval, if none try 0, if 0 isn't an option, try anything
+        if len(pos):
+            return pos[0]
+        elif 0 in results:
+            return 0
+        elif len(results):
+            return results[0]
+        return None
     
-    def model_arg(self, cpu, conf):
+    def do_model_arg(self, cpu, conf, **kwargs):
         # Return a specified arg
         argc = conf['arg']
         rv = self.panda.arch.get_arg(cpu, argc, convention='syscall') # 0 is syscall num (aka ioctl)
         self.panda.arch.set_retval(cpu, rv, convention='syscall', failure=False)
         return rv
 
-    def model_read_buf(self, cpu, conf):
+    def do_model_read_buf(self, cpu, conf, **kwargs):
         # model read behavior - given (fp, buf, size, off)
         # read up to size bytes from config-specified buffer at offset *off
         # and palce in guest memory at buf. Update offset to be offset + bytes read
