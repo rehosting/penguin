@@ -104,13 +104,14 @@ extern "C" bool init_plugin(void *self) {
 }
 
 extern "C" void uninit_plugin(void *self) {
+  // Write coverage info, but skip the VPN
   for (const auto& key : covered) {
+    if (std::get<0>(key) != "vpn")
     *log_file  << std::get<0>(key) << "," << std::get<1>(key) << "," << std::get<2>(key) << std::endl;
   }
 
-  // Now write out the process names in the order we saw them. Ignore the igloo VPN though
+  // Now write out the process names in the order we saw them.
   for (const auto& name : proc_names) {
-    if (std::get<0>(name) != "vpn")
       *proc_log << std::get<0>(name) << "," << std::get<1>(name) << std::endl;
   }
 
