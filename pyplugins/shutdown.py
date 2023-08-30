@@ -9,7 +9,7 @@ import threading
 #UNIQUE=0 # Non-unique
 BB_MAX=200000 # 100k DEBUG
 UNIQUE=1 # 100k DEBUG
-TIMEOUT=120
+TIMEOUT=240
 
 class Shutdown(PyPlugin):
     def __init__(self, panda):

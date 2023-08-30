@@ -7,7 +7,8 @@ import itertools
 
 import time
 import logging
-# Generally log at WARNING, but keep angr_targets.panda at DEBUG
+
+#logging.getLogger().setLevel('DEBUG')
 logging.getLogger().setLevel('WARNING')
 logging.getLogger('angr').setLevel('WARNING')
 logging.getLogger("angr_targets.panda").setLevel('WARNING')
@@ -38,15 +39,23 @@ class PathExpIoctl():
     '''
     Plugin to symbolically execute IOCTLs and track constraints that lead to distinct paths
     '''
-    def __init__(self, out_dir):
-        self.log_file = open(os.path.join(out_dir, "symex.log"), "w")
+    def __init__(self, out_dir, read_only = False):
+        self.log_file = open(os.path.join(out_dir, "symex.log"), "w" if not read_only else "r")
+        self.read_only = read_only
         self.result_path = os.path.join(out_dir, "symex.pkl")
         self.results = {} # {fname: {ioctl: {'ok': [constraint_set1, constraint_set2, ...], 'error': [constraint_set1, constraint_set2, ...]}}}
+
+    def angr_block(self, state):
+        """
+        Debug callback - Print before block before we execute it
+        """
+        # Use angr's pp method on the current block
+        state.block().pp()
 
     def log(self, msg):
         logging.log(logging.INFO, msg)
         # If file is closed, we can't write to it
-        if not self.log_file.closed:
+        if not self.log_file.closed and not self.read_only:
             self.log_file.write(str(msg) + "\n")
             self.log_file.flush()
 
@@ -105,6 +114,20 @@ class PathExpIoctl():
         elif panda.arch_name == 'mips':
             state.regs.v0 = retval
         return retval, state
+
+    def make_symbolic_buffer(self, state, panda, size):
+        # And also set the return value of the concretely-issued ioctl to be symbolic
+        retbuf = claripy.BVS('target_ioctl_buffer', size, explicit_name=True)
+        if panda.arch_name == 'x86_64':
+            state.regs.rdx = retbuf
+        elif panda.arch_name == 'i386':
+            state.regs.edx = retbuf
+        elif panda.arch_name == 'arm':
+            state.regs.r2 = retbuf
+        elif panda.arch_name == 'mips':
+            state.regs.a2 = retbuf
+
+        return retbuf, state
     
     def setup_project(self, panda):
         if os.path.isdir(SCRATCH):
@@ -143,32 +166,58 @@ class PathExpIoctl():
 
         # Get concrete state from panda and replace retval with symbolic val
         state.concrete.sync()
+        self.log(f"State is {state}")
+
+        decoded = self.decode_ioctl(no)
+        buf_size = 0
+        if decoded['Direction'] in ['IOR', 'IOWR']:
+            # Userspace is planning to READ from the buffer - we should make this buffer
+            # symbolic. Yikes.
+            buf_size = decoded['Argument Size']
+
+
+        #state.inspect.b('statement', action=self.angr_block, when=angr.BP_BEFORE)
+
         (retval, state) = self.make_symbolic_retval(state, panda)
+        
+        buffer = None
+        if buf_size:
+            (buffer, state) = self.make_symbolic_buffer(state, panda, buf_size)
 
         # Run symex for 50 BBs. Timeout at 1 minute
-
         simgr = proj.factory.simgr(state)
         # Run for 50 basic blocks or until 60s timeout? Not positive we can have both
-        simgr.use_technique(angr.exploration_techniques.Timeout(60))
+        #simgr.use_technique(angr.exploration_techniques.Timeout(60))
         simgr.run(n=50)
+
+        self.log(f"Simgr has {len(simgr.active)} active states, {len(simgr.deadended)} deadended states, and {len(simgr.errored)} errored states")
+
+        # For each errored state, log
+        for i, s in enumerate(simgr.errored):
+            self.log(f"Errored state #{i}: {s.error}")
+
+        # Now log deadended states
+        for i, s in enumerate(simgr.deadended):
+            self.log(f"Deadended state #{i}: {s}")
 
         # Now examine our results and collect relative constraints
         # TODO: is there a way to get constraints from the error stash (i.e., what should we avoid?)
         concrete_rvs = set() # Concrete return values
         these_results = [] # List of lists of constraints with retval
-        for i, s in enumerate(simgr.active):
+        for i, s in enumerate(simgr.active + simgr.deadended):
             s.solver.simplify()
             concrete_rvs.add(s.solver.min(retval))
 
             rel_constraints = []
             for constraint in s.solver.constraints:
-                if 'target_ioctl_ret' in str(constraint):
+                if 'target_ioctl_ret' in str(constraint) or 'target_ioctl_buffer' in str(constraint):
                     rel_constraints.append(constraint)
             these_results.append(rel_constraints)
 
         self.results[name][no]['ok'].append(these_results)
 
         result = list(concrete_rvs)
+        self.log("Results:")
         for rv in result:
             self.log(f"\t{rv} ({rv:#x})")
         return result
@@ -177,7 +226,7 @@ class PathExpIoctl():
         '''
         Dump results to a pickle file at symex.pkl
         '''
-        self.log("Saving results:")
+        self.log("\n----\nSaving results:")
         for fname, details in self.results.items():
             self.log(f"\t{fname}")
             for ioctl, results in details.items():
@@ -239,29 +288,8 @@ class PathExpIoctl():
         # With explicit_name=True, we can just reconstruct the symbolic variable(?)
         retval = claripy.BVS('target_ioctl_ret', nbits, explicit_name=True)
 
-        '''
-        print("Input constraints:")
-        for idx, c_set in enumerate(self.results[path][no]['ok']):
-            print(f"\tConstraint set #{idx}")
-            # AND all constraints together
-            anded = True
-            for cidx, c in enumerate(c_set):
-                anded = solver.And(anded, c)
-
-            # Print the constraints
-            print(f"\t\t{anded}")
-
-
-            #for cidx, c in enumerate(c_set):
-            #    print(f"\t\tPath {cidx}: {c}")
-            print()
-
-        constrs = self.synthesize_constraints(solver, self.results[path][no]['ok'])
-        '''
-
         constrs = []
         if len(self.results[path][no]['ok']) == 0:
-            raise ValueError("None")
             return []
 
         elif len(self.results[path][no]['ok']) == 1:
@@ -298,15 +326,67 @@ class PathExpIoctl():
         for c in constrs:
             rvs.add(solver.min(retval, extra_constraints=[c]))
 
-        return list(rvs)
- 
+        rvs = list(rvs)
+        def custom_sort_key(num):
+            # Return a tuple that will guide the sort operation.
+            # Positive (small to big), negative (big to small), then 0
+            # We pick 0 last because it's our default before we specify something
+            if num == 0:
+                return (3, 0)
+            elif num >= 2**(nbits-1): # If highest bit is set, it's negative
+                return (2, num - 2**nbits) # Gets us the negative value
+            else: # Else it's positive
+                return (1, num) # Gets us the positive value
+
+        return sorted(rvs, key=custom_sort_key)
+
+    @staticmethod
+    def decode_ioctl(ioctl_number):
+        direction_enum = ["IO", "IOW", "IOR", "IOWR"]
+        direction = (ioctl_number >> 30) & 0x03
+        arg_size = (ioctl_number >> 16) & 0x3FFF
+        cmd_num = (ioctl_number >> 8) & 0xFF
+        type_num = ioctl_number & 0xFF
+
+        return {
+            "Direction": direction_enum[direction],
+            "Argument Size": arg_size,
+            "Command Number": cmd_num,
+            "Type Number": type_num
+        }
+
+    def hypothesize_models(self):
+        models = {} # {"/dev/device": {ioctl: [likeliest value, 2nd likliest value...]}
+        try:
+            known_values = self.get_known_values()
+        except FileNotFoundError:
+            return {}
+
+        for fname, nums in known_values.items():
+            models[fname] = {}
+
+            for n in nums:
+                paths = self.find_distinct_paths(fname, n, 32)
+
+                if not len(paths):
+                    print("\tWarning: no paths found - return 0")
+                    paths = [0]
+
+                models[fname][n] = paths
+        return models
+
+
 if __name__ == '__main__':
-    symex = PathExpIoctl('/home/andrew/git/igloo/output/debug_mtik/runs/children/2/output0/')
+    symex = PathExpIoctl('/home/andrew/git/igloo/output/debug_mtik/runs/children/2/output0/', read_only=True)
 
     for fname, nums in symex.get_known_values().items():
         print("\nDevice: ", fname)
 
         for n in nums:
             print(f"Ioctl {n:#x}:")
-            for p in symex.find_distinct_paths(fname, n, 32):
+            paths = symex.find_distinct_paths(fname, n, 32)
+            for p in paths:
                 print(f"\t{p:#x}")
+
+            if not len(paths):
+                print("\tWarning: no paths found")

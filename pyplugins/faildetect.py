@@ -100,6 +100,7 @@ class FailDetect(PyPlugin):
         with open(dirname(self.outdir) + "/config.yaml", "r") as f:
             self.current_config = yaml.safe_load(f)
 
+        '''
         @panda.ppp("syscalls2", "on_sys_ioctl_return")
         def fail_detect_on_sys_ioctl_return(cpu, pc, fd, request, arg):
             rv = self.panda.arch.get_retval(cpu, convention="syscall")
@@ -145,7 +146,8 @@ class FailDetect(PyPlugin):
                     self.ioctl_failures[filename][request] = []
 
                 # Result is a list of (proc_name, [(module_name, offset), ... callers]
-                '''
+        '''
+        '''
                 mod_offset_callers = []
                 for c in self.panda.callstack_callers(10, cpu):
                     if c == 0:
@@ -285,6 +287,7 @@ class FailDetect(PyPlugin):
 
         # Dump ioctl failures to disk
         #self.ioctl_failures[filename][request][proc_name][module_name][offset] += 1
+        '''
         with open(self.outdir + "/ioctl_failures.csv", "w") as f:
             #f.write("filename,ioctl,procname,modname,offset,stackdepth\n")
             f.write("filename,ioctl\n")
@@ -294,18 +297,17 @@ class FailDetect(PyPlugin):
                     f.write(f"{filename},{ioctl:#x}\n")
 
                     # List of (proc_name, [(module_name, offset), ... callers]
-                    '''
-                    for proc_details in ioctl_details:
-                        procname, callstack = proc_details[0], proc_details[1]
-                        stack_depth = 0
-                        for modname, offset in callstack:
-                            if offset is not None:
-                                f.write(f"{filename},{ioctl:#x},{procname},{modname},{offset:#x},{stack_depth}\n")
-                            else:
-                                # Modname and/or offset may be none, can't format with #x
-                                f.write(f"{filename},{ioctl:#x},{procname},{modname},{offset},{stack_depth}\n")
-                            stack_depth += 1
-                    '''
+                    #for proc_details in ioctl_details:
+                    #    procname, callstack = proc_details[0], proc_details[1]
+                    #    stack_depth = 0
+                    #    for modname, offset in callstack:
+                    #        if offset is not None:
+                    #            f.write(f"{filename},{ioctl:#x},{procname},{modname},{offset:#x},{stack_depth}\n")
+                    #        else:
+                    #            # Modname and/or offset may be none, can't format with #x
+                    #            f.write(f"{filename},{ioctl:#x},{procname},{modname},{offset},{stack_depth}\n")
+                    #        stack_depth += 1
+        '''
 
         # Dump env vars to disk
         with open(self.outdir + "/env_vars.txt", "w") as f:
@@ -316,6 +318,8 @@ class FailDetect(PyPlugin):
         with open(self.outdir + "/env_var_matches.txt", "w") as f:
             for var in self.env_var_matches:
                 f.write(var + "\n")
+
+        self.ioctl_failures = self.ppp.IoctlFakerC.hypothesize_models()
 
         with open(self.outdir + "/failures.yaml", "w") as f:
             yaml.dump({

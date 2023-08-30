@@ -86,9 +86,13 @@ class IoctlFakerC(PyPlugin):
                 #for key, value in decoded_ioctl.items():
                 #    print(f"{key}: {value}")
 
-                print(f"Modeling ioctl {cmd:#x} on {name} using model {model_type}")
+                #print(f"Modeling ioctl {cmd:#x} on {name} using model {model_type}")
+                #print(self.decode_ioctl(cmd))
+
+
                 f = getattr(self, "do_" + model_type)
-                if new_rv := f(cpu, ioctl_info, name=name, cmd=cmd, argp=argp):
+                new_rv = f(cpu, ioctl_info, name=name, cmd=cmd, argp=argp)
+                if new_rv is not None:
                     print(f"Faked ioctl {cmd:#x} on {name} using model {model_type}: had rv={rv:#x} changed to rv={new_rv:#x} {'default' if is_default else ''}")
                     fail = False
                     if new_rv < 0:
@@ -122,11 +126,48 @@ class IoctlFakerC(PyPlugin):
         if ioctl_info['type'] == 'symbolic': # XXX do we want this?
             return False
 
+    @PyPlugin.ppp_export
+    def hypothesize_models(self):
+        return self.symex.hypothesize_models()
+
     def do_return_const(self, cpu, conf, **kwargs):
         # Return a specified const
         rv = conf['val']
         fail = getattr(conf, 'fail', False) #  Optional
         self.panda.arch.set_retval(cpu, rv, convention='syscall', failure=fail)
+        return rv
+
+    def do_symbolic_cache(self, cpu, conf, name, cmd, argp):
+        '''
+        Return a concrete value, but if it's our first time seeing this IOCTL
+        use a symex to explore potential paths and record them.
+
+        This guides future runs
+        '''
+
+        # If we've already seen this ioctl, just return the concrete value
+        if not hasattr(self, "symbolic_cache"):
+            self.symbolic_cache = []
+
+        if (name, cmd) in self.symbolic_cache:
+            return self.do_return_const(cpu, conf)
+        self.symbolic_cache.append((name, cmd))
+
+        with open(self.get_arg("outdir") + "/ioctl.log", "a") as f:
+            f.write(f"Trying symbolic model for ioctl {cmd:#x} on {name}...\n")
+            try:
+                results = self.symex.do_symex(self.panda, name, cmd, argp)
+            except Exception as e:
+                print("ANGR EXCEPTION")
+                print(e)
+                results = [0]
+
+            f.write(f"\t{' '.join([hex(x) for x in results])}\n")
+
+        print(f"Symbolic model of ioctl {cmd:#x} on {name} gives us: {results}")
+
+        rv = conf['val']
+        print(f"\tReturning: {rv:#x}")
         return rv
 
     def do_symbolic(self, cpu, conf, name, cmd, argp):
@@ -137,6 +178,11 @@ class IoctlFakerC(PyPlugin):
 
         print(f"Symbolic model of ioctl {cmd:#x} on {name} gives us: {results}")
 
+        if hasattr(conf, 'val'):
+            hack = getattr(conf, 'val')
+            print(f"\tSelecting HACK: {hack:#x}")
+            return hack
+
         pos = [x for x in results if x >= 0]
 
         rv = None
@@ -145,7 +191,12 @@ class IoctlFakerC(PyPlugin):
             rv = min(pos)
         elif len(results):
             rv = results[0]
-        print(f"\tSelecting {rv:#x}")
+        else:
+            print("Symbolic model failed to give us any results - setting result to 0")
+            rv = 0
+
+        if rv:
+            print(f"\tSelecting {rv:#x}")
 
         return rv
     
