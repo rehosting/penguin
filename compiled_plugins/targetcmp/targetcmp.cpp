@@ -4,6 +4,7 @@
 #include <thread>
 #include <atomic>
 #include <iostream>
+#include <filesystem>
 #include <sys/types.h>
 #include <set>
 
@@ -33,20 +34,23 @@ void record_match(char *str) {
 // Called on every guest function call
 void on_call(CPUState *cpu, target_ulong pc) {
 target_ulong arg1, arg2 = 0;
+  CPUArchState UNUSED(*env) = (CPUArchState *)cpu->env_ptr;
 #ifdef TARGET_ARM
-  CPUArchState *env = (CPUArchState *)cpu->env_ptr;
   arg1 = env->regs[0];
   arg2 = env->regs[1];
 #elif defined(TARGET_MIPS)
-  CPUArchState *env = (CPUArchState *)cpu->env_ptr;
   arg1 = env->active_tc.gpr[4]; // reg 4 is a0
   arg2 = env->active_tc.gpr[5]; // reg 5 is a1
+#elif defined(TARGET_X86_64) and !defined(TARGET_i386)
+  // No 32-bit support for now to avoid dealing with stack based args
+  arg1 = env->regs[7]; // RDI
+  arg2 = env->regs[6]; // RSI
 #else
   printf("ERROR: Unsupported architecture for targetcmp\n");
   return;
 #endif
 
-  // Read strings 
+  // Read strings
   char str1[target_str_len];
   if (panda_virtual_memory_read(cpu, arg1, (uint8_t*)str1, target_str_len) != 0) {
     return;
@@ -54,7 +58,7 @@ target_ulong arg1, arg2 = 0;
 
   char str2[target_str_len];
   if (panda_virtual_memory_read(cpu, arg2, (uint8_t*)str2, target_str_len) != 0) {
-    return; 
+    return;
   }
 
   // Print matched string
@@ -65,26 +69,30 @@ target_ulong arg1, arg2 = 0;
   }
 }
 
-// Plugin init
-const char* output_dir;
+// logfile default is cwd/targetcmp.txt
+std::filesystem::path logfile = std::filesystem::current_path() / "targetcmp.txt";
+
 bool init_plugin(void *self) {
+  std::unique_ptr<panda_arg_list, void(*)(panda_arg_list*)> args(
+    panda_get_args("targetcmp"), panda_free_args);
 
-  // Arguments must specify output_dir and target_str
-  panda_arg_list *plugin_args = panda_get_args(PLUGIN_NAME);
-  output_dir = strdup(panda_parse_string_req(plugin_args, "output_dir", "Output file to record compared values"));
-  target_str = strdup(panda_parse_string_req(plugin_args, "target_str", "String to match"));
+  const char* logfile_arg = panda_parse_string_opt(args.get(), "output_file",
+      NULL, "Output file to record compared values into");
+  if (logfile_arg) logfile = std::string(logfile_arg);
+
+  target_str = strdup(panda_parse_string_req(args.get(), "target_str", "String to match"));
   target_str_len = strlen(target_str);
-  panda_free_args(plugin_args);
 
-  //printf("TargetCmp loaded with output_dir %s and target_str %s\n", output_dir, target_str);
-
+  if (target_str_len <= 0) {
+    printf("targetcmp error: invalid target_str argument\n");
+    return false;
+  }
 
   // On every function call, use our callback to check an argument is the target_str, if so store the other arg
-#if defined(TARGET_ARM) or defined(TARGET_MIPS)
+#if defined(TARGET_ARM) or defined(TARGET_MIPS) or (defined(TARGET_X86_64) and !defined(TARGET_I386))
   // Create empty file - Just so we see that something's happening
-  std::string out_path = std::string(output_dir) + std::string("/targetcmp.txt");
   // Open file for writing, delete anything there.
-  outfile.open(out_path, std::ios_base::out | std::ios_base::trunc);
+  outfile.open(logfile.string(), std::ios_base::out | std::ios_base::trunc);
 
 	PPP_REG_CB("callstack_instr", on_call, on_call);
 	return true;
@@ -94,13 +102,8 @@ bool init_plugin(void *self) {
 }
 
 void uninit_plugin(void *self) {
-  // Report output - XXX doesn't run?
-  printf("TargetCmp uninit runs\n");
-  fflush(NULL);
-
-  fprintf(stderr, "TargetCmp: %lu matches found\n", matches.size());
-  outfile.close();
-
+  if (outfile.is_open()) {
+    outfile.close();
+  }
   free((void*)target_str);
-  free((void*)output_dir);
 }
