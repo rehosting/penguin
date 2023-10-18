@@ -16,6 +16,7 @@ class Health(PyPlugin):
             'nproc': [(0, 0)],
             'nproc_args': [(0, 0)],
             'nfiles': [(0, 0)],
+            'nuniquedevs': [(0, 0)],
             'nbound_sockets': [(0, 0)],
             'nsyscalls': [(0, 0)],
             'nexecs': [(0, 0)],
@@ -27,6 +28,7 @@ class Health(PyPlugin):
         self.binds = set()
         self.procs = set()
         self.procs_args = set()
+        self.devs = set()
 
         panda.load_plugin("coverage", {"filename": self.outdir+"/cov.csv", "mode": "osi-block",
                                        "summary": 'true'})
@@ -88,6 +90,26 @@ class Health(PyPlugin):
                 self.procs_args.add(unique_name)
                 self.increment_event('nexecs_args')
 
+        @panda.ppp("syscalls2", "on_sys_open_return")
+        def detect_dev_open(cpu, pc, fname, mode, flags):
+            # Just get pathname:
+            fname = panda.read_str(cpu, fname)
+            self.log_dev_open(fname, mode)
+
+        @panda.ppp("syscalls2", "on_sys_openat_return")
+        def detect_dev_openat(cpu, pc, fd, fname, mode, flags):
+            base = ''
+            if fd != -100: # CWD
+                proc = self.panda.plugins['osi'].get_current_process(cpu)
+                if proc == self.panda.ffi.NULL:
+                    return
+                basename_c = self.panda.plugins['osi_linux'].osi_linux_fd_to_filename(cpu, proc, fd)
+                if basename_c == self.panda.ffi.NULL:
+                    return
+                base = self.panda.ffi.string(basename_c)
+            path = base + "/" + panda.read_str(cpu, fname)
+            self.log_dev_open(path, mode)
+
 
     def increment_event(self, event):
         '''
@@ -98,6 +120,11 @@ class Health(PyPlugin):
         rel_time = time.time() - self.start_time
         self.events[event].append((rel_time, last_score + 1))
 
+
+    def log_dev_open(self, fname, mode):
+        if fname not in self.devs:
+            self.devs.add(fname)
+            self.increment_event('nuniquedevs')
 
     def uninit(self):
         print("Health unloaded")
@@ -116,3 +143,8 @@ class Health(PyPlugin):
             # For each event, dump the final score
             for cls, details in self.events.items():
                 f.write(f"  {cls}: {details[-1][1]}\n")
+
+        # Dump list of devices accessed
+        with open(f"{self.outdir}/devices_accessed.txt", 'w') as f:
+            for dev in self.devs:
+                f.write(f"{dev}\n")
