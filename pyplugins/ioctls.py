@@ -1,7 +1,9 @@
 from pandare import PyPlugin
 
 from sys import path
-from os.path import dirname
+from os.path import dirname, join as pjoin
+
+outfile = "ioctls.yaml"
 
 # Parse a given config to fake ioctls
 '''
@@ -17,6 +19,31 @@ example_config = {
     ]
 }
 '''
+
+
+# XXX unused
+def ignore_cmd(ioctl):
+    # Ignore TTY ioctls, see ioctls.h for T*, TC*, and TIO* ioctls
+    if ioctl >= 0x5400 and ioctl <= 0x54FF:
+        return True
+    return False
+
+#XXX unused
+def ignore_ioctl_path(path):
+    # Paths we don't care about:
+    # /firmadyne/libnvram anything - this reveals the nvram values read though
+    # socket:{RAW,UDP,TCP,...}
+    # /proc/*/{mounts,stat,cmdline} - boring?
+    if path.startswith("/firmadyne/libnvram"):
+        return True
+    if path.startswith("/proc/"):
+        return True
+    if path.startswith("socket:"):
+        return True
+    if path.startswith("pipe:"):
+        return True
+    return False
+
 
 class IoctlFakerC(PyPlugin):
     def __init__(self, panda):
@@ -106,10 +133,6 @@ class IoctlFakerC(PyPlugin):
         from symex import PathExpIoctl
         self.symex = PathExpIoctl(self.get_arg("outdir"))
 
-    def uninit(self):
-        # Tell angrypanda to save results
-        if self.symex and self.save_symex:
-            self.symex.save_results()
 
     def get_model(self, name, cmd):
         ''' return model, is_default '''
@@ -266,3 +289,35 @@ class IoctlFakerC(PyPlugin):
             "Type Number": type_num
         }
 
+    def uninit(self):
+        # Tell angrypanda to save results (pkl file, internal use/debugging?)
+        if self.symex and self.save_symex:
+            self.symex.save_results()
+
+        # Dump to outfile as yaml (for iterative refinement)
+        output = self.hypothesize_models()
+        with open(pjoin(self.outdir, outfile), "w") as f:
+            yaml.dump(output, f)
+
+def propose_mitigations(config, result_dir, quiet=False):
+    with open(pjoin(result_dir, outfile)) as f:
+        ioctl_failures = yaml.safe_load(f)
+
+    mitigations = []
+    existing_ioctls = ... # XXX TODO: don't change previously-specified IOCTLs
+    for path, info in ioctl_failures.items():
+        # path = "/dev/device": info = {ioctl: [likeliest value, 2nd likliest value...]}
+
+        # We need to check the *current config* to see how we're modeling this IOCTL
+        # AND parent configs to avoid selecting a duplicate? Maybe?
+
+        for ioctl, full_rvs in info.items():
+            rvs = [x for x in full_rvs if x != 0] # Don't explicitly set 0 - that's already our default!
+            bonus = 0
+            if len(rvs) > 1:
+                bonus = 1
+
+            for idx, rv in enumerate(rvs):
+                weight = 2 + (-len(rvs) / (idx+1))
+                mitigations.append((('fake_ioctl', hex(ioctl), path, hex(rv)), weight + bonus))
+    return mitigations

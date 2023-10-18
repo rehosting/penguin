@@ -1,5 +1,27 @@
 from pandare import PyPlugin
-from os.path import dirname
+from os.path import dirname, isfile
+
+output_file = "/targetcmp.txt"
+
+def propose_mitigations(config, outdir, only_env_val, quiet=False):
+    mitigations = []
+    # Open [outdir]/targetcmp.txt and read each line
+    if not isfile(f"{outdir}/{output_file}"):
+        print("WARNING: missing targetcmp results - was plugin loaded?", outdir)
+        return []
+
+    compared_vals = set()
+    for line in open(f"{outdir}/{output_file}", "rb").read().splitlines():
+        l = line.strip()
+        # Check if line is alphanumeric or _ or -
+        if len(l) and l.replace(b"_", b"").replace(b"-", b"").isalnum():
+            compared_vals.add(l.decode(errors='ignore'))
+
+    for line in compared_vals:
+        mitigations.append((('changeenv', only_env_val, line), 1))
+
+    return mitigations
+
 
 class TargetCmp(PyPlugin):
     def __init__(self, panda):
@@ -17,7 +39,7 @@ class TargetCmp(PyPlugin):
         print("TargetCmp active, outdir=", self.outdir)
         # Config specifies DYNVAL, so we'll dynamically analyze
         panda.load_plugin("callstack_instr", args={"stack_type": "asid"})
-        panda.load_plugin("targetcmp", args={"output_file": self.outdir + "/targetcmp.txt", "target_str": target_str})
+        panda.load_plugin("targetcmp", args={"output_file": self.outdir + output_file, "target_str": target_str})
 
         # Also explicitly hook strcmp/strncmp
         @panda.hook_symbol("libc-", "strcmp")
