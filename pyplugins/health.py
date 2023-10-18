@@ -94,7 +94,8 @@ class Health(PyPlugin):
         def detect_dev_open(cpu, pc, fname, mode, flags):
             # Just get pathname:
             fname = panda.read_str(cpu, fname)
-            self.log_dev_open(fname, mode)
+            if fname.startswith("/dev"):
+                self.log_dev_open(fname, mode)
 
         @panda.ppp("syscalls2", "on_sys_openat_return")
         def detect_dev_openat(cpu, pc, fd, fname, mode, flags):
@@ -108,7 +109,8 @@ class Health(PyPlugin):
                     return
                 base = self.panda.ffi.string(basename_c)
             path = base + "/" + panda.read_str(cpu, fname)
-            self.log_dev_open(path, mode)
+            if path.startswith("/dev"):
+                self.log_dev_open(path, mode)
 
 
     def increment_event(self, event):
