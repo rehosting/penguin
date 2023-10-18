@@ -1,7 +1,55 @@
 from pandare import PyPlugin
+from os.path import dirname
 
 class TargetCmp(PyPlugin):
     def __init__(self, panda):
-        outdir = self.get_arg("outdir")
+        self.outdir = self.get_arg("outdir")
+        target_str = 'DYNVAL'
+        self.env_var_matches = set()
+
+        with open(dirname(self.outdir) + "/config.yaml", "r") as f:
+            self.current_config = yaml.safe_load(f)
+
+        if 'append' not in self.current_config and not any([f"={target_str}" in x for x in self.current_config['append']]):
+            print("TargetCmp inactive")
+            return
+
+        print("TargetCmp active, outdir=", self.outdir)
+        # Config specifies DYNVAL, so we'll dynamically analyze
         panda.load_plugin("callstack_instr", args={"stack_type": "asid"})
-        panda.load_plugin("targetcmp", args={"outdir": outdir, "target_str": "DYNVAL"})
+        panda.load_plugin("targetcmp", args={"output_file": self.outdir + "/targetcmp.txt", "target_str": target_str})
+
+        # Also explicitly hook strcmp/strncmp
+        @panda.hook_symbol("libc-", "strcmp")
+        def hook_strcmp(cpu, tb, h):
+            try:
+                str1 = panda.read_str(cpu, panda.arch.get_arg(cpu, 0))
+                str2 = panda.read_str(cpu, panda.arch.get_arg(cpu, 1))
+            except ValueError:
+                return
+
+            if str1 == target_str:
+                self.env_var_matches.add(str2)
+            elif str2 == target_str:
+                self.env_var_matches.add(str1)
+
+        @panda.hook_symbol("libc-", "strncmp")
+        def hook_strncmp(cpu, tb, h):
+            # Get two strings being compared - are either IGLOOENVVAR
+            try:
+                str1 = panda.read_str(cpu, panda.arch.get_arg(cpu, 0))
+                str2 = panda.read_str(cpu, panda.arch.get_arg(cpu, 1))
+            except ValueError:
+                return
+
+            if str1 == target_str:
+                self.env_var_matches.add(str2)
+            elif str2 == target_str:
+                self.env_var_matches.add(str1)
+
+    def unint(self):
+        print("TargetCmp(PY) shutting down")
+        if len(self.env_var_matches):
+            print("TargetCmp found env vars with pypanda hooks (NYI using these!!)")
+            for x in self.env_var_matches:
+                print(x)
