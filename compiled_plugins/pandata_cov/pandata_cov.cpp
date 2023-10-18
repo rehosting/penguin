@@ -66,23 +66,37 @@ void sbe(CPUState *cpu, TranslationBlock *tb) {
   }
 }
 
+std::string last_non_ignored = ""; // Maintain the last non-ignored process
+
 void on_current_proc_change(gpointer evdata, gpointer udata) {
-  std::string last = "";
-  std::string next = "";
+    std::string next = "";
 
-  bool last_ignore = current_proc != NULL ? current_proc->ignore : true;
-  if (current_proc != NULL && current_proc->comm != NULL && !last_ignore) {
-    last = std::string(current_proc->comm);
-  }
+    // Update the global current_proc variable
+    current_proc = (proc_t*)evdata;
 
-  current_proc = (proc_t*)evdata;
-  if (current_proc != NULL && current_proc->comm != NULL && !current_proc->ignore) {
-    next = std::string(current_proc->comm);
-  }
+    // Check if the current process should be ignored
+    bool next_ignore = current_proc != NULL ? current_proc->ignore : true;
 
-  // Record only if at least one of the processes is not ignored
-  if (!last_ignore || (current_proc != NULL && !current_proc->ignore))
-    proc_names.push_back(std::make_tuple(last, next));
+    // If the current process is not to be ignored, store its name
+    if (current_proc != NULL && current_proc->comm != NULL && !next_ignore) {
+        next = std::string(current_proc->comm);
+    }
+
+    // If we have a valid 'next' process that is not to be ignored, 
+    // and we have a last non-ignored process, then record the transition
+    if (!last_non_ignored.empty() && !next.empty()) {
+        if (last_non_ignored != next) {
+          // Don't record self-transitions
+          proc_names.push_back(std::make_tuple(last_non_ignored, next));
+        }
+        last_non_ignored = next; // Update the last non-ignored process
+    }
+    else if (!next.empty()) {
+        // If there is no last_non_ignored yet, but we have a non-ignored next, 
+        // update last_non_ignored
+        last_non_ignored = next;
+    }
+    // If 'next' is empty or to be ignored, we do nothing, effectively skipping it
 }
 
 extern "C" bool init_plugin(void *self) {
@@ -94,7 +108,10 @@ extern "C" bool init_plugin(void *self) {
     return false;
   }
   log_file = new std::ofstream(outfile);
-  proc_log = new std::ofstream(outfile+std::string(".proc.csv"));
+  // outfile probably ends with .csv, we want to add before the .csv
+  std::string proc_outfile = std::string(outfile);
+  proc_outfile.insert(proc_outfile.find(".csv"), ".proc");
+  proc_log = new std::ofstream(proc_outfile);
 
   panda_cb pcb { .start_block_exec = sbe };
   panda_register_callback(self, PANDA_CB_START_BLOCK_EXEC, pcb);
