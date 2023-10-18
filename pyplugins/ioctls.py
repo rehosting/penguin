@@ -2,6 +2,7 @@ from pandare import PyPlugin
 from sys import path
 from os.path import dirname, join as pjoin
 import yaml
+from copy import deepcopy
 
 outfile = "ioctls.yaml"
 
@@ -21,14 +22,12 @@ example_config = {
 '''
 
 
-# XXX unused
 def ignore_cmd(ioctl):
     # Ignore TTY ioctls, see ioctls.h for T*, TC*, and TIO* ioctls
     if ioctl >= 0x5400 and ioctl <= 0x54FF:
         return True
     return False
 
-#XXX unused
 def ignore_ioctl_path(path):
     # Paths we don't care about:
     # /firmadyne/libnvram anything - this reveals the nvram values read though
@@ -53,6 +52,7 @@ class IoctlFakerC(PyPlugin):
         self.save_symex = False
         self.outdir = self.get_arg("outdir")
         self.symex = None
+        self.ioctl_failures = {} # path -> ioctl -> [rvs]
 
         if self.get_arg("conf") is None or "ioctls" not in self.get_arg("conf"):
             raise ValueError("No ioctls in config: {self.get_arg('conf')}")
@@ -98,7 +98,11 @@ class IoctlFakerC(PyPlugin):
                 name = name.decode(errors='ignore')
 
                 ioctl_info, is_default = self.get_model(name, cmd)
+
                 if not ioctl_info:
+                    # We only care about failing IOCTLs on device we've added. Maybe?
+                    # We'll add them with a default ioctl model. See filefailures.
+                    #self.record_failure(cpu, name, cmd, rv)
                     return
 
                 model_type = ioctl_info['type']
@@ -126,6 +130,16 @@ class IoctlFakerC(PyPlugin):
                         new_rv = panda.to_unsigned_guest(rv)
                         fail = True
                     self.panda.arch.set_retval(cpu, new_rv, convention='syscall', failure=fail)
+
+    def record_failure(self, cpu, filename, cmd, rv):
+        # This is a failing IOCTL that we aren't modeling. Do we report as a failure?
+        if ignore_cmd(cmd) or ignore_ioctl_path(filename):
+            return
+        if filename not in self.ioctl_failures:
+            self.ioctl_failures[filename] = {}
+        if cmd not in self.ioctl_failures[filename]:
+            self.ioctl_failures[filename][cmd] = 0
+        self.ioctl_failures[filename][cmd] += 1
 
     def initialize_symex(self):
         # Add this directory to python path so we can import symex
@@ -295,15 +309,17 @@ class IoctlFakerC(PyPlugin):
             self.symex.save_results()
 
         # Dump to outfile as yaml (for iterative refinement)
-        output = self.hypothesize_models()
-        with open(pjoin(self.outdir, outfile), "w") as f:
-            yaml.dump(output, f)
+        # XXX: What is this? It's not what we want...
+        #output = self.hypothesize_models()
 
-def propose_mitigations(config, result_dir, quiet=False):
+        with open(pjoin(self.outdir, outfile), "w") as f:
+            yaml.dump(self.ioctl_failures, f)
+
+def propose_configs(config, result_dir, quiet=False):
     with open(pjoin(result_dir, outfile)) as f:
         ioctl_failures = yaml.safe_load(f)
 
-    mitigations = []
+    new_configs = []
     existing_ioctls = ... # XXX TODO: don't change previously-specified IOCTLs
     for path, info in ioctl_failures.items():
         # path = "/dev/device": info = {ioctl: [likeliest value, 2nd likliest value...]}
@@ -319,5 +335,19 @@ def propose_mitigations(config, result_dir, quiet=False):
 
             for idx, rv in enumerate(rvs):
                 weight = 2 + (-len(rvs) / (idx+1))
-                mitigations.append((('fake_ioctl', hex(ioctl), path, hex(rv)), weight + bonus))
-    return mitigations
+                # IOCTLs are imporant - weight ranges from [20-60]
+                weight = 20*(weight+bonus)
+
+                #mitigations.append((('fake_ioctl', hex(ioctl), path, hex(rv)), weight + bonus))
+
+                # XXX: We should propose a multi-stage where we use symex!
+                new_config = deepcopy(config)
+                new_config['ioctls'].append({
+                    'path': path,
+                    'type': 'return_const',
+                    'cmd': ioctl,
+                    'val': rv
+                })
+                new_config['meta']['delta'].append(f"fake_ioctl {hex(ioctl)} {path} {hex(rv)}")
+                new_configs.append((weight, new_config))
+    return new_configs

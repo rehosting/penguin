@@ -9,7 +9,7 @@ class NVRAM(PyPlugin):
     # Nothing to do at runtime. Until we drop in HyperNVRam
 
 # But we analyze console output after the fact
-def propose_mitigations(config, result_dir, quiet=False):
+def propose_configs(config, result_dir, quiet=False):
     # Based off FirmAE's approach https://github.com/pr0v3rbs/FirmAE/blob/master/scripts/inferDefault.py#L69
     nvram_gets = set()
 
@@ -47,6 +47,5 @@ def propose_mitigations(config, result_dir, quiet=False):
 
             if match_count > len(nvram_gets)//4:
                 print("Potential nvram file:", member.name)
-
 
     return []

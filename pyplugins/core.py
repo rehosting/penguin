@@ -14,7 +14,7 @@ class Core(PyPlugin):
         # Create .ran
         open(os.path.join(self.outdir, ".ran"), "w").close()
 
-def propose_mitigations(config, result_dir, quiet=False):
+def propose_configs(config, result_dir, quiet=False):
     '''
     We don't really propose mitigations, we just make sure there's no python
     errors during our analysis

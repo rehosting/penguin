@@ -1,33 +1,47 @@
 from pandare import PyPlugin
-from os.path import dirname, isfile
+from os.path import dirname, isfile, join as pjoin
 import yaml
+from copy import deepcopy
 
-output_file = "/targetcmp.txt"
+target_str = 'DYNVAL'
+output_file = "/targetcmp.txt" # C++ analysis with callstackinstr
+output_file2 = "/targetcmppy.txt" # Python with libc fn hooks
 
-def propose_mitigations(config, outdir, only_env_val, quiet=False):
-    mitigations = []
+def propose_configs(config, outdir, quiet=False):
     # Open [outdir]/targetcmp.txt and read each line
-    if not isfile(f"{outdir}/{output_file}"):
+    if not isfile(f"{outdir}/{output_file}") or not isfile(f"{outdir}/{output_file2}"):
         print("WARNING: missing targetcmp results - was plugin loaded?", outdir)
         return []
 
+    target_var = [x.split("=")[0] for x in config['append'] if f'={target_str}' in x][0]
+
+    new_configs = []
     compared_vals = set()
-    for line in open(f"{outdir}/{output_file}", "rb").read().splitlines():
+
+    for line in open(f"{outdir}/{output_file}", "rb").read().splitlines() +
+                open(f"{outdir}/{output_file2}", "rb").read().splitlines():
+
         l = line.strip()
         # Check if line is alphanumeric or _ or -
         if len(l) and l.replace(b"_", b"").replace(b"-", b"").isalnum():
             compared_vals.add(l.decode(errors='ignore'))
 
-    for line in compared_vals:
-        mitigations.append((('changeenv', only_env_val, line), 1))
+    for new_val in compared_vals:
+        new_config = deepcopy(config)
 
-    return mitigations
+        new_config['append'] = [f"{target_var}={new_val}" if ('=' in x and x.split('=')[0] == target_var) else x for x in config['append']]
+        new_config['meta']['delta'].append(f"env {target_var}={new_val}")
+
+        # We saw a concrete comparison, I guess that beats just guessing at random
+        # WEIGHT 2
+        new_configs.append((2, new_config))
+
+    return new_configs
 
 
 class TargetCmp(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
-        target_str = 'DYNVAL'
         self.env_var_matches = set()
 
         with open(dirname(self.outdir) + "/config.yaml", "r") as f:
@@ -36,11 +50,13 @@ class TargetCmp(PyPlugin):
         if 'append' not in self.current_config and not any([f"={target_str}" in x for x in self.current_config['append']]):
             print("TargetCmp inactive")
             return
+        
+        # XXX: should check to make sure we never have 2 vars = target_str at once?
 
         print("TargetCmp active, outdir=", self.outdir)
         # Config specifies DYNVAL, so we'll dynamically analyze
         panda.load_plugin("callstack_instr", args={"stack_type": "asid"})
-        panda.load_plugin("targetcmp", args={"output_file": self.outdir + output_file, "target_str": target_str})
+        panda.load_plugin("targetcmp", args={"output_file": pjoin(self.outdir, output_file), "target_str": target_str})
 
         # Also explicitly hook strcmp/strncmp
         @panda.hook_symbol("libc-", "strcmp")
@@ -72,7 +88,6 @@ class TargetCmp(PyPlugin):
 
     def unint(self):
         print("TargetCmp(PY) shutting down")
-        if len(self.env_var_matches):
-            print("TargetCmp found env vars with pypanda hooks (NYI using these!!)")
+        with open(pjoin(self.outdir, output_file2), "w") as f:
             for x in self.env_var_matches:
-                print(x)
+                f.write(x + "\n")

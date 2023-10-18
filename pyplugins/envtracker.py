@@ -4,6 +4,7 @@ import tarfile
 import re
 from os.path import dirname, join as pjoin
 from pandare import PyPlugin
+from copy import deepcopy
 
 outfile = "missing_envvars.yaml"
 ENV_MAGIC_VAL = "DYNVAL"
@@ -111,42 +112,82 @@ def potential_env_vals(config, varname):
     for match in matches:
         results.append(match)
 
-    # Next option: Constant
-    results.append(1)
+    if not len(results):
+        # Next option: Constant
+        results.append(1)
 
-    # Final option: dynamically find values we compare to
-    results.append(ENV_MAGIC_VAL) # Magic string checked against elsewhere
+        # Final option: dynamically find values we compare to
+        results.append(ENV_MAGIC_VAL) # Magic string checked against elsewhere
 
     return results
 
-def propose_mitigations(config, result_dir, quiet=False):
+def propose_configs(config, result_dir, quiet=False):
     with open(pjoin(result_dir, outfile)) as f:
         env_accesses = yaml.load(f, Loader=yaml.FullLoader)
 
-    mitigations = []
+    new_configs = []
     existing_vars = [x.split('=')[0] for x in config['append']]
+
+    # FIRST: for all variables we saw accessed, we proppose
+    # setting them to various values. XXX: Here we're just guessing
+    # based on static analysis and consts, nothing fancy
     for varname in env_accesses:
         if varname in existing_vars:
             continue
         if not quiet:
             print(f"\tSaw env var access: {varname}")
-        for potential_var in potential_env_vals(config, varname):
-            mitigations.append((('setenv', varname, potential_var), 0.5)) # Less important than a device accessed/ioctl'd once
 
-    # We can also propose things out of meta['potential_env'], though these have key=value already. Less likely vs things we've seen accessed
+        for potential_var in potential_env_vals(config, varname):
+            # Build a new config with key=potential val. WEIGHT=1
+            # Drop alternatives for this key in potential_env
+            new_config = deepcopy(config)
+
+            new_config['append'].append(f"{varname}={potential_var}")
+            new_config['meta']['delta'].append(f"env {varname}={potential_var}")
+
+            for k in list(new_config['meta']['potential_env']):
+                if "=" in k:
+                    k=k.split("=")[0]
+                if k == varname:
+                    new_config['meta']['potential_env'].remove(k)
+            new_configs.append((1, new_config))
+
+    # SECOND: for variables we have in our potential_env, we can propose
+    # setting these too. Less likely to succeed - note we have our igloo_task_size
+    # in here which sometimes matters
+
     for kv in config['meta']['potential_env']:
         if '=' in kv: # Specific value
-            k, v = kv.split("=")
-            vals = [v]
+            thiskey, thisval = kv.split("=")
+            vals = [thisval]
         else:
             # Only identified variable name
-            k = kv
-            vals = potential_env_vals(config, k)
+            thiskey = kv
+            vals = potential_env_vals(config, thiskey)
 
-        if k in existing_vars or k in env_accesses:
+        # Is variable already set in our config or was it something we concretely
+        # saw accessed? If so, skip it
+        if thiskey in existing_vars or thiskey in env_accesses:
             continue
 
         for val in vals:
-            mitigations.append((('setenv', k, val), 0.25))
+            # Builds a new copnfig with key=potential val. WEIGHT=0.5
+            # because we never saw the key accessed
+            new_config = deepcopy(config)
+            new_config['append'].append(f"{thiskey}={val}")
+            new_config['meta']['delta'].append(f"env {thiskey}={val}")
 
-    return mitigations
+            # Drop alternatives for this key from potential_env
+            for saved_potkeyval in list(new_config['meta']['potential_env']):
+                if "=" in saved_potkeyval:
+                    savedkey = saved_potkeyval.split("=")[0]
+                else:
+                    savedkey = saved_potkeyval
+
+                if thiskey == savedkey:
+                    # Need to remove with exact match
+                    new_config['meta']['potential_env'].remove(saved_potkeyval)
+
+            new_configs.append((0.5, new_config))
+
+    return new_configs
