@@ -76,6 +76,7 @@ def var_interesting(var):
                 SNMPDLMODPATH \
                 SNMP_PERSISTENT_DIR \
                 SNMP_PERSISTENT_FILE \
+                TERM \
                 TICKS_PER_USEC \
                 TMPDIR \
                 TZ'.split():
@@ -94,7 +95,7 @@ class FailDetect(PyPlugin):
         self.ioctl_failures = {} # path: {IOCTL: (proc_name, [(mod, off), (mod, off), ...])}
         self.file_failures = {} # path: {mode: count}
         self.env_vars = set() # set of env vars that were read through libc getenv
-        self.env_var_matches = set() # set of strings compared to 'IGLOOENVVAR' placeholder
+        #self.env_var_matches = set() # set of strings compared to 'IGLOOENVVAR' placeholder
         self.did_uninit = False
 
         with open(dirname(self.outdir) + "/config.yaml", "r") as f:
@@ -203,6 +204,7 @@ class FailDetect(PyPlugin):
                 return
             self.env_vars.add(s)
 
+        '''
         if any([x.split("=")[1] == 'IGLOOENVVAR' for x in self.current_config['append']]):
             # If our current config has an IGLOOENVVAR we can hook strcmp to see if it's being used
             # and if so, what it's being compared to - we can then use these as new hypotheses!
@@ -234,6 +236,7 @@ class FailDetect(PyPlugin):
                     self.env_var_matches.add(str2)
                 elif str2 == 'IGLOOENVVAR':
                     self.env_var_matches.add(str1)
+        '''
 
     # Calculate module name and offset
     def addr_to_mod_off(self, cpu, addr):
@@ -315,9 +318,9 @@ class FailDetect(PyPlugin):
                 f.write(var + "\n")
 
         # Dump env var matches to disk
-        with open(self.outdir + "/env_var_matches.txt", "w") as f:
-            for var in self.env_var_matches:
-                f.write(var + "\n")
+        #with open(self.outdir + "/env_var_matches.txt", "w") as f:
+        #    for var in self.env_var_matches:
+        #        f.write(var + "\n")
 
         self.ioctl_failures = self.ppp.IoctlFakerC.hypothesize_models()
 
@@ -326,5 +329,5 @@ class FailDetect(PyPlugin):
                 "file_failures": self.file_failures,
                 "ioctl_failures": self.ioctl_failures,
                 "getenv": self.env_vars,
-                "getenv_matches": self.env_var_matches
+                #"getenv_matches": self.env_var_matches
             }, f)
