@@ -79,7 +79,7 @@ class EnvTracker(PyPlugin):
 
     def uninit(self):
         # Real uninit: dump env vars
-        with open(pjoin(self.outdir, "/env_vars.yaml"), "w") as f:
+        with open(pjoin(self.outdir, outfile), "w") as f:
             yaml.dump(list(self.env_vars), f)
 
 def potential_env_vals(config, varname):
@@ -112,7 +112,7 @@ def potential_env_vals(config, varname):
         results.append(match)
 
     # Next option: Constant
-    results.apend(1)
+    results.append(1)
 
     # Final option: dynamically find values we compare to
     results.append(ENV_MAGIC_VAL) # Magic string checked against elsewhere
@@ -120,12 +120,12 @@ def potential_env_vals(config, varname):
     return results
 
 def propose_mitigations(config, result_dir, quiet=False):
-    with open(f"{result_dir}/{outfile}") as f:
+    with open(pjoin(result_dir, outfile)) as f:
         env_accesses = yaml.load(f, Loader=yaml.FullLoader)
 
     mitigations = []
     existing_vars = [x.split('=')[0] for x in config['append']]
-    for varname in env_vails:
+    for varname in env_accesses:
         if varname in existing_vars:
             continue
         if not quiet:

@@ -1,7 +1,7 @@
 from pandare import PyPlugin
-
 from sys import path
 from os.path import dirname, join as pjoin
+import yaml
 
 outfile = "ioctls.yaml"
 

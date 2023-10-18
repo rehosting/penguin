@@ -1,4 +1,6 @@
 from pandare import PyPlugin
+from os.path import join
+import tarfile
 
 console_path = "console.log"
 
@@ -11,7 +13,7 @@ def propose_mitigations(config, result_dir, quiet=False):
     # Based off FirmAE's approach https://github.com/pr0v3rbs/FirmAE/blob/master/scripts/inferDefault.py#L69
     nvram_gets = set()
 
-    with open(console_log, "rb") as f:
+    with open(join(result_dir, console_path), "rb") as f:
         # XXX this is broken
         for line in f.readlines():
             if line.startswith(b"nvram_get_buf:") and b"Unable to open" not in line and b"=" not in line:

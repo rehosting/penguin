@@ -2,7 +2,7 @@ import sys
 import yaml
 import tarfile
 import re
-from os.path import dirname
+from os.path import dirname, join as pjoin
 from pandare import PyPlugin
 
 outfile = "file_failures.yaml"
@@ -81,7 +81,7 @@ class FileFailures(PyPlugin):
 
     def uninit(self):
         # Dump all file failures to disk as yaml
-        with open(path.join(self.outdir, outfile), "w") as f:
+        with open(pjoin(self.outdir, outfile), "w") as f:
             yaml.dump(self.file_failures, f)
 
 def propose_mitigations(config, result_dir, quiet=False):

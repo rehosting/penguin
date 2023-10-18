@@ -1,5 +1,6 @@
 from pandare import PyPlugin
 from os.path import dirname, isfile
+import yaml
 
 output_file = "/targetcmp.txt"
 
