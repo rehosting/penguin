@@ -2,10 +2,6 @@ from pandare import PyPlugin
 
 from sys import path
 from os.path import dirname
-# Add this directory to python path so we can import symex
-path.append(dirname(__file__))
-
-from symex import PathExpIoctl
 
 # Parse a given config to fake ioctls
 '''
@@ -27,8 +23,9 @@ class IoctlFakerC(PyPlugin):
         self.panda = panda
         self.default_retval = {} # path -> default_retval
         self.printed = set()
-
-        self.symex = PathExpIoctl(self.get_arg("outdir"))
+        self.save_symex = False
+        self.outdir = self.get_arg("outdir")
+        self.symex = None
 
         if self.get_arg("conf") is None or "ioctls" not in self.get_arg("conf"):
             raise ValueError("No ioctls in config: {self.get_arg('conf')}")
@@ -81,6 +78,9 @@ class IoctlFakerC(PyPlugin):
                 if not hasattr(self, "do_" + model_type):
                     raise ValueError(f"Unknown ioctl type: {model_type}")
                 
+                if model_type == 'symex':
+                    self.save_symex = True
+                
                 # Decode the ioctl and report it's details
                 #decoded_ioctl = self.decode_ioctl(cmd)
                 #for key, value in decoded_ioctl.items():
@@ -93,16 +93,23 @@ class IoctlFakerC(PyPlugin):
                 f = getattr(self, "do_" + model_type)
                 new_rv = f(cpu, ioctl_info, name=name, cmd=cmd, argp=argp)
                 if new_rv is not None:
-                    print(f"Faked ioctl {cmd:#x} on {name} using model {model_type}: had rv={rv:#x} changed to rv={new_rv:#x} {'default' if is_default else ''}")
+                    #print(f"Faked ioctl {cmd:#x} on {name} using model {model_type}: had rv={rv:#x} changed to rv={new_rv:#x} {'default' if is_default else ''}")
                     fail = False
                     if new_rv < 0:
                         new_rv = panda.to_unsigned_guest(rv)
                         fail = True
                     self.panda.arch.set_retval(cpu, new_rv, convention='syscall', failure=fail)
 
+    def initialize_symex(self):
+        # Add this directory to python path so we can import symex
+        path.append(dirname(__file__))
+        from symex import PathExpIoctl
+        self.symex = PathExpIoctl(self.get_arg("outdir"))
+
     def uninit(self):
         # Tell angrypanda to save results
-        self.symex.save_results()
+        if self.symex and self.save_symex:
+            self.symex.save_results()
 
     def get_model(self, name, cmd):
         ''' return model, is_default '''
@@ -128,6 +135,8 @@ class IoctlFakerC(PyPlugin):
 
     @PyPlugin.ppp_export
     def hypothesize_models(self):
+        if not self.symex or not self.save_symex:
+            return {}
         return self.symex.hypothesize_models()
 
     def do_return_const(self, cpu, conf, **kwargs):
@@ -148,6 +157,9 @@ class IoctlFakerC(PyPlugin):
         # If we've already seen this ioctl, just return the concrete value
         if not hasattr(self, "symbolic_cache"):
             self.symbolic_cache = []
+
+        if not self.symex:
+            self.initialize_symex()
 
         if (name, cmd) in self.symbolic_cache:
             return self.do_return_const(cpu, conf)
@@ -171,6 +183,9 @@ class IoctlFakerC(PyPlugin):
         return rv
 
     def do_symbolic(self, cpu, conf, name, cmd, argp):
+        if not self.symex:
+            self.initialize_symex()
+
         with open(self.get_arg("outdir") + "/ioctl.log", "a") as f:
             f.write(f"Trying symbolic model for ioctl {cmd:#x} on {name}...\n")
             results = self.symex.do_symex(self.panda, name, cmd, argp)
@@ -179,6 +194,8 @@ class IoctlFakerC(PyPlugin):
         print(f"Symbolic model of ioctl {cmd:#x} on {name} gives us: {results}")
 
         if hasattr(conf, 'val'):
+            # Hack: we can both say to do symbolic but also to return a specific value
+            # mostly for testing
             hack = getattr(conf, 'val')
             print(f"\tSelecting HACK: {hack:#x}")
             return hack
