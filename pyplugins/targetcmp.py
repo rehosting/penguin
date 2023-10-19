@@ -18,7 +18,7 @@ def propose_configs(config, outdir, quiet=False):
     new_configs = []
     compared_vals = set()
 
-    for line in open(f"{outdir}/{output_file}", "rb").read().splitlines() +
+    for line in open(f"{outdir}/{output_file}", "rb").read().splitlines() + \
                 open(f"{outdir}/{output_file2}", "rb").read().splitlines():
 
         l = line.strip()
