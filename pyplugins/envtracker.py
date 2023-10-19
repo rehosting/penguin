@@ -84,7 +84,7 @@ class EnvTracker(PyPlugin):
             yaml.dump(list(self.env_vars), f)
 
 def potential_env_vals(config, varname):
-    results = []
+    results = [] # (weight, val)
 
     # First option(s) - search filesystem for "[varname]=[valid value]" and try them
     # first we build our regex. Value can only be a-zA-Z0-9_-
@@ -107,17 +107,19 @@ def potential_env_vals(config, varname):
 
         # Now check for matches
         for match in test.findall(data):
-            matches.add(match)
+            # It's promising that we saw this in the FS
+            matches.add((10, match)) # WEIGHT: 10
 
     for match in matches:
         results.append(match)
 
-    if not len(results):
-        # Next option: Constant
-        results.append(1)
+    # Next option: Constant values
+    for const in ["1"]:
+        results.append((0.5, const)) # WEIGHT: 0.5
 
-        # Final option: dynamically find values we compare to
-        results.append(ENV_MAGIC_VAL) # Magic string checked against elsewhere
+    # Final option: dynamically find values we compare to
+    # This requires multiple steps so it's tricky
+    results.append((0.25, ENV_MAGIC_VAL)) # Magic string checked against elsewhere
 
     return results
 
@@ -137,7 +139,7 @@ def propose_configs(config, result_dir, quiet=False):
         if not quiet:
             print(f"\tSaw env var access: {varname}")
 
-        for potential_var in potential_env_vals(config, varname):
+        for (var_weight, potential_var) in potential_env_vals(config, varname):
             # Build a new config with key=potential val. WEIGHT=1
             # Drop alternatives for this key in potential_env
             new_config = deepcopy(config)
@@ -150,7 +152,7 @@ def propose_configs(config, result_dir, quiet=False):
                     k=k.split("=")[0]
                 if k == varname:
                     new_config['meta']['potential_env'].remove(k)
-            new_configs.append((1, new_config))
+            new_configs.append((var_weight, new_config))
 
     # SECOND: for variables we have in our potential_env, we can propose
     # setting these too. Less likely to succeed - note we have our igloo_task_size
@@ -159,23 +161,23 @@ def propose_configs(config, result_dir, quiet=False):
     for kv in config['meta']['potential_env']:
         if '=' in kv: # Specific value
             thiskey, thisval = kv.split("=")
-            vals = [thisval]
+            vals = [(2, thisval)] # WEIGHT: 2 - pulled value from potential configs?
         else:
             # Only identified variable name
             thiskey = kv
-            vals = potential_env_vals(config, thiskey)
+            vals = potential_env_vals(config, thiskey) # Dynamic weights from above
 
         # Is variable already set in our config or was it something we concretely
         # saw accessed? If so, skip it
         if thiskey in existing_vars or thiskey in env_accesses:
             continue
 
-        for val in vals:
+        for (val_weight, potential_val) in vals:
             # Builds a new copnfig with key=potential val. WEIGHT=0.5
             # because we never saw the key accessed
             new_config = deepcopy(config)
-            new_config['append'].append(f"{thiskey}={val}")
-            new_config['meta']['delta'].append(f"env {thiskey}={val}")
+            new_config['append'].append(f"{thiskey}={potential_val}")
+            new_config['meta']['delta'].append(f"env {thiskey}={potential_val}")
 
             # Drop alternatives for this key from potential_env
             for saved_potkeyval in list(new_config['meta']['potential_env']):
@@ -188,6 +190,6 @@ def propose_configs(config, result_dir, quiet=False):
                     # Need to remove with exact match
                     new_config['meta']['potential_env'].remove(saved_potkeyval)
 
-            new_configs.append((0.5, new_config))
+            new_configs.append((val_weight, new_config))
 
     return new_configs
