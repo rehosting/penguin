@@ -123,10 +123,14 @@ def propose_configs(config, result_dir, quiet=False):
                     'val': 0
                 })
 
-                new_config['meta']['delta'].append(f"add_device {path}")
+                new_config['meta']['delta'].append(f"add_device type{'A' if weight==99 else 'B'} {path}")
 
                 if path[-1].isdigit():
-                    weight *= 0.01 # Low priority, think like /dev/ptyX with lots of X's
+                    # XXX: We don't like these. Don't pollute the queue. We could turn this back on later
+                    # and mess with the weight.
+                    #weight -= 1000 # We don't like this
+                    continue
+
                 new_configs.append((weight, new_config))
         elif path.startswith("/proc"):
             # TODO: do we want to handle these? Fake procfiles? Rebuild kernel, perhaps
