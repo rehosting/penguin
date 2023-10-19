@@ -5,6 +5,7 @@ import yaml
 from copy import deepcopy
 
 outfile = "ioctls.yaml"
+logfile = "ioctls.log"
 
 # Parse a given config to fake ioctls
 '''
@@ -109,7 +110,7 @@ class IoctlFakerC(PyPlugin):
                 if not hasattr(self, "do_" + model_type):
                     raise ValueError(f"Unknown ioctl type: {model_type}")
                 
-                if model_type == 'symex':
+                if model_type in ['symex', 'symbolic_cache']:
                     self.save_symex = True
                 
                 # Decode the ioctl and report it's details
@@ -119,7 +120,6 @@ class IoctlFakerC(PyPlugin):
 
                 #print(f"Modeling ioctl {cmd:#x} on {name} using model {model_type}")
                 #print(self.decode_ioctl(cmd))
-
 
                 f = getattr(self, "do_" + model_type)
                 new_rv = f(cpu, ioctl_info, name=name, cmd=cmd, argp=argp)
@@ -181,6 +181,7 @@ class IoctlFakerC(PyPlugin):
         rv = conf['val']
         fail = getattr(conf, 'fail', False) #  Optional
         self.panda.arch.set_retval(cpu, rv, convention='syscall', failure=fail)
+        print(f"Set IOCTL retval to {rv:#x}")
         return rv
 
     def do_symbolic_cache(self, cpu, conf, name, cmd, argp):
@@ -202,7 +203,7 @@ class IoctlFakerC(PyPlugin):
             return self.do_return_const(cpu, conf)
         self.symbolic_cache.append((name, cmd))
 
-        with open(self.get_arg("outdir") + "/ioctl.log", "a") as f:
+        with open(pjoin(self.outdir, logfile), "a") as f:
             f.write(f"Trying symbolic model for ioctl {cmd:#x} on {name}...\n")
             try:
                 results = self.symex.do_symex(self.panda, name, cmd, argp)
@@ -308,12 +309,11 @@ class IoctlFakerC(PyPlugin):
         if self.symex and self.save_symex:
             self.symex.save_results()
 
-        # Dump to outfile as yaml (for iterative refinement)
-        # XXX: What is this? It's not what we want...
-        #output = self.hypothesize_models()
+        # Dump the distinct RVs we've identified to disk
+        output = self.hypothesize_models()
 
         with open(pjoin(self.outdir, outfile), "w") as f:
-            yaml.dump(self.ioctl_failures, f)
+            yaml.dump(output, f)
 
 def propose_configs(config, result_dir, quiet=False):
     with open(pjoin(result_dir, outfile)) as f:
@@ -329,14 +329,9 @@ def propose_configs(config, result_dir, quiet=False):
 
         for ioctl, full_rvs in info.items():
             rvs = [x for x in full_rvs if x != 0] # Don't explicitly set 0 - that's already our default!
-            bonus = 0
-            if len(rvs) > 1:
-                bonus = 1
 
             for idx, rv in enumerate(rvs):
-                weight = 2 + (-len(rvs) / (idx+1))
-                # IOCTLs are imporant - weight ranges from [20-60]
-                weight = 20*(weight+bonus)
+                weight = 20
 
                 #mitigations.append((('fake_ioctl', hex(ioctl), path, hex(rv)), weight + bonus))
 
@@ -348,6 +343,11 @@ def propose_configs(config, result_dir, quiet=False):
                     'cmd': ioctl,
                     'val': rv
                 })
+
+                # Let's skew weight based on rv. If high bits set it's funky
+                if rv & 0xFF000000:
+                    weight -= 10 # Less likely
+
                 new_config['meta']['delta'].append(f"fake_ioctl {hex(ioctl)} {path} {hex(rv)}")
                 new_configs.append((weight, new_config))
     return new_configs
