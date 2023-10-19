@@ -345,9 +345,9 @@ def propose_configs(config, result_dir, quiet=False):
                 })
 
                 # Let's skew weight based on rv. If high bits set it's funky
-                if rv & 0xFF000000:
-                    weight -= 10 # Less likely
+                #if rv & 0xFF000000:
+                #    weight -= 10 # Less likely
 
-                new_config['meta']['delta'].append(f"fake_ioctl {hex(ioctl)} {path} {hex(rv)}")
+                new_config['meta']['delta'].append(f"ioctl {path}  {ioctl:x}={rv:x}")
                 new_configs.append((weight, new_config))
     return new_configs
