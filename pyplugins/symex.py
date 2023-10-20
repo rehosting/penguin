@@ -4,6 +4,7 @@ import logging
 from sys import stderr
 import pickle
 import itertools
+import tempfile
 
 import time
 import logging
@@ -23,9 +24,7 @@ from angr_targets import PandaConcreteTarget
 import os
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"]="python"
 
-
-EXTRACTED_FS = "/share/tikroot" if os.path.isdir("/share/tikroot") else "/home/andrew/git/igloo/share/tikroot"
-SCRATCH = "/share/tmp/" if os.path.isdir("/share/tmp/") else "/tmp/scratch/"
+EXTRACTED_FS = "/share/tmproot" # XXX TODO, parameterize this
 
 from angr.concretization_strategies import SimConcretizationStrategy
 
@@ -47,7 +46,7 @@ class MyStrat(SimConcretizationStrategy):
         
         return values
 
-def get_map_info(logger, panda, cpu, targ_addr):
+def get_map_info(logger, panda, cpu, targ_addr, scratch):
     '''
     Enumerate memory mappings to find the target binary and libraries.
     Ensure libraries exist in scratch directory
@@ -80,7 +79,7 @@ def get_map_info(logger, panda, cpu, targ_addr):
             continue
 
         # Copy the library into the stridelibs directory so angr can find it
-        os.system(f"cp {EXTRACTED_FS}/{fname} {SCRATCH}/{os.path.basename(fname)}")
+        os.system(f"cp {EXTRACTED_FS}/{fname} {scratch}/{os.path.basename(fname)}")
 
         # Add basename to lib_opts
         libname = os.path.basename(fname)
@@ -94,12 +93,10 @@ def get_map_info(logger, panda, cpu, targ_addr):
     return target_binary, target_base, lib_opts, force_load_libs
 
 def setup_project(panda, targ_addr, logger):
-    if os.path.isdir(SCRATCH):
-        os.system(f"rm -rf {SCRATCH}")
-    os.makedirs(SCRATCH)
+    scratch = tempfile.mkdtemp(prefix="penguin_")
 
     cpu = panda.get_cpu() 
-    (target_binary, target_base, lib_opts, force_load_libs) = get_map_info(logger, panda, cpu, targ_addr)
+    (target_binary, target_base, lib_opts, force_load_libs) = get_map_info(logger, panda, cpu, targ_addr, scratch)
     panda_target = PandaConcreteTarget(panda)
 
     print("Target binary:", target_binary)
@@ -113,7 +110,7 @@ def setup_project(panda, targ_addr, logger):
                         main_opts={'base_addr': target_base},
                         lib_opts=lib_opts,
                         force_load_libs=force_load_libs,
-                        ld_path=SCRATCH,
+                        ld_path=scratch,
                         auto_load_libs=False)
     
     state = proj.factory.entry_state(addr=panda.arch.get_pc(cpu))
@@ -133,6 +130,7 @@ def setup_project(panda, targ_addr, logger):
     state.fs.insert('/dev/flash', angr.SimFile('devflash', content=''))
     state.fs.insert('/dev/rb', angr.SimFile('devrb', content=''))
 
+    # XXX should we rm scratch now? Or return it?
     return proj, state
 
 def set_retval(state, panda, retval, convention='default'):
@@ -496,6 +494,7 @@ class PathExpIoctl():
             known_values = self.get_known_values()
         except FileNotFoundError:
             # We found no results, and we're not loading from disk. This is probably a bad design
+            self.log("No results")
             return {}
 
         for fname, nums in known_values.items():
@@ -508,6 +507,7 @@ class PathExpIoctl():
                     print("\tWarning: no paths found - return 0")
                     paths = [0]
 
+                self.log(f"{fname}, {n} = {paths}")
                 models[fname][n] = paths
         return models
 
@@ -515,6 +515,8 @@ class PathExpEnv():
     '''
     Plugin to symbolically model returns from getenv to try finding string values
     that are checked for
+
+    XXX unused???
     '''
     def __init__(self, out_dir, read_only = False):
         self.log_file = open(os.path.join(out_dir, "env_symex.log"), "w" if not read_only else "r")
