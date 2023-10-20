@@ -4,8 +4,8 @@ import yaml
 from copy import deepcopy
 
 target_str = 'DYNVAL'
-output_file = "/targetcmp.txt" # C++ analysis with callstackinstr
-output_file2 = "/targetcmppy.txt" # Python with libc fn hooks
+output_file = "targetcmp.txt" # C++ analysis with callstackinstr
+output_file2 = "targetcmppy.txt" # Python with libc fn hooks
 
 
 def _have_target_str_in_config(config):
@@ -60,9 +60,19 @@ class TargetCmp(PyPlugin):
         
         # XXX: should check to make sure we never have 2 vars = target_str at once?
 
+        # Just touch the output files so they're not empty
+        # Is this really necessary?
+        open(pjoin(self.outdir, output_file), "w").close()
+        open(pjoin(self.outdir, output_file2), "w").close()
+
         # Load C plugins to dynamically track potential comparisons
         panda.load_plugin("callstack_instr", args={"stack_type": "asid"})
-        panda.load_plugin("targetcmp", args={"output_file": pjoin(self.outdir, output_file), "target_str": target_str})
+        panda.load_plugin("callwitharg")
+        panda.load_plugin("targetcmp",
+            args={
+                "output_file": pjoin(self.outdir, output_file),
+                "target_str": target_str
+                })
 
         # Also explicitly hook strcmp/strncmp
         @panda.hook_symbol("libc-", "strcmp")
