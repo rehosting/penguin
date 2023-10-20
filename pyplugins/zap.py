@@ -45,9 +45,9 @@ class Zap(PyPlugin):
                 time.sleep(3)
                 print("Waiting for zap to start...")
 
-        #self.ppp.VsockVPN.ppp_reg_cb('on_bind', self.zap_on_bind)
+        self.ppp.VsockVPN.ppp_reg_cb('on_bind', self.zap_on_bind)
         #self.ppp.SyscallProxy.ppp_reg_cb('on_pbind', self.zap_on_bind)
-        self.ppp.SyscallProxy2.ppp_reg_cb('on_pbind', self.zap_on_bind)
+        #self.ppp.SyscallProxy2.ppp_reg_cb('on_pbind', self.zap_on_bind)
 
     @staticmethod
     def find_free_port():
@@ -69,7 +69,7 @@ class Zap(PyPlugin):
         if guest_port not in [80] or proto != 'tcp':
             # Ignore
             return
-        
+
         f = open(self.outdir + f"/zap_{proto}_{guest_port}.log", "w")
         self.log_files.append(f)
 
@@ -113,7 +113,7 @@ class Zap(PyPlugin):
         zap = ZAPv2(proxies=localProxy, apikey=self.api_key)
 
         target = f"http://127.0.0.1:{host_port}/"
-        self.ppp.Introspect.set_zap(host_port, self)
+        #self.ppp.Introspect.set_zap(host_port, self)
 
         # Do we block the guest here?
         # Open our URL, through ZAP proxy?
@@ -121,7 +121,7 @@ class Zap(PyPlugin):
             r = requests.get(f"http://127.0.0.1:{self.port}", verify=False)
         except Exception as e:
             print(e, file=log_file)
-            self.panda.end_analysis()
+            #self.panda.end_analysis()
             raise
 
         # Now try talking to target
@@ -131,21 +131,21 @@ class Zap(PyPlugin):
             r.raise_for_status()
         except Exception as e:
             print(e, file=log_file)
-            self.panda.end_analysis()
+            #self.panda.end_analysis()
             raise
 
         # First we just browse to the main URL to update the sites tree
         #print(zap.core.access_url(url=target, followredirects=True))
         try:
-            print(zap.urlopen(target))
+            print(zap.urlopen(target), file=log_file)
         except Exception as e:
             print(f"EXCEPTION connecting to {target}: {e}", file=log_file)
-            self.panda.end_analysis()
+            #self.panda.end_analysis()
             raise
         time.sleep(2) # Give the sites tree a chance to get updated
 
         # Next we passively scan
-        print(f"Spidering target: {target}")
+        print(f"Spidering target: {target}", file=log_file)
         #scanids = set([zap.spider.scan(target)]) # Set of all scans we're running - I think the scan is called 'no_implementor' ?? We get a status for that?
         zap.spider.scan(target) 
         time.sleep(2) # Give the Spider a chance to start
@@ -164,7 +164,7 @@ class Zap(PyPlugin):
 
             # Only sleep when queue is empty
             if len(self.url_queue) == 0:
-                print(f"Spider progress: zap.spider.status()", file=log_file)
+                print(f"Spider progress: {zap.spider.status()}", file=log_file)
                 time.sleep(2)
 
         print('Spider completed', file=log_file)
@@ -211,8 +211,8 @@ class Zap(PyPlugin):
         for url in zap.core.urls():
             print(url, file=log_file)
 
-        # Shut down PANDA
-        self.panda.end_analysis()
+        # Shut down PANDA -- XXX NO, that would be bad!
+        #self.panda.end_analysis()
 
     def uninit(self):
         if self.output_file:
