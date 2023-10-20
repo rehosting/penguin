@@ -9,6 +9,7 @@ import os
 from zapv2 import ZAPv2
 from contextlib import closing
 from pandare import PyPlugin
+from requests.exceptions import ProxyError
 
 class Zap(PyPlugin):
     def __init__(self, panda):
@@ -148,24 +149,37 @@ class Zap(PyPlugin):
         print(f"Spidering target: {target}", file=log_file)
         #scanids = set([zap.spider.scan(target)]) # Set of all scans we're running - I think the scan is called 'no_implementor' ?? We get a status for that?
         zap.spider.scan(target) 
-        time.sleep(2) # Give the Spider a chance to start
+        
+        # Wait up to 10s for the spider to start
+        for idx in range(10):
+            try:
+                zap.spider.status()
+            except Exception as e:
+                if idx == 9:
+                    print(f"Failed to start spider: {e}", file=log_file)
+                    return
+                time.sleep(1)
 
         # Wait for both spider to finish AND for the queue to be empty
         # not sure what's up with the no_implementor - hopefully it's an init thing?
-        while len(self.url_queue) > 0 or int(zap.spider.status()) < 100: # Are any scans pending?
-            url = None
-            with self.url_queue_lock:
-                if len(self.url_queue) > 0:
-                    url = target + self.url_queue.pop(0)
-            if url:
-                zap.spider.scan(url)
-                print(f"Adding url from introspect to spider: {url}", file=log_file)
-                #print("SCANIDS now:", scanids)
+        try:
+            while len(self.url_queue) > 0 or int(zap.spider.status()) < 100: # Are any scans pending?
+                url = None
+                with self.url_queue_lock:
+                    if len(self.url_queue) > 0:
+                        url = target + self.url_queue.pop(0)
+                if url:
+                    zap.spider.scan(url)
+                    print(f"Adding url from introspect to spider: {url}", file=log_file)
+                    #print("SCANIDS now:", scanids)
 
-            # Only sleep when queue is empty
-            if len(self.url_queue) == 0:
-                print(f"Spider progress: {zap.spider.status()}", file=log_file)
-                time.sleep(2)
+                # Only sleep when queue is empty
+                if len(self.url_queue) == 0:
+                    print(f"Spider progress: {zap.spider.status()}", file=log_file)
+                    time.sleep(2)
+        except ProxyError:
+            print("ERROR: ProxyError while spidering")
+            return
 
         print('Spider completed', file=log_file)
         time.sleep(5) # Give the passive scanner a chance to finish
