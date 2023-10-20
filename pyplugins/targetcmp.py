@@ -43,6 +43,9 @@ def propose_configs(config, outdir, quiet=False):
         new_config['meta']['delta'].append(f"env {target_var}={new_val}")
 
         # We saw a concrete comparison - this is pretty promising!
+        # XXX: we'll calculate this as a relative score to the run with DYNVAL
+        # but we really want to calculate it based on the grandparent's score
+        # because DYNVAL was definitely wrong
         new_configs.append((15, new_config))
     return new_configs
 
