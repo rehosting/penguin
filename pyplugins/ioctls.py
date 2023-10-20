@@ -348,6 +348,6 @@ def propose_configs(config, result_dir, quiet=False):
                 #if rv & 0xFF000000:
                 #    weight -= 10 # Less likely
 
-                new_config['meta']['delta'].append(f"ioctl {path}  {ioctl:x}={rv:x}")
+                new_config['meta']['delta'].append(f"ioctl{ioctl:x} {path}={rv:x}")
                 new_configs.append((weight, new_config))
     return new_configs
