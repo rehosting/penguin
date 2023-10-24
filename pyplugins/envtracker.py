@@ -8,6 +8,13 @@ from copy import deepcopy
 
 outfile = "missing_envvars.yaml"
 ENV_MAGIC_VAL = "DYNVAL"
+DEFAULT_VALUES = [
+    "1",
+    "0",
+    "no",
+    "0.0.0.0",
+    "00:00:00:00:00:00",
+]
 
 '''
 # Calculate module name and offset
@@ -119,7 +126,9 @@ def potential_env_vals(config, varname):
 
     # Final option: dynamically find values we compare to
     # This requires multiple steps so it's tricky
-    results.append((0.25, ENV_MAGIC_VAL)) # Magic string checked against elsewhere
+    # and we can't do this if we already have any other ENV_MAGIC_VALs set in our config
+    if not any([ENV_MAGIC_VAL in x.split("=")[1] for x in config['append']]):
+        results.append((1, ENV_MAGIC_VAL)) # Magic string checked against by targetcmp
 
     return results
 
@@ -158,38 +167,25 @@ def propose_configs(config, result_dir, quiet=False):
     # setting these too. Less likely to succeed - note we have our igloo_task_size
     # in here which sometimes matters
 
-    for kv in config['meta']['potential_env']:
-        if '=' in kv: # Specific value
-            thiskey, thisval = kv.split("=")
-            vals = [(2, thisval)] # WEIGHT: 2 - pulled value from potential configs?
-        else:
-            # Only identified variable name
-            thiskey = kv
-            vals = potential_env_vals(config, thiskey) # Dynamic weights from above
+    for key_name, default_values in config['meta']['potential_env'].items():
 
-        # Is variable already set in our config or was it something we concretely
-        # saw accessed? If so, skip it
-        if thiskey in existing_vars or thiskey in env_accesses:
+        if key_name in existing_vars:
+            # We've already set this to something concrete - don't try anything else
             continue
 
-        for (val_weight, potential_val) in vals:
-            # Builds a new copnfig with key=potential val. WEIGHT=0.5
-            # because we never saw the key accessed
+        if default_values is not None:
+            vals = [(2, x) for x in default_values] # WEIGHT 2 because we have concrete values in FS
+        else:
+            vals = [(0.5, x) for x in  DEFAULT_VALUES] # WEIGHT 0.5 because we're winging it
+
+        # Dynamically search for new values at runtime!
+        vals.append((1, ENV_MAGIC_VAL))
+
+        # We have specific values! Try them out
+        for (val_weight, val) in vals:
             new_config = deepcopy(config)
-            new_config['append'].append(f"{thiskey}={potential_val}")
-            new_config['meta']['delta'].append(f"env {thiskey}={potential_val}")
-
-            # Drop alternatives for this key from potential_env
-            for saved_potkeyval in list(new_config['meta']['potential_env']):
-                if "=" in saved_potkeyval:
-                    savedkey = saved_potkeyval.split("=")[0]
-                else:
-                    savedkey = saved_potkeyval
-
-                if thiskey == savedkey:
-                    # Need to remove with exact match
-                    new_config['meta']['potential_env'].remove(saved_potkeyval)
-
+            new_config['append'].append(f"{key_name}={val}")
+            new_config['meta']['delta'].append(f"env {key_name}={val}")
             new_configs.append((val_weight, new_config))
 
     return new_configs

@@ -66,6 +66,10 @@ class Zap(PyPlugin):
         so we can analyze syscall behavior during each zap-generated requestd
         '''
 
+        print(f"VPN told zap about {procname} binding to guest {guest_ip}:{guest_port}")
+        with open(f"{self.outdir}/binds.txt", "a") as f:
+            f.write(f"{procname} binds to {guest_ip}:{guest_port}\n")
+
         #if guest_port not in [80, 443] or proto != 'tcp':
         if guest_port not in [80] or proto != 'tcp':
             # Ignore
@@ -75,7 +79,7 @@ class Zap(PyPlugin):
         self.log_files.append(f)
 
         # Launch a thread to analyze this request
-        t = threading.Thread(target=self.crawl_thread, args=(host_port,f))
+        t = threading.Thread(target=self.crawl_thread_exn, args=(host_port,f))
         t.daemon = True
         t.start()
 
@@ -92,6 +96,12 @@ class Zap(PyPlugin):
 
         with self.url_queue_lock:
             self.url_queue.append(url)
+
+    def crawl_thread_exn(self, host_port, log_file):
+        try:
+            self.crawl_thread(host_port, log_file)
+        except Exception as e:
+            print("Exception in crawl thread:", e)
 
     def crawl_thread(self, host_port, log_file):
         '''
@@ -121,9 +131,10 @@ class Zap(PyPlugin):
         try:
             r = requests.get(f"http://127.0.0.1:{self.port}", verify=False)
         except Exception as e:
+            print("BAIL EARLY FOR EXN", file=log_file)
             print(e, file=log_file)
             #self.panda.end_analysis()
-            raise
+            return
 
         # Now try talking to target
         try:
@@ -131,9 +142,10 @@ class Zap(PyPlugin):
             #r = requests.get(target, proxies=localProxy, verify=False, headers={'Host': 'http://127.0.0.1:80'})
             r.raise_for_status()
         except Exception as e:
+            print("BAIL EARLY FOR EXN", file=log_file)
             print(e, file=log_file)
             #self.panda.end_analysis()
-            raise
+            return
 
         # First we just browse to the main URL to update the sites tree
         #print(zap.core.access_url(url=target, followredirects=True))
@@ -141,8 +153,9 @@ class Zap(PyPlugin):
             print(zap.urlopen(target), file=log_file)
         except Exception as e:
             print(f"EXCEPTION connecting to {target}: {e}", file=log_file)
+            print(e, file=log_file)
             #self.panda.end_analysis()
-            raise
+            return
         time.sleep(2) # Give the sites tree a chance to get updated
 
         # Next we passively scan
@@ -188,20 +201,24 @@ class Zap(PyPlugin):
         print(f"Scanning target: {target}", file=log_file)
         zap.ascan.scan(target)
         # Wait for both scan to finish AND for the queue to be empty
-        while len(self.url_queue) > 0 or int(zap.ascan.status()) < 100:
-            # Pop any new URLs off the queue and queue them for scanning
-            url = None
-            with self.url_queue_lock:
-                if len(self.url_queue) > 0:
-                    url = target + self.url_queue.pop(0)
-            if url:
-               zap.ascan.scan(url)
-               print(f"Adding url from introspect to scan {url}", file=log_file)
+        try:
+            while len(self.url_queue) > 0 or int(zap.ascan.status()) < 100:
+                # Pop any new URLs off the queue and queue them for scanning
+                url = None
+                with self.url_queue_lock:
+                    if len(self.url_queue) > 0:
+                        url = target + self.url_queue.pop(0)
+                if url:
+                    zap.ascan.scan(url)
+                    print(f"Adding url from introspect to scan {url}", file=log_file)
 
-            # Only sleep when queue is empty
-            if len(self.url_queue) == 0:
-                print(f"Scan progress: {zap.ascan.status()}", file=log_file)
-                time.sleep(5)
+                # Only sleep when queue is empty
+                if len(self.url_queue) == 0:
+                    print(f"Scan progress: {zap.ascan.status()}", file=log_file)
+                    time.sleep(5)
+        except ProxyError:
+            print("ERROR: ProxyError while active scanning")
+            return
 
         print('Scan completed', file=log_file)
 
@@ -229,8 +246,6 @@ class Zap(PyPlugin):
         #self.panda.end_analysis()
 
     def uninit(self):
-        if self.output_file:
-            self.output_file.close()
         if hasattr(self, 'process'):
             self.process.terminate()
 
@@ -245,3 +260,6 @@ class Zap(PyPlugin):
 
         for f in self.log_files:
             f.close()
+
+        if self.output_file:
+            self.output_file.close()

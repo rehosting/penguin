@@ -91,6 +91,8 @@ def propose_configs(config, result_dir, quiet=False):
 
     # File failures: weight is 2 * count by default
     new_configs = []
+    combined_config = deepcopy(config)
+    combined_weight = 0
     for path, info in file_failures.items():
 
         if path.startswith("/dev"):
@@ -103,40 +105,54 @@ def propose_configs(config, result_dir, quiet=False):
                 (99, 'block', 1, 3, 777), # /dev/null - discard all data, return EOF on read
                 (1, 'block', 1, 5, 777), # /dev/zero - discard all data, return zeros on read
                     ]:
+                
+                # We'll try both types of device files as independent configs
+                # but we'll also generate a combined config with all the various
+                # typeA options
+                target_configs = [deepcopy(config)]
+                if weight == 99:
+                    target_configs.append(combined_config)
 
-                new_config = deepcopy(config)
-                new_config['files'].append({
-                    'type': 'dev',
-                    'devtype': devtype,
-                    'major': major,
-                    'minor': minor,
-                    'mode': mode,
-                    'path': path
-                })
+                for idx, new_config in enumerate(target_configs):
+                    new_config['files'].append({
+                        'type': 'dev',
+                        'devtype': devtype,
+                        'major': major,
+                        'minor': minor,
+                        'mode': mode,
+                        'path': path
+                    })
 
-                # And setup a default IOCTL modeler that returns 0 but will propose alternatives
-                # based on symex
-                new_config['ioctls'].append({
-                    'path': path,
-                    'type': 'symbolic_cache',
-                    'cmd': '*',
-                    'val': 0
-                })
+                    # And setup a default IOCTL modeler that returns 0 but will propose alternatives
+                    # based on symex
+                    new_config['ioctls'].append({
+                        'path': path,
+                        'type': 'symbolic_cache',
+                        'cmd': '*',
+                        'val': 0
+                    })
 
-                new_config['meta']['delta'].append(f"add_device type{'A' if weight==99 else 'B'} {path}")
+                    new_config['meta']['delta'].append(f"add_device type{'A' if weight==99 else 'B'} {path}")
 
-                if path[-1].isdigit():
-                    # XXX: We don't like these. Don't pollute the queue. We could turn this back on later
-                    # and mess with the weight.
-                    #weight -= 1000 # We don't like this
-                    continue
+                    if idx == 0:
+                        # For devices that end with #s, we'll add them to the combined config, but not create new configs
+                        if path[-1].isdigit():
+                            # XXX: We don't like these. Don't pollute the queue. We could turn this back on later
+                            # and mess with the weight.
+                            #weight -= 1000 # We don't like this
+                            continue
+                        new_configs.append((weight, new_config))
+                    else:
+                        combined_weight += weight
 
-                new_configs.append((weight, new_config))
         elif path.startswith("/proc"):
             # TODO: do we want to handle these? Fake procfiles? Rebuild kernel, perhaps
             # with LLM assistance?
             #if not quiet:
             #    print(f"\tSaw {len(info)} failures trying to open {path} - ignoring for now")
             pass
+
+    # Finally add the one with all the file changes
+    new_configs.append((combined_weight, combined_config))
 
     return new_configs

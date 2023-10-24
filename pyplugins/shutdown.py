@@ -26,7 +26,10 @@ class Shutdown(PyPlugin):
         while wait_time < timeout:
             # Check if the event is set
             if shutdown_event.is_set():
-                print("Shutdown thread: Guest shutdown detected, exiting thread.")
+                try:
+                    print("Shutdown thread: Guest shutdown detected, exiting thread.")
+                except OSError:
+                    pass # Can't print but it's not important
                 return
 
             # Sleep briefly

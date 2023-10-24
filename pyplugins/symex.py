@@ -12,8 +12,8 @@ import logging
 #logging.getLogger().setLevel('DEBUG')
 #logging.getLogger().setLevel('INFO')
 logging.getLogger().setLevel('WARNING')
-#logging.getLogger('angr').setLevel('WARNING')
-#logging.getLogger("angr_targets.panda").setLevel('WARNING')
+logging.getLogger('angr').setLevel('WARNING')
+logging.getLogger("angr_targets.panda").setLevel('WARNING')
 
 import angr
 import claripy
@@ -24,7 +24,7 @@ from angr_targets import PandaConcreteTarget
 import os
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"]="python"
 
-EXTRACTED_FS = "/share/tmproot" # XXX TODO, parameterize this
+EXTRACTED_FS = "/share/tmproot" # XXX TODO, parameterize this - is it actually even used?
 
 from angr.concretization_strategies import SimConcretizationStrategy
 
