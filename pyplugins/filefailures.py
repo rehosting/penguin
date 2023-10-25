@@ -6,6 +6,12 @@ from os.path import dirname, join as pjoin
 from pandare import PyPlugin
 from copy import deepcopy
 
+try:
+    from penguin import PenguinAnalysis
+except ImportError:
+    # We can still run as a PyPlugin, but we can't do post-run analysis
+    PenguinAnalysis = object
+
 outfile = "file_failures.yaml"
 
 def path_interesting(path):
@@ -85,74 +91,70 @@ class FileFailures(PyPlugin):
         with open(pjoin(self.outdir, outfile), "w") as f:
             yaml.dump(self.file_failures, f)
 
-def propose_configs(config, result_dir, quiet=False):
-    with open(f"{result_dir}/{outfile}") as f:
-        file_failures = yaml.safe_load(f)
+class FileFailuresAnalysis(PenguinAnalysis):
+    ANALYSIS_TYPE = "files"
 
-    # File failures: weight is 2 * count by default
-    new_configs = []
-    combined_config = deepcopy(config)
-    combined_weight = 0
-    for path, info in file_failures.items():
+    def parse_failures(self, output_dir):
+        with open(pjoin(output_dir, outfile)) as f:
+            file_failures = yaml.safe_load(f)
 
-        if path.startswith("/dev"):
-            if not quiet:
-                print(f"\tSaw {len(info)} failures trying to open {path}")
+        fails = []
+        for path, info in file_failures.items():
+            if path.startswith("/dev") or path.startswith("/proc"):
+                if self.debug:
+                    print(f"\tSaw {len(info)} failures trying to open {path}")
+                fails.append(path)
+        return fails
+    
+    def get_potential_mitigations(self, config, path):
+        # We propose mitigations from state (global or local!)
+        results = {} # path -> [details]
 
-            for (weight, devtype, major, minor, mode) in [
-                # Adding a dev-file is a high-value add. But adding in a different
-                # mode is unlikely to change things. So we prioritize the weight of one
-                (99, 'block', 1, 3, 777), # /dev/null - discard all data, return EOF on read
-                (1, 'block', 1, 5, 777), # /dev/zero - discard all data, return zeros on read
+        if config is not None and path in config['files']:
+            # This config already has a mitigation for this file - can't add again
+            # If we're getting potential mitigations for the config that we did
+            # parse failures on, this probably never happens?
+            return []
+
+        if path.split("/")[1] == 'dev':
+            results = []
+            for (devtype, major, minor, mode) in [
+                ('block', 1, 3, 777), # /dev/null - discard all data, return EOF on read
+                ('block', 1, 5, 777), # /dev/zero - discard all data, return zeros on read
                     ]:
-                
-                # We'll try both types of device files as independent configs
-                # but we'll also generate a combined config with all the various
-                # typeA options
-                target_configs = [deepcopy(config)]
-                if weight == 99:
-                    target_configs.append(combined_config)
 
-                for idx, new_config in enumerate(target_configs):
-                    new_config['files'].append({
-                        'type': 'dev',
-                        'devtype': devtype,
-                        'major': major,
-                        'minor': minor,
-                        'mode': mode,
-                        'path': path
-                    })
+                results.append({
+                    'type': 'dev',
+                    'devtype': devtype,
+                    'major': major,
+                    'minor': minor,
+                    'mode': mode,
+                    # XXX: we also want to say this goes with an IOCTL mitigation?
+                    # Should we include path in here?
+                })
 
-                    # And setup a default IOCTL modeler that returns 0 but will propose alternatives
-                    # based on symex
-                    new_config['ioctls'].append({
-                        'path': path,
-                        'type': 'symbolic_cache',
-                        'cmd': '*',
-                        'val': 0
-                    })
+                # And setup a default IOCTL modeler that returns 0 but will
+                # propose alternatives based on symex
+                #new_config['ioctls'].append({
+                #    'path': path,
+                #    'type': 'symbolic_cache',
+                #    'cmd': '*',
+                #    'val': 0
+                #})
+            return results
 
-                    new_config['meta']['delta'].append(f"add_device type{'A' if weight==99 else 'B'} {path}")
+        elif path.split("/")[1] == 'proc':
+            # TODO: we *should* model these in various ways!
+            return []
+        else:
+            print("WARN: Unexpected file:", path)
+            return []
 
-                    if idx == 0:
-                        # For devices that end with #s, we'll add them to the combined config, but not create new configs
-                        if path[-1].isdigit():
-                            # XXX: We don't like these. Don't pollute the queue. We could turn this back on later
-                            # and mess with the weight.
-                            #weight -= 1000 # We don't like this
-                            continue
-                        new_configs.append((weight, new_config))
-                    else:
-                        combined_weight += weight
+    def implement_mitigation(self, config, failure, mitigation):
+        # Given a mitigation, add it to a copy of the config and return
+        new_config = deepcopy(config)
+        assert failure not in new_config[self.ANALYSIS_TYPE].keys()
 
-        elif path.startswith("/proc"):
-            # TODO: do we want to handle these? Fake procfiles? Rebuild kernel, perhaps
-            # with LLM assistance?
-            #if not quiet:
-            #    print(f"\tSaw {len(info)} failures trying to open {path} - ignoring for now")
-            pass
-
-    # Finally add the one with all the file changes
-    new_configs.append((combined_weight, combined_config))
-
-    return new_configs
+        assert(isinstance(mitigation, dict)), f"Unexpected mitigation {mitigation}"
+        new_config[self.ANALYSIS_TYPE][failure] = mitigation
+        return new_config

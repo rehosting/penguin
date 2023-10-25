@@ -5,6 +5,11 @@ import re
 from os.path import dirname, join as pjoin
 from pandare import PyPlugin
 from copy import deepcopy
+try:
+    from penguin import PenguinAnalysis
+except ImportError:
+    # We can still run as a PyPlugin, but we can't do post-run analysis
+    PenguinAnalysis = object
 
 outfile = "missing_envvars.yaml"
 ENV_MAGIC_VAL = "DYNVAL"
@@ -90,102 +95,65 @@ class EnvTracker(PyPlugin):
         with open(pjoin(self.outdir, outfile), "w") as f:
             yaml.dump(list(self.env_vars), f)
 
-def potential_env_vals(config, varname):
-    results = [] # (weight, val)
+class EnvTrackerAnalysis(PenguinAnalysis):
+    ANALYSIS_TYPE = "env"
 
-    # First option(s) - search filesystem for "[varname]=[valid value]" and try them
-    # first we build our regex. Value can only be a-zA-Z0-9_-
-    test = re.compile(f"{varname}=([a-zA-Z0-9_-]+)")
-    matches = set()
+    def parse_failures(self, output_dir):
+        with open(pjoin(output_dir, outfile)) as f:
+            env_accesses = yaml.safe_load(f)
 
-    fs_tar_path = config['base']['fs']
-    # Open the tarfile
-    tar = tarfile.open(fs_tar_path, "r")
-    # Iterate through members
-    for member in tar.getmembers():
-        # For each file in the archive, look for key=value strings that might be valid
-        if not member.isfile():
-            continue
+        # It's a list - easy pz
+        return env_accesses
 
-        data = tar.extractfile(member.name).read()
-        # Note data is bytes, not str, but test is a str regex
-        # so we need to decode to str
-        data = data.decode(errors='ignore')
+    def get_potential_mitigations(self, config, varname):
+        existing_vars = list(config[self.ANALYSIS_TYPE].keys()) if config else []
 
-        # Now check for matches
-        for match in test.findall(data):
-            # It's promising that we saw this in the FS
-            matches.add((10, match)) # WEIGHT: 10
-
-    for match in matches:
-        results.append(match)
-
-    # Next option: Constant values
-    for const in ["1"]:
-        results.append((0.5, const)) # WEIGHT: 0.5
-
-    # Final option: dynamically find values we compare to
-    # This requires multiple steps so it's tricky
-    # and we can't do this if we already have any other ENV_MAGIC_VALs set in our config
-    if not any([ENV_MAGIC_VAL in x.split("=")[1] for x in config['append']]):
-        results.append((1, ENV_MAGIC_VAL)) # Magic string checked against by targetcmp
-
-    return results
-
-def propose_configs(config, result_dir, quiet=False):
-    with open(pjoin(result_dir, outfile)) as f:
-        env_accesses = yaml.load(f, Loader=yaml.FullLoader)
-
-    new_configs = []
-    existing_vars = [x.split('=')[0] for x in config['append']]
-
-    # FIRST: for all variables we saw accessed, we proppose
-    # setting them to various values. XXX: Here we're just guessing
-    # based on static analysis and consts, nothing fancy
-    for varname in env_accesses:
+        if varname == 'igloo_task_size':
+            # This is a special case. Already have all the values we could need
+            return []
+        
         if varname in existing_vars:
-            continue
-        if not quiet:
-            print(f"\tSaw env var access: {varname}")
+            return []
 
-        for (var_weight, potential_var) in potential_env_vals(config, varname):
-            # Build a new config with key=potential val. WEIGHT=1
-            # Drop alternatives for this key in potential_env
-            new_config = deepcopy(config)
+        results = []
+        # Start with some placeholders
+        for val in DEFAULT_VALUES:
+            results.append(val)
 
-            new_config['append'].append(f"{varname}={potential_var}")
-            new_config['meta']['delta'].append(f"env {varname}={potential_var}")
+        # Do a dynamic search
+        results.append(ENV_MAGIC_VAL)
 
-            for k in list(new_config['meta']['potential_env']):
-                if "=" in k:
-                    k=k.split("=")[0]
-                if k == varname:
-                    new_config['meta']['potential_env'].remove(k)
-            new_configs.append((var_weight, new_config))
+        '''
+        # XXX: how can we avoid redoing this?
+        # XXX do we even have access to the FS here?
 
-    # SECOND: for variables we have in our potential_env, we can propose
-    # setting these too. Less likely to succeed - note we have our igloo_task_size
-    # in here which sometimes matters
+        # Check FS for potential values
+        test = re.compile(f"{varname}=([a-zA-Z0-9_-]+)")
+        matches = set()
 
-    for key_name, default_values in config['meta']['potential_env'].items():
+        fs_tar_path = config['base']['fs']
+        tar = tarfile.open(fs_tar_path, "r")
+        for member in tar.getmembers():
+            if not member.isfile():
+                continue
+            data = tar.extractfile(member.name).read()
+            # Note data is bytes, not str, but test is a str regex
+            # so we need to decode to str
+            data = data.decode(errors='ignore')
 
-        if key_name in existing_vars:
-            # We've already set this to something concrete - don't try anything else
-            continue
+            for match in test.findall(data):
+                matches.add(match)
 
-        if default_values is not None:
-            vals = [(2, x) for x in default_values] # WEIGHT 2 because we have concrete values in FS
-        else:
-            vals = [(0.5, x) for x in  DEFAULT_VALUES] # WEIGHT 0.5 because we're winging it
+        for m in matches:
+            results.append(m)
+        '''
+        return results
 
-        # Dynamically search for new values at runtime!
-        vals.append((1, ENV_MAGIC_VAL))
+    def implement_mitigation(self, config, failure, mitigation):
+        # Given a mitigation, add it to a copy of the config and return
+        new_config = deepcopy(config)
 
-        # We have specific values! Try them out
-        for (val_weight, val) in vals:
-            new_config = deepcopy(config)
-            new_config['append'].append(f"{key_name}={val}")
-            new_config['meta']['delta'].append(f"env {key_name}={val}")
-            new_configs.append((val_weight, new_config))
+        assert(failure not in new_config[self.ANALYSIS_TYPE])
+        new_config[self.ANALYSIS_TYPE][failure] = mitigation
 
-    return new_configs
+        return new_config
