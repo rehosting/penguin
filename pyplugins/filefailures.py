@@ -104,9 +104,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 if self.debug:
                     print(f"\tSaw {len(info)} failures trying to open {path}")
                 fails.append(path)
-        return fails
+        return {k: {} for k in fails}
     
-    def get_potential_mitigations(self, config, path):
+    def get_potential_mitigations(self, config, path, _):
         # We propose mitigations from state (global or local!)
         results = {} # path -> [details]
 

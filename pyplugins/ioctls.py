@@ -4,24 +4,14 @@ from os.path import dirname, join as pjoin
 import yaml
 from copy import deepcopy
 
+try:
+    from penguin import PenguinAnalysis
+except ImportError:
+    # We can still run as a PyPlugin, but we can't do post-run analysis
+    PenguinAnalysis = object
+
 outfile = "ioctls.yaml"
 logfile = "ioctls.log"
-
-# Parse a given config to fake ioctls
-'''
-example_config = {
-    ...
-    'ioctls': [
-      {
-        'path': '/dev/dsa',
-        'type': 'return_const',
-        'cmd': 0x40046401,
-        'val': 0
-      },
-    ]
-}
-'''
-
 
 def ignore_cmd(ioctl):
     # Ignore TTY ioctls, see ioctls.h for T*, TC*, and TIO* ioctls
@@ -315,39 +305,42 @@ class IoctlFakerC(PyPlugin):
         with open(pjoin(self.outdir, outfile), "w") as f:
             yaml.dump(output, f)
 
-def propose_configs(config, result_dir, quiet=False):
-    with open(pjoin(result_dir, outfile)) as f:
-        ioctl_failures = yaml.safe_load(f)
+class IoctlAnalysis(PenguinAnalysis):
+    ANALYSIS_TYPE = "ioctls"
 
-    new_configs = []
-    existing_ioctls = ... # XXX TODO: don't change previously-specified IOCTLs
-    for path, info in ioctl_failures.items():
-        # path = "/dev/device": info = {ioctl: [likeliest value, 2nd likliest value...]}
+    def parse_failures(self, output_dir):
+        with open(pjoin(output_dir, outfile)) as f:
+            ioctl_failures = yaml.safe_load(f)
 
-        # We need to check the *current config* to see how we're modeling this IOCTL
-        # AND parent configs to avoid selecting a duplicate? Maybe?
+        fails = {} # (path, ioctl) -> {details}
+        for path, info in ioctl_failures.items():
+            for ioctl, full_rvs in info.items():
+                k = (path, ioctl)
+                if k not in fails:
+                    fails[k] = {'rvs': full_rvs}
+                else:
+                    for new_rv in full_rvs:
+                        if new_rv not in fails[k]['rvs']:
+                            fails[k]['rvs'].append(new_rv)
 
-        for ioctl, full_rvs in info.items():
-            rvs = [x for x in full_rvs if x != 0] # Don't explicitly set 0 - that's already our default!
 
-            for idx, rv in enumerate(rvs):
-                weight = 20
+        return fails
 
-                #mitigations.append((('fake_ioctl', hex(ioctl), path, hex(rv)), weight + bonus))
+    def get_potential_mitigations(self, config, path_ioctl, rvs):
+        # First check if (path, ioctl) is in config['ioctls']
+        (path, ioctl) = path_ioctl
 
-                # XXX: We should propose a multi-stage where we use symex!
-                new_config = deepcopy(config)
-                new_config['ioctls'].append({
-                    'path': path,
-                    'type': 'return_const',
-                    'cmd': ioctl,
-                    'val': rv
-                })
+        if config is not None and (path, ioctl) in config['ioctls']:
+            # This config has already specified a behavior for this IOCTL on this file
+            return []
+        
+        results = []
+        if rvs is not None:
+            for rv in rvs['rvs']:
+                if rv not in results:
+                    results.append(rv)
+        return results
 
-                # Let's skew weight based on rv. If high bits set it's funky
-                #if rv & 0xFF000000:
-                #    weight -= 10 # Less likely
-
-                new_config['meta']['delta'].append(f"ioctl{ioctl:x} {path}={rv:x}")
-                new_configs.append((weight, new_config))
-    return new_configs
+    def implement_mitigation(self, config, mitigation):
+        print("XXX IMPLEMENT MIT:", mitigation)
+    

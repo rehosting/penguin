@@ -102,10 +102,10 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         with open(pjoin(output_dir, outfile)) as f:
             env_accesses = yaml.safe_load(f)
 
-        # It's a list - easy pz
-        return env_accesses
+        # Return a dict with no contents. One key per env val
+        return {k: {} for k in env_accesses}
 
-    def get_potential_mitigations(self, config, varname):
+    def get_potential_mitigations(self, config, varname, _):
         existing_vars = list(config[self.ANALYSIS_TYPE].keys()) if config else []
 
         if varname == 'igloo_task_size':
@@ -126,6 +126,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         '''
         # XXX: how can we avoid redoing this?
         # XXX do we even have access to the FS here?
+        # XXX we could move into parse failures, I think?
 
         # Check FS for potential values
         test = re.compile(f"{varname}=([a-zA-Z0-9_-]+)")
