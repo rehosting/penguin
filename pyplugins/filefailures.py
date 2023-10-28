@@ -1,5 +1,4 @@
 import sys
-import yaml
 import tarfile
 import re
 from os.path import dirname, join as pjoin
@@ -7,10 +6,11 @@ from pandare import PyPlugin
 from copy import deepcopy
 
 try:
-    from penguin import PenguinAnalysis
+    from penguin import PenguinAnalysis, yaml
 except ImportError:
     # We can still run as a PyPlugin, but we can't do post-run analysis
     PenguinAnalysis = object
+    import yaml
 
 outfile = "file_failures.yaml"
 
@@ -155,6 +155,6 @@ class FileFailuresAnalysis(PenguinAnalysis):
         new_config = deepcopy(config)
         assert failure not in new_config[self.ANALYSIS_TYPE].keys()
 
-        assert(isinstance(mitigation, dict)), f"Unexpected mitigation {mitigation}"
+        # fail_cause is our key?
         new_config[self.ANALYSIS_TYPE][failure] = mitigation
         return new_config

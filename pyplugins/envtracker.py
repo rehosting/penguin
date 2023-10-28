@@ -1,15 +1,15 @@
 import sys
-import yaml
 import tarfile
 import re
 from os.path import dirname, join as pjoin
 from pandare import PyPlugin
 from copy import deepcopy
 try:
-    from penguin import PenguinAnalysis
+    from penguin import PenguinAnalysis, yaml
 except ImportError:
     # We can still run as a PyPlugin, but we can't do post-run analysis
     PenguinAnalysis = object
+    import yaml
 
 outfile = "missing_envvars.yaml"
 ENV_MAGIC_VAL = "DYNVAL"

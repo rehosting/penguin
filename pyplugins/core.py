@@ -1,5 +1,11 @@
 from pandare import PyPlugin
 import os
+try:
+    from penguin import PenguinAnalysis, yaml
+except ImportError:
+    # We can still run as a PyPlugin, but we can't do post-run analysis
+    import yaml
+    PenguinAnalysis = object
 
 class Core(PyPlugin):
     '''
@@ -14,20 +20,28 @@ class Core(PyPlugin):
         # Create .ran
         open(os.path.join(self.outdir, ".ran"), "w").close()
 
-def propose_configs(config, result_dir, quiet=False):
-    '''
-    We don't really propose mitigations, we just make sure there's no python
-    errors during our analysis
-    '''
-    # First: sanity checks. Do we see any errors in console.log? If so abort
-    with open(os.path.join(result_dir, "console.log"), "rb") as f:
-        for line in f:
-            if b"BUG" in line:
-                print(f"KERNEL BUG: {repr(line)}")
-                raise RuntimeError(f"Found BUG in {result_dir}/console.log")
+class CoreAnalysis(PenguinAnalysis):
+    ANALYSIS_TYPE = "core"
+    def parse_failures(self, output_dir):
+        '''
+        We don't really parse failures mitigations, we just make sure there's no python
+        errors during our analysis
+        '''
+        # First: sanity checks. Do we see any errors in console.log? If so abort
+        with open(os.path.join(output_dir, "console.log"), "rb") as f:
+            for line in f:
+                if b"BUG" in line:
+                    print(f"KERNEL BUG: {repr(line)}")
+                    raise RuntimeError(f"Found BUG in {output_dir}/console.log")
 
-    with open(os.path.join(result_dir, "qemu_stderr.txt")) as f:
-        for line in f.readlines():
-            if "Traceback " in line:
-                raise RuntimeError(f"Python analysis crashed in {result_dir}")
-    return []
+        with open(os.path.join(output_dir, "qemu_stderr.txt")) as f:
+            for line in f.readlines():
+                if "Traceback " in line:
+                    raise RuntimeError(f"Python analysis crashed in {output_dir}")
+        return {}
+
+    def get_potential_mitigations(self, config, path_ioctl, info):
+        return []
+
+    def implement_mitigation(self, config, failure, mitigation):
+        raise NotImplementedError("Core doesn't do mitigations")

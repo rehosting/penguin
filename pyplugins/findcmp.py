@@ -1,6 +1,11 @@
 from pandare import PyPlugin
 from os.path import dirname
-import yaml
+try:
+    from penguin import PenguinAnalysis, yaml
+except ImportError:
+    # We can still run as a PyPlugin, but we can't do post-run analysis
+    PenguinAnalysis = object
+    import yaml
 
 # WIP: pair with generate_bb_profile.py. Run target busybox with a custom init
 # script and dynamically search for getenv-style function calls in that busybox

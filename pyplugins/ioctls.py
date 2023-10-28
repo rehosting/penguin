@@ -1,13 +1,14 @@
 from pandare import PyPlugin
 from sys import path
 from os.path import dirname, join as pjoin
-import yaml
 from copy import deepcopy
+import sys
 
 try:
-    from penguin import PenguinAnalysis
+    from penguin import PenguinAnalysis, yaml
 except ImportError:
     # We can still run as a PyPlugin, but we can't do post-run analysis
+    import yaml
     PenguinAnalysis = object
 
 outfile = "ioctls.yaml"
@@ -49,6 +50,9 @@ class IoctlFakerC(PyPlugin):
             raise ValueError("No ioctls in config: {self.get_arg('conf')}")
         
         conf_ioctls = self.get_arg("conf")["ioctls"]
+
+        print("CONF_IOCTLS:", conf_ioctls)
+
         # Look through ioctls, if one has a 'cmd' of 'default'
         # store those details and then drop it
         # and should be saved + deleted
@@ -56,70 +60,64 @@ class IoctlFakerC(PyPlugin):
         # Given lists with path, type, cmd, val. Want {path: {cmd: {type, val}}
         # Also support 'default' command with path and val
         self.ioctls = {}
-        for x in conf_ioctls:
-            if x['cmd'] == '*':
-                self.default_retval[x['path']] = x
+        for (path, cmd), data in conf_ioctls.items():
+            print(f"Config tells us to model ioctl {path} {cmd} (as hex {cmd:x}) with {data}", file=sys.stderr)
+
+            if cmd == '*':
+                self.default_retval[path] = data
             else:
-                if x['path'] not in self.ioctls:
-                    self.ioctls[x['path']] = {}
-                self.ioctls[x['path']][x['cmd']] = x
+                if path not in self.ioctls:
+                    self.ioctls[path] = {}
+                self.ioctls[path][cmd] = data
 
-        if len(self.ioctls) or self.default_retval is not None:
-            # If config gave us any ioctls or a default, we need
-            # to check every ioctl return
+        #print("REG IOCTL", file=sys.stderr)
+        @panda.ppp("syscalls2", "on_sys_ioctl_return")
+        def ioctlc_fake_ret(cpu, pc, fd, cmd, argp):
+            rv = self.panda.arch.get_retval(cpu, convention="syscall")
+            # If it's a non-negative retval, we probably don't need to fake it
+            # unless It happens to match the cmd
+            #if rv >= 0 and not any(cmd in x for x in self.ioctls.values()) and not len(self.default_retval):
+            #    # Before looking at the name we know we don't care
+            #    return
 
-            @panda.ppp("syscalls2", "on_sys_ioctl_return")
-            def ioctlc_fake_ret(cpu, pc, fd, cmd, argp):
-                rv = self.panda.arch.get_retval(cpu, convention="syscall")
-                # If it's a non-negative retval, we probably don't need to fake it
-                # unless It happens to match the cmd
-                if rv >= 0 and not any(cmd in x for x in self.ioctls.values()) and not len(self.default_retval):
-                    # Before looking at the name we know we don't care
-                    return
+            name = panda.get_file_name(cpu, fd)
+            if name == panda.ffi.NULL or name is None:
+                sfd = panda.from_unsigned_guest(fd) 
+                if sfd < 0:
+                    print(f"WARN: ioctl {cmd:#x} on invalid FD: {sfd}")
+                elif rv < 0:
+                    print(f"WARN: ioctl {cmd:#x} failed with {rv} - but we can't find name for fd {fd}")
+                return
 
-                name = panda.get_file_name(cpu, fd)
-                if name == panda.ffi.NULL or name is None:
-                    sfd = panda.from_unsigned_guest(fd) 
-                    if sfd < 0:
-                        print(f"WARN: ioctl {cmd:#x} on invalid FD: {sfd}")
-                    elif rv < 0:
-                        print(f"WARN: ioctl {cmd:#x} failed with {rv} - but we can't find name for fd {fd}")
-                    return
+            name = name.decode(errors='ignore')
 
-                name = name.decode(errors='ignore')
+            ioctl_info, is_default = self.get_model(name, cmd)
 
-                ioctl_info, is_default = self.get_model(name, cmd)
+            #print(f"Ioctl {name} {cmd:x} returns model {ioctl_info}", file=sys.stderr)
 
-                if not ioctl_info:
-                    # We only care about failing IOCTLs on device we've added. Maybe?
-                    # We'll add them with a default ioctl model. See filefailures.
-                    #self.record_failure(cpu, name, cmd, rv)
-                    return
+            if not ioctl_info:
+                # We only care about failing IOCTLs on device we've added. Maybe?
+                # We'll add them with a default ioctl model. See filefailures.
+                if rv == -25:
+                    self.record_failure(cpu, name, cmd, rv)
+                return
 
-                model_type = ioctl_info['type']
-                if not hasattr(self, "do_" + model_type):
-                    raise ValueError(f"Unknown ioctl type: {model_type}")
-                
-                if model_type in ['symex', 'symbolic_cache']:
-                    self.save_symex = True
-                
-                # Decode the ioctl and report it's details
-                #decoded_ioctl = self.decode_ioctl(cmd)
-                #for key, value in decoded_ioctl.items():
-                #    print(f"{key}: {value}")
+            model_type = ioctl_info['type']
+            if not hasattr(self, "do_" + model_type):
+                raise ValueError(f"Unknown ioctl type: {model_type}")
+            
+            if model_type in ['symex', 'symbolic_cache']:
+                self.save_symex = True
 
-                #print(f"Modeling ioctl {cmd:#x} on {name} using model {model_type}")
-                #print(self.decode_ioctl(cmd))
-
-                f = getattr(self, "do_" + model_type)
-                new_rv = f(cpu, ioctl_info, name=name, cmd=cmd, argp=argp)
-                if new_rv is not None:
-                    #print(f"Faked ioctl {cmd:#x} on {name} using model {model_type}: had rv={rv:#x} changed to rv={new_rv:#x} {'default' if is_default else ''}")
-                    fail = False
-                    if new_rv < 0:
-                        new_rv = panda.to_unsigned_guest(rv)
-                        fail = True
-                    self.panda.arch.set_retval(cpu, new_rv, convention='syscall', failure=fail)
+            f = getattr(self, "do_" + model_type)
+            new_rv = f(cpu, ioctl_info, name=name, cmd=cmd, argp=argp)
+            if new_rv is not None:
+                #print(f"Faked ioctl {cmd:#x} on {name} using model {model_type}: had rv={rv:#x} changed to rv={new_rv:#x} {'default' if is_default else ''}")
+                fail = False
+                if new_rv < 0:
+                    new_rv = panda.to_unsigned_guest(rv)
+                    fail = True
+                self.panda.arch.set_retval(cpu, new_rv, convention='syscall', failure=fail)
 
     def record_failure(self, cpu, filename, cmd, rv):
         # This is a failing IOCTL that we aren't modeling. Do we report as a failure?
@@ -128,8 +126,9 @@ class IoctlFakerC(PyPlugin):
         if filename not in self.ioctl_failures:
             self.ioctl_failures[filename] = {}
         if cmd not in self.ioctl_failures[filename]:
-            self.ioctl_failures[filename][cmd] = 0
-        self.ioctl_failures[filename][cmd] += 1
+            self.ioctl_failures[filename][cmd] = {"fail_count": 0}
+        print(f"Record failure for {filename} {cmd:x}", file=sys.stderr)
+        self.ioctl_failures[filename][cmd]["fail_count"] += 1
 
     def initialize_symex(self):
         # Add this directory to python path so we can import symex
@@ -163,15 +162,21 @@ class IoctlFakerC(PyPlugin):
     @PyPlugin.ppp_export
     def hypothesize_models(self):
         if not self.symex or not self.save_symex:
-            return {}
-        return self.symex.hypothesize_models()
+            # Use the failures we saw in self.ioctl_failures
+            print("Hypothesize is returning ioctl failures:", self.ioctl_failures, file=sys.stderr)
+            return self.ioctl_failures
+
+        print("Hypothesize is returning symex models", file=sys.stderr)
+        rv = self.symex.hypothesize_models()
+        print(rv, file=sys.stderr)
+        return rv
 
     def do_return_const(self, cpu, conf, **kwargs):
         # Return a specified const
         rv = conf['val']
         fail = getattr(conf, 'fail', False) #  Optional
         self.panda.arch.set_retval(cpu, rv, convention='syscall', failure=fail)
-        print(f"Set IOCTL retval to {rv:#x}")
+        print(f"Set IOCTL retval to {rv:#x}", file=sys.stderr)
         return rv
 
     def do_symbolic_cache(self, cpu, conf, name, cmd, argp):
@@ -300,6 +305,7 @@ class IoctlFakerC(PyPlugin):
             self.symex.save_results()
 
         # Dump the distinct RVs we've identified to disk
+        # Or if we have no symex enabled, just dump the failures we saw
         output = self.hypothesize_models()
 
         with open(pjoin(self.outdir, outfile), "w") as f:
@@ -314,33 +320,59 @@ class IoctlAnalysis(PenguinAnalysis):
 
         fails = {} # (path, ioctl) -> {details}
         for path, info in ioctl_failures.items():
-            for ioctl, full_rvs in info.items():
-                k = (path, ioctl)
-                if k not in fails:
-                    fails[k] = {'rvs': full_rvs}
-                else:
-                    for new_rv in full_rvs:
-                        if new_rv not in fails[k]['rvs']:
-                            fails[k]['rvs'].append(new_rv)
+            for ioctl, details in info.items():
+                new_k = (path, ioctl)
 
+                # XXX What kind of details do we want to report/track?
+                # A: If we didn't use symex, we just know there was a failure and have a count
+                # B: If we did use symex, we have a list of possible RVs
+
+                # We can just punt on the distinction until later?
+                # Case A: we only have a "counts" field in details
+                # Case B: we have an "ioctl" list in details with the various RVs we identified
+
+                assert(new_k not in fails)
+                fails[new_k] = details
 
         return fails
 
-    def get_potential_mitigations(self, config, path_ioctl, rvs):
+    # ('/dev/flash', 17921) [256, 16377, 4294963201, 0]   
+    def get_potential_mitigations(self, config, path_ioctl, info):
         # First check if (path, ioctl) is in config['ioctls']
         (path, ioctl) = path_ioctl
 
-        if config is not None and (path, ioctl) in config['ioctls']:
-            # This config has already specified a behavior for this IOCTL on this file
-            return []
+        #if config is not None and (path, ioctl) in config['ioctls']:
+        #    # This config has already specified a behavior for this IOCTL on this file
+        #    # If it was to do symbolic_caching, then we want to propose a mitigation
+        #    # of returning some of the consts we have. Otherwise we don't care?
+        #    return []
         
         results = []
-        if rvs is not None:
-            for rv in rvs['rvs']:
-                if rv not in results:
-                    results.append(rv)
+        if info is not None:
+            if isinstance(info, dict) and 'fail_count' in info.keys():
+                # We just saw the failure, mitigation is to do symex and/or to try consts?
+                # Symex_cache will do symex, but continue execution
+                new_val = {"type": "symbolic_cache", "val": 0}
+                if new_val not in results:
+                    results.append(new_val)
+
+            elif isinstance(info, list):
+                # We have concrete values to try
+                for rv in info:
+                    new_val = {"type": "return_const", "val": rv}
+                    if new_val not in results:
+                        results.append(new_val)
+            
+            else:
+                raise RuntimeError(f"Unable to parse info: {info}")
+
         return results
 
-    def implement_mitigation(self, config, mitigation):
-        print("XXX IMPLEMENT MIT:", mitigation)
-    
+    def implement_mitigation(self, config, failure, mitigation):
+        new_config = deepcopy(config)
+        new_config[self.ANALYSIS_TYPE][failure] = mitigation
+
+        # If mitigation is a list, it's a list of possible RVs - I think?
+
+        print(f"Implementing {mitigation} for {failure} new config has [{self.ANALYSIS_TYPE}][{failure}] = {new_config[self.ANALYSIS_TYPE][failure]}")
+        return new_config

@@ -1,7 +1,12 @@
 from pandare import PyPlugin
 from os.path import dirname, isfile, join as pjoin
-import yaml
 from copy import deepcopy
+try:
+    from penguin import PenguinAnalysis, yaml
+except ImportError:
+    # We can still run as a PyPlugin, but we can't do post-run analysis
+    PenguinAnalysis = object
+    import yaml
 
 target_str = 'DYNVAL'
 output_file = "targetcmp.txt" # C++ analysis with callstackinstr
