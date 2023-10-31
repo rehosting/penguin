@@ -21,27 +21,13 @@ DEFAULT_VALUES = [
     "00:00:00:00:00:00",
 ]
 
-'''
-# Calculate module name and offset
-def addr_to_mod_off(self, cpu, addr):
-    mappings = self.panda.get_mappings(cpu)
-    module_name = None
-    offset = None
-    for mapping in mappings:
-        if mapping.base <= addr and (mapping.base + mapping.size) > addr:
-            module_name = self.panda.ffi.string(mapping.name).decode() if mapping.name != self.panda.ffi.NULL else None
-            offset = addr - mapping.base
-            break
-    return (module_name, offset)
-'''
-
 def var_interesting(var):
     for prefix in ["LC_", "LD_", "XDG_", "QT_", "GTK_", "GDK_", "GIO_", "PERL"]:
         if var.startswith(prefix):
             return False
         
     # Other unimportant variables we've seen before (expand as needed)
-    if var in   'BLKID_FILE \
+    if var in  'BLKID_FILE \
                 CONSOLE \
                 HOME \
                 HZ \
@@ -105,12 +91,21 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         # Return a dict with no contents. One key per env val
         return {k: {} for k in env_accesses}
 
+    def get_mitigations_from_static(self, varname, values):
+        # Static pass gives us varname and a set of potential values
+        results = []
+
+        # Static analysis gave us some results - use them!
+        for value in values or []:
+            results.append({'value': value, 'weight': 0.8}) # Statically-identified seeds are promising
+
+        # Also seed with default and dynamic search values
+        results += self.get_potential_mitigations(None, varname, None)
+
+        return results
+
     def get_potential_mitigations(self, config, varname, _):
         existing_vars = list(config[self.ANALYSIS_TYPE].keys()) if config else []
-
-        if varname == 'igloo_task_size':
-            # This is a special case. Already have all the values we could need
-            return []
         
         if varname in existing_vars:
             return []
@@ -118,10 +113,10 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         results = []
         # Start with some placeholders
         for val in DEFAULT_VALUES:
-            results.append(val)
+            results.append({'value': val, 'weight': 0.1}) # WEIGHT 0.1 to use a default
 
         # Do a dynamic search
-        results.append(ENV_MAGIC_VAL)
+        results.append({'value': ENV_MAGIC_VAL, 'weight': 0.5}) # WEIGHT 0.5 to do a dynamic search
 
         '''
         # XXX: how can we avoid redoing this?
@@ -155,6 +150,5 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         new_config = deepcopy(config)
 
         assert(failure not in new_config[self.ANALYSIS_TYPE])
-        new_config[self.ANALYSIS_TYPE][failure] = mitigation
-
+        new_config[self.ANALYSIS_TYPE][failure] = mitigation['value']
         return new_config

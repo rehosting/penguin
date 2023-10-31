@@ -40,6 +40,9 @@ class CoreAnalysis(PenguinAnalysis):
                     raise RuntimeError(f"Python analysis crashed in {output_dir}")
         return {}
 
+    def get_mitigations_from_static(self, varname, values):
+        return []
+
     def get_potential_mitigations(self, config, path_ioctl, info):
         return []
 

@@ -51,8 +51,6 @@ class IoctlFakerC(PyPlugin):
         
         conf_ioctls = self.get_arg("conf")["ioctls"]
 
-        print("CONF_IOCTLS:", conf_ioctls)
-
         # Look through ioctls, if one has a 'cmd' of 'default'
         # store those details and then drop it
         # and should be saved + deleted
@@ -163,10 +161,10 @@ class IoctlFakerC(PyPlugin):
     def hypothesize_models(self):
         if not self.symex or not self.save_symex:
             # Use the failures we saw in self.ioctl_failures
-            print("Hypothesize is returning ioctl failures:", self.ioctl_failures, file=sys.stderr)
+            #print("Hypothesize is returning ioctl failures:", self.ioctl_failures, file=sys.stderr)
             return self.ioctl_failures
 
-        print("Hypothesize is returning symex models", file=sys.stderr)
+        #print("Hypothesize is returning symex models", file=sys.stderr)
         rv = self.symex.hypothesize_models()
         print(rv, file=sys.stderr)
         return rv
@@ -336,6 +334,9 @@ class IoctlAnalysis(PenguinAnalysis):
 
         return fails
 
+    def get_mitigations_from_static(self, varname, values):
+        raise NotImplementedError("No static IOCTL analysis yet")
+
     # ('/dev/flash', 17921) [256, 16377, 4294963201, 0]   
     def get_potential_mitigations(self, config, path_ioctl, info):
         # First check if (path, ioctl) is in config['ioctls']
@@ -352,14 +353,14 @@ class IoctlAnalysis(PenguinAnalysis):
             if isinstance(info, dict) and 'fail_count' in info.keys():
                 # We just saw the failure, mitigation is to do symex and/or to try consts?
                 # Symex_cache will do symex, but continue execution
-                new_val = {"type": "symbolic_cache", "val": 0}
+                new_val = {"type": "symbolic_cache", "val": 0, 'weight': 0.5} # 0.5 to use syemx on a future run
                 if new_val not in results:
                     results.append(new_val)
 
             elif isinstance(info, list):
                 # We have concrete values to try
                 for rv in info:
-                    new_val = {"type": "return_const", "val": rv}
+                    new_val = {"type": "return_const", "val": rv, 'weight': 0.9} # 0.9 to use a value we know
                     if new_val not in results:
                         results.append(new_val)
             
@@ -370,9 +371,10 @@ class IoctlAnalysis(PenguinAnalysis):
 
     def implement_mitigation(self, config, failure, mitigation):
         new_config = deepcopy(config)
-        new_config[self.ANALYSIS_TYPE][failure] = mitigation
+        new_config[self.ANALYSIS_TYPE][failure] = deepcopy(mitigation)
+        del new_config[self.ANALYSIS_TYPE][failure]['weight']
 
         # If mitigation is a list, it's a list of possible RVs - I think?
 
-        print(f"Implementing {mitigation} for {failure} new config has [{self.ANALYSIS_TYPE}][{failure}] = {new_config[self.ANALYSIS_TYPE][failure]}")
+        #print(f"Implementing {mitigation} for {failure} new config has [{self.ANALYSIS_TYPE}][{failure}] = {new_config[self.ANALYSIS_TYPE][failure]}")
         return new_config
