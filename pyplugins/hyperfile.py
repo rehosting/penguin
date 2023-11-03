@@ -5,13 +5,6 @@ from copy import deepcopy
 import sys
 import struct
 
-try:
-    from penguin import PenguinAnalysis, yaml
-except ImportError:
-    # We can still run as a PyPlugin, but we can't do post-run analysis
-    import yaml
-    PenguinAnalysis = object
-
 # Make sure these match dyndev
 HYPER_FILE_OP = 0x100200
 HYPER_READ = 0
@@ -21,7 +14,15 @@ HYPER_IOCTL = 2
 class HyperFile(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
-        self.outdir = self.get_arg("outdir")
+
+        self.files = self.get_arg("files")
+        if self.files is None:
+            # We can be imported without files, but we'll ignore it
+            return
+
+        assert(isinstance(self.files, dict)), f"Files shoudl be dict, not {files}"
+
+        # files = {filename: {'read': func, 'write': func, 'ioctl': func}}}
 
         # On hypercall we dispatch to the appropriate handler: read, write, ioctl
         @panda.cb_guest_hypercall
@@ -67,14 +68,30 @@ class HyperFile(PyPlugin):
             elif type_val == HYPER_IOCTL:
                 ioctl_format = f"{endian_prefix}I {word_char}"  # Assuming 'cmd' is always 4 bytes
 
-
-            device_name = device_name.rstrip(b'\0').decode('utf-8', errors='ignore') # Decode gets a junk character at the end?
             sub_offset = struct.calcsize(format_str)
+
+            device_name = "/dev/" + device_name.decode('utf-8', errors='ignore')
+            # device_name is null terminated - if a null byte is in it, truncate
+            if '\x00' in device_name:
+                device_name = device_name[:device_name.index('\x00')]
+
+            if device_name in self.files:
+                model = self.files[device_name]
+            else:
+                print(f"WARN: using default file model for {repr(device_name)}")
+                model = {
+                    HYPER_READ: self.read_unhandled,
+                    HYPER_WRITE: self.write_unhandled,
+                    HYPER_IOCTL: self.ioctl,
+                }
+
+            #print(f"Hyperfile {device_name}: using {model[type_val]}")
 
             # Dispatch based on the type of operation
             if type_val == HYPER_READ:
                 buffer, length, offset = struct.unpack_from(read_format, buf, sub_offset)
-                new_buffer, retval = self.handle_read(buffer, length, offset)
+                new_buffer, retval = model[type_val](device_name, buffer, length, offset) # hyper_read
+                print(f"Read of {length} bytes from {device_name} at offset {offset} returned {retval}: {new_buffer}")
 
                 # We need to write new_buffer back into the struct at buffer
                 # XXX: sizes? overflows?
@@ -94,17 +111,19 @@ class HyperFile(PyPlugin):
                 except ValueError:
                     contents = None
 
-                retval = self.handle_write(buffer, length, offset, contents)
+                retval = model[type_val](device_name, buffer, length, offset, contents) # hyper_write
+                print(f"Write of {length} bytes to {device_name} at offset {offset} returned {retval}")
 
             elif type_val == HYPER_IOCTL:
                 cmd, arg = struct.unpack_from(ioctl_format, buf, sub_offset)
-                retval = self.handle_ioctl(cmd, arg)
+                retval = model[type_val](device_name, cmd, arg) # hyper_ioctl
+                #print(f"IOCTL of {cmd:x} to {device_name} with arg {arg} returned {retval}")
 
 
             # Now we need to write the return value back into the struct
             rv_offset = 4 if self.panda.bits == 32 else 8 # Skip one arg
             format_str = f"{endian_prefix}{word_char}"
-            packed_rv = struct.pack(format_str, retval)
+            packed_rv = struct.pack(format_str, panda.to_unsigned_guest(retval))
 
             try:
                 panda.virtual_memory_write(cpu, buf_addr+rv_offset, packed_rv)
@@ -121,21 +140,21 @@ class HyperFile(PyPlugin):
 
 
     # Function to handle read operations
-    def handle_read(self, buffer, length, offset):
-        #print("Handling read with args:", buffer, length,  offset)
-        data = b'Hello from HyperFile!'
-
-        # use offset to select into our data
+    def read_zero(self, devname, buffer, length, offset):
+        data = b'0'
         final_data = data[offset:offset+length]
-
-        return (final_data, len(final_data)) # TODO: other things!
+        return (final_data, len(final_data)) # data, rv
 
     # Function to handle write operations
-    def handle_write(self, buffer, length, offset, contents):
-        #print(f"Handling write of {contents} (length {length}) to {buffer} at offset {offset})")
-        return length # TODO: do we ever want to pretend we did a partial write or anything else?
+    def write_discard(self, devname, buffer, length, offset, contents):
+        return length
 
     # Function to handle ioctl operations
-    def handle_ioctl(self, cmd, arg):
-        #print(f"Handling ioctl with args: {cmd:x} {arg:x}")
-        return 0  # TODO: return values?
+    def ioctl(self, devname, cmd, arg):
+        return 0
+
+    def read_unhandled(self, filename, buffer, length, offset):
+        return (b'', -22) # -EINVAL
+
+    def write_unhandled(self, filename, buffer, length, offset, contents):
+        return -22 # -EINVAL
