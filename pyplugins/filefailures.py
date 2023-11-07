@@ -22,6 +22,9 @@ except ImportError:
     PenguinAnalysis = object
     import yaml
 
+# XXX you'll see checks for if not >= 0 and >= -2. That's checking if we get -1 or -2 looking for -ENOENT
+# ENOENT is 2. Except on mips it seems to be 1. Not sure why?
+
 outfile = "file_failures.yaml"
 outfile2 = "file_wildcards.yaml"
 
@@ -126,7 +129,8 @@ class FileFailures(PyPlugin):
 
             # Grab the filename and track iff we care
             fname = panda.read_str(cpu, fname)
-            self.log_open_failure(fname, rv, mode)
+            if rv >= -2: # ENOENT - we only care about files that don't exist
+                self.centralized_log(fname, 'open')
 
         @panda.ppp("syscalls2", "on_sys_openat_return")
         def fail_detect_openat(cpu, pc, fd, fname, mode, flags):
@@ -144,7 +148,87 @@ class FileFailures(PyPlugin):
                     return
                 base = self.panda.ffi.string(basename_c)
             path = base + "/" + panda.read_str(cpu, fname)
-            self.log_open_failure(path, rv, mode)
+
+            if rv >= -2: # ENOENT - we only care about files that don't exist
+                self.centralized_log(path, 'open')
+
+        @panda.ppp("syscalls2", "on_sys_newlstat_return")
+        def faildetect_newlstat(cpu, pc, pathname, statbuf):
+            rv = self.panda.arch.get_retval(cpu, convention="syscall")
+            if rv >= 0:
+                return
+
+            if rv >= -2: # ENOENT - we only care about files that don't exist
+                self.centralized_log(panda.read_str(cpu, pathname), 'lstat')
+
+        @panda.ppp("syscalls2", "on_sys_lstat64_return")
+        def faildetect_lstat64(cpu, pc, pathname, statbuf):
+            rv = self.panda.arch.get_retval(cpu, convention="syscall")
+            if rv >= 0:
+                return
+
+            if rv >= -2: # ENOENT - we only care about files that don't exist
+                try:
+                    pathname = panda.read_str(cpu, pathname)
+                except ValueError:
+                    print("Failed to read pathname from guest pointer", hex(pathname))
+                    return
+                self.centralized_log(pathname, 'lstat')
+
+        ################ XXX MIPS ONLY ################3
+        if panda.arch_name == "mips":
+            # Stat and lstat are only on mips? Not arm at least
+            @panda.ppp("syscalls2", "on_sys_stat_return")
+            def faildetect_stat(cpu, pc, pathname, statbuf):
+                rv = self.panda.arch.get_retval(cpu, convention="syscall")
+                if rv >= 0:
+                    return
+
+                if rv >= -2: # ENOENT - we only care about files that don't exist
+                    self.centralized_log(panda.read_str(cpu, pathname), 'stat')
+
+            @panda.ppp("syscalls2", "on_sys_lstat_return")
+            def faildetect_lstat32(cpu, pc, pathname, statbuf):
+                rv = self.panda.arch.get_retval(cpu, convention="syscall")
+                if rv >= 0:
+                    return
+
+                if rv >= -2: # ENOENT - we only care about files that don't exist
+                    self.centralized_log(panda.read_str(cpu, pathname), 'lstat')
+
+            @panda.ppp("syscalls2", "on_sys_fstat_return")
+            def faildetect_fstat(cpu, pc, fd, statbuf):
+                rv = self.panda.arch.get_retval(cpu, convention="syscall")
+                if rv >= 0:
+                    return
+
+                name = panda.get_file_name(cpu, fd)
+                if name == panda.ffi.NULL or name is None:
+                    sfd = panda.from_unsigned_guest(fd) 
+                    if sfd < 0:
+                        print(f"WARN: fstat on invalid FD: {sfd}")
+                    elif rv < 0:
+                        print(f"WARN: fstat failed with {rv} - but we can't find name for fd {fd}")
+                    return
+
+                if rv >= -2: # ENOENT - we only care about files that don't exist
+                    self.centralized_log(name, 'fstat')
+
+
+        ################ XXX ARMEL + MIPS64 ONLY ################3
+        # This category is bogus
+        if panda.arch_name in ["armel", "mips64"]:
+            @panda.ppp("syscalls2", "on_sys_stat64_return")
+            def faildetect_stat64(cpu, pc, pathname, statbuf):
+                rv = self.panda.arch.get_retval(cpu, convention="syscall")
+                if rv >= 0:
+                    return
+
+                if rv >= -2: # ENOENT - we only care about files that don't exist
+                    self.centralized_log(panda.read_str(cpu, pathname), 'stat')
+
+
+        # TODO: do we care about lstat?
 
         # XXX: We detect ioctls, read, writes based on hypercalls
         # for device we add. We just use PANDA to detect failing opens
@@ -214,11 +298,6 @@ class FileFailures(PyPlugin):
         # Should our module returna  specific error we check for?
         self.centralized_log(path, 'write')
     '''
-
-    def log_open_failure(self, path, rv, mode):
-        if rv != -2: # ENOENT - we only care about files that don't exist
-            return
-        self.centralized_log(path, 'open')
 
     def centralized_log(self, path, event):
         if not path_interesting(path):
@@ -424,7 +503,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
         # Static analysis doesn't help us figure out what to do though,
         # so just fall back to normal mitigation generation
         #return self.get_potential_mitigations(None, path, None)
-        print("NYI: static mitigations for files")
+        #print("NYI: static mitigations for files")
         return []
     
 
