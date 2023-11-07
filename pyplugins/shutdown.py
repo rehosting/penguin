@@ -2,23 +2,28 @@ from pandare import PyPlugin
 import time
 import threading
 
-#BB_MAX=1000000 # Halt after a fixed number of blocks (1M)
-#TIMEOUT=60*20 # 20 minute max - normal end should be from zap of BB count
-
-#BB_MAX=1000000 # 1M
-#UNIQUE=0 # Non-unique
-BB_MAX=200000 # 100k DEBUG
-UNIQUE=1 # 100k DEBUG
-TIMEOUT=240*1/2 # XXX DEBUG 0.5x for testing?
+TIMEOUT=60*10 # 10m
 
 class Shutdown(PyPlugin):
     def __init__(self, panda):
-        # XXX don't pass TIMEOUT to timeout plugin, the C shutdown breaks pypanda uninit
-        panda.load_plugin("timeout", {"bb_limit": BB_MAX, 'unique_bbs': UNIQUE})
+        self.outdir = self.get_arg("outdir")
+        log_path = self.outdir + "/shutdown.csv"
+
+        # XXX the timeout plugin can't trigger our pyplugin end-of-analysis
+        # logic so we've hacked that up and disabled it.
+        # Instead, all the plugin does is to write down the number of 
+        # executed blocks at log_path
+        panda.load_plugin("timeout", {
+                #"bb_limit": BB_MAX,
+                #'unique_bbs': UNIQUE,
+                "log": log_path
+                })
 
         # Create a thread that sleeps until TIMEOUT, then shuts down the VM
         self.shutdown_event = threading.Event()
-        self.shutdown_thread = threading.Thread(target=self.shutdown_after_timeout, args=(panda, TIMEOUT, self.shutdown_event))
+        self.shutdown_thread = threading.Thread(
+                target=self.shutdown_after_timeout,
+                args=(panda, TIMEOUT, self.shutdown_event))
         self.shutdown_thread.start()
     
     def shutdown_after_timeout(self, panda, timeout, shutdown_event):
@@ -36,7 +41,12 @@ class Shutdown(PyPlugin):
             time.sleep(1)
             wait_time += 1
 
-        print(f"Shutdown thread: execution timed out after {timeout}s - shutting down guest")
+        try:
+            print(f"Shutdown thread: execution timed out after {timeout}s - shutting down guest")
+        except OSError:
+            # During shutdown, stdout might be closed!
+            pass
+
         panda.end_analysis()
 
     def uninit(self):
