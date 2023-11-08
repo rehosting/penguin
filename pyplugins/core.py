@@ -1,5 +1,8 @@
-from pandare import PyPlugin
+import signal
 import os
+import time
+import threading
+from pandare import PyPlugin
 try:
     from penguin import PenguinAnalysis, yaml
 except ImportError:
@@ -9,15 +12,88 @@ except ImportError:
 
 class Core(PyPlugin):
     '''
-    Simple sanity check. Create .ran in outdir if and only if
-    we don't see a kernel error in console.log and no python error
-    in qemu_stderr.txt (XXX: can we detect python errors from here?)
+    Simple sanity checks and basic core logic.
+    1) Validate we're getting the expected args.
+    2) Write config and loaded plugins to output dir
+    3) On siguser1 gracefully shutdown emulation
+    4) After a (non-crash) shutdown, create a .ran file in the output
+       if and only if there's no kernel crash in console.log.
+
+    TODO: can we detect if another pyplugin raised an uncaught
+    exception and abort?
     '''
+
     def __init__(self, panda):
+        for arg in "plugins CID conf fs fw outdir".split():
+            if not self.get_arg(arg):
+                raise ValueError(f"[core] Missing required argument: {arg}")
+
         self.outdir = self.get_arg("outdir")
+        plugins = self.get_arg("plugins")
+
+        # Record loaded plugins
+        with open(os.path.join(self.outdir, "plugins.yaml"), "w") as f:
+            f.write(yaml.dump(plugins)) # Names and args
+
+        # Record config in outdir:
+        with open(os.path.join(self.outdir, "config.yaml"), "w") as f:
+            f.write(yaml.dump(self.get_arg("config")))
+
+        signal.signal(signal.SIGUSR1, self.graceful_shutdown)
+
+        # Load the "timeout" plugin which is a misnomer - it's just going
+        # to report the number of blocks executed at shutdown.
+        # XXX bb_limit / unique_bbs break our pypanda based analyses
+        # because end_analysis is never called
+
+
+        if self.get_arg("timeout") is not None:
+            # If a timeout is provided, enforce it
+            timeout = int(self.get_arg("timeout"))
+
+            # Log info on how many blocks get executed
+            log_path = self.outdir + "/shutdown.csv"
+            panda.load_plugin("timeout", {
+                    #"bb_limit": BB_MAX,
+                    #'unique_bbs': UNIQUE,
+                    "log": log_path
+                    })
+
+            self.shutdown_event = threading.Event()
+            self.shutdown_thread = threading.Thread(
+                    target=self.shutdown_after_timeout,
+                    args=(panda, timeout, self.shutdown_event))
+            self.shutdown_thread.start()
+
+    def shutdown_after_timeout(self, panda, timeout, shutdown_event):
+        wait_time = 0
+        while wait_time < timeout:
+            # Check if the event is set
+            if shutdown_event.is_set():
+                try:
+                    print("Shutdown thread: Guest shutdown detected, exiting thread.")
+                except OSError:
+                    pass # Can't print but it's not important
+                return
+
+            # Sleep briefly
+            time.sleep(1)
+            wait_time += 1
+
+        try:
+            print(f"Shutdown thread: execution timed out after {timeout}s - shutting down guest")
+        except OSError:
+            # During shutdown, stdout might be closed!
+            pass
+        panda.end_analysis()
+
+    def graceful_shutdown(self, sig, frame):
+        print("Caught SIGUSR1 - gracefully shutdown emulation")
+        self.panda.end_analysis()
 
     def uninit(self):
         # Create .ran
+        self.shutdown_event.set()
         open(os.path.join(self.outdir, ".ran"), "w").close()
 
 class CoreAnalysis(PenguinAnalysis):
