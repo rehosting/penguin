@@ -5,16 +5,62 @@ import socket
 import random
 import threading
 import os
+import tarfile
+import re
 
 from zapv2 import ZAPv2
 from contextlib import closing
 from pandare import PyPlugin
 from requests.exceptions import ProxyError
 
+# Simple wordlist of common usernames and passwords
+usernames = ['admin', 'user', 'root']
+passwords = ['admin', 'user', 'password', '']
+
+# Generate a list of tuples where each tuple is a pair of username and password
+credentials = [(user, passwd) for user in usernames for passwd in passwords]
+
+
+def find_potential_urls(fs_tar_path):
+    urls = set()
+    # Filetypes a webserver might be serving:
+    file_extensions = ['.php', '.html', '.js', '.cgi', '.xml', '.css', '.asp', '.aspx', '.jsp', '.json', '.txt', '.htm', '.xhtml']
+
+    matches = set()
+    with tarfile.open(fs_tar_path, "r") as tar:
+        for member in tar.getmembers():
+            if not member.isfile():
+                continue
+            path = member.name
+
+            if any(path.endswith(ext) for ext in file_extensions):
+                # Add various permutations of the path
+                path_parts = path.strip('/').replace("./","").split('/')
+                for i in range(len(path_parts)):
+                    perm_path = '/'.join(path_parts[i:])
+                    matches.add(perm_path)
+
+                '''
+                # Read the file content
+                file_content = tar.extractfile(member.name).read().decode(errors='ignore')
+
+                # Simple heuristic to find URLs
+                urls.update(re.findall(r'https?://[^\s"]+', file_content))
+                
+                # Heuristic to find paths
+                paths = re.findall(r'/(?:[a-zA-Z0-9_-]+/)*[a-zA-Z0-9_-]+', file_content)
+                urls.update(paths)
+                '''
+
+    # Combine the matches and urls sets
+    all_urls = matches.union(urls)
+    return list(all_urls)
+
 class Zap(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
+        self.fs_tar = self.get_arg("fs")
 
         self.api_key = str(random.randint(0, 2**32))
         self.output_file = open(self.outdir + "/zap.log", "w")
@@ -59,6 +105,120 @@ class Zap(PyPlugin):
             s.bind(('localhost', 0))
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             return s.getsockname()[1]
+        
+    def open_connection_through_proxy(self, target, proxy):
+        try:
+            response = requests.get(target, proxies=proxy, verify=False)
+            response.raise_for_status()
+            return True
+        except requests.RequestException as e:
+            print(f"Failed to open connection through proxy: {e}", file=self.output_file)
+            return False
+
+    def update_sites_tree(self, zap, target):
+        try:
+            print(zap.urlopen(target), file=self.output_file)
+            time.sleep(2) # Give the sites tree a chance to get updated
+            return True
+        except Exception as e:
+            print(f"Exception updating sites tree: {e}", file=self.output_file)
+            return False
+
+    def queue_filesystem(self, zap, target):
+        self.fs_urls = find_potential_urls(self.fs_tar)
+        print(f"Found FS urls: {self.fs_urls}", file=self.output_file)
+
+        for url in self.fs_urls:
+            try:
+                print(f"Opening {target+url}", file=self.output_file)
+                zap.urlopen(target + url)
+            except Exception as e:
+                print(f"Failed to open potential URL {url}", file=self.output_file)
+        return True
+        
+    def perform_spidering(self, zap, target):
+        print(f"Spidering target: {target}", file=self.output_file)
+        zap.spider.scan(target)
+        
+        # Check for spider to start and then wait for completion
+        if self.wait_for_spider_to_start(zap):
+            return self.wait_for_spider_to_finish(zap)
+        else:
+            return False
+        
+    def perform_ajaxSpidering(self, zap, target):
+        print(f"Ajax Spidering target: {target}", file=self.output_file)
+
+         # Give the Ajax spider a chance to start
+        time.sleep(10)
+        while (zap.ajaxSpider.status != 'stopped'):
+            print('zap.ajaxSpider Spider is ' + zap.ajaxSpider.status(), file=self.output_file)
+            time.sleep(5)
+        for url in self.fs_urls:
+            url = target + url
+            # zap.ajaxSpider Spider every url configured
+            print('zap.ajaxSpider Spider the URL: ' + url + zap.ajaxSpider.scan(url=url, inscope=None))
+            # Give the zap.ajaxSpider spider a chance to start
+            time.sleep(10)
+            while (zap.ajaxSpider.status != 'stopped'):
+                print('zap.ajaxSpider Spider is ' + zap.ajaxSpider.status(), file=self.output_file)
+                time.sleep(5)
+        return True
+
+        zap.ajaxSpider.scan(target)
+        # Check for spider to start and then wait for completion
+        if self.wait_for_ajaxSpider_to_start(zap):
+            return self.wait_for_ajaxSpider_to_finish(zap)
+        else:
+            return False
+
+    def perform_active_scan(self, zap, target):
+        print(f"Scanning target: {target}", file=self.output_file)
+        zap.ascan.scan(target)
+        return self.wait_for_active_scan_to_finish(zap)
+
+    def wait_for_spider_to_start(self, zap):
+        for idx in range(10):
+            try:
+                if int(zap.spider.status()) >= 0:
+                    return True
+            except Exception as e:
+                if idx == 9:
+                    print(f"Failed to start spider: {e}", file=self.output_file)
+                    return False
+                time.sleep(1)
+        return False
+
+    def wait_for_spider_to_finish(self, zap):
+        while int(zap.spider.status()) < 100:
+            time.sleep(2)
+        return True
+
+    def wait_for_ajaxSpider_to_finish(self, zap):
+        while int(zap.ajaxSpider.status()) < 100:
+            time.sleep(2)
+        return True
+
+    def wait_for_active_scan_to_finish(self, zap):
+        while int(zap.ascan.status()) < 100:
+            time.sleep(5)
+        return True
+
+    def process_scan_results(self, zap, log_file):
+        print('\nHosts: ' + ', '.join(zap.core.hosts), file=log_file) 
+
+        print('\nAlerts: ', file=log_file)
+        alert_urls = set()
+        for x in zap.core.alerts():
+            print(x, file=log_file)
+            alert_urls.add(x.get('url'))
+
+        print('\nAlert URLs:', file=log_file)
+        print('\n'.join(alert_urls), file=log_file)
+
+        print('\nAll URLs visited:', file=log_file)
+        for url in zap.core.urls():
+            print(url, file=log_file)
 
     def zap_on_bind(self, proto, guest_ip, guest_port, host_port, procname):
         '''
@@ -104,146 +264,44 @@ class Zap(PyPlugin):
             print("Exception in crawl thread:", e)
 
     def crawl_thread(self, host_port, log_file):
-        '''
-        self.spider(f"http://localhost:{host_port}/", recurse=True)
-
-        # XXX: this is a hack to wait for the spider to finish
-        time.sleep(5)
-        self.dump_spider_results()
-
-        self.active_scan(f"http://localhost:{host_port}/")
-        '''
-
-        # Make sure syscall proxy is up. Not in main thread so this is okay?
-        time.sleep(5)
-
-        # proxies are zap's proxies - yep
+        # Setup and initial checks
         localProxy = {'http': f'http://127.0.0.1:{self.port}',
-                      'https': f'https://127.0.0.1:{self.port}'}
-
+                    'https': f'https://127.0.0.1:{self.port}'}
         zap = ZAPv2(proxies=localProxy, apikey=self.api_key)
-
         target = f"http://127.0.0.1:{host_port}/"
-        #self.ppp.Introspect.set_zap(host_port, self)
 
-        # Do we block the guest here?
-        # Open our URL, through ZAP proxy?
-        try:
-            r = requests.get(f"http://127.0.0.1:{self.port}", verify=False)
-        except Exception as e:
-            print("BAIL EARLY FOR EXN", file=log_file)
-            print(e, file=log_file)
-            #self.panda.end_analysis()
+        # Setup some default credentials!
+        # Define a context for the target URL
+        context_name = "AuthContext"
+        context_id = zap.context.new_context(context_name)
+
+        # Set up the authentication method for the context
+        auth_method_name = "httpAuthentication"
+        auth_method_config_params = "hostname=127.0.0.1&port=80&realm="
+        zap.authentication.set_authentication_method(context_id, auth_method_name, auth_method_config_params)
+
+        # Set up the users for the context
+        for username, password in credentials:
+            user_id = zap.users.new_user(context_id, username)
+            user_auth_config_params = f"username={username}&password={password}"
+            zap.users.set_authentication_credentials(context_id, user_id, user_auth_config_params)
+            zap.users.set_user_enabled(context_id, user_id, True)
+
+
+        # Process sequence
+        if not self.open_connection_through_proxy(target, localProxy):
             return
-
-        # Now try talking to target
-        try:
-            r = requests.get(target, proxies=localProxy, verify=False)
-            #r = requests.get(target, proxies=localProxy, verify=False, headers={'Host': 'http://127.0.0.1:80'})
-            r.raise_for_status()
-        except Exception as e:
-            print("BAIL EARLY FOR EXN", file=log_file)
-            print(e, file=log_file)
-            #self.panda.end_analysis()
+        if not self.update_sites_tree(zap, target):
             return
-
-        # First we just browse to the main URL to update the sites tree
-        #print(zap.core.access_url(url=target, followredirects=True))
-        try:
-            print(zap.urlopen(target), file=log_file)
-        except Exception as e:
-            print(f"EXCEPTION connecting to {target}: {e}", file=log_file)
-            print(e, file=log_file)
-            #self.panda.end_analysis()
+        if not self.queue_filesystem(zap, target):
             return
-        time.sleep(2) # Give the sites tree a chance to get updated
-
-        # Next we passively scan
-        print(f"Spidering target: {target}", file=log_file)
-        #scanids = set([zap.spider.scan(target)]) # Set of all scans we're running - I think the scan is called 'no_implementor' ?? We get a status for that?
-        zap.spider.scan(target) 
-        
-        # Wait up to 10s for the spider to start
-        for idx in range(10):
-            try:
-                zap.spider.status()
-            except Exception as e:
-                if idx == 9:
-                    print(f"Failed to start spider: {e}", file=log_file)
-                    return
-                time.sleep(1)
-
-        # Wait for both spider to finish AND for the queue to be empty
-        # not sure what's up with the no_implementor - hopefully it's an init thing?
-        try:
-            while len(self.url_queue) > 0 or int(zap.spider.status()) < 100: # Are any scans pending?
-                url = None
-                with self.url_queue_lock:
-                    if len(self.url_queue) > 0:
-                        url = target + self.url_queue.pop(0)
-                if url:
-                    zap.spider.scan(url)
-                    print(f"Adding url from introspect to spider: {url}", file=log_file)
-                    #print("SCANIDS now:", scanids)
-
-                # Only sleep when queue is empty
-                if len(self.url_queue) == 0:
-                    print(f"Spider progress: {zap.spider.status()}", file=log_file)
-                    time.sleep(2)
-        except ProxyError:
-            print("ERROR: ProxyError while spidering")
+        if not self.perform_spidering(zap, target):
             return
-
-        print('Spider completed', file=log_file)
-        time.sleep(5) # Give the passive scanner a chance to finish
-
-        # Now we actively scan
-        print(f"Scanning target: {target}", file=log_file)
-        zap.ascan.scan(target)
-        # Wait for both scan to finish AND for the queue to be empty
-        try:
-            while len(self.url_queue) > 0 or int(zap.ascan.status()) < 100:
-                # Pop any new URLs off the queue and queue them for scanning
-                url = None
-                with self.url_queue_lock:
-                    if len(self.url_queue) > 0:
-                        url = target + self.url_queue.pop(0)
-                if url:
-                    zap.ascan.scan(url)
-                    print(f"Adding url from introspect to scan {url}", file=log_file)
-
-                # Only sleep when queue is empty
-                if len(self.url_queue) == 0:
-                    print(f"Scan progress: {zap.ascan.status()}", file=log_file)
-                    time.sleep(5)
-        except ProxyError:
-            print("ERROR: ProxyError while active scanning")
+        if not self.perform_ajaxSpidering(zap, target):
             return
-
-        print('Scan completed', file=log_file)
-
-        # Now print scan results
-        print('\nHosts: ' + ', '.join(zap.core.hosts), file=log_file) 
-
-        print('\nAlerts: ', file=log_file)
-        # Get all unique URLs that raised alerts.
-        # This is about as good as we can do for finding all valid URLs since zap
-        # doesn't expose status codes to us
-        alert_urls = set()
-        for x in zap.core.alerts():
-            print(x, file=log_file)
-            alert_urls.add(x.get('url'))
-
-        print('\nAlerts URLs: ', file=log_file)
-        print('\n'.join(alert_urls), file=log_file)
-
-        # Print each URL we visited
-        print('\nAll URLs visited:', file=log_file)
-        for url in zap.core.urls():
-            print(url, file=log_file)
-
-        # Shut down PANDA -- XXX NO, that would be bad!
-        #self.panda.end_analysis()
+        if not self.perform_active_scan(zap, target):
+            return
+        self.process_scan_results(zap, log_file)
 
     def uninit(self):
         if hasattr(self, 'process'):
