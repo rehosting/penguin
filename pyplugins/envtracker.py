@@ -74,7 +74,38 @@ class EnvTracker(PyPlugin):
                 return
             if not var_interesting(s):
                 return
-            self.env_vars.add(s)
+            self.addvar(cpu, s)
+
+        @panda.hook_symbol(None, "strstr")
+        def hook_strstr(cpu, tb, h):
+            '''
+            A key-value lookup typically will require a search of a set
+            of key=value pairs for "targetkey=". We know the ground-truth
+            for /proc/cmdline - so let's check if anyone is ever doing
+            a strstr on that while looking for a new key
+            '''
+            a1 = panda.arch.get_arg(cpu, 0)
+            a2 = panda.arch.get_arg(cpu, 1)
+
+            try:
+                s1 = panda.read_str(cpu, a1, max_length=100)
+                s2 = panda.read_str(cpu, a2, max_length=100)
+            except ValueError:
+                return
+
+            # /proc/cmdline check. If we see match in one, target is the other
+            keyword = "root=/dev/vda"
+            target = s2 if keyword in s1 else s1 if keyword in s2 else None
+
+            if target and target.endswith('='):
+                match = target.rstrip('=')
+                if not var_interesting(match):
+                    return
+                self.addvar(cpu, match)
+
+    def addvar(self, cpu, match):
+        proc = self.panda.get_process_name(cpu)
+        self.env_vars.add(match)
 
     def uninit(self):
         # Real uninit: dump env vars
