@@ -1,5 +1,4 @@
 import sys
-import tarfile
 import re
 import logging
 # coloredlogs
@@ -127,7 +126,7 @@ class FileFailures(PyPlugin):
             if rv >= 0:
                 return
 
-            # Grab the filename and track iff we care
+            # Grab the filename
             fname = panda.read_str(cpu, fname)
             if rv >= -2: # ENOENT - we only care about files that don't exist
                 self.centralized_log(fname, 'open')
