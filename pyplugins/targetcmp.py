@@ -168,9 +168,7 @@ class TargetCmp(PyPlugin):
                 self.env_var_matches.add(x.strip())
 
         # Then filter and combine into output_file
-        print("POTENTIAL VARS:", self.env_var_matches)
         valid_vars = filter_env_var_values(self.target_key, self.env_var_matches)
-        print("VALID VARS:", valid_vars)
         with open(pjoin(self.outdir, output_file), "w") as f:
             for x in valid_vars:
                 f.write(x + "\n")
