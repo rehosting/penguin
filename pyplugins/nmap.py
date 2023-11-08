@@ -54,9 +54,9 @@ class Nmap(PyPlugin):
         or something for systems that repeatedly start/stop  listening?
         '''
 
-        #if guest_port in [80] and proto != 'tcp':
-        #    # Ignore - we'll use ZAP on this instead
-        #    return
+        if guest_port in [80] and proto != 'tcp':
+            # Ignore - we'll use ZAP on this instead
+            return
 
         f = self.outdir + f"/nmap_{proto}_{guest_port}.log"
 
