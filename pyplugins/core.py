@@ -46,7 +46,6 @@ class Core(PyPlugin):
         # XXX bb_limit / unique_bbs break our pypanda based analyses
         # because end_analysis is never called
 
-
         if self.get_arg("timeout") is not None:
             # If a timeout is provided, enforce it
             timeout = int(self.get_arg("timeout"))
