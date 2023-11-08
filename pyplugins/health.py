@@ -148,5 +148,15 @@ class Health(PyPlugin):
 
         # Dump list of devices accessed
         with open(f"{self.outdir}/devices_accessed.txt", 'w') as f:
-            for dev in self.devs:
+            for dev in sorted(self.devs):
                 f.write(f"{dev}\n")
+
+        # Dump processes executed
+        with open(f"{self.outdir}/procs.txt", 'w') as f:
+            for proc in sorted(self.procs):
+                f.write(f"{proc}\n")
+
+        # Dump processes executed with args
+        with open(f"{self.outdir}/procs_with_args.txt", 'w') as f:
+            for proc in sorted(self.procs_args):
+                f.write(f"{proc}\n")
