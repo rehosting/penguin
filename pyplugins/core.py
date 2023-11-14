@@ -37,7 +37,7 @@ class Core(PyPlugin):
 
         # Record config in outdir:
         with open(os.path.join(self.outdir, "config.yaml"), "w") as f:
-            f.write(yaml.dump(self.get_arg("config")))
+            f.write(yaml.dump(self.get_arg("conf")))
 
         signal.signal(signal.SIGUSR1, self.graceful_shutdown)
 
@@ -91,8 +91,11 @@ class Core(PyPlugin):
         self.panda.end_analysis()
 
     def uninit(self):
+        if hasattr(self, 'shutdown_event'):
+            # Tell the shutdown thread to exit if it was started
+            self.shutdown_event.set()
+
         # Create .ran
-        self.shutdown_event.set()
         open(os.path.join(self.outdir, ".ran"), "w").close()
 
 class CoreAnalysis(PenguinAnalysis):
