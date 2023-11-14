@@ -53,6 +53,11 @@ uint32_t num, arg = {0};
   CPUArchState *env = static_cast<CPUArchState *>(cpu->env_ptr);
   num = env->regs[0];
   arg = env->regs[1];
+#elif defined(TARGET_MIPS)
+  CPUArchState *env = static_cast<CPUArchState *>(cpu->env_ptr);
+  // num in A0, arg in A1
+  num = env->active_tc.gpr[4];
+  arg = env->active_tc.gpr[5];
 #else
   printf("Unsupported hypercall architecture\n");
   return false;
