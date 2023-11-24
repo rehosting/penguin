@@ -11,6 +11,15 @@ HYPER_READ = 0
 HYPER_WRITE = 1
 HYPER_IOCTL = 2
 
+def hyper(name):
+    if name == "read":
+        return HYPER_READ
+    elif name == "write":
+        return HYPER_WRITE
+    elif name == "ioctl":
+        return HYPER_IOCTL
+    raise ValueError(f"Unknown hyperfile operation {name}")
+
 class HyperFile(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
@@ -70,7 +79,7 @@ class HyperFile(PyPlugin):
 
             sub_offset = struct.calcsize(format_str)
 
-            device_name = "/dev/" + device_name.decode('utf-8', errors='ignore')
+            device_name = device_name.decode('utf-8', errors='ignore')
             # device_name is null terminated - if a null byte is in it, truncate
             if '\x00' in device_name:
                 device_name = device_name[:device_name.index('\x00')]
@@ -91,7 +100,7 @@ class HyperFile(PyPlugin):
             if type_val == HYPER_READ:
                 buffer, length, offset = struct.unpack_from(read_format, buf, sub_offset)
                 new_buffer, retval = model[type_val](device_name, buffer, length, offset) # hyper_read
-                print(f"Read of {length} bytes from {device_name} at offset {offset} returned {retval}: {new_buffer}")
+                #print(f"Read of {length} bytes from {device_name} at offset {offset} returned {retval}: {new_buffer[:50]}")
 
                 # We need to write new_buffer back into the struct at buffer
                 # XXX: sizes? overflows?
@@ -109,10 +118,11 @@ class HyperFile(PyPlugin):
                 try:
                     contents = panda.virtual_memory_read(cpu, buffer+offset, length) # XXX correct use of offset?
                 except ValueError:
-                    contents = None
+                    panda.arch.set_arg(cpu, 0, 1)
+                    return True # We handled the hypercall. Guest needs to retry because nonzero r0
 
                 retval = model[type_val](device_name, buffer, length, offset, contents) # hyper_write
-                print(f"Write of {length} bytes to {device_name} at offset {offset} returned {retval}")
+                #print(f"Write of {length} bytes to {device_name} at offset {offset} returned {retval}")
 
             elif type_val == HYPER_IOCTL:
                 cmd, arg = struct.unpack_from(ioctl_format, buf, sub_offset)
