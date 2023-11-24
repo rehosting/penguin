@@ -72,10 +72,10 @@ class FileFailures(PyPlugin):
         # We track when processes try accessing or IOCTLing on missing files here:
         self.file_failures = {} # path: {event: {count: X}}. Event is like open/read/ioctl/stat/lstat.
 
-        if self.get_arg("conf") is None or "pseudofiles" not in self.get_arg("conf"):
-            raise ValueError("No 'pseudofiles' in config: {self.get_arg('conf')}")
+        if self.get_arg("conf") is None or "pseudo_files" not in self.get_arg("conf"):
+            raise ValueError("No 'pseudo_files' in config: {self.get_arg('conf')}")
 
-        self.config = self.get_arg("conf")["pseudofiles"]
+        self.config = self.get_arg("conf")["pseudo_files"]
         # Expect filename: {'read': 'default' OR 'zero',
         #                   'write': 'default' OR 'discard',
         #                   'ioctl': {
