@@ -5,6 +5,11 @@ from copy import deepcopy
 import sys
 import struct
 
+try:
+    from penguin import yaml
+except ImportError:
+    import yaml
+
 # Make sure these match dyndev
 HYPER_FILE_OP = 0x100200
 HYPER_READ = 0
@@ -23,11 +28,23 @@ def hyper(name):
 class HyperFile(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
+        self.log_file = self.get_arg("log_file")
+        self.files = self.get_arg("models")
 
-        self.files = self.get_arg("files")
         if self.files is None:
             # We can be imported without files, but we'll ignore it
             return
+
+        if self.log_file:
+            # Initialize a blank file so we can tail it
+            open(self.log_file, "w").close()
+
+        # We track when processes access or IOCTL files we've added here:
+        self.results = {} # path: {event: ... }
+                                # event="read": {bytes_read: X, data: "0"}
+                                # event="write": {bytes_written: X, data: ...}
+                                # event="icotl": {mode: {count: X, rv: Y}}
+
 
         assert(isinstance(self.files, dict)), f"Files shoudl be dict, not {files}"
 
@@ -113,6 +130,8 @@ class HyperFile(PyPlugin):
                         # XXX: If we ever have stateful files, we'll need to tell it the read failed
                         return True # We consumed the hypercall, but we had a failure (in r0)
 
+                self.handle_result(device_name, "read", retval, length, new_buffer)
+
             elif type_val == HYPER_WRITE:
                 buffer, length, offset = struct.unpack_from(write_format, buf, sub_offset)
                 try:
@@ -123,12 +142,13 @@ class HyperFile(PyPlugin):
 
                 retval = model[type_val](device_name, buffer, length, offset, contents) # hyper_write
                 #print(f"Write of {length} bytes to {device_name} at offset {offset} returned {retval}")
+                self.handle_result(device_name, "write", retval, length, offset, contents)
 
             elif type_val == HYPER_IOCTL:
                 cmd, arg = struct.unpack_from(ioctl_format, buf, sub_offset)
                 retval = model[type_val](device_name, cmd, arg) # hyper_ioctl
                 #print(f"IOCTL of {cmd:x} to {device_name} with arg {arg} returned {retval}")
-
+                self.handle_result(device_name, "ioctl", retval, cmd, arg)
 
             # Now we need to write the return value back into the struct
             rv_offset = 4 if self.panda.bits == 32 else 8 # Skip one arg
@@ -147,6 +167,52 @@ class HyperFile(PyPlugin):
 
             panda.arch.set_arg(cpu, 0, 0)
             return True
+
+    def handle_result(self, device_name, event, retval, *data):
+        if device_name not in self.results:
+            self.results[device_name] = {}
+
+        if event not in self.results[device_name]:
+            self.results[device_name][event] = []
+
+        if event == "read":
+            requested_length, buffer = data
+            buffer = buffer.decode("utf-8", errors="ignore")
+            result = {
+                "readval": retval,
+                "bytes_requested": requested_length,
+                "data": buffer,
+            }
+
+        elif event == "write":
+            length, offset, buffer = data
+            buffer = buffer.decode("utf-8", errors="ignore")
+            result = {
+                "retval": retval,
+                "bytes_requested": length,
+                "offset": offset,
+                "data": buffer,
+            }
+        
+        elif event == "ioctl":
+            cmd, arg = data
+            result = {
+                "cmd": cmd,
+                "arg": arg,
+                "retval": retval,
+            }
+        else:
+            raise ValueError(f"Unknown event {event}")
+        self.results[device_name][event].append(result)
+
+        # XXX TESTING ONLY, dump log in a stream?
+        with open(self.log_file, "w") as f:
+            yaml.dump(self.results, f)
+
+        # event="read": {bytes_read: X, data: "0"}
+        # event="write": {bytes_written: X, data: ...}
+        # event="icotl": {mode: {count: X, rv: Y}}
+        
 
 
     # Function to handle read operations
@@ -168,3 +234,8 @@ class HyperFile(PyPlugin):
 
     def write_unhandled(self, filename, buffer, length, offset, contents):
         return -22 # -EINVAL
+
+    def uninit(self):
+        if self.log_file is not None:
+            with open(self.log_file, "w") as f:
+                yaml.dump(self.results, f)

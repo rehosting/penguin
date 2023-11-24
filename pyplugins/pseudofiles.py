@@ -10,7 +10,6 @@ from typing import Dict, Any, List
 
 from sys import path
 path.append(dirname(__file__))
-from hyperfile import HyperFile, HYPER_READ, HYPER_WRITE, HYPER_IOCTL, hyper
 
 coloredlogs.install(level='DEBUG', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 
@@ -24,8 +23,10 @@ except ImportError:
 # XXX you'll see checks for if not >= 0 and >= -2. That's checking if we get -1 or -2 looking for -ENOENT
 # ENOENT is 2. Except on mips it seems to be 1. Not sure why?
 
+# Missing files go into our first log
 outfile_missing = "pseudofiles_failures.yaml"
-outfile_ioctl_wildcards = "pseudofiles_ioctl_wildcards.yaml"
+# Files we're modeling go into the second. Particularly useful for defaults
+outfile_models = "pseudofiles_modeled.yaml"
 
 def path_interesting(path):
     if path.startswith("/dev/"):
@@ -61,24 +62,37 @@ def ignore_ioctl_path(path):
 
 class FileFailures(PyPlugin):
     def __init__(self, panda):
+        # XXX We need this import in here, otherwise when we load psueodfiles with panda.load_plugin /path/to/pseudofiles.py
+        # it sees both FileFailures AND HyperFile. But we only want hyperfile to be loaded by us here, not by our caller.
+        from hyperfile import HyperFile, HYPER_READ, HYPER_WRITE, HYPER_IOCTL, hyper
+
         self.panda = panda
         self.outdir = self.get_arg("outdir")
-        self.file_failures = {} # path: {mode: count}
-        self.wildcards = {} # path: {mode: {count: X, rv: Y}}
+        
+        # We track when processes try accessing or IOCTLing on missing files here:
+        self.file_failures = {} # path: {event: {count: X}}. Event is like open/read/ioctl/stat/lstat.
 
-        if self.get_arg("conf") is None or "files" not in self.get_arg("conf"):
-            raise ValueError("No 'files' in config: {self.get_arg('conf')}")
+        if self.get_arg("conf") is None or "pseudofiles" not in self.get_arg("conf"):
+            raise ValueError("No 'pseudofiles' in config: {self.get_arg('conf')}")
 
-        self.config = self.get_arg("conf")["files"]
+        self.config = self.get_arg("conf")["pseudofiles"]
         # Expect filename: {'read': 'default' OR 'zero',
         #                   'write': 'default' OR 'discard',
         #                   'ioctl': {
         #                               '*' OR num: {'model': 'X', 'val': Y}
         #                               }
 
+        devfs = []
+        procfs = []
+
         hf_config = {}
         for filename, details in self.config.items():
             hf_config[filename] = {}
+
+            if filename.startswith("/dev/"):
+                devfs.append(filename.lstrip("/dev/"))
+            elif filename.startswith("/proc/"):
+                procfs.append(filename.lstrip("/proc/"))
 
             for ftype in "read", "write", "ioctl":
                 if ftype not in details or "model" not in details[ftype]:
@@ -99,6 +113,14 @@ class FileFailures(PyPlugin):
                     return rwif
                 
                 hf_config[filename][hyper(ftype)] = make_rwif(details[ftype] if ftype in details else {}, fn)
+        
+
+        if len(devfs):
+            self.get_arg("conf")["env"]["dyndev.devnames"] = ",".join(devfs)
+            print(f"Configuring dyndev to shim devices: {devfs}")
+        if len(procfs):
+            self.get_arg("conf")["env"]["dynproc.procnames"] = ",".join(procfs)
+            print(f"Configuring dyndev to shim procfiles: {procfs}")
 
         # filename -> {read: model, write: model, ioctls: model}
         # Coordinates with hyperfile for modeling behavior!
@@ -106,7 +128,7 @@ class FileFailures(PyPlugin):
         # Need to implement read, write, and IOCTLs
         # IOCTLs with symex gets scary, others are easy though?
 
-        panda.pyplugins.load(HyperFile, {'files': hf_config})
+        panda.pyplugins.load(HyperFile, {'models': hf_config, 'log_file': pjoin(self.outdir, outfile_models)})
         # Clear results file - we'll update it as we go
         self.dump_results()
 
@@ -222,79 +244,24 @@ class FileFailures(PyPlugin):
                 if rv >= -2: # ENOENT - we only care about files that don't exist
                     self.centralized_log(panda.read_str(cpu, pathname), 'stat')
 
+    #######################################
+    def handle_result(self, ftype, rv, args):
+        if filename not in self.results:
+            self.results[filename] = {}
+        if ftype not in self.results[filename]:
+            self.results[filename][ftype] = None
+        old_state = self.results[filename][ftype]
 
-        # TODO: do we care about lstat?
+        # Given old_state, transform it to get new state
 
-        # XXX: We detect ioctls, read, writes based on hypercalls
-        # for device we add. We just use PANDA to detect failing opens
-        # of misisng devices
-        '''
-        @panda.ppp("syscalls2", "on_sys_ioctl_return")
-        def fail_detect_ioctl(cpu, pc, fd, cmd, argp):
-            rv = self.panda.arch.get_retval(cpu, convention="syscall")
-            if rv >= 0:
-                return
+        print("Handle:", ftype, rv, args)
+        new_state = old_state
 
-            name = panda.get_file_name(cpu, fd)
-            if name == panda.ffi.NULL or name is None:
-                sfd = panda.from_unsigned_guest(fd) 
-                if sfd < 0:
-                    print(f"WARN: ioctl {cmd:#x} on invalid FD: {sfd}")
-                elif rv < 0:
-                    print(f"WARN: ioctl {cmd:#x} failed with {rv} - but we can't find name for fd {fd}")
-                return
-            name = name.decode('utf-8', errors='ignore')
-
-            self.log_ioctl_failure(name, rv, cmd)
-
-        # Failing reads
-        @panda.ppp("syscalls2", "on_sys_read_return")
-        def fail_detect_read(cpu, pc, fd, buf, count):
-            rv = self.panda.arch.get_retval(cpu, convention="syscall")
-            if rv >= 0:
-                return
-
-            name = panda.get_file_name(cpu, fd)
-            if name == panda.ffi.NULL or name is None:
-                sfd = panda.from_unsigned_guest(fd) 
-                if sfd < 0:
-                    print(f"WARN: write {cmd:#x} on invalid FD: {sfd}")
-                elif rv < 0:
-                    print(f"WARN: write {cmd:#x} failed with {rv} - but we can't find name for fd {fd}")
-                return
-            name = name.decode('utf-8', errors='ignore')
-
-            self.log_read_failure(name, rv, count)
-
-        # Failing writes
-        @panda.ppp("syscalls2", "on_sys_read_return")
-        def fail_detect_write(cpu, pc, fd, buf, count):
-            rv = self.panda.arch.get_retval(cpu, convention="syscall")
-            if rv >= 0:
-                return
-
-            name = panda.get_file_name(cpu, fd)
-            if name == panda.ffi.NULL or name is None:
-                sfd = panda.from_unsigned_guest(fd) 
-                if sfd < 0:
-                    print(f"WARN: write {cmd:#x} on invalid FD: {sfd}")
-                elif rv < 0:
-                    print(f"WARN: write {cmd:#x} failed with {rv} - but we can't find name for fd {fd}")
-                return
-            name = name.decode('utf-8', errors='ignore')
-
-            self.log_write_failure(name, rv, count)
-
-    def log_read_failure(self, path, rv, count):
-        # Should our module returna  specific error we check for?
-        self.centralized_log(path, 'read')
-
-    def log_write_failure(self, path, rv, count):
-        # Should our module returna  specific error we check for?
-        self.centralized_log(path, 'write')
-    '''
+        self.results[filename][ftype] = new_state
 
     def centralized_log(self, path, event):
+        # Log a failure to open a given path if it's interesting
+        # We just track count
         if not path_interesting(path):
             return
 
@@ -306,37 +273,7 @@ class FileFailures(PyPlugin):
 
         self.file_failures[path][event]['count'] += 1
 
-    def log_ioctl_wildcard(self, path, cmd, rv):
-        # Log when we model a wildcard ioctl
-        # Write down rv and count
-
-        if path not in self.wildcards:
-            self.wildcards[path] = {}
-        
-        if 'ioctl' not in self.wildcards[path]:
-            self.wildcards[path]['ioctl'] = {}
-
-        first = False
-        if cmd not in self.wildcards[path]['ioctl']:
-            first = True
-            self.wildcards[path]['ioctl'][cmd] = {"rv": rv, "count": 0}
-
-        # Wildcard should have constant RV, so no need for multi-level here
-
-        if rv != self.wildcards[path]['ioctl'][cmd]["rv"]:
-            raise ValueError("How did RV change in wildcard?")
-
-        self.wildcards[path]['ioctl'][cmd]['count'] += 1
-
-        if first:
-            self.dump_results()
-
     def log_ioctl_failure(self, path, cmd):
-        #if not path_interesting(path) or ignore_ioctl_path(path):
-        #    return
-        #if not ignore_cmd(cmd):
-        #    return
-
         if path not in self.file_failures:
             self.file_failures[path] = {}
         
@@ -350,6 +287,9 @@ class FileFailures(PyPlugin):
 
         self.file_failures[path]['ioctl'][cmd]['count'] += 1
         if first:
+            # The first time we see an IOCTL update our results on disk
+            # This is just relevant if someone's watching the output during a run
+            # final results are always written at the end.
             self.dump_results()
 
     # Simple peripheral models as seen in firmadyne/firmae
@@ -515,8 +455,6 @@ class FileFailures(PyPlugin):
         
         if model == 'return_const':
             rv = cmd_details['val']
-            if is_wildcard:
-                self.log_ioctl_wildcard(filename, cmd, rv)
             return rv
         elif model == 'symex':
             raise NotImplementedError("Symex is WIP")
@@ -529,10 +467,6 @@ class FileFailures(PyPlugin):
         # Dump all file failures to disk as yaml
         with open(pjoin(self.outdir, outfile_missing), "w") as f:
             yaml.dump(self.file_failures, f)
-
-        # Also dump wildcards. Not sure if we'll use it
-        with open(pjoin(self.outdir, outfile_ioctl_wildcards), "w") as f:
-            yaml.dump(self.wildcards, f)
 
     def uninit(self):
         self.dump_results()
