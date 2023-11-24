@@ -24,8 +24,8 @@ except ImportError:
 # XXX you'll see checks for if not >= 0 and >= -2. That's checking if we get -1 or -2 looking for -ENOENT
 # ENOENT is 2. Except on mips it seems to be 1. Not sure why?
 
-outfile = "file_failures.yaml"
-outfile2 = "file_wildcards.yaml"
+outfile_missing = "pseudofiles_failures.yaml"
+outfile_ioctl_wildcards = "pseudofiles_ioctl_wildcards.yaml"
 
 def path_interesting(path):
     if path.startswith("/dev/"):
@@ -101,7 +101,7 @@ class FileFailures(PyPlugin):
                 hf_config[filename][hyper(ftype)] = make_rwif(details[ftype] if ftype in details else {}, fn)
 
         # filename -> {read: model, write: model, ioctls: model}
-        # XXX TODO: coordinate with hyperfile for modeling behavior!
+        # Coordinates with hyperfile for modeling behavior!
         # Can we just pass our config straight over and load both?
         # Need to implement read, write, and IOCTLs
         # IOCTLs with symex gets scary, others are easy though?
@@ -527,11 +527,11 @@ class FileFailures(PyPlugin):
 
     def dump_results(self):
         # Dump all file failures to disk as yaml
-        with open(pjoin(self.outdir, outfile), "w") as f:
+        with open(pjoin(self.outdir, outfile_missing), "w") as f:
             yaml.dump(self.file_failures, f)
 
         # Also dump wildcards. Not sure if we'll use it
-        with open(pjoin(self.outdir, outfile2), "w") as f:
+        with open(pjoin(self.outdir, outfile_ioctl_wildcards), "w") as f:
             yaml.dump(self.wildcards, f)
 
     def uninit(self):

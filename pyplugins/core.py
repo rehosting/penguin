@@ -32,11 +32,11 @@ class Core(PyPlugin):
         plugins = self.get_arg("plugins")
 
         # Record loaded plugins
-        with open(os.path.join(self.outdir, "plugins.yaml"), "w") as f:
+        with open(os.path.join(self.outdir, "core_plugins.yaml"), "w") as f:
             f.write(yaml.dump(plugins)) # Names and args
 
         # Record config in outdir:
-        with open(os.path.join(self.outdir, "config.yaml"), "w") as f:
+        with open(os.path.join(self.outdir, "core_config.yaml"), "w") as f:
             f.write(yaml.dump(self.get_arg("conf")))
 
         signal.signal(signal.SIGUSR1, self.graceful_shutdown)
@@ -51,7 +51,7 @@ class Core(PyPlugin):
             timeout = int(self.get_arg("timeout"))
 
             # Log info on how many blocks get executed
-            log_path = self.outdir + "/shutdown.csv"
+            log_path = self.outdir + "/core_shutdown.csv"
             panda.load_plugin("timeout", {
                     #"bb_limit": BB_MAX,
                     #'unique_bbs': UNIQUE,

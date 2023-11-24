@@ -200,10 +200,9 @@ class TargetCmp(PyPlugin):
         self.env_var_matches = set()
         # Touch the files so we know this analysis is actually running
         # Otherwise these files won't get created
-
-        open(pjoin(self.outdir, cmp_output), "w").close()
-        open(pjoin(self.outdir, cmp_output_cpp), "w").close()
-        open(pjoin(self.outdir, cmp_output_py), "w").close()
+        #open(pjoin(self.outdir, cmp_output), "w").close()
+        #open(pjoin(self.outdir, cmp_output_cpp), "w").close()
+        #open(pjoin(self.outdir, cmp_output_py), "w").close()
 
         # Load C plugins to dynamically track potential comparisons
         panda.load_plugin("callstack_instr", args={"stack_type": "asid"})

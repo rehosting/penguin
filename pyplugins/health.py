@@ -150,16 +150,16 @@ class Health(PyPlugin):
                 f.write(f"  {cls}: {details[-1][1]}\n")
 
         # Dump list of devices accessed
-        with open(f"{self.outdir}/devices_accessed.txt", 'w') as f:
+        with open(f"{self.outdir}/health_devices_accessed.txt", 'w') as f:
             for dev in sorted(self.devs):
                 f.write(f"{dev}\n")
 
         # Dump processes executed
-        with open(f"{self.outdir}/procs.txt", 'w') as f:
+        with open(f"{self.outdir}/health_procs.txt", 'w') as f:
             for proc in sorted(self.procs):
                 f.write(f"{proc}\n")
 
         # Dump processes executed with args
-        with open(f"{self.outdir}/procs_with_args.txt", 'w') as f:
+        with open(f"{self.outdir}/health_procs_with_args.txt", 'w') as f:
             for proc in sorted(self.procs_args):
                 f.write(f"{proc}\n")

@@ -18,8 +18,8 @@ def kill_vpn():
 atexit.register(kill_vpn)
 
 # Two outfiles: netbinds.txt, bridges.txt
-BINDS_FILE="netbinds.csv"
-BRIDGE_FILE="bridges.csv"
+BINDS_FILE="vpn_netbinds.csv"
+BRIDGE_FILE="vpn_bridges.csv"
 #Port maps built from an optional environment variable
 #e.g., IGLOO_VPN_PORT_MAPS="TCP:80:192.168.0.1:80,udp:20002:192.168.0.1:20002"
 
