@@ -224,7 +224,10 @@ extern "C" void uninit_plugin(void *self) {
     // Dump tree as (pid, create_time, ppid, parent_create_time, comm) csv  
     g_mutex_lock(&lock);
     for (auto& k : *proc_map) {
-      *tree_file  << k.second->pid << "," << k.second->create_time << ";" << k.second->ppid << "," << k.second->parent_create_time << ";" << k.second->comm << ";" << k.second->arg1 << ";" << k.second->arg2 << std::endl;
+      // XXX we need to escape the commas in the comm field or else it breaks the csv
+      // We'll just replace them with underscores for now
+      std::replace(k.second->comm, k.second->comm + sizeof(k.second->comm), ',', '_');
+      *tree_file  << k.second->pid << "," << k.second->create_time << "," << k.second->ppid << "," << k.second->parent_create_time << "," << k.second->comm << "," << k.second->arg1 << "," << k.second->arg2 << std::endl;
     }
     g_mutex_unlock(&lock);
     tree_file->close();
