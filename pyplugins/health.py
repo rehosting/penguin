@@ -30,8 +30,8 @@ class Health(PyPlugin):
         self.procs_args = set()
         self.devs = set()
 
-        panda.load_plugin("coverage", {"filename": self.outdir+"/cov.csv", "mode": "osi-block",
-                                       "summary": 'true'})
+        #panda.load_plugin("coverage", {"filename": self.outdir+"/cov.csv", "mode": "osi-block",
+        #                               "summary": 'true'})
 
         @panda.ppp("syscalls2", "on_sys_bind_enter")
         def health_bind(cpu, pc, sockfd, sockaddrin_addr, addrlen):
@@ -93,7 +93,10 @@ class Health(PyPlugin):
         @panda.ppp("syscalls2", "on_sys_open_return")
         def detect_dev_open(cpu, pc, fname, mode, flags):
             # Just get pathname:
-            fname = panda.read_str(cpu, fname)
+            try:
+                fname = panda.read_str(cpu, fname)
+            except ValueError:
+                return
             if fname.startswith("/dev"):
                 self.log_dev_open(fname, mode)
 
