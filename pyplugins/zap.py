@@ -126,7 +126,7 @@ class Zap(PyPlugin):
 
     def queue_filesystem(self, zap, target):
         self.fs_urls = find_potential_urls(self.fs_tar)
-        print(f"Found FS urls: {self.fs_urls}", file=self.output_file)
+        #print(f"Found FS urls: {self.fs_urls}", file=self.output_file)
 
         for url in self.fs_urls:
             try:
@@ -161,7 +161,7 @@ class Zap(PyPlugin):
             # Give the zap.ajaxSpider spider a chance to start
             time.sleep(10)
             while (zap.ajaxSpider.status != 'stopped'):
-                print('zap.ajaxSpider Spider is ' + zap.ajaxSpider.status(), file=self.output_file)
+                print('zap.ajaxSpider Spider is ' + zap.ajaxSpider.status, file=self.output_file)
                 time.sleep(5)
         return True
 
@@ -262,6 +262,11 @@ class Zap(PyPlugin):
             self.crawl_thread(host_port, log_file)
         except Exception as e:
             print("Exception in crawl thread:", e)
+            # Print line number of exception
+            import traceback
+            traceback.print_exc()
+            print("Exception in crawl thread:", e, file=log_file)
+            raise
 
     def crawl_thread(self, host_port, log_file):
         # Setup and initial checks
