@@ -3,14 +3,14 @@ import re
 import logging
 # coloredlogs
 import coloredlogs
-from os.path import dirname, join as pjoin
+from os.path import dirname, join as pjoin, isfile
 from pandare import PyPlugin
 from copy import deepcopy
 from typing import Dict, Any, List
 
 from sys import path
 path.append(dirname(__file__))
-from hyperfile import HyperFile, HYPER_READ, HYPER_WRITE, HYPER_IOCTL
+from hyperfile import HyperFile, HYPER_READ, HYPER_WRITE, HYPER_IOCTL, hyper
 
 coloredlogs.install(level='DEBUG', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 
@@ -70,45 +70,35 @@ class FileFailures(PyPlugin):
             raise ValueError("No 'files' in config: {self.get_arg('conf')}")
 
         self.config = self.get_arg("conf")["files"]
-        # Expect filename: {'read': 'unhandled' OR 'zero',
-        #                   'write': 'unhandled' OR 'discard',
+        # Expect filename: {'read': 'default' OR 'zero',
+        #                   'write': 'default' OR 'discard',
         #                   'ioctl': {
         #                               '*' OR num: {'model': 'X', 'val': Y}
         #                               }
 
         hf_config = {}
         for filename, details in self.config.items():
-            fns = [] # readf, writef
-            for ftype in "read", "write":
-                if ftype in details:
-                    # If we were told a model, use it
-                    f = getattr(self, f"{ftype}_{details[ftype]}", None)
+            hf_config[filename] = {}
+
+            for ftype in "read", "write", "ioctl":
+                if ftype not in details or "model" not in details[ftype]:
+                    model = "default" # default is default
                 else:
-                    # Otherwise use the unhandled model
-                    f = getattr(self, f"{ftype}_unhandled", None)
-                if not f:
-                    # Malformed config? Could fallback to _unhandled
-                    raise ValueError(f"Unsupported hyperfile {ftype} for {filename}: {details[ftype]}")
-                fns.append(f)
+                    model = details[ftype]["model"]
 
-            # For our ioctl funct we need to make a closure that has 
-            # the relevant config plus the ability to reference self.
-            # The function needs to take (cmd, arg) as arguments
-            # but it also needs access to details and self
+                if not hasattr(self, f"{ftype}_{model}"):
+                    raise ValueError(f"Unsupported hyperfile {ftype}_{model} for {filename}: {details[ftype] if ftype in details else None}")
+                # Have a model specified
 
-            # Create a closure for ioctl
-            def make_ioctlf(details, self_ref):
-                def ioctlf(filename, cmd, arg):
-                    return self_ref.model_ioctl(filename, cmd, arg, details['ioctl'] if 'ioctl' in details else {})
-                return ioctlf
+                fn = getattr(self, f"{ftype}_{model}")
 
-            ioctlf = make_ioctlf(details, self)
-
-            hf_config[filename] = {
-                HYPER_READ: fns[0],
-                HYPER_WRITE: fns[1],
-                HYPER_IOCTL: ioctlf
-            }
+                # Closure so we can pass details through
+                def make_rwif(details, fn_ref):
+                    def rwif(*args):
+                        return fn_ref(*args, details)
+                    return rwif
+                
+                hf_config[filename][hyper(ftype)] = make_rwif(details[ftype] if ftype in details else {}, fn)
 
         # filename -> {read: model, write: model, ioctls: model}
         # XXX TODO: coordinate with hyperfile for modeling behavior!
@@ -127,7 +117,10 @@ class FileFailures(PyPlugin):
                 return
 
             # Grab the filename
-            fname = panda.read_str(cpu, fname)
+            try:
+                fname = panda.read_str(cpu, fname)
+            except ValueError:
+                return
             if rv >= -2: # ENOENT - we only care about files that don't exist
                 self.centralized_log(fname, 'open')
 
@@ -146,7 +139,10 @@ class FileFailures(PyPlugin):
                 if basename_c == self.panda.ffi.NULL:
                     return
                 base = self.panda.ffi.string(basename_c)
-            path = base + "/" + panda.read_str(cpu, fname)
+            try:
+                path = base + "/" + panda.read_str(cpu, fname)
+            except ValueError:
+                return
 
             if rv >= -2: # ENOENT - we only care about files that don't exist
                 self.centralized_log(path, 'open')
@@ -357,27 +353,144 @@ class FileFailures(PyPlugin):
             self.dump_results()
 
     # Simple peripheral models as seen in firmadyne/firmae
-    def read_zero(self, filename, buffer, length, offset):
+    def read_zero(self, filename, buffer, length, offset, details=None):
         data = b'0'
         final_data = data[offset:offset+length]
         # XXX if offset > len(data) should we return an error isntead of 0?
         return (final_data, len(final_data)) # data, rv
 
-    def write_discard(self, filename, buffer, length, offset, contents):
+    def read_const_buf(self, filename, buffer, length, offset, details=None):
+        data = details['val'].encode() + b"\x00" # Null terminate?
+        final_data = data[offset:offset+length]
+        # XXX if offset > len(data) should we return an error instead of 0?
+        if offset > len(data):
+            return (b'', 0) # -EINVAL
+
+        return (final_data, len(final_data)) # data, rv
+
+    def _render_file(self, details):
+        # Given offset: data mapping plus a pad, we 
+        # combine to return a buffer
+        pad  = b'\x00'
+        if 'pad' in details:
+            if isinstance(details['pad'], str):
+                pad = details['pad'].encode()
+            elif isinstance(details['pad'], int):
+                pad = bytes([details['pad']])
+            else:
+                raise ValueError("const_map: pad value must be string or int")
+        
+        size = details['size'] if 'size' in details else 0x10000
+        vals = details['vals']
+
+        # sort vals dict by key, lowest to highest
+        vals = {k: v for k, v in sorted(vals.items(), key=lambda item: item[0])}
+
+        # now we flatten. For each offset, val pair
+        # Need to grab first offset, then pad to that
+        data = b'' #pad * (list(vals.keys())[0] if len(vals.keys()) else 0)
+
+        for off, val in vals.items():
+            # We have offset: value where value
+            # may be a string, a list of ints (for non-printable chars)
+            # or a list of strings to be joined by null terminators
+
+            if isinstance(val, str):
+                val = val.encode()
+
+            elif isinstance(val, list):
+                if not len(val):
+                    continue # Wat?
+
+                # All shoudl be same type. Could support a list of lists e.g., ["key=val", [0x41, 0x00, 0x42], ...]?
+                first_val = val[0]
+                for this_val in val[1:]:
+                    if not isinstance(this_val, type(first_val)):
+                        raise ValueError(f"Need matching vals but we have {this_val} and {first_val}")
+
+                if isinstance(first_val, int):
+                    # We have a list of ints - these are non-printable chars
+                    val = bytes(val)
+
+                elif isinstance(first_val, str):
+                    # Join this list with null bytes
+                    val = b'\x00'.join([x.encode() for x in val])
+            else:
+                raise ValueError("_render_file: vals must be strings lists of ints/strings")
+
+            # Pad before this value, then add the value
+            data += pad * (off - len(data)) + val
+
+        # Finally pad up to size
+        assert len(data) <= size, f"Data is too long: {len(data)} > size {size}"
+        data += pad * (size - len(data))
+        return data
+
+    def read_const_map(self, filename, buffer, length, offset, details=None):
+        data = self._render_file(details)
+        final_data = data[offset:offset+length]
+        if offset > len(data):
+            return (b'', 0) # No data, no bytes read
+
+        return (final_data, len(final_data)) # data, length
+
+    def read_const_map_file(self, filename, buffer, length, offset, details=None):
+        # Create a file on the host using the specified pad, size, vals
+        # When we read from the guest, we read from the host file.
+        hostfile = details['filename']
+        
+        # Create initial host file
+        if not isfile(hostfile):
+            data = self._render_file(details)
+            # Create initial file
+            with open(hostfile, "wb") as f:
+                f.write(data)
+
+        # Read from host file
+        with open(hostfile, "rb") as f:
+            f.seek(offset)
+            final_data = f.read(length)
+
+        return (final_data, len(final_data)) # data, length
+
+    def read_from_file(self, filename, buffer, length, offset, details=None):
+        print(f"Reading {filename} with {length} bytes at {offset}")
+        fname = details['filename'] # Host file
+
+        with open(fname, "rb") as f:
+            f.seek(offset)
+            data = f.read(length)
+
+        return (data, len(data))
+
+    def write_from_file(self, filename, buffer, length, offset, contents, details=None):
+        fname = details['filename'] # Host file
+        #print(f"Writing {fname} with {length} bytes at {offset}: {contents[:100]}")
+
+        with open(fname, "r+b") as f:
+            f.seek(offset)
+            f.write(contents)
+
+        return length
+
+    def write_discard(self, filename, buffer, length, offset, contents, details=None):
         # Pretend we wrote everything we were asked to
         return length
 
-    # Unhandled models - log failures
-    def read_unhandled(self, filename, buffer, length, offset):
+    # default models - log failures
+    def read_default(self, filename, buffer, length, offset, details=None):
         # TODO: log failure
         return (b'', -22) # -EINVAL - we don't support reads
 
-    def write_unhandled(self, filename, buffer, length, offset, contents):
+    def write_default(self, filename, buffer, length, offset, contents, details=None):
         # TODO: log failure
         return -22 # -EINVAL - we don't support writes
 
-    # IOCTL is more complicated than read/write
-    def model_ioctl(self, filename, cmd, arg, ioctl_details):
+    # IOCTL is more complicated than read/write.
+    # default is a bit of a misnomer, it's our default ioctl handler which
+    # implements default behavior (i.e., error) on issue of unspecified ioctls,
+    # but implements what it's told for others
+    def ioctl_default(self, filename, cmd, arg, ioctl_details):
         '''
         Given a cmd and arg, return a value
         filename is device path
@@ -385,7 +498,7 @@ class FileFailures(PyPlugin):
             cmd -> {'model': 'return_const'|'symex',
                      'val': X}
             But no 'val' key for symex?
-            If we have no model for a given cmd, that's the same as 'unhandled'
+            If we have no model for a given cmd, that's the same as 'default'
         '''
         # Try to use cmd as our key, but '*' is a fallback
         is_wildcard = False
@@ -405,11 +518,6 @@ class FileFailures(PyPlugin):
             if is_wildcard:
                 self.log_ioctl_wildcard(filename, cmd, rv)
             return rv
-
-        elif model == 'unhandled':
-            # Maybe drop this code path?
-            self.log_ioctl_failure(filename, cmd)
-            return -25 # -ENOTTY
         elif model == 'symex':
             raise NotImplementedError("Symex is WIP")
         else:
@@ -511,11 +619,11 @@ class FileFailuresAnalysis(PenguinAnalysis):
         return {
             'weight': weight, 
             # Default behavior. Error on read/write/ioctl - we'll fix when we see it
-            'read': 'uhandled',
-            'write': 'unhandled',
+            'read': 'default',
+            'write': 'default',
             'ioctl': {
                     '*': {
-                        'type': 'unhandled',
+                        'type': 'default',
                     }
                 }
             }
@@ -611,8 +719,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
                             'val': 0,
                         }
 
-                    if handler['type'] == 'unhandled':
-                        # We just saw some unhandled ioctls - we can propose both returning 0 and symex
+                    if handler['type'] == 'default':
+                        # We just saw some default ioctls - we can propose both returning 0 and symex
                         # Prioritize symex, we like that more!
                         ret0_mitigation['weight'] -= (0.1 if ret0_mitigation['weight'] > 0.1 else 0.0)
                         results.append(ret0_mitigation)
