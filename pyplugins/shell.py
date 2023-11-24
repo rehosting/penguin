@@ -1,5 +1,6 @@
 from pandare import PyPlugin
 from os.path import join
+import tarfile
 
 
 # crc32("busybox")
@@ -9,6 +10,7 @@ HC_CMD_LOG_LINENO = 0
 HC_CMD_LOG_ENV_ARGS = 1
 
 outfile_cov = "shell_cov.csv"
+outfile_trace = "shell_cov_trace.csv"
 outfile_env = "shell_env.csv"
 
 class BBCov(PyPlugin):
@@ -16,11 +18,18 @@ class BBCov(PyPlugin):
         self.pointer_size = panda.bits // 8
         self.panda = panda
         self.outdir = self.get_arg("outdir")
-        
+        self.fs_tar = self.get_arg("fs")
+        self.fs_missing_files = set()
+
+        self.read_scripts = {} # filename -> contents
+        self.last_line = None
 
         # initialize outfiles:
         with open(join(self.outdir, outfile_cov), "w") as f:
             f.write("filename,lineno,pid\n")
+
+        with open(join(self.outdir, outfile_trace), "w") as f:
+            f.write("filename:lineno,contents\n")
 
         with open(join(self.outdir, outfile_env), "w") as f:
             f.write("filename,lineno,pid,envs\n")
@@ -62,6 +71,38 @@ class BBCov(PyPlugin):
             return
         lineno = self.try_read_int(cpu, lineno_ptr)
         pid = self.try_read_int(cpu, pid_ptr)
+
+        # Populate read_scripts or fs_missing_files with this script
+        if filename not in self.read_scripts and filename not in self.fs_missing_files:
+            # Read filename as a path out of self.fs_tar which is a tar arcive
+            with tarfile.open(self.fs_tar, "r") as tar:
+                try:
+                    f = tar.extractfile("." + filename)
+                    if f:
+                        self.read_scripts[filename] = f.read().decode("utf-8").splitlines()
+                    else:
+                        self.fs_missing_files.add(filename)
+                except KeyError:
+                    self.fs_missing_files.add(filename)
+        
+        # Read the line out of the file, if we can
+        try:
+            line = self.read_scripts[filename][lineno-1]
+        except (KeyError, IndexError):
+            line = None
+
+        # If we get here and still have a last line, we need to dump it
+        if self.last_line is not None:
+            old_filename, old_lineno, old_line = self.last_line
+            self.last_line = None
+            with open(join(self.outdir, outfile_trace), "a") as f:
+                f.write(f"{old_filename}:{old_lineno},{old_line}\n")
+
+        if line:
+            self.last_line = (filename, lineno, line)
+        else:
+            self.last_line = None
+
         #print(f"filename: {filename}, lineno = {lineno}, pid = {pid}")
         with open(join(self.outdir, outfile_cov), "a") as f:
             f.write(f"{filename},{lineno},{pid}\n")
@@ -92,6 +133,22 @@ class BBCov(PyPlugin):
             envs = list(zip(env_names, env_vals))
         except ValueError:
             envs = []
+
+        if self.last_line is not None:
+            # If we just got env info for the last line, let's write it out with data now
+            if self.last_line[2] and self.last_line[0] == filename and self.last_line[1] == lineno:
+                line = self.last_line[2]
+
+                # We want to replace "$anything" with "$anything(=VALUE)" for each env
+                for (varname, val) in envs:
+                    if val is None:
+                        val = "UNSET"
+                    line = line.replace(f"${varname}", f"$({varname}=>{val}]")
+                    line = line.replace(f"${{{varname}}}", f"${{{varname}=>{val}}}")
+
+                self.last_line = None
+                with open(join(self.outdir, outfile_trace), "a") as f:
+                    f.write(f"{filename}:{lineno},{line}\n")
 
         #print(f"filename: {filename}, lineno = {lineno}, pid = {pid}, envs: {envs}")
         with open(join(self.outdir, outfile_env), "a") as f:
