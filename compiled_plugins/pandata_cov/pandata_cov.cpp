@@ -110,7 +110,7 @@ extern "C" bool init_plugin(void *self) {
   log_file = new std::ofstream(outfile);
   // outfile probably ends with .csv, we want to add before the .csv
   std::string proc_outfile = std::string(outfile);
-  proc_outfile.insert(proc_outfile.find(".csv"), ".proc");
+  proc_outfile.insert(proc_outfile.find(".csv"), ".transitions");
   proc_log = new std::ofstream(proc_outfile);
 
   panda_cb pcb { .start_block_exec = sbe };
