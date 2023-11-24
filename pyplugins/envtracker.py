@@ -18,7 +18,9 @@ cmp_output = "env_cmp.txt"
 cmp_output_cpp = "env_cmp_cpp.txt" # C++ analysis with callstackinstr dumps everything here (good)
 cmp_output_py = "env_cmp_py.txt"   # Python with libc fn hooks dumps everything here (not too good)
 
+uboot_output = "env_uboot.txt"
 missing_output = "env_missing.yaml"
+mtd_output = "env_mtd.txt"
 
 class EnvTracker(PyPlugin):
     '''
@@ -29,7 +31,11 @@ class EnvTracker(PyPlugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.env_vars = set() # set of env vars that were read through libc getenv
+        self.uboot_vars = set() # set of env vars that were read through libc getenv
+        self.mtd_vars = set() # set of mtd partitions read out of /proc/mtd
+
         self.default_env_vars = ["root", "console", "clocksource", "elevator", "nohz", "idle", "acpi"]
+        self.conf = self.get_arg("conf")
 
         @panda.hook_symbol("libc-", "getenv")
         def hook_getenv(cpu, tb, h):
@@ -63,20 +69,72 @@ class EnvTracker(PyPlugin):
             keyword = "root=/dev/vda"
             target = s2 if keyword in s1 else s1 if keyword in s2 else None
 
+            # I haven't (yet) seen these without a trailing =s, but it could happen
+            # maybe we should be less conservative here?
             if target and target.endswith('='):
                 match = target.rstrip('=')
                 if not self.var_interesting(match):
                     return
                 self.addvar(cpu, match)
 
+            # uboot env check. IFF we put this in the uboot env
+            keyword = "igloo_uboot_env=placeholder"
+
+            target = s2 if keyword in s1 else s1 if keyword in s2 else None
+            if target:
+                match = target.rstrip('=') # Optional, have seen lookups without the trailing =s
+
+                if not self.uboot_var_interesting(match):
+                    return
+                self.uboot_addvar(cpu, match)
+
+            # MTD search (e.g., /proc/mtd)
+            # This is for *partition names* not the contents or anything that fancy
+            keyword = "mtd0: "
+
+            target = s2 if keyword in s1 else s1 if keyword in s2 else None
+            if target:
+                # We can trim "s, because the name is always quoted (e.g., we could search "foo" when looking for foo)
+                target = target.strip('"')
+                if 'env' in self.conf and 'mtdparts' in self.conf['env'] and f"({target})" in self.conf['env']['mtdparts']:
+                    # We've set this partition up already. Yay!
+                    return
+                self.mtd_addvar(cpu, target)
+
     def addvar(self, cpu, match):
-        proc = self.panda.get_process_name(cpu)
+        #proc = self.panda.get_process_name(cpu)
         self.env_vars.add(match)
 
+    def uboot_addvar(self, cpu, match):
+        #proc = self.panda.get_process_name(cpu)
+        #print(f"UBOOTVAR: {match} in {proc}")
+        self.uboot_vars.add(match)
+
+    def mtd_addvar(self, cpu, match):
+        #proc = self.panda.get_process_name(cpu)
+        #print(f"MTDVAR: {match} in {proc}")
+        self.mtd_vars.add(match)
+
     def uninit(self):
+        # Write environment vars
         with open(pjoin(self.outdir, missing_output), "w") as f:
             missing = [x for x in self.env_vars if x not in self.default_env_vars]
             yaml.dump(missing, f)
+
+        # Write uboot vars
+        with open(pjoin(self.outdir, uboot_output), "w") as f:
+            vals = list(self.uboot_vars)
+            yaml.dump(vals, f)
+
+        # Write mtd vars
+        with open(pjoin(self.outdir, mtd_output), "w") as f:
+            vals = list(self.mtd_vars)
+            yaml.dump(vals, f)
+
+    @staticmethod
+    def uboot_var_interesting(var):
+        # XXX do we want to ignore any?
+        return True
 
     @staticmethod
     def var_interesting(var):
@@ -197,11 +255,13 @@ class TargetCmp(PyPlugin):
             return
 
         # Read the C++ collected data and combine with our python tracked data
+        # These are unsorted so we sort for determinism between runs
         with open(pjoin(self.outdir, cmp_output_cpp), "r") as f:
-            for x in f.read().splitlines():
+            for x in sorted(f.read().splitlines()):
                 self.env_var_matches.add(x.strip())
 
         # Then filter and combine into output_file
+        # THese are sorted based on how much we like them
         valid_vars = self.filter_env_var_values(self.target_key, self.env_var_matches)
         with open(pjoin(self.outdir, cmp_output), "w") as f:
             for x in valid_vars:
