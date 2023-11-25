@@ -46,7 +46,7 @@ class HyperFile(PyPlugin):
                                 # event="icotl": {mode: {count: X, rv: Y}}
 
 
-        assert(isinstance(self.files, dict)), f"Files shoudl be dict, not {files}"
+        assert(isinstance(self.files, dict)), f"Files shoudl be dict, not {self.files}"
 
         # files = {filename: {'read': func, 'write': func, 'ioctl': func}}}
 
