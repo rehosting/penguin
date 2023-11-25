@@ -12,6 +12,7 @@ from zapv2 import ZAPv2
 from contextlib import closing
 from pandare import PyPlugin
 from requests.exceptions import ProxyError
+from python_hosts import Hosts, HostsEntry
 
 # Simple wordlist of common usernames and passwords
 usernames = ['admin', 'user', 'root']
@@ -19,6 +20,8 @@ passwords = ['admin', 'user', 'password', '']
 
 # Generate a list of tuples where each tuple is a pair of username and password
 credentials = [(user, passwd) for user in usernames for passwd in passwords]
+
+HOSTS_FILE = "/etc/hosts"
 
 
 def find_potential_urls(fs_tar_path):
@@ -56,11 +59,21 @@ def find_potential_urls(fs_tar_path):
     all_urls = matches.union(urls)
     return list(all_urls)
 
+
 class Zap(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.fs_tar = self.get_arg("fs")
+        self.target_host = self.get_arg("target_host")
+
+        if self.target_host:
+            h = Hosts(HOSTS_FILE)
+            h.add([HostsEntry('ipv4', '127.0.0.1', None, [self.target_host])])
+            h.write()
+        else:
+            self.target_host = "127.0.0.1"
+
 
         self.api_key = str(random.randint(0, 2**32))
         self.output_file = open(self.outdir + "/zap.log", "w")
@@ -235,7 +248,7 @@ class Zap(PyPlugin):
             # Ignore
             return
 
-        f = open(self.outdir + f"/zap_{proto}_{guest_port}.log", "w")
+        f = open(self.outdir + f"/zap_{proto}_{guest_ip}:{guest_port}.log", "w")
         self.log_files.append(f)
 
         # Launch a thread to analyze this request
@@ -273,7 +286,10 @@ class Zap(PyPlugin):
         localProxy = {'http': f'http://127.0.0.1:{self.port}',
                     'https': f'https://127.0.0.1:{self.port}'}
         zap = ZAPv2(proxies=localProxy, apikey=self.api_key)
-        target = f"http://127.0.0.1:{host_port}/"
+        if host_port == 80:
+            target = f"http://{self.target_host}/"
+        else:
+            target = f"http://{self.target_host}:{host_port}/"
 
         # Setup some default credentials!
         # Define a context for the target URL
@@ -282,7 +298,7 @@ class Zap(PyPlugin):
 
         # Set up the authentication method for the context
         auth_method_name = "httpAuthentication"
-        auth_method_config_params = "hostname=127.0.0.1&port=80&realm="
+        auth_method_config_params = f"hostname={self.target_host}&port=80&realm="
         zap.authentication.set_authentication_method(context_id, auth_method_name, auth_method_config_params)
 
         # Set up the users for the context
@@ -326,3 +342,9 @@ class Zap(PyPlugin):
 
         if self.output_file:
             self.output_file.close()
+        
+        # remove the entry from /etc/hosts
+        if self.target_host != "127.0.0.1": 
+            h = Hosts(HOSTS_FILE)
+            h.remove_all_matching("127.0.0.1", self.target_host)
+            h.write()
