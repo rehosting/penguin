@@ -143,7 +143,7 @@ class BBCov(PyPlugin):
                 for (varname, val) in envs:
                     if val is None:
                         val = "UNSET"
-                    line = line.replace(f"${varname}", f"$({varname}=>{val}]")
+                    line = line.replace(f"${varname}", f"$({varname}=>{val})")
                     line = line.replace(f"${{{varname}}}", f"${{{varname}=>{val}}}")
 
                 self.last_line = None
