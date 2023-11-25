@@ -170,7 +170,8 @@ class VsockVPN(PyPlugin):
 
                     # Bridge for each previously seen ip
                     for seen_ip in self.seen_ips:
-                        self.bridge(domain, seen_ip, port, procname, ipvn)
+                        host_port = self.bridge(domain, seen_ip, port, procname, ipvn)
+                        self.ppp_run_cb('on_bind', domain, seen_ip, port, host_port, procname)
 
                 elif ip not in self.seen_ips:
                     # Find all wild_ips, log this IP
@@ -178,7 +179,8 @@ class VsockVPN(PyPlugin):
 
                     # For any previously-wild_ip service, bridge it with this new IP
                     for (seen_domain, seen_port, seen_procname) in self.wild_ips:
-                        self.bridge(seen_domain, ip, seen_port, seen_procname, ipvn)
+                        host_port = self.bridge(seen_domain, ip, seen_port, seen_procname, ipvn)
+                        self.ppp_run_cb('on_bind', seen_domain, ip, seen_port, host_port, procname)
 
             host_port = self.bridge(domain, ip, port, procname, ipvn)
             self.ppp_run_cb('on_bind', domain, ip, port, host_port, procname)
