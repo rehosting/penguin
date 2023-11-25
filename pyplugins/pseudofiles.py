@@ -72,10 +72,10 @@ class FileFailures(PyPlugin):
         # We track when processes try accessing or IOCTLing on missing files here:
         self.file_failures = {} # path: {event: {count: X}}. Event is like open/read/ioctl/stat/lstat.
 
-        if self.get_arg("conf") is None or "pseudo_files" not in self.get_arg("conf"):
-            raise ValueError("No 'pseudo_files' in config: {self.get_arg('conf')}")
+        if self.get_arg("conf") is None or "pseudofiles" not in self.get_arg("conf"):
+            raise ValueError("No 'pseudofiles' in config: {self.get_arg('conf')}")
 
-        self.config = self.get_arg("conf")["pseudo_files"]
+        self.config = self.get_arg("conf")["pseudofiles"]
         # Expect filename: {'read': 'default' OR 'zero',
         #                   'write': 'default' OR 'discard',
         #                   'ioctl': {
@@ -89,10 +89,9 @@ class FileFailures(PyPlugin):
         for filename, details in self.config.items():
             hf_config[filename] = {}
 
-            if filename.startswith("/dev/"):
-                devfs.append(filename.lstrip("/dev/"))
-            elif filename.startswith("/proc/"):
-                procfs.append(filename.lstrip("/proc/"))
+            for (targ, prefix) in [(devfs, "/dev/"), (procfs, "/proc/")]:
+                if filename.startswith(prefix):
+                    targ.append(filename[len(prefix):])
 
             for ftype in "read", "write", "ioctl":
                 if ftype not in details or "model" not in details[ftype]:
@@ -101,6 +100,9 @@ class FileFailures(PyPlugin):
                     model = details[ftype]["model"]
 
                 if not hasattr(self, f"{ftype}_{model}"):
+                    if ftype == 'ioctl':
+                        guess = {"pseudofiles": {filename: {"*": details}}}
+                        raise ValueError(f"Invalid ioctl settings. Must specify ioctl number (or '*') within ioctl dictionary, then map each to a model. Did you mean: {guess}")
                     raise ValueError(f"Unsupported hyperfile {ftype}_{model} for {filename}: {details[ftype] if ftype in details else None}")
                 # Have a model specified
 
@@ -118,6 +120,7 @@ class FileFailures(PyPlugin):
         if len(devfs):
             self.get_arg("conf")["env"]["dyndev.devnames"] = ",".join(devfs)
             print(f"Configuring dyndev to shim devices: {devfs}")
+
         if len(procfs):
             self.get_arg("conf")["env"]["dynproc.procnames"] = ",".join(procfs)
             print(f"Configuring dyndev to shim procfiles: {procfs}")
@@ -132,20 +135,78 @@ class FileFailures(PyPlugin):
         # Clear results file - we'll update it as we go
         self.dump_results()
 
-        @panda.ppp("syscalls2", "on_sys_open_return")
-        def fail_detect_open(cpu, pc, fname, mode, flags):
+        # Dynamically collectd mapping of syscall number to which arg(s) contain FDs/filenames
+        self.has_fds = {}
+        self.has_no_fds = set() # Syscall numbers with no FDs or filenames
+        self.cache = {}
+
+        @panda.ppp("syscalls2", "on_all_sys_return2")
+        def all_sysret(cpu, pc, call, rp):
             rv = self.panda.arch.get_retval(cpu, convention="syscall")
             if rv >= 0:
                 return
 
-            # Grab the filename
-            try:
-                fname = panda.read_str(cpu, fname)
-            except ValueError:
+            if call == self.panda.ffi.NULL:
                 return
-            if rv >= -2: # ENOENT - we only care about files that don't exist
-                self.centralized_log(fname, 'open')
 
+            # If we haven't seen this call number before, check if it has an FD arg
+            if call.no not in self.has_fds and call.no not in self.has_no_fds:
+                fd_args = [] # Tuples of (int argidx, bool is_fd)
+                for arg_idx in range(min(call.nargs, 4)): # Ignore stack based args?
+                    # Is this argument named fd or filename?
+
+                    # Is it a string arg named fd or filename?
+                    argname = self.panda.ffi.string(call.argn[arg_idx]) 
+                    if argname in [b'fd', b'oldfd', b'filename']:
+                        fd_args.append((arg_idx, argname != b'filename'))
+
+                if len(fd_args):
+                    self.has_fds[call.no] = fd_args
+                else:
+                    self.has_no_fds.add(call.no)
+
+            if call.no in self.has_fds:
+                call_name = self.panda.ffi.string(call.name).decode()
+                for (arg_idx, is_fd) in self.has_fds[call.no]:
+
+                    # Ugh. Gross conversion. Not sure if it would be right for big endian? XXX
+                    b = [int(self.panda.ffi.cast("unsigned short", rp.args[arg_idx][x])) for x in range(self.panda.bits // 8)]
+                    arg_val = 0
+                    for i in range(self.panda.bits // 8):
+                        arg_val |= b[i] << (i*8)
+
+                    if is_fd:
+                        signed = panda.from_unsigned_guest(arg_val)
+                        if signed < 0:
+                            return
+                        fname = self.panda.get_file_name(cpu, arg_val)
+                        if fname is None:
+                            continue
+                        fname = fname.decode(errors="replace") # Convert FD to filename
+                    else:
+                        try:
+                            fname = self.panda.read_str(cpu, arg_val) # Convert filename to string
+                        except ValueError:
+                            continue
+                    if fname and len(fname) and any(fname.startswith(x) for x in ["/dev/", "/proc/"]):
+                        self.centralized_log(fname, call_name.replace("sys_", ""))
+                        return
+
+        #@panda.ppp("syscalls2", "on_sys_open_return")
+        #def fail_detect_open(cpu, pc, fname, mode, flags):
+        #    rv = self.panda.arch.get_retval(cpu, convention="syscall")
+        #    if rv >= 0:
+        #        return
+
+        #    # Grab the filename
+        #    try:
+        #        fname = panda.read_str(cpu, fname)
+        #    except ValueError:
+        #        return
+        #    if rv >= -2: # ENOENT - we only care about files that don't exist
+        #        self.centralized_log(fname, 'open')
+
+        # One special case: openat needs to combine the base path with the filename
         @panda.ppp("syscalls2", "on_sys_openat_return")
         def fail_detect_openat(cpu, pc, fd, fname, mode, flags):
             rv = self.panda.arch.get_retval(cpu, convention="syscall")
@@ -169,6 +230,7 @@ class FileFailures(PyPlugin):
             if rv >= -2: # ENOENT - we only care about files that don't exist
                 self.centralized_log(path, 'open')
 
+        '''
         @panda.ppp("syscalls2", "on_sys_newlstat_return")
         def faildetect_newlstat(cpu, pc, pathname, statbuf):
             rv = self.panda.arch.get_retval(cpu, convention="syscall")
@@ -243,6 +305,7 @@ class FileFailures(PyPlugin):
 
                 if rv >= -2: # ENOENT - we only care about files that don't exist
                     self.centralized_log(panda.read_str(cpu, pathname), 'stat')
+        '''
 
     #######################################
     def handle_result(self, ftype, rv, args):
