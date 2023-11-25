@@ -32,6 +32,7 @@ class VsockVPN(PyPlugin):
 
         self.outdir = self.get_arg("outdir")
         CID = self.get_arg("CID")
+        port_maps = self.get_arg("IGLOO_VPN_PORT_MAPS")
         self.seen_ips = set() # IPs we've seen
         self.wild_ips = set() # (domain, port, procname) tuples
         self.mapped_ports = set() # Ports we've mapped
@@ -49,9 +50,14 @@ class VsockVPN(PyPlugin):
         '''
         self.fixed_maps = {} 
 
-        if "IGLOO_VPN_PORT_MAPS" in env:
+        # We prioritize the value in our config value over the environment 
+        # variable
+        if not port_maps and "IGLOO_VPN_PORT_MAPS" in env:
+            port_maps = env["IGLOO_VPN_PORT_MAPS"]
+            
+        if port_maps:
             #port mappings as a comma-separated list tcp:80:192.168.0.1:80
-            for arg in env["IGLOO_VPN_PORT_MAPS"].split(','):
+            for arg in port_maps.split(','):
                 if m := re.search(r"(tcp|udp):(\d+):(.*):(\d+)",arg,re.IGNORECASE):
                     domain = m[1].lower()
                     host_port = int(m[2])
