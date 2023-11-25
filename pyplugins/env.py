@@ -36,6 +36,9 @@ class EnvTracker(PyPlugin):
 
         self.default_env_vars = ["root", "console", "clocksource", "elevator", "nohz", "idle", "acpi"]
         self.conf = self.get_arg("conf")
+        if "env" in self.conf:
+            # Track the set env variables so we know they're set
+            self.default_env_vars += list(self.conf["env"].keys())
 
         @panda.hook_symbol("libc-", "getenv")
         def hook_getenv(cpu, tb, h):
