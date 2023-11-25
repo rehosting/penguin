@@ -188,23 +188,9 @@ class FileFailures(PyPlugin):
                             fname = self.panda.read_str(cpu, arg_val) # Convert filename to string
                         except ValueError:
                             continue
-                    if fname and len(fname) and any(fname.startswith(x) for x in ["/dev/", "/proc/"]):
-                        self.centralized_log(fname, call_name.replace("sys_", ""))
-                        return
-
-        #@panda.ppp("syscalls2", "on_sys_open_return")
-        #def fail_detect_open(cpu, pc, fname, mode, flags):
-        #    rv = self.panda.arch.get_retval(cpu, convention="syscall")
-        #    if rv >= 0:
-        #        return
-
-        #    # Grab the filename
-        #    try:
-        #        fname = panda.read_str(cpu, fname)
-        #    except ValueError:
-        #        return
-        #    if rv >= -2: # ENOENT - we only care about files that don't exist
-        #        self.centralized_log(fname, 'open')
+                    if fname and len(fname):
+                        if any(fname.startswith(x) for x in ["/dev/", "/proc/"]):
+                            self.centralized_log(fname, call_name.replace("sys_", ""))
 
         # One special case: openat needs to combine the base path with the filename
         @panda.ppp("syscalls2", "on_sys_openat_return")
@@ -229,83 +215,6 @@ class FileFailures(PyPlugin):
 
             if rv >= -2: # ENOENT - we only care about files that don't exist
                 self.centralized_log(path, 'open')
-
-        '''
-        @panda.ppp("syscalls2", "on_sys_newlstat_return")
-        def faildetect_newlstat(cpu, pc, pathname, statbuf):
-            rv = self.panda.arch.get_retval(cpu, convention="syscall")
-            if rv >= 0:
-                return
-
-            if rv >= -2: # ENOENT - we only care about files that don't exist
-                self.centralized_log(panda.read_str(cpu, pathname), 'lstat')
-
-        @panda.ppp("syscalls2", "on_sys_lstat64_return")
-        def faildetect_lstat64(cpu, pc, pathname, statbuf):
-            rv = self.panda.arch.get_retval(cpu, convention="syscall")
-            if rv >= 0:
-                return
-
-            if rv >= -2: # ENOENT - we only care about files that don't exist
-                try:
-                    pathname = panda.read_str(cpu, pathname)
-                except ValueError:
-                    print("Failed to read pathname from guest pointer", hex(pathname))
-                    return
-                self.centralized_log(pathname, 'lstat')
-
-        ################ XXX MIPS ONLY ################3
-        if panda.arch_name == "mips":
-            # Stat and lstat are only on mips? Not arm at least
-            @panda.ppp("syscalls2", "on_sys_stat_return")
-            def faildetect_stat(cpu, pc, pathname, statbuf):
-                rv = self.panda.arch.get_retval(cpu, convention="syscall")
-                if rv >= 0:
-                    return
-
-                if rv >= -2: # ENOENT - we only care about files that don't exist
-                    self.centralized_log(panda.read_str(cpu, pathname), 'stat')
-
-            @panda.ppp("syscalls2", "on_sys_lstat_return")
-            def faildetect_lstat32(cpu, pc, pathname, statbuf):
-                rv = self.panda.arch.get_retval(cpu, convention="syscall")
-                if rv >= 0:
-                    return
-
-                if rv >= -2: # ENOENT - we only care about files that don't exist
-                    self.centralized_log(panda.read_str(cpu, pathname), 'lstat')
-
-            @panda.ppp("syscalls2", "on_sys_fstat_return")
-            def faildetect_fstat(cpu, pc, fd, statbuf):
-                rv = self.panda.arch.get_retval(cpu, convention="syscall")
-                if rv >= 0:
-                    return
-
-                name = panda.get_file_name(cpu, fd)
-                if name == panda.ffi.NULL or name is None:
-                    sfd = panda.from_unsigned_guest(fd) 
-                    if sfd < 0:
-                        print(f"WARN: fstat on invalid FD: {sfd}")
-                    elif rv < 0:
-                        print(f"WARN: fstat failed with {rv} - but we can't find name for fd {fd}")
-                    return
-
-                if rv >= -2: # ENOENT - we only care about files that don't exist
-                    self.centralized_log(name, 'fstat')
-
-
-        ################ XXX ARMEL + MIPS64 ONLY ################3
-        # This category is bogus
-        if panda.arch_name in ["armel", "mips64"]:
-            @panda.ppp("syscalls2", "on_sys_stat64_return")
-            def faildetect_stat64(cpu, pc, pathname, statbuf):
-                rv = self.panda.arch.get_retval(cpu, convention="syscall")
-                if rv >= 0:
-                    return
-
-                if rv >= -2: # ENOENT - we only care about files that don't exist
-                    self.centralized_log(panda.read_str(cpu, pathname), 'stat')
-        '''
 
     #######################################
     def handle_result(self, ftype, rv, args):
