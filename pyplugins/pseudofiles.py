@@ -217,20 +217,6 @@ class FileFailures(PyPlugin):
                 self.centralized_log(path, 'open')
 
     #######################################
-    def handle_result(self, ftype, rv, args):
-        if filename not in self.results:
-            self.results[filename] = {}
-        if ftype not in self.results[filename]:
-            self.results[filename][ftype] = None
-        old_state = self.results[filename][ftype]
-
-        # Given old_state, transform it to get new state
-
-        print("Handle:", ftype, rv, args)
-        new_state = old_state
-
-        self.results[filename][ftype] = new_state
-
     def centralized_log(self, path, event):
         # Log a failure to open a given path if it's interesting
         # We just track count
@@ -375,7 +361,7 @@ class FileFailures(PyPlugin):
 
         return (data, len(data))
 
-    def write_from_file(self, filename, buffer, length, offset, contents, details=None):
+    def write_to_file(self, filename, buffer, length, offset, contents, details=None):
         fname = details['filename'] # Host file
         #print(f"Writing {fname} with {length} bytes at {offset}: {contents[:100]}")
 
