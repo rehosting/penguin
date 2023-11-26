@@ -13,6 +13,12 @@ typedef struct {
   char filename[64];
 } vma_t;
 
+// assume contiguous regions
+typedef struct {
+  target_ulong start;
+  target_ulong end;
+} file_mapping;
+
 typedef struct {
   uint32_t pid;
   uint32_t ppid;
@@ -22,7 +28,8 @@ typedef struct {
   char arg1[64]; //argv[1] or NULL
   char arg2[64]; //argv[2] or NULL
   bool ignore;
-  std::vector<vma_t*>* vmas;
+  std::map<std::string, file_mapping> mappings;
+
   //uint32_t prev_location;
   //uint32_t last_bb_start;
   //uint32_t last_bb_end;

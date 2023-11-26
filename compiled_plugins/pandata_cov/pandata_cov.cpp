@@ -19,6 +19,7 @@
 #include <vector>
 #include <tuple>
 #include <unordered_set>
+#include <map>
 
 #include "../track_proc_hc/track_proc_hc.h"
 #include "../proc_map/proc_map.h"
@@ -35,6 +36,10 @@ std::ofstream *proc_log = NULL;
 // Ordered of process transitions we've seen
 std::vector<std::tuple<std::string, std::string>> proc_names;
 
+std::string current_section;
+
+std::string most_recent_file = "";
+file_mapping most_recent_file_mapping = {0, 0};
 
 void sbe(CPUState *cpu, TranslationBlock *tb) {
   if (panda_in_kernel_code_linux(cpu)) {
@@ -46,22 +51,24 @@ void sbe(CPUState *cpu, TranslationBlock *tb) {
   }
 
   uint32_t bb_start = tb->pc;
-  //if (bb_start >= current_proc->last_bb_start && bb_start < current_proc->last_bb_end)
-  //  return;
-  //current_proc->last_bb_start = bb_start;
-  //current_proc->last_bb_end = bb_start+tb->size;
+
+  // make blocks running together the fast case
+  if (bb_start >= most_recent_file_mapping.start && bb_start < most_recent_file_mapping.end) {
+    uint32_t offset = bb_start - most_recent_file_mapping.start;
+    auto key = std::make_tuple(current_proc->comm, most_recent_file, offset); 
+    covered.insert(key);
+    return;
+  }
 
   std::string proc_comm = current_proc->comm;
-  for (auto &&e : *current_proc->vmas) {
-    if (bb_start >= e->vma_start && bb_start < e->vma_end) {
-      uint32_t offset = bb_start - e->vma_start;
-      std::string filename = e->filename;
-      auto key = std::make_tuple(proc_comm, filename, offset);
-      if (covered.find(key) == covered.end()) {
-        covered.insert(key);
-        bb_count++;
-      }
-      break;
+  for (auto i = current_proc->mappings.begin(); i != current_proc->mappings.end(); i++) {
+    if (bb_start >= i->second.start && bb_start < i->second.end) {
+      uint32_t offset = bb_start - i->second.start;
+      auto key = std::make_tuple(proc_comm, i->first, offset); 
+      covered.insert(key);
+      most_recent_file = i->first;
+      most_recent_file_mapping = i->second;
+      return;
     }
   }
 }
@@ -73,6 +80,7 @@ void on_current_proc_change(gpointer evdata, gpointer udata) {
 
     // Update the global current_proc variable
     current_proc = (proc_t*)evdata;
+    most_recent_file_mapping = {0, 0};
 
     // Check if the current process should be ignored
     bool next_ignore = current_proc != NULL ? current_proc->ignore : true;
@@ -131,7 +139,7 @@ extern "C" void uninit_plugin(void *self) {
   for (const auto& name : proc_names) {
       *proc_log << std::get<0>(name) << "," << std::get<1>(name) << std::endl;
   }
-
+  bb_count = covered.size();
   printf("[pandata_cov] BB count = %d\n", bb_count);
   if (log_file) log_file->close();
 }
