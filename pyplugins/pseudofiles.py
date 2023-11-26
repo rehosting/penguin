@@ -122,7 +122,7 @@ class FileFailures(PyPlugin):
             print(f"Configuring dyndev to shim devices: {devfs}")
 
         if len(procfs):
-            self.get_arg("conf")["env"]["dynproc.procnames"] = ",".join(procfs)
+            self.get_arg("conf")["env"]["dyndev.procnames"] = ",".join(procfs)
             print(f"Configuring dyndev to shim procfiles: {procfs}")
 
         # filename -> {read: model, write: model, ioctls: model}
