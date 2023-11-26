@@ -16,6 +16,7 @@
 #include <vector>
 #include <tuple>
 #include <set>
+#include <map>
 #include <unordered_map>
 #include <byteswap.h> // bswap_32
 

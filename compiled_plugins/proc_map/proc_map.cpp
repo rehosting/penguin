@@ -23,6 +23,7 @@
 #include <tuple>
 #include <set>
 #include <unordered_map>
+#include <map>
 
 #include "../track_proc_hc/track_proc_hc.h"
 #include "proc_map.h"
@@ -35,7 +36,7 @@ PPP_CB_BOILERPLATE(on_current_proc_change);
 static GMutex lock;
 
 // DEBUG
-//#define DEBUG_PRINT
+// #define DEBUG_PRINT
 
 #ifdef DEBUG_PRINT
 char last_printed[16];
@@ -92,11 +93,9 @@ void on_proc_change(gpointer evdata, gpointer udata) {
       .parent_create_time = pending_proc.parent_create_time,
       // .comm and .arg{1,2} gets memcpy'd below
       .ignore = pending_proc.ignore,
-      .vmas = new std::vector<vma_t*>,
       //.last_bb_start = 0,
       //.last_bb_end = 0
     });
-
     memcpy((*proc_map)[k]->comm, pending_proc.comm, sizeof((*proc_map)[k]->comm));
     memcpy((*proc_map)[k]->arg1, pending_proc.arg1, sizeof((*proc_map)[k]->arg2));
     memcpy((*proc_map)[k]->arg2, pending_proc.arg2, sizeof((*proc_map)[k]->arg2));
@@ -153,16 +152,27 @@ void on_proc_exec(gpointer evdata, gpointer udata) {
 void on_proc_vma_update(gpointer evdata, gpointer udata) {
   // We get a vector<vma_t*> and we need to duplicate each entry into current_proc
 
-  current_proc->vmas->clear(); // Clear any stale VMAs (TODO do we need to free them ugh)
+  current_proc->mappings.clear(); // Clear any stale VMAs (TODO do we need to free them ugh)
 
   for (auto &e : *(std::vector<vma_t*>*)evdata) {
-    (*current_proc->vmas).push_back(e);
-  }
-
 #ifdef DEBUG_PRINT
-  printf("[proc map] current_proc is %s %d\n", current_proc->comm, current_proc->pid);
-  for (auto &e : *current_proc->vmas) {
-    printf("[proc map]\t VMA: named %s goes from %x to %x\n", e->filename, e->vma_start, e->vma_end);
+    printf("[proc map] VMA: named %s goes from %x to %x\n", e->filename, e->vma_start, e->vma_end);
+#endif
+    auto it = current_proc->mappings.find(e->filename);
+    if (it != current_proc->mappings.end()) {
+      it->second.start = std::min(e->vma_start,it->second.start);
+      it->second.end = std::max(e->vma_end,it->second.end);
+    }else{
+      current_proc->mappings[e->filename] = file_mapping{
+        .start = e->vma_start,
+        .end = e->vma_end,
+      };
+    }
+  }
+#ifdef DEBUG_PRINT
+  // printf("[proc map] current_proc is %s %d\n", current_proc->comm, current_proc->pid);
+  for (auto &e : current_proc->mappings) {
+    printf("[proc map] mapping: named %s goes from %x to %x\n", e.first.c_str(), e.second.start, e.second.end);
   }
 #endif
 }
@@ -172,8 +182,7 @@ void after_snapshot(CPUState *cpu) {
     g_mutex_lock(&lock);
     // Erase heap-allocated objects for each value in the map
     for (auto& k : *proc_map) {
-        delete k.second->vmas;
-        k.second->vmas = NULL;
+        k.second->mappings.clear();
         free(k.second);
     }
     proc_map->clear(); // Clear map itself
