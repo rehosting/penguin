@@ -7,12 +7,14 @@ import threading
 import os
 import tarfile
 import re
+from sys import stdout
 
 from zapv2 import ZAPv2
 from contextlib import closing
 from pandare import PyPlugin
 from requests.exceptions import ProxyError
 from python_hosts import Hosts, HostsEntry
+from time import sleep
 
 # Simple wordlist of common usernames and passwords
 usernames = ['admin', 'user', 'root']
@@ -76,7 +78,7 @@ class Zap(PyPlugin):
 
 
         self.api_key = str(random.randint(0, 2**32))
-        self.output_file = open(self.outdir + "/zap.log", "w")
+        self._output_file = open(self.outdir + "/zap.log", "w")
 
         self.url_queue = []
         self.url_queue_lock = threading.Lock()
@@ -86,12 +88,13 @@ class Zap(PyPlugin):
         self.port = self.find_free_port()
         self.process = subprocess.Popen(["/zap/zap.sh",
                                          "-dir", f"/root/.ZAP/{self.api_key}", # This is terrible, but we need something unique
+                                         "-host", "127.0.0.1",
                                          "-daemon",
-                                         "-config", f"api.key={self.api_key}",
+                                        "-config", f"api.key={self.api_key}",
                                          "-port", str(self.port),
                                          "-Xmx1024m", # Default is EIGHT! Is 1G okay?
                                          ],
-                                           stdout=self.output_file, stderr=self.output_file)
+                                           stdout=self._output_file, stderr=self._output_file)
 
         self.api_base = f"http://127.0.0.1:{self.port}/JSON/"
         print("Launching ZAP with proxy on port", self.port)
@@ -108,6 +111,20 @@ class Zap(PyPlugin):
         self.ppp.VsockVPN.ppp_reg_cb('on_bind', self.zap_on_bind)
         #self.ppp.SyscallProxy.ppp_reg_cb('on_pbind', self.zap_on_bind)
         #self.ppp.SyscallProxy2.ppp_reg_cb('on_pbind', self.zap_on_bind)
+    
+    @property
+    def output_file(self):
+        if hasattr(self, "_output_file"):
+            if not self._output_file.closed:
+                return self._output_file
+        return stdout
+    
+    @property
+    def running(self):
+        if hasattr(self, "panda"):
+            return True if self.panda.running.is_set() else False
+        else:
+            return False
 
     @staticmethod
     def find_free_port():
@@ -142,11 +159,16 @@ class Zap(PyPlugin):
         #print(f"Found FS urls: {self.fs_urls}", file=self.output_file)
 
         for url in self.fs_urls:
+            if not self.running:
+                break
             try:
                 print(f"Opening {target+url}", file=self.output_file)
                 zap.urlopen(target + url)
             except Exception as e:
                 print(f"Failed to open potential URL {url}", file=self.output_file)
+                if self.output_file == stdout:
+                    return
+            sleep(1)
         return True
         
     def perform_spidering(self, zap, target):
@@ -168,6 +190,8 @@ class Zap(PyPlugin):
             print('zap.ajaxSpider Spider is ' + zap.ajaxSpider.status(), file=self.output_file)
             time.sleep(5)
         for url in self.fs_urls:
+            if not self.running:
+                break
             url = target + url
             # zap.ajaxSpider Spider every url configured
             print('zap.ajaxSpider Spider the URL: ' + url + zap.ajaxSpider.scan(url=url, inscope=None))
@@ -192,6 +216,8 @@ class Zap(PyPlugin):
 
     def wait_for_spider_to_start(self, zap):
         for idx in range(10):
+            if not self.running:
+                break
             try:
                 if int(zap.spider.status()) >= 0:
                     return True
@@ -274,12 +300,16 @@ class Zap(PyPlugin):
         try:
             self.crawl_thread(host_port, log_file)
         except Exception as e:
+            # on shutdown we get errors trying to print
+            if not self.running:
+                return
             print("Exception in crawl thread:", e)
             # Print line number of exception
             import traceback
             traceback.print_exc()
-            print("Exception in crawl thread:", e, file=log_file)
-            raise
+            if not log_file.closed:
+                print("Exception in crawl thread:", e, file=log_file)
+            # raise
 
     def crawl_thread(self, host_port, log_file):
         # Setup and initial checks
@@ -293,13 +323,13 @@ class Zap(PyPlugin):
 
         # Setup some default credentials!
         # Define a context for the target URL
-        context_name = "AuthContext"
-        context_id = zap.context.new_context(context_name)
+        context_name = f"AuthContext:{target}"
+        context_id = zap.context.new_context(contextname=context_name, apikey=self.api_key)
 
         # Set up the authentication method for the context
         auth_method_name = "httpAuthentication"
         auth_method_config_params = f"hostname={self.target_host}&port=80&realm="
-        zap.authentication.set_authentication_method(context_id, auth_method_name, auth_method_config_params)
+        zap.authentication.set_authentication_method(contextid=context_id, authmethodname=auth_method_name, authmethodconfigparams=auth_method_config_params,apikey=self.api_key)
 
         # Set up the users for the context
         for username, password in credentials:
