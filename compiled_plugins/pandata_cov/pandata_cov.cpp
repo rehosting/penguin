@@ -42,7 +42,7 @@ std::string most_recent_file = "";
 file_mapping most_recent_file_mapping = {0, 0};
 
 void sbe(CPUState *cpu, TranslationBlock *tb) {
-  if (panda_in_kernel_code_linux(cpu)) {
+  if (address_in_kernel_code_linux(tb->pc)) {
     return;
   }
 
