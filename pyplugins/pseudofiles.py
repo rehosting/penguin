@@ -229,6 +229,10 @@ class FileFailures(PyPlugin):
         if event not in self.file_failures[path]:
             self.file_failures[path][event] = {'count': 0}
 
+        if 'count' not in self.file_failures[path][event]:
+            # If we ioctl'd before opening, we'll have a count-free entry
+            self.file_failures[path][event]['count'] = 0
+
         self.file_failures[path][event]['count'] += 1
 
     def log_ioctl_failure(self, path, cmd):
