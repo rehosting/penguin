@@ -3,6 +3,9 @@ import itertools
 import string
 import yaml
 import re
+from elftools.elf.elffile import ELFFile
+from elftools.common.exceptions import ELFError
+from io import BytesIO
 
 from os.path import join
 import tarfile
@@ -14,6 +17,8 @@ def extract_buffers_after_keys(binary_data, keys, buffer_size=100):
     for key in keys:
         key_bytes = key.encode('utf-8') if isinstance(key, str) else key
         start_indices = [i for i in range(len(binary_data)) if binary_data.startswith(key_bytes, i)]
+        if len(start_indices) == 0:
+            continue
         buffers[key] = [binary_data[start+len(key_bytes):start+len(key_bytes)+buffer_size] for start in start_indices]
     return buffers
 
@@ -159,12 +164,10 @@ def keyfinder(binary_data, keys):
     return these and the extraction
     '''
 
-    num_keys = [k for k in keys if re.match(r'^[0-9]+$', k.decode())]
+    #num_keys = [k for k in keys if re.match(r'^[0-9]+$', k.decode())]
     # For every numeric key we see try also swapping numbers for a %d version. use regex
     # to find all numeric keys and then replace each number with "%d"
-    num_keys_sub = [re.sub(r'[0-9]+', r'%d', k.decode()).encode() for k in num_keys if re.match(r'^[0-9]+$', k.decode())]
-
-    keys = keys + num_keys_sub
+    #num_keys_sub = [re.sub(r'[0-9]+', r'%d', k.decode()).encode() for k in num_keys if re.match(r'^[0-9]+$', k.decode())]
 
     buffers = extract_buffers_after_keys(binary_data, keys)
     frequency_table = analyze_buffer_frequencies(buffers)
@@ -229,8 +232,24 @@ class NVRAM(PyPlugin):
                 if count <= 1:
                     continue
                 print(f"[NVRAM] Guest file {k} has {count} matches")
-                data = tar.extractfile(k).read()
-                d1, d2, extract = keyfinder(data, matches)
+                binary = tar.extractfile(k).read()
+
+                try:
+                    elffile = ELFFile(BytesIO(binary))
+                except ELFError:
+                    # Not a valid ELF. We could try parsing as plaintext
+                    # but it's mabye just wrong? What about /etc/nvram kind of
+                    # things?
+                    continue
+
+                rodata_section = elffile.get_section_by_name('.rodata')
+                if not rodata_section:
+                    print(f"[NVRAM]     no rodata section")
+                    continue
+
+                raw_data = rodata_section.data()
+
+                d1, d2, extract = keyfinder(raw_data, matches)
                 if extract is not None:
                     print(f"[NVRAM]     recovered {len(extract)} values")
                     all_matches[k] = extract
