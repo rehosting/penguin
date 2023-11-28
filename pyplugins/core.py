@@ -30,6 +30,12 @@ class Core(PyPlugin):
 
         self.outdir = self.get_arg("outdir")
         plugins = self.get_arg("plugins")
+        conf = self.get_arg("conf")
+
+        # If we have an option of root_shell we need to add ROOT_SHELL=1 into env
+        # so that the init script knows to start a root shell
+        if conf['core'].get('root_shell', False):
+            conf['env']['ROOT_SHELL'] = "1"
 
         # Record loaded plugins
         with open(os.path.join(self.outdir, "core_plugins.yaml"), "w") as f:
