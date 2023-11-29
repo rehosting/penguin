@@ -40,21 +40,31 @@ struct TupleHash4 {
 };
 #endif
 
+//https://stackoverflow.com/a/38140932
+inline void hash_combine(std::size_t& seed) { }
+
+template <typename T, typename... Rest>
+inline void hash_combine(std::size_t& seed, const T& v, Rest... rest) {
+    std::hash<T> hasher;
+    seed ^= hasher(v) + 0x9e3779b9 + (seed<<6) + (seed>>2);
+    hash_combine(seed, rest...);
+}
+
+
 struct hash_tuple {
     size_t operator() (const std::tuple<uint32_t, uint32_t>& key) const {
-        size_t hash1 = std::hash<uint32_t>()(std::get<0>(key));
-        size_t hash2 = std::hash<uint32_t>()(std::get<1>(key));
-        return hash1 ^ (hash2 << 1);  // Bitwise shift and XOR
+        std::size_t h = 0;
+        hash_combine(h, std::get<0>(key), std::get<1>(key));
+        return h;
     }
 };
 
 struct TupleHash {
     template <class T1, class T2, class T3>
     std::size_t operator() (const std::tuple<T1, T2, T3>& t) const {
-        auto h1 = std::hash<T1>{}(std::get<0>(t));
-        auto h2 = std::hash<T2>{}(std::get<1>(t));
-        auto h3 = std::hash<T3>{}(std::get<2>(t));
-        return h1 ^ h2 ^ h3;
+        std::size_t h = 0;
+        hash_combine(h, std::get<0>(t), std::get<1>(t), std::get<2>(t));
+        return h;
     }
 };
 
