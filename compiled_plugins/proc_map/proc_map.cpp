@@ -155,6 +155,9 @@ void on_proc_vma_update(gpointer evdata, gpointer udata) {
   current_proc->mappings.clear(); // Clear any stale VMAs (TODO do we need to free them ugh)
 
   for (auto &e : *(std::vector<vma_t*>*)evdata) {
+    if (strcmp(e->filename, "[???]") == 0){
+      continue;
+    }
 #ifdef DEBUG_PRINT
     printf("[proc map] VMA: named %s goes from %x to %x\n", e->filename, e->vma_start, e->vma_end);
 #endif
