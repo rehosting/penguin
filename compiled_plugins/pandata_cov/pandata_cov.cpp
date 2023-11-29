@@ -20,6 +20,8 @@
 #include <tuple>
 #include <unordered_set>
 #include <map>
+#include <ctime>
+#include <iostream>
 
 #include "../track_proc_hc/track_proc_hc.h"
 #include "../proc_map/proc_map.h"
@@ -29,6 +31,7 @@ proc_t *current_proc = NULL; // TODO: do we want the more complete type
 
 using Covered = std::tuple<std::string, std::string, uint32_t>;
 std::unordered_set<Covered, TupleHash> covered;
+std::map<Covered, time_t> covered_time;
 
 std::ofstream *log_file = NULL;
 std::ofstream *proc_log = NULL;
@@ -40,6 +43,8 @@ std::string current_section;
 
 std::string most_recent_file = "";
 file_mapping most_recent_file_mapping = {0, 0};
+
+int missed = 0;
 
 void sbe(CPUState *cpu, TranslationBlock *tb) {
   if (address_in_kernel_code_linux(tb->pc)) {
@@ -56,7 +61,14 @@ void sbe(CPUState *cpu, TranslationBlock *tb) {
   if (bb_start >= most_recent_file_mapping.start && bb_start < most_recent_file_mapping.end) {
     uint32_t offset = bb_start - most_recent_file_mapping.start;
     auto key = std::make_tuple(current_proc->comm, most_recent_file, offset); 
-    covered.insert(key);
+    if (covered.find(key) == covered.end()) {
+        std::time_t result = std::time(nullptr);
+        if (result == 0){
+          printf("time() is zero\n");
+        }
+        covered.insert(key);
+        covered_time[key] = result;
+    }
     return;
   }
 
@@ -65,12 +77,20 @@ void sbe(CPUState *cpu, TranslationBlock *tb) {
     if (bb_start >= i->second.start && bb_start < i->second.end) {
       uint32_t offset = bb_start - i->second.start;
       auto key = std::make_tuple(proc_comm, i->first, offset); 
-      covered.insert(key);
+      if (covered.find(key) == covered.end()) {
+        std::time_t result = std::time(nullptr);
+        if (result == 0){
+          printf("time() is zero\n");
+        }
+        covered.insert(key);
+        covered_time[key] = result;
+      }
       most_recent_file = i->first;
       most_recent_file_mapping = i->second;
       return;
     }
   }
+  missed++;
 }
 
 std::string last_non_ignored = ""; // Maintain the last non-ignored process
@@ -131,8 +151,13 @@ extern "C" bool init_plugin(void *self) {
 extern "C" void uninit_plugin(void *self) {
   // Write coverage info, but skip the VPN
   for (const auto& key : covered) {
-    if (std::get<0>(key) != "vpn")
-    *log_file  << std::get<0>(key) << "," << std::get<1>(key) << "," << std::get<2>(key) << std::endl;
+    if (std::get<0>(key) != "vpn"){
+      if (covered_time.find(key) == covered_time.end()){
+        printf("key not found\n");
+      }
+      time_t found_time = covered_time[key];
+      *log_file  << std::get<0>(key) << "," << std::get<1>(key) << "," << std::get<2>(key) << "," << found_time << std::endl;
+    }
   }
 
   // Now write out the process names in the order we saw them.
@@ -141,5 +166,6 @@ extern "C" void uninit_plugin(void *self) {
   }
   bb_count = covered.size();
   printf("[pandata_cov] BB count = %d\n", bb_count);
+  printf("[pandata_cov] missed = %d\n", missed);
   if (log_file) log_file->close();
 }
