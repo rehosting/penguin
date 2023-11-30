@@ -9,7 +9,7 @@ from os import environ as env
 from os.path import join
 from os import geteuid
 from igloo import static_dir
-from socket import AF_INET, AF_INET6
+
 running_vpns = []
 def kill_vpn():
     for p in running_vpns:
@@ -17,9 +17,8 @@ def kill_vpn():
 
 atexit.register(kill_vpn)
 
-# Two outfiles: netbinds.txt, bridges.txt
-BINDS_FILE="vpn_netbinds.csv"
 BRIDGE_FILE="vpn_bridges.csv"
+
 #Port maps built from an optional environment variable
 #e.g., IGLOO_VPN_PORT_MAPS="TCP:80:192.168.0.1:80,udp:20002:192.168.0.1:20002"
 
@@ -37,12 +36,8 @@ class VsockVPN(PyPlugin):
         self.wild_ips = set() # (sock_type, port, procname) tuples
         self.mapped_ports = set() # Ports we've mapped
         self.active_listeners = set() # (proto, port)
-
-        self.SOCK_DGRAM = 2
-
         print(f"VPN running with CID {CID}, outdir {self.outdir}")
         assert(CID is not None)
-        
         
         '''
         Fixed maps:
@@ -78,116 +73,10 @@ class VsockVPN(PyPlugin):
         with open(join(self.outdir, BRIDGE_FILE), 'w') as f:
             f.write("procname,ipvn,domain,guest_ip,guest_port,host_port\n")
 
-        with open(join(self.outdir, BINDS_FILE), 'w') as f:
-            f.write(f"procname,ipvn,domain,guest_ip,guest_port\n")
-        
-        def get_bind_type(cpu, sockfd):
-            fname_type_map = {
-                b'socket:UDP': ('udp', AF_INET),
-                b'socket:TCP': ('tcp', AF_INET),
-                b'socket:UDPv6': ('udp', AF_INET6),
-                b'socket:TCPv6': ('tcp', AF_INET6),
-            }
-            if sockname := panda.get_file_name(cpu, sockfd):
-                if type_ := fname_type_map.get(sockname, None):
-                    return type_
-                else:
-                    return False
-                
-        def get_bind_port(cpu, sockaddrin_addr):
-            try: # port is 2 bytes starting 2 bytes into the struct for both v4/v6
-                sin_port = panda.virtual_memory_read(cpu, sockaddrin_addr+2, 2, fmt='int')
-                sin_port = int.from_bytes(int.to_bytes(sin_port, 2, panda.endianness), 'little')
-                port  = int(socket.htons(sin_port))
-                return port
-            except ValueError:
-                return
-        
-        def get_bind_ipv4_addr(cpu, sockaddrin_addr):
-            ip = '0.0.0.0'
-            #struct sockaddr_in {
-            #    sa_family_t    sin_family; /* address family: AF_INET */
-            #    in_port_t      sin_port;   /* port in network byte order */
-            #    struct in_addr sin_addr;   /* internet address */
-            #};
+        # Whenever NetLog detects a bind, we'll set up bridges
+        self.ppp.NetBinds.ppp_reg_cb('on_bind', self.on_bind)
 
-            try:
-                sin_addr =  panda.virtual_memory_read(cpu, sockaddrin_addr+4, 4)
-            except ValueError:
-                return
-            if sin_addr != 0:
-                ip = socket.inet_ntop(socket.AF_INET, sin_addr)
-            return ip
-
-        def get_bind_ipv6_addr(cpu, sockaddrin_addr):   
-            ip = '::1'
-            #struct sockaddr_in6 {
-            #    sa_family_t     sin6_family;   /* AF_INET6 */
-            #    in_port_t       sin6_port;     /* port number */
-            #    uint32_t        sin6_flowinfo; /* IPv6 flow information */
-            #    struct in6_addr sin6_addr;     /* IPv6 address */
-            #    uint32_t        sin6_scope_id; /* Scope ID (new in 2.4) */
-            #};
-
-            #struct in6_addr {
-            #    unsigned char   s6_addr[16];   /* IPv6 address */
-            #};
-            try:
-                sin6_addr =  panda.virtual_memory_read(cpu, sockaddrin_addr+8, 16)
-            except ValueError:
-                return
-            if sin6_addr != 0:
-                ip = f"[{socket.inet_ntop(socket.AF_INET6, sin6_addr)}]"
-            return ip
-        
-        def get_bind_ip(cpu, sockaddrin_addr, domain):
-            if domain == AF_INET:
-                return get_bind_ipv4_addr(cpu, sockaddrin_addr)        
-            elif domain == AF_INET6:
-                return get_bind_ipv6_addr(cpu, sockaddrin_addr)
-        
-        # Returns False if we don't support this kind of bind
-        def get_bind_info(cpu, sockfd, sockaddrin_addr):
-            type_ = get_bind_type(cpu, sockfd)
-            if type_ is False:
-                return "Unsupported"
-            if type_:
-                sock_type, family = type_
-                if port := get_bind_port(cpu, sockaddrin_addr):
-                    if ip := get_bind_ip(cpu, sockaddrin_addr, family):
-                        return (sock_type, family, port, ip)
-
-        recent_binds = {}
-        @panda.ppp("syscalls2", "on_sys_bind_enter")
-        def on_bind_enter(cpu, pc, sockfd, sockaddrin_addr, addrlen):
-            if info := get_bind_info(cpu, sockfd, sockaddrin_addr):
-                if info == "Unsupported":
-                    return
-                key = (panda.get_process_name(cpu),sockfd)
-                recent_binds[key] = info
-                
-        @panda.ppp("syscalls2", "on_sys_bind_return")
-        def on_bind(cpu, pc, sockfd, sockaddrin_addr, addrlen):
-            retval = panda.arch.get_return_value(cpu)
-            if retval != 0:
-                return
-            
-            procname = panda.get_process_name(cpu)
-            key = (procname,sockfd)
-            if key in recent_binds:
-                sock_type,family,port,ip = recent_binds[key]
-            elif info := get_bind_info(cpu, sockfd, sockaddrin_addr):
-                if info == "Unsupported":
-                    return
-                sock_type,family,port,ip = info
-            else:
-                print(f"Could not resolve bind info in {procname}")
-                return
-            
-            ipvn = 4 if family == AF_INET else 6
-            with open(join(self.outdir, BINDS_FILE), 'a') as f:
-                f.write(f"{procname},{ipvn},{sock_type},{ip},{port}\n")
-
+        def on_bind(sock_type, ipvn, ip, port, procname):
             if port == 0:
                 # Empherial ports - not sure how to handle these
                 return
