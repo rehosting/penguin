@@ -76,39 +76,39 @@ class VsockVPN(PyPlugin):
         # Whenever NetLog detects a bind, we'll set up bridges
         self.ppp.NetBinds.ppp_reg_cb('on_bind', self.on_bind)
 
-        def on_bind(sock_type, ipvn, ip, port, procname):
-            if port == 0:
-                # Empherial ports - not sure how to handle these
-                return
+    def on_bind(self, sock_type, ipvn, ip, port, procname):
+        if port == 0:
+            # Empherial ports - not sure how to handle these
+            return
 
-            listener_key = (sock_type, port)
-            if listener_key in self.active_listeners:
-                # Already forwarding this proto+port
-                return
+        listener_key = (sock_type, port)
+        if listener_key in self.active_listeners:
+            # Already forwarding this proto+port
+            return
 
-            self.active_listeners.add(listener_key)
+        self.active_listeners.add(listener_key)
 
-            if ipvn == 4: # Only handling IPv4 wildcards like this for now
-                if ip == '0.0.0.0':
-                    # Add wild_ips
-                    self.wild_ips.add((sock_type, port, procname))
+        if ipvn == 4: # Only handling IPv4 wildcards like this for now
+            if ip == '0.0.0.0':
+                # Add wild_ips
+                self.wild_ips.add((sock_type, port, procname))
 
-                    # Bridge for each previously seen ip
-                    for seen_ip in self.seen_ips:
-                        host_port = self.bridge(sock_type, seen_ip, port, procname, ipvn)
-                        self.ppp_run_cb('on_bind', sock_type, seen_ip, port, host_port, procname)
+                # Bridge for each previously seen ip
+                for seen_ip in self.seen_ips:
+                    host_port = self.bridge(sock_type, seen_ip, port, procname, ipvn)
+                    self.ppp_run_cb('on_bind', sock_type, seen_ip, port, host_port, procname)
 
-                elif ip not in self.seen_ips:
-                    # Find all wild_ips, log this IP
-                    self.seen_ips.add(ip)
+            elif ip not in self.seen_ips:
+                # Find all wild_ips, log this IP
+                self.seen_ips.add(ip)
 
-                    # For any previously-wild_ip service, bridge it with this new IP
-                    for (sock_type, seen_port, seen_procname) in self.wild_ips:
-                        host_port = self.bridge(sock_type, ip, seen_port, seen_procname, ipvn)
-                        self.ppp_run_cb('on_bind', sock_type, ip, seen_port, host_port, procname)
+                # For any previously-wild_ip service, bridge it with this new IP
+                for (sock_type, seen_port, seen_procname) in self.wild_ips:
+                    host_port = self.bridge(sock_type, ip, seen_port, seen_procname, ipvn)
+                    self.ppp_run_cb('on_bind', sock_type, ip, seen_port, host_port, procname)
 
-            host_port = self.bridge(sock_type, ip, port, procname, ipvn)
-            self.ppp_run_cb('on_bind', sock_type, ip, port, host_port, procname)
+        host_port = self.bridge(sock_type, ip, port, procname, ipvn)
+        self.ppp_run_cb('on_bind', sock_type, ip, port, host_port, procname)
     
     def map_bound_socket(self, sock_type, ip, guest_port, procname):
         host_port = guest_port
