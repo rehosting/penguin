@@ -171,7 +171,7 @@ extern "C" void uninit_plugin(void *self) {
       proc_log << std::get<0>(name) << "," << std::get<1>(name) << std::endl;
   }
 
-  printf("[coverage] total BB count = %d\n", covered.size());
+  printf("[coverage] total BB count = %ld\n", covered.size());
   log_file.flush();
   log_file.close();
 }
