@@ -24,14 +24,10 @@
 #include "../track_proc_hc/track_proc_hc.h"
 #include "../proc_map/proc_map.h"
 
-unsigned int bb_count = 0;
 proc_t *current_proc = NULL; // TODO: do we want the more complete type
 
 using Covered = std::tuple<std::string, std::string, uint32_t>;
 std::unordered_set<Covered, TupleHash> covered;
-
-std::ofstream *log_file = NULL;
-std::ofstream *proc_log = NULL;
 
 // Ordered of process transitions we've seen
 std::vector<std::tuple<std::string, std::string>> proc_names;
@@ -107,19 +103,25 @@ void on_current_proc_change(gpointer evdata, gpointer udata) {
     // If 'next' is empty or to be ignored, we do nothing, effectively skipping it
 }
 
+const char* outfile;
+const char* out_transitions;
+
 extern "C" bool init_plugin(void *self) {
   panda_arg_list *args = panda_get_args("pandata_cov");
-  const char *outfile = panda_parse_string(args, "outfile", NULL);
+  const char* arg_outfile = panda_parse_string(args, "outfile", NULL);
 
-  if (!outfile) {
+  if (!arg_outfile) {
     printf("pandata_cov must be given an outfile argument\n");
     return false;
   }
-  log_file = new std::ofstream(outfile);
+  outfile = strdup(arg_outfile);
+
   // outfile probably ends with .csv, we want to add before the .csv
   std::string proc_outfile = std::string(outfile);
   proc_outfile.insert(proc_outfile.find(".csv"), ".transitions");
-  proc_log = new std::ofstream(proc_outfile);
+
+  // copy proc_outfile into out_transitions as a char*
+  out_transitions = strdup(proc_outfile.c_str());
 
   panda_cb pcb { .start_block_exec = sbe };
   panda_register_callback(self, PANDA_CB_START_BLOCK_EXEC, pcb);
@@ -128,18 +130,48 @@ extern "C" bool init_plugin(void *self) {
   return true;
 }
 
+bool writeToFile(std::ofstream& file, const std::string& data) {
+    while (true) {
+        file << data;
+        if (!file.fail()) {
+            return true; // Success
+        }
+        if (errno != EINTR) {
+            perror("Error writing to log file");
+            return false; // Fail for reasons other than an interrupted system call
+        }
+        // If here, it was an EINTR, so clear flags and try again
+        file.clear();
+    }
+}
+
 extern "C" void uninit_plugin(void *self) {
   // Write coverage info, but skip the VPN
-  for (const auto& key : covered) {
-    if (std::get<0>(key) != "vpn")
-    *log_file  << std::get<0>(key) << "," << std::get<1>(key) << "," << std::get<2>(key) << std::endl;
+  std::ofstream log_file = std::ofstream(outfile);
+  std::ofstream proc_log = std::ofstream(out_transitions);
+
+  if (!log_file.is_open()) {
+    perror("Error opening log file");
+  } else {
+    // First report how many values we have in covered:
+    printf("Writing a total of %ld entires to coverage.log\n", covered.size());
+
+    for (const auto& key : covered) {
+      std::string data = std::get<0>(key) + "," + std::get<1>(key) + "," + std::to_string(std::get<2>(key)) + "\n";
+      if (std::get<0>(key) != "vpn") {
+          if (!writeToFile(log_file, data)) {
+              break; // Handle the error or break the loop
+          }
+      }
+    }
   }
 
   // Now write out the process names in the order we saw them.
   for (const auto& name : proc_names) {
-      *proc_log << std::get<0>(name) << "," << std::get<1>(name) << std::endl;
+      proc_log << std::get<0>(name) << "," << std::get<1>(name) << std::endl;
   }
-  bb_count = covered.size();
-  printf("[pandata_cov] BB count = %d\n", bb_count);
-  if (log_file) log_file->close();
+
+  printf("[coverage] total BB count = %d\n", covered.size());
+  log_file.flush();
+  log_file.close();
 }
