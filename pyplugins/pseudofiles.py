@@ -93,6 +93,11 @@ class FileFailures(PyPlugin):
                 if filename.startswith(prefix):
                     targ.append(filename[len(prefix):])
 
+
+            # Make sure each key is one of our 3 allowed values, not a junk value
+            if any(x not in ['read', 'write', 'ioctl'] for x in details.keys()):
+                raise ValueError("pseudofiles: each file must have a read, write, or ioctl key. No other keys are supported")
+
             for ftype in "read", "write", "ioctl":
                 if ftype not in details or "model" not in details[ftype]:
                     model = "default" # default is default
@@ -356,12 +361,13 @@ class FileFailures(PyPlugin):
         return (final_data, len(final_data)) # data, length
 
     def read_from_file(self, filename, buffer, length, offset, details=None):
-        print(f"Reading {filename} with {length} bytes at {offset}")
+        #print(f"Reading {filename} with {length} bytes at {offset}:")
         fname = details['filename'] # Host file
 
         with open(fname, "rb") as f:
             f.seek(offset)
             data = f.read(length)
+        #print(f"\t {data[:10]}")
 
         return (data, len(data))
 
