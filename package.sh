@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # This script should run in the pandadev container
-# to create .so files for the relevant plugins
+# to create .so files for the relevant plugins and copy in all the pyplugins
+
 # The repo is mounted at /app
 
 # Our compiled plugins directory clobbers the plugin list
@@ -19,13 +20,18 @@ for f in /app/compiled_plugins/*; do
   for archpath in /panda/build/*-softmmu; do
     arch=$(basename $archpath | sed 's/-softmmu//')
     plugin_path=/panda/build/${arch}-softmmu/panda/plugins/panda_${plugin}.so
-    mkdir -p "$SCRATCH/$arch"
+    mkdir -p "$SCRATCH/compiled/$arch"
 
     if [ -e $plugin_path ]; then
-      cp "$plugin_path" "$SCRATCH/$arch"
+      cp "$plugin_path" "$SCRATCH/compiled/$arch"
     fi
   done
 done
 
+# Copy
+mkdir $SCRATCH/pyplugins
+cp pyplugins/*.py $SCRATCH
+
+# Archive
 tar cvfz /app/penguin_plugins.tar.gz -C $SCRATCH .
 
