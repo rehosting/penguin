@@ -10,22 +10,22 @@
 // files in this directory that contain subsections like this one.
 
 struct vma_t{
-  uint32_t vma_start;
-  uint32_t vma_end;
+  uint64_t vma_start;
+  uint64_t vma_end;
   char filename[64];
 } vma_t;
 
 
 struct proc_t {
-  uint32_t pid;
-  uint32_t ppid;
-  uint32_t euid;
-  uint32_t egid;
-  uint32_t create_time;
-  uint32_t parent_create_time;
+  uint64_t pid;
+  uint64_t ppid;
+  uint64_t euid;
+  uint64_t egid;
+  uint64_t create_time;
+  uint64_t parent_create_time;
   char comm[64];
-  uint32_t argc;
-  uint32_t envc;
+  uint64_t argc;
+  uint64_t envc;
   char argv[256][256];  //total bytes allowed for both argv and envp strings defined by ARG_MAX in include/uapi/linux/limits.h (131072 for linux 4.10)
   char envp[128][512];  //environment variables can be long
   bool ignore;

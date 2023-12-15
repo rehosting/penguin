@@ -48,12 +48,12 @@ std::vector<struct vma_t*>* vmas = new std::vector<struct vma_t*>;
 
 void debug_print_proc(const char* msg, struct proc_t* p) {
 #ifdef DEBUG_PRINT
-  printf("[track_proc_hc] %s process %s pid %d\n", msg, p->comm, p->pid);
+  printf("[track_proc_hc] %s process %s pid %ld\n", msg, p->comm, p->pid);
 #endif
 }
 
 bool before_hypercall(CPUState *cpu) {
-uint32_t num, arg, arg2 = {0};
+uint64_t num, arg, arg2 = {0};
 #ifdef TARGET_ARM
   CPUArchState *env = static_cast<CPUArchState *>(cpu->env_ptr);
   num = env->regs[0];
@@ -123,20 +123,20 @@ uint32_t num, arg, arg2 = {0};
       if (arg == 0) {
         pending_proc.comm[0] = '\0';
       }else if (panda_virtual_memory_read(cpu, arg, (uint8_t*)pending_proc.comm, sizeof(pending_proc.comm)) != 0) {
-        printf("ERROR: unable to read process name on execve: GVA %x\n", arg);
+        printf("ERROR: unable to read process name on execve: GVA %lx\n", arg);
       }
     break;
 
     case 597: //receives pointer to argv string (arg) and index (arg2)
       #ifdef DEBUG_PRINT
-        printf("HC 597: received args %x, %d\n", arg, arg2);
+        printf("HC 597: received args %lx, %ld\n", arg, arg2);
       #endif
 
       if (arg == 0) {
         pending_proc.argv[arg2][0] = '\0';
-        printf("ERROR: argv[%d] is NULL on hypercall 597.\n", arg2);
+        printf("ERROR: argv[%ld] is NULL on hypercall 597.\n", arg2);
       } else if (panda_virtual_memory_read(cpu, arg, (uint8_t*)pending_proc.argv[arg2], sizeof(pending_proc.argv[arg2])) != 0) {
-        printf("ERROR: unable to read arg1 to proc %s argv[%d] on execve: GVA %x\n", pending_proc.comm, arg2, arg);
+        printf("ERROR: unable to read arg1 to proc %s argv[%ld] on execve: GVA %lx\n", pending_proc.comm, arg2, arg);
       }
       #ifdef DEBUG_PRINT
         printf("HC 597: read ptr %x -> %s\n", arg, pending_proc.argv[arg2]);
@@ -145,7 +145,7 @@ uint32_t num, arg, arg2 = {0};
 
     case 598: //received argc
       #ifdef DEBUG_PRINT
-        printf("HC 598: received arg %d\n", arg);
+        printf("HC 598: received arg %ld\n", arg);
       #endif
 
       pending_proc.argc = arg;
@@ -153,14 +153,14 @@ uint32_t num, arg, arg2 = {0};
 
     case 599: //receives pointer to envp string (arg) and index (arg2)
       #ifdef DEBUG_PRINT
-        printf("HC 599: received args %x, %d\n", arg, arg2);
+        printf("HC 599: received args %x, %ld\n", arg, arg2);
       #endif
 
       if (arg == 0) {
         pending_proc.envp[arg2][0] = '\0';
-        printf("ERROR: envp[%d] is NULL on hypercall 599.\n", arg2);
+        printf("ERROR: envp[%ld] is NULL on hypercall 599.\n", arg2);
       } else if (panda_virtual_memory_read(cpu, arg, (uint8_t*)pending_proc.envp[arg2], sizeof(pending_proc.envp[arg2])) != 0) {
-        printf("ERROR: unable to read arg1 to proc %s argv[%d] on execve: GVA %x\n", pending_proc.comm, arg2, arg);
+        printf("ERROR: unable to read arg1 to proc %s argv[%ld] on execve: GVA %lx\n", pending_proc.comm, arg2, arg);
       }
       #ifdef DEBUG_PRINT
         printf("HC 599: read ptr %x -> %s\n", arg, pending_proc.envp[arg2]);
@@ -169,7 +169,7 @@ uint32_t num, arg, arg2 = {0};
 
     case 600: //receives envc
       #ifdef DEBUG_PRINT
-        printf("HC 600: received arg %d\n", arg);
+        printf("HC 600: received arg %ld\n", arg);
       #endif
 
       pending_proc.envc = arg;
@@ -226,7 +226,7 @@ uint32_t num, arg, arg2 = {0};
         vmas->clear();
 
       } else {
-        printf("ERROR: vma_loop_toggle %d with in_vma_loop=%d\n", arg, in_vma_loop);
+        printf("ERROR: vma_loop_toggle %ld with in_vma_loop=%d\n", arg, in_vma_loop);
       }
       break;
 
