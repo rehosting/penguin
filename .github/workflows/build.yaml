@@ -8,7 +8,9 @@ on:
 
 jobs:
   build:
-    runs-on: panda-arc
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
@@ -45,6 +47,7 @@ jobs:
           asset_path: ./penguin_plugins.tar.gz
           asset_name: penguin_plugins.tar.gz
           asset_content_type: application/gzip
+
       - name: Publish release
         uses: StuYarrow/publish-release@v1.1.2
         env:
@@ -60,6 +63,7 @@ jobs:
           SOURCE: "penguin_plugins.tar.gz"
           REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
           REMOTE_USER: ${{ secrets.REMOTE_USER }}
-          TARGET: ${{ secrets.REMOTE_TARGET }}
+          TARGET: /var/www/igloo/
           EXCLUDE: "/dist/, /node_modules/"
+          #TARGET: ${{ secrets.REMOTE_TARGET }}
 
