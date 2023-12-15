@@ -172,6 +172,10 @@ class FileFailures(PyPlugin):
 
             if call.no in self.has_fds:
                 call_name = self.panda.ffi.string(call.name).decode()
+                if call_name == 'sys_close':
+                    # The close has happened, we can't get the filename!
+                    return
+
                 for (arg_idx, is_fd) in self.has_fds[call.no]:
 
                     # Ugh. Gross conversion. Not sure if it would be right for big endian? XXX
