@@ -21,8 +21,8 @@ jobs:
       - name: Save package
         uses: actions/upload-artifact@v3
         with:
-          name: penguin_plugins-latest.tar.gz
-          path: penguin_plugins-latest.tar.gz
+          name: penguin_plugins.tar.gz
+          path: penguin_plugins.tar.gz
 
       - name: Create release
         id: create_release
@@ -42,8 +42,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./penguin_plugins-latest.tar.gz
-          asset_name: penguin_plugins-latest.tar.gz
+          asset_path: ./penguin_plugins.tar.gz
+          asset_name: penguin_plugins.tar.gz
           asset_content_type: application/gzip
       - name: Publish release
         uses: StuYarrow/publish-release@v1.1.2
@@ -51,3 +51,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           id: ${{ steps.create_release.outputs.id }}
+
+      - name: Deploy to Server
+        uses: easingthemes/ssh-deploy@main
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          ARGS: "-rlgoDzvc -i --delete"
+          SOURCE: "penguin_plugins.tar.gz"
+          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
+          REMOTE_USER: ${{ secrets.REMOTE_USER }}
+          TARGET: ${{ secrets.REMOTE_TARGET }}
+          EXCLUDE: "/dist/, /node_modules/"
+

@@ -27,5 +27,5 @@ for f in /app/compiled_plugins/*; do
   done
 done
 
-tar cvfz /app/penguin_plugins-latest.tar.gz -C $SCRATCH .
+tar cvfz /app/penguin_plugins.tar.gz -C $SCRATCH .
 
