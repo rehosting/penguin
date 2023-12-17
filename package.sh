@@ -24,13 +24,15 @@ for f in /app/compiled_plugins/*; do
 
     if [ -e $plugin_path ]; then
       cp "$plugin_path" "$SCRATCH/compiled/$arch"
+    else
+      echo "MISSING $plugin $arch"
     fi
   done
 done
 
 # Copy
 mkdir $SCRATCH/pyplugins
-cp pyplugins/*.py $SCRATCH
+cp pyplugins/*.py "$SCRATCH/pyplugins/"
 
 # Archive
 tar cvfz /app/penguin_plugins.tar.gz -C $SCRATCH .
