@@ -8,7 +8,8 @@ import re
 from os import environ as env
 from os.path import join
 from os import geteuid
-from igloo import static_dir
+
+static_dir = "/igloo_static/"
 
 running_vpns = []
 def kill_vpn():
