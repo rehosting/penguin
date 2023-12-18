@@ -13,7 +13,7 @@ from threading import Thread, Lock
 
 from .common import yaml
 from .penguin_prep import prepare_run
-from .utils import hash_yaml_config, AtomicCounter, _load_penguin_analysis_from
+from .utils import load_config, dump_config, hash_yaml_config, AtomicCounter, _load_penguin_analysis_from
 
 SCORE_CATEGORIES = ['execs', 'bound_sockets', 'devices_accessed', 'processes_run', 'modules_loaded',
                     'blocks_covered', 'nopanic']
@@ -545,12 +545,10 @@ class Worker:
         os.makedirs(run_dir)
 
         # Write config to disk
-        with open(os.path.join(run_dir, "config.yaml"), 'w') as f:
-            combined_config = deepcopy(node.config)
-            combined_config['core'] = self.global_state.info
+        combined_config = deepcopy(node.config)
+        combined_config['core'] = self.global_state.info
+        dump_config(combined_config, os.path.join(run_dir, "config.yaml"))
 
-            yaml.dump(combined_config, f, sort_keys=False, default_flow_style=False, width=None)
-        
         # *** EMULATE TARGET ***
         print(f"Start run {run_idx}: with config at {run_dir}/config.yaml")
 
@@ -812,7 +810,7 @@ def main():
         print(f"Usage: {sys.argv[0]} <config> <outdir>")
         sys.exit(1)
 
-    config = yaml.safe_load(open(sys.argv[1]))
+    config = load_config(sys.argv[1])
     iterative_search(config, sys.argv[2], multithread=False)
 
 if __name__ == '__main__':

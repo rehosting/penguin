@@ -5,7 +5,8 @@ import subprocess
 import shutil
 import random
 from pandare import Panda
-from .common import yaml, hash_yaml
+from .common import hash_yaml
+from .utils import load_config
 
 # Note armel is just panda-system-arm and mipseb is just panda-system-mips
 qemu_configs = {"armel": {
@@ -96,15 +97,14 @@ def igloo_run(conf_yaml, qcow_dir=None, out_dir=None):
     # Image isn't in our config, but the path we use is a property
     # of configs fiiles section - we'll hash it to get a path
     # Read input config and validate
-    with open(conf_yaml) as f:
-        conf = yaml.safe_load(f)
-        archend = conf['core']['arch']
-        kernel = conf['core']['kernel']
-        config_fs = conf['core']['fs'] # Path to tar filesystem
-        plugin_path = conf['core']['plugin_path'] if 'plugin_path' in conf['core'] else default_plugin_path
-        static_files = conf['static_files'] if 'static_files' in conf else {} # FS shims
-        #config_append = [f"{k}" + (f"={v}" if v is not None else '') for k, v in conf['env'].items()]
-        conf_plugins = conf['plugins'] # {plugin_name: {enabled: False, other... opts}}
+    conf = load_config(conf_yaml)
+    archend = conf['core']['arch']
+    kernel = conf['core']['kernel']
+    config_fs = conf['core']['fs'] # Path to tar filesystem
+    plugin_path = conf['core']['plugin_path'] if 'plugin_path' in conf['core'] else default_plugin_path
+    static_files = conf['static_files'] if 'static_files' in conf else {} # FS shims
+    #config_append = [f"{k}" + (f"={v}" if v is not None else '') for k, v in conf['env'].items()]
+    conf_plugins = conf['plugins'] # {plugin_name: {enabled: False, other... opts}}
 
     if isinstance(conf_plugins, list):
         print("Warning, execpted dict of plugins, got list")

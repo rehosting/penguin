@@ -14,6 +14,7 @@ from .penguin_manager import iterative_search
 from .penguin_run import igloo_run
 
 from .defaults import default_init_script, default_plugins, default_version
+from .utils import load_config, dump_config
 
 static_dir = "/igloo_static/"
 
@@ -304,8 +305,7 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True):
             # (but do clobber the initial_config.yaml in base if it exists)
             print(f"Not overwriting existing config file: {outfile}")
             continue
-        with open(outfile, 'w') as f:
-            yaml.dump(data, f, sort_keys=False, default_flow_style=False, width=None)
+        dump_config(data, outfile)
 
     # Config is a path to output_dir/base/config.yaml
     return f"{output_dir}/config.yaml"
@@ -314,7 +314,7 @@ def run_from_config(config_path, output_dir, niters=-1, multicore=True):
     if not os.path.isfile(config_path):
         raise RuntimeError(f"Config file not found: {config_path}")
 
-    config = yaml.safe_load(open(config_path))
+    config = load_config(config_path)
 
     if not os.path.isfile(config['core']['qcow']):
         # The config specifies where the qcow should be. Generally this is in

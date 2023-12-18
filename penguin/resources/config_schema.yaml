@@ -1,0 +1,294 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Penguin Configuration
+description: Configuration file for config-file-based rehosting with IGLOO
+type: object
+required:
+  - core
+  - env
+  - static_files
+  - plugins
+additionalProperties: false
+properties:
+  core:
+    title: Core configuration options
+    type: object
+    required:
+      - arch
+      - kernel
+      - fs
+      - qcow
+      - version
+    additionalProperties: false
+    properties:
+      arch:
+        title: Architecture of guest
+        type: string
+        enum:
+          - armel
+          - mipsel
+          - mipseb
+        examples:
+          - armel
+          - mipsel
+          - mipseb
+      kernel:
+        title: Path to kernel image
+        type: string
+        examples:
+          - /igloo_static/kernels/vmlinux.armel
+          - /igloo_static/kernels/vmlinux.mipsel
+          - /igloo_static/kernels/vmlinux.mipseb
+      fs:
+        title: Path to filesystem tarball
+        type: string
+        examples:
+          - /output/device_name/base/fs.tar
+      plugin_path:
+        title: Path to search for PyPlugins
+        type: string
+        default: /pandata
+        examples:
+          - /pandata
+      qcow:
+        title: Path to filesystem qcow file
+        type: string
+        examples:
+          - /output/device_name/base/image.qcow
+      root_shell:
+        title: Enable root shell
+        description: Whether to enable a root shell into the guest
+        type: boolean
+        default: false
+        examples:
+          - false
+          - true
+      show_output:
+        title: Write serial to stdout
+        description: Whether to print QEMU serial output to stdout instead of writing to a log file
+        type: boolean
+        default: false
+        examples:
+          - false
+          - true
+      version:
+        title: Config format version
+        description: Version of the config file format
+        type: string
+        const: 1.0.0
+  env:
+    title: Environment
+    description: Environment variables to set in the guest
+    type: object
+    additionalProperties:
+      title: Value
+      description: Value of the environment variable
+      type: string
+      examples:
+        - DYNVALDYNVALDYNVAL
+    examples:
+      - VAR1: VAL1
+        VAR2: VAL2
+      - PATH: /bin:/sbin
+        TMPDIR: /tmp
+        FOO: DYNVALDYNVALDYNVAL
+  pseudofiles:
+    title: Pseudo-files
+    description: Device files to emulate in the guest
+    type: object
+    additionalProperties:
+      title: File emulation spec
+      description: How to emulate a device file
+      type: object
+      additionalProperties: false
+      properties:
+        read:
+          title: Read
+          description: How to handle reads from the file
+          type: object
+          default:
+            model:
+              default
+          additionalProperties: false
+          properties:
+            model:
+              title: Read model
+              description: The method of modeling reads
+              type: string
+              enum:
+                - zero
+                - const_buf
+                - const_map
+                - const_map_file
+                - from_file
+                - default
+              default: default
+        write:
+          title: Write
+          description: How to handle writes to the file
+          type: object
+          default:
+            model:
+              default
+          additionalProperties: false
+          properties:
+            model:
+              title: Write model
+              description: The method of modeling writes
+              type: string
+              enum:
+                - to_file
+                - discard
+                - default
+              default: default
+        ioctl:
+          title: ioctl
+          description: How to handle ioctl() calls
+          type: object
+          default: {}
+          additionalProperties: false
+          patternProperties:
+            '^(\*|\d+)$':
+              oneOf:
+                - title: ioctl return constant model
+                  type: object
+                  required:
+                    - model
+                    - val
+                  additionalProperties: false
+                  properties:
+                    model:
+                      title: ioctl modelling method (return a constant)
+                      const: return_const
+                    val:
+                      type: integer
+                - title: ioctl symbolic execution model
+                  type: object
+                  required:
+                    - model
+                  additionalProperties: false
+                  properties:
+                    model:
+                      title: ioctl modelling method (symbolic execution)
+                      const: symex
+  nvram:
+    title: NVRAM
+    description: NVRAM values to add to the guest
+    type: object
+    default: {}
+    additionalProperties:
+      title: NVRAM value
+      oneOf:
+        - type: string
+        - type: integer
+  static_files:
+    title: Static files
+    description: Files to create in the guest filesystem
+    type: object
+    default: {}
+    additionalProperties:
+      title: Static file description
+      oneOf:
+        - title: Regular file
+          type: object
+          required:
+            - type
+            - contents
+            - mode
+          additionalProperties: false
+          properties:
+            type:
+              title: Type of file (regular file)
+              const: file
+            contents:
+              title: Contents of file
+              type: string
+            mode:
+              title: Permissions of file
+              type: integer
+        - title: Directory
+          type: object
+          required:
+            - type
+          additionalProperties: false
+          properties:
+            type:
+              title: Type of file (directory)
+              const: dir
+        - title: Symbolic link
+          type: object
+          required:
+            - type
+            - target
+          additionalProperties: false
+          properties:
+            type:
+              title: Type of file (symbolic link)
+              const: symlink
+            target:
+              title: Target linked path
+              type: string
+        - title: Device file
+          type: object
+          required:
+            - type
+            - devtype
+            - major
+            - minor
+            - mode
+          additionalProperties: false
+          properties:
+            type:
+              title: Type of file (device file)
+              const: dev
+            devtype:
+              title: Type of device file
+              type: string
+              enum:
+                - char
+                - block
+            major:
+              title: Major device number
+              type: integer
+            minor:
+              title: Minor device number
+              type: integer
+            mode:
+              title: Permissions of device file
+              type: integer
+              examples:
+                - 0666
+    examples:
+      - {}
+      - /path/to/file:
+          type: file
+          contents: Hello world!
+        /path/to/symlink/source:
+          type: symlink
+          target: /path/to/symlink/target
+        /dev/some_device:
+          type: dev
+          devtype: char
+          major: 1
+          minor: 2
+          mode: 0666
+  plugins:
+    title: Plugins
+    type: object
+    additionalProperties:
+      title: Plugin
+      type: object
+      additionalProperties: false
+      properties:
+        description:
+          title: Plugin description
+          type: string
+        depends_on:
+          title: Plugin dependency
+          type: string
+        enabled:
+          title: Enable plugin
+          description: Whether to enable this plugin (default depends on plugin)
+          type: boolean
+        version:
+          title: Plugin version
+          type: string
