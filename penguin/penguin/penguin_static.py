@@ -179,7 +179,6 @@ def pre_shim(config):
             config['static_files']['/bin/sh'] = {
                 'type': 'symlink',
                 'target': '/igloo/utils/busybox',
-                'mode': 0o755
             }
 
         # Find any files named insmod or modprobe, we want to replace these with symlinks to exit0
@@ -189,7 +188,6 @@ def pre_shim(config):
                 config['static_files'][f] = {
                     'type': 'symlink',
                     'target': '/igloo/utils/exit0.sh',
-                    'mode': 0o755
                 }
 
 		# Ensure we have an entry for localhost in /etc/hosts
@@ -279,7 +277,6 @@ def shim_configs(config):
         config['static_files'][guest_path] = {
             'type': 'symlink',
             'target': shim_path,
-            'mode': 0o755
         }
 
 def _is_init_script(tarinfo):

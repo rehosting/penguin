@@ -53,7 +53,6 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
         elif ftype == 'symlink':
             target = file['target'] # This is what we point to
             linkpath = file_path # This is what we create
-            mode = file['mode']
             # Delete linkpath if it already exists
             if g.exists(linkpath):
                 g.rm(linkpath)
@@ -63,7 +62,6 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
                 raise ValueError(f"Can't add symlink to {target} as it doesn't exist in requested symlink from {linkpath}")
 
             g.ln_s(target, linkpath)
-            g.chmod(mode, linkpath)
         elif ftype == 'dev':
             print("WARN: devices should now be dynamic")
             major = file['major']
