@@ -146,7 +146,10 @@ def archEnd(value):
     return (arch, end)
 
 def _build_image(arch_identified, output_dir, static_dir):
-    cmd = ["fakeroot", f"/igloo/python/penguin/penguin/scripts/makeImage.sh", arch_identified, output_dir, "/igloo/python/penguin/penguin/", static_dir]
+    cmd = ["fakeroot", os.path.join(*[dirname(__file__), "scripts", "makeImage.sh"]),
+            arch_identified, output_dir,
+            os.path.join(dirname(__file__), "resources"),
+            static_dir]
 
     def _run(cmd):
         # Check output and report it on error
@@ -200,6 +203,9 @@ def extract_and_build(fw, output_dir):
     # Generate a qcow image in output_dir/base/image.qcow
     _build_image(arch_identified, base, static_dir)
 
+    if not os.path.isfile(f"{base}/image.qcow"):
+        raise Exception("Failed to generate qcow image with MakeImage")
+
 	# Make our base qcow image read-only
     os.chmod(f"{base}/image.qcow", 0o444)
     return arch, endianness
@@ -217,7 +223,7 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True):
 
     if not os.path.isfile(firmware):
         raise RuntimeError(f"FATAL: Firmware file not found: {firmware}")
-    
+
     #if os.path.isdir(output_dir):
     #    raise RuntimeError(f"FATAL: Output directory already exists: {output_dir}. Refusing to destroy")
 
@@ -260,7 +266,7 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True):
             # If we have VPN (which we will if we have vsock), turn on zap and nmap
             for p in ['nmap', 'zap']:
                 data['plugins'][p]['enabled'] = True
-        
+
         # Also disable root shell and set timeout to 5 minutes
         data['core']['root_shell'] = False
         data['plugins']['core']['timeout'] = 300

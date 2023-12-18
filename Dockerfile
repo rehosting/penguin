@@ -156,7 +156,7 @@ COPY --from=downloader /igloo_static/ /igloo_static/
 # Copy plugins into panda install. We want /panda_plugins/arch/foo to go into /usr/local/lib/panda/foo
 COPY --from=downloader /panda_plugins/arm/ /usr/local/lib/panda/arm/
 COPY --from=downloader /panda_plugins/mips/ /usr/local/lib/panda/mips/
-COPY --from=downloader /panda_plugins/mipsel* /usr/local/lib/panda/mipsel/
+COPY --from=downloader /panda_plugins/mipsel/ /usr/local/lib/panda/mipsel/
 
 # Copy utils.source (scripts) and utils.bin (binaries) from host
 # Files are named util.[arch] or util.all
@@ -166,8 +166,9 @@ COPY utils/* /igloo_static/utils.source/
 WORKDIR /penguin
 
 # Now copy in our module and install it
-COPY ./penguin /tmp/penguin
-RUN python3 -m pip install -e /tmp/penguin
+# Editable so we can mount local copy for dev
+COPY ./penguin /pkg
+RUN python3 -m pip install -e /pkg
 
 # Workaround for igloo #131
 RUN pip install setuptools==67.7.2

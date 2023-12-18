@@ -14,7 +14,7 @@ usage() {
 
 ARCH="$1"
 REPACK_DIR="$2"
-IGLOO_DIR="$3"
+RESOURCE_DIR="$3"
 STATIC_DIR="$4"
 
 WORK_DIR="${REPACK_DIR}/work"
@@ -48,7 +48,7 @@ gunzip -c "$TARBALL" > "$TARFILE"
 mkdir -p "$FD/libnvram" "$FD/libnvram.override" "$IGLOO/utils" "$IGLOO/keys"
 
 # Copy keys and utilities
-cp "$IGLOO_DIR/resources/static_keys/"* "$IGLOO/keys"
+cp "$RESOURCE_DIR/static_keys/"* "$IGLOO/keys"
 
 for t in "console" "libnvram" "utils.bin" "utils.source" "vpn"; do
     UTILS="$STATIC_DIR/$t"
