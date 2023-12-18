@@ -88,6 +88,9 @@ ENV PIP_ROOT_USER_ACTION=ignore
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PROMPT_COMMAND=""
 
+# Add rootshell helper command
+RUN echo "#!/bin/sh\ntelnet localhost 4321" > /usr/local/bin/rootshell && chmod +x /usr/local/bin/rootshell
+
 COPY --from=deb_downloader /tmp/pandare.deb /tmp/genext2fs.deb /tmp/
 
 # Install apt dependencies - largely for binwalk, some for pandata

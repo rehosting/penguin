@@ -1,7 +1,7 @@
 Penguin: Configuration Based Rehosting
 ====
 
-Given a firmware image, Penguin will set up an initial rehosting combined
+Given a firmware image root filesystem, Penguin will set up an initial rehosting combined
 with an editable configuration that you may need to adjust depending on your system.
 Penguin also uses static analysis to identify things you may need to adjust for your firmware.
 
@@ -10,65 +10,57 @@ options and leverages custom dynamic analyses to tell you what sorts of things a
 happening.
 
 You are then tasked with refining this configuration and re-running your system
-until you're happy with how it behaves. You'll do this by going through the following loop:
+until you're happy with how it behaves. You'll do this by going through the Rehosting Workflow
+loop described below.
 
-# Container Setup
+# Penguin Setup
 
-## From Dockerhub
-Pull the container:
+First make two directories, one for your firmware images, and one for your results:
+```
+mkdir fws results
+```
+
+## Pull Container
+You next need the container named `pandare/igloo:penguin`, you can build this from the
+source of this repository or by pulling from dockerhub.
+
+If pulling from dockerhub:
+
 ```
 docker login
 docker pull pandare/igloo:penguin
 ```
 
-Create two directories to share data:
+If build from source:
+
 ```
-mkdir share output
+docker build -t pandare/igloo:penguin .
 ```
+
+## Run container
 
 ```
 docker run --rm -it --privileged \
-  -v $(pwd)/share:/share -v $(pwd)/output:/output \
-  -p 4321:4321 \
+  -v $(pwd)/fws:/fws -v $(pwd)/results:/results \
   -p 8000:80 \
   pandare/igloo:penguin \
   bash
 ```
 
-## From source
-Build the penguin container
-```
-docker build -t penguin .
-```
-
-Create two directories to share data:
-```
-mkdir share output
-```
-
-Launch the container with `./start_dev_container.sh` or
-```
-docker run --rm -it --privileged \
-  -v $(pwd)/share:/share -v $(pwd)/output:/output \
-  -p 4321:4321 \
-  -p 8000:80 \
-  penguin \
-  bash
-```
 
 # Rehosting Workflow
 ## Generate initial configuration
-Start by having Penguin statically analyze a firmware in your `share` directory
-and create the project in the `output` directory
+Start by having Penguin statically analyze a firmware in your `fws` directory
+and create the project in the `results` directory
 ```
-penguin /share/your_fw.bin /output/your_fw
+penguin /fws/your_fw.tar.gz /results/your_fw
 ```
 
 ### View config
-Running the above command will generate a starting config at `/output/your_fw/config.yaml`.
+Running the above command will generate a starting config at `/results/your_fw/config.yaml`.
 
 ### Examine static output in `base` directory
-A number of helpful files will be generated in the `/output/your_fw/base/` directory.
+A number of helpful files will be generated in the `/results/your_fw/base/` directory.
 
 * `image.qcow`: an immutable "base image" that stores the original firmware's filesystem with minimal modifications.
 * `env.yaml`: a list of statically-identified environment variables you may later need to set
@@ -77,13 +69,13 @@ A number of helpful files will be generated in the `/output/your_fw/base/` direc
 ## Run initial configuration
 Run your initial configuration into a directory called `default`:
 ```
-penguin --config /output/your_fw/config.yaml /output/your_fw/default
+penguin --config /results/your_fw/config.yaml /results/your_fw/default
 ```
 
 This command will give you an emulator  monitor prompt of `(qemu)` where you can type `q` or `quit` at any time and press enter to end the emulation. Alternatively, if the firmware you're trying to rehost shuts down or kernel panics, it will terminate.
 
 ### View dynamic output
-In `/outpyt/your_fw/default` you'll have a number of files that tell you about what happened during your initial run. For now, just examine:
+In `/results/your_fw/default` you'll have a number of files that tell you about what happened during your initial run. For now, just examine:
 
 * `console.log`: which contains the console output from the system while it ran.
 
@@ -99,7 +91,7 @@ specify a new output directory. Pick a better name than `second_try`, perhaps
 something that describes what you changed.
 
 ```
-penguin --config /output/your_fw/config.yaml /output/your_fw/second_try
+penguin --config /results/your_fw/config.yaml /results/your_fw/second_try
 ```
 
 If this run doesn't panic, you can shut it down by typing `q` at the `(qemu)` prompt after a minute. Then examine the output and try refining it further.
@@ -222,7 +214,7 @@ tracking down other failures and seeing what changes.
 
 
 ### Potential init programs to choose from
-The static analysis that put results in `/output/your_fw/base/` will have created a
+The static analysis that put results in `/results/your_fw/base/` will have created a
 file called `init.yaml` with a list of likely init binaries found inside your firmware.
 Note that this list isn't comprehensive (it's just finding executables that contain
 `start` or `init`), but it will usually find the right binary.
@@ -432,7 +424,8 @@ file `env_uboot.txt`
 After setting these values, you'll need to customize `makeuboot.py` to generate a
 valid uboot key-value store then customize your `pseudofile` config to pass this
 file through on reads of the relevant device. Bringing this together, you might
-create the file `/share/mtd.flash` with `makeuboot.py` and then pass it through
+create the file `/results/mtd.flash` (abusing the shared `results` directory to share
+something that isn't a result) with `makeuboot.py` and then pass it through
 to your firmware with a config with elements like this:
 
 ```
@@ -443,10 +436,10 @@ pseudofiles:
     /dev/mtd0:
         read:
             model: from_file
-            filename: /share/mtd.flash
+            filename: /results/mtd.flash
         write:
             model: to_file
-            filename: /share/mtd.flash
+            filename: /results/mtd.flash
         ioctl:
             '*':
                 model: return_const
@@ -473,10 +466,10 @@ foo.sh:10,if [ -e $(myfile=>/root/myfile)]
 
 Next enable the root shell by changing your config's `base` section's `root_shell`
 value to be `true`. Then run your target and connect from another shell on your
-host machine with `./guest_shell.sh` or:
+host machine with:
 
 ```
-docker exec -it [YOUR_CONTAINER_NAME] telnet localhost 4321
+docker exec -it [YOUR_CONTAINER_NAME] rootshell
 ```
 
 After launching this, press enter a few times and perhaps wait ~10s.
