@@ -1,13 +1,16 @@
-name: Test
+name: Test and Release Container
 
 on:
   push:
     branches:
-      - master
+      - main
+
+  pull_request:
+    branches:
       - main
 
 jobs:
-  build:
+  build_container:
     runs-on: ubuntu-latest
 
     steps:
@@ -15,5 +18,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build 
+        run: cd $GITHUB_WORKSPACE && docker build -t pandare/igloo:penguin .
+
+      - name: Push to dockerhub
+        if: github.ref == 'refs/heads/main'
         run: |
-          docker build -t penguin .
+          docker login -u pandare -p ${{secrets.pandare_dockerhub}}
+          docker push pandare/igloo:penguin

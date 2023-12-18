@@ -59,10 +59,10 @@ RUN wget -O - https://github.com/panda-re/linux/releases/download/release_78e11c
       mv /igloo_static/binaries /igloo_static/kernels && \
       mv /igloo_static/kernels/firmadyne_profiles.conf /igloo_static/kernels/osi.config
 
-# Download custom panda plugins. Populates /panda_plugins with both compiled and pyplugins
+# Download custom panda plugins built from CI. Populate /panda_plugins
 RUN mkdir /panda_plugins && \
   wget -O - https://panda.re/igloo/penguin_plugins.tar.gz | \ 
-  tar xvzf - -C /panda_plugins && echo 'nocache'
+  tar xvzf - -C /panda_plugins
 
 
 RUN mkdir /static_deps && \
@@ -82,7 +82,7 @@ RUN mkdir /src/build && cd /src/build && ../configure --disable-user --disable-s
   make -j$(nproc)
 
 ### MAIN CONTAINER ###
-FROM ubuntu:20.04 as igloo
+FROM ubuntu:20.04 as penguin
 # Environment setup
 ENV PIP_ROOT_USER_ACTION=ignore
 ENV DEBIAN_FRONTEND=noninteractive
@@ -173,5 +173,6 @@ RUN python3 -m pip install -e /tmp/penguin
 RUN pip install setuptools==67.7.2
 
 # Copy pyplugins into our the pandata directory. We might mount
-# this from the host during development
+# this from the host during development. In the long term we'll
+# merge these into the main penguin module
 COPY ./pyplugins/ /pandata
