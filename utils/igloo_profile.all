@@ -1,0 +1,4 @@
+for cmd in \$(/igloo/utils/busybox --list); do
+  alias "\$cmd"="/igloo/utils/busybox \$cmd"
+done
+export PATH="/igloo/utils:$PATH"

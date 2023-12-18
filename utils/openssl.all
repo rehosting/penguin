@@ -1,0 +1,85 @@
+#!/igloo/utils/sh
+
+#KEYS_DIR="/platform/python/core/igloo/resources/static_keys/" # Testing
+KEYS_DIR=/igloo/keys/
+
+if [[ "$1" == "req" ]]; then
+    keyfile=""
+    certfile=""
+    new_req=0
+    x509=0
+    keysize=""
+
+    # Parse arguments
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -keyout)
+                keyfile="$2"
+                shift 2
+                ;;
+            -out)
+                certfile="$2"
+                shift 2
+                ;;
+            -new)
+                new_req=1
+                shift
+                ;;
+            -newkey)
+                keytype="$2"
+                case "$keytype" in
+                    rsa:*)
+                        keysize="${keytype#rsa:}"
+                        ;;
+                esac
+                shift 2
+                ;;
+            -x509)
+                x509=1
+                shift
+                ;;
+            -days)
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # Check that necessary arguments were provided
+    if [[ -z "$keyfile" || -z "$certfile" || -z "$keysize" ]]; then
+        echo "Missing arguments: -keyout, -out, or -newkey not provided"
+        exit 1
+    fi
+
+    # If x509, append _x509 to keyname
+    keyname="openssl"
+    if [[ $x509 -eq 1 ]]; then
+        keyname="${keyname}_x509"
+    fi
+    keyname="${keyname}_${keysize}"
+
+    # Copy keys from /keys/ directory based on key type
+    keypath="${KEYS_DIR}/${keyname}.key"
+    certpath="${KEYS_DIR}/${keyname}.pem"
+
+    if [[ -e "${keypath}" && -e "${certpath}" ]]; then
+        # If both key and certificate go to the same file, concatenate them
+        if [ "$keyfile" = "$certfile" ]; then
+            # Concatenate private key and certificate into the output file
+            cat "${keypath}" "${certpath}" > "${keyfile}"
+        else
+            # Otherwise copy them into separate files
+            cp "${keypath}" "${keyfile}"
+            cp "${certpath}" "${certfile}"
+        fi
+    else
+        echo "Pre-computed key or certificate not found for size ${keysize} at ${keypath} or ${certpath}"
+        exit 1
+    fi
+
+else
+    # If the command is not 'req', execute the normal openssl command
+    /igloo/utils/openssl_orig "$@"
+fi

@@ -1,0 +1,89 @@
+#!/igloo/utils/sh
+
+# key_path + algo should exist in guest fs
+key_path=/igloo/keys/ssh.
+
+# Initialize quiet mode to off
+quiet=0
+
+# Parse arguments
+while getopts ":qt:f:N:" opt; do
+  case ${opt} in
+    t )
+      key_type=$OPTARG
+      ;;
+    f )
+      file_path=$OPTARG
+      ;;
+    q )
+      quiet=1
+      ;;
+    N )
+      passphrase=$OPTARG  # Ignored since we're using precomputed keys
+      ;;
+    \? )
+      echo "Invalid Option: -$OPTARG" 1>&2
+      exit 1
+      ;;
+    : )
+      echo "Invalid Option: -$OPTARG requires an argument" 1>&2
+      exit 1
+      ;;
+  esac
+done
+shift $((OPTIND -1))
+
+# Determine which precomputed key to use
+case "$key_type" in
+  rsa1)
+    key="${key_path}rsa1"
+    ;;
+  rsa)
+    key="${key_path}rsa"
+    ;;
+  dsa)
+    key="${key_path}dsa"
+    ;;
+  ecdsa)
+    key="${key_path}ecdsa"
+    ;;
+  ed25519)
+    key="${key_path}ed25519"
+    ;;
+  *)
+    if [ $quiet -eq 0 ]; then
+      echo "Unsupported key type: $key_type" 1>&2
+    fi
+    exit 1
+    ;;
+esac
+
+# Copy the precomputed key to the desired location
+cp "$key" "$file_path"
+cp "$key.pub" "$file_path.pub"
+chmod 6400 "$file_path"
+
+# If not in quiet mode, print a success message
+if [ $quiet -eq 0 ]; then
+echo "Generating public/private ${key_type} key pair."
+echo "Your identification has been saved in ${file_path}"
+echo "Your public key has been saved in ${file_path}.pub"
+echo "The key fingerprint is:"
+echo "SHA256:d7t/gvxTYnrx2qChx1enB9LXUXB1kOV62M0BFXTHFtY root@localhost" # this better be ignored
+echo "The key's randomart image is:"
+echo "+--[ED25519 256]--+"
+echo "|             .=%%|"
+echo "|              +oE|"
+echo "|               oo|"
+echo "|               *o|"
+echo "|        S . ..o B|"
+echo "|         . ...*.*|"
+echo "|           oo=.X.|"
+echo "|           .*+*o+|"
+echo "|          ..o=+*.|"
+echo "+----[SHA256]-----+"
+
+fi
+
+# Exit with success
+exit 0

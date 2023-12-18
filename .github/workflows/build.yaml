@@ -1,4 +1,4 @@
-name: Compile and publish libnvram
+name: Test
 
 on:
   push:
@@ -9,8 +9,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions: write-all
-
 
     steps:
       - name: Checkout code
@@ -18,52 +16,4 @@ jobs:
 
       - name: Build 
         run: |
-          docker run --rm -v $PWD:/app -w /app pandare/pandadev:latest /app/package.sh
-
-      - name: Save package
-        uses: actions/upload-artifact@v3
-        with:
-          name: penguin_plugins.tar.gz
-          path: penguin_plugins.tar.gz
-
-      - name: Create release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: release_${{ github.sha }}
-          release_name: Release ${{ github.ref }}
-          body: |
-            Release @${{ github.ref }}
-          draft: true
-          prerelease: false
-      - name: Upload release asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./penguin_plugins.tar.gz
-          asset_name: penguin_plugins.tar.gz
-          asset_content_type: application/gzip
-
-      - name: Publish release
-        uses: StuYarrow/publish-release@v1.1.2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          id: ${{ steps.create_release.outputs.id }}
-
-      - name: Deploy to Server
-        uses: easingthemes/ssh-deploy@main
-        with:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          ARGS: "-rlgoDzvc -i --delete"
-          SOURCE: "penguin_plugins.tar.gz"
-          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
-          REMOTE_USER: ${{ secrets.REMOTE_USER }}
-          TARGET: /var/www/igloo/
-          EXCLUDE: "/dist/, /node_modules/"
-          #TARGET: ${{ secrets.REMOTE_TARGET }}
-
+          docker build -t penguin .
