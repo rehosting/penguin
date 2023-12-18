@@ -1,0 +1,21 @@
+name: Upload config schema to server
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  upload_config_schema:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Upload config schema to server
+      uses: ‎easingthemes/ssh-deploy@main‎
+      with:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        ARGS: "-rlgoDzvc -i --delete"
+        SOURCE: penguin/resources/config_schema.yaml
+        REMOTE_HOST: rehosti.ng
+        REMOTE_USER: github
+        TARGET: /var/www/igloo

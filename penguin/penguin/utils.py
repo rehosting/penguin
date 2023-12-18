@@ -3,10 +3,13 @@ import hashlib
 import subprocess
 import importlib
 import os
+import yaml
+import jsonschema
 from .penguinanalysis import PenguinAnalysis
 from threading import Lock
 from typing import List, Tuple
 from copy import deepcopy
+from os.path import dirname, join
 
 class WeightedItem:
     def __init__(self, item, weight):
@@ -108,6 +111,44 @@ def run_command_with_output(cmd: List[str], ignore1, ignore2) -> Tuple[str, str]
     except Exception as e:
         # Capture any exceptions that occur
         return -1, '', f"An exception occurred: {str(e)}"
+
+
+def _jsonify_dict(d):
+    '''
+    Recursively walk a nested dict and stringify all the keys
+
+    This is required for jsonschema.validate() to succeed,
+    since JSON requires keys to be strings.
+    '''
+    return {
+        str(k): _jsonify_dict(v) if isinstance(v, dict) else v
+        for k, v in d.items()
+    }
+
+
+def _validate_config(config):
+    '''Validate config with JSON schema'''
+    config = _jsonify_dict(config)
+    schema_path = join(dirname(dirname(__file__)), "resources", "config_schema.yaml")
+    with open(schema_path) as f:
+        schema = yaml.safe_load(f)
+    jsonschema.validate(instance=config, schema=schema)
+
+
+def load_config(path):
+    '''Load penguin config from path'''
+    with open(path, "r") as f:
+        config = yaml.safe_load(f)
+    _validate_config(config)
+    return config
+
+
+def dump_config(config, path):
+    '''Write penguin config to path'''
+    _validate_config(config)
+    with open(path, "w") as f:
+        f.write("# yaml-language-server: $schema=https://rehosti.ng/igloo/config_schema.yaml\n")
+        yaml.dump(config, f, sort_keys=False, default_flow_style=False, width=None)
 
 
 def hash_yaml_config(config):

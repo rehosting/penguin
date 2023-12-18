@@ -131,6 +131,7 @@ RUN python3 -m pip install \
       python-owasp-zap-v2.4 \
       python_hosts \
       pyyaml \
+      jsonschema \
       setuptools \
       twisted
 
