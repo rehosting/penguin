@@ -14,7 +14,7 @@ usage() {
 
 ARCH="$1"
 REPACK_DIR="$2"
-IGLOO_DIR="$3"
+RESOURCE_DIR="$3"
 STATIC_DIR="$4"
 
 WORK_DIR="${REPACK_DIR}/work"
@@ -48,7 +48,7 @@ gunzip -c "$TARBALL" > "$TARFILE"
 mkdir -p "$FD/libnvram" "$FD/libnvram.override" "$IGLOO/utils" "$IGLOO/keys"
 
 # Copy keys and utilities
-cp "$IGLOO_DIR/resources/static_keys/"* "$IGLOO/keys"
+cp "$RESOURCE_DIR/static_keys/"* "$IGLOO/keys"
 
 for t in "console" "libnvram" "utils.bin" "utils.source" "vpn"; do
     UTILS="$STATIC_DIR/$t"
@@ -72,11 +72,14 @@ ln -s "/igloo/utils/busybox" "$IGLOO/utils/sleep"
 [ -s "$TARFILE" ] || { echo "Error: Tar file $TARFILE is empty" >&2; exit 1; }
 tar --append --owner=root --group=root -f "$TARFILE" -C "$WORK_DIR" .
 
+# 256 MB of padding. XXX is this a good amount?
+PADDING_MB=256
+
 # Calculate image and filesystem size
 IMAGE_SIZE=$(calculate_image_size "$TARFILE")
 UNPACKED_SIZE=$(tar -xf "$TARFILE" -C "$WORK_DIR" --totals 2>&1 | tail -1 | cut -f4 -d' ')
 REQUIRED_BLOCKS=$(( (UNPACKED_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE + 1024 ))
-FILESYSTEM_SIZE=$(( REQUIRED_BLOCKS * BLOCK_SIZE ))
+FILESYSTEM_SIZE=$(( REQUIRED_BLOCKS * BLOCK_SIZE + 1024 * 1024 * $PADDING_MB ))
 
 # Create and populate the image
 echo "Creating QEMU Image $IMAGE with size $FILESYSTEM_SIZE"

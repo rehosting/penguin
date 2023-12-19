@@ -146,9 +146,9 @@ def archEnd(value):
     return (arch, end)
 
 def _build_image(arch_identified, output_dir, static_dir):
-    cmd = ["fakeroot", os.path.join(*[dirname(__file__), "scripts", "makeImage.sh"]),
+    cmd = ["fakeroot", os.path.join(*[dirname(dirname(__file__)), "scripts", "makeImage.sh"]),
             arch_identified, output_dir,
-            os.path.join(dirname(__file__), "resources"),
+            os.path.join(dirname(dirname(__file__)), "resources"),
             static_dir]
 
     def _run(cmd):
