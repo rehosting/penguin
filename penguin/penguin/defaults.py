@@ -10,7 +10,11 @@ default_init_script = """#!/igloo/utils/sh
 /igloo/utils/busybox mount -t proc proc /proc
 /igloo/utils/busybox mount -t tmpfs tmpfs /run
 /igloo/utils/busybox mount -t tmpfs tmpfs /tmp
-igloo/utils/busybox mount -t devpts devpts /dev/pts
+/igloo/utils/busybox mount -t devpts devpts /dev/pts
+
+# symlink /dev/root to /dev/vda
+/igloo/utils/busybox ln -s /dev/vda /dev/root
+
 
 echo "[IGLOO INIT] Kernel started with arguments: \\
     $(/igloo/utils/busybox cat /proc/cmdline)"
