@@ -41,7 +41,7 @@ def arch_filter(header):
         "PPC64": "ppc64",
     }
     arch = header.e_machine.replace("EM_","")
-    print(f"header.e_machine: {arch}")
+    #print(f"header.e_machine: {arch}")
     if arch in supported_map:
         return supported_map[arch]
 
@@ -120,7 +120,7 @@ def find_architecture(infile):
     fsbase = tf.firstmember.path
     for member in tf.getmembers():
         if member.isfile() and binary_filter(fsbase, member.name):
-            print(f"Checking architecture in {member.name}")
+            #print(f"Checking architecture in {member.name}")
             member_file = tf.extractfile(member.name)
             if member_file.read(4) != b'\x7fELF':
                 continue
@@ -195,7 +195,7 @@ def extract_and_build(fw, output_dir):
     if arch_identified not in ["mipseb", "mips64eb", "mipsel", "armel"]:
         raise Exception(f"Architecture {arch_identified} unsupported")
 
-    print(f"Identified architecture as '{arch_identified}'")
+    print(f"Identified architecture as {arch_identified}")
     arch, endianness = archEnd(arch_identified)
     if not arch or not endianness:
         raise Exception("Unsupported target architecture {arch_identified}")
