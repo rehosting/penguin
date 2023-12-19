@@ -5,23 +5,23 @@ trap 'echo "An unexpected error occurred." >&2; exit 1' ERR
 
 # Usage information
 usage() {
-    echo "Usage: $0 <architecture> <extract_dir> <igloo_dir> <static_dir>"
+    echo "Usage: $0 <architecture> <in_tar_gz> <extract_dir> <igloo_dir> <static_dir>"
     exit 1
 }
 
 # Check for the correct number of arguments
-[ "$#" -eq 4 ] || usage
+[ "$#" -eq 5 ] || usage
 
 ARCH="$1"
-REPACK_DIR="$2"
-RESOURCE_DIR="$3"
-STATIC_DIR="$4"
+TARBALL="$2"
+REPACK_DIR="$3"
+RESOURCE_DIR="$4"
+STATIC_DIR="$5"
 
 WORK_DIR="${REPACK_DIR}/work"
+TARFILE="${REPACK_DIR}/fs.tar"
 IMAGE="${REPACK_DIR}/image.raw"
 QCOW="${REPACK_DIR}/image.qcow"
-TARBALL="${REPACK_DIR}/fs.tar.gz"
-TARFILE="${REPACK_DIR}/fs.tar"
 FD="${WORK_DIR}/firmadyne"
 IGLOO="${WORK_DIR}/igloo"
 BLOCK_SIZE=4096
@@ -42,14 +42,17 @@ if [ ! -e "$TARBALL" ]; then
     echo "Error: Cannot find tarball of root filesystem in $REPACK_DIR" >&2
     exit 1
 fi
-gunzip -c "$TARBALL" > "$TARFILE"
 
 # Create required directories
-mkdir -p "$FD/libnvram" "$FD/libnvram.override" "$IGLOO/utils" "$IGLOO/keys"
+mkdir -p "$WORK_DIR" "$FD/libnvram" "$FD/libnvram.override" "$IGLOO/utils" "$IGLOO/keys"
+
+# Extract fs.tar.gz -> work/fs.tar
+gunzip -c "$TARBALL" > "$TARFILE"
+
+# Populate work/* with the files we want to add in work/fd/ and work/igloo/
 
 # Copy keys and utilities
 cp "$RESOURCE_DIR/static_keys/"* "$IGLOO/keys"
-
 for t in "console" "libnvram" "utils.bin" "utils.source" "vpn"; do
     UTILS="$STATIC_DIR/$t"
     [ -d "$UTILS" ] || { echo "FATAL: Missing utilities directory $UTILS" >&2; exit 1; }
@@ -67,7 +70,7 @@ done
 ln -s "/igloo/utils/busybox" "$IGLOO/utils/sh"
 ln -s "/igloo/utils/busybox" "$IGLOO/utils/sleep"
 
-# Validate and append to the tarball
+# Validate and append this data to our tar file
 [ -e "$TARFILE" ] || { echo "Error: Tar file $TARFILE does not exist" >&2; exit 1; }
 [ -s "$TARFILE" ] || { echo "Error: Tar file $TARFILE is empty" >&2; exit 1; }
 tar --append --owner=root --group=root -f "$TARFILE" -C "$WORK_DIR" .
@@ -88,7 +91,7 @@ echo "Creating QEMU Image $IMAGE with size $FILESYSTEM_SIZE"
 truncate -s "$FILESYSTEM_SIZE" "$IMAGE"
 genext2fs -b "$REQUIRED_BLOCKS" -B $BLOCK_SIZE -a "$TARFILE" "$IMAGE" 2>&1 | grep -v "bad type 'x'"
 
-# Now convert the image to qcow2 format
+# Now convert the image to qcow2 format and clean up
 echo "Converting image to QCOW2 format"
 qemu-img convert -f raw -O qcow2 "$IMAGE" "$QCOW"
-rm -f "$IMAGE"
+rm -rf "$IMAGE" "$WORK_DIR"

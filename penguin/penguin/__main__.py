@@ -145,39 +145,50 @@ def archEnd(value):
         end = "eb"
     return (arch, end)
 
-def _build_image(arch_identified, output_dir, static_dir):
-    cmd = ["fakeroot", os.path.join(*[dirname(dirname(__file__)), "scripts", "makeImage.sh"]),
-            arch_identified, output_dir,
-            os.path.join(dirname(dirname(__file__)), "resources"),
-            static_dir]
+def _build_image(arch_identified, fs_tar_gz, output_dir, static_dir):
 
-    def _run(cmd):
+    def _makeImage(_output_dir):
+        # Build our fakeroot command to run makeImage with a dynamic output directory
+        cmd = ["fakeroot", os.path.join(*[dirname(dirname(__file__)), "scripts", "makeImage.sh"]),
+                arch_identified,
+                fs_tar_gz,
+                _output_dir,
+                os.path.join(dirname(dirname(__file__)), "resources"),
+                static_dir]
         # Check output and report it on error
         try:
             subprocess.check_output(cmd)
         except subprocess.CalledProcessError as e:
+            # Also print the command we ran
+            print(" ".join(cmd))
+
             print(e.output.decode('utf-8'))
+            if e.stderr:
+                print(e.stderr.decode('utf-8'))
             raise e
 
-    # If our enviornment specifies a TEMP_DIR (e.g., LLSC) we should do the unpacking in there to avoid issues with NFS and get better perf
-    # And we'll just move output to output_dir
+    if os.path.isdir(output_dir):
+        try:
+            os.rmdir(output_dir)
+        except OSError:
+            raise RuntimeError(f"Output directory {output_dir} already exists and is not empty. Refusing to destroy")
+    os.mkdir(output_dir)
+
+    # If our enviornment specifies a TEMP_DIR (e.g., LLSC) we should do the unpacking in there
+    # to avoid issues with NFS and get better perf. At the end we just move result to output
     if get_mount_type(output_dir) == "lustre":
         # This FS doesn't support the operations we need to do in converting raw->qcow. Instead try using /tmp
+        use_tmpfs = True
         if "ext3" not in get_mount_type("/tmp"):
             raise RuntimeError("Incompatible filesystem. Neither output_dir nor /tmp are ext3")
 
+        # Copy the tar.gz to tempdir, makeImage, then move to output_dir
         with TemporaryDirectory() as temp_dir:
-            # Need to copy from output_dir to temp_dir first.
-            shutil.move(f"{output_dir}/fs.tar.gz", temp_dir) # Directory should now be empty
-            shutil.rmdir(output_dir) # Will fail if directory isn't empty
-
-            # Update the output_dir to be the temp_dir
-            cmd[3] = temp_dir
-            _run(cmd)
-            # Now move contents of tmp_dir to output_dir
+            shutil.move(fs_tar_gz, temp_dir)
+            _makeImage(temp_dir)
             shutil.copytree(temp_dir, output_dir)
     else:
-        _run(cmd)
+        _makeImage(output_dir)
 
 def extract_and_build(fw, output_dir):
     base = os.path.join(output_dir, "base")
@@ -186,8 +197,8 @@ def extract_and_build(fw, output_dir):
     if not fw.endswith(".tar.gz"):
         raise ValueError("Penguin should begin post extraction and be given a .tar.gz archive of a root fs")
 
-    fs_path = join(base, "fs.tar.gz")
-    shutil.copy(fw, fs_path)
+    if not os.path.isfile(fw):
+        raise ValueError(f"Rootfs file {fw} not found")
 
     if not (arch_identified := find_architecture(fw)):
         raise Exception("Unable to determine architecture of rootfs")
@@ -201,12 +212,14 @@ def extract_and_build(fw, output_dir):
         raise Exception("Unsupported target architecture {arch_identified}")
 
     # Generate a qcow image in output_dir/base/image.qcow
-    _build_image(arch_identified, base, static_dir)
+    _build_image(arch_identified, fw, base, static_dir)
 
     if not os.path.isfile(f"{base}/image.qcow"):
         raise Exception("Failed to generate qcow image with MakeImage")
+    
+    # Remove the original fs.tar.gz
 
-	# Make our base qcow image read-only
+    # Make our base qcow image read-only
     os.chmod(f"{base}/image.qcow", 0o444)
     return arch, endianness
 
