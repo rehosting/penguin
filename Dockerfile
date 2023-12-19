@@ -49,25 +49,26 @@ RUN wget -O - https://github.com/panda-re/console/releases/download/release_389e
   mv /igloo_static/console/console-mipseb-linux-musl /igloo_static/console/console.mipseb && \
   mv /igloo_static/console/console-mips64eb-linux-musl /igloo_static/console/console.mips64eb
 
-# Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
-RUN wget -O - https://panda.re/igloo/vpn.tar.gz | \
-  tar xvzf - -C /
-
 # Download 4.10_hc kernels from CI. Populate /igloo_static/kernels
 RUN wget -O - https://github.com/panda-re/linux/releases/download/release_78e11c37d8932a81234a2f0f961b14ae0b0bd361/kernels-latest.tar.gz | \
       tar xvzf - -C /igloo_static && \
       mv /igloo_static/binaries /igloo_static/kernels && \
       mv /igloo_static/kernels/firmadyne_profiles.conf /igloo_static/kernels/osi.config
 
+# Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
+# XXX this dependency should be versioned!
+RUN wget -O - https://panda.re/igloo/vpn.tar.gz | \
+  tar xzf - -C /
+
 # Download custom panda plugins built from CI. Populate /panda_plugins
+# XXX this dependency should be versioned!
 RUN mkdir /panda_plugins && \
   wget -O - https://panda.re/igloo/penguin_plugins.tar.gz | \ 
-  tar xvzf - -C /panda_plugins
-
+  tar xzf - -C /panda_plugins
 
 RUN mkdir /static_deps && \
   wget -qO - https://panda.re/secret/utils3.tar.gz | \
-  tar xvzf - -C /static_deps
+  tar xzf - -C /static_deps
 
 #### QEMU BUILDER: Build qemu-img ####
 FROM ubuntu:20.04 as qemu_builder
