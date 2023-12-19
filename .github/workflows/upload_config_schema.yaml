@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    paths:
+      - penguin/resources/config_schema.yaml
 
 jobs:
   upload_config_schema:
