@@ -209,11 +209,15 @@ properties:
           type: object
           required:
             - type
+            - mode
           additionalProperties: false
           properties:
             type:
               title: Type of file (directory)
               const: dir
+            mode:
+              title: Permissions of directory
+              type: integer
         - title: Symbolic link
           type: object
           required:
