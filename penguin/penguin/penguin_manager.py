@@ -721,8 +721,8 @@ class Worker:
     def _subprocess_panda_run(self, conf_yaml, run_dir, out_dir):
         # penguin_run will run panda directly which might exit (or crash/hang)
         # so we run it in a subprocess to maintain control
-        # Calls penguin_run.py's igloo_run method
-        # Wrapper to call igloo_run(config=argv[1], out=argv[2], qcows=argv[3])
+        # Calls penguin_run.py's run_config method
+        # Wrapper to call run_config(config=argv[1], out=argv[2], qcows=argv[3])
         
         cmd = [ "python3", "-m", "penguin.penguin_run",
                 conf_yaml,

@@ -79,7 +79,7 @@ def _sort_plugins_by_dependency(conf_plugins):
     return sorted_plugins
 
 
-def igloo_run(conf_yaml, qcow_dir=None, out_dir=None):
+def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     '''
     conf_yaml a path to our config
     qcow_dir contains image.qcow + config.yaml
@@ -273,7 +273,7 @@ def main():
         config = sys.argv[1]
         out_dir = sys.argv[2] if len(sys.argv) > 2 else None
         qcow_dir = sys.argv[3] if len(sys.argv) > 3 else None
-        igloo_run(config, qcow_dir, out_dir)
+        run_config(config, out_dir, qcow_dir)
     else:
         raise RuntimeError(f"USAGE {sys.argv[0]} [config.yaml] (out_dir: default is dirname(config.yaml)/output) (qcow_dir: dirname(config.yaml)/qcows)")
 

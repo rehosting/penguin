@@ -11,7 +11,7 @@ from os.path import join, dirname
 from .penguin_static import extend_config_with_static
 from .common import yaml
 from .penguin_manager import iterative_search
-from .penguin_run import igloo_run
+from .penguin_run import run_config
 
 from .defaults import default_init_script, default_plugins, default_version
 
@@ -329,7 +329,7 @@ def run_from_config(config_path, output_dir, niters=-1, multicore=True):
     if niters == 1:
         # You already have a config, let's just run it. This is what happens
         # in each iterative run normally. Here we just do it directly
-        igloo_run(config_path, out_dir=output_dir)
+        run_config(config_path, out_dir=output_dir)
 
     else:
         iterative_search(config, output_dir, max_iters=niters, MULTITHREAD=multicore)
