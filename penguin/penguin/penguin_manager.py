@@ -364,6 +364,7 @@ class GlobalState:
             'qcow': base_config['core']['qcow'],
             'show_output': show_output,
             'root_shell': root_shell,
+            'version': '1.0.0'
         }
         del base_config['core'] # Nobody should use base, ask us instead!
         if not os.path.isfile(self.info['fs']):
