@@ -160,6 +160,9 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
 
     append += f"root={q_config['rootfs']} console=ttyS0 norandmaps clocksource=jiffies nokaslr nohz_full nohz=off no_timer_check threadirqs idle=poll acpi=off nosoftlockup rw panic=1 CID={CID}"
 
+    if archend in ["armel"]:
+        append = append.replace("console=ttyS0", "console=ttyAMA0")
+
     append += " init=/igloo/init"
 
     root_shell = []
