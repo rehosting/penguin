@@ -21,7 +21,9 @@ RUN apt-get update && apt-get install -y \
 
 # Download ZAP into /zap
 RUN mkdir /zap && \
-wget -qO- https://raw.githubusercontent.com/zaproxy/zap-admin/master/ZapVersions.xml | xmlstarlet sel -t -v //url |grep -i Linux | wget --content-disposition -i - -O - | tar zxv -C /zap && \
+wget -qO- https://raw.githubusercontent.com/zaproxy/zap-admin/master/ZapVersions.xml | \
+    xmlstarlet sel -t -v //url | grep -i Linux | wget -q --content-disposition -i - -O - | \
+    tar zxv -C /zap && \
 	mv /zap/ZAP*/* /zap && \
 	rm -R /zap/ZAP*
 
@@ -31,18 +33,18 @@ RUN wget --quiet https://download.libguestfs.org/binaries/appliance/appliance-1.
 # Download busybox from CI. Populate /igloo_static/utils.bin/utils/busybox.*
 RUN  mkdir -p /igloo_static/utils.bin && \
   wget -O - https://github.com/panda-re/busybox/releases/download/release_85b73e1401045e47a0849ca4dffd24b4a1105c07/busybox-latest.tar.gz | \
-  tar xvzf - -C /igloo_static/utils.bin && \
+  tar xzf - -C /igloo_static/utils.bin && \
   mv /igloo_static/utils.bin/build/* /igloo_static/utils.bin && rm -rf /igloo_static/utils.bin/build && \
   for file in /igloo_static/utils.bin/busybox.*-linux*; do mv "$file" "${file%-linux-*}"; done && \
   mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel
 
 # Download libnvram from CI. Populate /igloo_static/libnvram
-RUN wget -O - https://github.com/panda-re/libnvram/releases/download/release_7cf4b464578bbe9df2ef0adf2eae6d577fd8f788/libnvram-latest.tar.gz | \
-  tar xvzf - -C /igloo_static
+RUN wget -qO - https://github.com/panda-re/libnvram/releases/download/release_7cf4b464578bbe9df2ef0adf2eae6d577fd8f788/libnvram-latest.tar.gz | \
+  tar xzf - -C /igloo_static
 
 # Download  console from CI. Populate /igloo_static/console
-RUN wget -O - https://github.com/panda-re/console/releases/download/release_389e179dde938633ff6a44144fe1e03570497479/console-latest.tar.gz | \
-  tar xvzf - -C /igloo_static && \
+RUN wget -qO - https://github.com/panda-re/console/releases/download/release_389e179dde938633ff6a44144fe1e03570497479/console-latest.tar.gz | \
+  tar xzf - -C /igloo_static && \
   mv /igloo_static/build /igloo_static/console && \
   mv /igloo_static/console/console-arm-linux-musleabi /igloo_static/console/console.armel && \
   mv /igloo_static/console/console-mipsel-linux-musl /igloo_static/console/console.mipsel && \
@@ -50,18 +52,18 @@ RUN wget -O - https://github.com/panda-re/console/releases/download/release_389e
   mv /igloo_static/console/console-mips64eb-linux-musl /igloo_static/console/console.mips64eb
 
 # Download 4.10_hc kernels from CI. Populate /igloo_static/kernels
-RUN wget -O - https://github.com/panda-re/linux_builder/releases/download/v1/kernels-latest.tar.gz | \
-      tar xvzf - -C /igloo_static
+RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v1.1/kernels-latest.tar.gz | \
+      tar xzf - -C /igloo_static
 
 # Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
 # XXX this dependency should be versioned!
-RUN wget -O - https://panda.re/igloo/vpn.tar.gz | \
+RUN wget -qO - https://panda.re/igloo/vpn.tar.gz | \
   tar xzf - -C /
 
 # Download custom panda plugins built from CI. Populate /panda_plugins
 # XXX this dependency should be versioned!
 RUN mkdir /panda_plugins && \
-  wget -O - https://panda.re/igloo/penguin_plugins.tar.gz | \ 
+  wget -qO - https://panda.re/igloo/penguin_plugins.tar.gz | \ 
   tar xzf - -C /panda_plugins
 
 RUN mkdir /static_deps && \
@@ -105,6 +107,7 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-guestfs \
     python3-pip \
+    telnet \
     vim \
     wget && \
     apt install -yy -f /tmp/pandare.deb /tmp/genext2fs.deb && \
@@ -143,7 +146,7 @@ RUN python3 -m pip install \
 
 # Libguestfs setup
 COPY --from=downloader /tmp/libguestfs.tar.xz /tmp/libguestfs.tar.xz
-RUN tar xvf /tmp/libguestfs.tar.xz -C /usr/local/
+RUN tar xf /tmp/libguestfs.tar.xz -C /usr/local/
 ENV LIBGUESTFS_PATH=/usr/local/appliance
 
 # qemu-img
@@ -163,6 +166,10 @@ COPY --from=downloader /static_deps/utils/* /igloo_static/utils.bin
 COPY utils/* /igloo_static/utils.source/
 
 WORKDIR /penguin
+
+# Aliases for quick tests. m to make a config for the stride. r to run it.
+RUN echo 'alias m="rm -rf /share/stride; penguin /fws/stride.tar.gz /share/stride/"' >> ~/.bashrc
+RUN echo 'alias r="penguin --config /share/stride/config.yaml /share/stride/out"' >> ~/.bashrc
 
 # Now copy in our module and install it
 # Editable so we can mount local copy for dev
