@@ -237,6 +237,17 @@ def pre_shim(config):
                     if query in f.read():
                         config['nvram'][query] = value
 
+def _kernel_version_to_int(potential_name):
+    try:
+        # Seems like a kernel version! Let's compare to existing value.
+        # Treat major version as an 10 000x, minor as 100x, patch as 1x
+        # e.g., 4.4.0 -> 40 40 0
+        comps = [int(x) for x in potential_name.split(".")]
+    except ValueError:
+        return None
+    return comps[0] * 10000 + comps[1] * 100 + comps[2]
+
+
 def shim_configs(config):
     '''
     Identify binaries in the guest FS that we want to shim
@@ -267,7 +278,7 @@ def shim_configs(config):
                 guest_match = [x for x in shim_targets if x[0] == basename]
                 if len(guest_match):
                     shim_results[path] = f"/igloo/utils/{guest_match[0][1]}"
-            
+
     # Sanity check: make sure all of our target destinations exist
     for k, found_in_fs in target_exists.items():
         if not found_in_fs:
@@ -278,6 +289,26 @@ def shim_configs(config):
             'type': 'symlink',
             'target': shim_path,
         }
+
+	# Identify original kernel version and shim /lib/modules/4.10.0 to it's /lib/modules path
+    kernel_version = None
+    with tarfile.open(fs_path) as fs:
+        for member in fs.getmembers():
+            if member.name.startswith("./lib/modules/") and member.isdir():
+                potential_name = os.path.basename(member.name)
+                if len(potential_name.split(".")) == 3:
+                    if this_version := _kernel_version_to_int(potential_name):
+                        if kernel_version is None or this_version > _kernel_version_to_int(kernel_version):
+                            kernel_version = potential_name
+
+    if kernel_version:
+        # We have a kernel version, add it to our config
+        IGLOO_KERNEL_VERSION = '4.10.0'
+        config['static_files'][f'/lib/modules/{IGLOO_KERNEL_VERSION}'] = {
+            'type': 'symlink',
+            'target': f'/lib/modules/{kernel_version}'
+        }
+            
 
 def _is_init_script(tarinfo):
     if tarinfo.name.startswith('./igloo'):

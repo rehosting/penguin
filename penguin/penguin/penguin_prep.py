@@ -58,7 +58,7 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
                 g.rm(linkpath)
 
             # If target doesn't exist, we can't symlink
-            if not g.exists(target) or g.is_dir(target):
+            if not g.exists(target) and not g.is_dir(target):
                 raise ValueError(f"Can't add symlink to {target} as it doesn't exist in requested symlink from {linkpath}")
 
             g.ln_s(target, linkpath)
@@ -147,7 +147,7 @@ def prepare_run(conf, out_dir, out_filename="image.qcow2"):
             'mode': 0o644,
         }
     # Given this yaml config, we need to make the specified changes both statically and dynamically
-    
+
     # We make the static changes to guest disk in this function
     new_image = derive_qcow_from(base_qcow, out_dir, config_files, out_filename)
 
