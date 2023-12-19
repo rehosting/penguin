@@ -497,7 +497,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
         }
         '''
 
-        with open(pjoin(output_dir, outfile)) as f:
+        with open(pjoin(output_dir, outfile_missing)) as f:
             file_failures = yaml.safe_load(f)
 
         fails = {} # path -> info
@@ -561,7 +561,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
             if failtype == 'read':
                 self.logger.info("Adding read-based mitigations")
-                # We want to support a read operation. For now we don't support many, in fact it's just zeros
+                # We want to support a read operation. We could make it zeros,
+                # Or we could return a constant value - for the constant value, we don't know what it
+                # might be, so we could use DYNVAL to figure it out!
                 read_types = ['zeros']
                 for read_type in read_types:
                     if read_type == config['files'][path]['read']:
