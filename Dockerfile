@@ -15,10 +15,6 @@ RUN wget -O /tmp/genext2fs.deb https://github.com/panda-re/genext2fs/releases/do
 
 ### DOWNLOADER: get zap, libguestfs, busybox, libnvram, console, vpn, kernels, and penguin plugins ###
 FROM download_base as downloader
-RUN apt-get update && apt-get install -y \
-    xmlstarlet \
-    wget
-
 # Download ZAP into /zap
 RUN mkdir /zap && \
 wget -qO- https://raw.githubusercontent.com/zaproxy/zap-admin/master/ZapVersions.xml | \
@@ -61,9 +57,8 @@ RUN wget -qO - https://panda.re/igloo/vpn.tar.gz | \
   tar xzf - -C /
 
 # Download custom panda plugins built from CI. Populate /panda_plugins
-# XXX this dependency should be versioned!
 RUN mkdir /panda_plugins && \
-  wget -qO - https://panda.re/igloo/penguin_plugins.tar.gz | \ 
+  wget -qO - https://panda.re/igloo/penguin_plugins_v1.2.tar.gz | \
   tar xzf - -C /panda_plugins
 
 RUN mkdir /static_deps && \
@@ -169,8 +164,8 @@ COPY utils/* /igloo_static/utils.source/
 WORKDIR /penguin
 
 # Aliases for quick tests. m to make a config for the stride. r to run it.
-RUN echo 'alias m="rm -rf /share/stride; penguin /fws/stride.tar.gz /share/stride/"' >> ~/.bashrc
-RUN echo 'alias r="penguin --config /share/stride/config.yaml /share/stride/out"' >> ~/.bashrc
+RUN echo 'alias m="rm -rf /results/stride; penguin /fws/stride.tar.gz /results/stride/"' >> ~/.bashrc
+RUN echo 'alias r="penguin --config /results/stride/config.yaml /results/stride/out"' >> ~/.bashrc
 
 # Now copy in our module and install it
 # Editable so we can mount local copy for dev
