@@ -72,14 +72,16 @@ ln -s "/igloo/utils/busybox" "$IGLOO/utils/sleep"
 [ -s "$TARFILE" ] || { echo "Error: Tar file $TARFILE is empty" >&2; exit 1; }
 tar --append --owner=root --group=root -f "$TARFILE" -C "$WORK_DIR" .
 
-# 256 MB of padding. XXX is this a good amount?
-PADDING_MB=256
+# 1GB of padding. XXX is this a good amount - does it slow things down if it's too much?
+# Our disk images are sparse, so this doesn't actually take up any space?
+PADDING_MB=1024
 
 # Calculate image and filesystem size
 IMAGE_SIZE=$(calculate_image_size "$TARFILE")
 UNPACKED_SIZE=$(tar -xf "$TARFILE" -C "$WORK_DIR" --totals 2>&1 | tail -1 | cut -f4 -d' ')
+UNPACKED_SIZE=$(( UNPACKED_SIZE + 1024 * 1024 * PADDING_MB ))
 REQUIRED_BLOCKS=$(( (UNPACKED_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE + 1024 ))
-FILESYSTEM_SIZE=$(( REQUIRED_BLOCKS * BLOCK_SIZE + 1024 * 1024 * $PADDING_MB ))
+FILESYSTEM_SIZE=$(( REQUIRED_BLOCKS * BLOCK_SIZE ))
 
 # Create and populate the image
 echo "Creating QEMU Image $IMAGE with size $FILESYSTEM_SIZE"
