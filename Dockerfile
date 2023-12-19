@@ -50,10 +50,8 @@ RUN wget -O - https://github.com/panda-re/console/releases/download/release_389e
   mv /igloo_static/console/console-mips64eb-linux-musl /igloo_static/console/console.mips64eb
 
 # Download 4.10_hc kernels from CI. Populate /igloo_static/kernels
-RUN wget -O - https://github.com/panda-re/linux/releases/download/release_78e11c37d8932a81234a2f0f961b14ae0b0bd361/kernels-latest.tar.gz | \
-      tar xvzf - -C /igloo_static && \
-      mv /igloo_static/binaries /igloo_static/kernels && \
-      mv /igloo_static/kernels/firmadyne_profiles.conf /igloo_static/kernels/osi.config
+RUN wget -O - https://github.com/panda-re/linux_builder/releases/download/v1/kernels-latest.tar.gz | \
+      tar xvzf - -C /igloo_static
 
 # Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
 # XXX this dependency should be versioned!
