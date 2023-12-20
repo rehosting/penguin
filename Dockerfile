@@ -58,7 +58,7 @@ RUN wget -qO - https://panda.re/igloo/vpn.tar.gz | \
 
 # Download custom panda plugins built from CI. Populate /panda_plugins
 RUN mkdir /panda_plugins && \
-  wget -qO - https://panda.re/igloo/penguin_plugins_v1.2.tar.gz | \
+  wget -qO - https://panda.re/igloo/penguin_plugins_v1.3.1.tar.gz | \
   tar xzf - -C /panda_plugins
 
 RUN mkdir /static_deps && \
