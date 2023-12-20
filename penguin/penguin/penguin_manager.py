@@ -742,12 +742,13 @@ class Worker:
             stdout, stderr = process.communicate() # Wait for termination
         except Exception as e:
             print(f"An exception occurred launching {cmd}: {str(e)}")
+            #raise e
             return
 
-        if process.returncode not in [0, 120]: # 120 happens a lot, timeout or maybe python being mad about stdout getting closed?
+        if process.returncode not in [0]: # XXX what about a timeout with exit 120. Should we parse stderr to identify that we don't care?
             print(f"Error running {cmd}: Got return code {process.returncode}")
-            print("STDOUT:", stdout)
-            print("STDERR:", stderr)
+            print("stdout:", stdout)
+            print("stderr:", stderr)
 
         # Check if we have the expected .ran file in output directory
         ran_file = os.path.join(out_dir, ".ran")
