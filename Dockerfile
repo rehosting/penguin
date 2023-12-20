@@ -163,9 +163,10 @@ COPY utils/* /igloo_static/utils.source/
 
 WORKDIR /penguin
 
-# Aliases for quick tests. m to make a config for the stride. r to run it.
+# Aliases for quick tests. m to make a config for the stride. r to run it. a for auto (config+run+explore)
 RUN echo 'alias m="rm -rf /results/stride; penguin /fws/stride.tar.gz /results/stride/"' >> ~/.bashrc
 RUN echo 'alias r="penguin --config /results/stride/config.yaml /results/stride/out"' >> ~/.bashrc
+RUN echo 'alias a="rm -rf /results/stride_auto; penguin --niters 5 --singlecore /fws/stride.tar.gz /results/stride_auto/"' >> ~/.bashrc
 
 # Now copy in our module and install it
 # Editable so we can mount local copy for dev
