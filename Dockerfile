@@ -27,10 +27,10 @@ wget -qO- https://raw.githubusercontent.com/zaproxy/zap-admin/master/ZapVersions
 RUN wget --quiet https://download.libguestfs.org/binaries/appliance/appliance-1.46.0.tar.xz -O /tmp/libguestfs.tar.xz
 
 # Download busybox from CI. Populate /igloo_static/utils.bin/utils/busybox.*
-RUN  mkdir -p /igloo_static/utils.bin && \
-  wget -O - https://github.com/panda-re/busybox/releases/download/release_85b73e1401045e47a0849ca4dffd24b4a1105c07/busybox-latest.tar.gz | \
-  tar xzf - -C /igloo_static/utils.bin && \
-  mv /igloo_static/utils.bin/build/* /igloo_static/utils.bin && rm -rf /igloo_static/utils.bin/build && \
+RUN mkdir /igloo_static && \
+  wget -qO - https://github.com/panda-re/busybox/releases/download/release_25c906fe05766f7fc4765f4e6e719b717cc2d9b7/busybox-latest.tar.gz | \
+  tar xzf - -C /igloo_static/ && \
+  mv /igloo_static//build/ /igloo_static/utils.bin && \
   for file in /igloo_static/utils.bin/busybox.*-linux*; do mv "$file" "${file%-linux-*}"; done && \
   mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel
 
