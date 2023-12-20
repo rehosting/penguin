@@ -281,7 +281,7 @@ properties:
     additionalProperties:
       title: Plugin
       type: object
-      additionalProperties: false
+      additionalProperties: true
       properties:
         description:
           title: Plugin description
