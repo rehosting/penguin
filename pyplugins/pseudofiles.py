@@ -54,6 +54,7 @@ def ignore_ioctl_path(path):
     if path.startswith("/proc/"):
         return True
     if path.startswith("socket:"):
+        # XXX We do want to log socket failures and eventually model them!
         return True
     if path.startswith("pipe:"):
         return True
@@ -141,8 +142,9 @@ class FileFailures(PyPlugin):
         self.dump_results()
 
         # Dynamically collectd mapping of syscall number to which arg(s) contain FDs/filenames
-        self.has_fds = {}
+        self.has_fds = {} # Syscall number to list of (argidx, is_fd, rv_check)
         self.has_no_fds = set() # Syscall numbers with no FDs or filenames
+        self.target_rvs = {} # Sycall number -> return value we expect to see if the file is missing
         self.cache = {}
 
         @panda.ppp("syscalls2", "on_all_sys_return2")
@@ -154,13 +156,28 @@ class FileFailures(PyPlugin):
             if call == self.panda.ffi.NULL:
                 return
 
+            # Check if this return value is telling us the file is missing
+            # based on the syscall we see. Mostly we're checking for -ENOENT
+            # or -ENOTTY for ioctls
+            if call.no not in self.target_rvs:
+                sc_name = self.panda.ffi.string(call.name).decode()
+                if sc_name == 'ioctl':
+                    target_rv = -25 # -ENOTTY. XXX: Should we check any negative return value?
+                elif sc_name == 'close':
+                    target_rv = None # We never care about close failures since we can't see the file name after
+                else:
+                    target_rv = -2 # -ENOENT
+                self.target_rvs[call.no] = target_rv
+            
+            if rv != self.target_rvs[call.no]:
+                return
+
             # If we haven't seen this call number before, check if it has an FD arg
             if call.no not in self.has_fds and call.no not in self.has_no_fds:
                 fd_args = [] # Tuples of (int argidx, bool is_fd)
+
                 for arg_idx in range(min(call.nargs, 4)): # Ignore stack based args?
                     # Is this argument named fd or filename?
-
-                    # Is it a string arg named fd or filename?
                     argname = self.panda.ffi.string(call.argn[arg_idx]) 
                     if argname in [b'fd', b'oldfd', b'filename']:
                         fd_args.append((arg_idx, argname != b'filename'))
@@ -170,14 +187,12 @@ class FileFailures(PyPlugin):
                 else:
                     self.has_no_fds.add(call.no)
 
+            # If this is a syscall that has a file/FD arg AND the RV we see is the expected error if the file
+            # is missing (-ENOENT or -ENOTTY for ioctls), then we'll log it.
             if call.no in self.has_fds:
                 call_name = self.panda.ffi.string(call.name).decode()
-                if call_name == 'sys_close':
-                    # The close has happened, we can't get the filename!
-                    return
 
                 for (arg_idx, is_fd) in self.has_fds[call.no]:
-
                     # Ugh. Gross conversion. Not sure if it would be right for big endian? XXX
                     b = [int(self.panda.ffi.cast("unsigned short", rp.args[arg_idx][x])) for x in range(self.panda.bits // 8)]
                     arg_val = 0
