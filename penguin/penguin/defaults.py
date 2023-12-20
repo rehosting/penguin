@@ -12,12 +12,8 @@ default_init_script = """#!/igloo/utils/sh
 /igloo/utils/busybox mount -t tmpfs tmpfs /tmp
 /igloo/utils/busybox mount -t devpts devpts /dev/pts
 
-# symlink /dev/root to /dev/vda
-/igloo/utils/busybox ln -s /dev/vda /dev/root
-
-
-echo "[IGLOO INIT] Kernel started with arguments: \\
-    $(/igloo/utils/busybox cat /proc/cmdline)"
+# symlink /dev/root to /dev/vda. Not sure about this.
+#/igloo/utils/busybox ln -s /dev/vda /dev/root
 
 if [ -e /igloo/utils/random_seed ]; then
   /igloo/utils/busybox cat /igloo/utils/random_seed > /dev/random
