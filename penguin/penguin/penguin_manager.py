@@ -177,6 +177,12 @@ class MCTS:
         self.config_tree = Node(initial_config)
         self.max_objectives = {k: 1.0 for k in SCORE_CATEGORIES} # Initialized to 1 to avoid division by zero errors
 
+        # On construction, expand our initial config. Initial config is a root node with no igloo_init, and we need
+        # children that have it set for us to run. If we ever have only 1 potential value, we'll just have a single
+        # child and that will be okay
+        if 'igloo_init' not in self.config_tree.config['env']:
+            self.config_tree.run_count = 1 # Say we ran the node since we're now done with it
+            self.expand(self.config_tree)
 
     def run_next_task(self, func):
         """
@@ -195,14 +201,16 @@ class MCTS:
 
         # Run the selected node
         # Get back a dictionary of {score_type: score}
+        
         node_scores, run_idx = func(node, self.config_tree) # Func == analyze_one
         if not node_scores:
             raise ValueError(f"Failed to run: No return values from {func}")
         node.total_objectives = sum(node_scores.values())
-        
+
         # After we ran the node, we should now have some failures
         # Expand the node to try mitigating these
         self.expand(node)
+
         # Optimization: combine child configs
         #self.group(node)
 
@@ -212,7 +220,7 @@ class MCTS:
 
         # Return something so we know we did work
         return True
-    
+
     def normalize_and_update_ucb1(self, node):
         node.normalized_objectives = {k: v / self.max_objectives[k] for k, v in node.objectives.items()}
 
@@ -586,8 +594,8 @@ class Worker:
         For each identified failure, ask the plugin to propose mitigations. Add
         these to the global mitigation state with global_state.add_mitigation
 
-
         TODO: Focus on analysis delta from parent and score delta instead of total score?
+        XXX: This doesn't propose any mitigations for the stride!
         '''
 
         for config_idx in range(n_config_tests):
