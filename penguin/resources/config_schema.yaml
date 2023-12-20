@@ -2,39 +2,35 @@ $schema: https://json-schema.org/draft/2020-12/schema
 title: Penguin Configuration
 description: Configuration file for config-file-based rehosting with IGLOO
 $defs:
-  read_const_map_common:
-    required:
-      - model
-      - vals
-    properties:
-      pad:
-        title: Byte for padding file
-        oneOf:
-          - type: string
-          - type: integer
-        default: 0
-      size:
-        title: File size
-        type: integer
-        minimum: 0
-        default: 0x10000
-      vals:
-        title: Mapping from file offset to data
-        type: object
-        additionalProperties: false
-        patternProperties:
-          '^\d+$':
-            title: Data to place in the file at an offset
-            oneOf:
-              - type: string
-              - title: Byte array
-                type: array
-                items:
-                  type: integer
-              - title: String array to be joined by null bytes
-                type: array
-                items:
-                  type: string
+  read_const_map:
+    pad:
+      title: Byte for padding file
+      oneOf:
+        - type: string
+        - type: integer
+      default: 0
+    size:
+      title: File size
+      type: integer
+      minimum: 0
+      default: 0x10000
+    vals:
+      title: Mapping from file offset to data
+      type: object
+      additionalProperties: false
+      patternProperties:
+        '^\d+$':
+          title: Data to place in the file at an offset
+          oneOf:
+            - type: string
+            - title: Byte array
+              type: array
+              items:
+                type: integer
+            - title: String array to be joined by null bytes
+              type: array
+              items:
+                type: string
 type: object
 required:
   - core
@@ -165,19 +161,25 @@ properties:
                   description: The string with the contents of the pseudofile
                   type: string
             - title: Read constant map model
-              $ref: "#/$defs/read_const_map_common"
               required:
                 - model
+                - vals
               additionalProperties: false
               properties:
                 model:
                   title: Read modelling method (read a constant map)
                   const: const_map
+                pad:
+                  $ref: "#/$defs/read_const_map/pad"
+                size:
+                  $ref: "#/$defs/read_const_map/size"
+                vals:
+                  $ref: "#/$defs/read_const_map/vals"
             - title: Read constant map with host file model
-              $ref: "#/$defs/read_const_map_common"
               required:
                 - model
                 - filename
+                - vals
               additionalProperties: false
               properties:
                 model:
@@ -186,6 +188,12 @@ properties:
                 filename:
                   title: Path to host file to store constant map
                   type: string
+                pad:
+                  $ref: "#/$defs/read_const_map/pad"
+                size:
+                  $ref: "#/$defs/read_const_map/size"
+                vals:
+                  $ref: "#/$defs/read_const_map/vals"
             - title: Read from host file model
               required:
                 - model
