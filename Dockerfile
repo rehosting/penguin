@@ -30,7 +30,7 @@ RUN wget --quiet https://download.libguestfs.org/binaries/appliance/appliance-1.
 RUN mkdir /igloo_static && \
   wget -qO - https://github.com/panda-re/busybox/releases/download/release_25c906fe05766f7fc4765f4e6e719b717cc2d9b7/busybox-latest.tar.gz | \
   tar xzf - -C /igloo_static/ && \
-  mv /igloo_static//build/ /igloo_static/utils.bin && \
+  mv /igloo_static/build/ /igloo_static/utils.bin && \
   for file in /igloo_static/utils.bin/busybox.*-linux*; do mv "$file" "${file%-linux-*}"; done && \
   mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel
 
@@ -62,7 +62,7 @@ RUN mkdir /panda_plugins && \
   tar xzf - -C /panda_plugins
 
 RUN mkdir /static_deps && \
-  wget -qO - https://panda.re/secret/utils3.tar.gz | \
+  wget -qO - https://panda.re/secret/utils4.tar.gz | \
   tar xzf - -C /static_deps
 
 #### QEMU BUILDER: Build qemu-img ####
