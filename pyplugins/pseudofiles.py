@@ -10,8 +10,9 @@ from typing import Dict, Any, List
 
 from sys import path
 path.append(dirname(__file__))
+from symex import PathExpIoctl
 
-coloredlogs.install(level='DEBUG', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
+coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 
 try:
     from penguin import PenguinAnalysis, yaml
@@ -27,6 +28,7 @@ except ImportError:
 outfile_missing = "pseudofiles_failures.yaml"
 # Files we're modeling go into the second. Particularly useful for defaults
 outfile_models = "pseudofiles_modeled.yaml"
+MAGIC_SYMEX_RETVAL = 999
 
 def path_interesting(path):
     if path.startswith("/dev/"):
@@ -76,7 +78,7 @@ class FileFailures(PyPlugin):
         if self.get_arg("conf") is None or "pseudofiles" not in self.get_arg("conf"):
             raise ValueError("No 'pseudofiles' in config: {self.get_arg('conf')}")
 
-        self.config = self.get_arg("conf")["pseudofiles"]
+        self.config = self.get_arg("conf")
         # Expect filename: {'read': 'default' OR 'zero',
         #                   'write': 'default' OR 'discard',
         #                   'ioctl': {
@@ -85,9 +87,11 @@ class FileFailures(PyPlugin):
 
         devfs = []
         procfs = []
+        need_ioctl_hooks = False
+        #self.last_symex = None
 
         hf_config = {}
-        for filename, details in self.config.items():
+        for filename, details in self.config["pseudofiles"].items():
             hf_config[filename] = {}
 
             for (targ, prefix) in [(devfs, "/dev/"), (procfs, "/proc/")]:
@@ -111,7 +115,6 @@ class FileFailures(PyPlugin):
                         raise ValueError(f"Invalid ioctl settings. Must specify ioctl number (or '*') within ioctl dictionary, then map each to a model. Did you mean: {guess}")
                     raise ValueError(f"Unsupported hyperfile {ftype}_{model} for {filename}: {details[ftype] if ftype in details else None}")
                 # Have a model specified
-
                 fn = getattr(self, f"{ftype}_{model}")
 
                 # Closure so we can pass details through
@@ -121,7 +124,10 @@ class FileFailures(PyPlugin):
                     return rwif
                 
                 hf_config[filename][hyper(ftype)] = make_rwif(details[ftype] if ftype in details else {}, fn)
-        
+
+                if ftype == "ioctl" and any([x["model"] == 'symex' for x in details[ftype].values()]):
+                    # If we have a symex model we'll need to enable some extra introspection
+                    need_ioctl_hooks = True
 
         if len(devfs):
             self.get_arg("conf")["env"]["dyndev.devnames"] = ",".join(devfs)
@@ -239,6 +245,31 @@ class FileFailures(PyPlugin):
 
             if rv >= -2: # ENOENT - we only care about files that don't exist
                 self.centralized_log(path, 'open')
+
+        # And another special case: on ioctl return we might want to start symex
+        if need_ioctl_hooks:
+            @panda.ppp("syscalls2", "on_sys_ioctl_return")
+            def symex_ioctl_return(cpu, pc, fd, cmd, arg):
+                # We'll return -999 as a magic placeholder value that indicates we should
+                # Start symex. Is this a terrible hack. You betcha!
+                rv = panda.arch.get_retval(cpu, convention="syscall")
+                rv = panda.from_unsigned_guest(rv) # Unnecessary?
+
+                if rv != MAGIC_SYMEX_RETVAL:
+                    return
+
+                if not hasattr(self, 'symex'):
+                    # Initialize symex on first use
+                    self.symex = PathExpIoctl(self.outdir, self.config['core']['fs'])
+
+                # It's time to launch symex!
+                self.symex.do_symex(self.panda, cpu, filename, cmd)
+
+                #self.last_symex = None # Reset symex state
+
+                # set retval to 0 with no error.
+                panda.arch.set_retval(cpu, 0, convention="syscall", failure=False)
+
 
     #######################################
     def centralized_log(self, path, event):
@@ -424,8 +455,6 @@ class FileFailures(PyPlugin):
         ioctl_details is a dict of:
             cmd -> {'model': 'return_const'|'symex',
                      'val': X}
-            But no 'val' key for symex?
-            If we have no model for a given cmd, that's the same as 'default'
         '''
         # Try to use cmd as our key, but '*' is a fallback
         is_wildcard = False
@@ -443,8 +472,21 @@ class FileFailures(PyPlugin):
         if model == 'return_const':
             rv = cmd_details['val']
             return rv
+
         elif model == 'symex':
-            raise NotImplementedError("Symex is WIP")
+            # Symex is tricky and different from normal models.
+            # First off, these models need to specify a 'val' just like any other
+            # for us to use after (and, to be honest, during) symex.
+            # JK: we're gonna always use 0 when doing symex!
+
+            #if self.last_symex:
+                # We could be smart and encode info in our retval
+                # or do something else. I don't think we want to fully
+                # ignore? But we probably could?
+                #raise NotImplementedError("Uhhhh nested symex")
+            #self.last_symex = filename
+
+            return MAGIC_SYMEX_RETVAL # We'll detect this on the return and know what to do. I think?
         else:
             # This is an actual error - config is malformed. Bail
             raise ValueError(f"Unsupported ioctl model {model} for cmd {cmd}")
@@ -454,6 +496,10 @@ class FileFailures(PyPlugin):
         # Dump all file failures to disk as yaml
         with open(pjoin(self.outdir, outfile_missing), "w") as f:
             yaml.dump(self.file_failures, f)
+
+        if hasattr(self, 'symex'):
+            # Need to tell symex to export results as well
+            self.symex.save_results()
 
     def uninit(self):
         self.dump_results()
