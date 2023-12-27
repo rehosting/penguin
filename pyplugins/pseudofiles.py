@@ -514,6 +514,7 @@ class FileFailures(PyPlugin):
 
 class FileFailuresAnalysis(PenguinAnalysis):
     ANALYSIS_TYPE = "pseudofiles"
+    VERSION = "1.0.0"
 
     def __init__(self):
         super().__init__()
