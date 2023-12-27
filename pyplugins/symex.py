@@ -63,11 +63,11 @@ class PathExpIoctl:
         self.results = {} # {fname: {ioctl: {'ok': [constraint_set1, constraint_set2, ...],
                           # 'error': [constraint_set1, constraint_set2, ...]}}}
 
-    def __del__(self):
+    def uninit(self):
         if not self.log_file.closed:
             self.log_file.close()
 
-    def do_symex(self, panda, cpu, name, num):
+    def do_symex(self, panda, cpu, targ_addr, name, num):
         '''
         Main entrypoint after initial state is set. Given current concrete PANDA state
         at an IOCTL return, run symex in order identify distinct reachable paths
@@ -77,7 +77,7 @@ class PathExpIoctl:
         # We're hooking at syscall return. This is often libc's ioctl function or another
         # library, not a part of the main binary. But it seems to work anyway! (previously
         # we were getting the "return address" which was just coincidentally working)
-        targ_addr = panda.arch.get_pc(cpu)
+        # Targ_addr tells us this address
 
         # Initialize project and state using panda's concrete state and the target address
         proj, state = self.setup_project_state(panda, targ_addr)
@@ -461,7 +461,7 @@ class PathExpIoctl:
             "Type Number": type_num
         }
 
-    def hypothesize_models(self):
+    def hypothesize_models(self, target=None, cmd=None, verbose=True):
         '''
         Given some results, hypothesize models for each device and ioctl.
         Not sure if we really need this
@@ -475,15 +475,29 @@ class PathExpIoctl:
             return {}
 
         for fname, nums in known_values.items():
-            models[fname] = {}
+            if target is not None and fname != target:
+                continue
 
+            models[fname] = {}
             for num in nums:
+                if cmd is not None and cmd != num:
+                    continue
                 paths = self.find_distinct_paths(fname, num, 32)
 
                 if not paths or len(paths) == 0:
                     print("\tWarning: no paths found - return 0")
                     paths = [0]
 
-                self.log(f"{fname}, {num} = {paths}")
+                if verbose:
+                    self.log(f"{fname}, {num} = {paths}")
                 models[fname][num] = paths
         return models
+
+if __name__ == '__main__':
+    from sys import argv
+    symex = PathExpIoctl(argv[1], None, read_only=True)
+    models = symex.hypothesize_models()
+    for fname, details in models.items():
+        print(f"{fname}:")
+        for ioctl, values in details.items():
+            print(f"\t{ioctl:#x}: {values}")
