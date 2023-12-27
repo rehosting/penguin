@@ -309,6 +309,7 @@ class TargetCmp(PyPlugin):
 
 class EnvTrackerAnalysis(PenguinAnalysis):
     ANALYSIS_TYPE = "env"
+    VERSION = "1.0.0"
 
     DEFAULT_VALUES = [
         "1",

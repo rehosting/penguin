@@ -144,12 +144,20 @@ def generate_child_nodes(node: Node, global_state) -> List[Tuple[Node, str, floa
     # mitigating thse using info from our global state plus our plugins.
 
     mitigation_providers = {} # ANALYSIS_TYPE -> object
-    for plugin in node.config['plugins']:
+    for plugin_name, details in node.config['plugins'].items():
+        if 'enabled' in details and not details['enabled']:
+            # Disabled plugin - skip
+            continue
+
         try:
-            analysis = _load_penguin_analysis_from(plugin)
+            analysis = _load_penguin_analysis_from(plugin_name)
         except ValueError:
             continue
         mitigation_providers[analysis.ANALYSIS_TYPE] = analysis
+        if details.version != analysis.VERSION:
+            raise ValueError(f"Config specifies plugin {plugin_name} at version {details.version} but we got {analysis.VERSION}")
+
+        print(f"Loaded {plugin_name} at version {details.version}")
 
     for failure_type, failures in node.failures.items():
         if failure_type not in global_state.failures.keys():
@@ -545,7 +553,6 @@ class Worker:
         Run a given configuration, collect details of it's failures. Return score
         '''
         #print(f"Doing analyze_one for {node}")
-        # Create rundir and place our modified qcow in it
         run_idx = self.run_index.increment()
         run_dir = os.path.join(self.run_base, str(run_idx))
         if os.path.isdir(run_dir):
@@ -585,7 +592,7 @@ class Worker:
     def analyze_failures(self, run_dir, config, n_config_tests):
         '''
         After we run a configuration, do our post-run analysis of failures.
-        Run each pyPlugin that has a PenguinAnalysis implemented. Have each
+        Run each PyPlugin that has a PenguinAnalysis implemented. Have each
         identify failures and store these in our global state of know failures
         (global_state.add_failures) as well as a failure for this config
         (config.add_config_failures). Write down all the faiulres in failures.txt
@@ -595,7 +602,7 @@ class Worker:
         these to the global mitigation state with global_state.add_mitigation
 
         TODO: Focus on analysis delta from parent and score delta instead of total score?
-        XXX: This doesn't propose any mitigations for the stride!
+        XXX: This doesn't propose any mitigations for the stride??
         '''
 
         for config_idx in range(n_config_tests):
@@ -745,7 +752,8 @@ class Worker:
             #raise e
             return
 
-        if process.returncode not in [0]: # XXX what about a timeout with exit 120. Should we parse stderr to identify that we don't care?
+        # Let it exit 0 or exit with 120 if it's a bad file descriptor (python gets sad when stdio closes)
+        if process.returncode != 0 and not (process.returncode == 120 and "Bad file descriptor" in stderr):
             print(f"Error running {cmd}: Got return code {process.returncode}")
             print("stdout:", stdout)
             print("stderr:", stderr)
