@@ -183,12 +183,12 @@ RUN echo 'alias r="penguin --config /results/stride/config.yaml /results/stride/
 RUN echo 'alias a="rm -rf /results/stride_auto; penguin --niters 5 --singlecore /fws/stride.tar.gz /results/stride_auto/"' >> ~/.bashrc
 
 # Now copy in our module and install it
-# Editable so we can mount local copy for dev
+# penguin is editable so we can mount local copy for dev
+# setuptools is workaround for igloo #131
 COPY ./penguin /pkg
-RUN python3 -m pip install -e /pkg
-
-# Workaround for igloo #131
-RUN pip install setuptools==67.7.2
+RUN --mount=type=cache,target=/root/.cache/pip \
+      pip install -e /pkg && \
+      pip install setuptools==67.7.2
 
 # Copy pyplugins into our the pandata directory. We might mount
 # this from the host during development. In the long term we'll
