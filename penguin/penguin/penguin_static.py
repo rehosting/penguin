@@ -78,7 +78,14 @@ def _get_devfiles_in_fs(tar_path):
 def get_directories_from_tar(tarfile_path):
     with tarfile.open(tarfile_path, "r") as tar:
         # Trim leading . from path, everything is ./
-        return {member.name[1:] for member in tar.getmembers() if member.isdir()}
+        results = {member.name[1:] for member in tar.getmembers() if member.isdir()}
+    # For each result, recursively add all parent directories
+    # e.g., /etc/hosts -> /etc, /
+    for r in list(results):
+        parts = r.split('/')
+        for i in range(len(parts)):
+            results.add('/'.join(parts[:i+1]))
+    return results
 
 def get_files_from_tar(tarfile_path):
     with tarfile.open(tarfile_path, "r") as tar:
@@ -123,12 +130,14 @@ def pre_shim(config):
     '''
     fs_path = config['core']['fs'] # tar archive
 
-    # Directories we want to make sure exist in the FS. This list is based on firmadyne and firmae
-    directories = ["/proc", "/dev/pts", "/etc_ro", "/tmp", "/var", "/run", "/sys", "/root", "/tmp/var", "/tmp/media", "/tmp/etc",
+    # Directories we want to make sure exist in the FS. This list is based on firmadyne and firmae. Added /dev explicitly because we need
+    # it for devtmpfs (e.g., devtmpfs could try mounting before /igloo/init runs and makes the directory)
+    directories = ["/dev", "/proc", "/dev/pts", "/etc_ro", "/tmp", "/var", "/run", "/sys", "/root", "/tmp/var", "/tmp/media", "/tmp/etc",
                     "/tmp/var/run", "/tmp/home", "/tmp/home/root", "/tmp/mnt", "/tmp/opt", "/tmp/www", "/var/run", "/var/lock",
                     "/usr/bin", "/usr/sbin"]
 
     existing_dirs = get_directories_from_tar(fs_path)
+
     for d in directories:
         if d in existing_dirs:
             continue
