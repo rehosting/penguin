@@ -48,8 +48,12 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
             g.write(file_path, contents)
             g.chmod(mode, file_path)
         elif ftype == 'dir':
+            if g.is_dir(file_path):
+                g.rm_rf(file_path) # Delete the directory AND CONTENTS
+            # Note we ignore mode here?
             dirname = file_path
             g.mkdir(dirname)
+
         elif ftype == 'symlink':
             target = file['target'] # This is what we point to
             linkpath = file_path # This is what we create
