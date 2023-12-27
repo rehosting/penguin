@@ -119,6 +119,13 @@ RUN apt-get update && apt-get install -y \
     apt install -yy -f /tmp/pandare.deb /tmp/genext2fs.deb && \
     rm /tmp/pandare.deb /tmp/genext2fs.deb
 
+  # Capstone dependency for panda needs to be built from source on ubuntu20.04
+  # TODO: can we move this into an earlier stage and just copy the built library?
+  RUN cd /tmp && \
+    git clone https://github.com/capstone-engine/capstone/ -b 4.0.2 /tmp/capstone && \
+    cd capstone/ && ./make.sh && make install && cd /tmp && \
+    rm -rf /tmp/capstone && ldconfig
+
 # If we want to run in a venv, we can use this. System site packages means
 # we can still access the apt-installed python packages (e.g. guestfs) in our venv
 #RUN python3 -m venv --system-site-packages /venv
