@@ -89,6 +89,17 @@ RUN echo "#!/bin/sh\ntelnet localhost 4321" > /usr/local/bin/rootshell && chmod 
 
 COPY --from=deb_downloader /tmp/pandare.deb /tmp/genext2fs.deb /tmp/
 
+# We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
+# we'll fail because we get a distutils distribution of pycparser 2.19 that we can't
+# uninstall somewhere in setting up other dependencies.
+
+RUN apt-get update && apt-get install -y \
+    python3-pip
+RUN --mount=type=cache,target=/root/.cache/pip \
+      pip install --upgrade \
+        pip \
+        pycparser>=2.21
+
 # Install apt dependencies - largely for binwalk, some for pandata
 RUN apt-get update && apt-get install -y \
     fakechroot \
@@ -101,16 +112,19 @@ RUN apt-get update && apt-get install -y \
     openjdk-11-jdk \
     python3 \
     python3-guestfs \
-    python3-pip \
+    python3-venv \
     telnet \
     vim \
     wget && \
     apt install -yy -f /tmp/pandare.deb /tmp/genext2fs.deb && \
     rm /tmp/pandare.deb /tmp/genext2fs.deb
 
-# Python dependencies including binwalk and pypanda-plugins
-# do not combine lzo and vmlinux-to-elf, they conflict
-RUN python3 -m pip install \
+# If we want to run in a venv, we can use this. System site packages means
+# we can still access the apt-installed python packages (e.g. guestfs) in our venv
+#RUN python3 -m venv --system-site-packages /venv
+#ENV PATH="/venv/bin:$PATH"
+
+RUN --mount=type=cache,target=/root/.cache/pip pip install \
       angr \
       beautifulsoup4 \
       coloredlogs \
