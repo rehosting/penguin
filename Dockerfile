@@ -48,7 +48,7 @@ RUN wget -qO - https://github.com/panda-re/console/releases/download/release_389
   mv /igloo_static/console/console-mips64eb-linux-musl /igloo_static/console/console.mips64eb
 
 # Download 4.10_hc kernels from CI. Populate /igloo_static/kernels
-RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v1.6/kernels-latest.tar.gz | \
+RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v1.8/kernels-latest.tar.gz | \
       tar xzf - -C /igloo_static
 
 # Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
