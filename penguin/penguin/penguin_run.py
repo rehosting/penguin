@@ -9,31 +9,26 @@ from .common import hash_yaml
 from .utils import load_config
 
 # Note armel is just panda-system-arm and mipseb is just panda-system-mips
-qemu_configs = {"armel": {
-        "qemu_machine": "virt",
+
+ROOTFS="/dev/vda" # Common to all
+qemu_configs = {
+        "armel": { "qemu_machine": "virt",
                     "arch":         "arm",
-                    "rootfs":       "/dev/vda",
                     "kconf_group":  "armel",
-                    #"drive":        f'if=none,file={image},format=qcow,id=rootfs',
-                    #"extra_args":   ['-device', 'virtio-blk-device,drive=rootfs']},
                     "mem_gb":          "4",
-                    "extra_args":   []},
+                },
 
         "mipsel": {"qemu_machine": "malta",
                     "arch":         "mipsel",
-                    "rootfs":       "/dev/vda",
                     "kconf_group":  "mipsel",
-                    #"drive":        f'if=ide,format=raw,file={image}',
                     "mem_gb":          "1",
-                    "extra_args":   []},
+                },
 
         "mipseb": {"qemu_machine": "malta",
                     "arch":         "mips",
-                    "rootfs":       "/dev/vda",
                     "kconf_group":  "mipseb",
-                    #"drive":        f'if=ide,format=raw,file={image}',
                     "mem_gb":          "1",
-                    "extra_args":   []},
+                }
         }
 
 def make_unique_cid():
@@ -149,8 +144,9 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
 
     # XXX: we want elevator=noop, maybe? But our kernel command seems
     # to be getting cut off - we're getting 'init=/igl' at the end
-    # for mips
-
+    # for mips.
+    # XXX: Seeing this again, only for mips. Must be a fixed buffer size?
+    # If we drop CID when we're not using it things get better
     #elevator=noop  # TODO add back
 
     append = ""
@@ -158,12 +154,17 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     #    # Trailing whitespace to handle badly-designed guest input parsers
     #    append = " ".join(config_append) + " "
 
-    append += f"root={q_config['rootfs']} console=ttyS0 norandmaps clocksource=jiffies nokaslr nohz_full nohz=off no_timer_check threadirqs idle=poll acpi=off nosoftlockup rw panic=1 CID={CID}"
+    append += f"root={ROOTFS} console=ttyS0 norandmaps clocksource=jiffies nokaslr nohz_full nohz=off no_timer_check threadirqs idle=poll acpi=off nosoftlockup rw panic=1 CID={CID} rootfstype=ext2"
 
     if archend in ["armel"]:
         append = append.replace("console=ttyS0", "console=ttyAMA0")
 
     append += " init=/igloo/init"
+
+    have_vsock = os.path.exists("/dev/vhost-vsock") and 'vpn' in conf['plugins'] and ('enabled' not in conf['plugins']['vpn'] or conf['plugins']['vpn']['enabled'])
+
+    if not have_vsock:
+        append = append.replace(f" CID={CID}", "") # Remove CID if we don't have vhost-vsock
 
     root_shell = []
     if 'root_shell' in conf['core'] and conf['core']['root_shell']:
@@ -177,11 +178,11 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
             #'-drive',  q_config['drive'],
             "-drive", f"file={config_image},if=virtio,cache=unsafe,snapshot=on"]
 
-    if os.path.exists("/dev/vhost-vsock") and 'vpn' in conf['plugins'] and ('enabled' not in conf['plugins']['vpn'] or conf['plugins']['vpn']['enabled']):
+    args += ['-no-reboot']
+
+    if have_vsock:
         # Only add vhost-vsock if we have it and the vpn plugin is enabled
         args.extend(['-device', f'vhost-vsock-pci,id=vhost-vsock-pci0,guest-cid={CID}'])
-
-    args += q_config['extra_args'] + ['-no-reboot']
 
     if 'show_output' in conf['core'] and conf['core']['show_output']:
         console_out = ['-serial', 'mon:stdio']
@@ -253,12 +254,18 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
 
     # Find the argument after '-append' in the list and re-render it based on updated env
     append_idx = panda.panda_args.index("-append") + 1
+
     config_args = [f"{k}" + (f"={v}" if v is not None else '') for k, v in conf['env'].items()]
 
     # We had some args originally (e.g., rootfs), not from our config, so
-    # we need to keep those
-    panda.panda_args[append_idx] = " ".join(config_args) + " " + \
-                                    panda.panda_args[append_idx]
+    # we need to keep those.
+    # XXX: This is a bit hacky. We want users to be able to clobber args by prioritizing config
+    # args first, but we need to know the start of the string too. So let's say a user can't change
+    # the root=/dev/vda argument and put that first. Then config args. Then the rest of the args
+    root_str = f"root={ROOTFS}"
+    panda.panda_args[append_idx] = root_str + " " + \
+                                   " ".join(config_args) + \
+                                   panda.panda_args[append_idx].replace(root_str, "")
 
     print("Run emulation")
     try:
