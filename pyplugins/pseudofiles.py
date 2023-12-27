@@ -125,7 +125,7 @@ class FileFailures(PyPlugin):
                 
                 hf_config[filename][hyper(ftype)] = make_rwif(details[ftype] if ftype in details else {}, fn)
 
-                if ftype == "ioctl" and any([x["model"] == 'symex' for x in details[ftype].values()]):
+                if ftype == "ioctl" and ftype in details and any([x["model"] == 'symex' for x in details[ftype].values()]):
                     # If we have a symex model we'll need to enable some extra introspection
                     need_ioctl_hooks = True
 
