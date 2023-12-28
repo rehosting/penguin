@@ -579,10 +579,15 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         fails = {} # path -> info
         for path, info in file_failures.items():
-            if path.startswith("/dev") or path.startswith("/proc"):
+            if path.startswith("/proc"):
+                # Ignoring proc files, at least for now.
+                pass
+            if path.startswith("/dev"):
                 # For now let's ignore things that end with a number
                 # There are a lot of these in some tests and they seem to be unimportant?
-                # XXX THIS MIGHT BE BAD
+                # XXX THIS MIGHT BE BAD. Could we count the number of failures with the same prefix
+                # we see and then filter if that's more than a couple? E.g., /dev/ttyS0 and ttyS1 maybe are
+                # worth modeling but /dev/logX for x in 0...100 isn't
                 if path[-1].isdigit():
                     continue
                 if 'ioctl' in info:
@@ -609,14 +614,14 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
     def get_potential_mitigations(self, config: Any, path: str, info: Dict[str, Any]) -> List[Dict[str, Any]]:
         if not self.is_dev_path(path):
-            self.logger.info(f"Ignoring non-dev path {path}")
+            #self.logger.info(f"Ignoring non-dev path {path}")
             return []
 
         max_fails = self.max_fail_count(info)
 
         results = []
         for failtype, failinfo in info.items():
-            print(f"Building mitigations for {path} {failtype} with info {failinfo}")
+            #print(f"Building mitigations for {path} {failtype} with info {failinfo}")
             try:
                 weight = info[failtype]['count'] / max_fails[failtype]
             except KeyError:
@@ -736,6 +741,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         # Create a symex object in read-only mode, have it parse the pickle and analyze the results
                         symex = PathExpIoctl(config_path, None, read_only=True)
                         models = symex.hypothesize_models(target=path, cmd=cmd, verbose=False)
+
+                        self.logger.info(f"Consuming symex results for new ioctl handlers: {models}")
 
                         # For each identified result we can propose a new config
                         for rv in models[path][cmd]:
