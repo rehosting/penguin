@@ -18,6 +18,31 @@ from .utils import load_config, dump_config, hash_yaml_config, AtomicCounter, _l
 SCORE_CATEGORIES = ['execs', 'bound_sockets', 'devices_accessed', 'processes_run', 'modules_loaded',
                     'blocks_covered', 'nopanic']
 
+def get_mitigation_providers(config : dict ):
+    """
+    Given a config, pull out all the enabled mitigation providers,
+    load them and return a dict of {ANALYSIS_TYPE: analysis class object}
+
+    Skip plugins that are disabled in config.
+    Raise an error if version of a plugin mismatches the config version
+    """
+    mitigation_providers = {} # ANALYSIS_TYPE -> analysis class object
+    for plugin_name, details in config['plugins'].items():
+        if 'enabled' in details and not details['enabled']:
+            # Disabled plugin - skip
+            continue
+        try:
+            analysis = _load_penguin_analysis_from(plugin_name + ".py")
+        except ValueError as e:
+            continue
+        mitigation_providers[analysis.ANALYSIS_TYPE] = analysis
+        if details['version'] != analysis.VERSION:
+            raise ValueError(f"Config specifies plugin {plugin_name} at version {details['version']} but we got {analysis.VERSION}")
+
+        print(f"Loaded {plugin_name} at version {details['version']}")
+    return mitigation_providers
+
+
 class Node:
     def __init__(self, config_dict, parent=None, is_group=False, delta=None, weight=0):
         self.config = config_dict
@@ -56,7 +81,7 @@ class Node:
                 print(f"WARN: replacing filures[{fail_type}][{fail_cause}]'s {self.failures[fail_type][fail_cause]} with {fail_info}")
                 #print(f"Ignoring request to add {fail_cause}={fail_info} to failures[{fail_type}][{fail_cause}] which arleady is {self.failures[fail_type][fail_cause]}")
                 #return
-            
+
             # We can't have a failure that's also a mitigation - if so we have a bug
             # XXX: Now we can - if we do a multi-stage mitigation (DYNAVAL/Symex) we'll have a failure that's "mitigated" by a more in-depth analysis
             # after which we'll have better mitigations
@@ -115,7 +140,6 @@ class Node:
             out += self.stringify_failures()
         return out
 
-        
     def delta_list(self):
         out = []
         parent = self
@@ -143,21 +167,7 @@ def generate_child_nodes(node: Node, global_state) -> List[Tuple[Node, str, floa
     # NORMAL CASE: We've previously run node - if it has some failures, we can consider
     # mitigating thse using info from our global state plus our plugins.
 
-    mitigation_providers = {} # ANALYSIS_TYPE -> object
-    for plugin_name, details in node.config['plugins'].items():
-        if 'enabled' in details and not details['enabled']:
-            # Disabled plugin - skip
-            continue
-
-        try:
-            analysis = _load_penguin_analysis_from(plugin_name)
-        except ValueError:
-            continue
-        mitigation_providers[analysis.ANALYSIS_TYPE] = analysis
-        if details.version != analysis.VERSION:
-            raise ValueError(f"Config specifies plugin {plugin_name} at version {details.version} but we got {analysis.VERSION}")
-
-        print(f"Loaded {plugin_name} at version {details.version}")
+    mitigation_providers = get_mitigation_providers(node.config)
 
     for failure_type, failures in node.failures.items():
         if failure_type not in global_state.failures.keys():
@@ -168,12 +178,12 @@ def generate_child_nodes(node: Node, global_state) -> List[Tuple[Node, str, floa
             continue
 
         for fail_cause, fail_info in failures.items():
-            print("Generating child nodes to mitigate", failure_type, fail_cause, fail_info)
+            #print("Generating child nodes to mitigate", failure_type, fail_cause, fail_info)
             for m in mitigation_providers[failure_type].get_potential_mitigations(node.config, fail_cause, fail_info):
-                print("MITIGATION:", failure_type, fail_cause, m)
+                #print("MITIGATION:", failure_type, fail_cause, m)
                 new_config = mitigation_providers[failure_type].implement_mitigation(node.config, fail_cause, m)
                 children.append((new_config, ((failure_type, fail_cause, m)), m['weight']))
-    
+
     return children
 
 class MCTS:
@@ -209,7 +219,7 @@ class MCTS:
 
         # Run the selected node
         # Get back a dictionary of {score_type: score}
-        
+
         node_scores, run_idx = func(node, self.config_tree) # Func == analyze_one
         if not node_scores:
             raise ValueError(f"Failed to run: No return values from {func}")
@@ -245,24 +255,19 @@ class MCTS:
         Given a node, look at all its children and group together any that are compatible
         For now, we just consider grouping file mitigations together
         '''
-        mitigation_providers = {}
-        for plugin in node.config['plugins']:
-            try:
-                analysis = _load_penguin_analysis_from(plugin)
-            except ValueError:
-                continue
-            mitigation_providers[analysis.ANALYSIS_TYPE] = analysis
+        mitigation_providers = get_mitigation_providers(node.config)
 
         # Collect a set of mitigations for all files - just pick the first we see for each file
-        mitigations = {k: [] for k in mitigation_providers}
-        seen_fails = {k: set() for k in mitigation_providers}
+        # Name -> results. We can look up name in mitigation_providers to get the analysis object
+        mitigations = {k: [] for k in mitigation_providers.keys()}
+        seen_fails = {k: set() for k in mitigation_providers.keys()}
 
         for child in node.children:
             # How did this child node change from its parent?
             if len(child.parent_delta) != 3:
                 # Must be an INIT? probably want to better future-poof this
                 continue
-            
+
             (typ, fail, mitigation) = child.parent_delta
             if fail not in seen_fails[typ]:
                 seen_fails[typ].add(fail)
@@ -279,7 +284,8 @@ class MCTS:
             config = deepcopy(node.config)
             delta = []
             for (fail, mitigation) in data:
-                config = analysis.implement_mitigation(config, fail, mitigation)
+                analysis = mitigation_providers[grp_typ]
+                config = analysis.implement_mitigation(config, fail, mitigation) # XXX BUG
                 delta.append((grp_typ, fail, mitigation))
                 total_weight += mitigation['weight']
             grps.append(config)
@@ -323,7 +329,7 @@ class MCTS:
         # First update max_objectives as necessary for each objective
         for name, value in scores.items():
             self.max_objectives[name] = max(self.max_objectives[name], value)
-        
+
         # Then update the scores for this node and its ancestors
         current_node = node
         while current_node is not None:
@@ -407,7 +413,7 @@ class GlobalState:
 
         # Setup global data
         #self.initialize_from_static_results(base_config)
-        
+
     def initialize_from_static_results(self, base_config):
         '''
         Static analysis will populate some fields, "potential_*". Unlike our regular model, we haven't observed
@@ -419,7 +425,7 @@ class GlobalState:
 
         # Look through potential_{files,env} and use plugins to initialize mitigations
         for plugin in set(["files", "env"]).intersection(base_config['plugins']):
-            analysis = _load_penguin_analysis_from(plugin)
+            analysis = _load_penguin_analysis_from(plugin) # XXX wrong syntax and bad
 
             with self.failures_lock:
                 self.failures[analysis.ANALYSIS_TYPE] = {}
@@ -451,7 +457,7 @@ class GlobalState:
                     for item in v:
                         out += f"\t\t{item}\n"
         return out
-        
+
     def add_failure(self, fail_type, fail_cause, fail_info=None):
         # in failures[fail_type] we make room for fail_cause and store fail_info if we have any
         '''
@@ -468,7 +474,7 @@ class GlobalState:
         with self.failures_lock:
             if fail_type not in self.failures.keys():
                 raise ValueError(f"add_failure: {fail_type} type unknown")
-            
+
             if fail_cause not in self.failures[fail_type]:
                 self.failures[fail_type][fail_cause] = []
 
@@ -589,7 +595,7 @@ class Worker:
 
         return scores, run_idx
 
-    def analyze_failures(self, run_dir, config, n_config_tests):
+    def analyze_failures(self, run_dir, node, n_config_tests):
         '''
         After we run a configuration, do our post-run analysis of failures.
         Run each PyPlugin that has a PenguinAnalysis implemented. Have each
@@ -611,19 +617,21 @@ class Worker:
             # For each loaded plugin, analyze output and update local/global state
             failures = {}
             all_fails = []
-            for plugin in config.config['plugins']:
-                try:
-                    analysis = _load_penguin_analysis_from(plugin)
-                except ValueError:
-                    # This plugin may not have a penguin analysis class
-                    # i.e., it can't tell us about failures/propose new configs
-                    continue
 
+            mitigation_providers = get_mitigation_providers(node.config)
+            for plugin_name, analysis in mitigation_providers.items():
                 try:
                     failures = analysis.parse_failures(output_dir)
                 except Exception as e:
                     print("EXN:", e)
                     raise e
+
+                if len(failures):
+                    print(f"Plugin {plugin_name} found failures: {failures}")
+                # Failures is a dict like 
+                # {filename: {failing_syscall: {count: X}}
+                # OR for IOCTLS {filename: {ioctl: {ioctl_num: {count: X}}}
+
                 for fail_cause, fail_info in failures.items():
                     # fail_cause might be like a missing file "/dev/missing" or an ioctl+file tuple ("/dev/added", 0x1234)
                     # fail_info will often be empty, but that's runtime-detected info we'd want to pass through to mitigations
@@ -634,12 +642,11 @@ class Worker:
                     #    # This config already has a mitigation for this failure - can't add again
                     #    raise RuntimeError(f"BUG: {fail_cause} is a failure and a mitigation, returned by {analysis}'s parse_failures")
 
-                    config.add_config_failure(analysis.ANALYSIS_TYPE, fail_cause, fail_info) # This only stores the latest fail_info. HMM XXX TODO?
-                    print(f"REPORT FAILURE: {analysis.ANALYSIS_TYPE} cause={fail_cause} info={fail_info}")
+                    node.add_config_failure(analysis.ANALYSIS_TYPE, fail_cause, fail_info) # This only stores the latest fail_info. HMM XXX TODO?
                     self.global_state.add_failure(analysis.ANALYSIS_TYPE, fail_cause, fail_info) # This stores a list of fail_info
 
                     # get_mitigations is told the info of the failure, but add_mitigation doesn't need that
-                    for m in analysis.get_potential_mitigations(config.config, fail_cause, fail_info) or []:
+                    for m in analysis.get_potential_mitigations(node.config, fail_cause, fail_info) or []:
                         self.global_state.add_mitigation(analysis.ANALYSIS_TYPE, fail_cause, m)
 
             with open(os.path.join(output_dir, "failures.txt"), "a") as f:
@@ -657,7 +664,7 @@ class Worker:
             for score_name, score in these_scores.items():
                 if score_name not in best_scores or score > best_scores[score_name]:
                     best_scores[score_name] = score
-        
+
         # Report scores and save to disk
         print(f"\tRun {run_idx}: scores: {[f'{k}: {v:.02f}' for k, v in best_scores.items()]}")
         with open(os.path.join(run_dir, "scores.txt"), "w") as f:
@@ -737,7 +744,7 @@ class Worker:
         # so we run it in a subprocess to maintain control
         # Calls penguin_run.py's run_config method
         # Wrapper to call run_config(config=argv[1], out=argv[2], qcows=argv[3])
-        
+
         cmd = [ "python3", "-m", "penguin.penguin_run",
                 conf_yaml,
                 out_dir,
@@ -751,6 +758,11 @@ class Worker:
             print(f"An exception occurred launching {cmd}: {str(e)}")
             #raise e
             return
+
+        with open(os.path.join(out_dir, "qemu_stdout.txt"), "w") as f:
+            f.write(stdout)
+        with open(os.path.join(out_dir, "qemu_stderr.txt"), "w") as f:
+            f.write(stderr)
 
         # Let it exit 0 or exit with 120 if it's a bad file descriptor (python gets sad when stdio closes)
         if process.returncode != 0 and not (process.returncode == 120 and "Bad file descriptor" in stderr):
@@ -786,7 +798,7 @@ def config_tree_to_networkx_graph(root_config):
 
     dfs(root_config)
     return G
-    
+
 def iterative_search(initial_config, output_dir, max_iters=1000, n_workers=10, MULTITHREAD=True):
     '''
     Main entrypoint. Given an initial config and directory, iteratively search

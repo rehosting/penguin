@@ -106,6 +106,7 @@ class Core(PyPlugin):
 
 class CoreAnalysis(PenguinAnalysis):
     ANALYSIS_TYPE = "core"
+    VERSION = "1.0.0"
     def parse_failures(self, output_dir):
         '''
         We don't really parse failures mitigations, we just make sure there's no python

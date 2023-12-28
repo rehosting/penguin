@@ -7,6 +7,7 @@ import random
 from pandare import Panda
 from .common import hash_yaml
 from .utils import load_config
+from .defaults import default_plugin_path
 
 # Note armel is just panda-system-arm and mipseb is just panda-system-mips
 
@@ -88,7 +89,6 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     if out_dir is None:
         out_dir = os.path.join(os.path.dirname(conf_yaml), 'output')
 
-    default_plugin_path = "/pandata"
     # Image isn't in our config, but the path we use is a property
     # of configs fiiles section - we'll hash it to get a path
     # Read input config and validate

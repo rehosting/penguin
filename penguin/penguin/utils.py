@@ -5,11 +5,13 @@ import importlib
 import os
 import yaml
 import jsonschema
-from .penguinanalysis import PenguinAnalysis
 from threading import Lock
 from typing import List, Tuple
 from copy import deepcopy
 from os.path import dirname, join
+
+from .penguinanalysis import PenguinAnalysis
+from .defaults import default_plugin_path
 
 class WeightedItem:
     def __init__(self, item, weight):
@@ -96,13 +98,13 @@ def REAL_run_command_with_output(cmd: List[str], stdout_file: str, stderr_file: 
             return f"Error running {cmd}: Got return code {process.returncode}: {out}", err
 
         return None, None
-    
+
 
 def run_command_with_output(cmd: List[str], ignore1, ignore2) -> Tuple[str, str]:
     try:
         # Start the subprocess and capture stdout and stderr directly
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        
+
         # Wait for the process to complete and capture the output
         stdout, stderr = process.communicate()
 
@@ -165,7 +167,15 @@ def _load_penguin_analysis_from(plugin_file):
     that subclasses PenguinAnalysis. Instantiate it with run_dir and
     return it.
     '''
-    spec = importlib.util.spec_from_file_location("analysis", plugin_file)
+
+    # Absolute path to the plugin
+    file_path = os.path.join(default_plugin_path, plugin_file)
+    module_name = os.path.splitext(os.path.basename(plugin_file))[0]  # e.g., 'core' for 'core.py'
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+
+    # If it was relative to our module, we'd use this
+    #spec = importlib.util.spec_from_file_location(default_plugin_path, plugin_file)
+
     if spec is None:
         raise ValueError(f"Unable to resolve plugin {plugin_file}")
 
