@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 import os
 import sys
-import subprocess
 import shutil
 import random
+from time import sleep
 from pandare import Panda
 from .common import hash_yaml
 from .utils import load_config
@@ -124,11 +124,22 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     if not os.path.isdir(qcow_dir):
         os.makedirs(qcow_dir)
 
+    while os.path.isfile(image_filename+".lock"):
+        # Stall while there's a lock
+        print("stalling on lock")
+        sleep(1)
+
+
     # If image isn't in our out_dir already, generate it
     if not os.path.isfile(config_image):
+        open(image_filename+".lock", 'a').close() # create lock file
+
         print(f"Missing filesystem image {config_image}, generating from config")
         from .penguin_prep import prepare_run
         prepare_run(conf, qcow_dir, out_filename=image_filename)
+
+        # Remove lock file
+        os.remove(image_filename+".lock")
 
         # We expect to have the image now
         if not os.path.isfile(config_image):
