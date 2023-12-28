@@ -4,6 +4,10 @@
 
 default_version = "1.0.0"
 
+# Where are plugins in the filesystem. These are our standard pyplugins
+# that we use for env, pseudofiles, etc.
+default_plugin_path = "/pandata"
+
 default_init_script = """#!/igloo/utils/sh
 /igloo/utils/busybox mkdir -p /sys /proc /dev/pts /run /tmp
 /igloo/utils/busybox mount -t sysfs sysfs /sys
