@@ -262,14 +262,15 @@ class FileFailures(PyPlugin):
                     # Initialize symex on first use
                     self.symex = PathExpIoctl(self.outdir, self.config['core']['fs'])
 
-                # It's time to launch symex!
-                self.symex.do_symex(self.panda, cpu, pc, filename, cmd)
-
                 filename = self.panda.get_file_name(cpu, fd)
                 if filename is None:
                     filename = "error"
-                    print("ERROR READING FILENAME ON SYMBOLIC IOCTL")
+                    raise RuntimeError("error reading filename on symbolic ioctl")
                     # This would be dumb - we could pull it from the config probably, how many symex files would we have?
+                filename = filename.decode(errors="ignore")
+
+                # It's time to launch symex!
+                self.symex.do_symex(self.panda, cpu, pc, filename, cmd)
 
                 # We write down the "failure" so we can see that it happened (and know to query symex
                 # to get results)
@@ -604,13 +605,6 @@ class FileFailuresAnalysis(PenguinAnalysis):
         return {
             'weight': weight,
             # Default behavior. Error on read/write/ioctl - we'll fix when we see it
-            'read': 'default',
-            'write': 'default',
-            'ioctl': {
-                    '*': {
-                        'type': 'default',
-                    }
-                }
             }
 
     def get_potential_mitigations(self, config: Any, path: str, info: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -622,17 +616,23 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         results = []
         for failtype, failinfo in info.items():
+            print(f"Building mitigations for {path} {failtype} with info {failinfo}")
             try:
                 weight = info[failtype]['count'] / max_fails[failtype]
             except KeyError:
                 weight = None
 
             if path not in config['pseudofiles']:
-                # We can't change the caller's config so we copy before adding
+                # Does the file exist? If not, we just want to add it. Nice and easy
                 config = deepcopy(config)
-                config['pseudofiles'][path] = self.get_default_device(0.5) # 0.5 weight for a non-opened, but read/written/ioctl'd device. Overwritten below
+                mitigation = self.get_default_device(0.5)
+                results.append(mitigation)
+                # Nothing to do other than add
+                # XXX: what if a device already exists for real, (no a pseudofile) but we somehow
+                # had a syscall return -ENOENT on it? Could that happen? If so we'd get stuck here
+                continue
 
-            if failtype == 'read':
+            if failtype == 'read': # XXX other read syscalls exist too
                 self.logger.info("Adding read-based mitigations")
                 # We want to support a read operation. We could make it zeros,
                 # Or we could return a constant value - for the constant value, we don't know what it
@@ -693,15 +693,16 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
                     if handler is None:
                         # Set up default handler and update base config with the implicit default
-                        # at the given path
+                        # at the given path.
                         handler = {'model': 'default'}
-                        config['pseudofiles'][path]['ioctl'] = {'*': handler}
+                        #config['pseudofiles'][path]['ioctl'] = {'*': handler}
+                        config['pseudofiles'][path]['ioctl'] = {}
 
                     # Depending on the config's handler, we can propose some new configs
                     # We might have 'count' IFF it's our first time seeing this - if so we can propose symex
 
                     if 'model' not in handler:
-                        raise ValueError(f"Unexpeced model {handler} for {path} {cmd:#x}")
+                        handler['model'] = 'default'
 
                     if handler['model'] == 'return_const':
                         # If we had a return_const handler, there's no changes we can smartly make
@@ -751,7 +752,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
             else:
                 raise ValueError(f"Unexpected failure type {failtype}")
-            return results
+        return results
 
     def implement_mitigation(self, config, failure, mitigation):
         # Given a mitigation, add it to a copy of the config and return
