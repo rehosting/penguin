@@ -1,7 +1,7 @@
 import sys
 import tarfile
 import re
-from os.path import dirname, join as pjoin
+from os.path import dirname, join as pjoin, isfile
 from pandare import PyPlugin
 from copy import deepcopy
 try:
@@ -17,6 +17,7 @@ ENV_MAGIC_VAL = 'DYNVALDYNVALDYNVAL' # We want this to be longer than the other 
 cmp_output = "env_cmp.txt"
 cmp_output_cpp = "env_cmp_cpp.txt" # C++ analysis with callstackinstr dumps everything here (good)
 cmp_output_py = "env_cmp_py.txt"   # Python with libc fn hooks dumps everything here (not too good)
+shell_env_output = "shell_env.csv"
 
 uboot_output = "env_uboot.txt"
 missing_output = "env_missing.yaml"
@@ -144,7 +145,7 @@ class EnvTracker(PyPlugin):
         for prefix in ["LC_", "LD_", "XDG_", "QT_", "GTK_", "GDK_", "GIO_", "PERL"]:
             if var.startswith(prefix):
                 return False
-            
+
         # Other unimportant variables we've seen before (expand as needed)
         if var in  'BLKID_FILE \
                     CONSOLE \
@@ -208,9 +209,13 @@ class TargetCmp(PyPlugin):
         #open(pjoin(self.outdir, cmp_output_py), "w").close()
 
         # Load C plugins to dynamically track potential comparisons
-        panda.load_plugin("callstack_instr", args={"stack_type": "asid"})
+        panda.load_plugin("callstack_instr", args={
+                                                    #"stack_type": "heuristic",
+                                                    "stack_type": "asid", # But MIPS asids are bad?
+                                                    #"stack_type": "threaded", # Segfaults. See PANDA #1405
+                                                    "verbose": False})
         panda.load_plugin("callwitharg")
-        panda.load_plugin("targetcmp",
+        panda.load_plugin("targetcmp", # Or targetcmp2 for dev (in penguin_plugins)
             args={
                 "output_file": pjoin(self.outdir, cmp_output_cpp),
                 "target_str": ENV_MAGIC_VAL,
@@ -224,7 +229,7 @@ class TargetCmp(PyPlugin):
                 str2 = panda.read_str(cpu, panda.arch.get_arg(cpu, 1))
             except ValueError:
                 return
-            
+
             self.consider(str1, str2)
 
         @panda.hook_symbol("libc-", "strncmp")
@@ -273,7 +278,7 @@ class TargetCmp(PyPlugin):
     def filter_env_var_values(target_key, values):
         # Starts with special symbol, contains our special string, or contains a space
         likely_invalid_pattern = re.compile(r'^[-=!<>()*?]|DYNVAL| ') # XXX ENV_MAGIC_VAL is in here manually
-        
+
         # Define a regex pattern for likely valid env var values, allowing '_', '-', and '.'
         likely_valid_pattern = re.compile(r'^[A-Za-z0-9_.-]+$')
 
@@ -321,11 +326,77 @@ class EnvTrackerAnalysis(PenguinAnalysis):
 
 
     def parse_failures(self, output_dir):
+        '''
+        Parse failures from env_missing.yaml for unset env variables.
+        Also if we have shell_env.csv, look in there for unset variables too.
+
+        If we have a DYNVALDYNVALDYNVAL in our env, that's the only
+        failure we're allowed to return (since we must "mitigate" it before moving on)
+        '''
+
+        with open(pjoin(output_dir, 'core_config.yaml')) as f:
+            config = yaml.safe_load(f)
+
+            # Is any env variable set to ENV_MAGIC_VAL?
+            magic_is_set = any(x == ENV_MAGIC_VAL for x in config['env'].values())
+
+        if magic_is_set:
+            # We had an ENV_MAGIC_VAL for target_var
+            target_var = [k for k, v in config['env'].items() if v == ENV_MAGIC_VAL][0]
+            print(f"ENV_MAGIC_VAL ({ENV_MAGIC_VAL}) is set for {target_var}. Looking for dynamic values:")
+
+            dyn_vals = set()
+            if isfile(pjoin(output_dir, cmp_output)):
+                # Looks like we were running with ENV_MAGIC_VAL. Let's record these results too
+                # We don't know the name of the env_var though. Hmm.
+                with open(pjoin(output_dir, cmp_output)) as f:
+                    for line in f.readlines():
+                        dyn_vals.add(line.strip())
+
+            print(f"Found {len(dyn_vals)} dynamic values for {target_var}: {dyn_vals}")
+
+            # We found things dynamically. Cool
+            if len(dyn_vals) > 0:
+                return {target_var: dyn_vals}
+            else:
+                # We found nothing. Time to give up on this.
+                return {}
+
         with open(pjoin(output_dir, missing_output)) as f:
             env_accesses = yaml.safe_load(f)
 
-        # Return a dict with no contents. One key per env val
-        return {k: {} for k in env_accesses}
+        if isfile(pjoin(output_dir, shell_env_output)):
+            # Shell plugin may have detected some env accesses too. Let's take a look
+            seen_envs = {} # name -> values
+            with open(pjoin(output_dir, shell_env_output)) as f:
+                env_accesses = {}
+                for line in f.readlines()[1:]: # Skip header
+                    # Recover the env list from the line.
+                    # This storage format is kinda gross
+                    idx = line.index(",[")
+                    envs = line[idx+1:].strip()
+                    if not len(envs):
+                        continue
+                    env_tuples = eval(envs) # XXX sad eval
+                    if not len(env_tuples):
+                        continue
+                    for (name, val) in env_tuples:
+                        if name not in seen_envs:
+                            seen_envs[name] = set()
+                        seen_envs[name].add(val)
+
+            # Now look through the env names we've seen. Try finding any names that were always None.
+            # Add these to our env_accesses list if they're not already there
+            for k, v in seen_envs.items():
+                if len(k) == 0 or not k[0].isalpha():
+                    # We only want sane variable names. Exclude anythign that starts with a symbol or non-alpha
+                    continue
+                if v == {None} and k not in env_accesses:
+                    env_accesses[k] = {}
+
+
+        # Return a dict. Keys are variables. Values is an empty list
+        return {k: [] for k in env_accesses}
 
     def get_mitigations_from_static(self, varname, values):
         # Static pass gives us varname and a set of potential values
@@ -340,13 +411,34 @@ class EnvTrackerAnalysis(PenguinAnalysis):
 
         return results
 
-    def get_potential_mitigations(self, config, varname, _):
+    def get_potential_mitigations(self, config, varname, dynvals):
+        '''
+        Dynvals will be a list of dynamic values we found for varname IFF we were doing a dynamic
+        search. Otherwise it's empty
+        '''
+        results = []
+
+        # If we just ran a dynamic search that's the only mitigation we'll apply
+        if any(v == ENV_MAGIC_VAL for k, v in config[self.ANALYSIS_TYPE].items()):
+            target_var = [k for k, v in config[self.ANALYSIS_TYPE].items() if v == ENV_MAGIC_VAL][0]
+            # Refuse to get mitigations for any other vars
+            if varname != target_var:
+                print(f"Refusing to provide mitigations for {varname} after we did a dynval search on {target_var}")
+                return results
+
+            # We just ran a dynamic search for target_var the dynvals argument should tell us
+            # what those values might be
+            for val in dynvals:
+                results.append({'value': val, 'weight': 0.9}) # We like results from dynamic search
+            return results
+
+        assert(not len(dynvals)), f"Unexpected duynvals for non-dynamic search: {dynvals}, dynamic_search={dynamic_search}"
+
+        # Not doing a dynamic search. If we already have a value for this varname, no mitigation to apply?
         existing_vars = list(config[self.ANALYSIS_TYPE].keys()) if config else []
-        
         if varname in existing_vars:
             return []
 
-        results = []
         # Start with some placeholders
         for val in self.DEFAULT_VALUES:
             results.append({'value': val, 'weight': 0.1}) # WEIGHT 0.1 to use a default
@@ -385,6 +477,6 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         # Given a mitigation, add it to a copy of the config and return
         new_config = deepcopy(config)
 
-        assert(failure not in new_config[self.ANALYSIS_TYPE])
+        #assert(failure not in new_config[self.ANALYSIS_TYPE]) # This is okay - for DYNVAL-based analyses we'll clobber
         new_config[self.ANALYSIS_TYPE][failure] = mitigation['value']
         return new_config
