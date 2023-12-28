@@ -5,6 +5,7 @@ import shutil
 import pandas as pd
 import networkx as nx
 import subprocess
+import logging
 
 from typing import List, Tuple
 from copy import deepcopy
@@ -17,6 +18,8 @@ from .utils import load_config, dump_config, hash_yaml_config, AtomicCounter, _l
 
 SCORE_CATEGORIES = ['execs', 'bound_sockets', 'devices_accessed', 'processes_run', 'modules_loaded',
                     'blocks_covered', 'nopanic']
+
+logger = logging.getLogger('mgr')
 
 def get_mitigation_providers(config : dict ):
     """
@@ -56,6 +59,7 @@ class Node:
         self.children = []
         self.child_hashes = set() # Hashes of child configs to avoid dups
         self.run_count = 0 # How many times have we simulated/emulated this node?
+        self.run_idx = 0 # What was the run index of this node when we ran it?
 
         #self.value = 0  # Sum of the values for the UCT calculation
         #self.score = 0 # Zero by default until it's run?
@@ -78,7 +82,7 @@ class Node:
                 self.failures[fail_type] = {}
 
             if fail_cause in self.failures[fail_type] and self.failures[fail_type][fail_cause] != fail_info:
-                print(f"WARN: replacing filures[{fail_type}][{fail_cause}]'s {self.failures[fail_type][fail_cause]} with {fail_info}")
+                logger.warn(f"Replacing failures[{fail_type}][{fail_cause}]'s {self.failures[fail_type][fail_cause]} with {fail_info}")
                 #print(f"Ignoring request to add {fail_cause}={fail_info} to failures[{fail_type}][{fail_cause}] which arleady is {self.failures[fail_type][fail_cause]}")
                 #return
 
@@ -171,10 +175,10 @@ def generate_child_nodes(node: Node, global_state) -> List[Tuple[Node, str, floa
 
     for failure_type, failures in node.failures.items():
         if failure_type not in global_state.failures.keys():
-            print("WARNING: unmigitiable failure type", failure_type)
+            logger.warning(f"Unmigitiable failure type {failure_type}")
             continue
         if failure_type not in mitigation_providers:
-            print("WARNING: No mitigation proivder for", failure_type)
+            logger.warning(f"No mitigation proivder for {failure_type}")
             continue
 
         for fail_cause, fail_info in failures.items():
@@ -193,6 +197,8 @@ class MCTS:
     def __init__(self, initial_config, global_state):
         self.global_state = global_state
         self.config_tree = Node(initial_config)
+        self.lock = Lock()
+        self.pending_nodes = set()
         self.max_objectives = {k: 1.0 for k in SCORE_CATEGORIES} # Initialized to 1 to avoid division by zero errors
 
         # On construction, expand our initial config. Initial config is a root node with no igloo_init, and we need
@@ -210,11 +216,14 @@ class MCTS:
         node = self.config_tree
 
         # 1. Selection: Traverse the tree to select the most promising leaf node
-        node = self.find_best_leaf(node)
+
+        # XXX: we can find the same leaf node multiple times?
+        with self.lock:
+            node = self.find_best_leaf(node)
+            self.pending_nodes.add(node)
 
         if not node:
-            # No un-run nodes in the whole tree. We must be done!
-            print("No un-run nodes in the whole tree. We must be done!")
+            # Can't find a node. We could be done. Or we could be waiting for other workers to finish
             return None
 
         # Run the selected node
@@ -304,12 +313,19 @@ class MCTS:
 
         # If there are ties, select randomly, otherwise select the best
         best_nodes = [n for n in best_nodes if n.weight == best_weight]
-        return choice(best_nodes)
+        best = choice(best_nodes)
+
+        return best
 
     def find_leaf_nodes(self, node, unrun=True):
         if not node.children:
-            return [node] if node.run_count == 0 and unrun else []
-        return [n for c in node.children for n in self.find_leaf_nodes(c)]
+            rv = [node] if node.run_count == 0 and unrun else []
+        else:
+            rv = [n for c in node.children for n in self.find_leaf_nodes(c)]
+        # Remove anythiung that's pending (if unrun)
+        if unrun:
+            rv = [n for n in rv if n not in self.pending_nodes]
+        return rv
 
     '''
     def calculate_ucb1(self, parent, child):
@@ -546,7 +562,7 @@ class Worker:
                 time.sleep(1)
                 # If all workers are waiting, that means we're done
                 if self.active_worker_count.get() == 0:
-                    print("All workers waiting, exiting")
+                    logger.info("All workers waiting, exiting")
                     break
                 continue
 
@@ -563,13 +579,16 @@ class Worker:
             shutil.rmtree(run_dir)
         os.makedirs(run_dir)
 
+        node.run_idx = run_idx
+
         # Write config to disk
         combined_config = deepcopy(node.config)
         combined_config['core'] = self.global_state.info
         dump_config(combined_config, os.path.join(run_dir, "config.yaml"))
 
         # *** EMULATE TARGET ***
-        print(f"Start run {run_idx}: with config at {run_dir}/config.yaml")
+        #print(f"Start run {run_idx}: with config at {run_dir}/config.yaml")
+        logger.info(f"Start run {run_idx}: with delta from {node.parent.run_idx}: {node.parent_delta}")
 
         # Run emulation `n_config_tests` times. If any error, print the error
         for config_idx in range(n_config_tests):
@@ -577,13 +596,13 @@ class Worker:
                 self._run_config(run_dir, n=config_idx)
             except RuntimeError as e:
                 # Uh oh, we got an error while running. Warn and continue
-                print(f"Error running {run_dir}")
+                logger.warning(f"Error running {run_dir}")
                 return None, None
             finally:
                 node.run_count += 1
 
         scores = self.find_best_score(run_dir, run_idx, n_config_tests)
-        self.analyze_failures(run_dir, node, n_config_tests)
+        self.analyze_failures(run_dir, run_idx, node, n_config_tests)
 
         #print(f"After run {run_idx}: {node}")
 
@@ -592,7 +611,7 @@ class Worker:
 
         return scores, run_idx
 
-    def analyze_failures(self, run_dir, node, n_config_tests):
+    def analyze_failures(self, run_dir, run_idx, node, n_config_tests):
         '''
         After we run a configuration, do our post-run analysis of failures.
         Run each PyPlugin that has a PenguinAnalysis implemented. Have each
@@ -620,11 +639,14 @@ class Worker:
                 try:
                     failures = analysis.parse_failures(output_dir)
                 except Exception as e:
-                    print("EXN:", e)
+                    logger.error(e)
                     raise e
 
                 if len(failures):
-                    print(f"Plugin {plugin_name} found failures: {failures}")
+                    logger.info(f"On run {run_idx} plugin {plugin_name} reports {len(failures)} failures:")
+                    for f in failures:
+                        logger.info(f"\t{f}")
+
                 # Failures is a dict like 
                 # {filename: {failing_syscall: {count: X}}
                 # OR for IOCTLS {filename: {ioctl: {ioctl_num: {count: X}}}
@@ -663,7 +685,7 @@ class Worker:
                     best_scores[score_name] = score
 
         # Report scores and save to disk
-        print(f"\tRun {run_idx}: scores: {[f'{k}: {v:.02f}' for k, v in best_scores.items()]}")
+        logger.info(f"\tRun {run_idx}: scores: {[f'{k}: {v:.02f}' for k, v in best_scores.items()]}")
         with open(os.path.join(run_dir, "scores.txt"), "w") as f:
             f.write("score_type,score\n")
 
@@ -752,7 +774,7 @@ class Worker:
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             stdout, stderr = process.communicate() # Wait for termination
         except Exception as e:
-            print(f"An exception occurred launching {cmd}: {str(e)}")
+            logger.error(f"An exception occurred launching {cmd}: {str(e)}")
             #raise e
             return
 
@@ -763,14 +785,14 @@ class Worker:
 
         # Let it exit 0 or exit with 120 if it's a bad file descriptor (python gets sad when stdio closes)
         if process.returncode != 0 and not (process.returncode == 120 and "Bad file descriptor" in stderr):
-            print(f"Error running {cmd}: Got return code {process.returncode}")
-            print("stdout:", stdout)
-            print("stderr:", stderr)
+            logger.error(f"Error running {cmd}: Got return code {process.returncode}")
+            logger.error(f"stdout: {stdout}")
+            logger.error(f"stderr: {stderr}")
 
         # Check if we have the expected .ran file in output directory
         ran_file = os.path.join(out_dir, ".ran")
         if not os.path.isfile(ran_file):
-            print(f"\nERROR with {conf_yaml}: no .ran file")
+            logger.error(f"Missing .ran file with {conf_yaml}")
             raise RuntimeError(f"ERROR, running {conf_yaml} in {run_dir} did not produce {out_dir}/.ran file")
 
 def config_tree_to_networkx_graph(root_config):
