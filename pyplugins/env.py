@@ -343,7 +343,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         if magic_is_set:
             # We had an ENV_MAGIC_VAL for target_var
             target_var = [k for k, v in config['env'].items() if v == ENV_MAGIC_VAL][0]
-            print(f"ENV_MAGIC_VAL ({ENV_MAGIC_VAL}) is set for {target_var}. Looking for dynamic values:")
+            #print(f"ENV_MAGIC_VAL ({ENV_MAGIC_VAL}) is set for {target_var}. Looking for dynamic values:")
 
             dyn_vals = set()
             if isfile(pjoin(output_dir, cmp_output)):
@@ -353,13 +353,13 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                     for line in f.readlines():
                         dyn_vals.add(line.strip())
 
-            print(f"Found {len(dyn_vals)} dynamic values for {target_var}: {dyn_vals}")
+            #print(f"Found {len(dyn_vals)} dynamic values for {target_var}: {dyn_vals}")
 
             # We found things dynamically. Cool
             if len(dyn_vals) > 0:
                 return {target_var: dyn_vals}
             else:
-                # We found nothing. Time to give up on this.
+                # We found nothing. Time to give up on this. Probably an uninteresting variable
                 return {}
 
         with open(pjoin(output_dir, missing_output)) as f:
@@ -391,7 +391,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                 if len(k) == 0 or not k[0].isalpha():
                     # We only want sane variable names. Exclude anythign that starts with a symbol or non-alpha
                     continue
-                if v == {None} and k not in env_accesses:
+                if None in v and k not in env_accesses:
                     env_accesses[k] = {}
 
 
@@ -432,7 +432,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                 results.append({'value': val, 'weight': 0.9}) # We like results from dynamic search
             return results
 
-        assert(not len(dynvals)), f"Unexpected duynvals for non-dynamic search: {dynvals}, dynamic_search={dynamic_search}"
+        assert(not len(dynvals)), f"Unexpected duynvals for non-dynamic search: {dynvals}"
 
         # Not doing a dynamic search. If we already have a value for this varname, no mitigation to apply?
         existing_vars = list(config[self.ANALYSIS_TYPE].keys()) if config else []
