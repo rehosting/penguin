@@ -224,11 +224,14 @@ def extract_and_build(fw, output_dir):
     os.chmod(f"{base}/image.qcow", 0o444)
     return arch, endianness
 
-def build_config(firmware, output_dir, auto_explore=False, use_vsock=True):
+def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeout=None):
     '''
     Given a firmware binary and an output directory, this function will
     extract the firmware, build a qemu image, and create a config file
     in output_dir/base/config.yaml.
+
+    Timeout enforced if it's provided.
+    If it's None and auto_explore is true, we'll use 300s
 
     Returns the path to the config file.
     '''
@@ -281,9 +284,9 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True):
             for p in ['nmap', 'zap']:
                 data['plugins'][p]['enabled'] = True
 
-        # Also disable root shell and set timeout to 5 minutes
+        # Also disable root shell and set timeout to 5 minutes (unless told otherwise)
         data['core']['root_shell'] = False
-        data['plugins']['core']['timeout'] = 300
+        data['plugins']['core']['timeout'] = timeout if timeout else 300
 
     # Make sure we have a base directory to store config
     # and static results in.
@@ -370,6 +373,7 @@ def main():
     parser.add_argument('--niters', type=int, default=1, help='Maximum number of iterations to run. Special values are -1 for unlimited. Default 1. If run with --config, a config for manual analysis will be generated if niters=1.')
     parser.add_argument('--singlecore', action='store_false', dest='multicore', default=True, help='Run in single-core mode. Disabled by default')
     parser.add_argument('--novsock', action='store_true', default=False, help='Run running without vsock. Disabled by default')
+    parser.add_argument('--timeout', type=int, default=None, help='Timeout in seconds for each run. Default is 300s if auto-explore or no timeout otherwise')
     parser.add_argument('firmware', type=str, nargs='?', help='The firmware path. Required if --config is not set, otherwise this must not be set.')
     parser.add_argument('output_dir', type=str, help='The output directory path.')
 
@@ -403,7 +407,7 @@ def main():
                                "Please provide a firmware file or run with --config to "\
                                "use the config file.")
 
-        args.config = build_config(args.firmware, args.output_dir, auto_explore=args.niters != 1, use_vsock=not args.novsock)
+        args.config = build_config(args.firmware, args.output_dir, auto_explore=args.niters != 1, use_vsock=not args.novsock, timeout=args.timeout)
 
         # If we were given a firmware, by default we won't run it, but if niters != 1, we will
         if args.niters != 1:
