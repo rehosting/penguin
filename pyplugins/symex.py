@@ -161,12 +161,6 @@ class PathExpIoctl:
         Syscall and regular convention seem to be the same...
         '''
         reg_map = {
-            'syscall': {
-                    'x86_64': 'rax',
-                    'i386': 'eax',
-                    'arm': 'r0',
-                    'mips': 'v0'
-                },
             'default':
                 {
                     'x86_64': 'rax',
@@ -175,6 +169,8 @@ class PathExpIoctl:
                     'mips': 'v0'
                 }
             }
+        reg_map['default']['mipsel'] = reg_map['default']['mips']
+        reg_map['syscall'] = reg_map['default']
         # Now set the angr state.regs.<reg> to retval
         setattr(state.regs, reg_map[convention][panda.arch_name], retval)
         return state
