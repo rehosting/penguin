@@ -39,7 +39,7 @@ def get_mitigation_providers(config : dict ):
         if details['version'] != analysis.VERSION:
             raise ValueError(f"Config specifies plugin {plugin_name} at version {details['version']} but we got {analysis.VERSION}")
 
-        print(f"Loaded {plugin_name} at version {details['version']}")
+        #print(f"Loaded {plugin_name} at version {details['version']}")
     return mitigation_providers
 
 
@@ -412,7 +412,7 @@ class GlobalState:
         self.mitigations = {}
 
         # Setup global data
-        #self.initialize_from_static_results(base_config)
+        self.initialize_from_static_results(base_config)
 
     def initialize_from_static_results(self, base_config):
         '''
@@ -421,12 +421,10 @@ class GlobalState:
         and identify potential mitigations right away.
         '''
 
-        raise NotImplementedError()
-
         # Look through potential_{files,env} and use plugins to initialize mitigations
-        for plugin in set(["files", "env"]).intersection(base_config['plugins']):
-            analysis = _load_penguin_analysis_from(plugin) # XXX wrong syntax and bad
+        mitigation_providers = get_mitigation_providers(base_config)
 
+        for plugin_name, analysis in mitigation_providers.items():
             with self.failures_lock:
                 self.failures[analysis.ANALYSIS_TYPE] = {}
 
@@ -463,13 +461,12 @@ class GlobalState:
         '''
         Add a new failure to our global state. E.g., in the file state, we have filename -> [potential mitigations]
 
-        # fail_type = files
+        # fail_type = pseudofiles
         # failure = "/some/filename":
-        # fail_info = {some_details}
+        # fail_info = {syscall: {count: X}}
 
-        # fail_type = ioctl
-        # failure = ("/some/filename", IOCTL_NUM)
-        # fail_info = {"PotentialRVs:" ...}}
+        # fail_type = env
+        # XXX UNSURE
         '''
         with self.failures_lock:
             if fail_type not in self.failures.keys():
@@ -633,9 +630,9 @@ class Worker:
                 # OR for IOCTLS {filename: {ioctl: {ioctl_num: {count: X}}}
 
                 for fail_cause, fail_info in failures.items():
-                    # fail_cause might be like a missing file "/dev/missing" or an ioctl+file tuple ("/dev/added", 0x1234)
-                    # fail_info will often be empty, but that's runtime-detected info we'd want to pass through to mitigations
-                    # e.g., potential IOCTL return values
+                    # fail_cause is a tuple of (filename, syscall) or (filename, ioctl, ioctl_num).
+                    # fail_info is an arbitrary object we store from the plugin on failure detection that we pass through to mitigations
+                    # e.g., potential ioctl return values
                     all_fails.append((analysis.ANALYSIS_TYPE, fail_cause))
 
                     #if fail_cause in config.config[analysis.ANALYSIS_TYPE]:
