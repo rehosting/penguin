@@ -613,17 +613,17 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         ignored_prefixes = set({k for k, v in _prefix_counter.items() if v > 5})
 
-        warned = False
+        #warned = False
         for path, info in file_failures.items():
             if path in KNOWN_PATHS:
                 continue
 
             # Only select /dev/dsa for now
-            if path != "/dev/dsa":
-                if not warned:
-                    self.logger.warning(f"HACKY FILTER ignoring {path}")
-                    warned = True
-                continue
+            #if path != "/dev/dsa":
+            #    if not warned:
+            #        self.logger.warning(f"HACKY FILTER ignoring {path}")
+            #        warned = True
+            #    continue
 
             if path.startswith("/proc"):
                 # Ignoring proc files, at least for now.
@@ -693,7 +693,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         max_fails = self.max_fail_count(info)
 
-        self.logger.info(f"Generating mitigations for {path} with info {info}")
+        #self.logger.info(f"Generating mitigations for {path} with info {info}")
         results = []
         for failtype, failinfo in info.items():
             #print(f"Building mitigations for {path} {failtype} with info {failinfo}")
@@ -741,7 +741,6 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     results.append(mitigation)
 
             elif failtype == 'ioctl':
-                self.logger.info(f"Calling ioctl_mitigations for {path} with {failinfo}")
                 results.extend(self.ioctl_mitigations(config, path, failinfo, max_fails[failtype], global_state, global_lock))
 
             else:
@@ -764,7 +763,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
         results = []
         for cmd, details in failinfo.items():
             # Expect details like {'count': X, 'pickle': Y}
-            self.logger.info(f"Adding ioctl-based mitigations for {path}: {cmd:#x}: {details}")
+            #self.logger.info(f"Adding ioctl-based mitigations for {path}: {cmd:#x}: {details}")
 
             # Scale weight by how many times we saw this ioctl fail
             weight = details['count'] / max_fail_for_type

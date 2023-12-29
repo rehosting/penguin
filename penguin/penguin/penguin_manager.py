@@ -273,6 +273,8 @@ class MCTS:
         '''
         Given a node, look at all its children and group together any that are compatible
         For now, we just consider grouping file mitigations together
+
+        DISABLED FOR NOW
         '''
         mitigation_providers = get_mitigation_providers(node.config)
 
@@ -648,7 +650,7 @@ class Worker:
         for config_idx in range(n_config_tests):
             output_dir = os.path.join(run_dir, f"output{config_idx}" if config_idx > 0 else "output")
 
-            self.logger.info("Running analyze failures in {run_dir}")
+            print(f"Running analyze failures in {run_dir}")
 
             # For each loaded plugin, analyze output and update local/global state
             failures = {}

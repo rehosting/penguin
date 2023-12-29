@@ -395,12 +395,12 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                     env_accesses[k] = {}
 
 
-        # DEBUG: only return SXID
-        print("WARNING HACKY ENV SXID ONLY: dropping", env_accesses.keys())
-        if 'sxid' in env_accesses:
-            env_accesses = {'sxid': {}}
-        else:
-            env_accesses = []
+        ## DEBUG: only return SXID
+        #print("WARNING HACKY ENV SXID ONLY: dropping", env_accesses.keys())
+        #if 'sxid' in env_accesses:
+        #    env_accesses = {'sxid': {}}
+        #else:
+        #    env_accesses = []
 
         # Return a dict. Keys are variables. Values is an empty list
         return {k: [] for k in env_accesses}
@@ -474,8 +474,6 @@ class EnvTrackerAnalysis(PenguinAnalysis):
 
         else:
             # Do dynamic search
-            print("NO CACHE doing search")
-            print(global_state)
             results.append({'value': ENV_MAGIC_VAL, 'weight': 0.5}) # WEIGHT 0.5 to do a dynamic search
 
         '''
