@@ -182,11 +182,20 @@ def generate_child_nodes(node: Node, global_state) -> List[Tuple[Node, str, floa
             continue
 
         for fail_cause, fail_info in failures.items():
-            #print("Generating child nodes to mitigate", failure_type, fail_cause, fail_info)
-            for m in mitigation_providers[failure_type].get_potential_mitigations(node.config, fail_cause, fail_info):
+            #Earlier we called self.global_state.add_mitigation(analysis.ANALYSIS_TYPE, fail_cause, m)
+            # so can we just look up the mitigations for this failure?
+            for m in global_state.mitigations[failure_type][fail_cause]:
                 #print("MITIGATION:", failure_type, fail_cause, m)
                 new_config = mitigation_providers[failure_type].implement_mitigation(node.config, fail_cause, m)
                 children.append((new_config, ((failure_type, fail_cause, m)), m['weight']))
+
+            '''
+            print("Generating child nodes to mitigate", failure_type, fail_cause, fail_info)
+            for m in mitigation_providers[failure_type].get_potential_mitigations(node.config, fail_cause, fail_info, global_state.results, global_state.results_lock):
+                #print("MITIGATION:", failure_type, fail_cause, m)
+                new_config = mitigation_providers[failure_type].implement_mitigation(node.config, fail_cause, m)
+                children.append((new_config, ((failure_type, fail_cause, m)), m['weight']))
+            '''
 
     return children
 
@@ -639,6 +648,8 @@ class Worker:
         for config_idx in range(n_config_tests):
             output_dir = os.path.join(run_dir, f"output{config_idx}" if config_idx > 0 else "output")
 
+            self.logger.info("Running analyze failures in {run_dir}")
+
             # For each loaded plugin, analyze output and update local/global state
             failures = {}
             all_fails = []
@@ -646,7 +657,7 @@ class Worker:
             mitigation_providers = get_mitigation_providers(node.config)
             for plugin_name, analysis in mitigation_providers.items():
                 try:
-                    failures = analysis.parse_failures(output_dir)
+                    failures = analysis.parse_failures(output_dir, self.global_state.results, self.global_state.results_lock)
                 except Exception as e:
                     logger.error(e)
                     raise e
@@ -674,7 +685,7 @@ class Worker:
                     self.global_state.add_failure(analysis.ANALYSIS_TYPE, fail_cause, fail_info) # This stores a list of fail_info
 
                     # get_mitigations is told the info of the failure, but add_mitigation doesn't need that
-                    for m in analysis.get_potential_mitigations(node.config, fail_cause, fail_info) or []:
+                    for m in analysis.get_potential_mitigations(node.config, fail_cause, fail_info, self.global_state.results, self.global_state.results_lock) or []:
                         self.global_state.add_mitigation(analysis.ANALYSIS_TYPE, fail_cause, m)
 
             with open(os.path.join(output_dir, "failures.txt"), "a") as f:

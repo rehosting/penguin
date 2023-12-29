@@ -107,7 +107,7 @@ class Core(PyPlugin):
 class CoreAnalysis(PenguinAnalysis):
     ANALYSIS_TYPE = "core"
     VERSION = "1.0.0"
-    def parse_failures(self, output_dir):
+    def parse_failures(self, output_dir, global_state=None, global_lock=None):
         '''
         We don't really parse failures mitigations, we just make sure there's no python
         errors during our analysis
@@ -128,7 +128,7 @@ class CoreAnalysis(PenguinAnalysis):
     def get_mitigations_from_static(self, varname, values):
         return []
 
-    def get_potential_mitigations(self, config, path_ioctl, info):
+    def get_potential_mitigations(self, config, path_ioctl, info, global_state=None, global_lock=None):
         return []
 
     def implement_mitigation(self, config, failure, mitigation):

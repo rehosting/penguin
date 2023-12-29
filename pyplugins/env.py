@@ -325,7 +325,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
     ]
 
 
-    def parse_failures(self, output_dir):
+    def parse_failures(self, output_dir, global_state=None, global_lock=None):
         '''
         Parse failures from env_missing.yaml for unset env variables.
         Also if we have shell_env.csv, look in there for unset variables too.
@@ -395,6 +395,13 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                     env_accesses[k] = {}
 
 
+        # DEBUG: only return SXID
+        print("WARNING HACKY ENV SXID ONLY: dropping", env_accesses.keys())
+        if 'sxid' in env_accesses:
+            env_accesses = {'sxid': {}}
+        else:
+            env_accesses = []
+
         # Return a dict. Keys are variables. Values is an empty list
         return {k: [] for k in env_accesses}
 
@@ -411,7 +418,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
 
         return results
 
-    def get_potential_mitigations(self, config, varname, dynvals):
+    def get_potential_mitigations(self, config, varname, dynvals, global_state=None, global_lock=None):
         '''
         Dynvals will be a list of dynamic values we found for varname IFF we were doing a dynamic
         search. Otherwise it's empty
@@ -430,6 +437,20 @@ class EnvTrackerAnalysis(PenguinAnalysis):
             # what those values might be
             for val in dynvals:
                 results.append({'value': val, 'weight': 0.9}) # We like results from dynamic search
+
+            # Let's add these to global state
+            if global_state is not None:
+                print(f"Setting cached values for env {varname}: {dynvals}")
+                with global_lock:
+                    if self.ANALYSIS_TYPE not in global_state:
+                        global_state[self.ANALYSIS_TYPE] = {}
+                    if varname not in global_state[self.ANALYSIS_TYPE]:
+                        global_state[self.ANALYSIS_TYPE][varname] = set()
+                    global_state[self.ANALYSIS_TYPE][varname].update(dynvals)
+            else:
+                print("NO CACHE")
+
+
             return results
 
         assert(not len(dynvals)), f"Unexpected duynvals for non-dynamic search: {dynvals}"
@@ -444,7 +465,18 @@ class EnvTrackerAnalysis(PenguinAnalysis):
             results.append({'value': val, 'weight': 0.1}) # WEIGHT 0.1 to use a default
 
         # Do a dynamic search
-        results.append({'value': ENV_MAGIC_VAL, 'weight': 0.5}) # WEIGHT 0.5 to do a dynamic search
+        have_cache = global_state is not None and self.ANALYSIS_TYPE in global_state and varname in global_state[self.ANALYSIS_TYPE]
+        if have_cache:
+            # We have a cache of dynamic values for this variable. Use them!
+            print(f"Using cached dynamic env values for {varname}: {global_state[self.ANALYSIS_TYPE][varname]}")
+            for val in global_state[self.ANALYSIS_TYPE][varname]:
+                results.append({'value': val, 'weight': 0.8}) # We like these. Might be stale so slightly less than regular dynsearch
+
+        else:
+            # Do dynamic search
+            print("NO CACHE doing search")
+            print(global_state)
+            results.append({'value': ENV_MAGIC_VAL, 'weight': 0.5}) # WEIGHT 0.5 to do a dynamic search
 
         '''
         # XXX: how can we avoid redoing this?

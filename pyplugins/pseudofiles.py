@@ -598,8 +598,31 @@ class FileFailuresAnalysis(PenguinAnalysis):
             file_failures = yaml.safe_load(f)
 
         fails = {} # path -> info
+        # Let's look at all file_failures with paths that end with numbers to decide if they're excessive (> 5) or not
+        # If they're excessive, we'll ignore them
+        _prefix_counter = {}
+        for path in file_failures.keys():
+            if not path[-1].isdigit():
+                continue
+            # Get prefix by stripping number suffix
+            while path[-1].isdigit():
+                path = path[:-1]
+            if path not in _prefix_counter:
+                _prefix_counter[path] = 0
+            _prefix_counter[path] += 1
+
+        ignored_prefixes = set({k for k, v in _prefix_counter.items() if v > 5})
+
+        warned = False
         for path, info in file_failures.items():
             if path in KNOWN_PATHS:
+                continue
+
+            # Only select /dev/dsa for now
+            if path != "/dev/dsa":
+                if not warned:
+                    self.logger.warning(f"HACKY FILTER ignoring {path}")
+                    warned = True
                 continue
 
             if path.startswith("/proc"):
@@ -611,8 +634,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 # XXX THIS MIGHT BE BAD. Could we count the number of failures with the same prefix
                 # we see and then filter if that's more than a couple? E.g., /dev/ttyS0 and ttyS1 maybe are
                 # worth modeling but /dev/logX for x in 0...100 isn't
-                if path[-1].isdigit():
-                    self.logger.warning(f"Ignoring /dev path with numeric suffix: {path}")
+                if path[-1].isdigit() and any(path.startswith(x) for x in ignored_prefixes):
+                    self.logger.warning(f"Ignoring /dev path with numeric suffix because there are lots like it {path}")
                     continue
 
                 # If we're doing symex, we only care about "failures" on that one device with that cmd since these
@@ -660,7 +683,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
             # Default behavior. Error on read/write/ioctl - we'll fix when we see it
             }
 
-    def get_potential_mitigations(self, config: Any, path: str, info: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def get_potential_mitigations(self, config: Any, path: str, info: Dict[str, Any], global_state=None, global_lock=None) -> List[Dict[str, Any]]:
         '''
         Called by mgr to get mitigations for a given path with details we returned previously from parse_failures
         '''
@@ -670,6 +693,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         max_fails = self.max_fail_count(info)
 
+        self.logger.info(f"Generating mitigations for {path} with info {info}")
         results = []
         for failtype, failinfo in info.items():
             #print(f"Building mitigations for {path} {failtype} with info {failinfo}")
@@ -684,7 +708,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 mitigation = self.get_default_device(0.5)
                 results.append(mitigation)
                 # Nothing to do other than add
-                # XXX: what if a device already exists for real, (no a pseudofile) but we somehow
+                # XXX: what if a device already exists for real, (not a pseudofile) but we somehow
                 # had a syscall return -ENOENT on it? Could that happen? If so we'd get stuck here
                 continue
 
@@ -717,16 +741,18 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     results.append(mitigation)
 
             elif failtype == 'ioctl':
-                results.extend(self.ioctl_mitigations(config, path, failinfo, max_fails[failtype]))
+                self.logger.info(f"Calling ioctl_mitigations for {path} with {failinfo}")
+                results.extend(self.ioctl_mitigations(config, path, failinfo, max_fails[failtype], global_state, global_lock))
 
             else:
                 # For any other failure it's probably just a missing file? Maybe bad permissions?
                 self.logger.warning(f"Unexpected -EBADF failure type {failtype} for {path} which is not a pseudo-file provided")
                 continue
                 #raise ValueError(f"Unexpected failure type {failtype}")
+
         return results
 
-    def ioctl_mitigations(self, config, path, failinfo, max_fail_for_type):
+    def ioctl_mitigations(self, config, path, failinfo, max_fail_for_type, global_state, global_lock):
         '''
         When we see IOCTL failures, we want to take the following approach
         1) First time we see an IOCTL get issued we have it unhandled (default) and it returns -22. The cmd and path get logged
@@ -735,14 +761,13 @@ class FileFailuresAnalysis(PenguinAnalysis):
         4) For each symex result we create a new config
         '''
 
-        data = deepcopy(failinfo)
         results = []
+        for cmd, details in failinfo.items():
+            # Expect details like {'count': X, 'pickle': Y}
+            self.logger.info(f"Adding ioctl-based mitigations for {path}: {cmd:#x}: {details}")
 
-        for cmd, ioctldetails in data.items():
-            # Expect ioctldetails like {'count': X, 'pickle': Y}
-
-            weight = ioctldetails['count'] / max_fail_for_type
-            self.logger.info(f"Adding ioctl-based mitigations for {path}: {cmd:#x}")
+            # Scale weight by how many times we saw this ioctl fail
+            weight = details['count'] / max_fail_for_type
 
             # We had a failing ioctl. Let's fix it with symex.
             # And once we've symex'd, let's fix it with the results!
@@ -753,55 +778,64 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     handler = config['pseudofiles'][path]['ioctl'][cmd]
                 elif '*' in config['pseudofiles'][path]['ioctl']:
                     handler = config['pseudofiles'][path]['ioctl']['*']
-
-
             if handler is None:
-                # Set up default handler and update base config with the implicit default
-                # at the given path.
                 handler = {'model': 'default'}
                 #config['pseudofiles'][path]['ioctl'] = {'*': handler}
                 config['pseudofiles'][path]['ioctl'] = {}
-
-            # Depending on the config's handler, we can propose some new configs
-            # We might have 'count' IFF it's our first time seeing this - if so we can propose symex
-
-            if 'model' not in handler:
-                handler['model'] = 'default'
 
             if handler['model'] == 'return_const':
                 # If we had a return_const handler, there's no changes we can smartly make
                 continue
 
-            # Create a mitigation to return 0 - dynamically add it to results!
-            #ret0_mitigation = deepcopy(config['pseudofiles'][path])
-            #ret0_mitigation['weight'] = weight
-            #ret0_mitigation['ioctl'][cmd] = {
-            #        'model': 'return_const',
-            #        'val': 0,
-            #    }
             if handler['model'] == 'default':
-                # We just saw some default ioctls - we can propose both returning 0 and symex
-                # Prioritize symex, we like that more!
+                # We saw IOCTLs get run on a device with no model
+                # If we have a model in global state, take it and add a low-priority symex model.
+                # If we have no model, add a high-priority symex model
+
+                model_exists = global_state is not None and self.ANALYSIS_TYPE in global_state and (path, cmd) in global_state[self.ANALYSIS_TYPE]
 
                 symex_mitigation = deepcopy(config['pseudofiles'][path])
-                symex_mitigation['weight'] = max(weight, 0.99) # Less good than a known model from symex
                 symex_mitigation['ioctl'][cmd] = {'model': 'symex'}
 
-                #ret0_mitigation['weight'] -= (0.1 if ret0_mitigation['weight'] > 0.1 else 0.0)
-                #results.append(ret0_mitigation)
+                if model_exists:
+                    # Symex is low priority - we want to try the known model first
+                    symex_mitigation['weight'] = max(weight, 0.4)
+                    # Let's pull out the known models and queue them up as return_const
+                    with global_lock:
+                        values = global_state[self.ANALYSIS_TYPE][(path, cmd)]
+                    for model_val in values:
+                        mitigation = deepcopy(symex_mitigation)
+                        mitigation['ioctl'][cmd] = { 'model': 'return_const', 'val': model_val}
+                        mitigation['weight'] = 0.9 # High priority, it's basically a symex result, but maybe stale
+
+                else:
+                    # Symex is all we got - high priority!
+                    symex_mitigation['weight'] = max(weight, 0.99) # Less good than a known model from symex
+
                 results.append(symex_mitigation)
 
             elif handler['model'] == 'symex':
                 # It's critical that our runtime code records a 'failure' for every IOCTL we see in
                 # symex mode so we can look through which IOCTLs ran. (We do this)
                 # If we did a symex we should've passed the symex pkl file path through
-                config_path = dirname(ioctldetails['pickle']) # This is an ugly way to recover the path to symex.pkl
+                config_path = dirname(details['pickle']) # This is an ugly way to recover the path to symex.pkl
 
                 # Create a symex object in read-only mode, have it parse the pickle and analyze the results
                 symex = PathExpIoctl(config_path, None, read_only=True)
                 models = symex.hypothesize_models(target=path, cmd=cmd, verbose=False)
-
                 self.logger.info(f"Consuming symex results for new ioctl handlers: {models}")
+
+                # Save these symex results into global state
+                if global_state is not None:
+                    with global_lock:
+                        if self.ANALYSIS_TYPE not in global_state:
+                            global_state[self.ANALYSIS_TYPE] = {}
+
+                        if (path, cmd) not in global_state[self.ANALYSIS_TYPE]:
+                            global_state[self.ANALYSIS_TYPE][(path, cmd)] = set()
+
+                        # Now add all the new models we found for the path and cmd
+                        global_state[self.ANALYSIS_TYPE][(path, cmd)].update(models[path][cmd])
 
                 # For each identified result we can propose a new config
                 for rv in models[path][cmd]:
@@ -813,8 +847,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         }
                     results.append(mitigation)
 
-                else:
-                    raise ValueError(f"Unexpeced ioctl handler type: {handler}")
+            else:
+                raise ValueError(f"Unexpeced ioctl handler type: {handler}")
+
         return results
 
     def implement_mitigation(self, config, failure, mitigation):
