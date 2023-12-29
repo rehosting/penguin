@@ -13,6 +13,7 @@ path.append(dirname(__file__))
 from symex import PathExpIoctl
 
 coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
+KNOWN_PATHS = ["/dev/", "/dev/pts", "/sys", "/proc", "/run", "/tmp"] # Directories not in static FS that are added by igloo_init
 
 try:
     from penguin import PenguinAnalysis, yaml
@@ -547,7 +548,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 max_fails[k] = max(max_fails[k], details['count'])
         return max_fails
 
-    def parse_failures(self, output_dir):
+    def parse_failures(self, output_dir, global_state=None, global_lock=None):
         '''
         Failures is a list of filename->info.
         Types are any syscall name (e.g., open, ioctl, read, lstat64, etc.)
@@ -572,13 +573,35 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 {'read': {'count': 3}}
             }
         }
+
+        If any prior ioctls were modeled with symex, we'll ignore everything else to focus on those
+        (this is like how in env we only focus on DYNVAL failures when present
         '''
+
+        with open(pjoin(output_dir, 'core_config.yaml')) as f:
+            config = yaml.safe_load(f)
+
+            have_symex = False # Should this be per device? I'm gonna say no. At least for now
+            symex_path = None
+            symex_cmd = None
+            for devpath, file_model in config['pseudofiles'].items():
+                if 'ioctl' in file_model:
+                    for cmd, model in file_model['ioctl'].items():
+                        if model['model'] == 'symex':
+                            have_symex = True
+                            symex_path = devpath
+                            symex_cmd = cmd
+                            break
+
 
         with open(pjoin(output_dir, outfile_missing)) as f:
             file_failures = yaml.safe_load(f)
 
         fails = {} # path -> info
         for path, info in file_failures.items():
+            if path in KNOWN_PATHS:
+                continue
+
             if path.startswith("/proc"):
                 # Ignoring proc files, at least for now.
                 pass
@@ -589,9 +612,34 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 # we see and then filter if that's more than a couple? E.g., /dev/ttyS0 and ttyS1 maybe are
                 # worth modeling but /dev/logX for x in 0...100 isn't
                 if path[-1].isdigit():
+                    self.logger.warning(f"Ignoring /dev path with numeric suffix: {path}")
                     continue
-                if 'ioctl' in info:
-                    info['ioctl']['pickle'] = pjoin(output_dir, "symex.pkl")
+
+                # If we're doing symex, we only care about "failures" on that one device with that cmd since these
+                # are what we'd meaningfully "mitigate" with children. We don't want to mitigate something else and
+                # re-symex later.
+                if have_symex:
+                    # If it's a different device, skip it
+                    if symex_path != path:
+                        continue
+
+                    # Drop anything except 'ioctl' info
+                    info = {k: v for k, v in info.items() if k == 'ioctl'}
+
+                    if not len(info):
+                        # There wasn't anything else
+                        continue
+
+                    # Within IOCTL drop anything except our target cmd
+                    info['ioctl'] = {k: v for k, v in info['ioctl'].items() if k == symex_cmd}
+
+                    if not len(info['ioctl']):
+                        # There wasn't anything else
+                        continue
+
+                    # Add pickle path within ioctl -> cmd
+                    info['ioctl'][symex_cmd]['pickle'] = pjoin(output_dir, "symex.pkl")
+
                 fails[path] = info
 
         return fails
@@ -613,6 +661,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
             }
 
     def get_potential_mitigations(self, config: Any, path: str, info: Dict[str, Any]) -> List[Dict[str, Any]]:
+        '''
+        Called by mgr to get mitigations for a given path with details we returned previously from parse_failures
+        '''
         if not self.is_dev_path(path):
             #self.logger.info(f"Ignoring non-dev path {path}")
             return []
@@ -666,99 +717,104 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     results.append(mitigation)
 
             elif failtype == 'ioctl':
-                '''
-                When we see IOCTL failures, we want to take the following approach
-                1) First time we see an IOCTL get issued we have it unhandled (default) and it returns -22. The cmd and path get logged
-                2) We select a failed IOCTL and make a new config with it modeled as symex
-                3) We run with symex
-                4) For each symex result we create a new config
-                '''
-
-                data = deepcopy(failinfo)
-                # If we did a symex we should've passed the symex pkl file path through
-                pickle_path = None
-                if 'pickle' in data:
-                    pickle_path = data['pickle']
-                    del data['pickle']
-
-                for cmd, ioctldetails in data.items():
-                    weight = ioctldetails['count'] / max_fails[failtype]
-                    self.logger.info(f"Adding ioctl-based mitigations for {path}: {cmd:#x}")
-
-                    # We had a failing ioctl. Let's fix it with symex.
-                    # And once we've symex'd, let's fix it with the results!
-
-                    handler = None
-                    if 'ioctl' in config['pseudofiles'][path]:
-                        if cmd in config['pseudofiles'][path]['ioctl']:
-                            handler = config['pseudofiles'][path]['ioctl'][cmd]
-                        elif '*' in config['pseudofiles'][path]['ioctl']:
-                            handler = config['pseudofiles'][path]['ioctl']['*']
-
-
-                    if handler is None:
-                        # Set up default handler and update base config with the implicit default
-                        # at the given path.
-                        handler = {'model': 'default'}
-                        #config['pseudofiles'][path]['ioctl'] = {'*': handler}
-                        config['pseudofiles'][path]['ioctl'] = {}
-
-                    # Depending on the config's handler, we can propose some new configs
-                    # We might have 'count' IFF it's our first time seeing this - if so we can propose symex
-
-                    if 'model' not in handler:
-                        handler['model'] = 'default'
-
-                    if handler['model'] == 'return_const':
-                        # If we had a return_const handler, there's no changes we can smartly make
-                        continue
-
-                    # Create a mitigation to return 0 - dynamically add it to results!
-                    #ret0_mitigation = deepcopy(config['pseudofiles'][path])
-                    #ret0_mitigation['weight'] = weight
-                    #ret0_mitigation['ioctl'][cmd] = {
-                    #        'model': 'return_const',
-                    #        'val': 0,
-                    #    }
-                    if handler['model'] == 'default':
-                        # We just saw some default ioctls - we can propose both returning 0 and symex
-                        # Prioritize symex, we like that more!
-
-                        symex_mitigation = deepcopy(config['pseudofiles'][path])
-                        symex_mitigation['weight'] = weight
-                        symex_mitigation['ioctl'][cmd] = {'model': 'symex'}
-
-                        #ret0_mitigation['weight'] -= (0.1 if ret0_mitigation['weight'] > 0.1 else 0.0)
-                        #results.append(ret0_mitigation)
-                        results.append(symex_mitigation)
-
-                    elif handler['model'] == 'symex':
-                        # It's critical that our runtime code records a 'failure' for every IOCTL we see in
-                        # symex mode so we can look through which IOCTLs ran. (We do this)
-                        assert(pickle_path), f"Expected pickle path for symex ioctl {cmd:#x} on {path}. Got {data}"
-                        config_path = dirname(pickle_path) # This is an ugly way to recover the path to symex.pkl
-
-                        # Create a symex object in read-only mode, have it parse the pickle and analyze the results
-                        symex = PathExpIoctl(config_path, None, read_only=True)
-                        models = symex.hypothesize_models(target=path, cmd=cmd, verbose=False)
-
-                        self.logger.info(f"Consuming symex results for new ioctl handlers: {models}")
-
-                        # For each identified result we can propose a new config
-                        for rv in models[path][cmd]:
-                            mitigation = deepcopy(config['pseudofiles'][path])
-                            mitigation['weight'] = max(1.0, weight + 0.5) # We really like these!
-                            mitigation['ioctl'][cmd] = {
-                                    'model': 'return_const',
-                                    'val': rv,
-                                }
-                            results.append(mitigation)
-
-                    else:
-                        raise ValueError(f"Unexpeced ioctl handler type: {handler}")
+                results.extend(self.ioctl_mitigations(config, path, failinfo, max_fails[failtype]))
 
             else:
-                raise ValueError(f"Unexpected failure type {failtype}")
+                # For any other failure it's probably just a missing file? Maybe bad permissions?
+                self.logger.warning(f"Unexpected -EBADF failure type {failtype} for {path} which is not a pseudo-file provided")
+                continue
+                #raise ValueError(f"Unexpected failure type {failtype}")
+        return results
+
+    def ioctl_mitigations(self, config, path, failinfo, max_fail_for_type):
+        '''
+        When we see IOCTL failures, we want to take the following approach
+        1) First time we see an IOCTL get issued we have it unhandled (default) and it returns -22. The cmd and path get logged
+        2) We select a failed IOCTL and make a new config with it modeled as symex
+        3) We run with symex
+        4) For each symex result we create a new config
+        '''
+
+        data = deepcopy(failinfo)
+        results = []
+
+        for cmd, ioctldetails in data.items():
+            # Expect ioctldetails like {'count': X, 'pickle': Y}
+
+            weight = ioctldetails['count'] / max_fail_for_type
+            self.logger.info(f"Adding ioctl-based mitigations for {path}: {cmd:#x}")
+
+            # We had a failing ioctl. Let's fix it with symex.
+            # And once we've symex'd, let's fix it with the results!
+
+            handler = None
+            if 'ioctl' in config['pseudofiles'][path]:
+                if cmd in config['pseudofiles'][path]['ioctl']:
+                    handler = config['pseudofiles'][path]['ioctl'][cmd]
+                elif '*' in config['pseudofiles'][path]['ioctl']:
+                    handler = config['pseudofiles'][path]['ioctl']['*']
+
+
+            if handler is None:
+                # Set up default handler and update base config with the implicit default
+                # at the given path.
+                handler = {'model': 'default'}
+                #config['pseudofiles'][path]['ioctl'] = {'*': handler}
+                config['pseudofiles'][path]['ioctl'] = {}
+
+            # Depending on the config's handler, we can propose some new configs
+            # We might have 'count' IFF it's our first time seeing this - if so we can propose symex
+
+            if 'model' not in handler:
+                handler['model'] = 'default'
+
+            if handler['model'] == 'return_const':
+                # If we had a return_const handler, there's no changes we can smartly make
+                continue
+
+            # Create a mitigation to return 0 - dynamically add it to results!
+            #ret0_mitigation = deepcopy(config['pseudofiles'][path])
+            #ret0_mitigation['weight'] = weight
+            #ret0_mitigation['ioctl'][cmd] = {
+            #        'model': 'return_const',
+            #        'val': 0,
+            #    }
+            if handler['model'] == 'default':
+                # We just saw some default ioctls - we can propose both returning 0 and symex
+                # Prioritize symex, we like that more!
+
+                symex_mitigation = deepcopy(config['pseudofiles'][path])
+                symex_mitigation['weight'] = max(weight, 0.99) # Less good than a known model from symex
+                symex_mitigation['ioctl'][cmd] = {'model': 'symex'}
+
+                #ret0_mitigation['weight'] -= (0.1 if ret0_mitigation['weight'] > 0.1 else 0.0)
+                #results.append(ret0_mitigation)
+                results.append(symex_mitigation)
+
+            elif handler['model'] == 'symex':
+                # It's critical that our runtime code records a 'failure' for every IOCTL we see in
+                # symex mode so we can look through which IOCTLs ran. (We do this)
+                # If we did a symex we should've passed the symex pkl file path through
+                config_path = dirname(ioctldetails['pickle']) # This is an ugly way to recover the path to symex.pkl
+
+                # Create a symex object in read-only mode, have it parse the pickle and analyze the results
+                symex = PathExpIoctl(config_path, None, read_only=True)
+                models = symex.hypothesize_models(target=path, cmd=cmd, verbose=False)
+
+                self.logger.info(f"Consuming symex results for new ioctl handlers: {models}")
+
+                # For each identified result we can propose a new config
+                for rv in models[path][cmd]:
+                    mitigation = deepcopy(config['pseudofiles'][path])
+                    mitigation['weight'] = max(1.0, weight + 0.5) # We really like these!
+                    mitigation['ioctl'][cmd] = {
+                            'model': 'return_const',
+                            'val': rv,
+                        }
+                    results.append(mitigation)
+
+                else:
+                    raise ValueError(f"Unexpeced ioctl handler type: {handler}")
         return results
 
     def implement_mitigation(self, config, failure, mitigation):
@@ -805,7 +861,7 @@ def main():
         config = yaml.safe_load(f)
 
     analysis = FileFailuresAnalysis()
-    failures = analysis.parse_failures(output_dir)
+    failures = analysis.parse_failures(output_dir, None, None)
     print(f"Got {len(failures)} failures")
 
     idx = 0

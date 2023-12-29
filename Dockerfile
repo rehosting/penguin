@@ -187,7 +187,7 @@ WORKDIR /penguin
 # Aliases for quick tests. m to make a config for the stride. r to run it. a for auto (config+run+explore)
 RUN echo 'alias m="rm -rf /results/stride; penguin /fws/stride.tar.gz /results/stride/"' >> ~/.bashrc
 RUN echo 'alias r="penguin --config /results/stride/config.yaml /results/stride/out"' >> ~/.bashrc
-RUN echo 'alias a="rm -rf /results/stride_auto; penguin --niters 5 --singlecore /fws/stride.tar.gz /results/stride_auto/"' >> ~/.bashrc
+RUN echo 'alias a="rm -rf /results/stride_auto; penguin --niters 200 --timeout 200 /fws/stride.tar.gz /results/stride_auto/"' >> ~/.bashrc
 
 # Now copy in our module and install it
 # penguin is editable so we can mount local copy for dev

@@ -217,7 +217,8 @@ class MCTS:
 
         # 1. Selection: Traverse the tree to select the most promising leaf node
 
-        # XXX: we can find the same leaf node multiple times?
+        # We hold the lock between finding and adding to pending to make sure
+        # we never select the same node twice between multiple threads
         with self.lock:
             node = self.find_best_leaf(node)
             self.pending_nodes.add(node)
@@ -248,8 +249,8 @@ class MCTS:
         # Return something so we know we did work
         return True
 
-    def normalize_and_update_ucb1(self, node):
-        node.normalized_objectives = {k: v / self.max_objectives[k] for k, v in node.objectives.items()}
+    #def normalize_and_update_ucb1(self, node):
+    #    node.normalized_objectives = {k: v / self.max_objectives[k] for k, v in node.objectives.items()}
 
     def expand(self, node: Node) -> None:
         # Generate child configurations based on node.config and global_state
@@ -294,7 +295,7 @@ class MCTS:
             delta = []
             for (fail, mitigation) in data:
                 analysis = mitigation_providers[grp_typ]
-                config = analysis.implement_mitigation(config, fail, mitigation) # XXX BUG
+                config = analysis.implement_mitigation(config, fail, mitigation)
                 delta.append((grp_typ, fail, mitigation))
                 total_weight += mitigation['weight']
             grps.append(config)
@@ -420,6 +421,12 @@ class GlobalState:
 
         if not self.inits:
             raise RuntimeError(f"No potential inits found in {output_dir}/base/env.yaml")
+
+        self.results_lock = Lock()
+        self.results = {} # {analysis_name: {data}}
+                        # 'env': varname -> set strings compared against
+                        # 'pseudofiles': (filename, ioctl num) -> set of retvals
+
 
         self.failures_lock = Lock()
         self.failures = {}
@@ -588,7 +595,7 @@ class Worker:
 
         # *** EMULATE TARGET ***
         #print(f"Start run {run_idx}: with config at {run_dir}/config.yaml")
-        logger.info(f"Start run {run_idx}: with delta from {node.parent.run_idx}: {node.parent_delta}")
+        logger.info(f"Start run {run_idx}: with delta from {node.parent.run_idx if node.parent else 'N/A'}: {node.parent_delta}")
 
         # Run emulation `n_config_tests` times. If any error, print the error
         for config_idx in range(n_config_tests):
@@ -620,11 +627,13 @@ class Worker:
         (config.add_config_failures). Write down all the faiulres in failures.txt
         within run_dir.
 
+        Plugins are allowed to store arbitrary data in a global cache as an optimization
+        for future runs. This is stored in global_state.results[plugin_name]
+
         For each identified failure, ask the plugin to propose mitigations. Add
         these to the global mitigation state with global_state.add_mitigation
 
         TODO: Focus on analysis delta from parent and score delta instead of total score?
-        XXX: This doesn't propose any mitigations for the stride??
         '''
 
         for config_idx in range(n_config_tests):
@@ -698,7 +707,6 @@ class Worker:
             f.write(f"{total_score:.02f}")
 
         return best_scores
-
 
     def calculate_score(self, result_dir):
         '''
