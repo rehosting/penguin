@@ -435,72 +435,43 @@ class EnvTrackerAnalysis(PenguinAnalysis):
 
             # We just ran a dynamic search for target_var the dynvals argument should tell us
             # what those values might be
-            for val in dynvals:
-                results.append({'value': val, 'weight': 0.9}) # We like results from dynamic search
+            if len(dynvals):
+                for val in dynvals:
+                    results.append({'value': val, 'weight': 0.9}) # We like results from dynamic search
 
-            # Let's add these to global state
-            if global_state is not None:
-                print(f"Setting cached values for env {varname}: {dynvals}")
-                with global_lock:
-                    if self.ANALYSIS_TYPE not in global_state:
-                        global_state[self.ANALYSIS_TYPE] = {}
-                    if varname not in global_state[self.ANALYSIS_TYPE]:
-                        global_state[self.ANALYSIS_TYPE][varname] = set()
-                    global_state[self.ANALYSIS_TYPE][varname].update(dynvals)
+                # Let's add these to global state
+                if global_state is not None:
+                    #print(f"Setting cached values for env {varname}: {dynvals}")
+                    with global_lock:
+                        if self.ANALYSIS_TYPE not in global_state:
+                            global_state[self.ANALYSIS_TYPE] = {}
+                        if varname not in global_state[self.ANALYSIS_TYPE]:
+                            global_state[self.ANALYSIS_TYPE][varname] = set()
+                        global_state[self.ANALYSIS_TYPE][varname].update(dynvals)
             else:
-                print("NO CACHE")
-
+                # Dynamic search failed. Let's add some default values instead
+                print("env dynamic search found no results. Adding some low-weight defaults:", self.DEFAULT_VALUES)
+                # Start with some placeholders
+                for val in self.DEFAULT_VALUES:
+                    results.append({'value': val, 'weight': 0.1}) # WEIGHT 0.1 to use a default
 
             return results
 
+        # If we get here we're NOT doing a dynamic search.
         assert(not len(dynvals)), f"Unexpected duynvals for non-dynamic search: {dynvals}"
 
-        # Not doing a dynamic search. If we already have a value for this varname, no mitigation to apply?
+        # Is this varname set in our config? If so we can't mitigate it (since it's not set to ENV_MAGIC_VAL)
         existing_vars = list(config[self.ANALYSIS_TYPE].keys()) if config else []
         if varname in existing_vars:
             return []
 
-        # Start with some placeholders
-        for val in self.DEFAULT_VALUES:
-            results.append({'value': val, 'weight': 0.1}) # WEIGHT 0.1 to use a default
-
-        # Do a dynamic search
-        have_cache = global_state is not None and self.ANALYSIS_TYPE in global_state and varname in global_state[self.ANALYSIS_TYPE]
-        if have_cache:
-            # We have a cache of dynamic values for this variable. Use them!
-            print(f"Using cached dynamic env values for {varname}: {global_state[self.ANALYSIS_TYPE][varname]}")
+        # Load potential values from global state learned on other runs with ENV_MAGIC_VALUE
+        if global_state is not None and self.ANALYSIS_TYPE in global_state and varname in global_state[self.ANALYSIS_TYPE]:
             for val in global_state[self.ANALYSIS_TYPE][varname]:
-                results.append({'value': val, 'weight': 0.8}) # We like these. Might be stale so slightly less than regular dynsearch
-
+                results.append({'value': val, 'weight': 0.8}) # We like these. Might be stale so slightly lower weight than non-stale dynsearch
         else:
-            # Do dynamic search
-            results.append({'value': ENV_MAGIC_VAL, 'weight': 0.5}) # WEIGHT 0.5 to do a dynamic search
-
-        '''
-        # XXX: how can we avoid redoing this?
-        # XXX do we even have access to the FS here?
-        # XXX we could move into parse failures, I think?
-
-        # Check FS for potential values
-        test = re.compile(f"{varname}=([a-zA-Z0-9_-]+)")
-        matches = set()
-
-        fs_tar_path = config['base']['fs']
-        tar = tarfile.open(fs_tar_path, "r")
-        for member in tar.getmembers():
-            if not member.isfile():
-                continue
-            data = tar.extractfile(member.name).read()
-            # Note data is bytes, not str, but test is a str regex
-            # so we need to decode to str
-            data = data.decode(errors='ignore')
-
-            for match in test.findall(data):
-                matches.add(match)
-
-        for m in matches:
-            results.append(m)
-        '''
+            # We haven't searched before - let's queue up a search. Less important than pseudofiles
+            results.append({'value': ENV_MAGIC_VAL, 'weight': 0.4})
         return results
 
     def implement_mitigation(self, config, failure, mitigation):

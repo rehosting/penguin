@@ -11,10 +11,13 @@ from typing import List, Tuple
 from copy import deepcopy
 from random import choice
 from threading import Thread, Lock
+import coloredlogs
 
 from .common import yaml
 from .penguin_prep import prepare_run
 from .utils import load_config, dump_config, hash_yaml_config, AtomicCounter, _load_penguin_analysis_from
+
+coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 
 SCORE_CATEGORIES = ['execs', 'bound_sockets', 'devices_accessed', 'processes_run', 'modules_loaded',
                     'blocks_covered', 'nopanic']
@@ -606,7 +609,8 @@ class Worker:
 
         # *** EMULATE TARGET ***
         #print(f"Start run {run_idx}: with config at {run_dir}/config.yaml")
-        logger.info(f"Start run {run_idx}: with delta from {node.parent.run_idx if node.parent else 'N/A'}: {node.parent_delta}")
+        this_logger = logging.getLogger(f"run{run_idx}")
+        this_logger.info(f"Derived from {node.parent.run_idx if node.parent else 'N/A'} with {node.parent_delta}")
 
         # Run emulation `n_config_tests` times. If any error, print the error
         for config_idx in range(n_config_tests):
@@ -619,8 +623,8 @@ class Worker:
             finally:
                 node.run_count += 1
 
-        scores = self.find_best_score(run_dir, run_idx, n_config_tests)
-        self.analyze_failures(run_dir, run_idx, node, n_config_tests)
+        scores = self.find_best_score(run_dir, run_idx, n_config_tests, this_logger)
+        self.analyze_failures(run_dir, run_idx, node, n_config_tests, this_logger)
 
         #print(f"After run {run_idx}: {node}")
 
@@ -629,7 +633,7 @@ class Worker:
 
         return scores, run_idx
 
-    def analyze_failures(self, run_dir, run_idx, node, n_config_tests):
+    def analyze_failures(self, run_dir, run_idx, node, n_config_tests, this_logger):
         '''
         After we run a configuration, do our post-run analysis of failures.
         Run each PyPlugin that has a PenguinAnalysis implemented. Have each
@@ -650,8 +654,6 @@ class Worker:
         for config_idx in range(n_config_tests):
             output_dir = os.path.join(run_dir, f"output{config_idx}" if config_idx > 0 else "output")
 
-            print(f"Running analyze failures in {run_dir}")
-
             # For each loaded plugin, analyze output and update local/global state
             failures = {}
             all_fails = []
@@ -661,13 +663,11 @@ class Worker:
                 try:
                     failures = analysis.parse_failures(output_dir, self.global_state.results, self.global_state.results_lock)
                 except Exception as e:
-                    logger.error(e)
+                    this_logger.error(e)
                     raise e
 
                 if len(failures):
-                    logger.info(f"On run {run_idx} plugin {plugin_name} reports {len(failures)} failures:")
-                    for f in failures:
-                        logger.info(f"\t{f}")
+                    this_logger.info(f"Plugin {plugin_name} reports {len(failures)} failures: {list(failures.keys())}")
 
                 # Failures is a dict like 
                 # {filename: {failing_syscall: {count: X}}
@@ -693,8 +693,12 @@ class Worker:
             with open(os.path.join(output_dir, "failures.txt"), "a") as f:
                 for (analysis_type, fail) in all_fails:
                     f.write(f"{analysis_type}: {fail}\n")
+                    # Get mitigations out of global state and log these as well
+                    mits = self.global_state.mitigations[analysis_type][fail]
+                    for m in mits:
+                        f.write(f"\t{m}\n")
 
-    def find_best_score(self, run_dir, run_idx, n_config_tests):
+    def find_best_score(self, run_dir, run_idx, n_config_tests, this_logger):
         '''
         Look acrous our `n_config_tests` runs. Calculate the maximal score for each
         score type our various metrics
@@ -707,7 +711,7 @@ class Worker:
                     best_scores[score_name] = score
 
         # Report scores and save to disk
-        logger.info(f"\tRun {run_idx}: scores: {[f'{k}: {v:.02f}' for k, v in best_scores.items()]}")
+        this_logger.info(f"Run scores: {[f'{k[:4]}:{v}' for k, v in best_scores.items()]}")
         with open(os.path.join(run_dir, "scores.txt"), "w") as f:
             f.write("score_type,score\n")
 
@@ -881,7 +885,7 @@ def main():
         sys.exit(1)
 
     config = load_config(sys.argv[1])
-    iterative_search(config, sys.argv[2], multithread=False)
+    iterative_search(config, sys.argv[2], MULTITHREAD=False)
 
 if __name__ == '__main__':
     main()
