@@ -108,10 +108,12 @@ RUN apt-get update && apt-get install -y \
     git \
     libarchive13 \
     libguestfs-tools \
+    libxml2 \
     nmap \
     openjdk-11-jdk \
     python3 \
     python3-guestfs \
+    python3-lxml \
     python3-venv \
     telnet \
     vim \
