@@ -5,13 +5,14 @@ import shutil
 import pandas as pd
 import networkx as nx
 import subprocess
+
 import logging
+import coloredlogs
 
 from typing import List, Tuple
 from copy import deepcopy
 from random import choice
 from threading import Thread, Lock
-import coloredlogs
 
 from .common import yaml
 from .penguin_prep import prepare_run
@@ -79,13 +80,13 @@ class Node:
     def label(self):
         return f"{self.depth}x{self.width}"
 
-    def add_config_failure(self, fail_type, fail_cause, fail_info=None):
+    def add_config_failure(self, fail_type, fail_cause, this_logger, fail_info=None):
         with self.lock:
             if fail_type not in self.failures:
                 self.failures[fail_type] = {}
 
             if fail_cause in self.failures[fail_type] and self.failures[fail_type][fail_cause] != fail_info:
-                logger.warn(f"Replacing failures[{fail_type}][{fail_cause}]'s {self.failures[fail_type][fail_cause]} with {fail_info}")
+                this_logger.warning(f"Replacing failures[{fail_type}][{fail_cause}]'s {self.failures[fail_type][fail_cause]} with {fail_info}")
                 #print(f"Ignoring request to add {fail_cause}={fail_info} to failures[{fail_type}][{fail_cause}] which arleady is {self.failures[fail_type][fail_cause]}")
                 #return
 
@@ -453,32 +454,35 @@ class GlobalState:
 
     def initialize_from_static_results(self, base_config):
         '''
-        Static analysis will populate some fields, "potential_*". Unlike our regular model, we haven't observed
+        Static analysis will dump some info in base directory. Unlike our regular model, we haven't observed
         any dynamic events around them, but we're going to use our static analysis to populate some potential failures
         and identify potential mitigations right away.
         '''
 
-        # Look through potential_{files,env} and use plugins to initialize mitigations
+        # Look through base/{files,env}.yaml and use plugins to initialize mitigations
         mitigation_providers = get_mitigation_providers(base_config)
 
         for plugin_name, analysis in mitigation_providers.items():
             with self.failures_lock:
                 self.failures[analysis.ANALYSIS_TYPE] = {}
 
-            # We have some static info in files and env to try!
-            data = []
 
-            # We have no real failures, but given the potential failures we've statically identified
-            # we can start by proposing some mitigations for these already!
-            # Dict with key->potential_mitigation (e.g., env vars with known potential values)
-            # or list with just keys (e.g., device filenames that are missing)
-            for k, known_vals in (data if isinstance(data, dict) else {k: [] for k in data}).items():
-                # Record the (potential) failure type: e.g., an environment variable or a filename
-                self.add_failure(analysis.ANALYSIS_TYPE, k) # E.g., (file, /dev/missing)
+            static_file = os.path.join(self.output_dir, "base", f"{analysis.ANALYSIS_TYPE}.yaml")
+            if os.path.isfile(static_file):
+                with open(static_file) as f:
+                    data = yaml.safe_load(f)
 
-                # If our static analysis gave us some potential values, include these first
-                for m in analysis.get_mitigations_from_static(k, known_vals):
-                    self.add_mitigation(analysis.ANALYSIS_TYPE, k, m)
+                # We have no real failures, but given the potential failures we've statically identified
+                # we can start by proposing some mitigations for these already!
+                # Dict with key->potential_mitigation (e.g., env vars with known potential values)
+                # or list with just keys (e.g., device filenames that are missing)
+                for k, known_vals in (data if isinstance(data, dict) else {k: [] for k in data}).items():
+                    # Record the (potential) failure type: e.g., an environment variable or a filename
+                    self.add_failure(analysis.ANALYSIS_TYPE, k) # E.g., (file, /dev/missing) # XXX: no plugin-specific filtering for these values?
+
+                    # If our static analysis gave us some potential values, include these first
+                    for m in analysis.get_mitigations_from_static(k, known_vals):
+                        self.add_mitigation(analysis.ANALYSIS_TYPE, k, m )
 
     def __repr__(self):
         out = f"GlobalState: \n"
@@ -609,7 +613,7 @@ class Worker:
 
         # *** EMULATE TARGET ***
         #print(f"Start run {run_idx}: with config at {run_dir}/config.yaml")
-        this_logger = logging.getLogger(f"run{run_idx}")
+        this_logger = logging.getLogger(f"mgr.run{run_idx}")
         this_logger.info(f"Derived from {node.parent.run_idx if node.parent else 'N/A'} with {node.parent_delta}")
 
         # Run emulation `n_config_tests` times. If any error, print the error
@@ -618,7 +622,7 @@ class Worker:
                 self._run_config(run_dir, n=config_idx)
             except RuntimeError as e:
                 # Uh oh, we got an error while running. Warn and continue
-                logger.warning(f"Error running {run_dir}")
+                this_logger.error(f"Could not run {run_dir}: {e}")
                 return None, None
             finally:
                 node.run_count += 1
@@ -640,7 +644,7 @@ class Worker:
         identify failures and store these in our global state of know failures
         (global_state.add_failures) as well as a failure for this config
         (config.add_config_failures). Write down all the faiulres in failures.txt
-        within run_dir.
+        and failures_with_mitigations.txt within run_dir.
 
         Plugins are allowed to store arbitrary data in a global cache as an optimization
         for future runs. This is stored in global_state.results[plugin_name]
@@ -683,14 +687,20 @@ class Worker:
                     #    # This config already has a mitigation for this failure - can't add again
                     #    raise RuntimeError(f"BUG: {fail_cause} is a failure and a mitigation, returned by {analysis}'s parse_failures")
 
-                    node.add_config_failure(analysis.ANALYSIS_TYPE, fail_cause, fail_info) # This only stores the latest fail_info. HMM XXX TODO?
+                    node.add_config_failure(analysis.ANALYSIS_TYPE, fail_cause, this_logger, fail_info) # This only stores the latest fail_info. HMM XXX TODO?
                     self.global_state.add_failure(analysis.ANALYSIS_TYPE, fail_cause, fail_info) # This stores a list of fail_info
 
                     # get_mitigations is told the info of the failure, but add_mitigation doesn't need that
                     for m in analysis.get_potential_mitigations(node.config, fail_cause, fail_info, self.global_state.results, self.global_state.results_lock) or []:
                         self.global_state.add_mitigation(analysis.ANALYSIS_TYPE, fail_cause, m)
-
+ 
+            # Write plain list of failures
             with open(os.path.join(output_dir, "failures.txt"), "a") as f:
+                for (analysis_type, fail) in all_fails:
+                    f.write(f"{analysis_type}: {fail}\n")
+
+            # Write list of failures with mitigations
+            with open(os.path.join(output_dir, "failures_with_mitigations.txt"), "a") as f:
                 for (analysis_type, fail) in all_fails:
                     f.write(f"{analysis_type}: {fail}\n")
                     # Get mitigations out of global state and log these as well

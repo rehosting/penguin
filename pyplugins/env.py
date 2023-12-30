@@ -426,7 +426,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         results = []
 
         # If we just ran a dynamic search that's the only mitigation we'll apply
-        if any(v == ENV_MAGIC_VAL for k, v in config[self.ANALYSIS_TYPE].items()):
+        if config and any(v == ENV_MAGIC_VAL for k, v in config[self.ANALYSIS_TYPE].items()):
             target_var = [k for k, v in config[self.ANALYSIS_TYPE].items() if v == ENV_MAGIC_VAL][0]
             # Refuse to get mitigations for any other vars
             if varname != target_var:
@@ -458,7 +458,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
             return results
 
         # If we get here we're NOT doing a dynamic search.
-        assert(not len(dynvals)), f"Unexpected duynvals for non-dynamic search: {dynvals}"
+        assert(dynvals is None or not len(dynvals)), f"Unexpected duynvals for non-dynamic search: {dynvals}"
 
         # Is this varname set in our config? If so we can't mitigate it (since it's not set to ENV_MAGIC_VAL)
         existing_vars = list(config[self.ANALYSIS_TYPE].keys()) if config else []

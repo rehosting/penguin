@@ -10,7 +10,7 @@ import claripy
 from angr_targets import PandaConcreteTarget # pylint: disable=import-error
 
 # Silence a bunch of angr logging
-logging.getLogger().setLevel('WARNING')
+logging.getLogger().setLevel('INFO')
 logging.getLogger('angr').setLevel('WARNING')
 logging.getLogger("angr_targets.panda").setLevel('WARNING')
 logging.getLogger("cle.loader").setLevel('ERROR')

@@ -1,8 +1,6 @@
 import sys
 import re
 import logging
-# coloredlogs
-import coloredlogs
 from os.path import dirname, join as pjoin, isfile
 from pandare import PyPlugin
 from copy import deepcopy
@@ -12,7 +10,6 @@ from sys import path
 path.append(dirname(__file__))
 from symex import PathExpIoctl
 
-coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 KNOWN_PATHS = ["/dev/", "/dev/pts", "/sys", "/proc", "/run", "/tmp"] # Directories not in static FS that are added by igloo_init
 
 try:
@@ -164,14 +161,16 @@ class FileFailures(PyPlugin):
                 return
 
             # Check if this return value is telling us the file is missing
-            # based on the syscall we see. Mostly we're checking for -ENOENT
-            # or -ENOTTY for ioctls
+            # based on the syscall we see. Mostly we're checking for -ENOENT for
+            # filename-based scs, -ENOTTY for IOCTLs or -EINVAL for reads and writes
             if call.no not in self.target_rvs:
                 sc_name = self.panda.ffi.string(call.name).decode()
                 if sc_name == 'ioctl':
                     target_rv = -25 # -ENOTTY. XXX: Should we check any negative return value?
                 elif sc_name == 'close':
                     target_rv = None # We never care about close failures since we can't see the file name after
+                elif sc_name in ['read', 'write']:
+                    target_rv = -22 # -EINVAL
                 else:
                     target_rv = -2 # -ENOENT
                 self.target_rvs[call.no] = target_rv
@@ -221,7 +220,10 @@ class FileFailures(PyPlugin):
                             continue
                     if fname and len(fname):
                         if any(fname.startswith(x) for x in ["/dev/", "/proc/"]):
-                            self.centralized_log(fname, call_name.replace("sys_", ""))
+                            sc_name = call_name.replace("sys_", "")
+                            if sc_name not in ['ioctl', 'read', 'write']:
+                                sc_name = 'open' # Everything else is basically a failing open (it's a failed access)
+                            self.centralized_log(fname, sc_name)
 
         # One special case: openat needs to combine the base path with the filename
         @panda.ppp("syscalls2", "on_sys_openat_return")
@@ -671,17 +673,13 @@ class FileFailuresAnalysis(PenguinAnalysis):
         # Static pass gives us a path as a string
         # Static analysis doesn't help us figure out what to do though,
         # so just fall back to normal mitigation generation
+
+        # We could add files as if we saw failures - but this seems inefficient. For now let's
+        # just ignore our static results entirely
+
         #return self.get_potential_mitigations(None, path, None)
-        #print("NYI: static mitigations for files")
         return []
 
-
-    @staticmethod
-    def get_default_device(weight):
-        return {
-            'weight': weight,
-            # Default behavior. Error on read/write/ioctl - we'll fix when we see it
-            }
 
     def get_potential_mitigations(self, config: Any, path: str, info: Dict[str, Any], global_state=None, global_lock=None) -> List[Dict[str, Any]]:
         '''
@@ -695,6 +693,18 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         #self.logger.info(f"Generating mitigations for {path} with info {info}")
         results = []
+
+        if path in KNOWN_PATHS:
+            return results
+
+        if path not in config['pseudofiles']:
+            # If the file doesn't exist of course we'll see -EBADF on accesses
+            # to it. First order of business is adding the device. That's all we do here.
+            # Caller maps failing path -> this mitigation so we don't need to specify
+            return [{'weight': 0.5}]
+
+        # This path *is* a pseudofile we added. Any -EBADF errors are something we might want
+        # to handle
         for failtype, failinfo in info.items():
             #print(f"Building mitigations for {path} {failtype} with info {failinfo}")
             try:
@@ -702,15 +712,6 @@ class FileFailuresAnalysis(PenguinAnalysis):
             except KeyError:
                 weight = None
 
-            if path not in config['pseudofiles']:
-                # Does the file exist? If not, we just want to add it. Nice and easy
-                config = deepcopy(config)
-                mitigation = self.get_default_device(0.5)
-                results.append(mitigation)
-                # Nothing to do other than add
-                # XXX: what if a device already exists for real, (not a pseudofile) but we somehow
-                # had a syscall return -ENOENT on it? Could that happen? If so we'd get stuck here
-                continue
 
             if failtype == 'read': # XXX other read syscalls exist too
                 self.logger.info("Adding read-based mitigations")
@@ -744,8 +745,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 results.extend(self.ioctl_mitigations(config, path, failinfo, max_fails[failtype], global_state, global_lock))
 
             else:
-                # For any other failure it's probably just a missing file? Maybe bad permissions?
-                self.logger.warning(f"Unexpected -EBADF failure type {failtype} for {path} which is not a pseudo-file provided")
+                # Not sure how to handle other failures. In parse failures we're looking for -EBADF for accesses
+                # then failing reads/writes (??) and -ENOTTY ioctls
+                self.logger.warning(f"Unexpected failure of type {failtype} recorded for {path} which is not a pseudo-file provided")
                 continue
                 #raise ValueError(f"Unexpected failure type {failtype}")
 
