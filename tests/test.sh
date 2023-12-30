@@ -133,6 +133,12 @@ for arch in "${archs[@]}"; do
   if [[ ! " ${tests[@]} " =~ " combined " ]]; then
     echo "Skipping combined test for $arch"
   else
-    run_test "$arch" "combined" assert_combined 40
+    run_test "$arch" "combined" assert_multirun_ranps 40
+  fi
+
+  if [[ ! " ${tests[@]} " =~ " search " ]]; then
+    echo "Skipping search test for $arch"
+  else
+    run_test "$arch" "search" assert_combined 40
   fi
 done
