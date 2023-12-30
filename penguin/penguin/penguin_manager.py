@@ -449,7 +449,14 @@ class GlobalState:
         self.mitigations_lock = Lock()
         self.mitigations = {}
 
-        # Setup global data
+        mitigation_providers = get_mitigation_providers(base_config)
+        for _, analysis in mitigation_providers.items():
+            with self.failures_lock:
+                self.failures[analysis.ANALYSIS_TYPE] = {}
+
+        # Add static results to known failures and propose static mitigations.
+        # SKIP since we want to prioritize failures we find later (if we found statically
+        # we wouldn't know they were new when they showed up later)
         self.initialize_from_static_results(base_config)
 
     def initialize_from_static_results(self, base_config):
@@ -462,11 +469,7 @@ class GlobalState:
         # Look through base/{files,env}.yaml and use plugins to initialize mitigations
         mitigation_providers = get_mitigation_providers(base_config)
 
-        for plugin_name, analysis in mitigation_providers.items():
-            with self.failures_lock:
-                self.failures[analysis.ANALYSIS_TYPE] = {}
-
-
+        for _, analysis in mitigation_providers.items():
             static_file = os.path.join(self.output_dir, "base", f"{analysis.ANALYSIS_TYPE}.yaml")
             if os.path.isfile(static_file):
                 with open(static_file) as f:

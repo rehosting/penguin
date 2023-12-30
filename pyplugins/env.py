@@ -449,7 +449,11 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                             global_state[self.ANALYSIS_TYPE][varname] = set()
                         global_state[self.ANALYSIS_TYPE][varname].update(dynvals)
             else:
-                # Dynamic search failed. Let's add some default values instead
+                # Dynamic search failed. If we still see varname as 'unset' in our failure log, it's not
+                # being controlled by the kernel boot args - we should store this in our global state
+                # and move on.
+
+                # Otherwise, if the varname is now set, we can fall back to some default values
                 print("env dynamic search found no results. Adding some low-weight defaults:", self.DEFAULT_VALUES)
                 # Start with some placeholders
                 for val in self.DEFAULT_VALUES:
