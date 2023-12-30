@@ -478,7 +478,7 @@ class GlobalState:
                 # or list with just keys (e.g., device filenames that are missing)
                 for k, known_vals in (data if isinstance(data, dict) else {k: [] for k in data}).items():
                     # Record the (potential) failure type: e.g., an environment variable or a filename
-                    self.add_failure(analysis.ANALYSIS_TYPE, k) # E.g., (file, /dev/missing) # XXX: no plugin-specific filtering for these values?
+                    self.add_failure(analysis.ANALYSIS_TYPE, k, bonus_elligible=False) # E.g., (file, /dev/missing) # XXX: no plugin-specific filtering for these values?
 
                     # If our static analysis gave us some potential values, include these first
                     for m in analysis.get_mitigations_from_static(k, known_vals):
@@ -497,7 +497,7 @@ class GlobalState:
                         out += f"\t\t{item}\n"
         return out
 
-    def add_failure(self, fail_type, fail_cause, fail_info=None):
+    def add_failure(self, fail_type, fail_cause, fail_info=None, bonus_elligible=False):
         # in failures[fail_type] we make room for fail_cause and store fail_info if we have any
         '''
         Add a new failure to our global state. E.g., in the file state, we have filename -> [potential mitigations]
@@ -509,15 +509,23 @@ class GlobalState:
         # fail_type = env
         # XXX UNSURE
         '''
+        bonus = 0
         with self.failures_lock:
             if fail_type not in self.failures.keys():
                 raise ValueError(f"add_failure: {fail_type} type unknown")
 
             if fail_cause not in self.failures[fail_type]:
                 self.failures[fail_type][fail_cause] = []
+                if bonus_elligible:
+                    logger.warning(f"New failure observed: {fail_type} {fail_cause}")
+                    bonus += 0.3
 
             if fail_info and fail_info not in self.failures[fail_type][fail_cause]:
                 self.failures[fail_type][fail_cause].append(fail_info)
+                if bonus_elligible:
+                    #logger.info(f"New fail info observed: {fail_info}")
+                    bonus += 0.01 # Very slightly interesting
+        return bonus
 
     def add_mitigation(self, fail_type, failure, mitigation):
         '''
@@ -613,8 +621,8 @@ class Worker:
 
         # *** EMULATE TARGET ***
         #print(f"Start run {run_idx}: with config at {run_dir}/config.yaml")
-        this_logger = logging.getLogger(f"mgr.run{run_idx}")
-        this_logger.info(f"Derived from {node.parent.run_idx if node.parent else 'N/A'} with {node.parent_delta}")
+        this_logger = logging.getLogger(f"mgr.run.{run_idx}")
+        this_logger.warning(f"Derived from {node.parent.run_idx if node.parent else 'N/A'} with {node.parent_delta}")
 
         # Run emulation `n_config_tests` times. If any error, print the error
         for config_idx in range(n_config_tests):
@@ -688,10 +696,12 @@ class Worker:
                     #    raise RuntimeError(f"BUG: {fail_cause} is a failure and a mitigation, returned by {analysis}'s parse_failures")
 
                     node.add_config_failure(analysis.ANALYSIS_TYPE, fail_cause, this_logger, fail_info) # This only stores the latest fail_info. HMM XXX TODO?
-                    self.global_state.add_failure(analysis.ANALYSIS_TYPE, fail_cause, fail_info) # This stores a list of fail_info
+                    fail_bonus = self.global_state.add_failure(analysis.ANALYSIS_TYPE, fail_cause, fail_info, bonus_elligible=node.depth > 2) # This stores a list of fail_info
+                    # Fail bonus is > 0 if we see a new failure type (0.2) or a new fail info (0.1). Add to weights
 
                     # get_mitigations is told the info of the failure, but add_mitigation doesn't need that
                     for m in analysis.get_potential_mitigations(node.config, fail_cause, fail_info, self.global_state.results, self.global_state.results_lock) or []:
+                        m['weight'] += fail_bonus
                         self.global_state.add_mitigation(analysis.ANALYSIS_TYPE, fail_cause, m)
  
             # Write plain list of failures
