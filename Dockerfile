@@ -106,6 +106,8 @@ RUN apt-get update && apt-get install -y \
     fakeroot \
     firefox \
     git \
+    graphviz \
+    graphviz-dev \
     libarchive13 \
     libguestfs-tools \
     libxml2 \
@@ -146,6 +148,7 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
       matplotlib \
       pandas \
       pyelftools \
+      pygraphviz \
       python-owasp-zap-v2.4 \
       python_hosts \
       pyyaml \
