@@ -16,7 +16,7 @@ from threading import Thread, Lock
 
 from .common import yaml
 from .penguin_prep import prepare_run
-from .utils import load_config, dump_config, hash_yaml_config, AtomicCounter, _load_penguin_analysis_from
+from .utils import load_config, dump_config, hash_yaml_config, AtomicCounter, _load_penguin_analysis_from, get_mitigation_providers
 
 coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 
@@ -24,31 +24,6 @@ SCORE_CATEGORIES = ['execs', 'bound_sockets', 'devices_accessed', 'processes_run
                     'blocks_covered', 'nopanic']
 
 logger = logging.getLogger('mgr')
-
-def get_mitigation_providers(config : dict ):
-    """
-    Given a config, pull out all the enabled mitigation providers,
-    load them and return a dict of {ANALYSIS_TYPE: analysis class object}
-
-    Skip plugins that are disabled in config.
-    Raise an error if version of a plugin mismatches the config version
-    """
-    mitigation_providers = {} # ANALYSIS_TYPE -> analysis class object
-    for plugin_name, details in config['plugins'].items():
-        if 'enabled' in details and not details['enabled']:
-            # Disabled plugin - skip
-            continue
-        try:
-            analysis = _load_penguin_analysis_from(plugin_name + ".py")
-        except ValueError as e:
-            continue
-        mitigation_providers[analysis.ANALYSIS_TYPE] = analysis
-        if details['version'] != analysis.VERSION:
-            raise ValueError(f"Config specifies plugin {plugin_name} at version {details['version']} but we got {analysis.VERSION}")
-
-        #print(f"Loaded {plugin_name} at version {details['version']}")
-    return mitigation_providers
-
 
 class Node:
     def __init__(self, config_dict, parent=None, is_group=False, delta=None, weight=0):
