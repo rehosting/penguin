@@ -106,6 +106,7 @@ plugins:
     description: 'Analysis: Track accesses to kernel and uboot environment'
     version: 1.0.0
   pseudofiles:
+    enabled: false
     description: 'Analysis & Intervention: Track failed /dev and /proc files. Hide
       these failures using models specifed in config'
     version: 1.0.0

@@ -1,3 +1,4 @@
 .*.sw*
 pyplugins/__pycache__
 unittest
+tests
