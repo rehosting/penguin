@@ -111,8 +111,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     if not os.path.isfile(config_fs):
         raise ValueError(f"Missing filesystem archive in base directory: {config_fs}")
 
-    files_hash = hash_yaml(static_files)
-    image_filename = f"image_{files_hash}.qcow2"
+    image_filename = f"image_{hash_yaml(conf)}.qcow2"
     config_image = os.path.join(qcow_dir, image_filename)
 
     # Make sure we have a clean out_dir everytime. XXX should we raise an error here instead?
