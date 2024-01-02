@@ -359,9 +359,10 @@ class EnvTrackerAnalysis(PenguinAnalysis):
 
             #print(f"Found {len(dyn_vals)} dynamic values for {target_var}: {dyn_vals}")
 
-            # We found things dynamically. Cool
+            # We found things dynamically. Cool. This is a single failure with details for these values
             if len(dyn_vals) > 0:
-                return [Failure(f"dynval={target_var}", self.ANALYSIS_TYPE, {'values': dyn_vals})]
+                return [Failure(f"dynval={target_var}", self.ANALYSIS_TYPE, {'var': target_var, 'values': dyn_vals,
+                                                                             'source': 'dynamic'})]
             else:
                 # We found nothing. Time to give up on this. Probably an uninteresting variable
                 return []
@@ -419,13 +420,14 @@ class EnvTrackerAnalysis(PenguinAnalysis):
             # XXX: Other plugins could detect failures and propose mitigations even in a dynval run
             # Should we have an 'exclusive' flag on a config that indicates one plugin is the only
             # one who can propose mitigations?
-            if not fail_name.startswith("dynval_"):
-                print("WARNING: Unexpected non-dynval failure in a dynval config:", fail_name, fail_info)
-            
-            elif len(fail_info['values']) > 0:
+            if fail_info['source'] != 'dynamic':
+                raise ValueError(f"Expected source=dynamic for config with {ENV_MAGIC_VAL} but got {fail_info}")
+
+            if len(fail_info['values']) > 0:
                 # If we found some dynamic values, those are our mitigations!
                 for dynval in fail_info['values']:
-                    results.append(Mitigation(fail_name, self.ANALYSIS_TYPE, {'value': dynval, 'source': 'dynamic'}))
+                    name = f'env_{fail_info["var"]}={dynval}'
+                    results.append(Mitigation(name, self.ANALYSIS_TYPE, {'value': dynval, 'source': 'dynamic'}))
                 
             else:
                 # Otherwise, dynamic search failed. If we still see varname as 'unset' in our failure log,
@@ -459,4 +461,10 @@ class EnvTrackerAnalysis(PenguinAnalysis):
 
     def implement_mitigation(self, config : Configuration, failure : Failure, mitigation : Mitigation) -> List[Configuration]:
         # Given a mitigation, add it to a copy of the config and return
-        return [Configuration(f'env_{failure.info["var"]}={mitigation.info["value"]}', deepcopy(config.properties))]
+        name = f'env_{failure.info["var"]}={mitigation.info["value"]}'
+
+        # Properties are the parent's plus we set the variable to the mitigation value
+        new_props = deepcopy(config.properties)
+        new_props[self.ANALYSIS_TYPE][failure.info["var"]] = mitigation.info["value"]
+
+        return [Configuration(name, new_props)]
