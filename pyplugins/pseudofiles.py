@@ -578,7 +578,6 @@ class FileFailuresAnalysis(PenguinAnalysis):
         with open(pjoin(output_dir, outfile_missing)) as f:
             file_failures = yaml.safe_load(f)
 
-        fails = {} # Failure {path: path, info: info}
         # Let's look at all file_failures with paths that end with numbers to decide if they're excessive (> 5) or not
         # If they're excessive, we'll ignore them
         _prefix_counter = {}
@@ -594,17 +593,10 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         ignored_prefixes = set({k for k, v in _prefix_counter.items() if v > 5})
 
-        #warned = False
+        fails = []
         for path, info in file_failures.items():
             if path in KNOWN_PATHS:
                 continue
-
-            # Only select /dev/dsa for now
-            #if path != "/dev/dsa":
-            #    if not warned:
-            #        self.logger.warning(f"HACKY FILTER ignoring {path}")
-            #        warned = True
-            #    continue
 
             if path.startswith("/proc"):
                 # Ignoring proc files, at least for now.
@@ -669,8 +661,6 @@ class FileFailuresAnalysis(PenguinAnalysis):
         '''
         Called by mgr to get mitigations for a given path with details we returned previously from parse_failures
         '''
-
-        print("GET PSEUDOFILE MIT:", failure)
 
         path = failure.info['path']
 
@@ -742,7 +732,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
         if mitigation.info['action'] == 'add':
             # Add file to config. Make sure we have pseudofiles section
             new_config['pseudofiles'][mitigation.info['path']] = {}
-            return Configuration(f"pseudofile_add_{mitigation.info['path']}", self.ANALYSIS_TYPE, new_config)
+            return [Configuration(f"pseudofile_add_{mitigation.info['path']}", new_config)]
         
         if mitigation.info['action'] == 'read_model':
             # If model is zeros we know what to do. Otherwise we don't
@@ -754,7 +744,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     'model': 'zero'
                 }
             }
-            return Configuration(f"pseudofile_read_zeros_{mitigation.info['path']}", self.ANALYSIS_TYPE, new_config)
+            return [Configuration(f"pseudofile_read_zeros_{mitigation.info['path']}", new_config)]
         
         if mitigation.info['action'] == 'write_model':
             if mitigation.info['model'] != 'discard':
@@ -765,7 +755,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     'model': 'discard'
                 }
             }
-            return Configuration(f"pseudofile_write_discard_{mitigation.info['path']}", self.ANALYSIS_TYPE, new_config)
+            return [Configuration(f"pseudofile_write_discard_{mitigation.info['path']}", new_config)]
 
         if mitigation.info['action'] == 'ioctl_model':
             # Model could be symex or return_const
@@ -785,13 +775,13 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 new_config['pseudofiles'][mitigation.info['path']]['ioctl'][mitigation.info['cmd']] = {
                     'model': 'symex'
                 }
-                return Configuration(f"pseudofile_ioctl_{mitigation.info['cmd']:x}_do_symex_{mitigation.info['path']}", self.ANALYSIS_TYPE, new_config)
+                return [Configuration(f"pseudofile_ioctl_{mitigation.info['cmd']:x}_do_symex_{mitigation.info['path']}", new_config)]
 
             new_config['pseudofiles'][mitigation.info['path']]['ioctl'][mitigation.info['cmd']] = {
                 'model': 'return_const',
                 'val': mitigation.info['val']
             }
-            return Configuration(f"pseudofile_ioctl_{mitigation.info['cmd']:x}_symex_{mitigation.info['path']}", self.ANALYSIS_TYPE, new_config)
+            return [Configuration(f"pseudofile_ioctl_{mitigation.info['cmd']:x}_symex_{mitigation.info['path']}", new_config)]
 
         raise ValueError(f"Unknown mitigation action {mitigation.info['action']}")
 

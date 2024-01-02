@@ -1,16 +1,19 @@
 import networkx as nx
 import matplotlib.pyplot as plt
 import pickle
-from typing import Optional, List, Callable, Tuple
+from typing import Optional, List, Callable, Tuple, Dict
+from uuid import uuid4
 
 class GraphNode:
     '''
     Base class for all graph nodes
     '''
-    def __init__(self, id, node_type):
-        assert not any(id.startswith(f"{x}_") for x in ['m', 'c', 'f']), f"Node inheriting from graph node with prefix?"
-        self.gid = f'{node_type[0]}_{id}' # {m/c/f}_id # Graph id - distinguish between types
-        self.id = id # Without prefix
+    def __init__(self, name, node_type):
+        #assert not any(id.startswith(f"{x}_") for x in ['m', 'c', 'f']), f"Node inheriting from graph node with prefix?"
+
+        # globally unique id / graph id. Distinguish between types with same name
+        self.gid = uuid4() #f'{node_type[0]}_{id}' # {m/c/f}_id
+        self.id = name # User friendly name. Can have duplicates, I guess
         self.node_type = node_type
 
     def __repr__(self):
@@ -20,7 +23,7 @@ class GraphNode:
         return {"id": self.id, "type": self.node_type}
 
     def __eq__(self, other):
-        # xxx will need better for merging properties later? failures specifically
+        # xxx will need better for merging properties later? Specifically for failures
         return self.id == other.id and self.node_type == other.node_type
 
     def __hash__(self):
@@ -341,6 +344,16 @@ class ConfigurationGraph:
             raise ValueError(f"Node with ID {node_id} does not exist in the graph.")
 
         return self.graph.nodes[node_id]['object']
+
+    def get_node_by_hash(self, hash : str, hash_fn : Callable[[Dict], str]) -> Optional[GraphNode]:
+        '''
+        Given a hash and a function to calculate the hash of a node, find the node
+        '''
+        for node in self.graph.nodes():
+            #print(f"Hashing {self.graph.nodes[node]['object']} => {hash_fn(self.graph.nodes[node]['object'])}")
+            if hash_fn(self.graph.nodes[node]['object']) == hash:
+                return self.graph.nodes[node]['object']
+        return None
 
 class ConfigurationManager:
     def __init__(self, base_config : Configuration):

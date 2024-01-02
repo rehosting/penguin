@@ -270,7 +270,7 @@ class TargetCmp(PyPlugin):
                 self.env_var_matches.add(x.strip())
 
         # Then filter and combine into output_file
-        # THese are sorted based on how much we like them
+        # These are sorted based on how much we like them
         valid_vars = self.filter_env_var_values(self.target_key, self.env_var_matches)
         with open(pjoin(self.outdir, cmp_output), "w") as f:
             for x in valid_vars:
