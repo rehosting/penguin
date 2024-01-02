@@ -16,7 +16,14 @@ class GraphNode:
 
     def to_dict(self):
         return {"id": self.id, "type": self.node_type}
-    
+
+    def __eq__(self, other):
+        # xxx will need better for merging properties later? failures specifically
+        return self.id == other.id and self.node_type == other.node_type
+
+    def __hash__(self):
+        return hash((self.id, self.node_type))
+
 class Configuration(GraphNode):
     def __init__(self, id, properties):
         '''
@@ -98,6 +105,36 @@ class ConfigurationGraph:
         except KeyError:
             raise ValueError(f"Invalid edge type between {from_node.node_type} and {to_node.node_type}")
 
+    def get_parent_config_and_failure(self, config: Configuration) -> Tuple[Optional[Configuration], Optional[Failure]]:
+        # For the initial config, there are no predecessors, so we don't do anything
+        # We want to check if this iterator is empty, but it's not subscriptable
+        # so we'll just check if it's not empty with next()
+        if not next(self.graph.predecessors(config.id), None):
+            return None, None
+
+        # We should (must) have a single parent config and a single parent mitigation
+
+        parent_config = None
+        parent_failure = None
+
+        for pred in self.graph.predecessors(config.id):
+            if self.graph.nodes[pred]['object'].node_type == 'configuration':
+                parent_config = self.graph.nodes[pred]['object']
+
+            if self.graph.nodes[pred]['object'].node_type == 'mitigation':
+                mitigation_id = pred
+                for failure_pred in self.graph.predecessors(mitigation_id):
+                    if self.graph.nodes[failure_pred]['object'].node_type == 'failure':
+                        parent_failure = self.graph.nodes[failure_pred]['object']
+
+        if not parent_config:
+            raise ValueError(f"Could not find parent config for {config}")
+
+        if not parent_failure:
+            raise ValueError(f"Could not find failure->mitigation path for {config}")
+
+        return parent_config, parent_failure
+
     def report_config_run(self, config: Configuration, health_score: float):
         '''
         After we've run a configuration we have its health score.
@@ -110,7 +147,7 @@ class ConfigurationGraph:
         the weight to a list of weights, and update the weight to be the average of the list.
         This is because mitigations are tested multiple times.
 
-        The goal is to tune our weights such that 
+        The goal is to tune our weights such that
         1) From the parent config, we'll be able to select child configs with high health scores
         2) From the failure we'll be able to select mitigations with high health scores
         '''
@@ -120,43 +157,19 @@ class ConfigurationGraph:
 
         config.health_score = health_score
 
-        # For the initial config, there are no predecessors, so we don't do anything
-        # We want to check if this iterator is empty, but it's not subscriptable
-        # so we'll just check if it's not empty with next()
-        if not next(self.graph.predecessors(config.id), None):
-            return
+        (parent_cc, parent_fail) = self.get_parent_config_and_failure(config)
+        if parent_cc is None:
+            return # Must be the root config!
 
-        # We should (must) have a single parent config and a single parent mitigation
+        self.set_cc_edge_weight(parent_cc, config, health_score)
 
-        found_parent_config = False
-        found_parent_failure = False
+        # Add the weight to weights list. Update weight
+        # We're selecting the failure node XXX: Do we this weight on the
+        # mitigation -> failure edge?
+        parent_fail.weights.append(health_score)
+        parent_fail.weight = sum(parent_fail.weights) / len(parent_fail.weights)
 
-        for pred in self.graph.predecessors(config.id):
-            if self.graph.nodes[pred]['object'].node_type == 'configuration':
-                self.set_cc_edge_weight(pred, config.id, health_score)
-                found_parent_config = True
-
-            if self.graph.nodes[pred]['object'].node_type == 'mitigation':
-                mitigation_id = pred
-                for failure_pred in self.graph.predecessors(mitigation_id):
-                    if self.graph.nodes[failure_pred]['object'].node_type == 'failure':
-                        # We've now found the failure->mitigation path
-                        found_parent_failure = True
-
-                        # Add the weight to weights list. Update weight
-                        # We're selecting the failure node XXX: Do we want an edge?
-                        weights = self.graph.nodes[failure_pred]['object'].weights
-                        weights.append(health_score)
-                        self.graph.nodes[failure_pred]['object'].weight = \
-                            sum(weights) / len(weights)
-
-        if not found_parent_config:
-            raise ValueError(f"Could not find parent config for {config.id}")
-
-        if not found_parent_failure:
-            raise ValueError(f"Could not find failure->mitigation path for {config.id}")
-    
-    def set_cc_edge_weight(self, from_node: str, to_node: str, new_weight: float):
+    def set_cc_edge_weight(self, from_node: Configuration, to_node: Configuration, new_weight: float):
         """
         Set the weight of an edge between two configurations in the graph.
 
@@ -165,20 +178,20 @@ class ConfigurationGraph:
             to_node (str): The ending node of the edge.
             new_weight (float): The new weight to assign to the edge.
         """
-        if not self.graph.has_edge(from_node, to_node):
+        if not self.graph.has_edge(from_node.id, to_node.id):
             raise ValueError("Edge does not exist in the graph.")
-        
+
         # Make sure edge is of type CC
-        edge_type = self.determine_edge_type(self.graph.nodes[from_node]['object'], self.graph.nodes[to_node]['object'])
+        edge_type = self.determine_edge_type(from_node, to_node)
         if edge_type != 'CC':
             raise ValueError(f"Edge between {from_node} and {to_node} is of type {edge_type}, not CC")
 
         # Make sure there wasn't a prior weight
-        if 'weight' in self.graph[from_node][to_node]:
+        if 'weight' in self.graph[from_node.id][to_node.id]:
             raise ValueError(f"CC edge between {from_node} and {to_node} already has weight {self.graph[from_node][to_node]['weight']}")
-        
+
         # Finally update the weight
-        self.graph[from_node][to_node]['weight'] = new_weight
+        self.graph[from_node.id][to_node.id]['weight'] = new_weight
 
     def mitigations_for(self, failure):
         '''
@@ -194,13 +207,20 @@ class ConfigurationGraph:
 
         if not self.graph.has_node(mitigation.id):
             raise ValueError(f"Mitigation {mitigation} does not exist in the graph.")
-        
+
         if not self.graph.has_node(parent_config.id):
             raise ValueError(f"Parent configuration {parent_config} does not exist in the graph.")
 
         # derived_config is our new config - this is probably new
         if not self.graph.has_node(derived_config.id):
+            #print(f"Adding new derived config: {derived_config}")
             self.add_node(derived_config)
+        else:
+            # Assert parent config is a configuration that has been run
+            if self.graph.nodes[parent_config.id]['object'].node_type != 'configuration':
+                raise TypeError(f"Config can't be drived from {parent_config}: that is not a configuration")
+            if not self.graph.nodes[parent_config.id]['object'].run:
+                raise ValueError(f"Can't derive config from un-run {parent_config}")
 
         # We need an edge from the mitigation to the new config
         if not self.graph.has_edge(mitigation.id, derived_config.id):
@@ -209,16 +229,6 @@ class ConfigurationGraph:
         # And an edge from the parent config to the new config
         if not self.graph.has_edge(parent_config.id, derived_config.id):
             self.graph.add_edge(parent_config.id, derived_config.id, type='CC')
-
-    def prune_graph(self):
-        """
-        Prune the graph to remove redundant or fully explored nodes.
-
-        This function removes nodes and edges that are deemed unnecessary for future exploration,
-        based on certain criteria like node redundancy or lack of failure links.
-        """
-        # This is a placeholder for the pruning logic
-        pass
 
     def save_graph(self, file_path: str):
         """
@@ -244,15 +254,25 @@ class ConfigurationGraph:
             raise ValueError("Invalid input type for file_path.")
 
         # Colors based on node type (configuration, failure, mitigation) or edge type (CF, FC, CC)
-        node_colors = {
-            "configuration": "lightblue",
-            "failure": "lightcoral",
-            "mitigation": "lightyellow",
-        }
+        def _node_color(n):
+            node_colors = {
+                "configuration_run": "lightblue",
+                "configuration_pending": "lightgray",
+                "failure": "lightcoral",
+                "mitigation": "lightyellow",
+            }
+            typ = self.graph.nodes[n]['object'].node_type
+
+            # For config, color based on run/pending as well
+            if typ == 'configuration':
+                typ += "_run" if self.graph.nodes[n]['object'].run else "_pending"
+            return node_colors.get(typ, 'red')
+
         edge_colors = {"CF": "black", "FC": "black", "CC": "green"}
         edge_styles = {"CF": "dotted", "FC": "dotted", "CC": "solid"}
 
-        colors = [node_colors.get(self.graph.nodes[node]['object'].node_type, 'lightgray') for node in self.graph.nodes]
+        #colors = [node_colors.get(self.graph.nodes[node]['object'].node_type, 'lightgray') for node in self.graph.nodes]
+        colors = [_node_color(node) for node in self.graph.nodes]
         edge_colors = [edge_colors.get(self.graph.edges[edge]['type'], 'black') for edge in self.graph.edges]
         edge_styles = [edge_styles.get(self.graph.edges[edge]['type'], 'solid') for edge in self.graph.edges]
 
@@ -269,12 +289,12 @@ class ConfigurationGraph:
         pos = nx.nx_agraph.graphviz_layout(self.graph, prog='dot')
 
 
-        nx.draw(self.graph, pos, with_labels=True, node_color=colors, 
+        nx.draw(self.graph, pos, with_labels=True, node_color=colors,
                 edge_color=edge_colors, style=edge_styles, node_size=2500, font_size=10, arrowsize=20)
 
         # Draw edge labels for FM edges
-        for u, v, d in self.graph.edges(data=True):
-            print(f"Edge from {u} to {v} of type {d['type']}. Weight: {d.get('weight', 'NA')}")
+        #for u, v, d in self.graph.edges(data=True):
+        #    print(f"Edge from {u} to {v} of type {d['type']}. Weight: {d.get('weight', 'NA')}")
 
         fm_edge_labels = {(u, v): f"{d['weight']}" for u, v, d in self.graph.edges(data=True) if d['type'] == 'FM'}
         nx.draw_networkx_edge_labels(self.graph, pos, edge_labels=fm_edge_labels, font_color='green')
@@ -289,7 +309,7 @@ class ConfigurationGraph:
         Returns:
             list: A list of configuration IDs that have not been linked to any failures or mitigations.
         """
-        unexplored = [node for node, attrs in self.graph.nodes(data=True) 
+        unexplored = [self.graph.nodes[node]['object'] for node, attrs in self.graph.nodes(data=True)
                     if attrs['object'].node_type == 'configuration' and \
                          not self.graph.nodes[node]['object'].run ]
         return unexplored
@@ -316,8 +336,8 @@ class ConfigurationManager:
     def __init__(self, base_config : Configuration,
                     run_config_f : Callable[[Configuration], Tuple[List[Failure], float]],
                     find_mitigations_f: Callable[[Failure, Configuration], List[Mitigation]],
-                    find_new_configs_f: Callable[[Failure, Mitigation],
-                                                 List[Tuple[Configuration, Configuration]]]):
+                    find_new_configs_f: Callable[[Failure, Mitigation, Configuration],
+                                                 List[Configuration]]):
         '''
         A configuration manager manages exploration of a ConfigurationGraph
         consistings of Configurations, Failures, and Mitigations.
@@ -333,7 +353,7 @@ class ConfigurationManager:
         We dynamically learn/adjust weights for edges in the graph based on
         the health score of a configuration.
 
-        In particular: 
+        In particular:
 
         The graph is initialized with a base config which has not been run,
         and a set of user-provided functions to use during exploration.
@@ -369,6 +389,7 @@ class ConfigurationManager:
         print(f"Run config: {config}")
 
         failures, health_score = self.run_config_f(config)
+        print(f"\tFailures for run: {failures}")
 
         # Sets run, health(?), and updates weights
         self.graph.report_config_run(config, health_score)
@@ -376,7 +397,7 @@ class ConfigurationManager:
         # Now we add new failures that we observed during this run
         for failure in failures:
             if not self.graph.has_node(failure):
-                print("Found new failure:", failure)
+                #print("\tFound new failure:", failure)
                 self.graph.add_node(failure)
             self.graph.add_edge(config, failure)
 
@@ -385,7 +406,6 @@ class ConfigurationManager:
             # Note the failure might not be new, but perhaps the mitigation is
             for mitigation in self.find_mitigations_f(failure, config):
                 if not self.graph.has_node(mitigation):
-                    print("ADDED MITIGATION W ID", mitigation.id)
                     self.graph.add_node(mitigation)
 
                 # Edge should be new? Maybe not
@@ -395,11 +415,14 @@ class ConfigurationManager:
             # we could derive from them.
             #self.find_configs_from_failure(failure)
 
+            print(f"\tCheck mitigations for {failure}")
             for mitigation in self.graph.mitigations_for(failure):
-                for derived_from, config in self.find_new_configs_f(failure, mitigation):
+                print(f"\t\tFound mitigation {mitigation}")
+                for new_config in self.find_new_configs_f(failure, mitigation, config):
+                    print(f"\t\tNew config with mitigation {mitigation}: {new_config}")
                     # Add new config derived from this mitigation
                     #print("Found new config as mitigation for failure:", failure, config)
-                    self.graph.add_derived_configuration(config, derived_from, mitigation)
+                    self.graph.add_derived_configuration(new_config, config, mitigation)
 
     def run_exploration_cycle(self):
         """ Get the best config and run it """
@@ -415,17 +438,48 @@ class ConfigurationManager:
         Select the best configuration to run next. Node can't have been run before
 
         Just return the first unexplored config for now
-        TODO: select based on weight and health score
+
+        TODO: select based on weight and health score.
         we'd want to take config weights + mitigation weights into account
         to identify an un-run config with the highest expected health score
+
+        For each un-run node, we look at its parent config and parent mitigation.
+        We can calculate an expected weight based on these two as:
+
+        expected_weight = parent_config_weight + parent_mitigation_weight
+
         """
 
         unexplored = self.graph.find_unexplored_configurations()
-        if len(unexplored) > 0:
-            return self.graph.get_node(unexplored[0])
-        return None
 
-def main():
+        weights = {} # config -> weight
+        for cc in unexplored:
+            (parent_cc, parent_fail) = self.graph.get_parent_config_and_failure(cc)
+            if parent_cc is None:
+                weights[cc] = cc.weight # No parent failure to consider. Root node?
+                continue
+
+            # We'll calculate the expected weight as the sum of the parent config health
+            # and parent mitigation
+            weight = parent_cc.weight + parent_fail.weight
+            #print(f"For config {cc} parent weights: CC={parent_cc.weight}, fail={parent_fail.weight}. Expected weight: {weight}")
+            weights[cc] = weight
+
+        if len(unexplored) == 0:
+            return None
+
+        # Sort by weight: highest first
+        sorted_weights = sorted(weights.items(), key=lambda x: x[1], reverse=True)
+
+        # Return highest weight
+        return sorted_weights[0][0] # [0] is the config, [1] is the weight
+
+
+def run_test():
+    '''
+    Use stubs to simulate running configs, identifying failures, finding mitigations,
+    and applying them.
+    '''
     base_config = Configuration("config_0", {"some_data": "some_value"})
 
     def run_config(config : Configuration) -> Tuple[List[Failure], float]:
@@ -441,26 +495,42 @@ def main():
                      Failure("failure_B", "stub", {"some_data": "other_value"})],
                 "health_score": 50
             },
-            "config_A0": {
+            "config_A0": { # Still has failure B (Fixed A)
                 "failures":
                     [Failure("failure_B", "stub", {"some_data": "other_value"})],
                 "health_score": 60
             },
-            "config_A1": {
+            "config_A1": { # Still has failure A and B (Fixed nothing)
                 "failures":
-                    [Failure("failure_A", "stub", {"some_data": "some_value"})],
+                    [Failure("failure_A", "stub", {"some_data": "some_value"}),
+                     Failure("failure_B", "stub", {"some_data": "some_value"})],
                 "health_score": 30
             },
-            "config_B0": {
+            "config_B0": { # Still has failure A (Fixed B)
                 "failures":
                     [Failure("failure_A", "stub", {"some_data": "some_value"})],
                 "health_score": 100
             },
-            "config_B1": {
+            "config_B1": { # Still has failure A and B (Fixed nothing)
                 "failures":
-                    [Failure("failure_B", "stub", {"some_data": "other_value"})],
+                    [Failure("failure_A", "stub", {"some_data": "some_value"}),
+                     Failure("failure_B", "stub", {"some_data": "other_value"})],
                 "health_score": 30
             },
+
+            "config_A0B": {
+                "failures": [],
+                "health_score": 110
+            },
+
+            "config_B0A": {
+                "failures":
+                    # A new failure emerges!
+                    [Failure("failure_B0A", "stub", {"some_data": "other_value"})],
+                "health_score": 100
+            },
+
+            # Given config B2A, we'll find config C which works.
             "config_C": {
                 "failures": [],
                 "health_score": 3000
@@ -479,41 +549,62 @@ def main():
             they should produce the same mitigations - but the data may be distinct.
             Graph will need to combine the data
         '''
-        if failure.id == "failure_A":
+        # First check for specific instances of the faiulres where we say they're different?
+        if failure.id == "failure_B" and config.id == 'config_A0':
+            # We ran mitigation A0 to fix failure A. Now we're trying to fix B
+            return [Mitigation("mitigation_A0B", "mitigation", {"some_data": "some_value"})]
+        elif failure.id == "failure_A" and config.id == 'config_B0':
+            # We ran mitigation B0 to fix failure B. Now we're trying to fix A
+            return [Mitigation("mitigation_B0A", "mitigation", {"some_data": "some_value"})]
+
+        # Now some catch-alls
+        elif failure.id == "failure_A":
             return [Mitigation("mitigation_A0", "mitigation", {"some_data": "some_value"}),
                     Mitigation("mitigation_A1", "mitigation", {"some_data": "other_value"})]
         elif failure.id == "failure_B":
             return [Mitigation("mitigation_B0", "mitigation", {"some_data": "some_value"}),
                     Mitigation("mitigation_B1", "mitigation", {"some_data": "other_value"})]
+
+        elif failure.id == "failure_B0A": # and config.id == 'config_B0A':
+            return [Mitigation("mitigation_B0A", "mitigation", {"some_data": "some_value"})]
+
         elif failure.id == "failure_C":
             return []
         else:
-            raise ValueError(f"NYI SIMULATION OF RUN CONFIG: {failure}")
+            raise ValueError(f"NYI SIMULATION OF FIND MITIGATIONS FOR: {failure} from {config}")
 
-    def find_new_configs_f(failure, mitigation):
+    def find_new_configs_f(failure, mitigation, parent_config):
         '''
-        Given a failure and a mitigation, find any new configurations that could be derived from them.
-        Returns tuples of (derived_from, config_id)
+        Given a failure and a mitigation, find any new configurations that could be derived
+        from the parent config. Return list of new configs
         '''
         # STUB
-        if failure.id == 'failure_A':
+        if failure.id == 'failure_A' and parent_config.id == 'config_0':
             if mitigation.id == 'mitigation_A0':
-                return [(Configuration("config_0", {"some_data": "some_value"}),
-                         Configuration("config_A0", {"some_data": "some_value"}))]
+                return [ Configuration("config_A0", {"some_data": "some_value"})]
 
             elif mitigation.id == 'mitigation_A1':
-                return [(Configuration("config_0", {"some_data": "some_value"}),
-                         Configuration("config_A1", {"some_data": "some_value"}))]
+                return [Configuration("config_A1", {"some_data": "some_value"})]
 
-        elif failure.id == 'failure_B':
+        elif failure.id == 'failure_B' and parent_config.id == 'config_0':
             if mitigation.id == 'mitigation_B0':
-                return [(Configuration("config_0", {"some_data": "some_value"}),
-                         Configuration("config_B0", {"some_data": "some_value"}))]
+                return [Configuration("config_B0", {"some_data": "some_value"})]
             elif mitigation.id == 'mitigation_B1':
-                return [(Configuration("config_0", {"some_data": "some_value"}),
-                         Configuration("config_B1", {"some_data": "some_value"})),
-                        (Configuration("config_A0", {"some_data": "some_value"}),
-                         Configuration("config_C", {"some_data": "some_value"})) ]
+                return [ Configuration("config_B1", {"some_data": "some_value"})]
+
+        elif failure.id == 'failure_A' and parent_config.id == 'config_B0':
+            # We ran mitigation B0 to fix failure B. Now we're trying to fix A
+            if mitigation.id == 'mitigation_B0A':
+                return [Configuration("config_B0A", {"some_data": "some_value"})]
+
+        elif failure.id == 'failure_B' and parent_config.id == 'config_A0':
+            if mitigation.id == 'mitigation_A0B':
+                return [Configuration("config_A0B", {"some_data": "some_value"})]
+
+        elif failure.id == 'failure_B0A' and parent_config.id == 'config_B0A':
+            if mitigation.id == 'mitigation_B0A':
+                return [Configuration("config_C", {"some_data": "some_value"})]
+
         return []
 
 
@@ -522,12 +613,13 @@ def main():
                                         find_new_configs_f)
 
     # Run a series of exploration cycles
-    for _ in range(15):  # Adjust the range as needed for testing
+    for i in range(15):
         if not config_manager.run_exploration_cycle():
             break
+        config_manager.graph.create_png(f"/results/config_graph{i}.png")
 
     # Visualize the resulting graph
     config_manager.graph.create_png("/results/config_graph.png")
 
 if __name__ == "__main__":
-    main()
+    run_test()
