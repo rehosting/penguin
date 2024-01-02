@@ -542,7 +542,7 @@ def run_test():
         except KeyError:
             raise ValueError(f"NYI SIMULATION OF RUN CONFIG: {config}")
 
-    def find_mitigations_f(failure, config):
+    def find_mitigations_f(failure : Failure, config; Configuration) -> List[Mitigation]:
         '''
         Given a failure and a config, identify mitigations that could be applied.
         This should be deterministic - if two failures have the same mitigations
@@ -573,7 +573,7 @@ def run_test():
         else:
             raise ValueError(f"NYI SIMULATION OF FIND MITIGATIONS FOR: {failure} from {config}")
 
-    def find_new_configs_f(failure, mitigation, parent_config):
+    def find_new_configs_f(failure : Failure, mitigation : Mitigation, parent_config : Configuration) -> List[Configuration]:
         '''
         Given a failure and a mitigation, find any new configurations that could be derived
         from the parent config. Return list of new configs
