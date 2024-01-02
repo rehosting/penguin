@@ -1,5 +1,6 @@
 from typing import List, Any, Union, Dict, Optional
 from abc import ABC, abstractmethod
+from penguin.graphs import Configuration, Failure, Mitigation
 
 class PenguinAnalysis(ABC):
     ANALYSIS_TYPE = None
@@ -11,16 +12,15 @@ class PenguinAnalysis(ABC):
         return f'Penguin_Analysis:{self.ANALYSIS_TYPE}'
 
     @abstractmethod
-    def parse_failures(self, output_dir: str) -> Dict[Any,Any]:
+    def parse_failures(self, output_dir) -> List[Failure]:
         '''
         Given a run's output directory, parse the failures as reported by
-        our corresponding PyPlugin and return a list some self-parsable errors
+        our corresponding PyPlugin and return as a list
         '''
         pass
 
     @abstractmethod
-    def get_potential_mitigations(self, state: Optional[Dict[Any,Any]], global_state: Any) -> Optional[List[Any]]:
-
+    def get_potential_mitigations(self, config : Configuration, failure : Failure) -> List[Mitigation]:
         '''
         Given a configuration and the global state, what potential mitigations
         could be deployed?
@@ -28,7 +28,7 @@ class PenguinAnalysis(ABC):
         pass
 
     @abstractmethod
-    def implement_mitigation(self, config: Any, fail_cause: Any, mitigation: Any) -> Any:
+    def implement_mitigation(self, config : Configuration, failure : Failure, mitigation : Mitigation) -> Configuration:
         '''
         Given a configuration a fail cause and a mitigation, return a new configuration
         with the mitigation applied.

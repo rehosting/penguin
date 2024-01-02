@@ -457,11 +457,6 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         # If that fails, we'll add some defaults
         return [Mitigation('magic_'+var_name, self.ANALYSIS_TYPE, {'value': ENV_MAGIC_VAL, 'source': 'magic'})]
 
-    def implement_mitigation(self, config, failure, mitigation) -> Configuration:
+    def implement_mitigation(self, config : Configuration, failure : Failure, mitigation : Mitigation) -> List[Configuration]:
         # Given a mitigation, add it to a copy of the config and return
-        new_config = deepcopy(config)
-
-        #assert(failure not in new_config[self.ANALYSIS_TYPE]) # This is okay - for DYNVAL-based analyses we'll clobber
-        # We'll update the config to set the variable to the mitigation value
-        new_config[self.ANALYSIS_TYPE][failure] = mitigation['value']
-        return new_config
+        return [Configuration(f'env_{failure.info["var"]}={mitigation.info["value"]}', deepcopy(config.properties))]

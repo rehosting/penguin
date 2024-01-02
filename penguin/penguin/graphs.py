@@ -207,7 +207,7 @@ class ConfigurationGraph:
         Given a failure, return a list of mitigations that could be applied
         '''
         return [self.graph.nodes[n]['object'] for n in self.graph.successors(failure.id) \
-                    if self.graph.nodes[n]['object'].type == 'mitigation' ]
+                    if self.graph.nodes[n]['object'].node_type == 'mitigation' ]
 
     def add_derived_configuration(self, derived_config: GraphNode, parent_config: GraphNode, mitigation: GraphNode):
         """
@@ -418,6 +418,7 @@ class ConfigurationManager:
                     print("Graph already has node for mit:", mitigation)
 
                 # Edge should be new? Maybe not
+                print(f"Add edge from {failure} to {mitigation}")
                 self.graph.add_edge(failure, mitigation)
 
             print(f"\tCheck mitigations for {failure}")
