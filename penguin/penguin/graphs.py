@@ -9,7 +9,8 @@ class GraphNode:
     '''
     def __init__(self, id, node_type):
         assert not any(id.startswith(f"{x}_") for x in ['m', 'c', 'f']), f"Node inheriting from graph node with prefix?"
-        self.id = f'{node_type[0]}_{id}' # {m/c/f}_id
+        self.gid = f'{node_type[0]}_{id}' # {m/c/f}_id # Graph id - distinguish between types
+        self.id = id # Without prefix
         self.node_type = node_type
 
     def __repr__(self):
@@ -78,18 +79,18 @@ class ConfigurationGraph:
         if not isinstance(node, GraphNode):
             raise TypeError(f"node must be an instance of GraphNode or its subclasses. got {node}")
 
-        if self.graph.has_node(node.id):
-            raise ValueError(f"Node with id {node.id} already exists")
+        if self.graph.has_node(node.gid):
+            raise ValueError(f"Node with id {node.gid} already exists")
 
-        self.graph.add_node(node.id, object=node)
+        self.graph.add_node(node.gid, object=node)
 
     def has_node(self, node: GraphNode):
-        return self.graph.has_node(node.id)
+        return self.graph.has_node(node.gid)
 
     def add_edge(self, from_node: GraphNode, to_node: GraphNode):
         edge_type = self.determine_edge_type(from_node, to_node)
         if edge_type:
-            self.graph.add_edge(from_node.id, to_node.id, type=edge_type, weight=1.0)
+            self.graph.add_edge(from_node.gid, to_node.gid, type=edge_type, weight=1.0)
         else:
             raise ValueError(f"Invalid edge type between {from_node.node_type} and {to_node.node_type}")
 
@@ -110,10 +111,10 @@ class ConfigurationGraph:
         '''
         Given a config, find its parent config. Returns None if it's the root config
         '''
-        if not next(self.graph.predecessors(config.id), None):
+        if not next(self.graph.predecessors(config.gid), None):
             return None # Root
 
-        for pred in self.graph.predecessors(config.id):
+        for pred in self.graph.predecessors(config.gid):
             if self.graph.nodes[pred]['object'].node_type == 'configuration':
                 return self.graph.nodes[pred]['object']
         raise ValueError(f"Could not find parent config for {config}")
@@ -122,11 +123,11 @@ class ConfigurationGraph:
         '''
         Given a config, find its parent failure. Returns None if it's the root config
         '''
-        if not next(self.graph.predecessors(config.id), None):
+        if not next(self.graph.predecessors(config.gid), None):
             return None # Root
 
         mitigation = self.get_parent_mitigation(config)
-        for failure_pred in self.graph.predecessors(mitigation.id):
+        for failure_pred in self.graph.predecessors(mitigation.gid):
             if self.graph.nodes[failure_pred]['object'].node_type == 'failure':
                 return self.graph.nodes[failure_pred]['object']
         raise ValueError(f"Could not find parent config for {config}")
@@ -135,10 +136,10 @@ class ConfigurationGraph:
         '''
         Given a config, find its parent mitigation. Returns None if it's the root config
         '''
-        if not next(self.graph.predecessors(config.id), None):
+        if not next(self.graph.predecessors(config.gid), None):
             return None # Root
 
-        for pred in self.graph.predecessors(config.id):
+        for pred in self.graph.predecessors(config.gid):
             if self.graph.nodes[pred]['object'].node_type == 'mitigation':
                return self.graph.nodes[pred]['object']
         raise ValueError(f"Could not find parent mitigation for {config}")
@@ -161,7 +162,7 @@ class ConfigurationGraph:
         '''
 
         # Update node to be run
-        self.graph.nodes[config.id]['object'].run = True
+        self.graph.nodes[config.gid]['object'].run = True
 
         config.health_score = health_score
 
@@ -187,7 +188,7 @@ class ConfigurationGraph:
             to_node (str): The ending node of the edge.
             new_weight (float): The new weight to assign to the edge.
         """
-        if not self.graph.has_edge(from_node.id, to_node.id):
+        if not self.graph.has_edge(from_node.gid, to_node.gid):
             raise ValueError("Edge does not exist in the graph.")
 
         # Make sure edge is of type CC
@@ -196,17 +197,17 @@ class ConfigurationGraph:
             raise ValueError(f"Edge between {from_node} and {to_node} is of type {edge_type}, not CC")
 
         # Make sure there wasn't a prior weight
-        if 'weight' in self.graph[from_node.id][to_node.id]:
+        if 'weight' in self.graph[from_node.gid][to_node.gid]:
             raise ValueError(f"CC edge between {from_node} and {to_node} already has weight {self.graph[from_node][to_node]['weight']}")
 
         # Finally update the weight
-        self.graph[from_node.id][to_node.id]['weight'] = new_weight
+        self.graph[from_node.gid][to_node.gid]['weight'] = new_weight
 
     def mitigations_for(self, failure):
         '''
         Given a failure, return a list of mitigations that could be applied
         '''
-        return [self.graph.nodes[n]['object'] for n in self.graph.successors(failure.id) \
+        return [self.graph.nodes[n]['object'] for n in self.graph.successors(failure.gid) \
                     if self.graph.nodes[n]['object'].node_type == 'mitigation' ]
 
     def add_derived_configuration(self, derived_config: GraphNode, parent_config: GraphNode, mitigation: GraphNode):
@@ -214,30 +215,30 @@ class ConfigurationGraph:
         Add a new configuration derived from a specific mitigation and parent configuration.
         """
 
-        if not self.graph.has_node(mitigation.id):
+        if not self.graph.has_node(mitigation.gid):
             raise ValueError(f"Mitigation {mitigation} does not exist in the graph.")
 
-        if not self.graph.has_node(parent_config.id):
+        if not self.graph.has_node(parent_config.gid):
             raise ValueError(f"Parent configuration {parent_config} does not exist in the graph.")
 
         # derived_config is our new config - this is probably new
-        if not self.graph.has_node(derived_config.id):
+        if not self.graph.has_node(derived_config.gid):
             #print(f"Adding new derived config: {derived_config}")
             self.add_node(derived_config)
         else:
             # Assert parent config is a configuration that has been run
-            if self.graph.nodes[parent_config.id]['object'].node_type != 'configuration':
+            if self.graph.nodes[parent_config.gid]['object'].node_type != 'configuration':
                 raise TypeError(f"Config can't be drived from {parent_config}: that is not a configuration")
-            if not self.graph.nodes[parent_config.id]['object'].run:
+            if not self.graph.nodes[parent_config.gid]['object'].run:
                 raise ValueError(f"Can't derive config from un-run {parent_config}")
 
         # We need an edge from the mitigation to the new config
-        if not self.graph.has_edge(mitigation.id, derived_config.id):
-            self.graph.add_edge(mitigation.id, derived_config.id, type='MC')
+        if not self.graph.has_edge(mitigation.gid, derived_config.gid):
+            self.graph.add_edge(mitigation.gid, derived_config.gid, type='MC')
 
         # And an edge from the parent config to the new config
-        if not self.graph.has_edge(parent_config.id, derived_config.id):
-            self.graph.add_edge(parent_config.id, derived_config.id, type='CC')
+        if not self.graph.has_edge(parent_config.gid, derived_config.gid):
+            self.graph.add_edge(parent_config.gid, derived_config.gid, type='CC')
 
     def save_graph(self, file_path: str):
         """
@@ -412,23 +413,20 @@ class ConfigurationManager:
             # Note the failure might not be new, but perhaps the mitigation is
             for mitigation in find_mitigations_f(failure, config):
                 if not self.graph.has_node(mitigation):
-                    print(f"Add mitigation node:", mitigation)
+                    #print(f"Add mitigation node:", mitigation)
                     self.graph.add_node(mitigation)
-                else:
-                    print("Graph already has node for mit:", mitigation)
 
                 # Edge should be new? Maybe not
-                print(f"Add edge from {failure} to {mitigation}")
+                #print(f"Add edge from {failure} to {mitigation}")
                 self.graph.add_edge(failure, mitigation)
 
-            print(f"\tCheck mitigations for {failure}")
             #for mitigation in self.graph.mitigations_for(failure):
             mits = self.graph.mitigations_for(failure)
-            print('\t\tFound mitigations:', mits)
+            #print('\t\tFound mitigations:', mits)
             for mitigation in mits:
-                print(f"\t\tFound mitigation {mitigation}")
+                #print(f"\t\tFound mitigation {mitigation}")
                 for new_config in find_new_configs_f(failure, mitigation, config):
-                    print(f"\t\tNew config with mitigation {mitigation}: {new_config}")
+                    #print(f"\t\tNew config with mitigation {mitigation}: {new_config}")
                     # Add new config derived from this mitigation
                     #print("Found new config as mitigation for failure:", failure, config)
                     self.graph.add_derived_configuration(new_config, config, mitigation)

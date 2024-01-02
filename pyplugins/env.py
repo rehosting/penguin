@@ -414,7 +414,6 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         fail_info = failure.info
 
         if config and any(v == ENV_MAGIC_VAL for k, v in config[self.ANALYSIS_TYPE].items()):
-            print(f"Get mitigation for magic-based env")
             results = []
             # Don't think we should've seen any other failures
             # XXX: Other plugins could detect failures and propose mitigations even in a dynval run
@@ -435,7 +434,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                 # state and move on. (TODO)
 
                 # Otherwise, if the varname is now set, we can fall back to some default values
-                print("env dynamic search found no results. Adding some low-weight defaults:", self.DEFAULT_VALUES)
+                #print("env dynamic search found no results. Adding some low-weight defaults:", self.DEFAULT_VALUES)
                 # Start with some placeholders
                 for val in self.DEFAULT_VALUES:
                     #results.append({'value': val, 'weight': 0.1}) # WEIGHT 0.1 to use a default
@@ -445,7 +444,6 @@ class EnvTrackerAnalysis(PenguinAnalysis):
 
         # If we get here we're NOT doing a dynamic search.
         var_name = fail_info['var']
-        print(f"Get mitigation for non-magic unset variable: {fail_name}: {var_name}")
 
         existing_vars = list(config[self.ANALYSIS_TYPE].keys()) if config else []
         if var_name in existing_vars:
@@ -454,7 +452,6 @@ class EnvTrackerAnalysis(PenguinAnalysis):
             print(f"UHHHH {var_name} was already set but it was also our failure")
             return []
         
-        print(f"One mitigation for {var_name}: magic")
         # Otherwise: variable was unset. The only mitigation we can propose here is to try magic values.
         # If that fails, we'll add some defaults
         return [Mitigation('magic_'+var_name, self.ANALYSIS_TYPE, {'value': ENV_MAGIC_VAL, 'source': 'magic'})]
