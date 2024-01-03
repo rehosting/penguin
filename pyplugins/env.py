@@ -4,7 +4,7 @@ import re
 from os.path import dirname, join as pjoin, isfile
 from pandare import PyPlugin
 from copy import deepcopy
-from typing import List
+from typing import List, Optional
 try:
     from penguin import PenguinAnalysis, yaml
     from penguin.graphs import Failure, Mitigation, Configuration
@@ -361,7 +361,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
 
             # We found things dynamically. Cool. This is a single failure with details for these values
             if len(dyn_vals) > 0:
-                return [Failure(f"dynval={target_var}", self.ANALYSIS_TYPE, {'var': target_var, 'values': dyn_vals,
+                return [Failure(f"dynval_{target_var}", self.ANALYSIS_TYPE, {'var': target_var, 'values': dyn_vals,
                                                                              'source': 'dynamic'})]
             else:
                 # We found nothing. Time to give up on this. Probably an uninteresting variable
