@@ -410,12 +410,16 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         print(f"Fail id: {failure.id}, fail_type: {failure.type}, fail_info: {failure.info}")
         # Expect failure_type to be envone, not env?
 
-        fail_name = failure.id
         fail_info = failure.info
+        var_name = fail_info['var']
 
         if config and any(v == ENV_MAGIC_VAL for k, v in config[self.ANALYSIS_TYPE].items()):
             results = []
-            # Don't think we should've seen any other failures
+            # If variable is used but dynval failed, we can add some default values to try
+            # Should these nodes come out of the parent (e.g., the failure before the magic_varname
+            # mitigation?) Maybe okay here for now, but dynval is almost like a side-task
+            # Perhaps the exclusive flag could help here with prioritizing these differently from normal?
+
             # XXX: Other plugins could detect failures and propose mitigations even in a dynval run
             # Should we have an 'exclusive' flag on a config that indicates one plugin is the only
             # one who can propose mitigations?
@@ -425,43 +429,35 @@ class EnvTrackerAnalysis(PenguinAnalysis):
             if len(fail_info['values']) > 0:
                 # If we found some dynamic values, those are our mitigations!
                 for dynval in fail_info['values']:
-                    name = f'env_{fail_info["var"]}={dynval}'
-                    results.append(Mitigation(name, self.ANALYSIS_TYPE, {'value': dynval, 'source': 'dynamic'}))
-                
+                    results.append(Mitigation(dynval, self.ANALYSIS_TYPE, {'value': dynval, 'var': var_name,
+                                                                         'source': 'dynamic'}))
             else:
                 # Otherwise, dynamic search failed. If we still see varname as 'unset' in our failure log,
                 # it's not being controlled by the kernel boot args - we should store this in our global
                 # state and move on. (TODO)
-
-                # Otherwise, if the varname is now set, we can fall back to some default values
-                #print("env dynamic search found no results. Adding some low-weight defaults:", self.DEFAULT_VALUES)
-                # Start with some placeholders
                 for val in self.DEFAULT_VALUES:
-                    #results.append({'value': val, 'weight': 0.1}) # WEIGHT 0.1 to use a default
-                    results.append(Mitigation(fail_name, self.ANALYSIS_TYPE, {'value': val, 'source': 'default'}))
-
+                    results.append(Mitigation(val, self.ANALYSIS_TYPE, {'value': val, 'var': var_name,
+                                                                              'source': 'default'}))
             return results
 
         # If we get here we're NOT doing a dynamic search.
-        var_name = fail_info['var']
-
         existing_vars = list(config[self.ANALYSIS_TYPE].keys()) if config else []
         if var_name in existing_vars:
             # Can't mitigate an unset variable that's already set by our config. If it was magic
             # value, we would've handled above. But we're here so it must be set to a concrete value
-            print(f"UHHHH {var_name} was already set but it was also our failure")
-            return []
+            raise ValueError(f"{var_name} was already set but it was also our failure - what's happening")
         
         # Otherwise: variable was unset. The only mitigation we can propose here is to try magic values.
         # If that fails, we'll add some defaults
-        return [Mitigation('magic_'+var_name, self.ANALYSIS_TYPE, {'value': ENV_MAGIC_VAL, 'source': 'magic'})]
+        return [Mitigation('magic_'+var_name, self.ANALYSIS_TYPE, {'value': ENV_MAGIC_VAL, 'var': var_name,
+                                                                   'source': 'magic'})]
 
     def implement_mitigation(self, config : Configuration, failure : Failure, mitigation : Mitigation) -> List[Configuration]:
         # Given a mitigation, add it to a copy of the config and return
-        name = f'env_{failure.info["var"]}={mitigation.info["value"]}'
+        name = f'{mitigation.info["value"]}'
 
         # Properties are the parent's plus we set the variable to the mitigation value
-        new_props = deepcopy(config.properties)
-        new_props[self.ANALYSIS_TYPE][failure.info["var"]] = mitigation.info["value"]
+        new_props = deepcopy(config.info)
+        new_props[self.ANALYSIS_TYPE][mitigation.info["var"]] = mitigation.info["value"]
 
         return [Configuration(name, new_props)]

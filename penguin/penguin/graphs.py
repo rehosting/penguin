@@ -15,6 +15,7 @@ class GraphNode:
         self.gid = uuid4() #f'{node_type[0]}_{id}' # {m/c/f}_id
         self.id = name # User friendly name. Can have duplicates, I guess
         self.node_type = node_type
+        self.info = {}
 
     def __repr__(self):
         return f"{self.node_type}({self.id})"
@@ -23,14 +24,27 @@ class GraphNode:
         return {"id": self.id, "type": self.node_type}
 
     def __eq__(self, other):
-        # xxx will need better for merging properties later? Specifically for failures
-        return self.id == other.id and self.node_type == other.node_type
+        return (isinstance(other, GraphNode) and
+            self.id == other.id and
+            self.node_type == other.node_type and
+            self.info == other.info)
 
     def __hash__(self):
-        return hash((self.id, self.node_type))
+        return hash(self._recursive_hash(self.info))
+
+    def _recursive_hash(self, item):
+        if isinstance(item, dict):
+            return frozenset((key, self._recursive_hash(value)) for key, value in item.items())
+        elif isinstance(item, list):
+            return tuple(self._recursive_hash(elem) for elem in item)
+        elif isinstance(item, set):
+            return frozenset(self._recursive_hash(elem) for elem in item)
+        else:
+            # For immutable types like ints, strings, tuples
+            return item
 
 class Configuration(GraphNode):
-    def __init__(self, id, properties):
+    def __init__(self, id, info = None):
         '''
         A configuration is a key value store of various properties.
         These are the inputs to our target system.
@@ -39,7 +53,7 @@ class Configuration(GraphNode):
         super().__init__(id, "configuration")
         self.run=False
         self.weight = 1.0
-        self.properties = properties
+        self.info = info if info else {}
 
 
 class Failure(GraphNode):
@@ -81,6 +95,10 @@ class ConfigurationGraph:
     def add_node(self, node: GraphNode):
         if not isinstance(node, GraphNode):
             raise TypeError(f"node must be an instance of GraphNode or its subclasses. got {node}")
+
+        if existing := self.get_existing_node(node):
+            #print(f"WARNING REPLACING {node} with existing {node}")
+            raise ValueError(f"Refusing to replace {existing} with {node} as they're equal")
 
         if self.graph.has_node(node.gid):
             raise ValueError(f"Node with id {node.gid} already exists")
@@ -346,15 +364,36 @@ class ConfigurationGraph:
 
         return self.graph.nodes[node_id]['object']
 
-    def get_node_by_hash(self, hash : str, hash_fn : Callable[[Dict], str]) -> Optional[GraphNode]:
+    def get_existing_node_or_self(self, new_node : GraphNode ) -> GraphNode:
         '''
-        Given a hash and a function to calculate the hash of a node, find the node
+        Given a new node, return the existing node in the graph if it exists.
+        Otherwise return the new node. Check with hashing of node object
         '''
         for node in self.graph.nodes():
-            #print(f"Hashing {self.graph.nodes[node]['object']} => {hash_fn(self.graph.nodes[node]['object'])}")
-            if hash_fn(self.graph.nodes[node]['object']) == hash:
+            if self.graph.nodes[node]['object'] == new_node:
+                # Found an existing node
+                return self.graph.nodes[node]['object']
+
+        # No existing node
+        return new_node
+    
+    def get_existing_node(self, new_node : GraphNode ) -> Optional[GraphNode]:
+        for node in self.graph.nodes():
+            if self.graph.nodes[node]['object'] == new_node:
+                # Found an existing node
                 return self.graph.nodes[node]['object']
         return None
+
+
+    #def get_node_by_hash(self, hash : str, hash_fn : Callable[[Dict], str]) -> Optional[GraphNode]:
+    #    '''
+    #    Given a hash and a function to calculate the hash of a node, find the node
+    #    '''
+    #    for node in self.graph.nodes():
+    #        #print(f"Hashing {self.graph.nodes[node]['object']} => {hash_fn(self.graph.nodes[node]['object'])}")
+    #        if hash_fn(self.graph.nodes[node]['object']) == hash:
+    #            return self.graph.nodes[node]['object']
+    #    return None
 
 class ConfigurationManager:
     def __init__(self, base_config : Configuration):
@@ -397,9 +436,9 @@ class ConfigurationManager:
 
     def run_configuration(self, config : Configuration,
                           run_config_f : Callable[[Configuration], Tuple[List[Failure], float]],
-                            find_mitigations_f: Callable[[Failure, Configuration], List[Mitigation]],
-                            find_new_configs_f: Callable[[Failure, Mitigation, Configuration],
-                                                         List[Configuration]]):
+                          find_mitigations_f: Callable[[Failure, Configuration], List[Mitigation]],
+                          find_new_configs_f: Callable[[Failure, Mitigation, Configuration],
+                                                       List[Configuration]]):
 
         """
         Run a given configuration to get a list of failure and a health score.
@@ -417,29 +456,37 @@ class ConfigurationManager:
 
         # Now we add new failures that we observed during this run
         for failure in failures:
-            if not self.graph.has_node(failure):
-                #print("\tFound new failure:", failure)
+            if existing_node := self.graph.get_existing_node(failure):
+                # Previously reported failure. Ok, let's use that one!
+                failure = existing_node
+            else:
+                # New node
                 self.graph.add_node(failure)
+
+            # Add edge
             self.graph.add_edge(config, failure)
 
             # Now for each of these failures, let's see if there are new mitigations
             # we could apply. We know the configuration that was run, and the failure.
             # Note the failure might not be new, but perhaps the mitigation is
             for mitigation in find_mitigations_f(failure, config):
+                if existing_mit := self.graph.get_existing_node(mitigation):
+                    mitigation = existing_mit
+
                 if not self.graph.has_node(mitigation):
-                    #print(f"Add mitigation node:", mitigation)
                     self.graph.add_node(mitigation)
 
                 # Edge should be new? Maybe not
                 #print(f"Add edge from {failure} to {mitigation}")
                 self.graph.add_edge(failure, mitigation)
 
-            #for mitigation in self.graph.mitigations_for(failure):
-            mits = self.graph.mitigations_for(failure)
-            #print('\t\tFound mitigations:', mits)
-            for mitigation in mits:
+            for mitigation in self.graph.mitigations_for(failure):
                 #print(f"\t\tFound mitigation {mitigation}")
                 for new_config in find_new_configs_f(failure, mitigation, config):
+
+                    if existing_config := self.graph.get_existing_node(new_config):
+                        new_config = existing_config
+
                     #print(f"\t\tNew config with mitigation {mitigation}: {new_config}")
                     # Add new config derived from this mitigation
                     #print("Found new config as mitigation for failure:", failure, config)

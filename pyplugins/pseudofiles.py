@@ -724,7 +724,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
     def implement_mitigation(self, config : Configuration, failure : Failure, mitigation : Mitigation) -> List[Configuration]:
         # Given a mitigation update config to make it happen
 
-        new_config = deepcopy(config.properties)
+        new_config = deepcopy(config.info)
 
         if 'pseudofiles' not in new_config:
             new_config['pseudofiles'] = {}
