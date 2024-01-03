@@ -466,7 +466,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         if hasattr(mitigation.info, 'source') and mitigation.info['source'] == 'need_dynamic':
             new_props['exclusive'] = self.ANALYSIS_TYPE
         elif 'exclusive' in new_props:
-            # Since we're here, it must be our exclusive
+            # Since we're here, it must be our exclusive. We can clear it now since it's not needs_dynamic
             assert(new_props['exclusive'] == self.ANALYSIS_TYPE), f"Unexpected exclusive in {self.ANALYSIS_TYPE}: {new_props['exclusive']}"
             del mitigation.info['source']
 

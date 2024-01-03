@@ -735,7 +735,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
         if mitigation.info['action'] == 'add':
             # Add file to config. Make sure we have pseudofiles section
             new_config['pseudofiles'][mitigation.info['path']] = {}
-            return [Configuration(f"pseudofile_add_{mitigation.info['path']}", new_config)]
+            return [Configuration(mitigation.info['path'], new_config)]
         
         if mitigation.info['action'] == 'read_model':
             # If model is zeros we know what to do. Otherwise we don't
@@ -747,7 +747,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     'model': 'zero'
                 }
             }
-            return [Configuration(f"pseudofile_read_zeros_{mitigation.info['path']}", new_config)]
+            return [Configuration(f"read_zeros", new_config)]
         
         if mitigation.info['action'] == 'write_model':
             if mitigation.info['model'] != 'discard':
@@ -758,7 +758,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     'model': 'discard'
                 }
             }
-            return [Configuration(f"pseudofile_write_discard_{mitigation.info['path']}", new_config)]
+            return [Configuration(f"write_discard", new_config)]
 
         if mitigation.info['action'] == 'ioctl_model':
             # Model could be symex or return_const
@@ -781,13 +781,14 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
                 # The symex model is just for us - don't let anyone else try to fix failures
                 new_config['exclusive'] = self.ANALYSIS_TYPE
-                return [Configuration(f"pseudofile_ioctl_{mitigation.info['cmd']:x}_do_symex_{mitigation.info['path']}", new_config)]
+                return [Configuration(f"symex_{mitigation.info['cmd']:x}", new_config)]
 
+            # non-symex:
             new_config['pseudofiles'][mitigation.info['path']]['ioctl'][mitigation.info['cmd']] = {
                 'model': 'return_const',
                 'val': mitigation.info['val']
             }
-            return [Configuration(f"pseudofile_ioctl_{mitigation.info['cmd']:x}_symex_{mitigation.info['path']}", new_config)]
+            return [Configuration(f"const_{mitigation.info['cmd']:x}", new_config)]
 
         raise ValueError(f"Unknown mitigation action {mitigation.info['action']}")
 
