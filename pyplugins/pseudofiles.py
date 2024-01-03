@@ -725,6 +725,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
         # Given a mitigation update config to make it happen
 
         new_config = deepcopy(config.info)
+        if hasattr(new_config, 'exclusive'):
+            del new_config['exclusive']
 
         if 'pseudofiles' not in new_config:
             new_config['pseudofiles'] = {}
@@ -776,6 +778,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 new_config['pseudofiles'][mitigation.info['path']]['ioctl'][mitigation.info['cmd']] = {
                     'model': 'symex'
                 }
+
+                # The symex model is just for us - don't let anyone else try to fix failures
+                new_config['exclusive'] = self.ANALYSIS_TYPE
                 return [Configuration(f"pseudofile_ioctl_{mitigation.info['cmd']:x}_do_symex_{mitigation.info['path']}", new_config)]
 
             new_config['pseudofiles'][mitigation.info['path']]['ioctl'][mitigation.info['cmd']] = {

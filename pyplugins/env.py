@@ -430,7 +430,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                 # If we found some dynamic values, those are our mitigations!
                 for dynval in fail_info['values']:
                     results.append(Mitigation(dynval, self.ANALYSIS_TYPE, {'value': dynval, 'var': var_name,
-                                                                         'source': 'dynamic'}))
+                                                                         'source': 'from_dynamic'}))
             else:
                 # Otherwise, dynamic search failed. If we still see varname as 'unset' in our failure log,
                 # it's not being controlled by the kernel boot args - we should store this in our global
@@ -450,14 +450,24 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         # Otherwise: variable was unset. The only mitigation we can propose here is to try magic values.
         # If that fails, we'll add some defaults
         return [Mitigation('magic_'+var_name, self.ANALYSIS_TYPE, {'value': ENV_MAGIC_VAL, 'var': var_name,
-                                                                   'source': 'magic'})]
+                                                                   'source': 'need_dynamic'})]
 
     def implement_mitigation(self, config : Configuration, failure : Failure, mitigation : Mitigation) -> List[Configuration]:
         # Given a mitigation, add it to a copy of the config and return
         name = f'{mitigation.info["value"]}'
 
+        assert(mitigation.type == self.ANALYSIS_TYPE), f"Unexpected mitigation type: {mitigation.type}"
+
         # Properties are the parent's plus we set the variable to the mitigation value
         new_props = deepcopy(config.info)
         new_props[self.ANALYSIS_TYPE][mitigation.info["var"]] = mitigation.info["value"]
+
+        # If it's a dynval we need config to be exclusive to env
+        if hasattr(mitigation.info, 'source') and mitigation.info['source'] == 'need_dynamic':
+            new_props['exclusive'] = self.ANALYSIS_TYPE
+        elif 'exclusive' in new_props:
+            # Since we're here, it must be our exclusive
+            assert(new_props['exclusive'] == self.ANALYSIS_TYPE), f"Unexpected exclusive in {self.ANALYSIS_TYPE}: {new_props['exclusive']}"
+            del mitigation.info['source']
 
         return [Configuration(name, new_props)]
