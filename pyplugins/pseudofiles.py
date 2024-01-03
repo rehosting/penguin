@@ -636,6 +636,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         data['cmd'] = cmd
                         data['sc'] = 'ioctl'
                         data['symex_results'] = results
+                        data['path'] = path
 
                         fails.append(Failure(f"pseudofile_{path}_ioctl_{cmd:x}_symex", self.ANALYSIS_TYPE, data))
 
@@ -645,16 +646,16 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 # Normal case: we saw a syscall fail on a given path and we want to report it
                 for sc, data in info.items():
                     # Data will be like {path: /whatever, count: #}
-                    data['sc'] = sc
-                    data['path'] = path
                     if sc != 'ioctl':
                         # Non-IOCTL. Just record the path and syscall
+                        data['path'] = path
+                        data['sc'] = sc
                         fails.append(Failure(f"pseudofile_{path}_{sc}", self.ANALYSIS_TYPE, data))
                     else:
-                        # IOCTL: record path, syscall, and ioctl cmd for each ioctl cmd
+                        # IOCTL: record path, syscall, and ioctl cmd for each ioctl cmd. Don't update data, just add entries into the failure
                         for cmd in data.keys():
                             assert(cmd != 'pickle'), f'Malformed pseudofile failure: {info}: {sc}: {data}'
-                            fails.append(Failure(f"pseudofile_{path}_ioctl_{cmd:x}", self.ANALYSIS_TYPE, {'cmd': cmd, **data[cmd]}))
+                            fails.append(Failure(f"pseudofile_{path}_ioctl_{int(cmd):x}", self.ANALYSIS_TYPE, {'cmd': cmd, 'sc': sc, 'path': path, **data[cmd]}))
         return fails
 
     def get_potential_mitigations(self, config, failure : Failure) -> List[Mitigation]:

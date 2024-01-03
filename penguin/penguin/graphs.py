@@ -289,8 +289,6 @@ class ConfigurationGraph:
         edge_colors = [edge_colors.get(self.graph.edges[edge]['type'], 'black') for edge in self.graph.edges]
         edge_styles = [edge_styles.get(self.graph.edges[edge]['type'], 'solid') for edge in self.graph.edges]
 
-        #pos = nx.nx_agraph.graphviz_layout(self.graph, prog='dot')
-
         # Calculate the figure size dynamically based on the number of nodes
         num_nodes = len(self.graph.nodes())
         figure_size = max(8, num_nodes / 3)  # Adjust the denominator for scaling
@@ -301,8 +299,11 @@ class ConfigurationGraph:
         # pos = nx.spring_layout(self.graph)  # Alternative layout
         pos = nx.nx_agraph.graphviz_layout(self.graph, prog='dot')
 
+        # We want to label each node with .id field, not .gid
+        # To do this we'll create a mapping from gid -> id
+        display_labels = {node: self.graph.nodes[node]['object'].id for node in self.graph.nodes}
 
-        nx.draw(self.graph, pos, with_labels=True, node_color=colors,
+        nx.draw(self.graph, pos, labels=display_labels, with_labels=True, node_color=colors,
                 edge_color=edge_colors, style=edge_styles, node_size=2500, font_size=10, arrowsize=20)
 
         # Draw edge labels for FM edges
