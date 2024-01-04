@@ -33,7 +33,7 @@ static_files:
         counter=$((counter+1))
       fi
 
-      if $(/igloo/utils/busybox hdparm -I /dev/sda | /igloo/utils/busybox grep -q "Serial Number.*123456789"); then
+      if $(/igloo/utils/busybox hdparm -I /dev/sda | /igloo/utils/busybox grep -q "Capabilities:"); then
         # Increment counter
         counter=$((counter+1))
       fi
