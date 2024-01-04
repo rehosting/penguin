@@ -3,6 +3,7 @@ import os
 import sys
 import shutil
 import random
+import hashlib
 from time import sleep
 from pandare import Panda
 from .common import hash_yaml
@@ -75,6 +76,36 @@ def _sort_plugins_by_dependency(conf_plugins):
 
     return sorted_plugins
 
+def hash_image_inputs(conf):
+    """Create a hash of all the inputs of the image creation process"""
+
+    static_files = conf['static_files']
+
+    # Hash contents of qcow
+    #
+    # TODO: Replace this with Python 3.11's hashlib.hash_file()
+    with open(conf['core']['qcow'], 'rb') as f:
+        qcow_hash = hashlib.sha256()
+        while True:
+            data = f.read(0x1000)
+            if not data:
+                break
+            qcow_hash.update(data)
+    qcow_hash = qcow_hash.hexdigest()
+
+    # If we ever add a way to import static files by path instead of including
+    # their contents directly in the config as a string, this assert should
+    # remind us that the file contents need to be hashed
+    assert all('contents' in f for f in static_files.values() if f['type'] == 'file')
+
+    # If the inputs to the image-generation function change, this assert should
+    # remind us to also update the hashing to include those inputs
+    import inspect
+    from . import penguin_prep
+    args = str(inspect.signature(penguin_prep.derive_qcow_from))
+    assert args == '(qcow_file, out_dir, files, out_filename=None)'
+
+    return hash_yaml([static_files, qcow_hash])
 
 def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     '''
@@ -111,7 +142,8 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     if not os.path.isfile(config_fs):
         raise ValueError(f"Missing filesystem archive in base directory: {config_fs}")
 
-    image_filename = f"image_{hash_yaml(conf)}.qcow2"
+    h = hash_image_inputs(conf)
+    image_filename = f"image_{h}.qcow2"
     config_image = os.path.join(qcow_dir, image_filename)
 
     # Make sure we have a clean out_dir everytime. XXX should we raise an error here instead?
