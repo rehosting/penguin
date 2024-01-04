@@ -39,9 +39,6 @@ required:
   - plugins
 additionalProperties: false
 properties:
-  exclusive:
-    title: Exclusive analysis mode
-    type: string
   core:
     title: Core configuration options
     type: object

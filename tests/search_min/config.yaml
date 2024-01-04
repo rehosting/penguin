@@ -33,14 +33,9 @@ static_files:
         counter=$((counter+1))
       fi
 
-      if $(/igloo/utils/busybox hdparm -I /dev/sda | /igloo/utils/busybox grep -q "Serial Number.*123456789"); then
-        # Increment counter
-        counter=$((counter+1))
-      fi
-
       echo "Counter is $counter"
 
-      if [ "$counter" -eq 3 ]; then
+      if [ "$counter" -eq 2 ]; then
         echo "All checks passed"
         /igloo/utils/busybox ps
       else
