@@ -79,8 +79,6 @@ class Failure(GraphNode):
         super().__init__(id, "failure")
         self.type = type
         self.info = info if info else {}
-        #self.weights = []
-        #self.weight = 1.0 # Default
 
 class Mitigation(GraphNode):
     def __init__(self, id, type, info = None):
@@ -195,6 +193,13 @@ class ConfigurationGraph:
 
         # Update node to be run
         self.graph.nodes[config.gid]['object'].run = True
+
+        if config.exclusive:
+            # We don't want to take these exclusive nodes very often. Other paths are likely
+            # better! So let's say they're health score is just that of their parent config
+            # (An exclusive node must have a parent config so this should be safe)
+            health_score = self.get_parent_config(config).health_score
+
 
         config.health_score = health_score
 
