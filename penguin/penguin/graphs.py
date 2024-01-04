@@ -61,7 +61,8 @@ class Configuration(GraphNode):
         '''
         super().__init__(id, "configuration")
         self.run=False
-        self.weight = 1.0
+        self.weight = 1.0 # Weight from parent config to this one XXX unused?
+        self.health_score = 0
         self.info = info if info else {}
         self.exclusive = exclusive
 
@@ -78,8 +79,8 @@ class Failure(GraphNode):
         super().__init__(id, "failure")
         self.type = type
         self.info = info if info else {}
-        self.weights = []
-        self.weight = 1.0 # Default
+        #self.weights = []
+        #self.weight = 1.0 # Default
 
 class Mitigation(GraphNode):
     def __init__(self, id, type, info = None):
@@ -200,15 +201,37 @@ class ConfigurationGraph:
         parent_cc = self.get_parent_config(config)
         if parent_cc is None:
             return # Must be the root config!
-        parent_fail = self.get_parent_failure(config)
-
         self.set_cc_edge_weight(parent_cc, config, health_score)
 
-        # Add the weight to weights list. Update weight
-        # We're selecting the failure node XXX: Do we this weight on the
-        # mitigation -> failure edge?
-        parent_fail.weights.append(health_score)
-        parent_fail.weight = sum(parent_fail.weights) / len(parent_fail.weights)
+        # Add the weight to weights list in the parent fail -> parent mitigation node
+        self.update_parent_fail_mit_weight(config, health_score)
+
+    def update_parent_fail_mit_weight(self, config : Configuration, health_score :float):
+        parent_fail = self.get_parent_failure(config)
+        if parent_fail is None:
+            return # error?
+
+        parent_mit = self.get_parent_mitigation(config)
+
+        # Get the edge from parent fail -> parent mit
+        edge_type = self.determine_edge_type(parent_fail, parent_mit)
+        if edge_type != 'FM':
+            raise ValueError(f"Edge between {parent_fail} and {parent_mit} is of type {edge_type}, not FM")
+
+        # Ensure we have a weights property as a list
+        if 'weights' not in self.graph[parent_fail.gid][parent_mit.gid]:
+            self.graph[parent_fail.gid][parent_mit.gid]['weights'] = []
+
+        # How much did health increase from parent fail to this config?
+        parent_config = self.get_parent_config(config)
+        health_delta = health_score - parent_config.health_score
+        
+        # Add weight
+        weights = self.graph[parent_fail.gid][parent_mit.gid]['weights']
+        weights.append(health_delta)
+
+        # Set average in 'weight'
+        self.graph[parent_fail.gid][parent_mit.gid]['weight'] = sum(weights) / len(weights)
 
     def set_cc_edge_weight(self, from_node: Configuration, to_node: Configuration, new_weight: float):
         """
@@ -302,8 +325,8 @@ class ConfigurationGraph:
             node_colors = {
                 "configuration_run": "lightblue",
                 "configuration_pending": "lightgray",
-                "configuration_run_exclusive": "gray",
-                "configuration_pending_exclusive": "black",
+                "configuration_run_exclusive": "black",
+                "configuration_pending_exclusive": "gray",
                 "failure": "lightcoral",
                 "mitigation": "lightyellow",
             }
@@ -507,7 +530,7 @@ class ConfigurationManager:
             # Now for each of these failures, let's see if there are new mitigations
             # we could apply. We know the configuration that was run, and the failure.
             # Note the failure might not be new, but perhaps the mitigation is
-            print(f"Find mitigations for orig failure {orig_failure}")
+            print(f"Find mitigations for failure {orig_failure}")
             for mitigation in find_mitigations_f(orig_failure, config):
                 if existing_mit := self.graph.get_existing_node(mitigation):
                     mitigation = existing_mit
@@ -560,27 +583,40 @@ class ConfigurationManager:
         unexplored = self.graph.find_unexplored_configurations()
 
         weights = {} # config -> weight
+        msgs = {} # config -> msg. Hacky debug
         for cc in unexplored:
             parent_cc = self.graph.get_parent_config(cc)
             if parent_cc is None:
-                weights[cc] = cc.weight # No parent failure to consider. Root node?
+                weights[cc] = cc.health_score # No parent failure to consider. Root node?
                 continue
-            parent_fail = self.graph.get_parent_failure(cc)
 
             # We'll calculate the expected weight as the sum of the parent config health
             # and parent mitigation
-            weight = parent_cc.weight + parent_fail.weight
-            #print(f"For config {cc} parent weights: CC={parent_cc.weight}, fail={parent_fail.weight}. Expected weight: {weight}")
-            weights[cc] = weight
+
+            # Get the weight between the parent failure and parent mitigation
+            parent_fail = self.graph.get_parent_failure(cc)
+            parent_mit = self.graph.get_parent_mitigation(cc)
+
+            # Extract weight from edge. This is the average score delta we expect to see when
+            # this mitigation is applied to this failure
+            mitigation_weight = self.graph.graph[parent_fail.gid][parent_mit.gid]['weight']
+            expected = parent_cc.health_score + (mitigation_weight*10) # XXX: Should we prioritize mitigation weight vs base health score?
+
+            weights[cc] = expected
+            msgs[expected] = (f"For config {cc} parent weights: CC={parent_cc.health_score}, mitigation={mitigation_weight}. Expected weight: {expected}")
 
         if len(unexplored) == 0:
             return None
+
+        sorted_msgs = sorted(msgs.items(), key=lambda x: x[0], reverse=True)
+        for msg in sorted_msgs:
+            print(msg[1])
 
         # Sort by weight: highest first
         sorted_weights = sorted(weights.items(), key=lambda x: x[1], reverse=True)
 
         # Return highest weight
-        return sorted_weights[0][0] # [0] is the config, [1] is the weight
+        return sorted_weights[0][0] # [0] is the config
 
 
 def run_test():

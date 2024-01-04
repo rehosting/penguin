@@ -610,6 +610,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 # If we're doing symex, we only care about "failures" on that one device with that cmd since these
                 # are what we'd meaningfully "mitigate" with children. We don't want to mitigate something else and
                 # re-symex later.
+
                 if do_symex:
                     # If it's a different device, skip it
                     if symex_path != path:
@@ -632,30 +633,23 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         symex = PathExpIoctl(output_dir, None, read_only=True)
                         models = symex.hypothesize_models(target=path, cmd=cmd, verbose=False)
                         results = [rv for rv in models[path][cmd]]
-
-                        data['cmd'] = cmd
-                        data['sc'] = 'ioctl'
-                        data['symex_results'] = results
-                        data['path'] = path
-
-                        fails.append(Failure(f"pseudofile_{path}_ioctl_{cmd:x}_symex", self.ANALYSIS_TYPE, data))
-
-                    # All done with symex 'failure'
-                    continue
-
-                # Normal case: we saw a syscall fail on a given path and we want to report it
-                for sc, data in info.items():
-                    # Data will be like {path: /whatever, count: #}
-                    if sc != 'ioctl':
-                        # Non-IOCTL. Just record the path and syscall
-                        data['path'] = path
-                        data['sc'] = sc
-                        fails.append(Failure(f"pseudofile_{path}_{sc}", self.ANALYSIS_TYPE, data))
-                    else:
-                        # IOCTL: record path, syscall, and ioctl cmd for each ioctl cmd. Don't update data, just add entries into the failure
-                        for cmd in data.keys():
-                            assert(cmd != 'pickle'), f'Malformed pseudofile failure: {info}: {sc}: {data}'
-                            fails.append(Failure(f"pseudofile_{path}_ioctl_{int(cmd):x}", self.ANALYSIS_TYPE, {'cmd': cmd, 'sc': sc, 'path': path, **data[cmd]}))
+                        # We want to have symex_results
+                        fail_data = {'cmd': cmd, 'sc': 'ioctl', 'path': path, 'symex_results': results, **data}
+                        fails.append(Failure(f"{path}_ioctl_{int(cmd):x}_fromsymex", self.ANALYSIS_TYPE, fail_data))
+                else:
+                    # Normal case: we saw a syscall fail on a given path and we want to report it
+                    for sc, data in info.items():
+                        # Data will be like {path: /whatever, count: #}
+                        if sc != 'ioctl':
+                            # Non-IOCTL. Just record the path and syscall
+                            data['path'] = path
+                            data['sc'] = sc
+                            fails.append(Failure(f"pseudofile_{path}_{sc}", self.ANALYSIS_TYPE, data))
+                        else:
+                            # IOCTL: record path, syscall, and ioctl cmd for each ioctl cmd. Don't update data, just add entries into the failure
+                            for cmd in data.keys():
+                                assert(cmd != 'pickle'), f'Malformed pseudofile failure: {info}: {sc}: {data}'
+                                fails.append(Failure(f"{path}_ioctl_{int(cmd):x}", self.ANALYSIS_TYPE, {'cmd': cmd, 'sc': sc, 'path': path, **data[cmd]}))
         return fails
 
     def get_potential_mitigations(self, config, failure : Failure) -> List[Mitigation]:
@@ -688,33 +682,32 @@ class FileFailuresAnalysis(PenguinAnalysis):
         if failure.info['sc'] == 'read':
             # We saw a read failure. Let's propose some mitigations. Just one for now: read zeros
             return [Mitigation(f"pseudofile_read_zeros_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'read_model', 'model': 'zeros'})]
-        
+
         if failure.info['sc'] == 'write':
             # Saw a write failure. Only thing to do is discard.
             return [Mitigation(f"pseudofile_write_discard_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'write_model', 'model': 'discard'})]
 
         if failure.info['sc'] == 'ioctl':
             # Two options. A) We saw an IOCTL fail and we want to make it try symex. B) We have symex results
-
             cmd = failure.info['cmd']
 
-            if hasattr(cmd, 'symex_results'):
-                if not len(self['symex_results']):
-                    # No results from symex. Sad
+            if 'symex_results' in failure.info:
+                if not len(failure.info['symex_results']):
                     self.logger.warning(f"No results from symex for ioctl {cmd:x} on {path}")
-                    # TODO: do we want a default of 0?
+                    # TODO: do we want to try adding a default of 0?
                     return []
 
                 # Return a const model for each result
-                return [Mitigation(f"pseudofile_ioctl_{cmd:x}_symex_{path}", self.ANALYSIS_TYPE, {'path': path, 'cmd': cmd, 
-                                                                                                  'action': 'ioctl_model',
-                                                                                                  'model': 'return_const',
-                                                                                                  'val': val}) \
-                        for val in cmd['symex_results']]
+                return [Mitigation(f"{val}", self.ANALYSIS_TYPE, {'path': path, 'cmd': cmd,
+                                                                            'action': 'ioctl_model',
+                                                                            'model': 'return_const',
+                                                                            'val': val}) \
+                        for val in failure.info['symex_results']]
 
             # We'll mitigate this ioctl by modeling it as symex
-            return [Mitigation(f"pseudofile_ioctl_{cmd:x}_do_symex_{path}", self.ANALYSIS_TYPE, {'path': path, 'cmd': cmd,
-                                                                                                 'action': 'ioctl_model', 'model': 'symex'})]
+            else:
+                return [Mitigation(f"symex", self.ANALYSIS_TYPE, {'path': path, 'cmd': cmd,
+                                                                'action': 'ioctl_model', 'model': 'symex'})]
 
         else:
             # Not sure how to handle other failures. In parse failures we're looking for -EBADF for accesses
@@ -733,23 +726,23 @@ class FileFailuresAnalysis(PenguinAnalysis):
             # Add file to config. Make sure we have pseudofiles section
             new_config['pseudofiles'][mitigation.info['path']] = {}
             return [Configuration(mitigation.info['path'], new_config)]
-        
+
         if mitigation.info['action'] == 'read_model':
             # If model is zeros we know what to do. Otherwise we don't
             if mitigation.info['model'] != 'zeros':
                 raise ValueError(f"Unknown read model {mitigation.info['model']}")
-            
+
             new_config['pseudofiles'][mitigation.info['path']] = {
                 'read': {
                     'model': 'zero'
                 }
             }
             return [Configuration(f"read_zeros", new_config)]
-        
+
         if mitigation.info['action'] == 'write_model':
             if mitigation.info['model'] != 'discard':
                 raise ValueError(f"Unknown write model {mitigation.info['model']}")
-            
+
             new_config['pseudofiles'][mitigation.info['path']] = {
                 'write': {
                     'model': 'discard'
