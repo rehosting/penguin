@@ -462,12 +462,9 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         new_props = deepcopy(config.info)
         new_props[self.ANALYSIS_TYPE][mitigation.info["var"]] = mitigation.info["value"]
 
-        # If it's a dynval we need config to be exclusive to env
-        if hasattr(mitigation.info, 'source') and mitigation.info['source'] == 'need_dynamic':
-            new_props['exclusive'] = self.ANALYSIS_TYPE
-        elif 'exclusive' in new_props:
-            # Since we're here, it must be our exclusive. We can clear it now since it's not needs_dynamic
-            assert(new_props['exclusive'] == self.ANALYSIS_TYPE), f"Unexpected exclusive in {self.ANALYSIS_TYPE}: {new_props['exclusive']}"
-            del mitigation.info['source']
+        exclusive = None
 
-        return [Configuration(name, new_props)]
+        if mitigation.info['source'] == 'need_dynamic':
+            # Exclusive node!
+            exclusive = self.ANALYSIS_TYPE
+        return [Configuration(name, new_props, exclusive = exclusive)]

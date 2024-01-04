@@ -44,16 +44,26 @@ class GraphNode:
             return item
 
 class Configuration(GraphNode):
-    def __init__(self, id, info = None):
+    def __init__(self, id, info = None, exclusive = None):
         '''
         A configuration is a key value store of various properties.
         These are the inputs to our target system.
         A configuration will be marked as run=True once we've run it.
+
+        Exclusive is a special flag to mark a one-off "exclusive" config
+        that we'll run to learn about the parent failure.
+        For example, if we have a pseudofile ioctl failure (A), we can mitigate with a symex mitigation (B)
+        that creates a Configuration(exclusive=pseudofiles) (C). We'll run this exclusive config,
+        only query the pseudofile plugin for mitigations, then apply these along side the symex mitigation (B)
+        under the failure (A).
+
+        No config may be drived from an exclusive config.
         '''
         super().__init__(id, "configuration")
         self.run=False
         self.weight = 1.0
         self.info = info if info else {}
+        self.exclusive = exclusive
 
 
 class Failure(GraphNode):
@@ -261,6 +271,9 @@ class ConfigurationGraph:
         if not self.graph.has_edge(parent_config.gid, derived_config.gid):
             self.graph.add_edge(parent_config.gid, derived_config.gid, type='CC')
 
+        if parent_config.exclusive is not None:
+            raise ValueError(f"Cannot derive config from an exclusive config: {parent_config}")
+
     def save_graph(self, file_path: str):
         """
         Save the graph to a file using pickle.
@@ -289,6 +302,8 @@ class ConfigurationGraph:
             node_colors = {
                 "configuration_run": "lightblue",
                 "configuration_pending": "lightgray",
+                "configuration_run_exclusive": "gray",
+                "configuration_pending_exclusive": "black",
                 "failure": "lightcoral",
                 "mitigation": "lightyellow",
             }
@@ -297,6 +312,8 @@ class ConfigurationGraph:
             # For config, color based on run/pending as well
             if typ == 'configuration':
                 typ += "_run" if self.graph.nodes[n]['object'].run else "_pending"
+                if self.graph.nodes[n]['object'].exclusive:
+                    typ += "_exclusive"
             return node_colors.get(typ, 'red')
 
         edge_colors = {"CF": "black", "FC": "black", "CC": "green"}
@@ -454,43 +471,62 @@ class ConfigurationManager:
         # Sets run, health(?), and updates weights
         self.graph.report_config_run(config, health_score)
 
-        # Now we add new failures that we observed during this run
-        for failure in failures:
-            if existing_node := self.graph.get_existing_node(failure):
-                # Previously reported failure. Ok, let's use that one!
-                failure = existing_node
-            else:
-                # New node
-                self.graph.add_node(failure)
+        target_config = config
 
-            # Add edge
-            self.graph.add_edge(config, failure)
+        if config.exclusive:
+            # Special case. We have an exclusive config. It should have yielded ONE failure (or none)
+            if not len(failures):
+                return # no -op
+            assert(len(failures) <= 1)
+            target_config = self.graph.get_parent_config(config)
+            print(f"EXCLUSIVE CONFIG: {config}")
+
+        # Normal case: Now we add new failures that we observed during this run
+        for orig_failure in failures:
+            # Think of failure as "failure source" that we're trying to find mitigations for
+
+            if config.exclusive:
+                # In exclusive mode we don't add a new failure, we merge back to parent's failure instead.
+                # This is a bit hairy. Keep an eye on orig_failure vs failure. orig_failure is always
+                # the actual failure we observed, while failure is the parent failure IFF exclusive mode
+                # otherwise it's the same as orig_failure.
+                failure = self.graph.get_parent_failure(config)
+                print(f"Exclusive failure: pretending it's on parent fail: {failure}")
+            else:
+                failure = orig_failure
+
+                # Find failure in graph or add it
+                if existing_node := self.graph.get_existing_node(failure):
+                    failure = existing_node
+                else:
+                    self.graph.add_node(failure)
+
+                # Add edge from source config -> failure
+                self.graph.add_edge(config, failure)
 
             # Now for each of these failures, let's see if there are new mitigations
             # we could apply. We know the configuration that was run, and the failure.
             # Note the failure might not be new, but perhaps the mitigation is
-            for mitigation in find_mitigations_f(failure, config):
+            print(f"Find mitigations for orig failure {orig_failure}")
+            for mitigation in find_mitigations_f(orig_failure, config):
                 if existing_mit := self.graph.get_existing_node(mitigation):
                     mitigation = existing_mit
 
                 if not self.graph.has_node(mitigation):
                     self.graph.add_node(mitigation)
 
-                # Edge should be new? Maybe not
-                #print(f"Add edge from {failure} to {mitigation}")
+                # Edge from failure (perhaps parent failure) to this new mitigation
                 self.graph.add_edge(failure, mitigation)
 
+            # Now try finding mitigations. This might be for the parent failure if it was exclusive
             for mitigation in self.graph.mitigations_for(failure):
                 #print(f"\t\tFound mitigation {mitigation}")
-                for new_config in find_new_configs_f(failure, mitigation, config):
-
+                for new_config in find_new_configs_f(failure, mitigation, target_config):
                     if existing_config := self.graph.get_existing_node(new_config):
                         new_config = existing_config
-
-                    #print(f"\t\tNew config with mitigation {mitigation}: {new_config}")
-                    # Add new config derived from this mitigation
-                    #print("Found new config as mitigation for failure:", failure, config)
-                    self.graph.add_derived_configuration(new_config, config, mitigation)
+                    # If we were exclusive we pretend new config is derived from parent config
+                    # (Because it kind of is)
+                    self.graph.add_derived_configuration(new_config, target_config, mitigation)
 
     def run_exploration_cycle(self, run_config_f : Callable[[Configuration], Tuple[List[Failure], float]],
                             find_mitigations_f: Callable[[Failure, Configuration], List[Mitigation]],
