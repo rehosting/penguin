@@ -6,8 +6,7 @@ import random
 import hashlib
 from time import sleep
 from pandare import Panda
-from .common import hash_yaml
-from .utils import load_config
+from .utils import load_config, hash_image_inputs
 from .defaults import default_plugin_path
 
 # Note armel is just panda-system-arm and mipseb is just panda-system-mips
@@ -75,37 +74,6 @@ def _sort_plugins_by_dependency(conf_plugins):
             dfs(plugin_name, visited, sorted_plugins)
 
     return sorted_plugins
-
-def hash_image_inputs(conf):
-    """Create a hash of all the inputs of the image creation process"""
-
-    static_files = conf['static_files']
-
-    # Hash contents of qcow
-    #
-    # TODO: Replace this with Python 3.11's hashlib.hash_file()
-    with open(conf['core']['qcow'], 'rb') as f:
-        qcow_hash = hashlib.sha256()
-        while True:
-            data = f.read(0x1000)
-            if not data:
-                break
-            qcow_hash.update(data)
-    qcow_hash = qcow_hash.hexdigest()
-
-    # If we ever add a way to import static files by path instead of including
-    # their contents directly in the config as a string, this assert should
-    # remind us that the file contents need to be hashed
-    assert all('contents' in f for f in static_files.values() if f['type'] == 'file')
-
-    # If the inputs to the image-generation function change, this assert should
-    # remind us to also update the hashing to include those inputs
-    import inspect
-    from . import penguin_prep
-    args = str(inspect.signature(penguin_prep.derive_qcow_from))
-    assert args == '(qcow_file, out_dir, files, out_filename=None)'
-
-    return hash_yaml([static_files, qcow_hash])
 
 def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     '''
