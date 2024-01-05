@@ -11,7 +11,7 @@ from elftools.elf.constants import E_FLAGS, E_FLAGS_MASKS
 from os.path import join, dirname
 from .penguin_static import extend_config_with_static
 from .common import yaml
-from .penguin_manager import iterative_search
+from .manager import graph_search
 from .penguin_run import run_config
 
 from .defaults import default_init_script, default_plugins, default_version
@@ -290,11 +290,14 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
         data['plugins']['vpn']['enabled'] = False
 
     if auto_explore:
-        # If auto_explore, we'll enable extra plugins to generate coverage
-        if 'enabled' in data['plugins'] and data['plugins']['vpn']['enabled']:
+        # If auto_explore, we'll enable extra plugins to generate coverage - unless we're told the VPN is disabled.
+        if 'vpn' in data['plugins'] and data['plugins']['vpn'].get('enabled', True):
             # If we have VPN (which we will if we have vsock), turn on zap and nmap
-            for p in ['nmap', 'zap']:
-                data['plugins'][p]['enabled'] = True
+            #for p in ['nmap', 'zap']: # XXX no zap support in container at the moment
+            print("WARNING: no ZAP support in container - skipping zap plugin")
+            for p in ['nmap']:
+                if p in data['plugins']:
+                    data['plugins'][p]['enabled'] = True
 
         # Also disable root shell and set timeout to 5 minutes (unless told otherwise)
         data['core']['root_shell'] = False
@@ -303,7 +306,8 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
         # Interactive, let's enable root shell and fully delete some plugins
         data['core']['root_shell'] = True
         for p in ['zap', 'nmap', 'health', 'shell', 'coverage', 'env']:
-            del data['plugins'][p]
+            if p in data['plugins']:
+                del data['plugins'][p]
 
     # Make sure we have a base directory to store config
     # and static results in.
@@ -343,7 +347,7 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
     # Config is a path to output_dir/base/config.yaml
     return f"{output_dir}/config.yaml"
 
-def run_from_config(config_path, output_dir, niters=-1, multicore=True):
+def run_from_config(config_path, output_dir, niters=-1, nthreads=1):
     if not os.path.isfile(config_path):
         raise RuntimeError(f"Config file not found: {config_path}")
 
@@ -361,11 +365,12 @@ def run_from_config(config_path, output_dir, niters=-1, multicore=True):
 
     if niters == 1:
         # You already have a config, let's just run it. This is what happens
-        # in each iterative run normally. Here we just do it directly
+        # in each iterative run normally. Here we just do it directly.
+        # Only needs a single thread, regardless of nthreads.
         run_config(config_path, out_dir=output_dir)
 
     else:
-        iterative_search(config, output_dir, max_iters=niters, MULTITHREAD=multicore)
+        graph_search(config, output_dir, max_iters=niters, nthreads=nthreads)
 
 def main():
     from sys import argv
@@ -388,7 +393,7 @@ def main():
 
     parser.add_argument('--config', type=str, help='Path to a config file. If set, the firmware argument is not required.')
     parser.add_argument('--niters', type=int, default=1, help='Maximum number of iterations to run. Special values are -1 for unlimited. Default 1. If run with --config, a config for manual analysis will be generated if niters=1.')
-    parser.add_argument('--singlecore', action='store_false', dest='multicore', default=True, help='Run in single-core mode. Disabled by default')
+    parser.add_argument('--nthreads', type=int, default=1, help='Number of threads to use. Default 1.')
     parser.add_argument('--novsock', action='store_true', default=False, help='Run running without vsock. Disabled by default')
     parser.add_argument('--timeout', type=int, default=None, help='Timeout in seconds for each run. Default is 300s if auto-explore or no timeout otherwise')
     parser.add_argument('firmware', type=str, nargs='?', help='The firmware path. Required if --config is not set, otherwise this must not be set.')
@@ -428,12 +433,12 @@ def main():
 
         # If we were given a firmware, by default we won't run it, but if niters != 1, we will
         if args.niters != 1:
-            print(f"Running {args.niters} run(s) from {args.config}")
-            run_from_config(args.config, args.output_dir, niters=args.niters, multicore=args.multicore)
+            print(f"Running {args.niters} run(s) from {args.config} with {args.nthreads} thread(s)")
+            run_from_config(args.config, args.output_dir, niters=args.niters, nthreads=args.nthreads)
 
     else:
-        print(f"Running {args.niters} run(s) from {args.config}")
-        run_from_config(args.config, args.output_dir, niters=args.niters, multicore=args.multicore)
+        print(f"Running {args.niters} run(s) from {args.config} with {args.nthreads} thread(s)")
+        run_from_config(args.config, args.output_dir, niters=args.niters, nthreads=args.nthreads)
 
 
 if __name__ == "__main__":

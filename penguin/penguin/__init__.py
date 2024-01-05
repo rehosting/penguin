@@ -1,2 +1,3 @@
-from .penguinanalysis import PenguinAnalysis
+from .analyses import PenguinAnalysis
 from .common import yaml
+

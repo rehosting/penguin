@@ -132,7 +132,7 @@ class CoreAnalysis(PenguinAnalysis):
     def get_mitigations_from_static(self, varname, values):
         return []
 
-    def get_potential_mitigations(self, config, path_ioctl, info):
+    def get_potential_mitigations(self, config, failure):
         return []
 
     def implement_mitigation(self, config, failure, mitigation):

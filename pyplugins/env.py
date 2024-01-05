@@ -4,8 +4,10 @@ import re
 from os.path import dirname, join as pjoin, isfile
 from pandare import PyPlugin
 from copy import deepcopy
+from typing import List, Optional
 try:
     from penguin import PenguinAnalysis, yaml
+    from penguin.graphs import Failure, Mitigation, Configuration
 except ImportError:
     # We can still run as a PyPlugin, but we can't do post-run analysis
     PenguinAnalysis = object
@@ -199,7 +201,7 @@ class TargetCmp(PyPlugin):
             return
 
         self.outdir = self.get_arg("outdir")
-        print("TargetCMP loaded with outdir:", self.outdir)
+        print("TargetCMP loaded to dynamically search for", self.target_key)
         assert(self.outdir is not None), f"NO OUTDIR"
         self.env_var_matches = set()
         # Touch the files so we know this analysis is actually running
@@ -268,7 +270,7 @@ class TargetCmp(PyPlugin):
                 self.env_var_matches.add(x.strip())
 
         # Then filter and combine into output_file
-        # THese are sorted based on how much we like them
+        # These are sorted based on how much we like them
         valid_vars = self.filter_env_var_values(self.target_key, self.env_var_matches)
         with open(pjoin(self.outdir, cmp_output), "w") as f:
             for x in valid_vars:
@@ -325,20 +327,22 @@ class EnvTrackerAnalysis(PenguinAnalysis):
     ]
 
 
-    def parse_failures(self, output_dir):
+    def parse_failures(self, output_dir) -> List[Failure]:
         '''
         Parse failures from env_missing.yaml for unset env variables.
         Also if we have shell_env.csv, look in there for unset variables too.
 
-        If we have a DYNVALDYNVALDYNVAL in our env, that's the only
-        failure we're allowed to return (since we must "mitigate" it before moving on)
+        If we have a DYNVALDYNVALDYNVAL in our env, it should be from an exclusive
+        config so we're the only plugin that can analyze. In that case, it's
+        the only failure we should consider (since we must address before we
+        move on.
         '''
 
         with open(pjoin(output_dir, 'core_config.yaml')) as f:
             config = yaml.safe_load(f)
 
-            # Is any env variable set to ENV_MAGIC_VAL?
-            magic_is_set = any(x == ENV_MAGIC_VAL for x in config['env'].values())
+        # Is any env variable set to ENV_MAGIC_VAL?
+        magic_is_set = any(x == ENV_MAGIC_VAL for x in config['env'].values())
 
         if magic_is_set:
             # We had an ENV_MAGIC_VAL for target_var
@@ -355,12 +359,13 @@ class EnvTrackerAnalysis(PenguinAnalysis):
 
             #print(f"Found {len(dyn_vals)} dynamic values for {target_var}: {dyn_vals}")
 
-            # We found things dynamically. Cool
+            # We found things dynamically. Cool. This is a single failure with details for these values
             if len(dyn_vals) > 0:
-                return {target_var: dyn_vals}
+                return [Failure(f"dynval_{target_var}", self.ANALYSIS_TYPE, {'var': target_var, 'values': dyn_vals,
+                                                                             'source': 'dynamic'})]
             else:
                 # We found nothing. Time to give up on this. Probably an uninteresting variable
-                return {}
+                return []
 
         with open(pjoin(output_dir, missing_output)) as f:
             env_accesses = yaml.safe_load(f)
@@ -394,89 +399,69 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                 if None in v and k not in env_accesses:
                     env_accesses[k] = {}
 
-
-        # Return a dict. Keys are variables. Values is an empty list
-        return {k: [] for k in env_accesses}
-
-    def get_mitigations_from_static(self, varname, values):
-        # Static pass gives us varname and a set of potential values
-        results = []
-
-        # Static analysis gave us some results - use them!
-        for value in values or []:
-            results.append({'value': value, 'weight': 0.8}) # Statically-identified seeds are promising
-
-        # Also seed with default and dynamic search values
-        results += self.get_potential_mitigations(None, varname, None)
-
-        return results
-
-    def get_potential_mitigations(self, config, varname, dynvals):
-        '''
-        Dynvals will be a list of dynamic values we found for varname IFF we were doing a dynamic
-        search. Otherwise it's empty
-        '''
-        results = []
-
+        return [
+            Failure('unset_' + env, self.ANALYSIS_TYPE, {'var': env, 'source': 'unset'})
+            for env in env_accesses.keys()
+        ]
+                    
+    def get_potential_mitigations(self, config, failure : Failure) -> List[Mitigation]:
         # If we just ran a dynamic search that's the only mitigation we'll apply
-        if any(v == ENV_MAGIC_VAL for k, v in config[self.ANALYSIS_TYPE].items()):
-            target_var = [k for k, v in config[self.ANALYSIS_TYPE].items() if v == ENV_MAGIC_VAL][0]
-            # Refuse to get mitigations for any other vars
-            if varname != target_var:
-                print(f"Refusing to provide mitigations for {varname} after we did a dynval search on {target_var}")
-                return results
+        # Expect failure_type to be envone, not env?
 
-            # We just ran a dynamic search for target_var the dynvals argument should tell us
-            # what those values might be
-            for val in dynvals:
-                results.append({'value': val, 'weight': 0.9}) # We like results from dynamic search
+        fail_info = failure.info
+        var_name = fail_info['var']
+
+        if config and any(v == ENV_MAGIC_VAL for k, v in config[self.ANALYSIS_TYPE].items()):
+            results = []
+            if fail_info['source'] != 'dynamic':
+                # Should only be here after a dynamic search
+                raise ValueError(f"Expected source=dynamic for config with {ENV_MAGIC_VAL} but got {fail_info}")
+
+            if len(fail_info['values']) > 0:
+                # If we found some dynamic values, those are our mitigations!
+                # We'll have a base weight of 20 and we'll add up to 50 depending on length
+                for dynval in fail_info['values']:
+                    if len(dynval) > 1:
+                        weight = 10 + min(20, len(dynval))
+                        results.append(Mitigation(dynval, self.ANALYSIS_TYPE, {'value': dynval, 'var': var_name,
+                                                                            'weight': weight,
+                                                                            'source': 'from_dynamic'}))
+            else:
+                # Otherwise, dynamic search failed. If we still see varname as 'unset' in our failure log,
+                # it's not being controlled by the kernel boot args - we should store this in our global
+                # state and move on. (TODO). For now we'll just add some defaults whenever we don't get
+                # results from dynamic, but if we were smarter we'd be able to give up on un-settable vars
+                for val in self.DEFAULT_VALUES:
+                    results.append(Mitigation(val, self.ANALYSIS_TYPE, {'value': val, 'var': var_name,
+                                                                        'weight': 0.1,
+                                                                        'source': 'default'}))
             return results
 
-        assert(not len(dynvals)), f"Unexpected duynvals for non-dynamic search: {dynvals}"
-
-        # Not doing a dynamic search. If we already have a value for this varname, no mitigation to apply?
+        # If we get here we're NOT doing a dynamic search.
         existing_vars = list(config[self.ANALYSIS_TYPE].keys()) if config else []
-        if varname in existing_vars:
-            return []
+        if var_name in existing_vars:
+            # Can't mitigate an unset variable that's already set by our config. If it was magic
+            # value, we would've handled above. But we're here so it must be set to a concrete value
+            raise ValueError(f"{var_name} was already set but it was also our failure - what's happening")
+        
+        # Otherwise: variable was unset. The only mitigation we can propose here is to try magic values.
+        # If that fails, we'll add some defaults
+        return [Mitigation('magic_'+var_name, self.ANALYSIS_TYPE, {'value': ENV_MAGIC_VAL, 'var': var_name,
+                                                                   'weight': 1, 'source': 'need_dynamic'}, exclusive=True)]
 
-        # Start with some placeholders
-        for val in self.DEFAULT_VALUES:
-            results.append({'value': val, 'weight': 0.1}) # WEIGHT 0.1 to use a default
-
-        # Do a dynamic search
-        results.append({'value': ENV_MAGIC_VAL, 'weight': 0.5}) # WEIGHT 0.5 to do a dynamic search
-
-        '''
-        # XXX: how can we avoid redoing this?
-        # XXX do we even have access to the FS here?
-        # XXX we could move into parse failures, I think?
-
-        # Check FS for potential values
-        test = re.compile(f"{varname}=([a-zA-Z0-9_-]+)")
-        matches = set()
-
-        fs_tar_path = config['base']['fs']
-        tar = tarfile.open(fs_tar_path, "r")
-        for member in tar.getmembers():
-            if not member.isfile():
-                continue
-            data = tar.extractfile(member.name).read()
-            # Note data is bytes, not str, but test is a str regex
-            # so we need to decode to str
-            data = data.decode(errors='ignore')
-
-            for match in test.findall(data):
-                matches.add(match)
-
-        for m in matches:
-            results.append(m)
-        '''
-        return results
-
-    def implement_mitigation(self, config, failure, mitigation):
+    def implement_mitigation(self, config : Configuration, failure : Failure, mitigation : Mitigation) -> List[Configuration]:
         # Given a mitigation, add it to a copy of the config and return
-        new_config = deepcopy(config)
+        name = f'{mitigation.info["var"]}={mitigation.info["value"][:4]}'
 
-        #assert(failure not in new_config[self.ANALYSIS_TYPE]) # This is okay - for DYNVAL-based analyses we'll clobber
-        new_config[self.ANALYSIS_TYPE][failure] = mitigation['value']
-        return new_config
+        assert(mitigation.type == self.ANALYSIS_TYPE), f"Unexpected mitigation type: {mitigation.type}"
+
+        # Properties are the parent's plus we set the variable to the mitigation value
+        new_props = deepcopy(config.info)
+        new_props[self.ANALYSIS_TYPE][mitigation.info["var"]] = mitigation.info["value"]
+
+        exclusive = None
+
+        if mitigation.info['source'] == 'need_dynamic':
+            # Exclusive node!
+            exclusive = self.ANALYSIS_TYPE
+        return [Configuration(name, new_props, exclusive = exclusive)]
