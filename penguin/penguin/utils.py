@@ -10,7 +10,7 @@ from typing import List, Tuple
 from copy import deepcopy
 from os.path import dirname, join
 
-from .penguinanalysis import PenguinAnalysis
+from .analyses import PenguinAnalysis
 from .defaults import default_plugin_path
 from .common import hash_yaml
 
@@ -154,13 +154,17 @@ def dump_config(config, path):
         yaml.dump(config, f, sort_keys=False, default_flow_style=False, width=None)
 
 
-def hash_yaml_config(config):
-    # We want to ignore the 'meta' field because it's just for us
-    # then compute the hash of the rest
-    config2 = deepcopy(config)
-    if 'meta' in config2:
+def hash_yaml_config(config : dict):
+    '''
+    Given a config dict, generate a hash
+    '''
+    target = config
+    if 'meta' in config:
+        # We want to ignore the 'meta' field because it's an internal detail
+        config2 = deepcopy(config)
         del config2['meta']
-    return hashlib.md5(str(config2).encode()).hexdigest()
+        target = config2
+    return hashlib.md5(str(target).encode()).hexdigest()
 
 
 def hash_image_inputs(conf):
@@ -243,3 +247,27 @@ def get_mount_type(path):
         return stat_output.decode('utf-8').strip().lower()
     except subprocess.CalledProcessError:
         return None
+
+def get_mitigation_providers(config : dict ):
+    """
+    Given a config, pull out all the enabled mitigation providers,
+    load them and return a dict of {ANALYSIS_TYPE: analysis class object}
+
+    Skip plugins that are disabled in config.
+    Raise an error if version of a plugin mismatches the config version
+    """
+    mitigation_providers = {} # ANALYSIS_TYPE -> analysis class object
+    for plugin_name, details in config['plugins'].items():
+        if 'enabled' in details and not details['enabled']:
+            # Disabled plugin - skip
+            continue
+        try:
+            analysis = _load_penguin_analysis_from(plugin_name + ".py")
+        except ValueError as e:
+            continue
+        mitigation_providers[analysis.ANALYSIS_TYPE] = analysis
+        if details['version'] != analysis.VERSION:
+            raise ValueError(f"Config specifies plugin {plugin_name} at version {details['version']} but we got {analysis.VERSION}")
+
+        #print(f"Loaded {plugin_name} at version {details['version']}")
+    return mitigation_providers

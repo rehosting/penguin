@@ -64,7 +64,7 @@ A number of helpful files will be generated in the `/results/your_fw/base/` dire
 
 * `image.qcow`: an immutable "base image" that stores the original firmware's filesystem with minimal modifications.
 * `env.yaml`: a list of statically-identified environment variables you may later need to set
-* `files.yaml`: a list of statically-identified `/dev` and `/proc` files that you may later need to model.
+* `pseudofiles.yaml`: a list of statically-identified `/dev` and `/proc` files that you may later need to model.
 
 ## Run initial configuration
 Run your initial configuration into a directory called `default`:
@@ -259,7 +259,7 @@ interact with the newly added pseudofile.
 
 ### Modeling pseudofiles
 Beyond allowing you to add pseudofiles into a system, penguin also allows
-you to specify how `read`s, `write`s, and `ioctl`s of these files shoudl be modeled.
+you to specify how `read`s, `write`s, and `ioctl`s of these files should be modeled.
 
 After adding a pseudofile to a config and running it, you might see
 guest applications try to interact with this newly created psueodfile. The

@@ -106,12 +106,16 @@ RUN apt-get update && apt-get install -y \
     fakeroot \
     firefox \
     git \
+    graphviz \
+    graphviz-dev \
     libarchive13 \
     libguestfs-tools \
+    libxml2 \
     nmap \
     openjdk-11-jdk \
     python3 \
     python3-guestfs \
+    python3-lxml \
     python3-venv \
     telnet \
     vim \
@@ -132,12 +136,14 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
       git+https://github.com/AndrewFasano/angr-targets.git@af_fixes \
       html5lib \
       http://panda.re/secret/pandare-0.1.2.0.tar.gz \
+      ipdb \
       lief  \
       lxml \
       lz4 \
       matplotlib \
       pandas \
       pyelftools \
+      pygraphviz \
       python-owasp-zap-v2.4 \
       python_hosts \
       pyyaml \
@@ -177,14 +183,19 @@ COPY --from=downloader /panda_plugins/mips64/ /usr/local/lib/panda/mips64/
 COPY --from=downloader /static_deps/utils/* /igloo_static/utils.bin
 COPY utils/* /igloo_static/utils.source/
 
+# TODO: move up
+RUN --mount=type=cache,target=/root/.cache/pip \
+  pip install \
+    pyvis
+
+
 WORKDIR /penguin
 
 # Aliases for quick tests. m to make a config for the stride. r to run it. a for auto (config+run+explore)
 RUN echo 'alias m="rm -rf /results/stride; penguin /fws/stride.tar.gz /results/stride/"' >> ~/.bashrc
 RUN echo 'alias r="penguin --config /results/stride/config.yaml /results/stride/out"' >> ~/.bashrc
-# XXX
-RUN echo 'alias a="rm -rf /results/er-e300; penguin --niters 1 /fws/ER-e300.v2.0.9-hotfix.7.5622762.tar.gz /results/er-e300/"' >> ~/.bashrc
-RUN echo 'alias a2="penguin --config /results/er-e300/config.yaml /results/er-e300/out/"' >> ~/.bashrc
+RUN echo 'alias a="rm -rf /results/stride_auto; penguin --niters 50 --nthreads 10 /fws/stride.tar.gz /results/stride_auto/"' >> ~/.bashrc
+RUN echo 'alias a1="rm -rf /results/stride_auto; penguin --niters 50 --nthreads 1 /fws/stride.tar.gz /results/stride_auto/"' >> ~/.bashrc
 
 # Now copy in our module and install it
 # penguin is editable so we can mount local copy for dev

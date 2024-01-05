@@ -546,7 +546,7 @@ def add_dev_proc_meta(base_config, output_dir):
     # Add all these to our meta field
     potential_files = filtered_devfiles + proc_files
 
-    with open(output_dir + "/files.yaml", 'w') as f:
+    with open(output_dir + "/pseudofiles.yaml", 'w') as f:
         yaml.dump(potential_files, f)
 
     base_config['meta']['potential_files'] = potential_files
