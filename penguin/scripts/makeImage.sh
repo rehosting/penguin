@@ -73,7 +73,8 @@ ln -s "/igloo/utils/busybox" "$IGLOO/utils/sleep"
 # Validate and append this data to our tar file
 [ -e "$TARFILE" ] || { echo "Error: Tar file $TARFILE does not exist" >&2; exit 1; }
 [ -s "$TARFILE" ] || { echo "Error: Tar file $TARFILE is empty" >&2; exit 1; }
-tar --append --owner=root --group=root -f "$TARFILE" -C "$WORK_DIR" .
+tar --append --sort=name --owner=root:0 --group=root:0 --mtime='UTC 2019-01-01' -f "$TARFILE" -C "$WORK_DIR" .
+md5sum "$TARFILE"
 
 # 1GB of padding. XXX is this a good amount - does it slow things down if it's too much?
 # Our disk images are sparse, so this doesn't actually take up any space?
@@ -89,9 +90,11 @@ FILESYSTEM_SIZE=$(( REQUIRED_BLOCKS * BLOCK_SIZE ))
 # Create and populate the image
 echo "Creating QEMU Image $IMAGE with size $FILESYSTEM_SIZE"
 truncate -s "$FILESYSTEM_SIZE" "$IMAGE"
-genext2fs -b "$REQUIRED_BLOCKS" -B $BLOCK_SIZE -a "$TARFILE" "$IMAGE" 2>&1 | grep -v "bad type 'x'"
+genext2fs --faketime -b "$REQUIRED_BLOCKS" -B $BLOCK_SIZE -a "$TARFILE" "$IMAGE" 2>&1 | grep -v "bad type 'x'"
+md5sum "$IMAGE"
 
 # Now convert the image to qcow2 format and clean up
 echo "Converting image to QCOW2 format"
 qemu-img convert -f raw -O qcow2 "$IMAGE" "$QCOW"
+md5sum "$QCOW"
 rm -rf "$IMAGE" "$WORK_DIR"
