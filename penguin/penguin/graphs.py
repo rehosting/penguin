@@ -1,4 +1,5 @@
 import networkx as nx
+from pyvis.network import Network
 import matplotlib.pyplot as plt
 import pickle
 from typing import Optional, List, Callable, Tuple, Dict
@@ -315,6 +316,16 @@ class ConfigurationGraph:
         with open(file_path, 'wb') as f:
             pickle.dump(self.graph, f)
 
+    def create_html(self, file_path: str):
+        """
+        Create interactive HTML of the graph.
+        """
+        if not isinstance(file_path, str):
+            raise TypeError("Invalid input type for file_path.")
+
+        nt = Network('800px', '800px')
+        nt.generate_html(file_path)
+
     def create_png(self, file_path: str):
         """
         Create a PNG image of the graph with enhanced visual features.
@@ -323,7 +334,7 @@ class ConfigurationGraph:
             file_path (str): The file path where the PNG image will be saved.
         """
         if not isinstance(file_path, str):
-            raise ValueError("Invalid input type for file_path.")
+            raise TypeError("Invalid input type for file_path.")
 
         # Colors based on node type (configuration, failure, mitigation) or edge type (CF, FC, CC)
         def _node_color(n):
@@ -765,9 +776,11 @@ def run_test():
         if not config_manager.run_exploration_cycle(run_config, find_mitigations_f, find_new_configs_f):
             break
         config_manager.graph.create_png(f"/results/config_graph{i}.png")
+        config_manager.graph.create_html(f"/results/config_graph{i}.html")
 
     # Visualize the resulting graph
     config_manager.graph.create_png("/results/config_graph.png")
+    config_manager.graph.create_html("/results/config_graph.html")
 
 if __name__ == "__main__":
     run_test()

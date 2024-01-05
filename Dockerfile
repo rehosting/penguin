@@ -109,10 +109,12 @@ RUN apt-get update && apt-get install -y \
     graphviz \
     graphviz-dev \
     libarchive13 \
+    libfreetype-dev \
     libguestfs-tools \
     libxml2 \
     nmap \
     openjdk-11-jdk \
+    pkg-config \
     python3 \
     python3-guestfs \
     python3-lxml \
@@ -132,8 +134,8 @@ RUN apt-get update && apt-get install -y \
 
 # If we want to run in a venv, we can use this. System site packages means
 # we can still access the apt-installed python packages (e.g. guestfs) in our venv
-#RUN python3 -m venv --system-site-packages /venv
-#ENV PATH="/venv/bin:$PATH"
+RUN python3 -m venv --system-site-packages /venv
+ENV PATH="/venv/bin:$PATH"
 
 RUN --mount=type=cache,target=/root/.cache/pip pip install \
       angr \
@@ -151,6 +153,7 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
       pygraphviz \
       python-owasp-zap-v2.4 \
       python_hosts \
+      pyviz \
       pyyaml \
       jsonschema \
       setuptools \
