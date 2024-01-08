@@ -24,13 +24,14 @@
             # Add PANDA_PLUGIN_PATH
             (pkgs.fetchpatch {
               url = "https://github.com/panda-re/panda/pull/1408.patch";
-              hash = "sha256-1ll755U2zcbq91a5r+TB6Ey8XcSM3uqbnKjigmyM9dU=";
+              hash = pkgs.lib.fakeHash;
+            })
+            # Fix callstack_instr on MIPS
+            (pkgs.fetchpatch {
+              url = "https://github.com/panda-re/panda/pull/1409.patch";
+              hash = pkgs.lib.fakeHash;
             })
           ];
-          postPatch = prev.postPatch + ''
-            substituteInPlace panda/python/core/pandare/panda.py \
-              --replace 'realpath(pjoin(self.get_build_dir(), "pc-bios"))' "pjoin('$out', 'share/panda')" \
-          '';
         });
       iglooStatic = pkgs.linkFarm "igloo-static" [{
         name = "kernels";
