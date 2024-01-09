@@ -237,7 +237,7 @@ class FileFailures(PyPlugin):
                 basename_c = self.panda.plugins['osi_linux'].osi_linux_fd_to_filename(cpu, proc, fd)
                 if basename_c == self.panda.ffi.NULL:
                     return
-                base = self.panda.ffi.string(basename_c)
+                base = self.panda.ffi.string(basename_c).decode('latin-1', errors='ignore')
             try:
                 path = base + "/" + panda.read_str(cpu, fname)
             except ValueError:
