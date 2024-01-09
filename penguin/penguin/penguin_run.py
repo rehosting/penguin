@@ -28,13 +28,20 @@ qemu_configs = {
                     "arch":         "mips",
                     "kconf_group":  "mipseb",
                     "mem_gb":          "1",
-                }
-        }
+                },
+        "mips64eb": {"qemu_machine": "malta",
+                    "arch":         "mips64",
+                    "kconf_group":  "mips64eb",
+                    "mem_gb":          "1",
+                },
+}
 
 def make_unique_cid():
     CID = None
+    max_cid = 3 # Try to keep these small to save kernel arg space
     while CID==None:
-        CID=random.randint(3,(2**31)-1) # +3 is to shift past the special CIDs
+        max_cid += (1 if max_cid < 32 else 0)
+        CID=random.randint(3,(2**max_cid)-1) # +3 is to shift past the special CIDs
         for fname in os.listdir("/tmp"):
             #The host side of the VPN creates these files
             if fname.startswith(f"vpn_events_{CID}_"):
@@ -96,7 +103,6 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     config_fs = conf['core']['fs'] # Path to tar filesystem
     plugin_path = conf['core']['plugin_path'] if 'plugin_path' in conf['core'] else default_plugin_path
     static_files = conf['static_files'] if 'static_files' in conf else {} # FS shims
-    #config_append = [f"{k}" + (f"={v}" if v is not None else '') for k, v in conf['env'].items()]
     conf_plugins = conf['plugins'] # {plugin_name: {enabled: False, other... opts}}
 
     if isinstance(conf_plugins, list):
@@ -151,29 +157,16 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     except KeyError:
         raise ValueError(f"Unknown architecture: {archend}")
 
-    # XXX: we want elevator=noop, maybe? But our kernel command seems
-    # to be getting cut off - we're getting 'init=/igl' at the end
-    # for mips.
-    # XXX: Seeing this again, only for mips. Must be a fixed buffer size?
-    # If we drop CID when we're not using it things get better
-    #elevator=noop  # TODO add back
-
-    append = ""
-    #if len(config_append):
-    #    # Trailing whitespace to handle badly-designed guest input parsers
-    #    append = " ".join(config_append) + " "
-
-    append += f"root={ROOTFS} console=ttyS0 norandmaps clocksource=jiffies nokaslr nohz_full nohz=off no_timer_check threadirqs idle=poll acpi=off nosoftlockup rw panic=1 CID={CID} rootfstype=ext2"
-
-    if archend in ["armel"]:
-        append = append.replace("console=ttyS0", "console=ttyAMA0")
-
+    append = f"root={ROOTFS} console=ttyS0 norandmaps nokaslr rw panic=1 CID={CID} rootfstype=ext2"
     append += " init=/igloo/init"
 
     have_vsock = os.path.exists("/dev/vhost-vsock") and 'vpn' in conf['plugins'] and ('enabled' not in conf['plugins']['vpn'] or conf['plugins']['vpn']['enabled'])
 
     if not have_vsock:
         append = append.replace(f" CID={CID}", "") # Remove CID if we don't have vhost-vsock
+
+    if archend in ["armel"]:
+        append = append.replace("console=ttyS0", "console=ttyAMA0")
 
     root_shell = []
     if conf['core'].get('root_shell', False):
@@ -202,10 +195,13 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
         console_out = ['-serial', f'file:{out_dir}/console.log', '-monitor', 'stdio'] # ttyS0: guest console output
 
     # ARM maps ttyS1 to the first listed device while MIPS maps ttyS0 to the first devie
-    if archend in ["mipsel", "mipseb"]:
+    if archend in ["mipsel", "mipseb", "mips64eb"]:
         args = args + console_out + root_shell
     else:
         args = args + root_shell + console_out
+
+    if archend == 'mips64eb':
+        args += ['-cpu', 'MIPS64R2-generic']
 
     ############# Reduce determinism #############
 
@@ -275,9 +271,14 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     # args first, but we need to know the start of the string too. So let's say a user can't change
     # the root=/dev/vda argument and put that first. Then config args. Then the rest of the args
     root_str = f"root={ROOTFS}"
-    panda.panda_args[append_idx] = root_str + " " + \
-                                   " ".join(config_args) + \
-                                   panda.panda_args[append_idx].replace(root_str, "")
+    full_append = root_str + " " + " ".join(config_args) +  panda.panda_args[append_idx].replace(root_str, "")
+    if len(full_append) > 255:
+        print("WARNING append may be too long. The following will be passed through reliably:")
+        print(full_append[:255])
+        print("The rest may be dropped:")
+        print(full_append[255:])
+
+    panda.panda_args[append_idx] = full_append
 
     print("Run emulation")
     try:

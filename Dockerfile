@@ -58,7 +58,7 @@ RUN wget -qO - https://panda.re/igloo/vpn.tar.gz | \
 
 # Download custom panda plugins built from CI. Populate /panda_plugins
 RUN mkdir /panda_plugins && \
-  wget -qO - https://panda.re/igloo/penguin_plugins_v1.3.1.tar.gz | \
+  wget -qO - https://panda.re/igloo/penguin_plugins_v1.4.tar.gz | \
   tar xzf - -C /panda_plugins
 
 RUN mkdir /static_deps && \
@@ -176,6 +176,7 @@ COPY --from=downloader /igloo_static/ /igloo_static/
 COPY --from=downloader /panda_plugins/arm/ /usr/local/lib/panda/arm/
 COPY --from=downloader /panda_plugins/mips/ /usr/local/lib/panda/mips/
 COPY --from=downloader /panda_plugins/mipsel/ /usr/local/lib/panda/mipsel/
+COPY --from=downloader /panda_plugins/mips64/ /usr/local/lib/panda/mips64/
 
 # Copy utils.source (scripts) and utils.bin (binaries) from host
 # Files are named util.[arch] or util.all
