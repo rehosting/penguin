@@ -378,7 +378,7 @@ def add_init_meta(base_config, output_dir):
         raise
 
     # Sort inits by length shortest to longest
-    inits.sort(key=lambda x: -len(x))
+    inits.sort(key=lambda x: len(x))
 
     # Next examine init.txt in the output_dir - these are particularly interesting
     # because they're the ones we saw in kernel args
