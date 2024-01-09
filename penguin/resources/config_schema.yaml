@@ -100,6 +100,14 @@ properties:
         examples:
           - false
           - true
+      immutable:
+        title: Enable immutable mode
+        description: Whether to run the guest filesystem in immutable mode
+        type: boolean
+        default: true
+        examples:
+          - true
+          - false
       version:
         title: Config format version
         description: Version of the config file format
