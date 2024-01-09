@@ -89,7 +89,19 @@ def get_directories_from_tar(tarfile_path):
 
 def get_files_from_tar(tarfile_path):
     with tarfile.open(tarfile_path, "r") as tar:
-        return {member.name for member in tar.getmembers() if member.isfile()}
+        # Trim leading . from path, everything is ./
+        return {member.name[1:] for member in tar.getmembers() if member.isfile()}
+
+def get_other_from_tar(tarfile_path):
+    # Get things that aren't files nor directories - devices, symlinnks, etc
+    with tarfile.open(tarfile_path, "r") as tar:
+        # Trim leading . from path, everything is ./
+        return {member.name[1:] for member in tar.getmembers() if not member.isfile() and not member.isdir}
+
+def get_all_from_tar(tarfile_path):
+    with tarfile.open(tarfile_path, "r") as tar:
+        # Trim leading . from path, everything is ./
+        return {member.name[1:] for member in tar.getmembers()}
 
 def find_strings_in_file(file_path, pattern):
     result = subprocess.run(['strings', file_path], capture_output=True, text=True)
@@ -136,11 +148,12 @@ def pre_shim(config):
                     "/tmp/var/run", "/tmp/home", "/tmp/home/root", "/tmp/mnt", "/tmp/opt", "/tmp/www", "/var/run", "/var/lock",
                     "/usr/bin", "/usr/sbin"]
 
-    existing_dirs = get_directories_from_tar(fs_path)
+    existing = get_all_from_tar(fs_path)
 
     for d in directories:
-        if d in existing_dirs:
+        if d in existing:
             continue
+        # It's not already in there, add it as a world-readable directory
         config["static_files"][d] = {
             'type': 'dir',
             'mode': 0o755
@@ -284,6 +297,9 @@ def shim_configs(config):
                     target_exists[igloo_match[0][1]] = True
             else:
                 # It's a non-igloo path. If it's one of our targets, store it's path -> shim
+                if '/completions/' in path:
+                    # We don't want to shim completions files, a standard linux feature
+                    continue
                 guest_match = [x for x in shim_targets if x[0] == basename]
                 if len(guest_match):
                     shim_results[path] = f"/igloo/utils/{guest_match[0][1]}"
