@@ -317,14 +317,31 @@ def shim_configs(config):
 
 	# Identify original kernel version and shim /lib/modules/4.10.0 to it's /lib/modules path
     kernel_version = None
+    potential_kernels = set()
     with tarfile.open(fs_path) as fs:
         for member in fs.getmembers():
-            if member.name.startswith("./lib/modules/") and member.isdir():
-                potential_name = os.path.basename(member.name)
-                if len(potential_name.split(".")) == 3:
-                    if this_version := _kernel_version_to_int(potential_name):
-                        if kernel_version is None or this_version > _kernel_version_to_int(kernel_version):
-                            kernel_version = potential_name
+            if member.path.startswith("./lib/modules/") and member.isdir():
+                # is this directly in under lib/modules?
+                if not os.path.dirname(member.path) == './lib/modules':
+                    continue
+                potential_kernels.add(os.path.basename(member.path))
+
+    # Do any of these kernel strings look like a version
+    # If we only have one, let's say it's definitely right
+    if len(potential_kernels) == 1:
+        kernel_version = potential_kernels.pop()
+    elif len(potential_kernels) > 1:
+        # Yikes, how can we tell which is the right one?
+        # One simple heuristic for now - look for dots and dashes?
+        # Future could be to look for .ko files in dir
+        for potential_name in potential_kernels:
+            if '.' in potential_name and '-' in potential_name:
+                kernel_version = potential_name
+                break
+        if not kernel_version:
+            print("WARNING: multiple kernel versions look valid (TODO improve selection logic, grabbing first)")
+            print(potential_kernels)
+            kernel_version = potential_kernels.pop()
 
     if kernel_version:
         # We have a kernel version, add it to our config
