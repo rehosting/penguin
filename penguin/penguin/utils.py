@@ -180,10 +180,16 @@ def hash_image_inputs(conf):
             qcow_hash.update(data)
     qcow_hash = qcow_hash.hexdigest()
 
-    # If we ever add a way to import static files by path instead of including
-    # their contents directly in the config as a string, this assert should
+    # If we ever add other ways to import static files, this assert should
     # remind us that the file contents need to be hashed
-    assert all('contents' in f for f in static_files.values() if f['type'] == 'file')
+    assert all('contents' in f or 'hostpath' for f in static_files.values() if f['type'] == 'file')
+
+    # We'll include the files in our hash by reading them into our temporary
+    # dict of data. This seems safer than doing hashing ourselves and merging.
+    for f in static_files.values():
+        if f['type'] == 'hostpath':
+            with open(f['hostpath'], 'rb') as f:
+                f['contents'] = f.read()
 
     # If the inputs to the image-generation function change, this assert should
     # remind us to also update the hashing to include those inputs
