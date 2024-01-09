@@ -135,7 +135,7 @@ def find_shell_scripts(tmp_dir):
             if file_path.is_file() and os.access(file_path, os.X_OK) and str(file_path).endswith('.sh'):
                 yield file_path
 
-def pre_shim(config):
+def pre_shim(config, auto_explore=False):
     '''
     Static modifications to filesystem. Make directories that we think are missing, add some standard files.
     Update config with these suggested changes.
@@ -280,17 +280,26 @@ def _kernel_version_to_int(potential_name):
     return comps[0] * 10000 + comps[1] * 100 + comps[2]
 
 
-def shim_configs(config):
+def shim_configs(config, auto_explore=False):
     '''
     Identify binaries in the guest FS that we want to shim
     and add symlinks to go from guest bin -> igloo bin
     into our config.
 
+    If auto_explore, we'll skip shimming busybox and sh
+
     '''
     fs_path = config['core']['fs'] # tar archive
 
     # (guest bin, path relative to /igloo/utils)
-    shim_targets = [('ssh-keygen', 'ssh-keygen'), ('openssl', 'openssl'), ('sh', 'busybox'), ('bash', 'busybox')]
+    shim_targets = [('ssh-keygen', 'ssh-keygen'), ('openssl', 'openssl')]
+    if auto_explore:
+        # XXX: We may eventually want to toggle this during auto-exploration, for
+        # some FWs these shims will break things! I.e., if they need real bash
+        # We could also check for busybox strings in the on-disk binary and only
+        # shim if it looks like busybox instead of real bash
+        shim_targets.append([('sh', 'busybox'), ('bash', 'busybox')])
+
     shim_results = {}
     target_exists = {t[1]: False for t in shim_targets}
 
@@ -542,7 +551,7 @@ def add_env_meta(base_config, output_dir):
 
     return base_config
 
-def extend_config_with_static(base_config, outdir):
+def extend_config_with_static(base_config, outdir, auto_explore=False):
 
     if 'meta' not in base_config:
         base_config['meta'] = {}
@@ -551,7 +560,7 @@ def extend_config_with_static(base_config, outdir):
 
     # Search the filesystem for filenames that we want to shim with igloo-utils
     # We shim them all, every time
-    shim_configs(base_config)
+    shim_configs(base_config, auto_explore)
 
     # Next we want to identify potential device files and environment variables
     # These are stored in our metadata: [meta][potential_dev] and [meta][potential_env]
