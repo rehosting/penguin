@@ -297,19 +297,24 @@ properties:
           type: object
           required:
             - type
-            - contents
             - mode
           additionalProperties: false
           properties:
             type:
               title: Type of file (regular file)
               const: file
-            contents:
-              title: Contents of file
-              type: string
             mode:
               title: Permissions of file
               type: integer
+            contents:
+              title: Contents of file
+              type: string
+            hostpath:
+              title: Host path
+              type: string
+          oneOf:
+            - required: [contents]
+            - required: [hostpath]
         - title: Directory
           type: object
           required:

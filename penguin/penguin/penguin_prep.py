@@ -39,14 +39,21 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
     for file_path, file in files.items():
         ftype = file['type']
         if ftype == 'file':
-            filename = file_path
-            contents = file['contents']
+            if "contents" in file:
+                contents = file['contents']
+            elif "hostpath" in file:
+                try:
+                    contents = open(file['hostpath'], 'rb').read()
+                except FileNotFoundError:
+                    raise FileNotFoundError(
+                        f"Could not find host file at {file['hostpath']} to add to image as {file_path}")
             mode = file['mode']
             # Delete target if it already exists
             if g.is_file(file_path):
                 g.rm(file_path)
             g.write(file_path, contents)
             g.chmod(mode, file_path)
+
         elif ftype == 'dir':
             if g.is_dir(file_path):
                 g.rm_rf(file_path) # Delete the directory AND CONTENTS
