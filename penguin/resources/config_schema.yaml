@@ -57,17 +57,20 @@ properties:
           - armel
           - mipsel
           - mipseb
+          - mips64eb
         examples:
           - armel
           - mipsel
           - mipseb
+          - mips64eb
       kernel:
         title: Path to kernel image
         type: string
         examples:
-          - /igloo_static/kernels/vmlinux.armel
+          - /igloo_static/kernels/zImage.armel
           - /igloo_static/kernels/vmlinux.mipsel
           - /igloo_static/kernels/vmlinux.mipseb
+          - /igloo_static/kernels/vmlinux.mips64eb
       fs:
         title: Path to filesystem tarball
         type: string
