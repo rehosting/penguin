@@ -104,14 +104,17 @@ class Health(PyPlugin):
         def detect_dev_openat(cpu, pc, fd, fname, mode, flags):
             base = ''
             if fd != -100: # CWD
-                proc = self.panda.plugins['osi'].get_current_process(cpu)
-                if proc == self.panda.ffi.NULL:
+                proc = panda.plugins['osi'].get_current_process(cpu)
+                if proc == panda.ffi.NULL:
                     return
-                basename_c = self.panda.plugins['osi_linux'].osi_linux_fd_to_filename(cpu, proc, fd)
-                if basename_c == self.panda.ffi.NULL:
+                basename_c = panda.plugins['osi_linux'].osi_linux_fd_to_filename(cpu, proc, fd)
+                if basename_c == panda.ffi.NULL:
                     return
-                base = self.panda.ffi.string(basename_c)
-            path = base + "/" + panda.read_str(cpu, fname)
+                base = panda.ffi.string(basename_c).decode('latin-1', errors='ignore')
+            try:
+                path = base + "/" + panda.read_str(cpu, fname)
+            except ValueError:
+                return
             if path.startswith("/dev"):
                 self.log_dev_open(path, mode)
 
