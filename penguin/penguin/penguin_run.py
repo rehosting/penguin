@@ -176,16 +176,19 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
         append = append.replace(f" CID={CID}", "") # Remove CID if we don't have vhost-vsock
 
     root_shell = []
-    if 'root_shell' in conf['core'] and conf['core']['root_shell']:
+    if conf['core'].get('root_shell', False):
         root_shell  = ['-serial', 'telnet:0.0.0.0:4321,server,nowait'] # ttyS1: root shell
+
+    # If core config specifes immutable: False we'll run without snapshot
+    no_snapshot_drive = f"file={config_image},if=virtio"
+    snapshot_drive = no_snapshot_drive + ",cache=unsafe,snapshot=on"
+    drive = snapshot_drive if conf['core'].get('immutable', True) else no_snapshot_drive
 
     args = [ '-M',     q_config['qemu_machine'],
             '-kernel', kernel,
             '-append', append,
             '-display', 'none',
-            #'-snapshot', # Immutable! - Moved to rootfs only
-            #'-drive',  q_config['drive'],
-            "-drive", f"file={config_image},if=virtio,cache=unsafe,snapshot=on"]
+            "-drive", drive]
 
     args += ['-no-reboot']
 
