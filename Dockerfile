@@ -48,7 +48,7 @@ RUN wget -qO - https://github.com/panda-re/console/releases/download/release_389
   mv /igloo_static/console/console-mips64eb-linux-musl /igloo_static/console/console.mips64eb
 
 # Download 4.10_hc kernels from CI. Populate /igloo_static/kernels
-RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v1.9b2/kernels-latest.tar.gz | \
+RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v1.9/kernels-latest.tar.gz | \
       tar xzf - -C /igloo_static
 
 # Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
@@ -188,7 +188,9 @@ WORKDIR /penguin
 # Aliases for quick tests. m to make a config for the stride. r to run it. a for auto (config+run+explore)
 RUN echo 'alias m="rm -rf /results/stride; penguin /fws/stride.tar.gz /results/stride/"' >> ~/.bashrc
 RUN echo 'alias r="penguin --config /results/stride/config.yaml /results/stride/out"' >> ~/.bashrc
-RUN echo 'alias a="rm -rf /results/stride_auto; penguin --niters 5 --singlecore /fws/stride.tar.gz /results/stride_auto/"' >> ~/.bashrc
+# XXX
+RUN echo 'alias a="rm -rf /results/er-e300; penguin --niters 1 /fws/ER-e300.v2.0.9-hotfix.7.5622762.tar.gz /results/er-e300/"' >> ~/.bashrc
+RUN echo 'alias a2="penguin --config /results/er-e300/config.yaml /results/er-e300/out/"' >> ~/.bashrc
 
 # Now copy in our module and install it
 # penguin is editable so we can mount local copy for dev
