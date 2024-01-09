@@ -85,6 +85,8 @@ class HyperFile(PyPlugin):
 
             # Unpack request with our dynamic format string
             type_val, rv, device_name = struct.unpack_from(format_str, buf, 0)
+            if word_char == 'Q':
+                type_val = type_val >> 32
 
             # Create sub-format string
             if type_val == HYPER_READ:
