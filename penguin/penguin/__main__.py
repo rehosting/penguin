@@ -299,6 +299,11 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
         # Also disable root shell and set timeout to 5 minutes (unless told otherwise)
         data['core']['root_shell'] = False
         data['plugins']['core']['timeout'] = timeout if timeout else 300
+    else:
+        # Interactive, let's enable root shell and fully delete some plugins
+        data['core']['root_shell'] = True
+        for p in ['zap', 'nmap', 'health', 'shell', 'coverage', 'env']:
+            del data['plugins'][p]
 
     # Make sure we have a base directory to store config
     # and static results in.
@@ -309,7 +314,7 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
     # readable/writable by everyone since non-container users will want to access them
     os.umask(0o000)
 
-    data = extend_config_with_static(data, f"{output_dir}/base/")
+    data = extend_config_with_static(data, f"{output_dir}/base/", auto_explore)
 
     if auto_explore and 'igloo_init' in data['env']:
         # Make sure we didn't set an igloo_init in our env if there are multiple potential values
