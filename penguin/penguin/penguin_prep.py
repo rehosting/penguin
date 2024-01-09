@@ -64,9 +64,9 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
         elif ftype == 'symlink':
             target = file['target'] # This is what we point to
             linkpath = file_path # This is what we create
-            # Delete linkpath if it already exists
+            # Delete linkpath AND CONTENTS if it already exists
             if g.exists(linkpath):
-                g.rm(linkpath)
+                g.rm_rf(linkpath)
 
             # If target doesn't exist, we can't symlink
             if not g.exists(target) and not g.is_dir(target):
@@ -86,9 +86,9 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
             else:
                 raise RuntimeError(f"Unknown devtype {file['devtype']} - only block and char are supported")
         elif ftype == 'delete':
-            # Delete the file
+            # Delete the file (or directory and children)
             if g.exists(file_path):
-                g.rm(file_path)
+                g.rm_rf(file_path)
         else:
             raise RuntimeError(f"Unknown file type {ftype}")
 
