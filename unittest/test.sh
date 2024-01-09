@@ -40,6 +40,10 @@ assert_env_cmp() {
   grep -q 'target' results/env_cmp.txt
 }
 
+assert_ps_output() {
+  grep -q '\[bioset\]' results/console.log
+}
+
 assert_pseudofiles_missing() {
   python3 -c "import yaml; \
               f = open('results/pseudofiles_failures.yaml'); \
@@ -95,5 +99,11 @@ for arch in "${archs[@]}"; do
     echo "Skipping pseudofile_ioctl test for $arch"
   else
     run_test "$arch" "pseudofile_ioctl" assert_pseudofiles_ioctl
+  fi
+
+  if [[ ! " ${tests[@]} " =~ " hostfile " ]]; then
+    echo "Skipping hostfile test for $arch"
+  else
+    run_test "$arch" "hostfile" assert_ps_output
   fi
 done
