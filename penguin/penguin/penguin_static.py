@@ -142,6 +142,16 @@ def pre_shim(config):
     '''
     fs_path = config['core']['fs'] # tar archive
 
+    # Add /firmadyne/ttyS1 for console - we could pick a different major/minor number later to ensure the guest
+    # can't stomp on us. Or we could patch console to use a different path (i.e., something sane in /dev)
+    config['static_files']['/firmadyne/ttyS1'] = {
+        'type': 'dev',
+        'devtype': 'char',
+        'major': 4,
+        'minor': 65,
+        'mode': 0o666,
+    }
+
     # Directories we want to make sure exist in the FS. This list is based on firmadyne and firmae. Added /dev explicitly because we need
     # it for devtmpfs (e.g., devtmpfs could try mounting before /igloo/init runs and makes the directory)
     directories = ["/dev", "/proc", "/dev/pts", "/etc_ro", "/tmp", "/var", "/run", "/sys", "/root", "/tmp/var", "/tmp/media", "/tmp/etc",

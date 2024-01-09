@@ -74,15 +74,15 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
 
             g.ln_s(target, linkpath)
         elif ftype == 'dev':
-            print("WARN: devices should now be dynamic")
+            if file_path.startswith("/dev/"):
+                print("WARNING: devices in /dev/ should be populated dynamically")
             major = file['major']
             minor = file['minor']
             mode = file['mode']
-            path = file_path
             if file['devtype'] == 'char':
-                g.mknod_c(mode, major, minor, path) # Chardev
+                g.mknod_c(mode, major, minor, file_path) # Chardev
             elif file['devtype'] == 'block':
-                g.mknod_b(mode, major, minor, path) # Blockdev
+                g.mknod_b(mode, major, minor, file_path) # Blockdev
             else:
                 raise RuntimeError(f"Unknown devtype {file['devtype']} - only block and char are supported")
         elif ftype == 'delete':
