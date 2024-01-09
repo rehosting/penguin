@@ -85,6 +85,10 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
                 g.mknod_b(mode, major, minor, path) # Blockdev
             else:
                 raise RuntimeError(f"Unknown devtype {file['devtype']} - only block and char are supported")
+        elif ftype == 'delete':
+            # Delete the file
+            if g.exists(file_path):
+                g.rm(file_path)
         else:
             raise RuntimeError(f"Unknown file type {ftype}")
 
