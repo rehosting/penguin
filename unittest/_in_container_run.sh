@@ -8,13 +8,15 @@ set -eu
 ARCH=$1
 TESTDIR=$2
 
-# DEBUG: extract a local copy of penguin_plugins for testing
-#mkdir /tmp/plugins
-#tar xf /tests/penguin_plugins.tar.gz -C /tmp/plugins
-#cp "/tmp/plugins/$ARCH/panda"* "/usr/local/lib/panda/$ARCH/"
+# We need a "host file" for the hostfile test. Pre-position one in /tmp
+cat <<EOF > /tmp/init.bin
+#!/igloo/utils/sh
+echo custom bin runs;
+/igloo/utils/busybox ps;
+EOF
 
-# Share qcows between test (only if config FS hashes match)
-# XXX: Is arch a part of that hash?
+
+# Share qcows between tests (only) if FS hashes match
 ln -s /tests/qcows "/tmp/qcows"
 
 # Directly setup a filesystem to pair with our config instead of using the standard entrypoint
