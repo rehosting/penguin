@@ -301,7 +301,7 @@ properties:
           additionalProperties: false
           properties:
             type:
-              title: Type of file (regular file)
+              title: Type of file action (create file)
               const: file
             mode:
               title: Permissions of file
@@ -323,7 +323,7 @@ properties:
           additionalProperties: false
           properties:
             type:
-              title: Type of file (directory)
+              title: Type of action file (make directory)
               const: dir
             mode:
               title: Permissions of directory
@@ -352,7 +352,7 @@ properties:
           additionalProperties: false
           properties:
             type:
-              title: Type of file (device file)
+              title: Type of action (device file)
               const: dev
             devtype:
               title: Type of device file
@@ -371,6 +371,13 @@ properties:
               type: integer
               examples:
                 - 0666
+        - title: Delete file
+          type: object
+          properties:
+            type:
+              title: Type of file action (delete file)
+              const: delete
+          additionalProperties: false
     examples:
       - {}
       - /path/to/file:
