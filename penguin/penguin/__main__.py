@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tarfile
 from tempfile import TemporaryDirectory
+from collections import Counter
 from elftools.elf.elffile import ELFFile
 from elftools.elf.constants import E_FLAGS, E_FLAGS_MASKS
 from os.path import join, dirname
@@ -98,12 +99,13 @@ def arch_filter(header):
             description += ", abi2"
         if (flags & E_FLAGS.EF_MIPS_32BITMODE):
             description += ", 32bitmode"
-        print(f"Identified MIPS firmware: arch={mips_arch}, abi={abi}, endian={endianness}, extras={description}")
 
         if mips_arch.startswith('mips64'):
             bits = 64
         else:
             bits = 32
+
+        #print(f"Identified MIPS firmware: arch={mips_arch}, bits={bits}, abi={abi}, endian={endianness}, extras={description}")
 
         if bits == 32:
             if endianness == "ELFDATA2LSB":
@@ -119,6 +121,7 @@ def arch_filter(header):
 def find_architecture(infile):
     tf = tarfile.open(infile)
     fsbase = tf.firstmember.path
+    arch_counts = Counter()
     for member in tf.getmembers():
         if member.isfile() and binary_filter(fsbase, member.name):
             #print(f"Checking architecture in {member.name}")
@@ -127,7 +130,16 @@ def find_architecture(infile):
                 continue
             member_file.seek(0)
             ef = ELFFile(member_file)
-            return arch_filter(ef.header)
+            arch_counts[arch_filter(ef.header)] += 1
+
+            # If we have a sum of >= 10 in our counter, we can stop, we've seen enough
+            if sum(arch_counts.values()) >= 10:
+                break
+
+    # Now select the most common architecture
+    if len(arch_counts) == 0:
+        return None
+    return arch_counts.most_common(1)[0][0]
 
 def archEnd(value):
     arch = None
