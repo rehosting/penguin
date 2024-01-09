@@ -322,8 +322,13 @@ class FileFailures(PyPlugin):
     def read_zero(self, filename, buffer, length, offset, details=None):
         data = b'0'
         final_data = data[offset:offset+length]
-        # XXX if offset > len(data) should we return an error isntead of 0?
+        # XXX if offset > len(data) should we return an error instead of 0?
         return (final_data, len(final_data)) # data, rv
+
+    def read_empty(self, filename, buffer, length, offset, details=None):
+        data = b''
+        # XXX if offset > len(data) should we return an error instead of 0?
+        return (data, 0) # data, rv
 
     def read_const_buf(self, filename, buffer, length, offset, details=None):
         data = details['val'].encode() + b"\x00" # Null terminate?
