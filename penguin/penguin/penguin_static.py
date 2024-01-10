@@ -292,7 +292,7 @@ def shim_configs(config, auto_explore=False):
     fs_path = config['core']['fs'] # tar archive
 
     # (guest bin, path relative to /igloo/utils)
-    shim_targets = [('ssh-keygen', 'ssh-keygen'), ('openssl', 'openssl')]
+    shim_targets = [('ssh-keygen', 'ssh-keygen'), ('openssl', 'openssl'), ('ash', 'busybox')]
     if auto_explore:
         # XXX: We may eventually want to toggle this during auto-exploration, for
         # some FWs these shims will break things! I.e., if they need real bash
@@ -300,7 +300,7 @@ def shim_configs(config, auto_explore=False):
         # shim if it looks like busybox instead of real bash
         shim_targets.append([('sh', 'busybox'), ('bash', 'busybox')])
 
-    shim_results = {}
+    shim_results = {} # {guest_path: (path_to_save_original, path_to_igloo_alternative)}
     target_exists = {t[1]: False for t in shim_targets}
 
     # Does the file exist in the FS tar?
@@ -321,14 +321,20 @@ def shim_configs(config, auto_explore=False):
                     continue
                 guest_match = [x for x in shim_targets if x[0] == basename]
                 if len(guest_match):
-                    shim_results[path] = f"/igloo/utils/{guest_match[0][1]}"
+                    shim_results[path] = (f"/igloo/utils/{guest_match[0][1]}.orig", f"/igloo/utils/{guest_match[0][1]}")
 
     # Sanity check: make sure all of our target destinations exist
     for k, found_in_fs in target_exists.items():
         if not found_in_fs:
             raise ValueError(f"penguin_static adds shims for /igloo/utils/{k} but it's not in FS")
 
-    for guest_path, shim_path in shim_results.items():
+    for guest_path, (backup_path, shim_path) in shim_results.items():
+        # Backup the original binary
+        config['static_files'][backup_path] = {
+            'type': 'move_from',
+            'from': guest_path,
+        }
+        # Add a symlink from the guest path to the shim path
         config['static_files'][guest_path] = {
             'type': 'symlink',
             'target': shim_path,

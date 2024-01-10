@@ -22,12 +22,14 @@ while getopts ":qt:f:N:" opt; do
       passphrase=$OPTARG  # Ignored since we're using precomputed keys
       ;;
     \? )
-      echo "Invalid Option: -$OPTARG" 1>&2
-      exit 1
+      exec /igloo/utils/ssh-keygen.orig "$@"
+      #echo "Invalid Option: -$OPTARG" 1>&2
+      #exit 1
       ;;
     : )
-      echo "Invalid Option: -$OPTARG requires an argument" 1>&2
-      exit 1
+      exec /igloo/utils/ssh-keygen.orig "$@"
+      #echo "Invalid Option: -$OPTARG requires an argument" 1>&2
+      #exit 1
       ;;
   esac
 done
@@ -52,9 +54,10 @@ case "$key_type" in
     ;;
   *)
     if [ $quiet -eq 0 ]; then
-      echo "Unsupported key type: $key_type" 1>&2
+      #echo "Unsupported key type: $key_type" 1>&2
     fi
-    exit 1
+    exec /igloo/utils/ssh-keygen.orig "$@"
+    #exit 1
     ;;
 esac
 
