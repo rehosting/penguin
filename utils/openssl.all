@@ -1,6 +1,5 @@
 #!/igloo/utils/sh
 
-#KEYS_DIR="/platform/python/core/igloo/resources/static_keys/" # Testing
 KEYS_DIR=/igloo/keys/
 
 if [[ "$1" == "req" ]]; then
@@ -49,8 +48,8 @@ if [[ "$1" == "req" ]]; then
 
     # Check that necessary arguments were provided
     if [[ -z "$keyfile" || -z "$certfile" || -z "$keysize" ]]; then
-        echo "Missing arguments: -keyout, -out, or -newkey not provided"
-        exit 1
+        #echo "Missing arguments: -keyout, -out, or -newkey not provided. Fallback to original openssl command."
+        exec /igloo/utils/openssl.orig "$@"
     fi
 
     # If x509, append _x509 to keyname
@@ -75,11 +74,12 @@ if [[ "$1" == "req" ]]; then
             cp "${certpath}" "${certfile}"
         fi
     else
-        echo "Pre-computed key or certificate not found for size ${keysize} at ${keypath} or ${certpath}"
-        exit 1
+        #echo "Pre-computed key or certificate not found for size ${keysize} at ${keypath} or ${certpath}"
+        exec /igloo/utils/openssl.orig "$@"
     fi
 
 else
     # If the command is not 'req', execute the normal openssl command
-    /igloo/utils/openssl_orig "$@"
+    #echo "Unsupported igloo openssl command $@"
+    exec /igloo/utils/openssl.orig "$@"
 fi
