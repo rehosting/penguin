@@ -34,6 +34,9 @@ run_test() {
   fi
 }
 
+col2() {
+  awk '{print $2}'
+}
 
 assert_pseudofiles() {
   # First check:  did we get multiple runs?
