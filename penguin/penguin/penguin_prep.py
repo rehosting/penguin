@@ -36,9 +36,11 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
     g.mount(devices[0], "/")
 
     # Iterate over files from the YAML file and add them to the guest file system
+    # XXX: file['type'] are a bit of a misnomer, it's more of a filesystem action type
+    # so we can add/delete files, create directories, etc.
     for file_path, file in files.items():
-        ftype = file['type']
-        if ftype == 'file':
+        action = file['type']
+        if action == 'file':
             if "contents" in file:
                 contents = file['contents']
             elif "hostpath" in file:
@@ -54,26 +56,26 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
             g.write(file_path, contents)
             g.chmod(mode, file_path)
 
-        elif ftype == 'dir':
+        elif action == 'dir':
             if g.is_dir(file_path):
                 g.rm_rf(file_path) # Delete the directory AND CONTENTS
             # Note we ignore mode here?
             dirname = file_path
             g.mkdir(dirname)
 
-        elif ftype == 'symlink':
-            target = file['target'] # This is what we point to
+        elif action == 'symlink':
+            # file['target'] is what we point to
             linkpath = file_path # This is what we create
             # Delete linkpath AND CONTENTS if it already exists
             if g.exists(linkpath):
                 g.rm_rf(linkpath)
 
             # If target doesn't exist, we can't symlink
-            if not g.exists(target) and not g.is_dir(target):
-                raise ValueError(f"Can't add symlink to {target} as it doesn't exist in requested symlink from {linkpath}")
+            if not g.exists(file['target']) and not g.is_dir(file['target']):
+                raise ValueError(f"Can't add symlink to {file['target']} as it doesn't exist in requested symlink from {linkpath}")
 
-            g.ln_s(target, linkpath)
-        elif ftype == 'dev':
+            g.ln_s(file['target'], linkpath)
+        elif action == 'dev':
             if file_path.startswith("/dev/"):
                 print("WARNING: devices in /dev/ should be populated dynamically")
             major = file['major']
@@ -85,12 +87,27 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
                 g.mknod_b(mode, major, minor, file_path) # Blockdev
             else:
                 raise RuntimeError(f"Unknown devtype {file['devtype']} - only block and char are supported")
-        elif ftype == 'delete':
+        elif action == 'delete':
             # Delete the file (or directory and children)
-            if g.exists(file_path):
-                g.rm_rf(file_path)
+            if not g.exists(file_path) and not g.is_dir(file_path):
+                raise ValueError(f"Can't delete {file_path} as it doesn't exist")
+            g.rm_rf(file_path)
+
+        elif action == 'move_from':
+            # Move a file (or directory and children) TO
+            # the key in yaml (so we can avoid duplicate keys)
+            if not g.exists(file['from']) and not g.is_dir(file['from']):
+                raise ValueError(f"Can't move {file['from']} as it doesn't exist")
+            g.mv(file['from'], file_path)
+
+        elif action == 'chmod':
+            # Change the mode of a file or directory
+            if not g.exists(file_path) and not g.is_dir(file_path):
+                raise ValueError(f"Can't chmod {file_path} as it doesn't exist")
+            g.chmod(file['mode'], file_path)
+
         else:
-            raise RuntimeError(f"Unknown file type {ftype}")
+            raise RuntimeError(f"Unknown file system action {action}")
 
     # Shutdown and close guestfs handle
     g.shutdown()

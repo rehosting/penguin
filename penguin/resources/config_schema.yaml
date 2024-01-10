@@ -310,9 +310,9 @@ properties:
     type: object
     default: {}
     additionalProperties:
-      title: Static file description
+      title: Static filesystem action
       oneOf:
-        - title: Regular file
+        - title: Add file
           type: object
           required:
             - type
@@ -334,7 +334,7 @@ properties:
           oneOf:
             - required: [contents]
             - required: [hostpath]
-        - title: Directory
+        - title: Add dirrectory
           type: object
           required:
             - type
@@ -347,7 +347,7 @@ properties:
             mode:
               title: Permissions of directory
               type: integer
-        - title: Symbolic link
+        - title: Add symbolic link
           type: object
           required:
             - type
@@ -355,12 +355,12 @@ properties:
           additionalProperties: false
           properties:
             type:
-              title: Type of file (symbolic link)
+              title: Type of file action (symbolic link)
               const: symlink
             target:
               title: Target linked path
               type: string
-        - title: Device file
+        - title: Add device file
           type: object
           required:
             - type
@@ -371,7 +371,7 @@ properties:
           additionalProperties: false
           properties:
             type:
-              title: Type of action (device file)
+              title: Type of file action (device file)
               const: dev
             devtype:
               title: Type of device file
@@ -392,10 +392,38 @@ properties:
                 - 0666
         - title: Delete file
           type: object
+          required:
+            - type
           properties:
             type:
               title: Type of file action (delete file)
               const: delete
+          additionalProperties: false
+        - title: Move file
+          type: object
+          required:
+            - type
+            - from
+          properties:
+            type:
+              title: Type of file action (move file from)
+              const: move_from
+            from:
+              title: File to be moved to the specified location
+              type: string
+          additionalProperties: false
+        - title: Change file permissions
+          type: object
+          required:
+            - type
+            - mode
+          properties:
+            type:
+              title: Type of file action (chmod file)
+              const: chmod
+            mode:
+              title: File permissions
+              type: integer
           additionalProperties: false
     examples:
       - {}
