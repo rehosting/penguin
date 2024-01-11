@@ -53,9 +53,9 @@ case "$key_type" in
     key="${key_path}ed25519"
     ;;
   *)
-    if [ $quiet -eq 0 ]; then
-      #echo "Unsupported key type: $key_type" 1>&2
-    fi
+    #if [ $quiet -eq 0 ]; then
+    #  #echo "Unsupported key type: $key_type" 1>&2
+    #fi
     exec /igloo/utils/ssh-keygen.orig "$@"
     #exit 1
     ;;
