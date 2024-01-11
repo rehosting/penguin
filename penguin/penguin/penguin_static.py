@@ -171,10 +171,15 @@ def pre_shim(config, auto_explore=False):
 
     # Temporary directory for tar file extraction
     with tempfile.TemporaryDirectory() as tmp_dir:
-        tar = tarfile.open(fs_path)
-        tar.extractall(path=tmp_dir)
-        tar.close()
-        
+        with tarfile.open(fs_path, 'r') as tar:
+            for member in tar.getmembers():
+                # Don't actually create devices- we don't always have permission to create these!
+                if member.isdev():
+                    # Make a placeholder file (so we know it exists)
+                    open(os.path.join(tmp_dir, member.name), 'w').close()
+                else:
+                    tar.extract(member, tmp_dir)
+
         # FIRMAE_BOOT mitigation: find path strings in binaries, make their directories if they don't already exist
         for f in find_executables(tmp_dir, {'/bin', '/sbin', '/usr/bin', '/usr/sbin'}):
             # For things that look like binaries, find unique strings that look like paths
@@ -222,7 +227,7 @@ def pre_shim(config, auto_explore=False):
                     'target': '/igloo/utils/exit0.sh',
                 }
 
-		# Ensure we have an entry for localhost in /etc/hosts
+        # Ensure we have an entry for localhost in /etc/hosts
         hosts = ""
         if os.path.isfile(tmp_dir + '/etc/hosts'):
             with open(tmp_dir + '/etc/hosts', 'r') as f:
