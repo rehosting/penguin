@@ -42,4 +42,4 @@ if [ "$ARCH" != "armel" ]; then
 fi
 
 # Now render and run the config
-penguin --config /tmp/config.yaml --niters $NITERS --singlecore /tests/results
+penguin --novsock --config /tmp/config.yaml --niters $NITERS --singlecore /tests/results
