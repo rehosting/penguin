@@ -404,9 +404,9 @@ def main():
         # Can't have both
         parser.error("you provided both a config file and a firmware file. Please choose one.")
 
-    if args.novsock and not os.path.exists("/dev/vhost-vsock"):
+    if not args.novsock and not os.path.exists("/dev/vhost-vsock"):
         raise RuntimeError("FATAL: No vsock device found. Please load the vhost_vsock"\
-                            " module. Or run with --allow-novsock if you want to run "\
+                            " module. Or run with --novsock if you want to run "\
                             " without networking")
 
     if args.config and args.niters == 0:

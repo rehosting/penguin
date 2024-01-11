@@ -40,4 +40,4 @@ if [ "$ARCH" != "armel" ]; then
 fi
 
 # Now render and run the config
-penguin --config /tmp/config.yaml /tests/results
+penguin --novsock --config /tmp/config.yaml /tests/results
