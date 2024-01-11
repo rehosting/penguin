@@ -185,22 +185,21 @@ def _build_image(arch_identified, fs_tar_gz, output_dir, static_dir):
             os.rmdir(output_dir)
         except OSError:
             raise RuntimeError(f"Output directory {output_dir} already exists and is not empty. Refusing to destroy")
-    os.mkdir(output_dir)
 
     # If our enviornment specifies a TEMP_DIR (e.g., LLSC) we should do the unpacking in there
     # to avoid issues with NFS and get better perf. At the end we just move result to output
-    if get_mount_type(output_dir) == "lustre":
+    if get_mount_type(os.path.dirname(output_dir)) == "lustre":
         # This FS doesn't support the operations we need to do in converting raw->qcow. Instead try using /tmp
-        use_tmpfs = True
         if "ext3" not in get_mount_type("/tmp"):
             raise RuntimeError("Incompatible filesystem. Neither output_dir nor /tmp are ext3")
 
         # Copy the tar.gz to tempdir, makeImage, then move to output_dir
         with TemporaryDirectory() as temp_dir:
-            shutil.move(fs_tar_gz, temp_dir)
+            shutil.copy(fs_tar_gz, temp_dir)
             _makeImage(temp_dir)
             shutil.copytree(temp_dir, output_dir)
     else:
+        os.mkdir(output_dir)
         _makeImage(output_dir)
 
 def extract_and_build(fw, output_dir):
