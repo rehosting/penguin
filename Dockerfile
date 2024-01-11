@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
 ### DEB DOWNLOADER: get genext2fs and pandare debs ###
 FROM download_base as deb_downloader
 RUN wget -O /tmp/genext2fs.deb https://github.com/panda-re/genext2fs/releases/download/release_9bc57e232e8bb7a0e5c8ccf503b57b3b702b973a/genext2fs.deb && \
-    wget -O /tmp/pandare.deb https://panda.re/secret/pandare_2004.deb
+    wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v1.6/pandare_20.04.deb
 
 ### DOWNLOADER: get zap, libguestfs, busybox, libnvram, console, vpn, kernels, and penguin plugins ###
 FROM download_base as downloader
