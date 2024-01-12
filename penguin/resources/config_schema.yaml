@@ -111,6 +111,14 @@ properties:
         examples:
           - true
           - false
+      network:
+        title: Connect guest to network
+        description: Whether to connect the guest to the network
+        type: boolean
+        default: false
+        examples:
+          - true
+          - false
       version:
         title: Config format version
         description: Version of the config file format
