@@ -59,11 +59,15 @@ assert_pseudofiles_ioctl() {
                       data['/dev/missing']['ioctl'][799]['count'] > 0"
 }
 
+assert_shared_dir() {
+  grep -q 'Hello from guest!' results/shared/from_guest.txt
+}
+
 mkdir -p results qcows
 
 kernel_versions=("4.10" "6.7")
 archs=("armel" "mipsel" "mipseb")
-tests=("env_unset" "env_cmp" "pseudofile_missing" "pseudofile_ioctl")
+tests=("env_unset" "env_cmp" "pseudofile_missing" "pseudofile_ioctl" "shared_dir")
 
 # We can run a single architecture or a single test.
 # For example:
@@ -108,6 +112,12 @@ for arch in "${archs[@]}"; do
     echo "Skipping hostfile test for $arch"
   else
     run_test "$kernel_version" "$arch" "hostfile" assert_ps_output
+  fi
+
+  if [[ ! " ${tests[@]} " =~ " shared_dir " ]]; then
+    echo "Skipping shared_dir test for $arch"
+  else
+    run_test "$kernel_version" "$arch" "shared_dir" assert_shared_dir
   fi
 done
 done

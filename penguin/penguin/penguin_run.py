@@ -204,6 +204,19 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     else:
         console_out = ['-serial', f'file:{out_dir}/console.log', '-monitor', 'stdio'] # ttyS0: guest console output
 
+    if conf['core'].get('shared_dir', False):
+        shared_dir_path = os.path.join(out_dir, 'shared')
+        os.makedirs(shared_dir_path)
+        args += [
+            '-virtfs',
+            ','.join((
+                'local',
+                f'path={shared_dir_path}',
+                'mount_tag=igloo_shared_dir',
+                'security_model=mapped-xattr',
+            )),
+        ]
+
     # ARM maps ttyS1 to the first listed device while MIPS maps ttyS0 to the first devie
     if archend in ["mipsel", "mipseb", "mips64eb"]:
         args = args + console_out + root_shell
