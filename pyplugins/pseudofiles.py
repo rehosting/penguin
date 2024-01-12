@@ -85,16 +85,23 @@ class FileFailures(PyPlugin):
         #                               '*' OR num: {'model': 'X', 'val': Y}
         #                               }
 
-        devfs = []
-        procfs = []
+        self.devfs = []
+        self.procfs = []
+        self.sysfs = []
         need_ioctl_hooks = False
         #self.last_symex = None
+
+        # Closure so we can pass details through
+        def make_rwif(details, fn_ref):
+            def rwif(*args):
+                return fn_ref(*args, details)
+            return rwif
 
         hf_config = {}
         for filename, details in self.config["pseudofiles"].items():
             hf_config[filename] = {}
 
-            for (targ, prefix) in [(devfs, "/dev/"), (procfs, "/proc/")]:
+            for (targ, prefix) in [(self.devfs, "/dev/"), (self.procfs, "/proc/"), (self.sysfs, "/sys/")]:
                 if filename.startswith(prefix):
                     targ.append(filename[len(prefix):])
 
@@ -117,25 +124,36 @@ class FileFailures(PyPlugin):
                 # Have a model specified
                 fn = getattr(self, f"{ftype}_{model}")
 
-                # Closure so we can pass details through
-                def make_rwif(details, fn_ref):
-                    def rwif(*args):
-                        return fn_ref(*args, details)
-                    return rwif
-
                 hf_config[filename][hyper(ftype)] = make_rwif(details[ftype] if ftype in details else {}, fn)
 
                 if ftype == "ioctl" and ftype in details and any([x["model"] == 'symex' for x in details[ftype].values()]):
                     # If we have a symex model we'll need to enable some extra introspection
                     need_ioctl_hooks = True
 
-        if len(devfs):
-            self.get_arg("conf")["env"]["dyndev.devnames"] = ",".join(devfs)
-            print(f"Configuring dyndev to shim devices: {devfs}")
+		# We'll update hf_config[dyndev.{devnames,procnames,netdevnames,sysfs}] with the list of devices we're shimming
+        for f in ["devnames", "procnames", "netdevnames", "sysfs"]:
+            hf_config[f"dyndev.{f}"] = {} #XXX: None of these can be empty - we populate all below
 
-        if len(procfs):
-            self.get_arg("conf")["env"]["dyndev.procnames"] = ",".join(procfs)
-            print(f"Configuring dyndev to shim procfiles: {procfs}")
+		# This is a bit gross - we pull netdevices from core config here so we can pass to hyperfile
+        netdev_str = ""
+        if 'netdevnames' in self.config['core']:
+            netdev_str = self.config['core']['netdevnames'].split(",")
+        hf_config['dyndev.netdevnames'][hyper("read")] = make_rwif({'val': ",".join(netdev_str)}, self.read_const_buf)
+
+        if len(self.devfs):
+            #self.get_arg("conf")["env"]["dyndev.devnames"] = ",".join(self.devfs)
+            print(f"Configuring dyndev to shim devices: {self.devfs}")
+        hf_config["dyndev.devnames"][hyper("read")] = make_rwif({'val': ",".join(self.devfs)}, self.read_const_buf)
+
+        if len(self.procfs):
+            #self.get_arg("conf")["env"]["dyndev.procnames"] = ",".join(procfs)
+            print(f"Configuring dyndev to shim procfiles: {self.procfs}")
+        hf_config["dyndev.procnames"][hyper("read")] = make_rwif({'val': ",".join(self.procfs)}, self.read_const_buf)
+
+        if len(self.sysfs):
+            #self.get_arg("conf")["env"]["dyndev.sysfs"] = ",".join(sysfs)
+            print(f"Configuring dyndev to shim sysfs: {self.sysfs}")
+        hf_config["dyndev.sysfs"][hyper("read")] = make_rwif({'val': ",".join(self.sysfs)}, self.read_const_buf)
 
         # filename -> {read: model, write: model, ioctls: model}
         # Coordinates with hyperfile for modeling behavior!
