@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+num_failed_tests=0
+
 run_test() {
   local arch=$1
   local test_name=$2
@@ -26,6 +28,7 @@ run_test() {
   if $assertion; then
     echo "PASS"
   else
+    num_failed_tests==$((num_failed_tests+1))
     echo "FAIL"
     echo
     echo "Failure log:"
@@ -151,3 +154,5 @@ for arch in "${archs[@]}"; do
     run_test "$arch" "search" assert_combined 40
   fi
 done
+
+exit $num_failed_tests

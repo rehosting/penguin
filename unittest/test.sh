@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+num_failed_tests=0
+
 run_test() {
   local kernel_version=$1
   local arch=$2
@@ -21,6 +23,7 @@ run_test() {
   if $assertion; then
     echo "PASS"
   else
+    num_failed_tests==$((num_failed_tests+1))
     echo "FAIL"
     echo
     echo "Failure log:"
@@ -121,3 +124,5 @@ for arch in "${archs[@]}"; do
   fi
 done
 done
+
+exit $num_failed_tests
