@@ -1,0 +1,106 @@
+# yaml-language-server: $schema=https://rehosti.ng/igloo/config_schema.yaml
+core:
+  arch: @ARCH@
+  kernel: /igloo_static/kernels/@KERNEL_VERSION@/zImage.@ARCH@
+  fs: /tmp/empty/fs.tar
+  qcow: /tmp/empty/image.qcow
+  root_shell: false
+  show_output: false
+  shared_dir: true
+  version: 1.0.0
+env:
+  igloo_init: /init
+  envvar: DYNVALDYNVALDYNVAL
+
+pseudofiles: {}
+nvram: {}
+static_files:
+  /init:
+    type: file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      echo 'Hello from guest!' > /igloo/shared/from_guest.txt
+
+    mode: 73
+
+  /igloo/init:
+    type: file
+    contents: |
+      #!/igloo/utils/sh
+      /igloo/utils/busybox mkdir -p /sys /proc /dev/pts /run /tmp
+      /igloo/utils/busybox mount -t sysfs sysfs /sys
+      /igloo/utils/busybox mount -t proc proc /proc
+      /igloo/utils/busybox mount -t tmpfs tmpfs /run
+      /igloo/utils/busybox mount -t tmpfs tmpfs /tmp
+      /igloo/utils/busybox mount -t devpts devpts /dev/pts
+
+      if [ ! -z "${ROOT_SHELL}" ]; then
+        echo '[IGLOO INIT] Launching root shell';
+        ENV=/igloo/utils/igloo_profile /igloo/utils/console &
+        unset ROOT_SHELL
+      fi
+
+      if [ ! -z "${SHARED_DIR}" ]; then
+        echo '[IGLOO INIT] Mounting shared directory';
+        /igloo/utils/busybox mkdir /igloo/shared
+        /igloo/utils/busybox mount -t 9p -o trans=virtio igloo_shared_dir /igloo/shared -oversion=9p2000.L
+        unset SHARED_DIR
+      fi
+
+      if [ ! -z "${CID}" ]; then
+        echo '[IGLOO INIT] Launching VPN';
+        /igloo/utils/vpn guest -c ${CID} >/dev/null &
+        unset CID
+      fi
+
+      if [ ! -z "${igloo_init}" ]; then
+        echo '[IGLOO INIT] Running specified init binary';
+        exec "${igloo_init}"
+      fi
+      echo "[IGLOO INIT] Fatal: no igloo_init specified in env. Abort"
+      exit 1
+    mode: 73
+  /dev:
+    type: dir
+    mode: 493
+
+plugins:
+  core:
+    description: 'Utility: sanity tests and timeout'
+    version: 1.0.0
+  netbinds:
+    description: 'Analysis: Track network binds'
+    version: 1.0.0
+  vpn:
+    enabled: false
+    description: 'Utility: network bridging'
+    version: 1.0.0
+    depends_on: netbinds
+  shell:
+    description: 'Analysis: track shell script coverage and variable accesses'
+    version: 1.0.0
+  coverage:
+    description: 'Analysis: Track coverage of binaries'
+    version: 1.0.0
+  env:
+    description: 'Analysis: Track accesses to kernel and uboot environment'
+    version: 1.0.0
+  pseudofiles:
+    description: 'Analysis & Intervention: Track failed /dev and /proc files. Hide
+      these failures using models specifed in config'
+    version: 1.0.0
+  health:
+    description: 'Analysis: Track health of the system'
+    version: 1.0.0
+  nmap:
+    description: 'Analysis: run nmap scans on guest network services'
+    depends_on: vpn
+    enabled: false
+    version: 1.0.0
+  zap:
+    description: 'Analysis: Run ZAP web crawler on guest web servers'
+    depends_on: vpn
+    enabled: false
+    version: 1.0.0

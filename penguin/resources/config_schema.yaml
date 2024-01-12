@@ -118,6 +118,9 @@ properties:
       network:
         title: Connect guest to network
         description: Whether to connect the guest to the network
+      shared_dir:
+        title: Enable a shared directory
+        description: Whether to enable a directory to be shared between the host and guest. It is in /igloo/shared in the guest and shared/ in the results directory on the host.
         type: boolean
         default: false
         examples:

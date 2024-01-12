@@ -27,6 +27,13 @@ if [ ! -z "${ROOT_SHELL}" ]; then
   unset ROOT_SHELL
 fi
 
+if [ ! -z "${SHARED_DIR}" ]; then
+  /igloo/utils/busybox mkdir /igloo/shared
+  echo '[IGLOO INIT] Mounting shared directory';
+  /igloo/utils/busybox mount -t 9p -o trans=virtio igloo_shared_dir /igloo/shared -oversion=9p2000.L
+  unset SHARED_DIR
+fi
+
 if [ ! -z "${CID}" ]; then
   echo '[IGLOO INIT] Launching VPN';
   /igloo/utils/vpn guest -c ${CID} >/dev/null &

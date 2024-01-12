@@ -42,3 +42,9 @@ fi
 
 # Now render and run the config
 penguin --novsock --config /tmp/config.yaml /tests/results
+
+# QEMU inside Docker makes the shared dir only readable by root.
+# There are fmode and dmode options for virtfs but PANDA doesn't support them.
+if [ -d /tests/results/shared ]; then
+  chmod -R 777 /tests/results/shared
+fi
