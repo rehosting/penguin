@@ -193,6 +193,12 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
         # Only add vhost-vsock if we have it and the vpn plugin is enabled
         args.extend(['-device', f'vhost-vsock-pci,id=vhost-vsock-pci0,guest-cid={CID}'])
 
+    if conf['core'].get('network', False):
+        # Connect guest to network if specified
+        if archend in ["armel"]:
+            print("WARNING: UNTESTSED network flags for arm")
+        args.extend(['-netdev', 'user,id=user.0', '-device', 'virtio-net,netdev=user.0'])
+
     if 'show_output' in conf['core'] and conf['core']['show_output']:
         console_out = ['-serial', 'mon:stdio']
     else:
