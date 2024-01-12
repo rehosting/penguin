@@ -23,7 +23,7 @@ run_test() {
   if $assertion; then
     echo "PASS"
   else
-    num_failed_tests==$((num_failed_tests+1))
+    num_failed_tests=$((num_failed_tests+1))
     echo "FAIL"
     echo
     echo "Failure log:"
