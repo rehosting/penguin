@@ -74,7 +74,6 @@ ln -s "/igloo/utils/busybox" "$IGLOO/utils/sleep"
 [ -e "$TARFILE" ] || { echo "Error: Tar file $TARFILE does not exist" >&2; exit 1; }
 [ -s "$TARFILE" ] || { echo "Error: Tar file $TARFILE is empty" >&2; exit 1; }
 tar --append --sort=name --owner=root:0 --group=root:0 --mtime='UTC 2019-01-01' -f "$TARFILE" -C "$WORK_DIR" .
-md5sum "$TARFILE"
 
 # 1GB of padding. XXX is this a good amount - does it slow things down if it's too much?
 # Our disk images are sparse, so this doesn't actually take up any space?
@@ -87,11 +86,15 @@ UNPACKED_SIZE=$(( UNPACKED_SIZE + 1024 * 1024 * PADDING_MB ))
 REQUIRED_BLOCKS=$(( (UNPACKED_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE + 1024 ))
 FILESYSTEM_SIZE=$(( REQUIRED_BLOCKS * BLOCK_SIZE ))
 
+# Calculate the number of inodes - err on the side of too big since we'll add more to the FS later
+INODE_SIZE=8192  # For every 8KB of disk space, we'll allocate an inode
+NUMBER_OF_INODES=$(( FILESYSTEM_SIZE / INODE_SIZE ))
+NUMBER_OF_INODES=$(( NUMBER_OF_INODES + 1000 )) # Padding for more files getting added later
+
 # Create and populate the image
 echo "Creating QEMU Image $IMAGE with size $FILESYSTEM_SIZE"
 truncate -s "$FILESYSTEM_SIZE" "$IMAGE"
-genext2fs --faketime -b "$REQUIRED_BLOCKS" -B $BLOCK_SIZE -a "$TARFILE" "$IMAGE" 2>&1 | grep -v "bad type 'x'"
-md5sum "$IMAGE"
+genext2fs --faketime  -N "$NUMBER_OF_INODES" -b "$REQUIRED_BLOCKS" -B $BLOCK_SIZE -a "$TARFILE" "$IMAGE" 2>&1 | grep -v "bad type 'x'"
 
 # Now convert the image to qcow2 format and clean up
 echo "Converting image to QCOW2 format"
