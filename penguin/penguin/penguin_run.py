@@ -128,7 +128,8 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     if not os.path.isdir(qcow_dir):
         os.makedirs(qcow_dir)
 
-    while os.path.isfile(image_filename+".lock"):
+    lock_file = os.path.join(qcow_dir, f".{image_filename}.lock")
+    while os.path.isfile(lock_file):
         # Stall while there's a lock
         print("stalling on lock")
         sleep(1)
@@ -136,14 +137,15 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
 
     # If image isn't in our out_dir already, generate it
     if not os.path.isfile(config_image):
-        open(image_filename+".lock", 'a').close() # create lock file
+        open(lock_file, 'a').close() # create lock file
 
-        print(f"Missing filesystem image {config_image}, generating from config")
-        from .penguin_prep import prepare_run
-        prepare_run(conf, qcow_dir, out_filename=image_filename)
-
-        # Remove lock file
-        os.remove(image_filename+".lock")
+        try:
+            print(f"Missing filesystem image {config_image}, generating from config")
+            from .penguin_prep import prepare_run
+            prepare_run(conf, qcow_dir, out_filename=image_filename)
+        finally:
+            # Always remove lock file, even if we failed to make the image
+            os.remove(lock_file)
 
         # We expect to have the image now
         if not os.path.isfile(config_image):
