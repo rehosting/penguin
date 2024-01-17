@@ -24,7 +24,7 @@
             # Add PANDA_PLUGIN_PATH
             (pkgs.fetchpatch {
               url = "https://github.com/panda-re/panda/pull/1408.patch";
-              hash = pkgs.lib.fakeHash;
+              hash = "sha256-RiwYsxYOa5G7DpW5N1eB/fkA5k5mCRVhxXh4BoYwFn0=";
             })
           ];
         });
