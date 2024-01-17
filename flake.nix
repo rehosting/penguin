@@ -26,11 +26,6 @@
               url = "https://github.com/panda-re/panda/pull/1408.patch";
               hash = pkgs.lib.fakeHash;
             })
-            # Fix callstack_instr on MIPS
-            (pkgs.fetchpatch {
-              url = "https://github.com/panda-re/panda/pull/1409.patch";
-              hash = pkgs.lib.fakeHash;
-            })
           ];
         });
       iglooStatic = pkgs.linkFarm "igloo-static" [{
