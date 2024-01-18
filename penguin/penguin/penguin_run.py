@@ -157,8 +157,10 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     except KeyError:
         raise ValueError(f"Unknown architecture: {archend}")
 
-    append = f"root={ROOTFS} console=ttyS0 norandmaps nokaslr rw panic=1 CID={CID} rootfstype=ext2"
-    append += " init=/igloo/init"
+    append = f"root={ROOTFS} init=/igloo/init console=ttyS0  CID={CID} rw panic=1" # Required
+    append += " rootfstype=ext2 norandmaps nokaslr" # Nice to have
+    append += " clocksource=jiffies nohz_full nohz=off no_timer_check" # Improve determinism?
+    append += " idle=poll acpi=off nosoftlockup " # Improve determinism?
 
     have_vsock = os.path.exists("/dev/vhost-vsock") and 'vpn' in conf['plugins'] and ('enabled' not in conf['plugins']['vpn'] or conf['plugins']['vpn']['enabled'])
 
