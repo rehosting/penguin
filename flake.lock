@@ -55,16 +55,15 @@
         ]
       },
       "locked": {
-        "lastModified": 1704740302,
-        "narHash": "sha256-ppAt8hdyxMXv9Wo7StRBDqUJUa06FYlzwaPvRAL/DmU=",
+        "lastModified": 1705588802,
+        "narHash": "sha256-M0Sj313piI431tqNCn3TMsmZ3yu2imiPm4xxENr0EPo=",
         "owner": "panda-re",
         "repo": "panda",
-        "rev": "8e42424a2f8ad799d75f88238141f0815e0e5d4b",
+        "rev": "a9f94153380bf7171eb69fc97cda189302727491",
         "type": "github"
       },
       "original": {
         "owner": "panda-re",
-        "ref": "nix",
         "repo": "panda",
         "type": "github"
       }

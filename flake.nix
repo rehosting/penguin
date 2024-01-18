@@ -4,7 +4,7 @@
   inputs = {
     nixpkgs.url = "nixpkgs";
     panda = {
-      url = "github:panda-re/panda/nix";
+      url = "github:panda-re/panda";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     angr-targets = {
