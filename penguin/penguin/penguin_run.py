@@ -215,7 +215,12 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
 
     # Setup PANDA
     panda = Panda(q_config['arch'], mem=q_config['mem_gb']+"G", extra_args=args)
-    panda.set_os_name("linux-32-generic")
+
+    if archend in ["mips64eb"]:
+        panda.set_os_name("linux-64-generic")
+    else:
+        panda.set_os_name("linux-32-generic")
+
     panda.load_plugin("syscalls2", args = {"load-info": True})
     panda.load_plugin("osi", args = {"disable-autoload":True})
     panda.load_plugin("osi_linux", args = {"kconf_file":"/igloo_static/kernels/osi.config",
