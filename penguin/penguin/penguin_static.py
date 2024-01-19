@@ -297,13 +297,15 @@ def shim_configs(config, auto_explore=False):
     fs_path = config['core']['fs'] # tar archive
 
     # (guest bin, path relative to /igloo/utils)
+    # XXX: For now we'll only shim executables - if we later want to shim other things we need to
+    # Update some of the later checks
     shim_targets = [('ssh-keygen', 'ssh-keygen'), ('openssl', 'openssl'), ('ash', 'busybox')]
     if auto_explore:
         # XXX: We may eventually want to toggle this during auto-exploration, for
         # some FWs these shims will break things! I.e., if they need real bash
         # We could also check for busybox strings in the on-disk binary and only
         # shim if it looks like busybox instead of real bash
-        shim_targets.append([('sh', 'busybox'), ('bash', 'busybox')])
+        shim_targets.extend([('sh', 'busybox'), ('bash', 'busybox')])
 
     shim_results = {} # {guest_path: (path_to_save_original, path_to_igloo_alternative)}
     target_exists = {t[1]: False for t in shim_targets}
@@ -320,9 +322,13 @@ def shim_configs(config, auto_explore=False):
                 if len(igloo_match):
                     target_exists[igloo_match[0][1]] = True
             else:
-                # It's a non-igloo path. If it's one of our targets, store it's path -> shim
-                if '/completions/' in path:
-                    # We don't want to shim completions files, a standard linux feature
+                # It's a guest file. If it's one of our targets and executable, store it's path -> shim
+                if any([x in path for x in ['/completions/', '/doc/']]):
+                    # These paths are telling us it's probably not an executable
+                    continue
+                # Check if file is executable
+                if not fname.isfile() or not fname.mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
+                    # Not executable - skip. We don't want to shim docs
                     continue
                 guest_match = [x for x in shim_targets if x[0] == basename]
                 if len(guest_match):
