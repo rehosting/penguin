@@ -8,6 +8,7 @@ from pathlib import Path
 from copy import deepcopy
 
 from .common import yaml
+IGLOO_KERNEL_VERSION = '4.10.0'
 
 '''
 Given a config with a filesystem .tar, analyze
@@ -322,70 +323,76 @@ def shim_configs(config, auto_explore=False):
     and add symlinks to go from guest bin -> igloo bin
     into our config.
 
-    If auto_explore, we'll skip shimming busybox and sh
-
+    Shimming bash with our instrumented sh is scary and we'll
+    only do it if bash is a symlink to busybox.
     '''
     fs_path = config['core']['fs'] # tar archive
 
-    # (guest bin, path relative to /igloo/utils)
     # XXX: For now we'll only shim executables - if we later want to shim other things we need to
     # Update some of the later checks
-    shim_targets = [('ssh-keygen', 'ssh-keygen'), ('openssl', 'openssl'), ('ash', 'busybox')]
-    if auto_explore:
-        # XXX: We may eventually want to toggle this during auto-exploration, for
-        # some FWs these shims will break things! I.e., if they need real bash
-        # We could also check for busybox strings in the on-disk binary and only
-        # shim if it looks like busybox instead of real bash
-        shim_targets.extend([('sh', 'busybox'), ('bash', 'busybox')])
 
-    shim_results = {} # {guest_path: (path_to_save_original, path_to_igloo_alternative)}
-    target_exists = {t[1]: False for t in shim_targets}
+    # shim_targets maps guest_bin -> path in /igloo/utils/ that we'll symlink to.
+    # we'll back up the original binary to /igloo/utils/<guest_bin>.orig
+    shim_targets = {
+        'ssh-keygen': 'ssh-keygen',
+        'openssl': 'openssl',
+        'ash': 'busybox',
+        'sh': 'busybox',
+        'bash': 'busybox' # Special handling logic below - only safe to shim if it's already a busybox symlink
+    }
 
-    # Does the file exist in the FS tar?
+    unseen_targets = set(shim_targets.values())
+
     with tarfile.open(fs_path) as fs:
         for fname in fs.getmembers(): # getmembers for full path
             path = fname.path[1:] # Trim leading .
             basename = os.path.basename(path)
 
-            if path.startswith("/igloo/"):
-                # It's an igloo added file. Update state so we can track if we're missing any shim targets
-                igloo_match = [x for x in shim_targets if x[1] == basename] # 
-                if len(igloo_match):
-                    target_exists[igloo_match[0][1]] = True
-            else:
-                # It's a guest file. If it's one of our targets and executable, store it's path -> shim
-                if any([x in path for x in ['/completions/', '/doc/']]):
-                    # These paths are telling us it's probably not an executable
-                    continue
-                # Check if file is executable
-                if not fname.isfile() or not fname.mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
-                    # Not executable - skip. We don't want to shim docs
-                    continue
-                guest_match = [x for x in shim_targets if x[0] == basename]
-                if len(guest_match):
-                    # If any of our shim_results already contain this target path, bail
-                    shim_path = f"/igloo/utils/{guest_match[0][1]}"
-                    if any([shim_path == y for _,y in shim_results.values()]):
-                        print(f"WARNING: {path} matches a previously identified shim target. Skipping.")
+            if path.startswith("/igloo/utils/"):
+                # This is an igloo-added file, not a guest file.
+                # target's we're linking to, mark that it exists. This is just for a sanity check
+                if basename in unseen_targets:
+                    unseen_targets.remove(basename)
+                continue
+
+            # It's a guest file/symlink. If it's one of our targets and executable, we want to shim!
+            if not (fname.isfile() or fname.issym()) or not fname.mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
+                # Skip if it's not a file or non-executable
+                continue
+
+            if fname.issym():
+                # If target doesn't exist or isn't a file, bail. We need to resolve the symlink
+                # based on the current filename and generate a vaild destination within the archive
+                # XXX: If we see a symlink to a symlink we just ignore it.
+                target = "." + os.path.abspath(os.path.join(os.path.dirname(path), fname.linkname))
+                try:
+                    if not fs.getmember(target).isfile():
                         continue
-                    shim_results[path] = (shim_path+".orig", shim_path)
+                except KeyError as e:
+                    # File not found in tar archive - also bail
+                    continue
 
-    # Sanity check: make sure all of our target destinations exist
-    for k, found_in_fs in target_exists.items():
-        if not found_in_fs:
-            raise ValueError(f"penguin_static adds shims for /igloo/utils/{k} but it's not in FS")
+            # Special case, if we're shimming bash it's only safe if it's a busybox symlink
+            if basename == "bash":
+                # Is it a symlink to busybox? If not we can't shim because we might break scripts!
+                if not fname.issym() or not os.path.basename(fname.linkname) == "busybox":
+                    continue
 
-    for guest_path, (backup_path, shim_path) in shim_results.items():
-        # Backup the original binary
-        config['static_files'][backup_path] = {
-            'type': 'move_from',
-            'from': guest_path,
-        }
-        # Add a symlink from the guest path to the shim path
-        config['static_files'][guest_path] = {
-            'type': 'symlink',
-            'target': shim_path,
-        }
+            # Is the current file one we want to shim?
+            if basename in shim_targets:
+                # Backup the original binary
+                config['static_files'][f"/igloo/utils/{basename}.orig"] = {
+                    'type': 'move_from',
+                    'from': path
+                }
+                # Add a symlink from the guest path to the shim path
+                config['static_files'][path] = {
+                    'type': 'symlink',
+                    'target': f"/igloo/utils/{shim_targets[basename]}",
+                }
+
+    if len(unseen_targets):
+        raise ValueError(f"penguin_static adds shims for unavailable igloo utils: {unseen_targets}")
 
 	# Identify original kernel version and shim /lib/modules/4.10.0 to it's /lib/modules path
     kernel_version = None
@@ -417,12 +424,11 @@ def shim_configs(config, auto_explore=False):
 
     if kernel_version:
         # We have a kernel version, add it to our config
-        IGLOO_KERNEL_VERSION = '4.10.0'
         config['static_files'][f'/lib/modules/{IGLOO_KERNEL_VERSION}'] = {
             'type': 'symlink',
             'target': f'/lib/modules/{kernel_version}'
         }
-            
+
 
 def _is_init_script(tarinfo):
     if tarinfo.name.startswith('./igloo'):
