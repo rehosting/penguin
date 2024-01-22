@@ -40,25 +40,6 @@ if [ ! -z "${CID}" ]; then
   unset CID
 fi
 
-if [ ! -z "${MTD_PLACEHOLDER}" ]; then
-  echo "[IGLOO INIT] populating /dev/mtd* with placeholder"
-
-  echo "DI/womlnbG9vX3Vib290X2Vudj1wbGFjZWhvbGRlcgAA" | \\
-    /igloo/utils/busybox base64 -d > /igloo/utils/mtd_placeholder
-  # Write 0x4000 zeros into mtd2
-  /igloo/utils/busybox dd if=/dev/zero of=/dev/mtd1 bs=16384 count=1
-
-  /igloo/utils/busybox dd if=/igloo/utils/mtd_placeholder \\
-    of=/dev/mtd1 bs=1634 count=1 conv=notrunc
-
-  # Let's make our shim look like MTDs 2 through 10
-  for i in {2..10}; do
-    /igloo/utils/busybox cp /dev/mtd1 /dev/mtd${i}
-  done
-
-  unset MTD_PLACEHOLDER
-fi
-
 if [ ! -z "${igloo_init}" ]; then
   echo '[IGLOO INIT] Running specified init binary';
   exec "${igloo_init}"
