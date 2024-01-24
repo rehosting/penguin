@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
 ### DEB DOWNLOADER: get genext2fs and pandare debs ###
 FROM download_base as deb_downloader
 RUN wget -O /tmp/genext2fs.deb https://github.com/panda-re/genext2fs/releases/download/release_9bc57e232e8bb7a0e5c8ccf503b57b3b702b973a/genext2fs.deb && \
-    wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v1.7/pandare_22.04.deb
+    wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v1.8/pandare_22.04.deb
 
 ### DOWNLOADER: get zap, libguestfs, busybox, libnvram, console, vpn, kernels, and penguin plugins ###
 FROM download_base as downloader
@@ -65,6 +65,20 @@ RUN mkdir /static_deps && \
   wget -qO - https://panda.re/secret/utils4.tar.gz | \
   tar xzf - -C /static_deps
 
+FROM ubuntu:20.04 as vhost_builder
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git
+
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+
+RUN git clone -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device && \
+  cd root/vhost-device && \
+  git checkout b3c7657750cce256bc39552a6d08f27ee3b2ff5e 2>/dev/null && \
+  PATH="/root/.cargo/bin:${PATH}" cargo build --release
+
 #### QEMU BUILDER: Build qemu-img ####
 FROM ubuntu:22.04 as qemu_builder
 ENV DEBIAN_FRONTEND=noninteractive
@@ -88,6 +102,9 @@ ENV PROMPT_COMMAND=""
 RUN echo "#!/bin/sh\ntelnet localhost 4321" > /usr/local/bin/rootshell && chmod +x /usr/local/bin/rootshell
 
 COPY --from=deb_downloader /tmp/pandare.deb /tmp/genext2fs.deb /tmp/
+
+COPY --from=vhost_builder /root/vhost-device/target/release/vhost-user-vsock /usr/local/bin
+RUN ls -alt /usr/local/bin/vhost-user-vsock
 
 # We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
 # we'll fail because we get a distutils distribution of pycparser 2.19 that we can't

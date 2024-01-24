@@ -25,12 +25,13 @@ BRIDGE_FILE="vpn_bridges.csv"
 
 class VsockVPN(PyPlugin):
     def __init__(self, panda):
-        if 'vhost-vsock' not in str(panda.panda_args):
+        if 'vhost-vsock' not in str(panda.panda_args) and 'vhost-user-vsock' not in str(panda.panda_args):
             raise ValueError("VsockVPN error: PANDA running without vsock")
 
         self.ppp_cb_boilerplate('on_bind')
 
         self.outdir = self.get_arg("outdir")
+        vhost_socket = self.get_arg("vhost_socket")
         CID = self.get_arg("CID")
         port_maps = self.get_arg("IGLOO_VPN_PORT_MAPS")
         self.seen_ips = set() # IPs we've seen
@@ -68,7 +69,10 @@ class VsockVPN(PyPlugin):
         # Launch VPN on host as panda starts. Init in the guest will launch the VPN in the guest
         self.event_file = tempfile.NamedTemporaryFile(prefix=f'/tmp/vpn_events_{CID}_')
 
-        self.host_vpn = subprocess.Popen([join(static_dir, "vpn/vpn.x86_64"), "host", "-e", self.event_file.name, "-c", str(CID)], stdout=subprocess.DEVNULL)
+        # Regular vsock:
+        #self.host_vpn = subprocess.Popen([join(static_dir, "vpn/vpn.x86_64"), "host", "-e", self.event_file.name, "-c", str(CID)], stdout=subprocess.DEVNULL)
+        # vhost vsock:
+        self.host_vpn = subprocess.Popen([join(static_dir, "vpn/vpn.x86_64"), "host", "-e", self.event_file.name, "-c", str(CID), '-u', vhost_socket], stdout=subprocess.DEVNULL)
         running_vpns.append(self.host_vpn)
 
         with open(join(self.outdir, BRIDGE_FILE), 'w') as f:

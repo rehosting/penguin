@@ -236,7 +236,7 @@ def extract_and_build(fw, output_dir):
     os.chmod(f"{base}/image.qcow", 0o444)
     return arch, endianness
 
-def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeout=None):
+def build_config(firmware, output_dir, auto_explore=False, timeout=None):
     '''
     Given a firmware binary and an output directory, this function will
     extract the firmware, build a qemu image, and create a config file
@@ -284,10 +284,6 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
     }
 
     data['plugins'] =  default_plugins
-
-    if not use_vsock:
-        # Without vsock you can't have the VPN
-        data['plugins']['vpn']['enabled'] = False
 
     if auto_explore:
         # If auto_explore, we'll enable extra plugins to generate coverage - unless we're told the VPN is disabled.
@@ -394,7 +390,6 @@ def main():
     parser.add_argument('--config', type=str, help='Path to a config file. If set, the firmware argument is not required.')
     parser.add_argument('--niters', type=int, default=1, help='Maximum number of iterations to run. Special values are -1 for unlimited. Default 1. If run with --config, a config for manual analysis will be generated if niters=1.')
     parser.add_argument('--nthreads', type=int, default=1, help='Number of threads to use. Default 1.')
-    parser.add_argument('--novsock', action='store_true', default=False, help='Run running without vsock. Disabled by default')
     parser.add_argument('--timeout', type=int, default=None, help='Timeout in seconds for each run. Default is 300s if auto-explore or no timeout otherwise')
     parser.add_argument('firmware', type=str, nargs='?', help='The firmware path. Required if --config is not set, otherwise this must not be set.')
     parser.add_argument('output_dir', type=str, help='The output directory path.')
@@ -408,11 +403,6 @@ def main():
     if args.config and args.firmware:
         # Can't have both
         parser.error("you provided both a config file and a firmware file. Please choose one.")
-
-    if not args.novsock and not os.path.exists("/dev/vhost-vsock"):
-        raise RuntimeError("FATAL: No vsock device found. Please load the vhost_vsock"\
-                            " module. Or run with --novsock if you want to run "\
-                            " without networking")
 
     if args.config and args.niters == 0:
         # Nothing to do if you have a config and niters is 0
@@ -429,7 +419,7 @@ def main():
                                "Please provide a firmware file or run with --config to "\
                                "use the config file.")
 
-        args.config = build_config(args.firmware, args.output_dir, auto_explore=args.niters != 1, use_vsock=not args.novsock, timeout=args.timeout)
+        args.config = build_config(args.firmware, args.output_dir, auto_explore=args.niters != 1, timeout=args.timeout)
 
         # If we were given a firmware, by default we won't run it, but if niters != 1, we will
         if args.niters != 1:
