@@ -8,6 +8,92 @@ import shutil
 from .common import yaml, hash_yaml
 from .utils import get_mount_type
 
+def _modify_guestfs(g, file_path, file):
+    '''
+    Given a guestfs handle, a file path, and a file dict, perform the specified action on the guestfs filesystem.
+    If the action is unsupported or fails, we'll print details and raise an exception.
+    '''
+
+    try:
+        action = file['type']
+        if action == 'file':
+            if "contents" in file:
+                contents = file['contents']
+            elif "hostpath" in file:
+                try:
+                    contents = open(file['hostpath'], 'rb').read()
+                except FileNotFoundError:
+                    raise FileNotFoundError(
+                        f"Could not find host file at {file['hostpath']} to add to image as {file_path}")
+            mode = file['mode']
+            # Delete target if it already exists
+            if g.is_file(file_path):
+                g.rm(file_path)
+            g.write(file_path, contents)
+            g.chmod(mode, file_path)
+
+        elif action == 'dir':
+            if g.is_dir(file_path):
+                g.rm_rf(file_path) # Delete the directory AND CONTENTS
+            # Note we ignore mode here?
+            dirname = file_path
+            g.mkdir(dirname)
+
+        elif action == 'symlink':
+            # file['target'] is what we point to
+            linkpath = file_path # This is what we create
+            # Delete linkpath AND CONTENTS if it already exists
+            if g.exists(linkpath):
+                g.rm_rf(linkpath)
+
+            # If target doesn't exist, we can't symlink
+            if not g.exists(file['target']):
+                raise ValueError(f"Can't add symlink to {file['target']} as it doesn't exist in requested symlink from {linkpath}")
+
+            g.ln_s(file['target'], linkpath)
+        elif action == 'dev':
+            if file_path.startswith("/dev/"):
+                print("WARNING: devices in /dev/ should be populated dynamically")
+            major = file['major']
+            minor = file['minor']
+            mode = file['mode']
+            if file['devtype'] == 'char':
+                g.mknod_c(mode, major, minor, file_path) # Chardev
+            elif file['devtype'] == 'block':
+                g.mknod_b(mode, major, minor, file_path) # Blockdev
+            else:
+                raise RuntimeError(f"Unknown devtype {file['devtype']} - only block and char are supported")
+        elif action == 'delete':
+            # Delete the file (or directory and children)
+            if not g.exists(file_path):
+                raise ValueError(f"Can't delete {file_path} as it doesn't exist")
+            g.rm_rf(file_path)
+
+        elif action == 'move_from':
+            # Move a file (or directory and children) TO
+            # the key in yaml (so we can avoid duplicate keys)
+            if not g.exists(file['from']):
+                raise ValueError(f"Can't move {file['from']} as it doesn't exist")
+            g.mv(file['from'], file_path)
+
+        elif action == 'chmod':
+            # Change the mode of a file or directory
+            if not g.exists(file_path):
+                raise ValueError(f"Can't chmod {file_path} as it doesn't exist")
+            g.chmod(file['mode'], file_path)
+
+        else:
+            raise RuntimeError(f"Unknown file system action {action}")
+
+    except Exception as e:
+        print(f"Exception modifying guest filesystem for {file_path}: {file}: {e}")
+        print("Guest filesystem details:")
+        print(g.df())
+        print(g.statvfs("/"))
+        print(g.mountpoints())
+        raise
+
+
 def _rebase_and_add_files(qcow_file, new_qcow_file, files):
     assert(os.path.isfile(qcow_file)), f"Could not find base qcow file {qcow_file}"
     cmd = ['qemu-img', 'create', '-f', 'qcow2', '-b', qcow_file, '-F', 'qcow2', new_qcow_file]
@@ -39,91 +125,13 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
         # XXX: file['type'] are a bit of a misnomer, it's more of a filesystem action type
         # so we can add/delete files, create directories, etc.
     for file_path, file in files.items():
-        try:
-            action = file['type']
-            if action == 'file':
-                if "contents" in file:
-                    contents = file['contents']
-                elif "hostpath" in file:
-                    try:
-                        contents = open(file['hostpath'], 'rb').read()
-                    except FileNotFoundError:
-                        raise FileNotFoundError(
-                            f"Could not find host file at {file['hostpath']} to add to image as {file_path}")
-                mode = file['mode']
-                # Delete target if it already exists
-                if g.is_file(file_path):
-                    g.rm(file_path)
-                g.write(file_path, contents)
-                g.chmod(mode, file_path)
-
-            elif action == 'dir':
-                if g.is_dir(file_path):
-                    g.rm_rf(file_path) # Delete the directory AND CONTENTS
-                # Note we ignore mode here?
-                dirname = file_path
-                g.mkdir(dirname)
-
-            elif action == 'symlink':
-                # file['target'] is what we point to
-                linkpath = file_path # This is what we create
-                # Delete linkpath AND CONTENTS if it already exists
-                if g.exists(linkpath):
-                    g.rm_rf(linkpath)
-
-                # If target doesn't exist, we can't symlink
-                if not g.exists(file['target']):
-                    raise ValueError(f"Can't add symlink to {file['target']} as it doesn't exist in requested symlink from {linkpath}")
-
-                g.ln_s(file['target'], linkpath)
-            elif action == 'dev':
-                if file_path.startswith("/dev/"):
-                    print("WARNING: devices in /dev/ should be populated dynamically")
-                major = file['major']
-                minor = file['minor']
-                mode = file['mode']
-                if file['devtype'] == 'char':
-                    g.mknod_c(mode, major, minor, file_path) # Chardev
-                elif file['devtype'] == 'block':
-                    g.mknod_b(mode, major, minor, file_path) # Blockdev
-                else:
-                    raise RuntimeError(f"Unknown devtype {file['devtype']} - only block and char are supported")
-            elif action == 'delete':
-                # Delete the file (or directory and children)
-                if not g.exists(file_path):
-                    raise ValueError(f"Can't delete {file_path} as it doesn't exist")
-                g.rm_rf(file_path)
-
-            elif action == 'move_from':
-                # Move a file (or directory and children) TO
-                # the key in yaml (so we can avoid duplicate keys)
-                if not g.exists(file['from']):
-                    raise ValueError(f"Can't move {file['from']} as it doesn't exist")
-                g.mv(file['from'], file_path)
-
-            elif action == 'chmod':
-                # Change the mode of a file or directory
-                if not g.exists(file_path):
-                    raise ValueError(f"Can't chmod {file_path} as it doesn't exist")
-                g.chmod(file['mode'], file_path)
-
-            else:
-                raise RuntimeError(f"Unknown file system action {action}")
-
-        except Exception as e:
-            print(f"Exception modifying guest filesystem for {file_path}: {file}: {e}")
-            print("Guest filesystem details:")
-            print(g.df())
-            print(g.statvfs("/"))
-            print(g.mountpoints())
-            raise
+        _modify_guestfs(g, file_path, file)
 
     # Shutdown and close guestfs handle
     g.shutdown()
     g.close()
 
     # Now, after we've made our changes, we can rebase the QCOW2 file back to the original to shrink it
-    #subprocess.run(['qemu-img', 'rebase', '-b', qcow_file, '-F', 'qcow2', new_qcow_file], check=True)
     # We want to run this command, but if it fails dump the output to the user
     try:
         subprocess.run(['qemu-img', 'rebase', '-b', qcow_file, '-F', 'qcow2', new_qcow_file], check=True)
