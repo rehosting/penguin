@@ -169,7 +169,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     if not have_vsock:
         append = append.replace(f" CID={CID}", "") # Remove CID if we don't have vhost-vsock
 
-    if archend in ["armel"]:
+    if archend == "armel":
         append = append.replace("console=ttyS0", "console=ttyAMA0")
 
     root_shell = []
@@ -195,7 +195,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
 
     if conf['core'].get('network', False):
         # Connect guest to network if specified
-        if archend in ["armel"]:
+        if archend == "armel":
             print("WARNING: UNTESTSED network flags for arm")
         args.extend(['-netdev', 'user,id=user.0', '-device', 'virtio-net,netdev=user.0'])
 
@@ -224,7 +224,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     # Setup PANDA
     panda = Panda(q_config['arch'], mem=q_config['mem_gb']+"G", extra_args=args)
 
-    if archend in ["mips64eb"]:
+    if '64' in archend:
         panda.set_os_name("linux-64-generic")
     else:
         panda.set_os_name("linux-32-generic")
