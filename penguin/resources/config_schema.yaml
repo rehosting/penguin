@@ -121,10 +121,12 @@ properties:
           - false
       netdevnames:
         title: Names for guest network devices
-        description: Comma-separated list of names for guest network devices
-        type: string
+        description: List of names for guest network devices
+        type: array
+        items:
+          type: string
         examples:
-          - eth0,eth1
+          - ["eth0", "eth1"]
       version:
         title: Config format version
         description: Version of the config file format

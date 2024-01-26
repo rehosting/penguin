@@ -137,7 +137,7 @@ class FileFailures(PyPlugin):
 		# This is a bit gross - we pull netdevices from core config here so we can pass to hyperfile
         netdev_str = ""
         if 'netdevnames' in self.config['core']:
-            netdev_str = self.config['core']['netdevnames'].split(",")
+            netdev_str = self.config['core']['netdevnames'] # It will be a list
         hf_config['dyndev.netdevnames'][hyper("read")] = make_rwif({'val': ",".join(netdev_str)}, self.read_const_buf)
 
         if len(self.devfs):
