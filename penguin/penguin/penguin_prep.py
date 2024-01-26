@@ -72,7 +72,7 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
                     g.rm_rf(linkpath)
 
                 # If target doesn't exist, we can't symlink
-                if not g.exists(file['target']) and not g.is_dir(file['target']):
+                if not g.exists(file['target']):
                     raise ValueError(f"Can't add symlink to {file['target']} as it doesn't exist in requested symlink from {linkpath}")
 
                 g.ln_s(file['target'], linkpath)
@@ -90,20 +90,20 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
                     raise RuntimeError(f"Unknown devtype {file['devtype']} - only block and char are supported")
             elif action == 'delete':
                 # Delete the file (or directory and children)
-                if not g.exists(file_path) and not g.is_dir(file_path):
+                if not g.exists(file_path):
                     raise ValueError(f"Can't delete {file_path} as it doesn't exist")
                 g.rm_rf(file_path)
 
             elif action == 'move_from':
                 # Move a file (or directory and children) TO
                 # the key in yaml (so we can avoid duplicate keys)
-                if not g.exists(file['from']) and not g.is_dir(file['from']):
+                if not g.exists(file['from']):
                     raise ValueError(f"Can't move {file['from']} as it doesn't exist")
                 g.mv(file['from'], file_path)
 
             elif action == 'chmod':
                 # Change the mode of a file or directory
-                if not g.exists(file_path) and not g.is_dir(file_path):
+                if not g.exists(file_path):
                     raise ValueError(f"Can't chmod {file_path} as it doesn't exist")
                 g.chmod(file['mode'], file_path)
 
