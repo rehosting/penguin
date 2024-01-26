@@ -332,7 +332,12 @@ def shim_configs(config, auto_explore=False):
                     continue
                 guest_match = [x for x in shim_targets if x[0] == basename]
                 if len(guest_match):
-                    shim_results[path] = (f"/igloo/utils/{guest_match[0][1]}.orig", f"/igloo/utils/{guest_match[0][1]}")
+                    # If any of our shim_results already contain this target path, bail
+                    shim_path = f"/igloo/utils/{guest_match[0][1]}"
+                    if any([shim_path == y for _,y in shim_results.values()]):
+                        print(f"WARNING: {path} matches a previously identified shim target. Skipping.")
+                        continue
+                    shim_results[path] = (shim_path+".orig", shim_path)
 
     # Sanity check: make sure all of our target destinations exist
     for k, found_in_fs in target_exists.items():
