@@ -144,10 +144,15 @@ def pre_shim(config, auto_explore=False):
 
     # Add /firmadyne/ttyS1 for console - we could pick a different major/minor number later to ensure the guest
     # can't stomp on us. Or we could patch console to use a different path (i.e., something sane in /dev)
+
+    # XXX: For mips we use major 4, minor 65. For arm we use major 204, minor 65.
+    # This is because arm uses ttyAMA (major 204) and mips uses ttyS (major 4).
+    # so calling it ttyS1 is a bit of a misnomer, but we don't want to go patch the console
+    # binary to use a different path.
     config['static_files']['/firmadyne/ttyS1'] = {
         'type': 'dev',
         'devtype': 'char',
-        'major': 4,
+        'major': 4 if 'mips' in config['core']['arch'] else 204,
         'minor': 65,
         'mode': 0o666,
     }
