@@ -2,9 +2,25 @@
 
 # key_path + algo should exist in guest fs
 key_path=/igloo/keys/ssh.
+key_type="rsa" # default key type
 
 # Initialize quiet mode to off
 quiet=0
+
+LOGGER=/firmadyne/ttyS1
+
+function finish {
+  # If exit code was non-zero, print an error message
+  if [ $? -ne 0 ]; then
+    echo "ssh.shim: Error generating key pair. Bailing on shim and running" > $LOGGER
+    echo "ssh.shim: original with args $@" > $LOGGER
+    exec /igloo/utils/ssh-keygen.orig "$@"
+  fi
+}
+trap finish EXIT
+
+# Debugging, echo args
+#echo "ssh.shim: Running ssh-keygen shim with args $@" > $LOGGER
 
 # Parse arguments
 while getopts ":qt:f:N:" opt; do
@@ -19,21 +35,28 @@ while getopts ":qt:f:N:" opt; do
       quiet=1
       ;;
     N )
-      passphrase=$OPTARG  # Ignored since we're using precomputed keys
+      # Check if the next argument is another option or the passphrase
+      # For now we don't use passphrase, but we need to identify the next arg
+      case "$OPTARG" in
+        -*|"")
+          passphrase=""
+          OPTIND=$((OPTIND - 1))
+          ;;
+        *)
+          passphrase=$OPTARG
+          ;;
+      esac
       ;;
     \? )
-      exec /igloo/utils/ssh-keygen.orig "$@"
-      #echo "Invalid Option: -$OPTARG" 1>&2
-      #exit 1
+      echo "ssh.shim: Unsupported option: -$OPTARG. Bailing on shim" > $LOGGER
+      exit 1
       ;;
     : )
-      exec /igloo/utils/ssh-keygen.orig "$@"
-      #echo "Invalid Option: -$OPTARG requires an argument" 1>&2
-      #exit 1
+      echo "ssh.shim: Option: -$OPTARG requires an argument. Bailing on shim" > $LOGGER
+      exit 1
       ;;
   esac
 done
-shift $((OPTIND -1))
 
 # Determine which precomputed key to use
 case "$key_type" in
@@ -53,11 +76,8 @@ case "$key_type" in
     key="${key_path}ed25519"
     ;;
   *)
-    #if [ $quiet -eq 0 ]; then
-    #  #echo "Unsupported key type: $key_type" 1>&2
-    #fi
-    exec /igloo/utils/ssh-keygen.orig "$@"
-    #exit 1
+    echo "ssh.shim: Unknown key type: $key_type. Bailing on shim" > $LOGGER
+    exit 1
     ;;
 esac
 
