@@ -33,6 +33,7 @@ run_test() {
 }
 
 assert_env_unset() {
+  cat results/shell_env.csv
   grep -q "('envvar', None)" results/shell_env.csv
 }
 

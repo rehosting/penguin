@@ -231,7 +231,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
 
     panda.load_plugin("syscalls2", args = {"load-info": True})
     panda.load_plugin("osi", args = {"disable-autoload":True})
-    panda.load_plugin("osi_linux", args = {"kconf_file":"/igloo_static/kernels/osi.config",
+    panda.load_plugin("osi_linux", args = {"kconf_file":os.path.join(os.path.dirname(kernel), "osi.config"),
                                             "kconf_group": q_config['kconf_group']})
 
     # Plugins names are given out of order (by nature of yaml and sorting),

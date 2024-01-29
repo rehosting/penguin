@@ -16,7 +16,36 @@
   outputs = { self, nixpkgs, panda, angr-targets }:
 
     let
-      pkgs = nixpkgs.legacyPackages.x86_64-linux;
+      pkgs = import nixpkgs {
+        system = "x86_64-linux";
+        config.overlays = [
+          (self: super: {
+            ccacheWrapper = super.ccacheWrapper.override {
+              extraConfig = ''
+                export CCACHE_COMPRESS=1
+                export CCACHE_DIR="/nix/var/cache/ccache"
+                export CCACHE_UMASK=007
+                if [ ! -d "$CCACHE_DIR" ]; then
+                  echo "====="
+                  echo "Directory '$CCACHE_DIR' does not exist"
+                  echo "Please create it with:"
+                  echo "  sudo mkdir -m0770 '$CCACHE_DIR'"
+                  echo "  sudo chown root:nixbld '$CCACHE_DIR'"
+                  echo "====="
+                  exit 1
+                fi
+                if [ ! -w "$CCACHE_DIR" ]; then
+                  echo "====="
+                  echo "Directory '$CCACHE_DIR' is not accessible for user $(whoami)"
+                  echo "Please verify its access permissions"
+                  echo "====="
+                  exit 1
+                fi
+              '';
+            };
+          })
+        ];
+      };
       inherit (pkgs) linkFarm runCommand fetchzip;
       pyPkgs = pkgs.python3Packages;
       pandaPkg = panda.packages.x86_64-linux.default.overrideAttrs
@@ -27,16 +56,16 @@
               url = "https://github.com/panda-re/panda/pull/1408.patch";
               hash = "sha256-RiwYsxYOa5G7DpW5N1eB/fkA5k5mCRVhxXh4BoYwFn0=";
             })
+            ./patch
           ];
         });
       iglooStatic = linkFarm "igloo-static" [
         {
           name = "kernels";
-          path = fetchzip {
-            url =
-              "https://github.com/panda-re/linux_builder/releases/download/v1.8/kernels-latest.tar.gz";
-            hash = "sha256-9XSFUMgsmIGgTDAwSgnWVXMVAB2a9qSSJgwt2pNvDF0=";
-          };
+          path = runCommand "kernels" { } ''
+            mkdir $out
+            tar xvf ${./kernels-latest.tar.gz} -C $out --strip-components=1
+          '';
         }
         {
           name = "console";
@@ -145,11 +174,13 @@
           "${
             pkgs.lib.getExe pkgs.bubblewrap
           } --dev-bind / / --bind $PWD/penguin /pkg --bind $PWD/unittest /tests --bind ${iglooStatic} /igloo_static --bind $PWD/utils /igloo_static/utils.source --" \
-          --replace '> log.txt || (tail log.txt && exit 1)' '|| exit 1'
+          --replace '> log.txt || (tail log.txt && exit 1)' '|| exit 1' \
+          --replace 'tail -n10 log.txt' ""
         substituteInPlace unittest/_in_container_run.sh --replace 'ln -s /tests/qcows "/tmp/qcows"' ""
         cd unittest
         ./test.sh
         :> $out
+        exit 1
       '';
     in {
       packages.x86_64-linux = {
