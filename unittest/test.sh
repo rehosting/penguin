@@ -2,19 +2,20 @@
 set -euo pipefail
 
 run_test() {
-  local arch=$1
-  local test_name=$2
-  local assertion=$3
+  local kernel_version=$1
+  local arch=$2
+  local test_name=$3
+  local assertion=$4
 
   if [ ! -d "$test_name" ]; then
     echo "Test $test_name does not exist"
     exit 1
   fi
 
-  echo "Testing $test_name on architecture $arch..."
+  echo "Testing $test_name on kernel version $kernel_version with architecture $arch..."
   # If docker run fails, print log and bail
   docker run --rm -it -v "$(pwd)":/tests pandare/igloo:penguin \
-    /tests/_in_container_run.sh "$arch" "$test_name" > log.txt || (tail log.txt && exit 1)
+    /tests/_in_container_run.sh "$kernel_version" "$arch" "$test_name" > log.txt || (tail log.txt && exit 1)
 
   echo -n "$test_name: "
   if $assertion; then
@@ -60,6 +61,7 @@ assert_pseudofiles_ioctl() {
 
 mkdir -p results qcows
 
+kernel_versions=("4.10" "6.7")
 archs=("armel" "mipsel" "mipseb")
 tests=("env_unset" "env_cmp" "pseudofile_missing" "pseudofile_ioctl")
 
@@ -75,35 +77,37 @@ elif [ $# -eq 1 ]; then
   archs=("$1")
 fi
 
+for kernel_version in "${kernel_versions[@]}"; do
 for arch in "${archs[@]}"; do
   # For each test, check if it's in the list of tests to run
   if [[ ! " ${tests[@]} " =~ " env_unset " ]]; then
     echo "Skipping env_unset test for $arch"
   else
-    run_test "$arch" "env_unset" assert_env_unset
+    run_test "$kernel_version" "$arch" "env_unset" assert_env_unset
   fi
 
   if [[ ! " ${tests[@]} " =~ " env_cmp " ]]; then
     echo "Skipping env_cmp test for $arch"
   else
-    run_test "$arch" "env_cmp" assert_env_cmp
+    run_test "$kernel_version" "$arch" "env_cmp" assert_env_cmp
   fi
 
   if [[ ! " ${tests[@]} " =~ " pseudofile_missing " ]]; then
     echo "Skipping pseudofile_missing test for $arch"
   else
-    run_test "$arch" "pseudofile_missing" assert_pseudofiles_missing
+    run_test "$kernel_version" "$arch" "pseudofile_missing" assert_pseudofiles_missing
   fi
 
   if [[ ! " ${tests[@]} " =~ " pseudofile_ioctl " ]]; then
     echo "Skipping pseudofile_ioctl test for $arch"
   else
-    run_test "$arch" "pseudofile_ioctl" assert_pseudofiles_ioctl
+    run_test "$kernel_version" "$arch" "pseudofile_ioctl" assert_pseudofiles_ioctl
   fi
 
   if [[ ! " ${tests[@]} " =~ " hostfile " ]]; then
     echo "Skipping hostfile test for $arch"
   else
-    run_test "$arch" "hostfile" assert_ps_output
+    run_test "$kernel_version" "$arch" "hostfile" assert_ps_output
   fi
+done
 done

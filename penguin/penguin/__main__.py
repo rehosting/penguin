@@ -18,6 +18,7 @@ from .defaults import default_init_script, default_plugins, default_version
 from .utils import load_config, dump_config
 
 static_dir = "/igloo_static/"
+DEFAULT_KERNEL = "4.10"
 
 def get_mount_type(path):
     try:
@@ -258,7 +259,7 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
     # extract into output_dir/base/{image.qcow,fs.tar}
     arch, end = extract_and_build(firmware, output_dir)
 
-    kernel = static_dir + "kernels/" + ("zImage" if arch == "arm" else "vmlinux") + f".{arch}{end}"
+    kernel = static_dir + f"kernels/{DEFAULT_KERNEL}/" + ("zImage" if arch == "arm" else "vmlinux") + f".{arch}{end}"
 
     data = {}
     data['core'] = {
