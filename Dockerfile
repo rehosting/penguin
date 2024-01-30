@@ -2,7 +2,7 @@
 # Fetch and extract our various dependencies. Roughly ordered on
 # least-frequently changing to most-frequently changing
 
-FROM ubuntu:20.04 as download_base
+FROM ubuntu:22.04 as download_base
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     xmlstarlet \
@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
 ### DEB DOWNLOADER: get genext2fs and pandare debs ###
 FROM download_base as deb_downloader
 RUN wget -O /tmp/genext2fs.deb https://github.com/panda-re/genext2fs/releases/download/release_9bc57e232e8bb7a0e5c8ccf503b57b3b702b973a/genext2fs.deb && \
-    wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v1.6/pandare_20.04.deb
+    wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v1.6/pandare_22.04.deb
 
 ### DOWNLOADER: get zap, libguestfs, busybox, libnvram, console, vpn, kernels, and penguin plugins ###
 FROM download_base as downloader
@@ -66,7 +66,7 @@ RUN mkdir /static_deps && \
   tar xzf - -C /static_deps
 
 #### QEMU BUILDER: Build qemu-img ####
-FROM ubuntu:20.04 as qemu_builder
+FROM ubuntu:22.04 as qemu_builder
 ENV DEBIAN_FRONTEND=noninteractive
 # Enable source repos
 RUN sed -Ei 's/^# deb-src /deb-src /' /etc/apt/sources.list
@@ -78,7 +78,7 @@ RUN mkdir /src/build && cd /src/build && ../configure --disable-user --disable-s
   make -j$(nproc)
 
 ### MAIN CONTAINER ###
-FROM ubuntu:20.04 as penguin
+FROM ubuntu:22.04 as penguin
 # Environment setup
 ENV PIP_ROOT_USER_ACTION=ignore
 ENV DEBIAN_FRONTEND=noninteractive
@@ -115,16 +115,10 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     telnet \
     vim \
-    wget && \
+    wget \
+    libcapstone-dev && \
     apt install -yy -f /tmp/pandare.deb /tmp/genext2fs.deb && \
     rm /tmp/pandare.deb /tmp/genext2fs.deb
-
-  # Capstone dependency for panda needs to be built from source on ubuntu20.04
-  # TODO: can we move this into an earlier stage and just copy the built library?
-  RUN cd /tmp && \
-    git clone https://github.com/capstone-engine/capstone/ -b 4.0.2 /tmp/capstone && \
-    cd capstone/ && ./make.sh && make install && cd /tmp && \
-    rm -rf /tmp/capstone && ldconfig
 
 # If we want to run in a venv, we can use this. System site packages means
 # we can still access the apt-installed python packages (e.g. guestfs) in our venv
