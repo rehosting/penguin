@@ -2,11 +2,12 @@
 set -eu
 
 # Run inside penguin container
-# USAGE: ./_in_container_run.sh [arch] [test_dir_name]
+# USAGE: ./_in_container_run.sh [kernel_version] [arch] [test_dir_name]
 # Test dir is relative to the /results/ directory
 
-ARCH=$1
-TESTDIR=$2
+KERNEL_VERSION=$1
+ARCH=$2
+TESTDIR=$3
 
 # We need a "host file" for the hostfile test. Pre-position one in /tmp
 cat <<EOF > /tmp/init.bin
@@ -30,9 +31,9 @@ rm -rf "$d"
 # Now make us an image in /tmp/empty
 fakeroot /pkg/scripts/makeImage.sh $ARCH /tmp/fs.tar.gz /tmp/empty /pkg/resources /igloo_static
 
-# Rewrite our config template to set the specified arch value (in arch and kernel fields)
+# Rewrite our config template to set the specified kernel version and arch values (in arch and kernel fields)
 cp /tests/$TESTDIR/config.yaml /tmp/config.yaml
-sed -i "s/ARCH/$ARCH/g" /tmp/config.yaml
+sed -i -e "s/@KERNEL_VERSION@/$KERNEL_VERSION/g" -e "s/@ARCH@/$ARCH/g" /tmp/config.yaml
 
 # If $ARCH isn't ARM we need to swap zImage for vmlinux
 if [ "$ARCH" != "armel" ]; then
