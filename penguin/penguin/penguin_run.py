@@ -210,7 +210,9 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     else:
         args = args + root_shell + console_out
 
-    if archend == 'mips64eb':
+    if conf['core'].get('cpu', None):
+        args += ['-cpu', conf['core']['cpu']]
+    elif archend == 'mips64eb':
         args += ['-cpu', 'MIPS64R2-generic']
 
     ############# Reduce determinism #############
