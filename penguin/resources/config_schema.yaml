@@ -95,6 +95,10 @@ properties:
         examples:
           - false
           - true
+      cpu:
+        title: CPU model
+        description: Specify non-default QEMU CPU model
+        type: string
       show_output:
         title: Write serial to stdout
         description: Whether to print QEMU serial output to stdout instead of writing to a log file
