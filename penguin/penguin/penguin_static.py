@@ -275,8 +275,8 @@ def pre_shim(config, auto_explore=False):
                 ('/sbin/acos_service', 'rip_enable', 'rip_enable=0')]:
 
             if os.path.isfile(tmp_dir + file):
-                with open(tmp_dir + file, 'r') as f:
-                    if query in f.read():
+                with open(tmp_dir + file, 'rb') as f:
+                    if query.encode() in x:
                         config['nvram'][query] = value
 
 def _kernel_version_to_int(potential_name):
