@@ -103,6 +103,11 @@ def get_all_from_tar(tarfile_path):
         # Trim leading . from path, everything is ./
         return {member.name[1:] for member in tar.getmembers()}
 
+def get_symlinks_from_tar(tarfile_path):
+    with tarfile.open(tarfile_path, "r") as tar:
+        # Trim leading . from path, everything is ./
+        return {member.name[1:]: member.linkname for member in tar.getmembers() if member.issym()}
+
 def find_strings_in_file(file_path, pattern):
     result = subprocess.run(['strings', file_path], capture_output=True, text=True)
     #return [line for line in result.stdout.splitlines() if pattern in line]
@@ -164,11 +169,25 @@ def pre_shim(config, auto_explore=False):
                     "/usr/bin", "/usr/sbin"]
 
     existing = get_all_from_tar(fs_path)
+    symlinks = get_symlinks_from_tar(fs_path)
 
     for d in directories:
+        # It's not already in there, add it as a world-readable directory
+        # Handle symlinks. If we have a direcotry like /tmp/var and /tmp is a symlink to /asdf, we want to make /asdf/var
+
+        # If the directory is already in the FS, we don't need to add it
+        dir_search = d
+        while len(dir_search.split("/")) > 2:
+            dir_search = os.path.dirname(dir_search)
+            if dir_search in symlinks:
+                # Oh no, there's a symlink. We need to replace the dir_search string in d with the symlink target
+                new_d = d.replace(dir_search, symlinks[dir_search])
+                d = new_d
+                break
+
         if d in existing:
             continue
-        # It's not already in there, add it as a world-readable directory
+
         config["static_files"][d] = {
             'type': 'dir',
             'mode': 0o755
