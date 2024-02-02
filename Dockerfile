@@ -196,6 +196,7 @@ RUN echo 'alias m="rm -rf /results/stride; penguin /fws/stride.tar.gz /results/s
 RUN echo 'alias r="penguin --config /results/stride/config.yaml /results/stride/out"' >> ~/.bashrc
 RUN echo 'alias a="rm -rf /results/stride_auto; penguin --niters 50 --nthreads 10 /fws/stride.tar.gz /results/stride_auto/"' >> ~/.bashrc
 RUN echo 'alias a1="rm -rf /results/stride_auto; penguin --niters 50 --nthreads 1 /fws/stride.tar.gz /results/stride_auto/"' >> ~/.bashrc
+RUN echo 'alias am="rm -rf /results/mtik; penguin --niters 50 --nthreads 1 /fws/routeros-arm-6.48.6.binwalk.tar.gz /results/mtik/"' >> ~/.bashrc
 
 # Now copy in our module and install it
 # penguin is editable so we can mount local copy for dev
