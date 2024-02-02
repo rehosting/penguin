@@ -171,27 +171,33 @@ def pre_shim(config, auto_explore=False):
     existing = get_all_from_tar(fs_path)
     symlinks = get_symlinks_from_tar(fs_path)
 
+    def resolve_path(d, symlinks):
+        parts = d.split('/')
+        for i in range(len(parts), 1, -1):
+            sub_path = '/'.join(parts[:i])
+            if sub_path in symlinks:
+                return resolve_path(d.replace(sub_path, symlinks[sub_path], 1), symlinks)
+        if not d.startswith('/'):
+            d = '/' + d
+        return d
+
     for d in directories:
         # It's not already in there, add it as a world-readable directory
         # Handle symlinks. If we have a direcotry like /tmp/var and /tmp is a symlink to /asdf, we want to make /asdf/var
-
-        # If the directory is already in the FS, we don't need to add it
-        dir_search = d
-        while len(dir_search.split("/")) > 2:
-            dir_search = os.path.dirname(dir_search)
-            if dir_search in symlinks:
-                # Oh no, there's a symlink. We need to replace the dir_search string in d with the symlink target
-                new_d = d.replace(dir_search, symlinks[dir_search])
-                d = new_d
-                break
-
-        if d in existing:
+            
+        resolved_path = resolve_path(d, symlinks)
+    
+        if resolved_path in existing or resolved_path in config['static_files']:
             continue
 
-        config["static_files"][d] = {
-            'type': 'dir',
-            'mode': 0o755
-        }
+        path_parts = resolved_path.split("/")
+        for i in range(1, len(path_parts) + 1):
+            subdir = "/".join(path_parts[:i])
+            if subdir not in existing:
+                config['static_files'][subdir] = {
+                    'type': 'dir',
+                    'mode': 0o755,
+                }
 
     # Temporary directory for tar file extraction
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -256,12 +262,15 @@ def pre_shim(config, auto_explore=False):
         if os.path.isfile(tmp_dir + '/etc/hosts'):
             with open(tmp_dir + '/etc/hosts', 'r') as f:
                 hosts = f.read()
+
+        print(f"Hosts contains: {repr(hosts)}")
         #if '127.0.0.1 localhost' not in hosts:
         # Regex with whitespace and newlines
         if not re.search(r'^127\.0\.0\.1\s+localhost\s*$', hosts, re.MULTILINE):
             if not hosts.endswith('\n'):
                 hosts += "\n"
             hosts += "127.0.0.1 localhost\n"
+            print(f"Updated hosts: {hosts}")
             config['static_files']['/etc/hosts'] = {
                 'type': 'file',
                 'contents': hosts,
@@ -294,8 +303,8 @@ def pre_shim(config, auto_explore=False):
                 ('/sbin/acos_service', 'rip_enable', 'rip_enable=0')]:
 
             if os.path.isfile(tmp_dir + file):
-                with open(tmp_dir + file, 'r') as f:
-                    if query in f.read():
+                with open(tmp_dir + file, 'rb') as f:
+                    if query.encode() in f.read():
                         config['nvram'][query] = value
 
 def _kernel_version_to_int(potential_name):
