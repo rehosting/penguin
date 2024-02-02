@@ -6,7 +6,7 @@ core:
   qcow: /tmp/empty/image.qcow
   root_shell: false
   show_output: false
-  shared_dir: true
+  shared_dir: /tests/results/shared
   version: 1.0.0
 env:
   igloo_init: /init
