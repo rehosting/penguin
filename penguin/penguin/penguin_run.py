@@ -204,14 +204,14 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     else:
         console_out = ['-serial', f'file:{out_dir}/console.log', '-monitor', 'stdio'] # ttyS0: guest console output
 
-    if conf['core'].get('shared_dir', False):
-        shared_dir_path = os.path.join(out_dir, 'shared')
-        os.makedirs(shared_dir_path)
+    shared_dir = conf['core'].get('shared_dir')
+    if shared_dir is not None:
+        os.makedirs(shared_dir)
         args += [
             '-virtfs',
             ','.join((
                 'local',
-                f'path={shared_dir_path}',
+                f'path={shared_dir}',
                 'mount_tag=igloo_shared_dir',
                 'security_model=mapped-xattr',
             )),
