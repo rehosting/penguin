@@ -225,18 +225,54 @@ class FileFailures(PyPlugin):
                 if any(fname.startswith(x) for x in ("/dev/", "/proc/")):
                     fnames.append(fname)
             id = panda.get_id(cpu)
-            assert id not in self.syscall_dev_fnames
+            if id in self.syscall_dev_fnames:
+                print(f"WARNING: overwriting syscall_dev_fnames for {id}: {self.syscall_dev_fnames[id]}")
+            #assert id not in self.syscall_dev_fnames
             self.syscall_dev_fnames[id] = tuple(fnames)
 
         @panda.ppp("syscalls2", "on_all_sys_return2")
         def all_sysret(cpu, pc, call, rp):
             if not syscall_is_file_op(cpu, call):
                 return
-            fnames = self.syscall_dev_fnames.pop(panda.get_id(cpu))
+
             rv = panda.arch.get_retval(cpu, convention="syscall")
             target_rv = get_syscall_target_fail_ret_val(call)
             if rv != target_rv:
+                if panda.get_id(cpu) in self.syscall_dev_fnames:
+                    del self.syscall_dev_fnames[panda.get_id(cpu)]
                 return
+
+            # Try to fname out of the syscall object
+            # If it fails, fall back to popping from the dict
+            try:
+                fnames = []
+                for arg_idx, is_fd in get_syscall_fd_args(call):
+                    # Ugh. Gross conversion. Not sure if it would be right for big endian? XXX
+                    b = [int(self.panda.ffi.cast("unsigned short", rp.args[arg_idx][x])) for x in range(self.panda.bits // 8)]
+                    arg_val = 0
+                    for i in range(self.panda.bits // 8):
+                        arg_val |= b[i] << (i*8)
+
+                    if is_fd:
+                        signed = panda.from_unsigned_guest(arg_val)
+                        if signed < 0:
+                            return
+                        fname = self.panda.get_file_name(cpu, arg_val)
+                        if fname is None:
+                            continue
+                        fname = fname.decode(errors="replace") # Convert FD to filename
+                    else:
+                        fname = self.panda.read_str(cpu, arg_val) # Convert filename to string
+
+                    if any(fname.startswith(x) for x in ("/dev/", "/proc/")):
+                        fnames.append(fname)
+
+            except ValueError:
+                fnames = self.syscall_dev_fnames.pop(panda.get_id(cpu))
+
+            if panda.get_id(cpu) in self.syscall_dev_fnames:
+                del self.syscall_dev_fnames[panda.get_id(cpu)]
+
             call_name = panda.ffi.string(call.name).decode().replace("sys_", "")
             for fname in fnames:
                 self.centralized_log(fname, call_name)
