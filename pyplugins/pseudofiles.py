@@ -226,58 +226,28 @@ class FileFailures(PyPlugin):
                 if any(fname.startswith(x) for x in ("/dev/", "/proc/")):
                     fnames.append(fname)
             id = panda.get_id(cpu)
-            assert id not in self.syscall_dev_fnames
+            if id in self.syscall_dev_fnames:
+                print(f"WARNING: overwriting syscall_dev_fnames for {id}: {self.syscall_dev_fnames[id]}")
+            #assert id not in self.syscall_dev_fnames
             self.syscall_dev_fnames[id] = tuple(fnames)
 
         @panda.ppp("syscalls2", "on_all_sys_return2")
         def all_sysret(cpu, pc, call, rp):
             if not syscall_is_file_op(cpu, call):
                 return
-            fnames = self.syscall_dev_fnames.pop(panda.get_id(cpu))
+
             rv = panda.arch.get_retval(cpu, convention="syscall")
             target_rv = get_syscall_target_fail_ret_val(call)
             if rv != target_rv:
+                if panda.get_id(cpu) in self.syscall_dev_fnames:
+                    del self.syscall_dev_fnames[panda.get_id(cpu)]
                 return
 
-            # Check if this return value is telling us the file is missing
-            # based on the syscall we see. Mostly we're checking for -ENOENT for
-            # filename-based scs, -ENOTTY for IOCTLs or -EINVAL for reads and writes
-            if call.no not in self.target_rvs:
-                sc_name = self.panda.ffi.string(call.name).decode()
-                if sc_name == 'ioctl':
-                    target_rv = -25 # -ENOTTY. XXX: Should we check any negative return value?
-                elif sc_name == 'close':
-                    target_rv = None # We never care about close failures since we can't see the file name after
-                elif sc_name in ['read', 'write']:
-                    target_rv = -22 # -EINVAL
-                else:
-                    target_rv = -2 # -ENOENT
-                self.target_rvs[call.no] = target_rv
-
-            if rv != self.target_rvs[call.no]:
-                return
-
-            # If we haven't seen this call number before, check if it has an FD arg
-            if call.no not in self.has_fds and call.no not in self.has_no_fds:
-                fd_args = [] # Tuples of (int argidx, bool is_fd)
-
-                for arg_idx in range(min(call.nargs, 4)): # Ignore stack based args?
-                    # Is this argument named fd or filename?
-                    argname = self.panda.ffi.string(call.argn[arg_idx])
-                    if argname in [b'fd', b'oldfd', b'filename']:
-                        fd_args.append((arg_idx, argname != b'filename'))
-
-                if len(fd_args):
-                    self.has_fds[call.no] = fd_args
-                else:
-                    self.has_no_fds.add(call.no)
-
-            # If this is a syscall that has a file/FD arg AND the RV we see is the expected error if the file
-            # is missing (-ENOENT or -ENOTTY for ioctls), then we'll log it.
-            if call.no in self.has_fds:
-                call_name = self.panda.ffi.string(call.name).decode()
-
-                for (arg_idx, is_fd) in self.has_fds[call.no]:
+            # Try to fname out of the syscall object
+            # If it fails, fall back to popping from the dict
+            try:
+                fnames = []
+                for arg_idx, is_fd in get_syscall_fd_args(call):
                     # Ugh. Gross conversion. Not sure if it would be right for big endian? XXX
                     b = [int(self.panda.ffi.cast("unsigned short", rp.args[arg_idx][x])) for x in range(self.panda.bits // 8)]
                     arg_val = 0
@@ -293,18 +263,20 @@ class FileFailures(PyPlugin):
                             continue
                         fname = fname.decode(errors="replace") # Convert FD to filename
                     else:
-                        try:
-                            fname = self.panda.read_str(cpu, arg_val) # Convert filename to string
-                        except ValueError:
-                            continue
-                    if fname and len(fname):
-                        if any(fname.startswith(x) for x in ["/dev/", "/proc/"]):
-                            sc_name = call_name.replace("sys_", "")
-                            if sc_name not in ['ioctl', 'read', 'write']:
-                                # Treat everything else as a failed open, but log the real SC too
-                                self.centralized_log(fname, 'open', event_details=sc_name)
-                            else:
-                                self.centralized_log(fname, sc_name)
+                        fname = self.panda.read_str(cpu, arg_val) # Convert filename to string
+
+                    if any(fname.startswith(x) for x in ("/dev/", "/proc/")):
+                        fnames.append(fname)
+
+            except ValueError:
+                fnames = self.syscall_dev_fnames.pop(panda.get_id(cpu))
+
+            if panda.get_id(cpu) in self.syscall_dev_fnames:
+                del self.syscall_dev_fnames[panda.get_id(cpu)]
+
+            call_name = panda.ffi.string(call.name).decode().replace("sys_", "")
+            for fname in fnames:
+                self.centralized_log(fname, call_name)
 
         # One special case: openat needs to combine the base path with the filename
         @panda.ppp("syscalls2", "on_sys_openat_return")
