@@ -102,4 +102,9 @@ default_plugins = {
         'enabled': False,
         'version': "1.0.0",
     },
+    'mount': {
+        "description": "Analysis: Track when filesystems cannot be mounted",
+        'enabled': True,
+        'version': "1.0.0",
+    },
 }
