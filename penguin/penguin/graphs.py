@@ -204,6 +204,11 @@ class ConfigurationGraph:
                     return self.graph.nodes[pred]['object']
             raise ValueError(f"Could not find parent config for {config}")
 
+    def get_child_configs(self, config: Configuration) -> List[Configuration]:
+        with self.lock:
+            return [self.graph.nodes[n]['object'] for n in self.graph.successors(config.gid) \
+                        if isinstance(self.graph.nodes[n]['object'], Configuration)]
+
     def get_parent_failure(self, config: Configuration) -> Optional[Failure]:
         '''
         Given a config, find its parent failure. Returns None if it's the root config
@@ -792,7 +797,8 @@ class ConfigurationGraph:
         output.append(pad + s)
 
         # Now we recurse to children, but we must sort them by score!
-        children = [self.graph.nodes[x]['object'] for x in self.graph.successors(node.gid) if isinstance(self.graph.nodes[x]['object'], Configuration)]
+        with self.lock:
+            children = [self.graph.nodes[x]['object'] for x in self.graph.successors(node.gid) if isinstance(self.graph.nodes[x]['object'], Configuration)]
         # We sort based on concrete healt score (node.health_score) if available, otherwise self.calculate_expected_config_health
         children = sorted(children, key=lambda x: x.health_score \
                             if x.health_score \
@@ -892,7 +898,8 @@ class ConfigurationManager:
                 output.append(f"{node_obj}, {node_obj.gid}")
                 # For each adjacent node, print the node
                 for neighbor in self.graph.graph.adj[node]:
-                    output.append(f"\tEdge to: {self.graph.graph.nodes[neighbor]['object']}, {self.graph.graph.nodes[neighbor]['object'].gid}")
+                    weight = self.graph.graph[node][neighbor].get('weight', '')
+                    output.append(f"\tEdge to: {self.graph.graph.nodes[neighbor]['object']}, {self.graph.graph.nodes[neighbor]['object'].gid} {weight}")
 
         return "\n".join(output)
 
@@ -1024,6 +1031,69 @@ class ConfigurationManager:
 
     def select_best_config(self) -> Tuple[Optional[Configuration], float]:
         """
+        First try finding an un-run+non-pending config that's derived from a mitigation
+        we've never run before. Prioritize by expected health score.
+
+        If we've run every mitigation, just select the best config based on expected health score.
+        """
+        # For every unexplored config, get parent mitigation and store mit -> (weight, config). When we have multiple
+        # configs for a mit, clobber if we find a better weight
+
+        # Select most shallow un-run config with best health score
+        pending = {}
+        unexplored_configs = self.graph.find_unexplored_configurations()
+        for config in unexplored_configs:
+            if config not in self.pending_runs:
+                parent_mit = self.graph.get_parent_mitigation(config)
+
+                if parent_mit is None:
+                    continue
+
+                # Have *any* of the child configs of parent_mit been run / are running? If so bail
+                if any([self.graph.graph.nodes[child]['object'] in self.pending_runs or \
+                        self.graph.graph.nodes[child]['object'].run \
+                            for child in self.graph.graph.successors(parent_mit.gid) \
+                                if isinstance(self.graph.graph.nodes[child]['object'], Configuration)]):
+                    continue
+
+                this_score = self.graph.calculate_expected_config_health(config)
+                this_depth = -self.calculate_config_depth(config)
+                if parent_mit not in pending or \
+                        this_depth > pending[parent_mit][2] or \
+                        (this_depth == pending[parent_mit][2]and this_score > pending[parent_mit][0]):
+                    pending[parent_mit] = (this_score, config, this_depth)
+
+        # Now we have a mapping of mit -> (weight, config) for every unexplored mitigation.
+        target_configs = pending.values()
+
+        if not len(target_configs):
+            target_configs = []
+            # There are no unexplored mitigations! Just select globally best config
+            unexplored = self.graph.find_unexplored_configurations()
+            for config in unexplored:
+                if config not in self.pending_runs:
+                    target_configs.append((self.graph.calculate_expected_config_health(config), config))
+
+        if not len(target_configs):
+            # Nothing to do. Other threads are working or we're all out of work
+            return None, 0
+
+
+        # Now we have a list of (health, config) tuples. Sort by health and return the best config + weight
+        results = sorted(target_configs, key=lambda x: x[0], reverse=True)
+        weight, best = results[0][:2]
+
+        if best in self.pending_runs:
+            raise ValueError(f"Selected {best} but it's already pending")
+        
+        if best.run:
+            raise ValueError(f"Selected {best} but it's already run")
+
+        return best, weight
+
+
+    def select_best_config_orig(self) -> Tuple[Optional[Configuration], float]:
+        """
         Select the best configuration to run next. Node can't have been run before
 
         Just return the first unexplored config for now
@@ -1081,24 +1151,132 @@ class ConfigurationManager:
         if len(unexplored) == 0:
             return None, 0
 
-        # Sort by weight and return the highest
+        # Sort by weight and select the highest
         sorted_weights = sorted(weights.items(), key=lambda x: x[1], reverse=True)
         best = sorted_weights[0][0]
 
-        if any([cc in self.pending_runs or not cc.run for cc in best.dependencies]):
-            # First pass - remove anything in self.pending_runs or anything with a .run property
-            best.dependencies = set([cc for cc in best.dependencies if cc not in self.pending_runs and not cc.run])
 
-        if len(best.dependencies):
-            # We found a node we want to run. But it has dependencies. Select the most promising one
-            # and run that instead
-            for cc, weight in sorted_weights:
-                if cc in best.dependencies:
-                    best.dependencies.remove(cc) # Old best no longer has this dep since we're popping it
-                    best = cc
+        # After we selected the node with the highest estimated weight, we'll do some extra analyses
+        # to make sure we're on the right track. These are toggled below
+
+        if True:
+            # Check from depth 0..N to see if ANY un-executed config looks more promising than our predecessor at that depth
+            parent_healths = []
+            parent = self.graph.get_parent_config(best)
+            while parent:
+                parent_healths.append(parent.health_score)
+                parent = self.graph.get_parent_config(parent)
+            parent_healths = parent_healths[::-1] # Reverse so we start at depth 0
+            # Now we look across entire graph for un-run+non-pending configs to see if any have a higher expected score
+            # than our parent does at that depth.
+            best_depths = {
+                depth: value for depth, value in zip(range(len(parent_healths)), parent_healths)
+            }
+
+            current_depth = self.calculate_config_depth(best)
+            #best_depths[self.calculate_config_depth(best)] = self.graph.calculate_expected_config_health(best)
+
+            better_options = {
+                # depth: config. Config is set/updated IFF value is better than that in best_depths[depth]
+            }
+
+            # For every node in the graph
+            for cc in self.graph.get_all_configurations():
+                if cc in self.pending_runs or cc.run:
+                    continue
+                this_depth = self.calculate_config_depth(cc)
+
+                if this_depth >= current_depth:
+                    # If a config is as deep or deeper than us, it can't be a better option earlier in our tree
+                    continue
+
+
+                this_health = self.graph.calculate_expected_config_health(cc)
+
+                # We look more promising than our parent at this depth
+                if this_health > best_depths[this_depth]:
+                    if cc not in weights:
+                        print(f"ERROR: {cc} not in weights when we thought it would be?")
+                        continue
+                    better_options[this_depth] = cc
+                    best_depths[this_depth] = this_health
+
+            # Now we look through better_options and select the lowest depth with a config
+            if len(better_options):
+                new_best = better_options[min(better_options.keys())]
+                print(f"Found a better option: {new_best} at depth {min(better_options.keys())} vs {best}. Replacing")
+                best = new_best
+
+        if False:
+            # Check parent chain for more promising branches - disabled for now, may be worth testing?
+            # Now look and see if there's a more promising parent somewhere off our chain from the root
+            # i.e., if we have
+            # root -> unexplored config with estimated score 1000
+            # root -> config with score 100 -> this config with estimated score 1010
+            # we should select the unexplored config because it beat our parent
+            parent_chain = []
+            parent = self.graph.get_parent_config(best)
+            while parent:
+                parent_chain.append(parent)
+                parent = self.graph.get_parent_config(parent)
+
+            # Now look from root down to our parent
+            for (grandparent, parent) in zip(parent_chain[::-1], parent_chain[::-1][1:]):
+
+                unexplored_siblings = [x for x in self.graph.get_child_configs(grandparent) \
+                                        if x != parent \
+                                            and not x.run \
+                                            and x not in self.pending_runs]
+                
+                # We've run 'parent' before and we have a concrete health score
+                # We want to compare this to any unexplored siblings' estimated health scores
+                parent_score = parent.health_score
+
+                best_sibling = None
+                best_sibling_score = 0
+                for sibling in unexplored_siblings:
+                    sibling_score = self.graph.calculate_expected_config_health(sibling)
+                    if  sibling_score > best_sibling_score:
+                        best_sibling_score = sibling_score
+                        best_sibling = sibling
+
+                if best_sibling_score > parent_score:
+                    # We found a better sibling. We'll select that instead
+                    print(f"Instead of {best} we're selecting {best_sibling} from parent chain as it's more promising")
+                    best = best_sibling
                     break
-            else:
-                best.dependencies = set() # Clear out dependencies if we can't find a good one
+
+        if True:
+            # XXX a config should depend on a mitigation being tested, not a specific instance of a config with the mitigation applied!
+
+            # Now, if we've selected a config that has dependencies, we'll select the most promising instead
+            if any([cc in self.pending_runs or not cc.run for cc in best.dependencies]):
+                # First pass - remove anything in self.pending_runs or anything with a .run property
+                best.dependencies = set([cc for cc in best.dependencies if cc not in self.pending_runs and not cc.run])
+
+            if len(best.dependencies):
+                # We found a node we want to run. But it has dependencies. Select the most promising one
+                # and run that instead
+                for cc, weight in sorted_weights:
+                    if cc in best.dependencies:
+
+                        # This dependency points us to a fail->mitigation->config. But there may be other fail->mitigation->OTHERCONFIGs
+                        # at this point - if those have been run, we can ignore this dependency since we've tried it before
+                        dep_fail = self.graph.get_parent_failure(cc)
+                        dep_mit = self.graph.get_parent_mitigation(cc)
+
+                        # If there's a weight between the failure and the mitigation we know it has been run
+                        # and we can skip
+                        if len(self.graph.graph[dep_fail.gid][dep_mit.gid].get('weights', [])) > 0:
+                            print(f"Skip dependency: {cc} as we've already run something similar")
+                            best.dependencies.remove(cc)
+                            continue
+
+                        best.dependencies.remove(cc) # Old best no longer has this dep since we're popping it
+                        best = cc
+                        break
+                else:
+                    best.dependencies = set() # Clear out dependencies if we can't find a good one
             
         if best in self.pending_runs:
             print(f"ERROR: selected best config that's already pending: {best}")
@@ -1107,7 +1285,7 @@ class ConfigurationManager:
 
     def calculate_config_depth(self, cc):
         # How many parents does this config have?
-        depth -1
+        depth = -1
         while cc:
             depth += 1
             cc = self.graph.get_parent_config(cc)
