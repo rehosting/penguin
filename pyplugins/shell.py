@@ -79,7 +79,7 @@ class BBCov(PyPlugin):
                 try:
                     f = tar.extractfile("." + filename)
                     if f:
-                        self.read_scripts[filename] = f.read().decode("utf-8").splitlines()
+                        self.read_scripts[filename] = f.read().decode("latin-1", errors='replace').splitlines()
                     else:
                         self.fs_missing_files.add(filename)
                 except KeyError:
