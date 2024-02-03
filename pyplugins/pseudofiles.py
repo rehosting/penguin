@@ -32,6 +32,9 @@ outfile_models = "pseudofiles_modeled.yaml"
 MAGIC_SYMEX_RETVAL = 999
 
 def path_interesting(path):
+    if '/pipe:[' in path:
+        return False
+
     if path.startswith("/dev/"):
         return True
 
@@ -91,6 +94,7 @@ class FileFailures(PyPlugin):
         self.sysfs = []
         need_ioctl_hooks = False
         #self.last_symex = None
+        self.warned = set()
 
         # Closure so we can pass details through
         def make_rwif(details, fn_ref):
@@ -131,11 +135,11 @@ class FileFailures(PyPlugin):
                     # If we have a symex model we'll need to enable some extra introspection
                     need_ioctl_hooks = True
 
-		# We'll update hf_config[dyndev.{devnames,procnames,netdevnames,sysfs}] with the list of devices we're shimming
+        # We'll update hf_config[dyndev.{devnames,procnames,netdevnames,sysfs}] with the list of devices we're shimming
         for f in ["devnames", "procnames", "netdevnames", "sysfs"]:
             hf_config[f"dyndev.{f}"] = {} #XXX: None of these can be empty - we populate all below
 
-		# This is a bit gross - we pull netdevices from core config here so we can pass to hyperfile
+        # This is a bit gross - we pull netdevices from core config here so we can pass to hyperfile
         netdev_str = ""
         if 'netdevnames' in self.config['core']:
             netdev_str = self.config['core']['netdevnames'] # It will be a list
@@ -169,24 +173,14 @@ class FileFailures(PyPlugin):
         # Mapping from IDs to device filenames passed to currently-running syscalls
         self.syscall_dev_fnames = {}
 
-        def get_syscall_target_fail_ret_val(call):
-            '''Syscall -> return value we expect to see if the file is missing'''
-            sc_name = panda.ffi.string(call.name).decode()
-            return {
-                # -ENOTTY. XXX: Should we check any negative return value?
-                'sys_ioctl': -25,
-                # We never care about close failures since we can't see the file name after
-                'sys_close': None,
-            }.get(sc_name, -2) # -ENOENT
-
-        def get_syscall_fd_args(call):
-            fd_args = [] # Tuples of (int argidx, bool is_fd)
+        def get_syscall_filename_args(call):
+            fd_args = [] # Tuples of (int argidx)
 
             for arg_idx in range(min(call.nargs, 4)): # Ignore stack based args?
                 # Is this argument named fd or filename?
                 argname = panda.ffi.string(call.argn[arg_idx])
-                if argname in [b'fd', b'oldfd', b'filename', b'path']:
-                    fd_args.append((arg_idx, argname in (b'fd', b'oldfd')))
+                if argname in [b'filename', b'path']:
+                    fd_args.append(arg_idx)
 
             return fd_args
 
@@ -196,113 +190,90 @@ class FileFailures(PyPlugin):
                 # Execve doesn't return on success, which causes problems for
                 # the analysis, and device files are probably not going to be
                 # executed anyway
-                and panda.ffi.string(call.name).decode() != 'sys_execve'
-                and get_syscall_fd_args(call)
+                and panda.ffi.string(call.name).decode() not in ['sys_execve', 'sys_open', 'sys_openat', 'sys_ioctl', 'sys_close'] # execve is noreturn, others are special
+                and get_syscall_filename_args(call)
             )
 
         @panda.ppp("syscalls2", "on_all_sys_enter2")
         def all_sysenter(cpu, pc, call, rp):
             if call == panda.ffi.NULL:
-                print("MAYBE BROKEN SYSCALL:", panda.arch.get_arg(cpu, 0, convention='syscall'))
+                callno = panda.arch.get_arg(cpu, 0, convention='syscall')
+                if callno not in self.warned:
+                    print("Pseudofiles unknown syscall #", callno)
+                    self.warned.add(callno)
+
             if not syscall_is_file_op(cpu, call):
                 return
+
             fnames = []
-            for arg_idx, is_fd in get_syscall_fd_args(call):
+            for arg_idx in get_syscall_filename_args(call):
                 arg_val = panda.arch.get_arg(cpu, arg_idx + 1, convention='syscall')
-                if is_fd:
-                    signed = panda.from_unsigned_guest(arg_val)
-                    if signed < 0:
-                        continue
-                    else:
-                        fname = panda.get_file_name(cpu, arg_val)
-                        if not fname:
-                            continue
-                        fname = fname.decode(errors='replace')
-                else:
-                    try:
-                        fname = panda.read_str(cpu, arg_val) # Convert filename to string
-                    except:
-                        continue
+                try:
+                    fname = panda.read_str(cpu, arg_val) # Convert filename to string no OSI required. Yay
+                except:
+                    continue
                 if any(fname.startswith(x) for x in ("/dev/", "/proc/")):
                     fnames.append(fname)
             id = panda.get_id(cpu)
-            if id in self.syscall_dev_fnames:
-                print(f"WARNING: overwriting syscall_dev_fnames for {id}: {self.syscall_dev_fnames[id]}")
-            #assert id not in self.syscall_dev_fnames
-            self.syscall_dev_fnames[id] = tuple(fnames)
+            # This happens a lot
+            #if (id, pc) in self.syscall_dev_fnames:
+                #print(f"WARNING: overwriting syscall_dev_fnames for {id},{pc}: {self.syscall_dev_fnames[(id,pc)]}")
+            self.syscall_dev_fnames[(id, pc)] = tuple(fnames)
 
         @panda.ppp("syscalls2", "on_all_sys_return2")
         def all_sysret(cpu, pc, call, rp):
             if not syscall_is_file_op(cpu, call):
                 return
+            
+            k = (panda.get_id(cpu), pc)
 
-            rv = panda.arch.get_retval(cpu, convention="syscall")
-            target_rv = get_syscall_target_fail_ret_val(call)
-            if rv != target_rv:
-                if panda.get_id(cpu) in self.syscall_dev_fnames:
-                    del self.syscall_dev_fnames[panda.get_id(cpu)]
+			# If we pop and a key is missing, that's unexpected, I think?
+            if panda.arch.get_retval(cpu, convention="syscall") != -2:
+                if k in self.syscall_dev_fnames:
+                    del self.syscall_dev_fnames[k]
                 return
 
-            # Try to fname out of the syscall object
-            # If it fails, fall back to popping from the dict
+            # We're in the return handler for a syscall and we're returning -ENOENT
+            # because the requested file doesn't exist. We'd like to log this
+            # so let's look at the argument that contains the filename
+            # and/or the cached filename from the syscall enter handler
+
+			# Try to read the filename from the syscall arguments
             try:
-                fnames = []
-                for arg_idx, is_fd in get_syscall_fd_args(call):
+                sc_fnames = []
+                for arg_idx in get_syscall_filename_args(call):
                     # Ugh. Gross conversion. Not sure if it would be right for big endian? XXX
                     b = [int(self.panda.ffi.cast("unsigned short", rp.args[arg_idx][x])) for x in range(self.panda.bits // 8)]
                     arg_val = 0
                     for i in range(self.panda.bits // 8):
                         arg_val |= b[i] << (i*8)
+                    fname = self.panda.read_str(cpu, arg_val) # Convert filename to string
 
-                    if is_fd:
-                        signed = panda.from_unsigned_guest(arg_val)
-                        if signed < 0:
-                            return
-                        fname = self.panda.get_file_name(cpu, arg_val)
-                        if fname is None:
-                            continue
-                        fname = fname.decode(errors="replace") # Convert FD to filename
-                    else:
-                        fname = self.panda.read_str(cpu, arg_val) # Convert filename to string
-
-                    if any(fname.startswith(x) for x in ("/dev/", "/proc/")):
-                        fnames.append(fname)
+                    if any(fname.startswith(x) for x in ["/dev/", "/proc/"]):
+                        sc_fnames.append(fname)
 
             except ValueError:
-                fnames = self.syscall_dev_fnames.pop(panda.get_id(cpu))
+                try:
+                    sc_fnames = [self.syscall_dev_fnames[(panda.get_id(cpu), pc)]]
 
-            if panda.get_id(cpu) in self.syscall_dev_fnames:
-                del self.syscall_dev_fnames[panda.get_id(cpu)]
+                except KeyError:
+                    print(f"Failed to get filename for syscall return at {hex(pc)}")
+                    return
+
+            if k in self.syscall_dev_fnames:
+                del self.syscall_dev_fnames[k]
 
             call_name = panda.ffi.string(call.name).decode().replace("sys_", "")
-            for fname in fnames:
+            for fname in sc_fnames:
                 self.centralized_log(fname, call_name)
 
-        # One special case: openat needs to combine the base path with the filename
-        @panda.ppp("syscalls2", "on_sys_openat_return")
-        def fail_detect_openat(cpu, pc, fd, fname, mode, flags):
-            rv = self.panda.arch.get_retval(cpu, convention="syscall")
-            if rv >= 0:
-                return
+        # Open/openat is a special case with hypercalls helping us out
+        # because openat requires guest introspection to resolve the dfd, but we just
+        # did it in the kernel
+        self.ppp.Core.ppp_reg_cb('igloo_open', self.fail_detect_opens)
+        self.ppp.Core.ppp_reg_cb('igloo_ioctl', self.fail_detect_ioctl)
 
-            base = ''
-            if fd != -100: # CWD
-                proc = self.panda.plugins['osi'].get_current_process(cpu)
-                if proc == self.panda.ffi.NULL:
-                    return
-                basename_c = self.panda.plugins['osi_linux'].osi_linux_fd_to_filename(cpu, proc, fd)
-                if basename_c == self.panda.ffi.NULL:
-                    return
-                base = self.panda.ffi.string(basename_c).decode('latin-1', errors='ignore')
-            try:
-                path = base + "/" + panda.read_str(cpu, fname)
-            except ValueError:
-                return
-
-            if rv >= -2: # ENOENT - we only care about files that don't exist
-                self.centralized_log(path, 'open', event_details='openat')
-
-        # And another special case: on ioctl return we might want to start symex
+        # On ioctl return we might want to start symex. We detect failures with a special handler though
         if need_ioctl_hooks:
             @panda.ppp("syscalls2", "on_sys_ioctl_return")
             def symex_ioctl_return(cpu, pc, fd, cmd, arg):
@@ -318,12 +289,18 @@ class FileFailures(PyPlugin):
                     # Initialize symex on first use
                     self.symex = PathExpIoctl(self.outdir, self.config['core']['fs'])
 
-                filename = self.panda.get_file_name(cpu, fd)
+                # Look through our config and find the filename with a symex model
+                # XXX: This is a bit of a hack - we're assuming we only have one symex model
+                filename = None
+                for fname, file_model in self.config['pseudofiles'].items():
+                    if 'ioctl' in file_model:
+                        for cmd, model in file_model['ioctl'].items():
+                            if model['model'] == 'symex':
+                                filename = fname
+                                break
+                
                 if filename is None:
-                    filename = "error"
-                    raise RuntimeError("error reading filename on symbolic ioctl")
-                    # This would be dumb - we could pull it from the config probably, how many symex files would we have?
-                filename = filename.decode(errors="ignore")
+                    raise ValueError("No filename with symex model found in config, but we got a symex ioctl. Unexpected")
 
                 # It's time to launch symex!
                 self.symex.do_symex(self.panda, cpu, pc, filename, cmd)
@@ -342,6 +319,10 @@ class FileFailures(PyPlugin):
         # We just track count
         if not path_interesting(path):
             return
+        
+        if path.startswith("/proc/"):
+            # replace /proc/<pid> with /proc/<PID> to avoid a ton of different paths
+            path = re.sub(r'/proc/\d+', '/proc/PID', path)
 
         if path not in self.file_failures:
             self.file_failures[path] = {}
@@ -359,6 +340,14 @@ class FileFailures(PyPlugin):
             if not "details" in self.file_failures[path][event]:
                 self.file_failures[path][event]['details'] = []
             self.file_failures[path][event]['details'].append(event_details)
+
+    def fail_detect_ioctl(self, cpu, fname, cmd):
+        # A regular (non-dyndev) device was ioctl'd and is returning -ENOTTY so our hypercall triggers
+        self.centralized_log(fname, 'ioctl', {'cmd': cmd})
+
+    def fail_detect_opens(self, cpu, fname, fd):
+        if fd < 0 and fd >= -2: # ENOENT - we only care about files that don't exist
+            self.centralized_log(fname, 'open')
 
     def log_ioctl_failure(self, path, cmd):
         if path not in self.file_failures:

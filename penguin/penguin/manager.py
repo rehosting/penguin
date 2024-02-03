@@ -307,11 +307,6 @@ class Worker:
         with open(f"{result_dir}/health_final.yaml") as f:
             health_data = yaml.safe_load(f)
 
-        # Coverage: processes, modules, blocks
-        with open(f"{result_dir}/coverage.csv") as f:
-            # XXX no header, but it's process, module, offset. No index either
-            df = pd.read_csv(f, header=None, names=['process', 'module', 'offset'], index_col=False)
-
         # Panic or not (inverted so we can maximize)
         panic = False
 
@@ -328,13 +323,28 @@ class Worker:
         with open(f"{result_dir}/shell_cov.csv") as f:
             shell_cov = len(f.readlines()) - 1
 
+        # Coverage: processes, modules, blocks
+        if os.path.isfile(f"{result_dir}/coverage.csv"):
+            with open(f"{result_dir}/coverage.csv") as f:
+                # xxx no header, but it's process, module, offset. no index either
+                df = pd.read_csv(f, header=None, names=['process', 'module', 'offset'], index_col=False)
+            processes_run = df['process'].nunique()
+            modules_loaded =  df['module'].nunique()
+            blocks_covered = df.drop_duplicates(subset=['module', 'offset']).shape[0] # Count of unique (module, offset) pairs
+        else:
+            print(f"WARNING: No coverage.csv found in {result_dir}")
+            processes_run = 0
+            modules_loaded = 0
+            blocks_covered = 0
+
+
         score = {
             'execs': health_data['nexecs'],
             'bound_sockets': health_data['nbound_sockets'],
             'devices_accessed': health_data['nuniquedevs'],
-            'processes_run': df['process'].nunique(),
-            'modules_loaded': df['module'].nunique(),
-            'blocks_covered': df.drop_duplicates(subset=['module', 'offset']).shape[0], # Count of unique (module, offset) pairs
+            'processes_run': processes_run,
+            'modules_loaded': modules_loaded,
+            'blocks_covered': blocks_covered,
             'script_lines_covered': shell_cov,
             'nopanic': 1 if not panic else 0,
         }

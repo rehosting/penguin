@@ -43,69 +43,49 @@ class EnvTracker(PyPlugin):
             # Track the set env variables so we know they're set
             self.default_env_vars += list(self.conf["env"].keys())
 
-        @panda.hook_symbol("libc-", "getenv")
-        def hook_getenv(cpu, tb, h):
-            # Get the argument
-            try:
-                s = panda.read_str(cpu, panda.arch.get_arg(cpu, 0))
-            except ValueError:
+        self.ppp.Core.ppp_reg_cb('igloo_getenv', self.on_getenv)
+        self.ppp.Core.ppp_reg_cb('igloo_strstr', self.on_strstr)
+
+    def on_strstr(self, cpu, s1, s2):
+        # /proc/cmdline check. If we see match in one, target is the other
+        keyword = "root=/dev/vda"
+        target = s2 if keyword in s1 else s1 if keyword in s2 else None
+
+        # I haven't (yet) seen these without a trailing =s, but it could happen
+        # maybe we should be less conservative here?
+        if target and target.endswith('='):
+            match = target.rstrip('=')
+            if not self.var_interesting(match):
                 return
-            if not self.var_interesting(s):
+            self.addvar(cpu, match)
+
+        # uboot env check. IFF we put this in the uboot env
+        keyword = "igloo_uboot_env=placeholder"
+
+        target = s2 if keyword in s1 else s1 if keyword in s2 else None
+        if target:
+            match = target.rstrip('=') # Optional, have seen lookups without the trailing =s
+
+            if not self.uboot_var_interesting(match):
                 return
+            self.uboot_addvar(cpu, match)
+
+        # MTD search (e.g., /proc/mtd)
+        # This is for *partition names* not the contents or anything that fancy
+        keyword = "mtd0: "
+
+        target = s2 if keyword in s1 else s1 if keyword in s2 else None
+        if target:
+            # We can trim "s, because the name is always quoted (e.g., we could search "foo" when looking for foo)
+            target = target.strip('"')
+            if 'env' in self.conf and 'mtdparts' in self.conf['env'] and f"({target})" in self.conf['env']['mtdparts']:
+                # We've set this partition up already. Yay!
+                return
+            self.mtd_addvar(cpu, target)
+
+    def on_getenv(self, cpu, s):
+        if self.var_interesting(s):
             self.addvar(cpu, s)
-
-        @panda.hook_symbol(None, "strstr")
-        def hook_strstr(cpu, tb, h):
-            '''
-            A key-value lookup typically will require a search of a set
-            of key=value pairs for "targetkey=". We know the ground-truth
-            for /proc/cmdline - so let's check if anyone is ever doing
-            a strstr on that while looking for a new key
-            '''
-            a1 = panda.arch.get_arg(cpu, 0)
-            a2 = panda.arch.get_arg(cpu, 1)
-
-            try:
-                s1 = panda.read_str(cpu, a1, max_length=100)
-                s2 = panda.read_str(cpu, a2, max_length=100)
-            except ValueError:
-                return
-
-            # /proc/cmdline check. If we see match in one, target is the other
-            keyword = "root=/dev/vda"
-            target = s2 if keyword in s1 else s1 if keyword in s2 else None
-
-            # I haven't (yet) seen these without a trailing =s, but it could happen
-            # maybe we should be less conservative here?
-            if target and target.endswith('='):
-                match = target.rstrip('=')
-                if not self.var_interesting(match):
-                    return
-                self.addvar(cpu, match)
-
-            # uboot env check. IFF we put this in the uboot env
-            keyword = "igloo_uboot_env=placeholder"
-
-            target = s2 if keyword in s1 else s1 if keyword in s2 else None
-            if target:
-                match = target.rstrip('=') # Optional, have seen lookups without the trailing =s
-
-                if not self.uboot_var_interesting(match):
-                    return
-                self.uboot_addvar(cpu, match)
-
-            # MTD search (e.g., /proc/mtd)
-            # This is for *partition names* not the contents or anything that fancy
-            keyword = "mtd0: "
-
-            target = s2 if keyword in s1 else s1 if keyword in s2 else None
-            if target:
-                # We can trim "s, because the name is always quoted (e.g., we could search "foo" when looking for foo)
-                target = target.strip('"')
-                if 'env' in self.conf and 'mtdparts' in self.conf['env'] and f"({target})" in self.conf['env']['mtdparts']:
-                    # We've set this partition up already. Yay!
-                    return
-                self.mtd_addvar(cpu, target)
 
     def addvar(self, cpu, match):
         #proc = self.panda.get_process_name(cpu)
@@ -223,40 +203,17 @@ class TargetCmp(PyPlugin):
                 "target_str": ENV_MAGIC_VAL,
                 })
 
-        # Also explicitly hook strcmp/strncmp
-        @panda.hook_symbol("libc-", "strcmp")
-        def hook_strcmp(cpu, tb, h):
-            try:
-                str1 = panda.read_str(cpu, panda.arch.get_arg(cpu, 0))
-                str2 = panda.read_str(cpu, panda.arch.get_arg(cpu, 1))
-            except ValueError:
-                return
+        self.ppp.Core.ppp_reg_cb('igloo_string_cmp', self.on_string_compare)
 
-            self.consider(str1, str2)
-
-        @panda.hook_symbol("libc-", "strncmp")
-        def hook_strncmp(cpu, tb, h):
-            # Get two strings being compared - are either IGLOOENVVAR
-            n = panda.arch.get_arg(cpu, 2)
-            try:
-                str1 = panda.read_str(cpu, panda.arch.get_arg(cpu, 0), max_length=n)
-                str2 = panda.read_str(cpu, panda.arch.get_arg(cpu, 1), max_length=n)
-            except ValueError:
-                return
-            self.consider(str1, str2)
-
-    def consider(self,str1, str2):
-        if str1 == ENV_MAGIC_VAL:
-            match = str2
-        elif str2 == ENV_MAGIC_VAL:
-            match = str1
-        else:
-            return
-
-        if match not in self.env_var_matches:
-            self.env_var_matches.add(match)
+    def on_string_compare(self, cpu, s):
+        '''
+        LD_PRELOAD based hooks for strcmp/strncmp
+        the guest strcmp/strncmps s to our DYNVAL string
+        '''
+        if s not in self.env_var_matches:
+            self.env_var_matches.add(s)
             with open(pjoin(self.outdir, cmp_output_py), "a") as f:
-                f.write(match + "\n")
+                f.write(s + "\n")
 
     def uninit(self):
         if not self.target_key:
@@ -403,7 +360,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
             Failure('unset_' + env, self.ANALYSIS_TYPE, {'var': env, 'source': 'unset'})
             for env in env_accesses.keys()
         ]
-                    
+
     def get_potential_mitigations(self, config, failure : Failure) -> List[Mitigation]:
         # If we just ran a dynamic search that's the only mitigation we'll apply
         # Expect failure_type to be envone, not env?
@@ -443,7 +400,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
             # Can't mitigate an unset variable that's already set by our config. If it was magic
             # value, we would've handled above. But we're here so it must be set to a concrete value
             raise ValueError(f"{var_name} was already set but it was also our failure - what's happening")
-        
+
         # Otherwise: variable was unset. The only mitigation we can propose here is to try magic values.
         # If that fails, we'll add some defaults
         return [Mitigation('magic_'+var_name, self.ANALYSIS_TYPE, {'value': ENV_MAGIC_VAL, 'var': var_name,
