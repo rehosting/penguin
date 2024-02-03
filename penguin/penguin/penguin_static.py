@@ -263,14 +263,12 @@ def pre_shim(config, auto_explore=False):
             with open(tmp_dir + '/etc/hosts', 'r') as f:
                 hosts = f.read()
 
-        print(f"Hosts contains: {repr(hosts)}")
         #if '127.0.0.1 localhost' not in hosts:
         # Regex with whitespace and newlines
         if not re.search(r'^127\.0\.0\.1\s+localhost\s*$', hosts, re.MULTILINE):
-            if not hosts.endswith('\n'):
+            if len(hosts) and not hosts.endswith('\n'):
                 hosts += "\n"
             hosts += "127.0.0.1 localhost\n"
-            print(f"Updated hosts: {hosts}")
             config['static_files']['/etc/hosts'] = {
                 'type': 'file',
                 'contents': hosts,
