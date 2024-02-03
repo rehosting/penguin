@@ -13,6 +13,8 @@ except ImportError:
 class Core(PyPlugin):
     '''
     Simple sanity checks and basic core logic.
+    Also provides a callback on hypercall events for open/openat calls.
+
     1) Validate we're getting the expected args.
     2) Write config and loaded plugins to output dir
     3) On siguser1 gracefully shutdown emulation
@@ -28,7 +30,11 @@ class Core(PyPlugin):
             if not self.get_arg(arg):
                 raise ValueError(f"[core] Missing required argument: {arg}")
 
+        self.panda = panda
         self.outdir = self.get_arg("outdir")
+        self.pending_procname = None
+        self.pending_sin_addr = None
+
         plugins = self.get_arg("plugins")
         conf = self.get_arg("conf")
 
@@ -74,6 +80,89 @@ class Core(PyPlugin):
                     args=(panda, timeout, self.shutdown_event))
             self.shutdown_thread.start()
 
+        # Now define HC callbacks
+        # Define 3 callbacks that are triggered from hypercalls
+        for cb in ['igloo_open', 'igloo_string_cmp', 'igloo_getenv', 'igloo_strstr',
+                    'igloo_bind', 'igloo_ioctl']:
+            self.ppp_cb_boilerplate(cb)
+
+    @PyPlugin.ppp_export
+    def handle_hc(self, cpu, num):
+        try:
+            self._handle_hc(cpu, num)
+        except ValueError:
+            # Argument couldn't be read
+            self.panda.arch.set_arg(cpu, 1, 1)
+        return True
+
+    def _handle_hc(self, cpu, num):
+        if num == 100:
+            # open/openat (filename*, fd/retval)
+            arg1 = self.panda.arch.get_arg(cpu, 1)
+            fd = self.panda.arch.get_arg(cpu, 2)
+            fname = self.panda.read_str(cpu, arg1)
+            self.ppp_run_cb('igloo_open', cpu, fname, fd)
+
+        elif num in [101, 102]:
+            # strcmp/strncmp - non-DYNVAL string that's being compared
+            arg1 = self.panda.arch.get_arg(cpu, 1)
+            value = self.panda.read_str(cpu, arg1)
+            self.ppp_run_cb('igloo_string_cmp', cpu, value)
+
+        elif num == 103:
+            # getenv (name*)
+            arg1 = self.panda.arch.get_arg(cpu, 1)
+            value = self.panda.read_str(cpu, arg1)
+            self.ppp_run_cb('igloo_getenv', cpu, value)
+
+        elif num == 104:
+            # strstr (haystack*, needle*)
+            arg1 = self.panda.arch.get_arg(cpu, 1)
+            arg2 = self.panda.arch.get_arg(cpu, 2)
+            value1 = self.panda.read_str(cpu, arg1)
+            value2 = self.panda.read_str(cpu, arg2)
+
+            self.ppp_run_cb('igloo_strstr', cpu, value1, value2)
+
+        elif num == 105:
+            # ioctl (filename*, cmd)
+            arg1 = self.panda.arch.get_arg(cpu, 1)
+            value1 = self.panda.read_str(cpu, arg1)
+            arg2 = self.panda.arch.get_arg(cpu, 2)
+
+            self.ppp_run_cb('igloo_ioctl', cpu, value1, arg2)
+            
+
+        elif num in [200, 202]:
+            # 200: ipv4 setup, 202: ipv6 setup
+            arg1 = self.panda.arch.get_arg(cpu, 1)
+
+            arg2 = self.panda.arch.get_arg(cpu, 2)
+            ipv4 = num == 200
+
+            if ipv4:
+                # Passed by value as it fits in a 32-bit register
+                sin_addr = int.to_bytes(arg2, 4, 'little')
+            else:
+                # Passed as a pointer since it's 16 bytes
+                sin_addr = self.panda.virtual_memory_read(cpu, arg2, 16)
+
+            self.pending_procname = self.panda.read_str(cpu, arg1)
+            self.pending_sin_addr = sin_addr
+
+        elif num in [201, 203]:
+            # 201: ipv4 bind, 203: ipv6 bind
+            ipv4 = num == 201
+            port = self.panda.arch.get_arg(cpu, 1)
+            is_stream = self.panda.arch.get_arg(cpu, 2) != 0
+            self.ppp_run_cb('igloo_bind', cpu, self.pending_procname, ipv4, is_stream,
+                                            port, self.pending_sin_addr)
+            self.pending_procname = None
+            self.pending_sin_addr = None
+
+        else:
+            raise RuntimeError(f"handle_hc called with unknown hypercall: {num}")
+
     def shutdown_after_timeout(self, panda, timeout, shutdown_event):
         wait_time = 0
         while wait_time < timeout:
@@ -94,6 +183,8 @@ class Core(PyPlugin):
         except OSError:
             # During shutdown, stdout might be closed!
             pass
+
+        # Explicitly disable the hypercall callback
         panda.end_analysis()
 
     def graceful_shutdown(self, sig, frame):
@@ -101,7 +192,7 @@ class Core(PyPlugin):
         self.panda.end_analysis()
 
     def uninit(self):
-        if hasattr(self, 'shutdown_event'):
+        if hasattr(self, 'shutdown_event') and not self.shutdown_event.is_set():
             # Tell the shutdown thread to exit if it was started
             self.shutdown_event.set()
 

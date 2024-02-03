@@ -90,34 +90,11 @@ class Health(PyPlugin):
                 self.procs_args.add(unique_name)
                 self.increment_event('nexecs_args')
 
-        @panda.ppp("syscalls2", "on_sys_open_return")
-        def detect_dev_open(cpu, pc, fname, mode, flags):
-            # Just get pathname:
-            try:
-                fname = panda.read_str(cpu, fname)
-            except ValueError:
-                return
-            if fname.startswith("/dev"):
-                self.log_dev_open(fname, mode)
+        self.ppp.Core.ppp_reg_cb('igloo_open', self.health_detect_opens)
 
-        @panda.ppp("syscalls2", "on_sys_openat_return")
-        def detect_dev_openat(cpu, pc, fd, fname, mode, flags):
-            base = ''
-            if fd != -100: # CWD
-                proc = panda.plugins['osi'].get_current_process(cpu)
-                if proc == panda.ffi.NULL:
-                    return
-                basename_c = panda.plugins['osi_linux'].osi_linux_fd_to_filename(cpu, proc, fd)
-                if basename_c == panda.ffi.NULL:
-                    return
-                base = panda.ffi.string(basename_c).decode('latin-1', errors='ignore')
-            try:
-                path = base + "/" + panda.read_str(cpu, fname)
-            except ValueError:
-                return
-            if path.startswith("/dev"):
-                self.log_dev_open(path, mode)
-
+    def health_detect_opens(self, cpu, fname, fd):
+        if fname.startswith("/dev"):
+            self.log_dev_open(fname)
 
     def increment_event(self, event):
         '''
@@ -129,7 +106,7 @@ class Health(PyPlugin):
         self.events[event].append((rel_time, last_score + 1))
 
 
-    def log_dev_open(self, fname, mode):
+    def log_dev_open(self, fname):
         if fname not in self.devs:
             self.devs.add(fname)
             self.increment_event('nuniquedevs')

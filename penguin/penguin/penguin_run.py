@@ -253,11 +253,11 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     # and we want host user to be able to read (and delete)
     os.umask(0o001)
 
-    print("Loading plugins")
     for plugin_name in _sort_plugins_by_dependency(conf_plugins):
         details = conf_plugins[plugin_name]
         if 'enabled' in details and not details['enabled']:
             continue # Special arg "enabled" - if false we skip
+        print(f"Loading plugin: {plugin_name}")
 
         args ={
             'plugins': conf_plugins,
@@ -301,6 +301,19 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
         print(full_append[255:])
 
     panda.panda_args[append_idx] = full_append
+
+    @panda.cb_guest_hypercall
+    def before_hc(cpu):
+        # This is a bit of a hack. We want this in core.py, but we were seeing
+        # some panda segfaults at shutdown when the Core pyplugin was uninitialized
+        # but the guest was still running and panda was trying to call into the
+        # freed python cffi callback object. As a workaround we have it here.
+        num = panda.arch.get_arg(cpu, 0)
+        if num in [100, 101, 102, 103, 104, 105, 200, 201, 202, 203]:
+            if target := getattr(panda.pyplugins.ppp, 'Core', None):
+                target.handle_hc(cpu, num)
+                return True
+        return False
 
     print("Run emulation")
     try:
