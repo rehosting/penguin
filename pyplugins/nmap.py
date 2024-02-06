@@ -78,7 +78,11 @@ class Nmap(PyPlugin):
             print(f"Output file closed, not scanning guest port {guest_port}")
             return
 
-        self.output_file.write(f"Scanning {guest_port} via host {host_port} using nmap\n")
+        try:
+            self.output_file.write(f"Scanning {guest_port} via host {host_port} using nmap\n")
+        except ValueError:
+            # IO operation on closed file
+            pass
 
         # nmap scan our target in service-aware mode
         env = os.environ.copy()
@@ -91,8 +95,11 @@ class Nmap(PyPlugin):
             env=env)
         process.wait()
 
-
-        self.output_file.write(f"Finished scan of {guest_port}\n")
+        try:
+            self.output_file.write(f"Finished scan of {guest_port}\n")
+        except ValueError:
+            # IO operation on closed file
+            pass
 
         # Now cleanup the nmap services file
         os.remove(custom_nmapdir_path)
