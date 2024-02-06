@@ -4,10 +4,11 @@ set -euo pipefail
 num_failed_tests=0
 
 run_test() {
-  local arch=$1
-  local test_name=$2
-  local assertion=$3
-  local n_iters=${4:-20}
+  local kernel_version=$1
+  local arch=$2
+  local test_name=$3
+  local assertion=$4
+  local n_iters=${5:-20}
 
   if [ ! -d "$test_name" ]; then
     echo "Test $test_name does not exist"
@@ -19,10 +20,10 @@ run_test() {
   mkdir -p results/base/
   echo -e 'igloo_init:\n- /init\n- /notinit' > results/base/env.yaml
 
-  echo "Testing $test_name on architecture $arch..."
+  echo "Testing $test_name on kernel version $kernel_version with architecture $arch..."
   # If docker run fails, print log and bail
   docker run --rm -t -v "$(pwd)":/tests pandare/igloo:penguin \
-    /tests/_in_container_run.sh "$arch" "$test_name" > log.txt || (tail log.txt && exit 1)
+    /tests/_in_container_run.sh "$kernel_version" "$arch" "$test_name" > log.txt || (tail log.txt && exit 1)
 
   echo -n "$test_name: "
   if $assertion; then
@@ -101,6 +102,7 @@ assert_combined() {
 rm -rf qcows
 mkdir -p qcows
 
+kernel_versions=("4.10" "6.7")
 archs=("armel" "mipsel" "mipseb")
 tests=( "multiinit" "pseudofile" "env" "combined")
 
@@ -116,43 +118,45 @@ elif [ $# -eq 1 ]; then
   archs=("$1")
 fi
 
+for kernel_version in "${kernel_versions[@]}"; do
 for arch in "${archs[@]}"; do
 
   if [[ ! " ${tests[@]} " =~ " pseudofile " ]]; then
     echo "Skipping pseudofile test for $arch"
   else
-    run_test "$arch" "pseudofile" assert_pseudofiles
+    run_test "$kernel_version" "$arch" "pseudofile" assert_pseudofiles
   fi
 
   if [[ ! " ${tests[@]} " =~ " multiinit " ]]; then
     echo "Skipping multiinit test for $arch"
   else
-    run_test "$arch" "multiinit" assert_multirun_ranps
+    run_test "$kernel_version" "$arch" "multiinit" assert_multirun_ranps
   fi
 
   if [[ ! " ${tests[@]} " =~ " env " ]]; then
     echo "Skipping env test for $arch"
   else
-    run_test "$arch" "env" assert_multirun_ranps
+    run_test "$kernel_version" "$arch" "env" assert_multirun_ranps
   fi
 
   if [[ ! " ${tests[@]} " =~ " combined " ]]; then
     echo "Skipping combined test for $arch"
   else
-    run_test "$arch" "combined" assert_multirun_ranps 40
+    run_test "$kernel_version" "$arch" "combined" assert_multirun_ranps 40
   fi
 
   if [[ ! " ${tests[@]} " =~ " search_min " ]]; then
     echo "Skipping search_min test for $arch"
   else
-    run_test "$arch" "search_min" assert_combined 40
+    run_test "$kernel_version" "$arch" "search_min" assert_combined 40
   fi
 
   if [[ ! " ${tests[@]} " =~ " search " ]]; then
     echo "Skipping search test for $arch"
   else
-    run_test "$arch" "search" assert_combined 40
+    run_test "$kernel_version" "$arch" "search" assert_combined 40
   fi
+done
 done
 
 exit $num_failed_tests
