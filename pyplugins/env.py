@@ -312,7 +312,12 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                 # We don't know the name of the env_var though. Hmm.
                 with open(pjoin(output_dir, cmp_output)) as f:
                     for line in f.readlines():
-                        dyn_vals.add(line.strip())
+                        line = line.strip()
+                        # Regex to check if it's a valid environment variable
+                        if re.match(r'^[A-Za-z_][A-Za-z0-9-_/]*$', line):
+                            dyn_vals.add(line)
+                        else:
+                            print("Ignoring cpp-discovered dynval:", line)
 
             #print(f"Found {len(dyn_vals)} dynamic values for {target_var}: {dyn_vals}")
 
