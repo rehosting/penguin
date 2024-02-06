@@ -35,7 +35,7 @@ class EnvTracker(PyPlugin):
         self.uboot_vars = set() # set of env vars that were read through libc getenv
         self.mtd_vars = set() # set of mtd partitions read out of /proc/mtd
 
-        self.default_env_vars = ["root", "console", "clocksource", "elevator", "nohz", "idle", "acpi"]
+        self.default_env_vars = ["root", "console", "clocksource", "elevator", "nohz", "idle", "acpi", "LD_LIBRARY_PATH"]
         self.conf = self.get_arg("conf")
         if "env" in self.conf:
             # Track the set env variables so we know they're set
