@@ -35,7 +35,7 @@ RUN mkdir /igloo_static && \
   mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel
 
 # Download libnvram from CI. Populate /igloo_static/libnvram
-RUN wget -qO - https://github.com/panda-re/libnvram/releases/download/release_7cf4b464578bbe9df2ef0adf2eae6d577fd8f788/libnvram-latest.tar.gz | \
+RUN wget -qO - https://github.com/panda-re/libnvram/releases/download/release_4b65cec3ac8927b22ec8d532c180e55453401af1/libnvram-latest.tar.gz | \
   tar xzf - -C /igloo_static
 
 # Download  console from CI. Populate /igloo_static/console
@@ -48,7 +48,7 @@ RUN wget -qO - https://github.com/panda-re/console/releases/download/release_389
   mv /igloo_static/console/console-mips64eb-linux-musl /igloo_static/console/console.mips64eb
 
 # Download kernels from CI. Populate /igloo_static/kernels
-RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v1.9.6/kernels-latest.tar.gz | \
+RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v1.9.9/kernels-latest.tar.gz | \
       tar xzf - -C /igloo_static
 
 # Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
