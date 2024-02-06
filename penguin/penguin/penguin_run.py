@@ -37,18 +37,10 @@ qemu_configs = {
 }
 
 def make_unique_cid():
-    CID = None
-    max_cid = 3 # Try to keep these small to save kernel arg space
-    while CID==None:
-        max_cid += (1 if max_cid < 32 else 0)
-        CID=random.randint(3,(2**max_cid)-1) # +3 is to shift past the special CIDs
-        for fname in os.listdir("/tmp"):
-            #The host side of the VPN creates these files
-            if fname.startswith(f"vpn_events_{CID}_"):
-                print(f"Found existing qemu/panda with cid={CID}")
-                #Also, consider buying a lotto ticket
-                CID=None
-                break
+    max_cid = 2**32-1 # Try to keep these small to save kernel arg space
+    CID=random.randint(3,max_cid) # +3 is to shift past the special CIDs
+    while any(fname.startswith(f"vpn_events_{CID}_") for fname in os.listdir("/tmp")):
+        CID=random.randint(3, max_cid)
     return CID
 
 def _sort_plugins_by_dependency(conf_plugins):
