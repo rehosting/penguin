@@ -12,7 +12,9 @@ from sys import path
 path.append(dirname(__file__))
 from symex import PathExpIoctl
 
-KNOWN_PATHS = ["/dev/", "/dev/pts", "/sys", "/proc", "/run", "/tmp"] # Directories not in static FS that are added by igloo_init
+KNOWN_PATHS = ["/dev/", "/dev/pts", "/sys", "/proc", "/run", "/tmp",  # Directories not in static FS that are added by igloo_init
+               "/dev/null", "/dev/zero", "/dev/random", "/dev/urandom", # Standard devices we'll see from devtmpfs
+               ]
 
 try:
     from penguin import PenguinAnalysis, yaml
@@ -62,7 +64,7 @@ def ignore_ioctl_path(path):
     if path.startswith("socket:"):
         # XXX We do want to log socket failures and eventually model them!
         return True
-    if path.startswith("pipe:"):
+    if "/pipe:[" in path:
         return True
     return False
 
@@ -218,14 +220,15 @@ class FileFailures(PyPlugin):
             # This happens a lot
             #if (id, pc) in self.syscall_dev_fnames:
                 #print(f"WARNING: overwriting syscall_dev_fnames for {id},{pc}: {self.syscall_dev_fnames[(id,pc)]}")
-            self.syscall_dev_fnames[(id, pc)] = tuple(fnames)
+            self.syscall_dev_fnames[id] = tuple(fnames)
 
         @panda.ppp("syscalls2", "on_all_sys_return2")
         def all_sysret(cpu, pc, call, rp):
             if not syscall_is_file_op(cpu, call):
                 return
             
-            k = (panda.get_id(cpu), pc)
+            #k = (panda.get_id(cpu), pc)
+            k = panda.get_id(cpu)
 
 			# If we pop and a key is missing, that's unexpected, I think?
             if panda.arch.get_retval(cpu, convention="syscall") != -2:
@@ -254,8 +257,7 @@ class FileFailures(PyPlugin):
 
             except ValueError:
                 try:
-                    sc_fnames = [self.syscall_dev_fnames[(panda.get_id(cpu), pc)]]
-
+                    sc_fnames = list(self.syscall_dev_fnames[k])
                 except KeyError:
                     print(f"Failed to get filename for syscall return at {hex(pc)}")
                     return
@@ -343,13 +345,17 @@ class FileFailures(PyPlugin):
 
     def fail_detect_ioctl(self, cpu, fname, cmd):
         # A regular (non-dyndev) device was ioctl'd and is returning -ENOTTY so our hypercall triggers
-        self.centralized_log(fname, 'ioctl', {'cmd': cmd})
+        self.log_ioctl_failure(fname, cmd)
 
     def fail_detect_opens(self, cpu, fname, fd):
         if fd < 0 and fd >= -2: # ENOENT - we only care about files that don't exist
             self.centralized_log(fname, 'open')
 
     def log_ioctl_failure(self, path, cmd):
+        if ignore_ioctl_path(path) or ignore_cmd(cmd):
+            # Uninteresting
+            return
+
         if path not in self.file_failures:
             self.file_failures[path] = {}
 
@@ -649,11 +655,13 @@ class FileFailuresAnalysis(PenguinAnalysis):
             if path.startswith("/proc"):
                 # Ignoring proc files, at least for now.
                 pass
+
             if path.startswith("/dev"):
                 # If there are a lot of devices with numeric suffixes, we'll ignore them
                 if path[-1].isdigit() and any(path.startswith(x) for x in ignored_prefixes):
                     self.logger.warning(f"Ignoring /dev path with numeric suffix because there are lots like it {path}")
                     continue
+
                 if path.startswith("/dev/mtd"):
                     self.logger.warning(f"Ignoring mtd device: {path}")
                     continue
@@ -685,7 +693,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         models = symex.hypothesize_models(target=path, cmd=cmd, verbose=False)
                         results = [rv for rv in models[path][cmd]]
                         # We want to have symex_results
-                        fail_data = {'cmd': cmd, 'sc': 'ioctl', 'path': path, 'symex_results': results, **data}
+                        print(f"Dropping symex data because it's junk, right?: {data}")
+                        fail_data = {'cmd': cmd, 'sc': 'ioctl', 'path': path, 'symex_results': results}
                         fails.append(Failure(f"{path}_ioctl_{int(cmd):x}_fromsymex", self.ANALYSIS_TYPE, fail_data))
                 else:
                     # Normal case: we saw a syscall fail on a given path and we want to report it
@@ -709,6 +718,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                             fails.append(Failure(f"pseudofile_{path}_{sc}", self.ANALYSIS_TYPE, data))
                         else:
                             # IOCTL: record path, syscall, and ioctl cmd for each ioctl cmd. Don't update data, just add entries into the failure
+                            print("IOCTL:", data)
                             for cmd in data.keys():
                                 assert(cmd != 'pickle'), f'Malformed pseudofile failure: {info}: {sc}: {data}'
 

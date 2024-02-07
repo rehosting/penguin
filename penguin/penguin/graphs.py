@@ -54,9 +54,11 @@ class GraphNode:
             return tuple(self._convert_to_hashable(elem) for elem in item)
         elif isinstance(item, set):
             return frozenset(self._convert_to_hashable(elem) for elem in item)
-        else:
+        elif any(isinstance(item, t) for t in (int, float, str)):
             # For immutable types like ints, strings, tuples
             return item
+        else:
+            raise ValueError(f"Can't convert {item} to hashable")
 
     def to_dict(self):
         return {

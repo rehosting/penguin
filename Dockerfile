@@ -188,6 +188,10 @@ RUN --mount=type=cache,target=/root/.cache/pip \
   pip install \
     pyvis
 
+COPY fws/kernels-latest.tar.gz /tmp
+RUN rm -rf /igloo_static/kernels && \
+    tar xvf /tmp/kernels-latest.tar.gz -C /igloo_static/
+
 WORKDIR /penguin
 
 # Aliases for quick tests. m to make a config for the stride. r to run it. a for auto (config+run+explore)
