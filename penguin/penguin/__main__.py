@@ -383,10 +383,10 @@ def main():
 
         EXAMPLE USAGE:
             # First generate a config for firmware.bin at /output/myfirmware/config.yaml
-            penguin /share/firmware.bin /output/myfirmware
+            penguin /fws/firmware.bin /results/myfirmware
 
             # Then run with that config and log results to the results directory
-            penguin --config /output/myfirmware/config.yaml /output/myfirmware/results
+            penguin --config /results/myfirmware/config.yaml /results/myfirmware/results
         """,
         formatter_class=argparse.RawTextHelpFormatter)
 
