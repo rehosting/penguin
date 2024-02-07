@@ -42,7 +42,7 @@ fi
 
 if [ ! -z "${igloo_init}" ]; then
   echo '[IGLOO INIT] Running specified init binary';
-  exec "${igloo_init}"
+  LD_PRELOAD=/igloo/utils/libnvram.so exec "${igloo_init}"
 fi
 echo "[IGLOO INIT] Fatal: no igloo_init specified in env. Abort"
 exit 1
