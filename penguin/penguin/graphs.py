@@ -149,7 +149,7 @@ class ConfigurationGraph:
     def has_node(self, node: GraphNode):
         with self.lock:
             return self.graph.has_node(node.gid)
-    
+
     def has_edge(self, from_node: GraphNode, to_node: GraphNode):
         with self.lock:
             return self.graph.has_edge(from_node.gid, to_node.gid)
@@ -311,7 +311,7 @@ class ConfigurationGraph:
                             and self.get_parent_failure(self.graph.nodes[n]['object']) == parent_fail \
                             and self.graph.nodes[n]['object'].run == False \
                             and len(self.graph[parent_fail.gid][self.get_parent_mitigation(self.graph.nodes[n]['object']).gid].get('weights',[])) == 0]
-            
+
             # Now for each of the child configs of config, we'll add siblings as dependencies
             for dep in uncles:
                 child_config.dependencies.add(dep)
@@ -339,7 +339,7 @@ class ConfigurationGraph:
             # How much did health increase from parent fail to this config?
             parent_config = self.get_parent_config(config)
             health_delta = health_score - parent_config.health_score
-            
+
             # Add weight
             weights = self.graph[parent_fail.gid][parent_mit.gid]['weights']
             weights.append(health_delta)
@@ -614,7 +614,7 @@ class ConfigurationGraph:
         # Draw nodes
         nx.draw(this_graph, pos, labels=display_labels, with_labels=True, node_color='lightblue',
                 node_size=3500, font_size=6, arrowsize=20)
-        
+
         # Draw edge labels showing 'delta'
         edge_labels = {(u, v): f"{d['delta']}" for u, v, d in this_graph.edges(data=True)}
         nx.draw_networkx_edge_labels(this_graph, pos, edge_labels=edge_labels, font_color='black')
@@ -657,7 +657,7 @@ class ConfigurationGraph:
             #for u, v, d in this_graph.edges(data=True):
             #    if d.get('type') != 'CC':
             #        this_graph.edges[u, v]['constraint'] = False
-            
+
             # Make all CC edges invisible
             #for u, v, d in this_graph.edges(data=True):
             #    if d.get('type') == 'CC':
@@ -730,7 +730,7 @@ class ConfigurationGraph:
                 for node in self.graph.nodes:
                     if not any([isinstance(self.graph.nodes[pred]['object'], Configuration) for pred in self.graph.predecessors(node)]):
                         return self.graph.nodes[node]['object']
-        return None    
+        return None
 
 
 
@@ -766,7 +766,7 @@ class ConfigurationGraph:
 
             # No existing node
             return new_node
-        
+
     def get_existing_node(self, new_node : GraphNode ) -> Optional[GraphNode]:
         with self.lock:
             for node in self.graph.nodes():
@@ -1020,7 +1020,7 @@ class ConfigurationManager:
 
         if not config_to_run:
             # Sleep, without lock, since no configs were available. Then bail
-            sleep(1) 
+            sleep(1)
             return
 
         self.run_configuration(config_to_run, weight, run_config_f, find_mitigations_f, find_new_configs_f)
@@ -1078,16 +1078,26 @@ class ConfigurationManager:
             # Nothing to do. Other threads are working or we're all out of work
             return None, 0
 
-
         # Now we have a list of (health, config) tuples. Sort by health and return the best config + weight
         results = sorted(target_configs, key=lambda x: x[0], reverse=True)
         weight, best = results[0][:2]
 
         if best in self.pending_runs:
             raise ValueError(f"Selected {best} but it's already pending")
-        
+
         if best.run:
             raise ValueError(f"Selected {best} but it's already run")
+
+        # One more check. If best is far deeper in graph than a pending node, let's stall
+        # this is to avoid issues where we descend too quickly - failures might fail fast and we might propose
+        # many mitigations (using our whole run queue) before we've even finished running the first config
+
+        # find lowest depth of all running nodes
+        lowest_depth = min([self.calculate_config_depth(x) for x in self.pending_runs], default=self.calculate_config_depth(best))
+
+        if self.calculate_config_depth(best) - lowest_depth > 2:
+            print(f"Stalling {best} with score {weight:,} because it's too deep in the graph ({self.calculate_config_depth(best)}) compared to running nodes ({lowest_depth})")
+            return None, 0
 
         return best, weight
 
@@ -1143,7 +1153,7 @@ class ConfigurationManager:
         if len(unexplored) == 0:
             print(f"No configs available, {len(self.pending_runs)} pending runs: {self.pending_runs}")
             return None, 0
-        
+
         weights = {} # config -> weight
         for cc in unexplored:
             weights[cc] = self.graph.calculate_expected_config_health(cc)
@@ -1227,7 +1237,7 @@ class ConfigurationManager:
                                         if x != parent \
                                             and not x.run \
                                             and x not in self.pending_runs]
-                
+
                 # We've run 'parent' before and we have a concrete health score
                 # We want to compare this to any unexplored siblings' estimated health scores
                 parent_score = parent.health_score
@@ -1277,7 +1287,7 @@ class ConfigurationManager:
                         break
                 else:
                     best.dependencies = set() # Clear out dependencies if we can't find a good one
-            
+
         if best in self.pending_runs:
             print(f"ERROR: selected best config that's already pending: {best}")
 
