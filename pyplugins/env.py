@@ -361,9 +361,13 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                 if None in v and k not in env_accesses:
                     env_accesses[k] = {}
 
+        for env in env_accesses.keys():
+            if not (2 < len(env) < 16):
+                print(f"Skipping unset env {env} since it's too long or too short")
+
         return [
             Failure('unset_' + env, self.ANALYSIS_TYPE, {'var': env, 'source': 'unset'})
-            for env in env_accesses.keys()
+            for env in env_accesses.keys() if 2 < len(env) < 16
         ]
 
     def get_potential_mitigations(self, config, failure : Failure) -> List[Mitigation]:
@@ -383,7 +387,13 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                 # If we found some dynamic values, those are our mitigations!
                 # We'll have a base weight of 20 and we'll add up to 50 depending on length
                 for dynval in fail_info['values']:
-                    if len(dynval) > 1:
+                    if len(dynval) < 1:
+                        continue
+                    if len(dynval) > 16:
+                        # Warn but skip
+                        print(f"Ignoring potential dynval {dynval} since it's quite long")
+                        continue
+
                         weight = 10 + min(20, len(dynval))
                         results.append(Mitigation(dynval, self.ANALYSIS_TYPE, {'value': dynval, 'var': var_name,
                                                                             'weight': weight,
