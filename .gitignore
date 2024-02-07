@@ -5,3 +5,5 @@ __pycache__/
 *.json
 *.pkl
 *.tar.gz
+fws/
+results/
