@@ -273,7 +273,11 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
         path = os.path.join(plugin_path, plugin_name+".py")
         if not os.path.isfile(path):
             raise ValueError(f"Plugin not found: {path} with name={plugin_name} and plugin_path={plugin_path}")
-        if len(panda.pyplugins.load_all(path, args)) == 0:
+        try:
+            if len(panda.pyplugins.load_all(path, args)) == 0:
+                raise ValueError(f"Failed to load plugin: {plugin_name}")
+        except SyntaxError as e:
+            print(f"Syntax error loading pyplugin: {e}")
             raise ValueError(f"Failed to load plugin: {plugin_name}")
 
     # XXX HACK: normally panda args are set at the constructor. But we want to load
