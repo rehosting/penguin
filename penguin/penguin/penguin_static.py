@@ -501,6 +501,12 @@ def add_init_meta(base_config, output_dir):
         # Then combine with common_inits before only_fs_inits
         inits = common_inits + only_fs_inits
 
+    # If anything is longer than 32 characters, it's probably not an init script, warn and drop it
+    for i in list(inits):
+        if len(i) > 32:
+            print(f"WARNING: {i} is too long to be an init script, dropping")
+            inits.remove(i)
+
     base_config['meta']['potential_init'] = inits
 
 
