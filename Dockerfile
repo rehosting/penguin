@@ -65,19 +65,10 @@ RUN mkdir /static_deps && \
   wget -qO - https://panda.re/secret/utils4.tar.gz | \
   tar xzf - -C /static_deps
 
-FROM ubuntu:20.04 as vhost_builder
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
-    git
-
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
-
-RUN git clone -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device && \
-  cd root/vhost-device && \
-  git checkout b3c7657750cce256bc39552a6d08f27ee3b2ff5e 2>/dev/null && \
-  PATH="/root/.cargo/bin:${PATH}" cargo build --release
+FROM rust as vhost_builder
+RUN git clone -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
+RUN cd /root/vhost-device/vhost-device-vsock && \
+    PATH="/root/.cargo/bin:${PATH}" cargo build --release
 
 #### QEMU BUILDER: Build qemu-img ####
 FROM ubuntu:22.04 as qemu_builder
@@ -103,8 +94,7 @@ RUN echo "#!/bin/sh\ntelnet localhost 4321" > /usr/local/bin/rootshell && chmod 
 
 COPY --from=deb_downloader /tmp/pandare.deb /tmp/genext2fs.deb /tmp/
 
-COPY --from=vhost_builder /root/vhost-device/target/release/vhost-user-vsock /usr/local/bin
-RUN ls -alt /usr/local/bin/vhost-user-vsock
+COPY --from=vhost_builder /root/vhost-device/target/release/vhost-device-vsock /usr/local/bin/
 
 # We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
 # we'll fail because we get a distutils distribution of pycparser 2.19 that we can't
