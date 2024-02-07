@@ -98,7 +98,7 @@ RUN apt-get update && apt-get install -y \
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip install --upgrade \
         pip \
-        pycparser>=2.21
+        "pycparser>=2.21"
 
 # Install apt dependencies - largely for binwalk, some for pandata
 RUN apt-get update && apt-get install -y \
