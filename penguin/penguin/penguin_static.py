@@ -41,7 +41,7 @@ def _find_in_fs(target_regex, tar_path, only_files=True):
             # Skip directories and non-regular files
             if only_files and not member.isfile():
                 continue
-            
+
             # Open file
             f = tar.extractfile(member)
             if f is None:
@@ -49,7 +49,7 @@ def _find_in_fs(target_regex, tar_path, only_files=True):
 
             # Read content and convert to string
             content = f.read().decode('utf-8', 'replace')
-            
+
             # Apply regex pattern
             matches = target_regex.findall(content)
             for match in matches:
@@ -122,7 +122,7 @@ def find_executables(tmp_dir, target_dirs=None):
         # Exclude the '/igloo' path
         if '/igloo' in root:
             continue
-        
+
         for file in files:
             file_path = Path(root) / file
             # Check if the file is executable and in one of the target directories
@@ -134,7 +134,7 @@ def find_shell_scripts(tmp_dir):
         # Exclude the '/igloo' path
         if '/igloo' in root:
             continue
-        
+
         for file in files:
             file_path = Path(root) / file
             # Check if the file is executable and in one of the target directories
@@ -185,9 +185,9 @@ def pre_shim(config, auto_explore=False):
     for d in directories:
         # It's not already in there, add it as a world-readable directory
         # Handle symlinks. If we have a direcotry like /tmp/var and /tmp is a symlink to /asdf, we want to make /asdf/var
-            
+
         resolved_path = resolve_path(d, symlinks)
-    
+
         if resolved_path in existing or resolved_path in config['static_files']:
             continue
 
@@ -225,7 +225,7 @@ def pre_shim(config, auto_explore=False):
                     'mode': 0o755
                 }
 
-        
+
         # CUSTOM mitigation: Try adding referenced mount points
         for f in find_shell_scripts(tmp_dir):
             for dest in list(set(find_strings_in_file(f, '^/mnt/[a-zA-Z0-9._/]+$'))):
@@ -445,7 +445,7 @@ def _is_init_script(tarinfo):
             if "start" in name:
                 if not re.search(r'[\W_\-\.]start[\W_\-\.]', name):
                     return False
-                
+
             # If we have init in the name, make sure it's not named .init (e.g., rc.d startup names)
             if "init" in name and name.endswith(".init"):
                 return False
@@ -518,7 +518,7 @@ def add_dev_proc_meta(base_config, output_dir):
 
     # Drop anything already in the FS or in our list of known device files
     # this list comes from igloo's utils/devtable.txt
-    igloo_added_devices = ['/dev/mem', '/dev/kmem', '/dev/null', '/dev/zero', '/dev/random', '/dev/urandom', 
+    igloo_added_devices = ['/dev/mem', '/dev/kmem', '/dev/null', '/dev/zero', '/dev/random', '/dev/urandom',
          '/dev/armem', '/dev/tt', '/dev/console', '/dev/ptmx', '/dev/tty0', '/dev/ttyS', '/dev/adsl0', '/dev/ppp',
          '/dev/hidraw0', '/dev/mtd', '/dev/mtd/0', '/dev/mtd/1', '/dev/mtd/2', '/dev/mtd/3', '/dev/mtd/4',
          '/dev/mtd/5', '/dev/mtd/6', '/dev/mtd/7', '/dev/mtd/8', '/dev/mtd/9', '/dev/mtd/10', '/dev/mtd',
