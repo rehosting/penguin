@@ -35,7 +35,7 @@ RUN mkdir /igloo_static && \
   mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel
 
 # Download libnvram from CI. Populate /igloo_static/libnvram
-RUN wget -qO - https://github.com/panda-re/libnvram/releases/download/release_4ee4901a18d8caab51343ec8f6f0f8163a7fcbdd/libnvram-latest.tar.gz | \
+RUN wget -qO - https://github.com/panda-re/libnvram/releases/download/release_8236c99ede179fc0b2b0a3a81da3f35876f71230/libnvram-latest.tar.gz | \
   tar xzf - -C /igloo_static
 
 # Download  console from CI. Populate /igloo_static/console
@@ -48,7 +48,7 @@ RUN wget -qO - https://github.com/panda-re/console/releases/download/release_389
   mv /igloo_static/console/console-mips64eb-linux-musl /igloo_static/console/console.mips64eb
 
 # Download kernels from CI. Populate /igloo_static/kernels
-RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v1.9.9/kernels-latest.tar.gz | \
+RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v1.9.11/kernels-latest.tar.gz | \
       tar xzf - -C /igloo_static
 
 # Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
@@ -147,6 +147,7 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
       python-owasp-zap-v2.4 \
       python_hosts \
       pyyaml \
+      pyvis \
       jsonschema \
       setuptools \
       twisted
@@ -183,14 +184,13 @@ COPY --from=downloader /panda_plugins/mips64/ /usr/local/lib/panda/mips64/
 COPY --from=downloader /static_deps/utils/* /igloo_static/utils.bin
 COPY utils/* /igloo_static/utils.source/
 
-# TODO: move up
-RUN --mount=type=cache,target=/root/.cache/pip \
-  pip install \
-    pyvis
-
-COPY fws/kernels-latest.tar.gz /tmp
-RUN rm -rf /igloo_static/kernels && \
-    tar xvf /tmp/kernels-latest.tar.gz -C /igloo_static/
+#COPY fws/kernels-latest.tar.gz /tmp
+#RUN rm -rf /igloo_static/kernels && \
+#    tar xvf /tmp/kernels-latest.tar.gz -C /igloo_static/
+#
+#COPY fws/libnvram-latest.tar.gz /tmp
+#RUN rm -rf /igloo_static/libnvram && \
+#    tar xvf /tmp/libnvram-latest.tar.gz -C /igloo_static/
 
 WORKDIR /penguin
 
