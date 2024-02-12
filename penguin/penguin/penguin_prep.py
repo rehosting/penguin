@@ -63,6 +63,10 @@ def _modify_guestfs(g, file_path, file):
                 g.mknod_b(mode, major, minor, file_path) # Blockdev
             else:
                 raise RuntimeError(f"Unknown devtype {file['devtype']} - only block and char are supported")
+
+            # chmod device to be 777 always
+            g.chmod(0o777, file_path)
+
         elif action == 'delete':
             # Delete the file (or directory and children)
             if not g.exists(file_path):
@@ -112,7 +116,7 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
         print("STDERR:", stderr)
 
     g = guestfs.GuestFS(python_return_dict=True)
-    
+
     # Attach the new QCOW2 file
     g.add_drive_opts(new_qcow_file, format="qcow2", readonly=0)
     g.launch()
@@ -206,7 +210,7 @@ def prepare_run(conf, out_dir, out_filename="image.qcow2"):
     with open(new_conf, "w") as f:
         yaml.dump(conf['static_files'], f)
     return new_conf
-              
+
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         raise RuntimeError(f"USAGE {sys.argv[0]} [config.yaml] [qcow_dir]")
