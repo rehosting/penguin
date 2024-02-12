@@ -7,6 +7,7 @@ BINDS_FILE="netbinds.csv"
 class NetBinds(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
+        self.panda = panda
 
         # The NetBinds.on_bind PPP callback happens on every bind.
         # Don't be confused by the vpn on_bind callback that happens
@@ -23,6 +24,12 @@ class NetBinds(PyPlugin):
     def on_bind(self, cpu, procname, is_ipv4, is_stream, port, sin_addr):
         ipvn = 4 if is_ipv4 else 6
         sock_type = 'tcp' if is_stream else 'udp'
+
+        # Port is *always* provided in big endian (network byte order)
+        # regardless of the endianness of the guest.
+        # Convert to little endian and ensure it's only 16 bits
+        port = socket.ntohs(port)
+        port = port & 0xffff
 
         if ipvn == 4:
             ip = '0.0.0.0'
