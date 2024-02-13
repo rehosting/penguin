@@ -208,7 +208,7 @@ def extract_and_build(fw, output_dir):
     os.makedirs(base)
 
     if not fw.endswith(".tar.gz"):
-        raise ValueError("Penguin should begin post extraction and be given a .tar.gz archive of a root fs")
+        raise ValueError(f"Penguin should begin post extraction and be given a .tar.gz archive of a root fs, not {fw}")
 
     if not os.path.isfile(fw):
         raise ValueError(f"Rootfs file {fw} not found")
