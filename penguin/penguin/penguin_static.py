@@ -266,23 +266,24 @@ def pre_shim(config, auto_explore=False):
                     'target': '/igloo/utils/exit0.sh',
                 }
 
-        # Ensure we have an entry for localhost in /etc/hosts
+        # Ensure we have an entry for localhost in /etc/hosts. So long as we have an /etc/ directory
         hosts = ""
-        if os.path.isfile(tmp_dir + '/etc/hosts'):
-            with open(tmp_dir + '/etc/hosts', 'r') as f:
-                hosts = f.read()
+        if os.path.isdir(tmp_dir + '/etc'):
+            if os.path.isfile(tmp_dir + '/etc/hosts'):
+                with open(tmp_dir + '/etc/hosts', 'r') as f:
+                    hosts = f.read()
 
-        #if '127.0.0.1 localhost' not in hosts:
-        # Regex with whitespace and newlines
-        if not re.search(r'^127\.0\.0\.1\s+localhost\s*$', hosts, re.MULTILINE):
-            if len(hosts) and not hosts.endswith('\n'):
-                hosts += "\n"
-            hosts += "127.0.0.1 localhost\n"
-            config['static_files']['/etc/hosts'] = {
-                'type': 'file',
-                'contents': hosts,
-                'mode': 0o755,
-            }
+            #if '127.0.0.1 localhost' not in hosts:
+            # Regex with whitespace and newlines
+            if not re.search(r'^127\.0\.0\.1\s+localhost\s*$', hosts, re.MULTILINE):
+                if len(hosts) and not hosts.endswith('\n'):
+                    hosts += "\n"
+                hosts += "127.0.0.1 localhost\n"
+                config['static_files']['/etc/hosts'] = {
+                    'type': 'file',
+                    'contents': hosts,
+                    'mode': 0o755,
+                }
 
         # Linksys specific hack from firmae
         if all(os.path.isfile(tmp_dir + x) for x in ['/bin/gpio', '/usr/lib/libcm.so', '/usr/lib/libshared.so']):
