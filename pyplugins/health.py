@@ -32,31 +32,7 @@ class Health(PyPlugin):
 
         #panda.load_plugin("coverage", {"filename": self.outdir+"/cov.csv", "mode": "osi-block",
         #                               "summary": 'true'})
-
-        @panda.ppp("syscalls2", "on_sys_bind_enter")
-        def health_bind(cpu, pc, sockfd, sockaddrin_addr, addrlen):
-            try:
-                sin_family  = panda.virtual_memory_read(cpu, sockaddrin_addr, 2, fmt='int')
-                sockaddr_in = panda.virtual_memory_read(cpu, sockaddrin_addr, 14)
-            except ValueError:
-                print("Could not read SIN_FAMILY on bind")
-                return
-
-            if sin_family not in [2, 10]: # IPv4, IPv6
-                return
-            
-            # Calculate port
-            try: # port is 2 bytes starting 2 bytes into the struct for both v4/v6
-                sin_port = panda.virtual_memory_read(cpu, sockaddrin_addr+2, 2, fmt='int')
-                sin_port = int.from_bytes(int.to_bytes(sin_port, 2, panda.endianness), 'little')
-                port  = int(socket.htons(sin_port))
-            except ValueError:
-                print("Could not read SIN_PORT on bind")
-                return
-            
-            if (sin_family, sin_port not in self.binds):
-                self.binds.add((sin_family, sin_port))
-                self.increment_event('nbound_sockets')
+        self.ppp.Core.ppp_reg_cb('igloo_bind', self.health_on_bind)
 
         @panda.ppp("syscalls2", "on_sys_execve_enter")
         def health_execve(cpu, pc, fname_ptr, argv_ptr, envp):
@@ -91,6 +67,13 @@ class Health(PyPlugin):
                 self.increment_event('nexecs_args')
 
         self.ppp.Core.ppp_reg_cb('igloo_open', self.health_detect_opens)
+
+    def health_on_bind(self, cpu, procname, is_ipv4, is_stream, port, sin_addr):
+        ipvn = 4 if is_ipv4 else 6
+
+        if (ipvn, port not in self.binds):
+            self.binds.add((ipvn, port))
+            self.increment_event('nbound_sockets')
 
     def health_detect_opens(self, cpu, fname, fd):
         if fname.startswith("/dev"):
