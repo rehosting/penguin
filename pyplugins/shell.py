@@ -108,7 +108,9 @@ class BBCov(PyPlugin):
             f.write(f"{filename},{lineno},{pid}\n")
 
     def log_env_args(self, cpu, argv):
-        assert(len(argv) == 6)
+        if len(argv) != 6:
+            print(f"[shell] ERROR: Invalid argv in log_env_args: {argv}")
+            return
         file_str_ptr, lineno_ptr, pid_ptr, envs_ptr, env_vals_ptr, envs_count_ptr = argv
         filename = self.try_read_string(cpu, file_str_ptr)
 
