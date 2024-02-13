@@ -1103,9 +1103,10 @@ class ConfigurationManager:
         # find lowest depth of all running nodes
         lowest_depth = min([self.calculate_config_depth(x) for x in self.pending_runs], default=self.calculate_config_depth(best))
 
-        if self.calculate_config_depth(best) - lowest_depth > 2:
-            print(f"Stalling {best} with score {weight:,} because it's too deep in the graph ({self.calculate_config_depth(best)}) compared to running nodes ({lowest_depth})")
-            return None, 0
+
+        #if self.calculate_config_depth(best) - lowest_depth > 3:
+        #    print(f"Stalling {best} with score {weight:,} because it's too deep in the graph ({self.calculate_config_depth(best)}) compared to running nodes ({lowest_depth})")
+        #    return None, 0
 
         return best, weight
 
