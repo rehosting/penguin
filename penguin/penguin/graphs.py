@@ -421,6 +421,12 @@ class ConfigurationGraph:
         # The challenge here is we need to recurse into the dictionaries to find the difference.
         delta = self.find_delta(derived_config.info, parent_config.info)
 
+        if derived_config == parent_config:
+            print(f"WARNING: derived_config == parent_config: {derived_config} == {parent_config}")
+            print(f"\tDelta is: {delta}")
+            print("\tIgnoring")
+            return
+
         with self.lock:
             if not self.graph.has_node(mitigation.gid):
                 raise ValueError(f"Mitigation {mitigation} does not exist in the graph.")
