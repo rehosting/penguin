@@ -187,14 +187,28 @@ def pre_shim(config, auto_explore=False):
         # Handle symlinks. If we have a direcotry like /tmp/var and /tmp is a symlink to /asdf, we want to make /asdf/var
 
         resolved_path = resolve_path(d, symlinks)
+        # Try handling ../s by resolving the path
+        if '..' in resolved_path.split('/'):
+            resolved_path = os.path.normpath(resolved_path)
+
+        if '..' in resolved_path.split('/'):
+            print("Skipping directory with .. in path: " + resolved_path)
+            continue
 
         # Check if this directory looks like / - it might be ./ or something else
-        if resolved_path in ['.', '/.']:
+        if resolved_path == '.':
             continue
 
         # Guestfs gets mad if there's a /. in the path
         if resolved_path.endswith('/.'):
             resolved_path = resolved_path[:-2]
+
+        # Look at each parent directory, is it a symlink?
+        for i in range(1, len(resolved_path.split('/'))):
+            parent = '/'.join(resolved_path.split('/')[:i])
+            if parent in symlinks:
+                print(f"Skipping {resolved_path} because parent {parent} is a symlink")
+                continue
 
         if resolved_path in existing or resolved_path in config['static_files']:
             continue
@@ -243,7 +257,7 @@ def pre_shim(config, auto_explore=False):
                 }
 
         # If /etc/tz is missing, add it
-        if not os.path.isfile(tmp_dir + '/etc/tz'):
+        if os.path.isdir(tmp_dir + "/etc") and not os.path.isfile(tmp_dir + '/etc/tz'):
             config['static_files']['/etc/tz'] = {
                 'type': 'file',
                 'contents': 'EST5EDT',
@@ -251,7 +265,7 @@ def pre_shim(config, auto_explore=False):
             }
 
         # If no /bin/sh, add it as a symlink to /bin/busybox
-        if not os.path.isfile(tmp_dir + '/bin/sh'):
+        if os.path.isdir(tmp_dir + "/bin") and not os.path.isfile(tmp_dir + '/bin/sh'):
             config['static_files']['/bin/sh'] = {
                 'type': 'symlink',
                 'target': '/igloo/utils/busybox',

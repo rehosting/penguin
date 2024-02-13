@@ -14,6 +14,17 @@ def _modify_guestfs(g, file_path, file):
     If the action is unsupported or fails, we'll print details and raise an exception.
     '''
 
+    if '../' in file_path:
+        print(f"WARNING: Skipping file {file_path} with path {file['path']} as it contains '/..'")
+        return
+
+    # Check if file_path involves a broken symlink, if so bail
+    try:
+        g.is_dir(file_path)
+    except RuntimeError as e:
+        print(f"WARNING: Skipping file {file_path} as it's a broken symlink (detected on exn)")
+        return
+
     try:
         action = file['type']
         if action == 'file':
@@ -29,6 +40,10 @@ def _modify_guestfs(g, file_path, file):
             # Delete target if it already exists
             if g.is_file(file_path):
                 g.rm(file_path)
+
+            if g.is_symlink(file_path):
+                g.rm_rf(file_path)
+
             g.write(file_path, contents)
             g.chmod(mode, file_path)
 
