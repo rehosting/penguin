@@ -188,6 +188,10 @@ def pre_shim(config, auto_explore=False):
 
         resolved_path = resolve_path(d, symlinks)
 
+        # Check if this directory looks like / - it might be ./ or something else
+        if resolved_path in ['.', './', '/.']:
+            continue
+
         if resolved_path in existing or resolved_path in config['static_files']:
             continue
 
