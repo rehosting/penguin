@@ -44,8 +44,6 @@ class Nmap(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
-        self.output_file = open(self.outdir + "/nmap.log", "w")
-
         self.ppp.VsockVPN.ppp_reg_cb('on_bind', self.nmap_on_bind)
 
     def nmap_on_bind(self, proto, guest_ip, guest_port, host_port, procname):
@@ -74,16 +72,6 @@ class Nmap(PyPlugin):
         # but we want to preserve the "guest_port" info
         custom_nmapdir_path = customize_nmap_services(guest_port, host_port)
 
-        if self.output_file.closed:
-            print(f"Output file closed, not scanning guest port {guest_port}")
-            return
-
-        try:
-            self.output_file.write(f"Scanning {guest_port} via host {host_port} using nmap\n")
-        except ValueError:
-            # IO operation on closed file
-            pass
-
         # nmap scan our target in service-aware mode
         env = os.environ.copy()
         env['NMAPDIR'] = custom_nmapdir_path
@@ -95,14 +83,8 @@ class Nmap(PyPlugin):
             env=env)
         process.wait()
 
-        try:
-            self.output_file.write(f"Finished scan of {guest_port}\n")
-        except ValueError:
-            # IO operation on closed file
-            pass
-
         # Now cleanup the nmap services file
         os.remove(custom_nmapdir_path)
 
     def uninit(self):
-        self.output_file.close()
+        pass
