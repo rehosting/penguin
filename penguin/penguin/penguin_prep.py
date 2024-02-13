@@ -34,17 +34,28 @@ def _modify_guestfs(g, file_path, file):
 
         elif action == 'dir':
             if g.is_dir(file_path):
-                g.rm_rf(file_path) # Delete the directory AND CONTENTS
-            # Note we ignore mode here?
-            dirname = file_path
-            g.mkdir(dirname)
+                try:
+                    g.rm_rf(file_path) # Delete the directory AND CONTENTS
+                except RuntimeError as e:
+                    # If directory is like /asdf/. guestfs gets mad. Just warn.
+                    print(f"WARNING: could not delete directory {file_path} to recreate it: {e}")
+                    return
+
+                # Note we ignore mode here?
+                dirname = file_path
+                g.mkdir(dirname)
 
         elif action == 'symlink':
             # file['target'] is what we point to
             linkpath = file_path # This is what we create
             # Delete linkpath AND CONTENTS if it already exists
             if g.exists(linkpath):
-                g.rm_rf(linkpath)
+                try:
+                    g.rm_rf(linkpath)
+                except RuntimeError as e:
+                    # If directory is like /asdf/. guestfs gets mad. Just warn.
+                    print(f"WARNING: could not delete exixsting {linkpath} to recreate it: {e}")
+                    return
 
             # If target doesn't exist, we can't symlink
             if not g.exists(file['target']):
@@ -71,7 +82,7 @@ def _modify_guestfs(g, file_path, file):
             # Delete the file (or directory and children)
             if not g.exists(file_path):
                 raise ValueError(f"Can't delete {file_path} as it doesn't exist")
-            g.rm_rf(file_path)
+            g.rm_rf(file_path) # We make this one fatal if there's an error.
 
         elif action == 'move_from':
             # Move a file (or directory and children) TO
