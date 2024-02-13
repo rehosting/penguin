@@ -28,8 +28,7 @@ class NetBinds(PyPlugin):
         # Port is *always* provided in big endian (network byte order)
         # regardless of the endianness of the guest.
         # Convert to little endian and ensure it's only 16 bits
-        port = socket.ntohs(port)
-        port = port & 0xffff
+        port = socket.ntohs(port & 0xffff)
 
         if ipvn == 4:
             ip = '0.0.0.0'
