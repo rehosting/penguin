@@ -32,7 +32,7 @@ logger = logging.getLogger('mgr')
 # multiple times. In production we'll only run a search once per FW
 # since nothing's configurable at runtime.
 import glob
-CACHE_SUPPORT = True
+CACHE_SUPPORT = False
 cache_dir = "/cache"
 caches = {} # config hash -> output directory with .run.
 
