@@ -5,10 +5,11 @@ set -eu
 # USAGE: ./_in_container_run.sh [arch] [test_dir_name]
 # Test dir is relative to the /results/ directory
 
-ARCH=$1
-TESTDIR=$2
+KERNEL_VERSION=$1
+ARCH=$2
+TESTDIR=$3
 # Optional 3rd arg, default is 20
-NITERS=${3:-20}
+NITERS=${4:-20}
 
 # Make sure any files we create are world-rwx
 umask 000
@@ -34,7 +35,7 @@ fakeroot /pkg/scripts/makeImage.sh $ARCH /tmp/fs.tar.gz /tmp/empty /pkg/resource
 
 # Rewrite our config template to set the specified arch value (in arch and kernel fields)
 cp /tests/$TESTDIR/config.yaml /tmp/config.yaml
-sed -i "s/ARCH/$ARCH/g" /tmp/config.yaml
+sed -i -e "s/@KERNEL_VERSION@/$KERNEL_VERSION/g" -e "s/@ARCH@/$ARCH/g" /tmp/config.yaml
 
 # If $ARCH isn't ARM we need to swap zImage for vmlinux
 if [ "$ARCH" != "armel" ]; then
