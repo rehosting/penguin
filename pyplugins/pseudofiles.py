@@ -216,6 +216,7 @@ class FileFailures(PyPlugin):
                     continue
                 if any(fname.startswith(x) for x in ("/dev/", "/proc/")):
                     fnames.append(fname)
+
             id = panda.get_id(cpu)
             # This happens a lot
             #if (id, pc) in self.syscall_dev_fnames:
@@ -227,7 +228,6 @@ class FileFailures(PyPlugin):
             if not syscall_is_file_op(cpu, call):
                 return
             
-            #k = (panda.get_id(cpu), pc)
             k = panda.get_id(cpu)
 
 			# If we pop and a key is missing, that's unexpected, I think?
@@ -353,6 +353,9 @@ class FileFailures(PyPlugin):
             self.centralized_log(fname, 'open')
 
     def log_ioctl_failure(self, path, cmd):
+        # This might trigger twice, depending on the -ENOTTY path
+        # between our dyndev ioctl handler and do_vfs_ioctl?
+
         if ignore_ioctl_path(path) or ignore_cmd(cmd):
             # Uninteresting
             return
@@ -556,6 +559,7 @@ class FileFailures(PyPlugin):
                 #raise NotImplementedError("Uhhhh nested symex")
             #self.last_symex = filename
 
+            print("IOCTL DEFAULT USING MAGIC SYMEX RV")
             return MAGIC_SYMEX_RETVAL # We'll detect this on the return and know what to do. I think?
         else:
             # This is an actual error - config is malformed. Bail
@@ -694,7 +698,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         models = symex.hypothesize_models(target=path, cmd=cmd, verbose=False)
                         results = [rv for rv in models[path][cmd]]
                         # We want to have symex_results
-                        print(f"Dropping symex data because it's junk, right?: {data}")
+                        #print(f"Dropping symex data because it's junk, right?: {data}") # data is like {count: '1'}
                         fail_data = {'cmd': cmd, 'sc': 'ioctl', 'path': path, 'symex_results': results}
                         fails.append(Failure(f"{path}_ioctl_{int(cmd):x}_fromsymex", self.ANALYSIS_TYPE, fail_data))
                 else:
@@ -719,7 +723,6 @@ class FileFailuresAnalysis(PenguinAnalysis):
                             fails.append(Failure(f"pseudofile_{path}_{sc}", self.ANALYSIS_TYPE, data))
                         else:
                             # IOCTL: record path, syscall, and ioctl cmd for each ioctl cmd. Don't update data, just add entries into the failure
-                            print("IOCTL:", data)
                             for cmd in data.keys():
                                 assert(cmd != 'pickle'), f'Malformed pseudofile failure: {info}: {sc}: {data}'
 
@@ -778,6 +781,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         if failure.info['sc'] == 'ioctl':
             # Two options. A) We saw an IOCTL fail and we want to make it try symex. B) We have symex results
+            # IOCTL modeling is only a good idea (and will only work) if it's a pseudofiles/dyndev-provided device.
+            # Otherwise we won't hit dyndev ioctl handling!
             cmd = failure.info['cmd']
 
             if 'symex_results' in failure.info:
@@ -802,6 +807,10 @@ class FileFailuresAnalysis(PenguinAnalysis):
         else:
             # Not sure how to handle other failures. In parse failures we're looking for -EBADF for accesses
             # then failing reads/writes (??) and -ENOTTY ioctls
+            # We're probably here because 1) a device exists, but 2) a failure still happened with it.
+            # Since we add devices with open permissions (0o777) this might only happen if the guest
+            # chmods a device to be less permissive? Or perhaps we're (incorrectly + should be impossible)
+            # running on a non-dyndev device.
             self.logger.warning(f"Unexpected failure recorded for {path}: {failure}")
 
     def implement_mitigation(self, config : Configuration, failure : Failure, mitigation : Mitigation) -> List[Configuration]:
