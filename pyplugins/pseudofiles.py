@@ -348,6 +348,7 @@ class FileFailures(PyPlugin):
         self.log_ioctl_failure(fname, cmd)
 
     def fail_detect_opens(self, cpu, fname, fd):
+        fd = self.panda.from_unsigned_guest(fd)
         if fd < 0 and fd >= -2: # ENOENT - we only care about files that don't exist
             self.centralized_log(fname, 'open')
 
