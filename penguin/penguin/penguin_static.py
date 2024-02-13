@@ -189,8 +189,12 @@ def pre_shim(config, auto_explore=False):
         resolved_path = resolve_path(d, symlinks)
 
         # Check if this directory looks like / - it might be ./ or something else
-        if resolved_path in ['.', './', '/.']:
+        if resolved_path in ['.', '/.']:
             continue
+
+        # Guestfs gets mad if there's a /. in the path
+        if resolved_path.endswith('/.'):
+            resolved_path = resolved_path[:-2]
 
         if resolved_path in existing or resolved_path in config['static_files']:
             continue
