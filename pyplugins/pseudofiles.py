@@ -743,14 +743,22 @@ class FileFailuresAnalysis(PenguinAnalysis):
         if path in KNOWN_PATHS:
             return []
 
-        self.logger.debug(f"Generating mitigations for {path} with info {failure.info}")
+        self.logger.info(f"Generating mitigations for {path} with info {failure.info}")
         if path not in config['pseudofiles']:
             # If the file doesn't exist of course we'll see -EBADF on accesses
             # to it. First order of business is adding the device. That's all we do here.
             # Caller maps failing path -> this mitigation so we don't need to specify
 
-            # Adding files is a decent move, we know the path and we know it's missing. Weight 100?
-            return [Mitigation(f"pseudofile_add_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'add', 'weight': 100})]
+            if failure.info['sc'] == 'open':
+                # Guest tried to open file, but it wasn't there. We can add with pseudofiles!
+                # Adding files is a decent move, we know the path and we know it's missing. Weight 100?
+                return [Mitigation(f"pseudofile_add_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'add', 'weight': 100})]
+
+            # Guest did something other than an open - but we didn't add the file. This is suspicious.
+            # If the file exists in the guest we can't make it a pseudofile.
+            # If it doesn't exist, we'd see a failure on open, not read/write/ioctl.
+            # So if we're here, let's say it must be a guest-managed device that we'll ignore
+            return []
 
         # This path *is* a pseudofile we added. Errors we see are things we might want
         # to handle
