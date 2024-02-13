@@ -135,6 +135,9 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
             print(f"Missing filesystem image {config_image}, generating from config")
             from .penguin_prep import prepare_run
             prepare_run(conf, qcow_dir, out_filename=image_filename)
+        except Exception as e:
+            print(f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}")
+            raise e
         finally:
             # Always remove lock file, even if we failed to make the image
             os.remove(lock_file)
