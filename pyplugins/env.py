@@ -394,10 +394,10 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                         print(f"Ignoring potential dynval {dynval} since it's quite long")
                         continue
 
-                        weight = 10 + min(20, len(dynval))
-                        results.append(Mitigation(dynval, self.ANALYSIS_TYPE, {'value': dynval, 'var': var_name,
-                                                                            'weight': weight,
-                                                                            'source': 'from_dynamic'}))
+                    weight = 10 + min(20, len(dynval))
+                    results.append(Mitigation(dynval, self.ANALYSIS_TYPE, {'value': dynval, 'var': var_name,
+                                                                        'weight': weight,
+                                                                        'source': 'from_dynamic'}))
             else:
                 # Otherwise, dynamic search failed. If we still see varname as 'unset' in our failure log,
                 # it's not being controlled by the kernel boot args - we should store this in our global
