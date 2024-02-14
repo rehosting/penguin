@@ -8,6 +8,7 @@ class NetBinds(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
         self.panda = panda
+        self.seen_binds = set()
 
         # The NetBinds.on_bind PPP callback happens on every bind.
         # Don't be confused by the vpn on_bind callback that happens
@@ -38,6 +39,12 @@ class NetBinds(PyPlugin):
             ip = '::1'
             if sin_addr != 0:
                 ip = f"[{socket.inet_ntop(socket.AF_INET6, sin_addr)}]"
+
+        # Only report each bind once, if it's identical
+        # VPN / stats will just get confused if we report the same bind twice
+        if (procname, ipvn, sock_type, ip, port) in self.seen_binds:
+            return
+        self.seen_binds.add((procname, ipvn, sock_type, ip, port))
 
         # Report the bind's info
         with open(join(self.outdir, BINDS_FILE), 'a') as f:
