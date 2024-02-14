@@ -47,13 +47,24 @@ class GraphNode:
     def __hash__(self):
         return hash(self._convert_to_hashable(self.info))
 
-    def _convert_to_hashable(self, item):
+    def _convert_to_hashable(self, item, cache=None):
+        if cache is None:
+            cache = set()
+
+        item_id = id(item)  # Unique identifier for the object based on its memory address
+
+        if item_id in cache:
+            # This item has already been visited, return a placeholder or the original item to avoid infinite recursion
+            return f"<cyclic {item_id}>"
+
+        cache.add(item_id)
+
         if isinstance(item, dict):
-            return frozenset((key, self._convert_to_hashable(value)) for key, value in item.items())
+            return frozenset((key, self._convert_to_hashable(value, cache)) for key, value in item.items())
         elif isinstance(item, list):
-            return tuple(self._convert_to_hashable(elem) for elem in item)
+            return tuple(self._convert_to_hashable(elem, cache) for elem in item)
         elif isinstance(item, set):
-            return frozenset(self._convert_to_hashable(elem) for elem in item)
+            return frozenset(self._convert_to_hashable(elem, cache) for elem in item)
         elif any(isinstance(item, t) for t in (int, float, str)):
             # For immutable types like ints, strings, tuples
             return item
@@ -715,7 +726,7 @@ class ConfigurationGraph:
             if potential is None:
                 potential = [self.graph.nodes[node]['object'] for node, _ in self.graph.nodes(data=True)]
 
-			# Now filter for un-run configs that aren't in our exclude list
+            # Now filter for un-run configs that aren't in our exclude list
             unexplored = [node for node in potential \
                             if isinstance(node, Configuration) \
                                 and not node.run \
