@@ -15,6 +15,7 @@ default_init_script = """#!/igloo/utils/sh
 /igloo/utils/busybox mount -t tmpfs tmpfs /run
 /igloo/utils/busybox mount -t tmpfs tmpfs /tmp
 /igloo/utils/busybox mount -t devtmpfs devtmpfs /dev
+
 /igloo/utils/busybox mkdir -p /dev/pts
 /igloo/utils/busybox mount -t devpts devpts /dev/pts
 
