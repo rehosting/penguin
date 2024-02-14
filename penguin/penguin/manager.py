@@ -146,12 +146,12 @@ class Worker:
             this_logger.debug(f"Root config")
 
         # DEBUG: save graph to disk
-        if len(self.config_manager.graph.graph.nodes) < 50:
-            self.config_manager.graph.create_png(os.path.join(run_dir, "graph.png"))
+        #if len(self.config_manager.graph.graph.nodes) < 50:
+        #    self.config_manager.graph.create_png(os.path.join(run_dir, "graph.png"))
 
         # Dump pickle of graph every 5
-        if self.run_idx % 5 == 0:
-            self.config_manager.graph.save_graph(os.path.join(run_dir, "graph.pkl"))
+        #if self.run_idx % 5 == 0:
+        #    self.config_manager.graph.save_graph(os.path.join(run_dir, "graph.pkl"))
 
         # *** EMULATE TARGET ***
         # Run emulation `n_config_tests` times
