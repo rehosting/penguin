@@ -75,6 +75,9 @@ class MountTracker(PyPlugin):
             else:
                 print(f"Unknown mount error: {retval}: mount -t {results['fs_type']} {results['source']} {results['target']}")
 
+            # Pretend it was a success?
+            panda.arch.set_retval(cpu, 0, failure=False, convention='syscall')
+
     def log_einval(self, fs):
         if fs not in self.mount_types:
             self.mount_types.add(fs)
