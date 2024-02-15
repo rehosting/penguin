@@ -2,11 +2,50 @@
 import guestfs
 import os
 import subprocess
+import tarfile
 import sys
 from tempfile import TemporaryDirectory
 import shutil
 from .common import yaml, hash_yaml
 from .utils import get_mount_type
+
+def do_copy_tar(g, tar_host_path, guest_target_path, merge=False):
+    '''
+    Copy a host tar file to a guestfs filesystem. Merge or replace as necessary.
+    '''
+
+    # Ensure the guest path exists and is a directory
+    if not g.is_dir(guest_target_path):
+        g.mkdir_p(guest_target_path)
+    try:
+        with tarfile.open(tar_host_path, 'r:*') as tar:
+            for member in tar.getmembers():
+                member_path = os.path.join(guest_target_path, member.name)
+                if member.isdir():
+                    if not g.is_dir(member_path) or not merge:
+                        g.mkdir_p(member_path)
+                elif member.isfile():
+                    # Extract file contents
+                    f = tar.extractfile(member)
+                    contents = f.read()
+                    f.close()
+
+                    # Check if file exists and should be replaced
+                    if g.exists(member_path) and not g.is_dir(member_path):
+                        if merge:
+                            # Replace file
+                            g.rm(member_path)
+                        else:
+                            # Skip existing files when merging
+                            continue
+
+                    g.write(member_path, contents)
+                elif member.issym():
+                    # Handle symbolic links (if necessary)
+                    pass
+                # Additional handling for other types (symlinks, devices, etc.) as necessary
+    except Exception as e:
+        raise RuntimeError(f"Failed to extract tar archive {tar_host_path} to {guest_target_path}: {e}")
 
 def _modify_guestfs(g, file_path, file):
     '''
@@ -111,6 +150,12 @@ def _modify_guestfs(g, file_path, file):
             if not g.exists(file_path):
                 raise ValueError(f"Can't chmod {file_path} as it doesn't exist")
             g.chmod(file['mode'], file_path)
+
+        elif action == 'copytar':
+            tar_host_path = file['hostpath']
+            guest_target_path = file_path
+            merge = file['merge'] if 'merge' in file else False
+            do_copy_tar(g, tar_host_path, guest_target_path, merge)
 
         else:
             raise RuntimeError(f"Unknown file system action {action}")
