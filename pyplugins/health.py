@@ -8,9 +8,8 @@ import random
 class Health(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
-        CID = self.get_arg("CID")
-
         self.start_time = time.time()
+        self.exiting = False
 
         self.events = { # Class: [(time, score)]
             'nproc': [(0, 0)],
@@ -36,6 +35,8 @@ class Health(PyPlugin):
 
         @panda.ppp("syscalls2", "on_sys_execve_enter")
         def health_execve(cpu, pc, fname_ptr, argv_ptr, envp):
+            if self.exiting:
+                return
             try:
                 fname = panda.read_str(cpu, fname_ptr)
             except ValueError:
@@ -69,6 +70,8 @@ class Health(PyPlugin):
         self.ppp.Core.ppp_reg_cb('igloo_open', self.health_detect_opens)
 
     def health_on_bind(self, cpu, procname, is_ipv4, is_stream, port, sin_addr):
+        if self.exiting:
+            return
         ipvn = 4 if is_ipv4 else 6
 
         if (ipvn, port not in self.binds):
@@ -76,6 +79,8 @@ class Health(PyPlugin):
             self.increment_event('nbound_sockets')
 
     def health_detect_opens(self, cpu, fname, fd):
+        if self.exiting:
+            return
         if fname.startswith("/dev"):
             self.log_dev_open(fname)
 
@@ -90,11 +95,14 @@ class Health(PyPlugin):
 
 
     def log_dev_open(self, fname):
+        if self.exiting:
+            return
         if fname not in self.devs:
             self.devs.add(fname)
             self.increment_event('nuniquedevs')
 
     def uninit(self):
+        self.exiting = True
         print("Health unloaded")
         # Dump self.events to outdir/health.csv
         # Format: class, time, score
