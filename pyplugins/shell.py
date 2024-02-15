@@ -63,7 +63,9 @@ class BBCov(PyPlugin):
             return False
 
     def log_line_no(self, cpu, argv):
-        assert(len(argv) == 3)
+        if len(argv) != 3:
+            print(f"[shell] ERROR: Invalid argv in log_line_no: {argv}")
+            return
         file_str_ptr, lineno_ptr, pid_ptr = argv
 
         filename = self.try_read_string(cpu, file_str_ptr)
