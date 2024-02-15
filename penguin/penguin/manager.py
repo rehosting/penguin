@@ -56,16 +56,17 @@ class Worker:
             except Exception as e:
                 logger.error(f"Error in run_exploration_cycle: {e}")
                 raise e
-
-            self.active_worker_count.decrement()
+            finally:
+                self.active_worker_count.decrement()
 
             if config is None:
                 time.sleep(1)
                 # If all workers are waiting, that means we're done
                 if self.active_worker_count.get() == 0:
                     logger.info("All workers waiting, exiting")
-                    break
-                continue
+                    return
+                else:
+                    logger.info(f"Worker got no work, but {self.active_worker_count.get()} workers still active. Stalling")
 
     def find_new_configs_f(self, failure : Failure, mitigation : Mitigation, parent_config : Configuration) -> List[Configuration]:
         '''
@@ -392,7 +393,7 @@ class Worker:
             logger.error(f"Missing .ran file with {conf_yaml}")
             raise RuntimeError(f"ERROR, running {conf_yaml} in {run_dir} did not produce {out_dir}/.ran file")
 
-        
+
 class GlobalState:
     def __init__(self, output_dir, base_config):
         # show_output is False unless we're told otherwise
@@ -520,17 +521,23 @@ def graph_search(initial_config, output_dir, max_iters=1000, nthreads=1):
             caches[config_hash] = os.path.dirname(f)
 
     worker_threads = []
-    for idx in range(nthreads):
-        worker_instance = Worker(global_state, config_manager,
-                                    run_base, max_iters, run_index,
-                                    active_worker_count, thread_id=idx)
-        t = Thread(target=worker_instance.run)
-        t.start()
-        worker_threads.append(t)
+    if nthreads > 1:
+        for idx in range(nthreads):
+            worker_instance = Worker(global_state, config_manager,
+                                        run_base, max_iters, run_index,
+                                        active_worker_count, thread_id=idx)
+            t = Thread(target=worker_instance.run)
+            t.start()
+            worker_threads.append(t)
 
-    # Wait for all threads to finish
-    for t in worker_threads:
-        t.join()
+        # Wait for all threads to finish
+        for t in worker_threads:
+            t.join()
+        return
+
+    # Single thread mode, try avoiding deadlocks by just running directly
+    Worker(global_state, config_manager, run_base, max_iters,
+           run_index, active_worker_count).run()
 
 def main():
     import sys
