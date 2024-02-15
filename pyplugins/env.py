@@ -309,10 +309,10 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                     for line in f.readlines():
                         line = line.strip()
                         # Regex to check if it's a valid environment variable
-                        if re.match(r'^[A-Za-z_][A-Za-z0-9-_/]*$', line):
+                        if re.match(r'^[A-Za-z_0-9][A-Za-z0-9-_\./]*$', line):
                             dyn_vals.add(line)
                         else:
-                            print("Ignoring cpp-discovered dynval:", line)
+                            print("Ignoring cpp-discovered dynval as it doesn't match regex:", line)
 
             #print(f"Found {len(dyn_vals)} dynamic values for {target_var}: {dyn_vals}")
 
