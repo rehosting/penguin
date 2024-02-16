@@ -48,80 +48,70 @@ class PandaRunner:
         pass
 
     def run(self, conf_yaml, run_base, run_dir, out_dir):
-        cmd = ["python3", "-m", "penguin.penguin_run",
-               conf_yaml,
-               out_dir,
-               run_base + "/qcows"]
+        #cmd = ["python3", "-m", "penguin.penguin_run",
+        #       conf_yaml,
+        #       out_dir,
+        #       run_base + "/qcows"]
 
         # We need timeout here to be larger than the config's timeout (if one is set)
         data = yaml.safe_load(open(conf_yaml))
         if 'plugins' in data and 'core' in data['plugins'] and 'timeout' in data['plugins']['core']:
-            # We'll give 2x run time to account for shutdown processing / etc
-            timeout_seconds = data['plugins']['core']['timeout']*2
+            # We'll give 3x run time to account for startup and shutdown processing time?
+            timeout_s = data['plugins']['core']['timeout'] * 2 # When the signal is first sent
+            timeout_ks = data['plugins']['core']['timeout'] # If signal is ignored we'll kill after this much additional time
+            timeout = f"timeout -k {timeout_ks}  {timeout_s} "
         else:
-            timeout_seconds = None
+            timeout_s = None
+            timeout = ""
 
-        try:
-            with open("/dev/null", "r+b") as null:
-                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=null, text=False)
+        # qemu logs stay out of 'output' directory, that's managed/created/deleted(?) by penguin_run
+        # but we need to be independent of penguin_run's output directory
+        out_log_path = os.path.join(*[os.path.dirname(out_dir), "qemu_stdout.txt"])
+        err_log_path = os.path.join(*[os.path.dirname(out_dir), "qemu_stderr.txt"])
 
-            stdout_lines, stderr_lines = [], []
-            start_time = time.time()
+        # Make out_dir if it doesn't exist
+        os.makedirs(out_dir, exist_ok=True)
 
-            last_logged_remaining = None
-            while True:
-                # Check if process has terminated
-                if timeout_seconds is not None:
-                    rem_time = timeout_seconds - (time.time() - start_time)
-                    if not last_logged_remaining or last_logged_remaining > rem_time + 10:
-                        last_logged_remaining = int(rem_time)
-                        # Log every ~10s
-                        print(f"Child is running. Remaining time = {rem_time}")
+        '''
+        with open(out_log_path, "wb") as out_log, open(err_log_path, "wb") as err_log:
+            # Start the subprocess with stdout and stderr redirected to log files
+            process = subprocess.Popen(cmd, stdout=out_log, stderr=err_log, stdin=subprocess.DEVNULL, text=False)
 
-                if process.poll() is not None:
-                    print("Child dead")
-                    break
+            try:
+                # Wait for the process to complete, with timeout
+                process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                print(f"Process timed out after {timeout_seconds} seconds.")
+                # Here you should handle the timeout, for example, by terminating the process
+                process.terminate()
+                # Wait a bit for the process to terminate
+                process.wait()
+        '''
 
-                # Implement timeout
-                if timeout_seconds is not None and time.time() - start_time > timeout_seconds:
-                    print("Killing child")
-                    logger.error(f"Process timed out: {cmd}")
-                    process.kill()  # Kill the process
+        ran_path = os.path.join(*[out_dir, ".ran"])
+        cmd = f"{timeout}python3 -u -m penguin.penguin_run {conf_yaml} {out_dir} {run_base}/qcows"
+        #cmd = f"python3 -u -m penguin.penguin_run {conf_yaml} {out_dir} {run_base}/qcows"
+        complete_cmd = f"{cmd} > {out_log_path} 2> {err_log_path}"
 
-                    time.sleep(5)
-                    print("Terminating child")
-                    process.terminate()
-                    break
+        pid = os.spawnlp(os.P_NOWAIT, 'sh', 'sh', '-c', complete_cmd)
+        start_time = time.time()
 
-                # Check if there is data to read
-                readable, _, _ = select.select([process.stdout, process.stderr], [], [], 1)
-                for pipe in readable:
-                    if pipe == process.stdout:
-                        line = process.stdout.readline()
-                        if line:
-                            stdout_lines.append(line)
-                            print("stdout:", line)
-                    elif pipe == process.stderr:
-                        line = process.stderr.readline()
-                        if line:
-                            stderr_lines.append(line)
-                            print("stderr:", line)
-        except Exception as e:
-            logger.error(f"An exception occurred launching {cmd}: {str(e)}")
-            return
+        while not os.path.exists(ran_path):
+            elapsed_time = time.time() - start_time
+            if timeout_s is not None and elapsed_time > timeout_s:
+                logger.warning("Timeout period elapsed, killing subprocess.")
+                time.sleep(30)
+                # Try to kill PID
+                try:
+                    os.kill(pid, 9)
+                except Exception as e:
+                    logger.error(f"Failed to kill {pid}: {e} - leaving alive")
+                    # Just move on
+                break
+            time.sleep(5)  # Check every 5 seconds
 
-        finally:
-            # Clean up
-            process.stdout.close()
-            process.stderr.close()
-            process.wait()
-
-            # *Always* write stdout and stderr to disk, even on failures. Even if they're empty
-            # We have other code that will try consuming/logging these
-            with open(os.path.join(out_dir, "qemu_stdout.txt"), "wb") as f:
-                f.writelines(stdout_lines)
-            with open(os.path.join(out_dir, "qemu_stderr.txt"), "wb") as f:
-                f.writelines(stderr_lines)
+        if not os.path.exists(ran_path):
+            logger.warning("Subprocess did not complete successfully or was terminated due to timeout.")
 
         # Check if we have the expected .ran file in output directory
         ran_file = os.path.join(out_dir, ".ran")
