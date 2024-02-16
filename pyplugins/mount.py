@@ -11,8 +11,7 @@ except ImportError:
     PenguinAnalysis = object
     import yaml
 
-mount_types = "mount_types.csv"
-mount_fs = "mount_filesystems.csv"
+mount_log = "mounts.csv"
 
 class MountTracker(PyPlugin):
     '''
@@ -36,17 +35,11 @@ class MountTracker(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
-        self.mount_types = set()
-        self.mount_fs = set()
+        self.mounts = set()
 
         @self.panda.ppp("syscalls2", "on_sys_mount_return")
         def post_mount(cpu, pc, source, target, fs_type, flags, data):
-
             retval = panda.arch.get_retval(cpu, convention='syscall')
-            if retval == 0:
-                # Successfull mount. Cool
-                return
-            
             results  = {
                 "source": source,
                 "target": target,
@@ -60,32 +53,23 @@ class MountTracker(PyPlugin):
                     results[k] = "[unknown]"
 
 
-            # We only care about EINVAL and ENODEV
-            if retval == -22:
-                # EINVAL - unsupported filesystem type.
-                # report the type that was unsupported
-                self.log_einval(results['fs_type'])
-            elif retval == -19:
-                # ENODEV - missing device
-                self.log_enodev(results['source'], results['target'])
+            #print(f"Mount returns {retval} for: mount -t {results['fs_type']} {results['source']} {results['target']}")
+            self.log_mount(retval, results)
 
-            elif retval == -16: # EBUSY
+            if retval == -16: # EBUSY
                 # Already mounted - we could perhaps use this info to drop the mount from our init script?
-                pass
-            else:
-                print(f"Unknown mount error: {retval}: mount -t {results['fs_type']} {results['source']} {results['target']}")
+                # Just pretend it was a success
+                panda.arch.set_retval(cpu, 0, failure=False, convention='syscall')
 
-            # Pretend it was a success?
-            panda.arch.set_retval(cpu, 0, failure=False, convention='syscall')
+            # Always pretend it was a success?
+            #panda.arch.set_retval(cpu, 0, failure=False, convention='syscall')
 
-    def log_einval(self, fs):
-        if fs not in self.mount_types:
-            self.mount_types.add(fs)
-            with open(pjoin(self.outdir, mount_types), "a") as f:
-                f.write(f"{fs}\n")
+    def log_mount(self, retval, results):
+        src = results['source']
+        tgt = results['target']
+        fs = results['fs_type']
 
-    def log_enodev(self, src, tgt):
-        if (src, tgt) not in self.mount_fs:
-            self.mount_fs.add((src, tgt))
-            with open(pjoin(self.outdir, mount_fs), "a") as f:
-                f.write(f"{src},{tgt}\n")
+        if (src, tgt, fs) not in self.mounts:
+            self.mounts.add((src, tgt, fs))
+            with open(pjoin(self.outdir, mount_log), "a") as f:
+                f.write(f"{src},{tgt},{fs},{retval}\n")
