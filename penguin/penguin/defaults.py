@@ -9,11 +9,13 @@ default_version = "1.0.0"
 default_plugin_path = "/pandata"
 
 default_init_script = """#!/igloo/utils/sh
-/igloo/utils/busybox mkdir -p /sys /proc /dev/pts /run /tmp
+/igloo/utils/busybox mkdir -p /sys /proc /dev/pts /run /tmp /dev
 /igloo/utils/busybox mount -t sysfs sysfs /sys
 /igloo/utils/busybox mount -t proc proc /proc
 /igloo/utils/busybox mount -t tmpfs tmpfs /run
 /igloo/utils/busybox mount -t tmpfs tmpfs /tmp
+/igloo/utils/busybox mount -t devtmpfs devtmpfs /dev
+/igloo/utils/busybox mkdir -p /dev/pts
 /igloo/utils/busybox mount -t devpts devpts /dev/pts
 
 if [ -e /igloo/utils/random_seed ]; then
