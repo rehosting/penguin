@@ -794,11 +794,18 @@ class ConfigurationGraph:
                     return self.graph.nodes[node]['object']
             return None
 
-    def _stringify_config(self, node, output, pending_runs, depth=0):
+    def _stringify_config(self, node, output, pending_runs, depth=0, visited=None):
         '''
         Add a report of parent to output. Recurse to children
         with depth + 1 and do so in order.
         '''
+        if visited is None:
+            visited = set()
+
+        # Prevent processing a node more than once
+        if node.gid in visited:
+            return
+        visited.add(node.gid)
 
         pad = " " * depth
 
@@ -827,7 +834,8 @@ class ConfigurationGraph:
         for child in children:
             if child == node:
                 continue # Skip if we encounter a self-loop
-            self._stringify_config(child, output, pending_runs, depth + 1)
+            self._stringify_config(child, output, pending_runs, depth + 1, visited)
+
 
     def calculate_expected_config_health(self, cc) -> float:
         '''
