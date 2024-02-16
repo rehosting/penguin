@@ -43,6 +43,11 @@ def arch_filter(header):
         "PPC": "ppc",
         "PPC64": "ppc64",
     }
+
+    if not isinstance(header.e_machine, str):
+        # It's an int sometimes? That's no good
+        return "unknown"
+
     arch = header.e_machine.replace("EM_","")
     #print(f"header.e_machine: {arch}")
     if arch in supported_map:
