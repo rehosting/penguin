@@ -48,6 +48,76 @@ class PandaRunner:
         pass
 
     def run(self, conf_yaml, run_base, run_dir, out_dir):
+        # penguin_run will run panda directly which might exit (or crash/hang)
+        # and definitely will close stdout/stderr which will break subsequent
+        # python prints.
+        # So we run it in an isolated process instead to maintain control
+        # Calls penguin_run.py's run_config method
+        # Wrapper to call run_config(config=argv[1], out=argv[2], qcows=argv[3])
+
+        print("Do run config")
+        out_log_path = os.path.join(*[os.path.dirname(out_dir), "qemu_stdout.txt"])
+        err_log_path = os.path.join(*[os.path.dirname(out_dir), "qemu_stderr.txt"])
+
+        # XXX let's just directly call it
+        #from .penguin_run import run_config
+        #run_config(conf_yaml, out_dir, run_base + "/qcows")
+
+        # XXX: Let's call via system instead of subprocess
+        data = yaml.safe_load(open(conf_yaml))
+        if 'plugins' in data and 'core' in data['plugins'] and 'timeout' in data['plugins']['core']:
+            # We'll give 3x run time to account for startup and shutdown processing time?
+            timeout_s = data['plugins']['core']['timeout'] * 2 # When the signal is first sent
+            timeout_ks = data['plugins']['core']['timeout'] # If signal is ignored we'll kill after this much additional time
+            timeout_cmd = f"timeout -k {timeout_ks}  {timeout_s} "
+        else:
+            timeout_s = None
+            timeout_cmd = ""
+
+        #full_cmd = f"{timeout_cmd}python3 -m penguin.penguin_run {conf_yaml} {out_dir} {run_base}/qcows > {out_log_path} 2> {err_log_path} < /dev/null"
+        full_cmd = f"{timeout_cmd}python3 -m penguin.penguin_run {conf_yaml} {out_dir} {run_base}/qcows > {out_log_path} 2> {err_log_path}"
+        print(full_cmd)
+
+        from os import system
+        system(full_cmd)
+
+        ran_file = os.path.join(out_dir, ".ran")
+        if not os.path.isfile(ran_file):
+            logger.error(f"Missing .ran file with {conf_yaml}")
+            raise RuntimeError(f"ERROR, running {conf_yaml} in {run_dir} did not produce {out_dir}/.ran file")
+
+        return
+
+        # XXX These hacks were more complicated
+        cmd = [ "python3", "-m", "penguin.penguin_run",
+                conf_yaml,
+                out_dir,
+                run_base + "/qcows"
+                ]
+
+        # XXX pipes can block if we don't read from them!!
+        # TODO: instead we should redirect to a file and read that file if needed
+        out_log_path = os.path.join(*[os.path.dirname(out_dir), "qemu_stdout.txt"])
+        err_log_path = os.path.join(*[os.path.dirname(out_dir), "qemu_stderr.txt"])
+
+        with open(out_log_path, "wb") as out_log, open(err_log_path, "wb") as err_log:
+            try:
+                subprocess.check_call(cmd, stdout=out_log, stderr=err_log)
+            except subprocess.CalledProcessError as e:
+                # It's probably a dumb bad file descriptor error
+                # Let it exit 0 or exit with 120 if it's a bad file descriptor (python gets sad when stdio closes)
+                #if process.returncode != 0 and not (process.returncode == 120 and "Bad file descriptor" in stderr):
+                logger.error(f"Error running {cmd}")
+                #logger.error(f"stdout: {stdout}")
+                #logger.error(f"stderr: {stderr}")
+
+        # Check if we have the expected .ran file in output directory
+        ran_file = os.path.join(out_dir, ".ran")
+        if not os.path.isfile(ran_file):
+            logger.error(f"Missing .ran file with {conf_yaml}")
+            raise RuntimeError(f"ERROR, running {conf_yaml} in {run_dir} did not produce {out_dir}/.ran file")
+
+    def run2(self, conf_yaml, run_base, run_dir, out_dir):
         #cmd = ["python3", "-m", "penguin.penguin_run",
         #       conf_yaml,
         #       out_dir,
