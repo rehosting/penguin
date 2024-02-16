@@ -29,9 +29,15 @@ run_test() {
   else
     echo "FAIL"
     echo
-    echo "Failure log:"
+    echo "Failure log (backed up log and results):"
     tail -n10 log.txt
     echo
+
+    if [ -e results ] ; then
+      rm -rf "results_${test_name}_${kernel_version}_${arch}"
+    fi
+    cp log.txt "failure_log_${test_name}.txt"
+    mv results/ "results_${test_name}_${kernel_version}_${arch}"
   fi
 }
 
