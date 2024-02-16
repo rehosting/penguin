@@ -11,6 +11,7 @@ class Health(PyPlugin):
         self.start_time = time.time()
         self.exiting = False
 
+        # XXX no longer used to track time
         self.events = { # Class: [(time, score)]
             'nproc': [(0, 0)],
             'nproc_args': [(0, 0)],
@@ -22,6 +23,8 @@ class Health(PyPlugin):
             'nexecs_args': [(0, 0)],
             'nioctls': [(0, 0)]
         }
+
+        self.final_events = {k : 0 for k in self.events.keys()}
 
         # Per event data storage
         self.binds = set()
@@ -88,10 +91,11 @@ class Health(PyPlugin):
         '''
         Increment the score for the given event
         '''
-        last = self.events[event][-1]
-        last_score = last[1]
-        rel_time = time.time() - self.start_time
-        self.events[event].append((rel_time, last_score + 1))
+        #last = self.events[event][-1]
+        #last_score = last[1]
+        #rel_time = time.time() - self.start_time
+        #self.events[event].append((rel_time, last_score + 1))
+        self.final_events[event] += 1
 
 
     def log_dev_open(self, fname):
@@ -103,22 +107,26 @@ class Health(PyPlugin):
 
     def uninit(self):
         self.exiting = True
-        print("Health unloaded")
+        print("Health unloading")
         # Dump self.events to outdir/health.csv
         # Format: class, time, score
 
+        # XXX Seems to deadlocks in here?
         # Dump to CSV over time
-        with open(f"{self.outdir}/health.csv", 'w') as f:
-            f.write("class,time,score\n")
-            for cls, details in self.events.items():
-                for time, score in details:
-                    f.write(f"{cls},{time},{score}\n")
+        #with open(f"{self.outdir}/health.csv", 'w') as f:
+        #    f.write("class,time,score\n")
+        #    for cls, details in self.events.items():
+        #        for time, score in details:
+        #            f.write(f"{cls},{time},{score}\n")
 
         # And dump final values to outdir/health_final.yaml
+        #with open(f"{self.outdir}/health_final.yaml", 'w') as f:
+        #    # For each event, dump the final score
+        #    for cls, details in self.events.items():
+        #        f.write(f"  {cls}: {details[-1][1]}\n")
         with open(f"{self.outdir}/health_final.yaml", 'w') as f:
-            # For each event, dump the final score
-            for cls, details in self.events.items():
-                f.write(f"  {cls}: {details[-1][1]}\n")
+            for cls, score in self.final_events.items():
+                f.write(f"  {cls}: {score}\n")
 
         # Dump list of devices accessed
         with open(f"{self.outdir}/health_devices_accessed.txt", 'w') as f:
@@ -134,3 +142,5 @@ class Health(PyPlugin):
         with open(f"{self.outdir}/health_procs_with_args.txt", 'w') as f:
             for proc in sorted(self.procs_args):
                 f.write(f"{proc}\n")
+
+        print("Health unloaded")
