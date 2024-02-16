@@ -945,7 +945,8 @@ class ConfigurationManager:
                           run_config_f : Callable[[Configuration], Tuple[List[Failure], float]],
                           find_mitigations_f: Callable[[Failure, Configuration], List[Mitigation]],
                           find_new_configs_f: Callable[[Failure, Mitigation, Configuration],
-                                                       List[Configuration]]):
+                                                       List[Configuration]],
+                          logger: Optional[Callable[[str], None]] = None):
 
         """
         Run a given configuration to get a list of failure and a health score.
@@ -954,7 +955,7 @@ class ConfigurationManager:
         """
         #print(f"Running config {config} with weight {weight:,}")
         failures, health_score, run_idx = run_config_f(config)
-        print(f"Run {run_idx} score {health_score:,} vs expected {weight:,} (delta {health_score-weight}): {config}")
+        logger.info(f"Run {run_idx} score {health_score:,} vs expected {weight:,} (delta {health_score-weight}): {config}")
 
         # Sets run, health(?), and updates weights
         config.run_idx = run_idx
@@ -1026,7 +1027,8 @@ class ConfigurationManager:
     def run_exploration_cycle(self, run_config_f : Callable[[Configuration], Tuple[List[Failure], float]],
                             find_mitigations_f: Callable[[Failure, Configuration], List[Mitigation]],
                             find_new_configs_f: Callable[[Failure, Mitigation, Configuration],
-                                                         List[Configuration]]):
+                                                         List[Configuration]],
+                            logger: Optional[Callable[[str], None]] = None):
         """
         Get the best config and run it. Hold lock while selecting.
         While we're running, ensure config is in self.pending_runs
@@ -1042,7 +1044,7 @@ class ConfigurationManager:
             sleep(1)
             return
 
-        self.run_configuration(config_to_run, weight, run_config_f, find_mitigations_f, find_new_configs_f)
+        self.run_configuration(config_to_run, weight, run_config_f, find_mitigations_f, find_new_configs_f, logger)
 
         with self.lock:
             self.pending_runs.remove(config_to_run)
