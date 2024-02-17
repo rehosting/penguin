@@ -180,6 +180,11 @@ class TargetCmp(PyPlugin):
         if not self.target_key:
             return
 
+        # XXX: We need to disable tb_chaining to detect more comparisons. Unfortunately
+        # this hurts performance, but without it we definitely miss some comparisons
+        # in targetcmp/callwitharg/callstack_instr.
+        panda.disable_tb_chaining()
+
         self.outdir = self.get_arg("outdir")
         print("TargetCMP loaded to dynamically search for", self.target_key)
         assert(self.outdir is not None), f"NO OUTDIR"
