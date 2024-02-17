@@ -534,11 +534,15 @@ def graph_search(initial_config, output_dir, max_iters=1000, nthreads=1):
         # Wait for all threads to finish
         for t in worker_threads:
             t.join()
-        return
+    else:
+        # Single thread mode, try avoiding deadlocks by just running directly
+        Worker(global_state, config_manager, run_base, max_iters,
+            run_index, active_worker_count).run()
 
-    # Single thread mode, try avoiding deadlocks by just running directly
-    Worker(global_state, config_manager, run_base, max_iters,
-           run_index, active_worker_count).run()
+    # We're all done! In the .finished file we'll write the final run_index
+    # This way we can tell if a run is done early vs still in progress
+    with open(os.path.join(output_dir, "finished.txt"), "w") as f:
+        f.write(str(run_index.get()))
 
 def main():
     import sys
