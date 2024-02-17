@@ -51,20 +51,26 @@ class PathExpIoctl:
     '''
     def __init__(self, out_dir, fs_archive, read_only = False):
         # Set up log and results paths in out_dir
-        self.log_file = open(os.path.join(out_dir, "symex.log"), "w" if not read_only else "r",
-                             encoding='utf-8')
-        self.result_path = os.path.join(out_dir, "symex.pkl")
+        self.logger = logging.getLogger(__name__)
+        if read_only and not os.path.isfile(os.path.join(out_dir, "symex.pkl")):
+            self.has_data_or_writing = False # either we have results, or we're writing results
+        else:
+            self.has_data_or_writing = True
         # Store fs_archive
         self.fs_archive = fs_archive
         self.read_only = read_only
-        self.logger = logging.getLogger(__name__)
 
         # Initialize remaining state
         self.results = {} # {fname: {ioctl: {'ok': [constraint_set1, constraint_set2, ...],
                           # 'error': [constraint_set1, constraint_set2, ...]}}}
+        self.result_path = os.path.join(out_dir, "symex.pkl")
+
+        if self.has_data_or_writing:
+            self.log_file = open(os.path.join(out_dir, "symex.log"), "w" if not read_only else "r",
+                                encoding='utf-8')
 
     def uninit(self):
-        if not self.log_file.closed:
+        if self.has_data_or_writing and not self.log_file.closed:
             self.log_file.close()
 
     def do_symex(self, panda, cpu, targ_addr, name, num):
@@ -335,8 +341,9 @@ class PathExpIoctl:
             f.write(pickle.dumps(self.results, -1))
 
     def _load_results(self):
-        with open(self.result_path, 'rb') as f:
-            self.results = pickle.loads(f.read())
+        if os.path.isfile(self.result_path):
+            with open(self.result_path, 'rb') as f:
+                self.results = pickle.loads(f.read())
 
     def get_known_values(self):
         '''
