@@ -26,6 +26,7 @@ except ImportError:
 
 # XXX you'll see checks for if not >= 0 and >= -2. That's checking if we get -1 or -2 looking for -ENOENT
 # ENOENT is 2. Except on mips it seems to be 1. Not sure why?
+# XXX figure this out! TODO
 
 # Missing files go into our first log
 outfile_missing = "pseudofiles_failures.yaml"
@@ -349,7 +350,12 @@ class FileFailures(PyPlugin):
 
     def fail_detect_opens(self, cpu, fname, fd):
         fd = self.panda.from_unsigned_guest(fd)
-        if fd < 0 and fd >= -2: # ENOENT - we only care about files that don't exist
+        #if fd < 0 and fd >= -2: # ENOENT - we only care about files that don't exist
+        if fd == -1:
+            print(f"Open failed on {fname} with ENOPERM - ignore???")
+
+        if fd == -2:
+            # enoent let's gooooo
             self.centralized_log(fname, 'open')
 
     def log_ioctl_failure(self, path, cmd):
@@ -659,6 +665,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
             if path.startswith("/proc"):
                 # Ignoring proc files, at least for now.
+                # TODO: let's actually add proc files - we often have scripts that write to them (disard model)
+                # and just adding files (with parent dirs) will help.
+                # One challenge is figuring out if the device is missing or not -ENOENT errors should be sufficient???
                 pass
 
             if path.startswith("/dev"):
@@ -752,16 +761,14 @@ class FileFailuresAnalysis(PenguinAnalysis):
             # to it. First order of business is adding the device. That's all we do here.
             # Caller maps failing path -> this mitigation so we don't need to specify
 
-            if failure.info['sc'] == 'open':
-                # Guest tried to open file, but it wasn't there. We can add with pseudofiles!
-                # Adding files is a decent move, we know the path and we know it's missing. Weight 100?
-                return [Mitigation(f"pseudofile_add_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'add', 'weight': 100})]
+            # There are many syscalls that take a filename and can return -ENOENT - for these we want to make the file
+            # if it's not in our pseudofiles.
 
-            # Guest did something other than an open - but we didn't add the file. This is suspicious.
-            # If the file exists in the guest we can't make it a pseudofile.
-            # If it doesn't exist, we'd see a failure on open, not read/write/ioctl.
-            # So if we're here, let's say it must be a guest-managed device that we'll ignore
-            return []
+            # Syscalls that take in an FD would be different (ignoring for now) - the guest could only get a FD if the file
+            # already existed - so if we see that case and we're here, that's a non-pseudofile with a regular error
+            # that we shouldn't change (i.e., we cann't add the file since it already exists)
+
+            return [Mitigation(f"pseudofile_add_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'add', 'weight': 100})]
 
         # This path *is* a pseudofile we added. Errors we see are things we might want
         # to handle
