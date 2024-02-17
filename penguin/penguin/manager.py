@@ -52,7 +52,8 @@ class Worker:
             try:
                 config = self.config_manager.run_exploration_cycle(self.run_config_f,
                                                                 self.find_mitigations_f,
-                                                                self.find_new_configs_f)
+                                                                self.find_new_configs_f,
+                                                                logger=logger)
             except Exception as e:
                 logger.error(f"Error in run_exploration_cycle: {e}")
                 raise e
