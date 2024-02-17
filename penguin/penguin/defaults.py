@@ -9,7 +9,7 @@ default_version = "1.0.0"
 default_plugin_path = "/pandata"
 
 default_init_script = """#!/igloo/utils/sh
-/igloo/utils/busybox mkdir -p /sys /proc /dev/pts /run /tmp /dev
+/igloo/utils/busybox mkdir -p /sys /proc /run /tmp /dev
 /igloo/utils/busybox mount -t sysfs sysfs /sys
 /igloo/utils/busybox mount -t proc proc /proc
 /igloo/utils/busybox mount -t tmpfs tmpfs /run
