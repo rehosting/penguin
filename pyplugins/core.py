@@ -214,13 +214,15 @@ class CoreAnalysis(PenguinAnalysis):
                     print(f"KERNEL BUG: {repr(line)}")
                     raise RuntimeError(f"Found BUG in {output_dir}/console.log")
 
-        if os.path.isfile(os.path.join(output_dir, "qemu_stderr.txt")):
-            with open(os.path.join(output_dir, "qemu_stderr.txt")) as f:
+        # qemu logs are above output directory
+        stderr = os.path.join(os.path.dirname(output_dir), "qemu_stderr.txt")
+        if os.path.isfile(stderr):
+            with open(stderr) as f:
                 for line in f.readlines():
                     if "Traceback " in line:
                         raise RuntimeError(f"Python analysis crashed in {output_dir}")
         else:
-            print(f"WARNING no qemu_stderr.txt in {output_dir}")
+            print(f"WARNING missing {stderr}")
         return {}
 
     def get_mitigations_from_static(self, varname, values):
