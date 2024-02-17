@@ -118,7 +118,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
 
     # Make sure we have a qcows dir
     if not os.path.isdir(qcow_dir):
-        os.makedirs(qcow_dir)
+        os.makedirs(qcow_dir, exist_ok=True)
 
     lock_file = os.path.join(qcow_dir, f".{image_filename}.lock")
     while os.path.isfile(lock_file):
