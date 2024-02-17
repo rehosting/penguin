@@ -1,24 +1,24 @@
-import os
-import time
-import math
-import shutil
-import pandas as pd
-import networkx as nx
-import subprocess
-
-import logging
 import coloredlogs
+import logging
+import os
+import select
+import shutil
+import subprocess
+import time
 
-from typing import List, Tuple
+import networkx as nx
+import pandas as pd
+
 from copy import deepcopy
 from random import choice
 from threading import Thread, Lock
+from typing import List, Tuple
 
 from .common import yaml
 from .penguin_prep import prepare_run
+from .graphs import Configuration, ConfigurationManager, Failure, Configuration, Mitigation
 from .utils import load_config, dump_config, hash_yaml_config, AtomicCounter, \
                     _load_penguin_analysis_from, get_mitigation_providers
-from .graphs import Configuration, ConfigurationManager, Failure, Configuration, Mitigation
 
 coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 
@@ -35,6 +35,101 @@ import glob
 CACHE_SUPPORT = False
 cache_dir = "/cache"
 caches = {} # config hash -> output directory with .run.
+
+
+class PandaRunner:
+    '''
+    This class is a gross wrapper around the fact that we want to call penguin_run
+    in a subprocess because it might hang/crash (from C code) which would kill
+    our python process. From this class we kill the subprocess if it takes too long
+    (deadlock) or if it crashes.
+    '''
+    def __init__(self):
+        pass
+
+    def run(self, conf_yaml, run_base, run_dir, out_dir):
+        cmd = ["python3", "-m", "penguin.penguin_run",
+               conf_yaml,
+               out_dir,
+               run_base + "/qcows"]
+
+        # We need timeout here to be larger than the config's timeout (if one is set)
+        data = yaml.safe_load(open(conf_yaml))
+        if 'plugins' in data and 'core' in data['plugins'] and 'timeout' in data['plugins']['core']:
+            # We'll give 2x run time to account for shutdown processing / etc
+            timeout_seconds = data['plugins']['core']['timeout']*2
+        else:
+            timeout_seconds = None
+
+        try:
+            with open("/dev/null", "r+b") as null:
+                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=null, text=False)
+
+            stdout_lines, stderr_lines = [], []
+            start_time = time.time()
+
+            last_logged_remaining = None
+            while True:
+                # Check if process has terminated
+                if timeout_seconds is not None:
+                    rem_time = timeout_seconds - (time.time() - start_time)
+                    if not last_logged_remaining or last_logged_remaining > rem_time + 10:
+                        last_logged_remaining = int(rem_time)
+                        # Log every ~10s
+                        print(f"Child is running. Remaining time = {rem_time}")
+
+                if process.poll() is not None:
+                    print("Child dead")
+                    break
+
+                # Implement timeout
+                if timeout_seconds is not None and time.time() - start_time > timeout_seconds:
+                    print("Killing child")
+                    logger.error(f"Process timed out: {cmd}")
+                    process.kill()  # Kill the process
+
+                    time.sleep(5)
+                    print("Terminating child")
+                    process.terminate()
+                    break
+
+                # Check if there is data to read
+                readable, _, _ = select.select([process.stdout, process.stderr], [], [], 1)
+                for pipe in readable:
+                    if pipe == process.stdout:
+                        line = process.stdout.readline()
+                        if line:
+                            stdout_lines.append(line)
+                            print("stdout:", line)
+                    elif pipe == process.stderr:
+                        line = process.stderr.readline()
+                        if line:
+                            stderr_lines.append(line)
+                            print("stderr:", line)
+        except Exception as e:
+            logger.error(f"An exception occurred launching {cmd}: {str(e)}")
+            return
+
+        finally:
+            # Clean up
+            process.stdout.close()
+            process.stderr.close()
+            process.wait()
+
+            # *Always* write stdout and stderr to disk, even on failures. Even if they're empty
+            # We have other code that will try consuming/logging these
+            with open(os.path.join(out_dir, "qemu_stdout.txt"), "wb") as f:
+                f.writelines(stdout_lines)
+            with open(os.path.join(out_dir, "qemu_stderr.txt"), "wb") as f:
+                f.writelines(stderr_lines)
+
+        # Check if we have the expected .ran file in output directory
+        ran_file = os.path.join(out_dir, ".ran")
+        if not os.path.isfile(ran_file):
+            logger.error(f"Missing .ran file with {conf_yaml}")
+            raise RuntimeError(f"ERROR, running {conf_yaml} in {run_dir} did not produce {out_dir}/.ran file")
+
+
 
 class Worker:
     def __init__(self, global_state, config_manager, run_base, max_iters, run_index, active_worker_count, thread_id=None):
@@ -88,7 +183,7 @@ class Worker:
             #print(f"Plugin {failure.type} suggests config {c}")
             if not isinstance(c, Configuration):
                 raise TypeError(f"Plugin {failure.type} returned a non-Configuration object {c}")
-            
+
             # If the mitigation has the 'exclusive' property AND already has a child, we skip?
             #if mitigation.exclusive and len(self.config_manager.graph.descendants(mitigation.gid)):
             #    print(f"Skipping {c} as {mitigation} is exclusive and previously used")
@@ -188,7 +283,8 @@ class Worker:
                 out_dir = os.path.join(run_dir, "output" + (str(config_idx) if config_idx > 0 else ""))
                 os.makedirs(out_dir, exist_ok=True)
                 try:
-                    self._subprocess_panda_run(conf_yaml, run_dir, out_dir)
+                    #self._subprocess_panda_run(conf_yaml, run_dir, out_dir)
+                    PandaRunner().run(conf_yaml, self.run_base, run_dir, out_dir)
                 except RuntimeError as e:
                     # Uh oh, we got an error while running. Warn and continue
                     this_logger.error(f"Could not run {run_dir}: {e}")
@@ -355,44 +451,6 @@ class Worker:
             if k not in SCORE_CATEGORIES:
                 raise ValueError(f"BUG: score type {k} is unknown")
         return score
-
-
-    def _subprocess_panda_run(self, conf_yaml, run_dir, out_dir):
-        # penguin_run will run panda directly which might exit (or crash/hang)
-        # so we run it in a subprocess to maintain control
-        # Calls penguin_run.py's run_config method
-        # Wrapper to call run_config(config=argv[1], out=argv[2], qcows=argv[3])
-
-        cmd = [ "python3", "-m", "penguin.penguin_run",
-                conf_yaml,
-                out_dir,
-                self.run_base + "/qcows"
-                ]
-
-        try:
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            stdout, stderr = process.communicate() # Wait for termination
-        except Exception as e:
-            logger.error(f"An exception occurred launching {cmd}: {str(e)}")
-            #raise e
-            return
-
-        with open(os.path.join(out_dir, "qemu_stdout.txt"), "w") as f:
-            f.write(stdout)
-        with open(os.path.join(out_dir, "qemu_stderr.txt"), "w") as f:
-            f.write(stderr)
-
-        # Let it exit 0 or exit with 120 if it's a bad file descriptor (python gets sad when stdio closes)
-        if process.returncode != 0 and not (process.returncode == 120 and "Bad file descriptor" in stderr):
-            logger.error(f"Error running {cmd}: Got return code {process.returncode}")
-            logger.error(f"stdout: {stdout}")
-            logger.error(f"stderr: {stderr}")
-
-        # Check if we have the expected .ran file in output directory
-        ran_file = os.path.join(out_dir, ".ran")
-        if not os.path.isfile(ran_file):
-            logger.error(f"Missing .ran file with {conf_yaml}")
-            raise RuntimeError(f"ERROR, running {conf_yaml} in {run_dir} did not produce {out_dir}/.ran file")
 
 
 class GlobalState:
