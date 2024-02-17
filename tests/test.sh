@@ -102,22 +102,26 @@ assert_combined() {
 rm -rf qcows
 mkdir -p qcows
 
+kernel_versions=("4.10" "6.7")
 archs=("armel" "mipsel" "mipseb")
 tests=( "multiinit" "pseudofile" "env" "combined")
 
-# We can run a single architecture or a single test.
+# We can specify an arch, a test, and a kernel version
 # For example:
-#   ./test.sh armel
-#   ./test.sh armel env_cmp
+#   ./test.sh 4.10
+#   ./test.sh 4.10 armel
+#   ./test.sh 4.10 armel env_cmp
 
-if [ $# -eq 2 ]; then
-  archs=("$1")
-  tests=("$2")
+if [ $# -eq 3 ]; then
+  kernel_versions=("$1")
+  archs=("$2")
+  tests=("$3")
+elif [ $# -eq 2 ]; then
+  kernel_versions=("$1")
+  archs=("$2")
 elif [ $# -eq 1 ]; then
-  archs=("$1")
+  kernel_versions=("$1")
 fi
-
-kernel_versions=("4.10" "6.7")
 for kernel_version in "${kernel_versions[@]}"; do
 for arch in "${archs[@]}"; do
 
