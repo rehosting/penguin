@@ -71,14 +71,18 @@ tests=("env_unset" "env_cmp" "pseudofile_missing" "pseudofile_ioctl" "shared_dir
 
 # We can run a single architecture or a single test.
 # For example:
-#   ./test.sh armel
-#   ./test.sh armel env_cmp
+#   ./test.sh 4.10 armel
+#   ./test.sh 4.10 armel env_cmp
 
-if [ $# -eq 2 ]; then
-  archs=("$1")
-  tests=("$2")
+if [ $# -eq 3 ]; then
+  kernel_versions=("$1")
+  archs=("$2")
+  tests=("$3")
+elif [ $# -eq 2 ]; then
+  kernel_versions=("$1")
+  archs=("$2")
 elif [ $# -eq 1 ]; then
-  archs=("$1")
+  kernel_versions=("$1")
 fi
 
 for kernel_version in "${kernel_versions[@]}"; do
