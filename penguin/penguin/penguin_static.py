@@ -163,6 +163,12 @@ def pre_shim(config, auto_explore=False):
         'mode': 0o666,
     }
 
+    # Add a directory for firmadyne/libnvram.override
+    config['static_files']['/firmadyne/libnvram.override'] = {
+        'type': 'dir',
+        'mode': 0o755,
+    }
+
     # Directories we want to make sure exist in the FS. This list is based on firmadyne and firmae. Added /dev explicitly because we need
     # it for devtmpfs (e.g., devtmpfs could try mounting before /igloo/init runs and makes the directory)
     directories = ["/dev", "/proc", "/dev/pts", "/etc_ro", "/tmp", "/var", "/run", "/sys", "/root", "/tmp/var", "/tmp/media", "/tmp/etc",
