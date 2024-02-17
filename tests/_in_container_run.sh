@@ -27,7 +27,7 @@ ln -s /tests/qcows "/tmp/qcows"
 # This lets us get around the fact that there's no arch to identify here and no real rootfs at all
 d=$(mktemp -d)
 touch "${d}/.foo"
-tar czf /tmp/fs.tar.gz -C "${d}" .
+tar --sort=name --owner=root:0 --group=root:0 --mtime='UTC 2019-01-01' -c -C "${d}" . | gzip -n > /tmp/fs.tar.gz
 rm -rf "$d"
 
 # Now make us an image in /tmp/empty
