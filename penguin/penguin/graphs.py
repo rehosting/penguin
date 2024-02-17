@@ -856,10 +856,56 @@ class ConfigurationGraph:
         if 'weight' in parent_mit.info:
             expected += parent_mit.info['weight']
 
+        # If we saw a new failure in our parent config, that's a pretty good sign - we've uncovered
+        # something new that we might want to mitigate. If this mitigation is hitting
+        # such a failure, let's give this a big bonus!
+        
+        # If our parent_fail has a single in-edge, and it's from the parent config, then
+        # it's bonus time!
+        # The first time we see an SXID it's a mitigation
+        # so we have
+
+        # ONLY ONE CONFIG HAS THIS FAIULRE
+        # config --> failure_missing_dsa -> *New mitigation = something*  -> New config with bonus
+            
+        # Check if parent failure has a single in-edge (from parent config)
+        ''''
+        with self.lock:
+            parent_fail_parent_configs = [self.graph.nodes[n]['object'] for n in self.graph.predecessors(parent_fail.gid) \
+                                        if isinstance(self.graph.nodes[n]['object'], Configuration)]
+        new_fail_bonus = len(parent_fail_parent_configs) == 1
+        '''
+
+        '''
+        # Look at the parent_mit's out edges - have any of them been run?
+        # If so, we'll give a bonus to this config
+        # Configs that descend from this mitigation
+        with self.lock:
+            mit_descendents = [self.graph.nodes[n]['object'] for n in self.graph.successors(parent_mit.gid) \
+                                if isinstance(self.graph.nodes[n]['object'], Configuration)]
+        new_fail_bonus = not any([cc.run for cc in mit_descendents])
+        '''
+
+        # If this config is mitigating a failure that the parent had BUT NOT THE GRANDPARENT
+        # then it's kinda cool (i.e., parent fixes something, reveals new failure, now we try to fix)
+
+        # First, do we have a grandparent?
+        new_fail_bonus = True
+        grandparent_cc = parent_cc
+        while grandparent_cc := self.get_parent_config(grandparent_cc):
+            # If there's an edge from this grand(^x)-parent to the failure, then it's not exciting
+            if self.graph.has_edge(grandparent_cc.gid, parent_fail.gid):
+                new_fail_bonus = False
+                break
+
+        if new_fail_bonus:
+            # We like mitigating newly discovered! Give it a big bonus
+            expected += 2000 # TODO: make this hyperparam more explicit?
+
         if cc.exclusive:
             # We like running these when we have the chance - bias towards them strongly!
             if not cc.run:
-                expected += 1000 # TODO: make hyperparam more explicit?
+                expected += 1000 # TODO: make this hyperparam more explicit?
 
         return expected
 
@@ -953,8 +999,9 @@ class ConfigurationManager:
         Update the graph with the new information to set weights
         Add new failures and mitigations to the graph
         """
-        #print(f"Running config {config} with weight {weight:,}")
+        print(f"Running config {config} with weight {weight:,}")
         failures, health_score, run_idx = run_config_f(config)
+        logger.info("Finished run")
         logger.info(f"Run {run_idx} score {health_score:,} vs expected {weight:,} (delta {health_score-weight}): {config}")
 
         # Sets run, health(?), and updates weights
