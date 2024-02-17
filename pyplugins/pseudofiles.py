@@ -673,11 +673,11 @@ class FileFailuresAnalysis(PenguinAnalysis):
             if path.startswith("/dev"):
                 # If there are a lot of devices with numeric suffixes, we'll ignore them
                 if path[-1].isdigit() and any(path.startswith(x) for x in ignored_prefixes):
-                    self.logger.warning(f"Ignoring /dev path with numeric suffix because there are lots like it {path}")
+                    #self.logger.debug(f"Ignoring /dev path with numeric suffix because there are lots like it {path}")
                     continue
 
                 if path.startswith("/dev/mtd"):
-                    self.logger.warning(f"Ignoring mtd device: {path}")
+                    #self.logger.debug(f"Ignoring mtd device: {path}")
                     continue
 
                 # If we're doing symex, we only care about "failures" on that one device with that cmd since these
