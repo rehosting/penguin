@@ -1009,8 +1009,10 @@ class ConfigurationManager:
         """
         print(f"Running config {config} with weight {weight:,}")
         failures, health_score, run_idx = run_config_f(config)
-        logger.info("Finished run")
-        logger.info(f"Run {run_idx} score {health_score:,} vs expected {weight:,} (delta {health_score-weight}): {config}")
+
+        if logger is not None:
+            logger.info("Finished run")
+            logger.info(f"Run {run_idx} score {health_score:,} vs expected {weight:,} (delta {health_score-weight}): {config}")
 
         # Sets run, health(?), and updates weights
         config.run_idx = run_idx
