@@ -75,12 +75,9 @@ class Nmap(PyPlugin):
         # nmap scan our target in service-aware mode
         env = os.environ.copy()
         env['NMAPDIR'] = custom_nmapdir_path
-
-        #["nmap", f"-p{host_port}", "-sV", "-sC", "127.0.0.1",
-        #"-oN", log_file_name],
         process = subprocess.Popen(
-            ["nmap", f"-p{host_port}", "-A", "127.0.0.1", "--script=default", "-oN", log_file_name],
-            env=env)
+            ["nmap", f"-p{host_port}", "-sV", "-sC", "--script=default,vuln,version", "127.0.0.1", "-oN", log_file_name],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         process.wait()
 
         # Now cleanup the nmap services file
