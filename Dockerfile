@@ -84,6 +84,7 @@ FROM ubuntu:22.04 as penguin
 ENV PIP_ROOT_USER_ACTION=ignore
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PROMPT_COMMAND=""
+ENV MPLCONFIGDIR=/tmp/.config/matplotlib
 
 # Add rootshell helper command
 RUN echo "#!/bin/sh\ntelnet localhost 4321" > /usr/local/bin/rootshell && chmod +x /usr/local/bin/rootshell
