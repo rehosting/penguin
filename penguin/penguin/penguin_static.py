@@ -536,6 +536,14 @@ def add_init_meta(base_config, output_dir):
             print(f"WARNING: {i} is too long to be an init script, dropping")
             inits.remove(i)
 
+    # Final pass, go through archive and make sure all inits are executable
+    # We could only drop entries from only_fs_inits
+    with tarfile.open(fs_path) as fs:
+        for i in list(inits):
+            member = fs.getmember("." + i)
+            if not member.mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
+                inits.remove(i)
+
     base_config['meta']['potential_init'] = inits
 
 
@@ -554,7 +562,7 @@ def add_dev_proc_meta(base_config, output_dir):
          '/dev/mtdr', '/dev/tts/0', '/dev/tts/1', '/dev/tts/2', '/dev/tts/3', '/dev/mtdblock/0', '/dev/mtdblock/1',
          '/dev/mtdblock/2', '/dev/mtdblock/3', '/dev/mtdblock/4', '/dev/mtdblock/5', '/dev/mtdblock/6',
          '/dev/mtdblock/7', '/dev/mtdblock/8', '/dev/mtdblock/9', '/dev/mtdblock/10'] + \
-         ['/dev/mtdblock', '/dev/tts', '/dev/mtd'] # Directories created by IGLOo as part of adding subfiles. Can't make as files now
+         ['/dev/mtdblock', '/dev/tts', '/dev/mtd'] # Directories created by IGLOO as part of adding subfiles. Can't make as files now
 
     for k in list(_get_devfiles_in_fs(tar_path)) + igloo_added_devices:
         if k in potential_devfiles:
