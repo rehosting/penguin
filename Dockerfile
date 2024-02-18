@@ -11,7 +11,8 @@ RUN apt-get update && apt-get install -y \
 ### DEB DOWNLOADER: get genext2fs and pandare debs ###
 FROM download_base as deb_downloader
 RUN wget -O /tmp/genext2fs.deb https://github.com/panda-re/genext2fs/releases/download/release_9bc57e232e8bb7a0e5c8ccf503b57b3b702b973a/genext2fs.deb && \
-    wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v1.7/pandare_22.04.deb
+    wget -O /tmp/pandare.deb https://panda.re/secret/pandare_1.8.1_2204.deb
+    #wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v1.7/pandare_22.04.deb
 
 ### DOWNLOADER: get zap, libguestfs, busybox, libnvram, console, vpn, kernels, and penguin plugins ###
 FROM download_base as downloader
@@ -129,13 +130,14 @@ RUN apt-get update && apt-get install -y \
 #RUN python3 -m venv --system-site-packages /venv
 #ENV PATH="/venv/bin:$PATH"
 
+      #http://panda.re/secret/pandare-0.1.2.0.tar.gz
 RUN --mount=type=cache,target=/root/.cache/pip pip install \
       angr \
       beautifulsoup4 \
       coloredlogs \
       git+https://github.com/AndrewFasano/angr-targets.git@af_fixes \
       html5lib \
-      http://panda.re/secret/pandare-0.1.2.0.tar.gz \
+      https://panda.re/secret/pandare-0.1.2.0-py3-none-any.whl \
       ipdb \
       lief  \
       lxml \
