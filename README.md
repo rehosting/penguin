@@ -37,7 +37,7 @@ If build from source:
 docker build -t pandare/igloo:penguin .
 ```
 
-## Run container
+## Run pulled container
 
 ```
 docker run --rm -it --privileged \
@@ -47,6 +47,8 @@ docker run --rm -it --privileged \
   bash
 ```
 
+## From source
+Build your container with `./build.sh`. Then run penguin inside the container with `./penguin.sh ./your/path/to/fw ./your/results/directory`.
 
 # Rehosting Workflow
 ## Generate initial configuration

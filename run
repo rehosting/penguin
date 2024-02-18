@@ -1,6 +1,0 @@
-#!/bin/sh
-docker run --rm -it --privileged \
-    -v $(pwd)/fws:/fws -v $(pwd)/results:/results \
-    -p 8000:80 \
-    pandare/igloo:penguin \
-    bash
