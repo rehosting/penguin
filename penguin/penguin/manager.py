@@ -10,6 +10,7 @@ import networkx as nx
 import pandas as pd
 
 from copy import deepcopy
+from os import system
 from random import choice
 from threading import Thread, Lock
 from typing import List, Tuple
@@ -51,19 +52,13 @@ class PandaRunner:
         # penguin_run will run panda directly which might exit (or crash/hang)
         # and definitely will close stdout/stderr which will break subsequent
         # python prints.
-        # So we run it in an isolated process instead to maintain control
-        # Calls penguin_run.py's run_config method
-        # Wrapper to call run_config(config=argv[1], out=argv[2], qcows=argv[3])
+        # So we run it in an isolated process through penguin.penguin_run
+        # which is a wrapper to call that script with: run_config(config=argv[1], out=argv[2], qcows=argv[3])
 
-        print("Do run config")
         out_log_path = os.path.join(*[os.path.dirname(out_dir), "qemu_stdout.txt"])
         err_log_path = os.path.join(*[os.path.dirname(out_dir), "qemu_stderr.txt"])
 
-        # XXX let's just directly call it
-        #from .penguin_run import run_config
-        #run_config(conf_yaml, out_dir, run_base + "/qcows")
-
-        # XXX: Let's call via system instead of subprocess
+        # Let's call via system instead of subprocess
         data = yaml.safe_load(open(conf_yaml))
         if 'plugins' in data and 'core' in data['plugins'] and 'timeout' in data['plugins']['core']:
             # We'll give 3x run time to account for startup and shutdown processing time?
@@ -74,122 +69,13 @@ class PandaRunner:
             timeout_s = None
             timeout_cmd = ""
 
-        #full_cmd = f"{timeout_cmd}python3 -m penguin.penguin_run {conf_yaml} {out_dir} {run_base}/qcows > {out_log_path} 2> {err_log_path} < /dev/null"
         full_cmd = f"{timeout_cmd}python3 -m penguin.penguin_run {conf_yaml} {out_dir} {run_base}/qcows > {out_log_path} 2> {err_log_path}"
-        print(full_cmd)
-
-        from os import system
         system(full_cmd)
 
         ran_file = os.path.join(out_dir, ".ran")
         if not os.path.isfile(ran_file):
             logger.error(f"Missing .ran file with {conf_yaml}")
             raise RuntimeError(f"ERROR, running {conf_yaml} in {run_dir} did not produce {out_dir}/.ran file")
-
-        return
-
-        # XXX These hacks were more complicated
-        cmd = [ "python3", "-m", "penguin.penguin_run",
-                conf_yaml,
-                out_dir,
-                run_base + "/qcows"
-                ]
-
-        # XXX pipes can block if we don't read from them!!
-        # TODO: instead we should redirect to a file and read that file if needed
-        out_log_path = os.path.join(*[os.path.dirname(out_dir), "qemu_stdout.txt"])
-        err_log_path = os.path.join(*[os.path.dirname(out_dir), "qemu_stderr.txt"])
-
-        with open(out_log_path, "wb") as out_log, open(err_log_path, "wb") as err_log:
-            try:
-                subprocess.check_call(cmd, stdout=out_log, stderr=err_log)
-            except subprocess.CalledProcessError as e:
-                # It's probably a dumb bad file descriptor error
-                # Let it exit 0 or exit with 120 if it's a bad file descriptor (python gets sad when stdio closes)
-                #if process.returncode != 0 and not (process.returncode == 120 and "Bad file descriptor" in stderr):
-                logger.error(f"Error running {cmd}")
-                #logger.error(f"stdout: {stdout}")
-                #logger.error(f"stderr: {stderr}")
-
-        # Check if we have the expected .ran file in output directory
-        ran_file = os.path.join(out_dir, ".ran")
-        if not os.path.isfile(ran_file):
-            logger.error(f"Missing .ran file with {conf_yaml}")
-            raise RuntimeError(f"ERROR, running {conf_yaml} in {run_dir} did not produce {out_dir}/.ran file")
-
-    def run2(self, conf_yaml, run_base, run_dir, out_dir):
-        #cmd = ["python3", "-m", "penguin.penguin_run",
-        #       conf_yaml,
-        #       out_dir,
-        #       run_base + "/qcows"]
-
-        # We need timeout here to be larger than the config's timeout (if one is set)
-        data = yaml.safe_load(open(conf_yaml))
-        if 'plugins' in data and 'core' in data['plugins'] and 'timeout' in data['plugins']['core']:
-            # We'll give 3x run time to account for startup and shutdown processing time?
-            timeout_s = data['plugins']['core']['timeout'] * 2 # When the signal is first sent
-            timeout_ks = data['plugins']['core']['timeout'] # If signal is ignored we'll kill after this much additional time
-            timeout = f"timeout -k {timeout_ks}  {timeout_s} "
-        else:
-            timeout_s = None
-            timeout = ""
-
-        # qemu logs stay out of 'output' directory, that's managed/created/deleted(?) by penguin_run
-        # but we need to be independent of penguin_run's output directory
-        out_log_path = os.path.join(*[os.path.dirname(out_dir), "qemu_stdout.txt"])
-        err_log_path = os.path.join(*[os.path.dirname(out_dir), "qemu_stderr.txt"])
-
-        # Make out_dir if it doesn't exist
-        os.makedirs(out_dir, exist_ok=True)
-
-        '''
-        with open(out_log_path, "wb") as out_log, open(err_log_path, "wb") as err_log:
-            # Start the subprocess with stdout and stderr redirected to log files
-            process = subprocess.Popen(cmd, stdout=out_log, stderr=err_log, stdin=subprocess.DEVNULL, text=False)
-
-            try:
-                # Wait for the process to complete, with timeout
-                process.wait(timeout=timeout_seconds)
-            except subprocess.TimeoutExpired:
-                print(f"Process timed out after {timeout_seconds} seconds.")
-                # Here you should handle the timeout, for example, by terminating the process
-                process.terminate()
-                # Wait a bit for the process to terminate
-                process.wait()
-        '''
-
-        ran_path = os.path.join(*[out_dir, ".ran"])
-        cmd = f"{timeout}python3 -u -m penguin.penguin_run {conf_yaml} {out_dir} {run_base}/qcows"
-        #cmd = f"python3 -u -m penguin.penguin_run {conf_yaml} {out_dir} {run_base}/qcows"
-        complete_cmd = f"{cmd} > {out_log_path} 2> {err_log_path}"
-
-        pid = os.spawnlp(os.P_NOWAIT, 'sh', 'sh', '-c', complete_cmd)
-        start_time = time.time()
-
-        while not os.path.exists(ran_path):
-            elapsed_time = time.time() - start_time
-            if timeout_s is not None and elapsed_time > timeout_s:
-                logger.warning("Timeout period elapsed, killing subprocess.")
-                time.sleep(30)
-                # Try to kill PID
-                try:
-                    os.kill(pid, 9)
-                except Exception as e:
-                    logger.error(f"Failed to kill {pid}: {e} - leaving alive")
-                    # Just move on
-                break
-            time.sleep(5)  # Check every 5 seconds
-
-        if not os.path.exists(ran_path):
-            logger.warning("Subprocess did not complete successfully or was terminated due to timeout.")
-
-        # Check if we have the expected .ran file in output directory
-        ran_file = os.path.join(out_dir, ".ran")
-        if not os.path.isfile(ran_file):
-            logger.error(f"Missing .ran file with {conf_yaml}")
-            raise RuntimeError(f"ERROR, running {conf_yaml} in {run_dir} did not produce {out_dir}/.ran file")
-
-
 
 class Worker:
     def __init__(self, global_state, config_manager, run_base, max_iters, run_index, active_worker_count, thread_id=None):
