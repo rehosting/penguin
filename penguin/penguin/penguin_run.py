@@ -309,6 +309,13 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
 
     panda.panda_args[append_idx] = full_append
 
+    @panda.cb_pre_shutdown
+    def pre_shutdown():
+        '''
+        Ensure pyplugins nicely clean up. Working around some panda bug
+        '''
+        panda.pyplugins.unload_all()
+
     @panda.cb_guest_hypercall
     def before_hc(cpu):
         # This is a bit of a hack. We want this in core.py, but we were seeing
