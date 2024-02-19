@@ -36,7 +36,7 @@ RUN mkdir /igloo_static && \
   mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel
 
 # Download libnvram from CI. Populate /igloo_static/libnvram
-RUN wget -qO - https://github.com/panda-re/libnvram/releases/download/release_8236c99ede179fc0b2b0a3a81da3f35876f71230/libnvram-latest.tar.gz | \
+RUN wget -qO - https://github.com/panda-re/libnvram/releases/download/release_e7e564e203fd6319bf6e1e23daa744200403e8c2/libnvram-latest.tar.gz | \
   tar xzf - -C /igloo_static
 
 # Download  console from CI. Populate /igloo_static/console
