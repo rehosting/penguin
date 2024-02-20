@@ -323,10 +323,8 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
         # but the guest was still running and panda was trying to call into the
         # freed python cffi callback object. As a workaround we have it here.
         num = panda.arch.get_arg(cpu, 0)
-        if num in [100, 101, 102, 103, 104, 105, 200, 201, 202, 203]:
-            if target := getattr(panda.pyplugins.ppp, 'Core', None):
-                target.handle_hc(cpu, num)
-                return True
+        if target := getattr(panda.pyplugins.ppp, 'Core', None):
+            return target.handle_hc(cpu, num) # True IFF that handles num
         return False
 
     print("Run emulation")

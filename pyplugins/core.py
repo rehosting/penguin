@@ -93,6 +93,9 @@ class Core(PyPlugin):
         except ValueError:
             # Argument couldn't be read
             self.panda.arch.set_arg(cpu, 1, 1)
+        except RuntimeError:
+            # Not one of ours
+            return False
         return True
 
     def _handle_hc(self, cpu, num):
