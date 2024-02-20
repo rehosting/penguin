@@ -24,10 +24,6 @@ except ImportError:
     PenguinAnalysis = object
     import yaml
 
-# XXX you'll see checks for if not >= 0 and >= -2. That's checking if we get -1 or -2 looking for -ENOENT
-# ENOENT is 2. Except on mips it seems to be 1. Not sure why?
-# XXX figure this out! TODO
-
 # Missing files go into our first log
 outfile_missing = "pseudofiles_failures.yaml"
 # Files we're modeling go into the second. Particularly useful for defaults
@@ -78,6 +74,9 @@ class FileFailures(PyPlugin):
 
         self.panda = panda
         self.outdir = self.get_arg("outdir")
+
+        # XXX: It has seemed like this should be 1 for some architectures, but that can't be right?
+        self.ENOENT = 2
 
         # We track when processes try accessing or IOCTLing on missing files here:
         self.file_failures = {} # path: {event: {count: X}}. Event is like open/read/ioctl/stat/lstat.
@@ -232,7 +231,7 @@ class FileFailures(PyPlugin):
             k = panda.get_id(cpu)
 
 			# If we pop and a key is missing, that's unexpected, I think?
-            if panda.arch.get_retval(cpu, convention="syscall") != -2:
+            if panda.arch.get_retval(cpu, convention="syscall") != -self.ENOENT:
                 if k in self.syscall_dev_fnames:
                     del self.syscall_dev_fnames[k]
                 return
@@ -350,11 +349,7 @@ class FileFailures(PyPlugin):
 
     def fail_detect_opens(self, cpu, fname, fd):
         fd = self.panda.from_unsigned_guest(fd)
-        #if fd < 0 and fd >= -2: # ENOENT - we only care about files that don't exist
-        if fd == -1:
-            print(f"Open failed on {fname} with ENOPERM - ignore???")
-
-        if fd == -2:
+        if fd == -self.ENOENT:
             # enoent let's gooooo
             self.centralized_log(fname, 'open')
 
