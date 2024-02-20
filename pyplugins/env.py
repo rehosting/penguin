@@ -114,8 +114,8 @@ class EnvTracker(PyPlugin):
 
         # Write mtd vars
         with open(pjoin(self.outdir, mtd_output), "w") as f:
-            vals = list(self.mtd_vars)
-            yaml.dump(vals, f)
+            for f in self.mtd_vars:
+                f.write(f + "\n")
 
     @staticmethod
     def uboot_var_interesting(var):
