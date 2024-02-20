@@ -63,11 +63,23 @@ assert_shared_dir() {
   grep -q 'Hello from guest!' results/shared/from_guest.txt
 }
 
+assert_all_good() {
+  grep -q 'All good' results/console.log
+}
+
+assert_mtd_detect() {
+  grep -q  'read' results/pseudofiles_proc_mtd.txt
+}
+
+assert_mtd_found() {
+  grep -q "flash" results/env_mtd.txt && assert_all_good
+}
+
 mkdir -p results qcows
 
 kernel_versions=("4.10" "6.7")
 archs=("armel" "mipsel" "mipseb")
-tests=("env_unset" "env_cmp" "pseudofile_missing" "pseudofile_ioctl" "shared_dir")
+tests=("env_unset" "env_cmp" "pseudofile_missing" "pseudofile_ioctl" "hostfile" "shared_dir" "proc_mtd" "proc_mtd_missing")
 
 # We can run a single architecture or a single test.
 # For example:
@@ -123,5 +135,25 @@ for arch in "${archs[@]}"; do
   else
     run_test "$kernel_version" "$arch" "shared_dir" assert_shared_dir
   fi
+
+  if [[ ! " ${tests[@]} " =~ " proc_mtd " ]]; then
+    echo "Skipping proc_mtd test for $arch"
+  else
+    run_test "$kernel_version" "$arch" "proc_mtd" assert_all_good
+  fi
+
+  if [[ ! " ${tests[@]} " =~ " proc_mtd_missing " ]]; then
+    echo "Skipping proc_mtd_missing test for $arch"
+  else
+    run_test "$kernel_version" "$arch" "proc_mtd_missing" assert_mtd_detect
+  fi
+
+  # Disabled by default - never worked
+  if [[ ! " ${tests[@]} " =~ " proc_mtd_dynamic " ]]; then
+    echo "Skipping proc_mtd_dynamic test for $arch"
+  else
+    run_test "$kernel_version" "$arch" "proc_mtd_dynamic" assert_mtd_found
+  fi
+
 done
 done

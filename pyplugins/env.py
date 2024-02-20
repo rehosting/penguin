@@ -72,16 +72,19 @@ class EnvTracker(PyPlugin):
 
         # MTD search (e.g., /proc/mtd)
         # This is for *partition names* not the contents or anything that fancy
-        keyword = "mtd0: "
+        # If we have an MTD device with a name "fakemtd" we'll look for it!
 
-        target = s2 if keyword in s1 else s1 if keyword in s2 else None
-        if target:
-            # We can trim "s, because the name is always quoted (e.g., we could search "foo" when looking for foo)
-            target = target.strip('"')
-            if 'env' in self.conf and 'mtdparts' in self.conf['env'] and f"({target})" in self.conf['env']['mtdparts']:
-                # We've set this partition up already. Yay!
-                return
-            self.mtd_addvar(cpu, target)
+        if 'pseudofiles' in self.conf and \
+                any(x.startswith('/dev/mtd') and
+                    'name' in data and data['name'] == 'fakemtd'
+                    for x, data in self.conf['pseudofiles'].items()):
+
+            for keyword in ["fakemtd", "mtd100:"]:
+                target = s2 if keyword in s1 else s1 if keyword in s2 else None
+                if target:
+                    # We can trim "s, because the name is always quoted (e.g., we could search "foo" when looking for foo)
+                    target = target.strip('"')
+                    self.mtd_addvar(cpu, target)
 
     def on_getenv(self, cpu, s):
         if self.var_interesting(s):
@@ -331,12 +334,12 @@ class EnvTrackerAnalysis(PenguinAnalysis):
 
         with open(pjoin(output_dir, missing_output)) as f:
             env_accesses = yaml.safe_load(f)
+            assert(isinstance(env_accesses, list)), f"Expected list of env accesses, got {env_accesses}"
 
         if isfile(pjoin(output_dir, shell_env_output)):
             # Shell plugin may have detected some env accesses too. Let's take a look
             seen_envs = {} # name -> values
             with open(pjoin(output_dir, shell_env_output)) as f:
-                env_accesses = {}
                 for line in f.readlines()[1:]: # Skip header
                     # Recover the env list from the line.
                     # This storage format is kinda gross
@@ -355,20 +358,32 @@ class EnvTrackerAnalysis(PenguinAnalysis):
             # Now look through the env names we've seen. Try finding any names that were always None.
             # Add these to our env_accesses list if they're not already there
             for k, v in seen_envs.items():
+                # TODO: should we add the seen value to the failure?
                 if len(k) == 0 or not k[0].isalpha():
-                    # We only want sane variable names. Exclude anythign that starts with a symbol or non-alpha
+                    # We only want sane variable names. Exclude anything that starts with a symbol or non-alpha
                     continue
                 if None in v and k not in env_accesses:
-                    env_accesses[k] = {}
+                    env_accesses.append(k)
 
-        for env in env_accesses.keys():
+        for env in env_accesses:
             if not (2 < len(env) < 16):
                 print(f"Skipping unset env {env} since it's too long or too short")
 
-        return [
+        env_failures = [
             Failure('unset_' + env, self.ANALYSIS_TYPE, {'var': env, 'source': 'unset'})
-            for env in env_accesses.keys() if 2 < len(env) < 16
+            for env in env_accesses if 2 < len(env) < 16
         ]
+
+        # Another failure class is MTD accesses - if we have anything in env_mtd.txt
+        # we'll add those as failures too. TODO
+        #if isfile(pjoin(output_dir, mtd_output)):
+        #    with open(pjoin(output_dir, mtd_output)) as f:
+        #        mtd_accesses = [x.strip() for x in f.readlines() if len(x.strip()) > 0]
+        #        # Value is only used for pretty-printing here
+        #        env_failures += [Failure('mtd_' + mtd, self.ANALYSIS_TYPE, {'var': mtd, 'value':'[mtd]', 'source': 'mtd'})
+        #                         for mtd in mtd_accesses]
+
+        return env_failures
 
     def get_potential_mitigations(self, config, failure : Failure) -> List[Mitigation]:
         # If we just ran a dynamic search that's the only mitigation we'll apply
