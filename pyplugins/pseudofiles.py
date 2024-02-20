@@ -94,9 +94,9 @@ class FileFailures(PyPlugin):
         self.devfs = []
         self.procfs = []
         self.sysfs = []
-        need_ioctl_hooks = False
         #self.last_symex = None
         self.warned = set()
+        need_ioctl_hooks = False
 
         # Closure so we can pass details through
         def make_rwif(details, fn_ref):
@@ -114,8 +114,16 @@ class FileFailures(PyPlugin):
 
 
             # Make sure each key is one of our 3 allowed values, not a junk value
-            if any(x not in ['read', 'write', 'ioctl'] for x in details.keys()):
+            if any(x not in ['read', 'write', 'ioctl', 'name'] for x in details.keys()):
                 raise ValueError("pseudofiles: each file must have a read, write, or ioctl key. No other keys are supported")
+
+            # Check if any details with non /dev/mtd names has a 'name' property
+            for fname in details:
+                if not fname.startswith("/dev/mtd") and 'name' in details[fname]:
+                    raise ValueError("Pseudofiles: name property can only be set for MTD devices")
+                if fname.startswith("/dev/mtd") and not 'name' in details[fname]:
+                    raise ValueError("Pseudofiles: name property must be set for MTD devices")
+
 
             for ftype in "read", "write", "ioctl":
                 if ftype not in details or "model" not in details[ftype]:
@@ -227,7 +235,7 @@ class FileFailures(PyPlugin):
         def all_sysret(cpu, pc, call, rp):
             if not syscall_is_file_op(cpu, call):
                 return
-            
+
             k = panda.get_id(cpu)
 
 			# If we pop and a key is missing, that's unexpected, I think?
@@ -275,6 +283,8 @@ class FileFailures(PyPlugin):
         self.ppp.Core.ppp_reg_cb('igloo_open', self.fail_detect_opens)
         self.ppp.Core.ppp_reg_cb('igloo_ioctl', self.fail_detect_ioctl)
 
+        self.ppp.Core.ppp_reg_cb('igloo_proc_mtd', self.proc_mtd_check)
+
         # On ioctl return we might want to start symex. We detect failures with a special handler though
         if need_ioctl_hooks:
             @panda.ppp("syscalls2", "on_sys_ioctl_return")
@@ -300,7 +310,7 @@ class FileFailures(PyPlugin):
                             if model['model'] == 'symex':
                                 filename = fname
                                 break
-                
+
                 if filename is None:
                     raise ValueError("No filename with symex model found in config, but we got a symex ioctl. Unexpected")
 
@@ -321,7 +331,7 @@ class FileFailures(PyPlugin):
         # We just track count
         if not path_interesting(path):
             return
-        
+
         if path.startswith("/proc/"):
             # replace /proc/<pid> with /proc/<PID> to avoid a ton of different paths
             path = re.sub(r'/proc/\d+', '/proc/PID', path)
@@ -343,12 +353,66 @@ class FileFailures(PyPlugin):
                 self.file_failures[path][event]['details'] = []
             self.file_failures[path][event]['details'].append(event_details)
 
+    def proc_mtd_check(self, cpu, buffer, buffer_sz):
+        '''
+        The guest is reading /proc/mtd. We should populate this file
+        dynamically based on the /dev/mtd* devices we've set up.
+
+        These devices have a name in addition to other properties:
+        /dev/mtd0:
+            name: mymtdname
+            read:
+                model: return_const
+                buf: "foo"
+        '''
+        # For each device in our config that's /dev/mtdX, we'll add a line to the buffer
+        # Buffer size is limited to 512 in kernel for now.
+        buf = ""
+        for filename, details in self.config["pseudofiles"].items():
+            if not filename.startswith("/dev/mtd"):
+                continue
+
+            idx = filename.split("/dev/mtd")[1]
+            if idx.startswith("/"): # i.e., /dev/mtd/0 -> 0
+                idx = idx[1:]
+
+            if not idx.isdigit():
+                print(f"WARNING: mtd device {filename} is non-numeric. Skipping in /proc/mtd report")
+                continue
+
+            if not 'name' in details:
+                print(f"WARNING: mtd device {filename} has no name. Skipping in /proc/mtd report")
+                continue
+
+            buf += "mtd{}: {:08x} {:08x} \"{}\"\n".format(int(idx), 0x1000000, 0x20000, details['name'])
+
+        if len(buf) > buffer_sz:
+            print(f"WARNING truncating mtd buffer from {len(buf)} to {buffer_sz}")
+            buf = buf[:buffer_sz]
+
+        try:
+            self.panda.virtual_memory_write(cpu, buffer, buf.encode())
+            self.panda.arch.set_arg(cpu, 0, 0)  # zero: success
+        except ValueError:
+            print("Proc mtd write failed - retrying")
+            self.panda.arch.set_arg(cpu, 0, 1)  # non-zero = error
+
+        if len(buf) == 0:
+            with open(pjoin(self.outdir, 'pseudofiles_proc_mtd.txt'), "w") as f:
+                f.write("/proc/mtd was read with no devices in config")
+
+            # The guest read /proc/mtd, but we didn't have anything set up in it! Perhaps
+            # it's looking for a device of a specific name - potential failure we can mitigate
+            #self.file_failures['/proc/mtd'] = {'read': {'count': 1, 'details': 'special: no mtd devices in pseudofiles'}}
+
+
     def fail_detect_ioctl(self, cpu, fname, cmd):
         # A regular (non-dyndev) device was ioctl'd and is returning -ENOTTY so our hypercall triggers
         self.log_ioctl_failure(fname, cmd)
 
     def fail_detect_opens(self, cpu, fname, fd):
         fd = self.panda.from_unsigned_guest(fd)
+
         if fd == -self.ENOENT:
             # enoent let's gooooo
             self.centralized_log(fname, 'open')
@@ -617,6 +681,11 @@ class FileFailuresAnalysis(PenguinAnalysis):
             }
         }
 
+        There's a special key in here for /proc/mtd which is a bit of a magic value. If we see this
+        it means the guest looked into /proc/mtd and there weren't any values.
+        We could (TODO) try to mitigate this by 1) adding an MTD device /dev/mtd100 named "fakemtd
+        and doing an an exclusive run where we see if env finds strings that get compared to "fakemtd".
+
         If any prior ioctls were modeled with symex, we'll ignore everything else to focus on those
         (this is like how in env we only focus on DYNVAL failures when present
         '''
@@ -636,6 +705,12 @@ class FileFailuresAnalysis(PenguinAnalysis):
                             symex_cmd = cmd
                             break
 
+            #dynamic_mtd = False
+            #for devpath, file_model in config['pseudofiles'].items():
+            #    if devpath.startswith("/dev/mtd") and 'name' in file_model:
+            #        if file_model['name'] == 'fakemtd':
+            #            dynamic_mtd = True
+            #            break
 
         with open(pjoin(output_dir, outfile_missing)) as f:
             file_failures = yaml.safe_load(f)
@@ -653,10 +728,29 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         ignored_prefixes = {k for k, v in _prefix_counter.items() if v > 5}
 
+        #if dynamic_mtd:
+        #    # We're running in an exclusive mode where we made up an MTD device name and we're looking for it.
+        #    # We should check env_mtd.txt for our names and just use that as our mitigation
+        #    if not isfile(pjoin(output_dir, 'env_mtd.txt')):
+        #        print(f"Pseudofiles: in dynamic mtd search no env_mtd.txt is present - bailing")
+        #        return []
+
+        #    with open(pjoin(output_dir, 'env_mtd.txt')) as f:
+        #        env_mtd = [x.strip() for x in f.read().splitlines() if len(x.strip()) > 0]
+
+        #        # Each of these is a device name we should add - I think we can add them *all at once* and see what happens
+        #        return [Failure(f"/proc/mtd", self.ANALYSIS_TYPE, {'type': "dynamic_mtd", 'values': env_mtd})]
+
         fails = []
         for path, info in file_failures.items():
             if path in KNOWN_PATHS:
                 continue
+
+
+            if path == "/proc/mtd":
+                # This is a special case - the guest is reading /proc/mtd and we don't have any devices
+                # presumably it might want a device and for it to be a device of a specific name.
+                fails.append(Failure(f"/proc/mtd", self.ANALYSIS_TYPE, {'type': "mtd"}))
 
             if path.startswith("/proc"):
                 # Ignoring proc files, at least for now.
@@ -673,6 +767,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
                 if path.startswith("/dev/mtd"):
                     #self.logger.debug(f"Ignoring mtd device: {path}")
+                    # TODO: We need to support these!
                     continue
 
                 # If we're doing symex, we only care about "failures" on that one device with that cmd since these
@@ -744,7 +839,24 @@ class FileFailuresAnalysis(PenguinAnalysis):
         Called by mgr to get mitigations for a given path with details we returned previously from parse_failures
         '''
 
-        path = failure.info['path']
+        path = failure.info['path'] if 'path' in failure.info else ""
+
+        if 'type' in failure.info and failure.info['type'] == 'mtd':
+            # We have a /proc/mtd read failure. Two options
+            return [
+                # 1) we mitigate with exclusive and "fakemtd" which we'll find dynamic comparisons against
+                #Mitigation(f"pseudofile_fake_proc_mtd", self.ANALYSIS_TYPE, {'path': '/dev/mtd0', 'name': 'fakemtd', 'model': 'zeros', 'weight': 100}, exclusive=True),
+                # 2) we add a single MTD device with a name and size and hope that's what the guest is looking for
+                Mitigation(f"pseudofile_fixed_mtd", self.ANALYSIS_TYPE, {'path': '/dev/mtd0', 'name': 'uboot', 'model': 'zero', 'weight': 100})
+            ]
+
+        #if 'type' in failure.info and failure.info['type'] == 'dynamic_mtd':
+        #    # We just did a dynamic search for MTD devices and found some names - let's add them all.
+        #    # We'll name them /dev/mtdX where X is the index in the list
+        #    results = []
+        #    for idx, val in enumerate(failure.info['values']):
+        #        results.append(Mitigation(f"pseudofile_dynamic_mtd_{val}", self.ANALYSIS_TYPE, {'path': f"/dev/mtd{idx}", 'name': val, 'model': 'zero', 'weight': 100}))
+        #    return results
 
         if not self.is_dev_path(path):
             return []
@@ -777,7 +889,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         if failure.info['sc'] == 'read':
             # We saw a read failure. Let's propose some mitigations. Just one for now: read zeros
-            return [Mitigation(f"pseudofile_read_zeros_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'read_model', 'model': 'zeros', 'weight': 5})]
+            return [Mitigation(f"pseudofile_read_zeros_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'read_model', 'model': 'zero', 'weight': 5})]
 
         if failure.info['sc'] == 'write':
             # Saw a write failure. Only thing to do is discard.
@@ -823,6 +935,16 @@ class FileFailuresAnalysis(PenguinAnalysis):
         new_config = deepcopy(config.info)
         if 'pseudofiles' not in new_config:
             new_config['pseudofiles'] = {}
+
+        if mitigation.info['path'].startswith("/dev/mtd"):
+            # TODO: this could probably be unified with lower code if we clen it up a bit.
+            new_config['pseudofiles'][mitigation.info['path']] = {
+                'name': mitigation.info['name'],
+                'read': {
+                    'model': mitigation.info['model']
+                }
+            }
+            return [Configuration(mitigation.info['path'], new_config)]
 
         # If this is an add mitigation, we update to pseudofiles[filename]
         if mitigation.info['action'] == 'add':

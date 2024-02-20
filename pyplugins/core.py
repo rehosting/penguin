@@ -86,7 +86,7 @@ class Core(PyPlugin):
         # Now define HC callbacks
         # Define 3 callbacks that are triggered from hypercalls
         for cb in ['igloo_open', 'igloo_string_cmp', 'igloo_getenv', 'igloo_strstr',
-                    'igloo_bind', 'igloo_ioctl']:
+                    'igloo_bind', 'igloo_ioctl', 'igloo_proc_mtd']:
             self.ppp_cb_boilerplate(cb)
 
     @PyPlugin.ppp_export
@@ -137,7 +137,12 @@ class Core(PyPlugin):
             arg2 = self.panda.arch.get_arg(cpu, 2)
 
             self.ppp_run_cb('igloo_ioctl', cpu, value1, arg2)
-            
+
+        elif num == 106:
+            # read of /proc/mtd -> need to write a string into buffer
+            buffer = self.panda.arch.get_arg(cpu, 1)
+            buffer_len = self.panda.arch.get_arg(cpu, 2)
+            self.ppp_run_cb('igloo_proc_mtd', cpu, buffer, buffer_len)
 
         elif num in [200, 202]:
             # 200: ipv4 setup, 202: ipv6 setup

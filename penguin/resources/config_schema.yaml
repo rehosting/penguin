@@ -171,6 +171,13 @@ properties:
       type: object
       additionalProperties: false
       properties:
+        name:
+          title: MTD name
+          description: Name of an MTD device (ignored for non-mtd)
+          type: string
+          examples:
+            - flash
+            - uboot
         read:
           title: Read
           description: How to handle reads from the file
