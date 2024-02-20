@@ -95,6 +95,14 @@ properties:
         examples:
           - false
           - true
+      strace:
+        title: Enable stracing init process
+        description: Whether to enable strace
+        type: boolean
+        default: false
+        examples:
+          - false
+          - true
       cpu:
         title: CPU model
         description: Specify non-default QEMU CPU model

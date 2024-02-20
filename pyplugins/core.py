@@ -47,6 +47,9 @@ class Core(PyPlugin):
         if conf['core'].get('shared_dir', False):
             conf['env']['SHARED_DIR'] = "1"
 
+        if conf['core'].get('strace', False):
+            conf['env']['STRACE'] = "1"
+
         # Record loaded plugins
         with open(os.path.join(self.outdir, "core_plugins.yaml"), "w") as f:
             f.write(yaml.dump(plugins)) # Names and args
