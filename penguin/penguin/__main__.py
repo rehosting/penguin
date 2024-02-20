@@ -166,6 +166,12 @@ def archEnd(value):
 
 def _build_image(arch_identified, fs_tar_gz, output_dir, static_dir):
 
+    # TODO: makeImage currently adds our utilities into the image. It would be
+    # nice to support a mode where the utilities are added to the config file instead.
+    # Good for dev (i.e., we can swap the /igloo_static/ files and re-running config
+    # would update). Could have usability problems with sharing the static utils
+    # are then pulled out of the sharable blob (fs.tar) and could change across
+    # penguin containers.
     def _makeImage(_output_dir):
         # Build our fakeroot command to run makeImage with a dynamic output directory
         cmd = ["fakeroot", os.path.join(*[dirname(dirname(__file__)), "scripts", "makeImage.sh"]),

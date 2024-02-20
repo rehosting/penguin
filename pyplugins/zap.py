@@ -204,7 +204,7 @@ class Zap(PyPlugin):
 
         zap.ajaxSpider.scan(target)
         # Check for spider to start and then wait for completion
-        if self.wait_for_ajaxSpider_to_start(zap):
+        if self.wait_for_ajaxSpider_to_start(zap): # XXX Pylint says this method doesn't exist
             return self.wait_for_ajaxSpider_to_finish(zap)
         else:
             return False
