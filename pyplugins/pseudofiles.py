@@ -706,7 +706,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         symex = PathExpIoctl(output_dir, None, read_only=True)
                         models = symex.hypothesize_models(target=path, cmd=cmd, verbose=False)
                         if path not in models or cmd not in models[path]:
-                            return
+                            continue
                         results = [rv for rv in models[path][cmd]]
                         # We want to have symex_results
                         #print(f"Dropping symex data because it's junk, right?: {data}") # data is like {count: '1'}
