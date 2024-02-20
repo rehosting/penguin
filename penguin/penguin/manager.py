@@ -327,7 +327,7 @@ class Worker:
                 #if len(failures):
                     #this_logger.info(f"Plugin {plugin_name} reports {len(failures)} failures: {failures}")
 
-                for failure in failures:
+                for failure in (failures or []):
                     if not isinstance(failure, Failure):
                         raise TypeError(f"Plugin {plugin_name} returned a non-Failure object {failure}")
                     fails.append(failure)
