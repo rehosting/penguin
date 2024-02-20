@@ -272,13 +272,14 @@ def pre_shim(config, auto_explore=False):
             }
 
         # Find any files named insmod or modprobe, we want to replace these with symlinks to exit0
-        #for INSMOD in $(find "$TMP_DIR" -xdev -type f,l -executable \( -name "insmod" -o -name "modprobe" \)); do
-        for f in find_executables(tmp_dir):
-            if os.path.basename(f) in ['insmod', 'modprobe']:
-                config['static_files'][f] = {
-                    'type': 'symlink',
-                    'target': '/igloo/utils/exit0.sh',
-                }
+        # This is handled in our kernel patches, the relevant syscalls return 0 so these will exit 0 (I think?)
+        # TODO: would it be better to have it in here?
+        #for f in find_executables(tmp_dir):
+        #    if os.path.basename(f) in ['insmod', 'modprobe']:
+        #        config['static_files'][f] = {
+        #            'type': 'symlink',
+        #            'target': '/igloo/utils/exit0.sh',
+        #        }
 
         # Ensure we have an entry for localhost in /etc/hosts. So long as we have an /etc/ directory
         hosts = ""
@@ -299,6 +300,16 @@ def pre_shim(config, auto_explore=False):
                     'mode': 0o755,
                 }
 
+        # Delete some files that we don't want. securetty is general, limits shell access. Sys_resetbutton is some FW-specific hack?
+        for f in ['/etc/securetty', '/etc/scripts/sys_resetbutton']:
+            if os.path.isfile(tmp_dir + f):
+                config['static_files'][f] = {
+                    'type': 'delete',
+                }
+
+
+        # TODO: The following changes from FirmAE should likely be disabled by default
+        # as we can't consider this information as part of our search if it's in the initial config
         # Linksys specific hack from firmae
         if all(os.path.isfile(tmp_dir + x) for x in ['/bin/gpio', '/usr/lib/libcm.so', '/usr/lib/libshared.so']):
             config['pseudofiles']['/dev/gpio/in'] = {
@@ -307,13 +318,6 @@ def pre_shim(config, auto_explore=False):
                     'value': 0xffffffff,
                 }
             }
-
-		# Delete some files that we don't want. securetty is general, limits shell access. Sys_resetbutton is some FW-specific hack?
-        for f in ['/etc/securetty', '/etc/scripts/sys_resetbutton']:
-            if os.path.isfile(tmp_dir + f):
-                config['static_files'][f] = {
-                    'type': 'delete',
-                }
 
         # NVRAM specific hacks
         for (file, query, value) in [
@@ -417,7 +421,7 @@ def shim_configs(config, auto_explore=False):
     if len(unseen_targets):
         raise ValueError(f"penguin_static adds shims for unavailable igloo utils: {unseen_targets}")
 
-	# Identify original kernel version and shim /lib/modules/4.10.0 to it's /lib/modules path
+    # Identify original kernel version and shim /lib/modules/4.10.0 to it's /lib/modules path
     kernel_version = None
     potential_kernels = set()
     with tarfile.open(fs_path) as fs:
