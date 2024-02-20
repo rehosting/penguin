@@ -670,6 +670,8 @@ def parse_nvram_file(path, f):
         try:
             key, val = pair.split(b'=', 1)
             # It's safe to set val as a stirng, even when it's an int
+            if key.startswith(b'#'):
+                continue
             results_null[key] = val
         except ValueError:
             print(f"Warning: could not process default nvram file {path} for {pair}")
@@ -677,6 +679,8 @@ def parse_nvram_file(path, f):
 
     # Second pass, if there are a lot of lines, let's try that way
     for line in file_content.split(b'\n'):
+        if line.startswith(b'#'):
+            continue
         if b'=' not in line:
             continue
         key, val = line.split(b'=', 1)
@@ -790,7 +794,6 @@ def add_nvram_meta(config, output_dir):
     for result in results:
         for k, v in result.items():
             config['nvram'][k.decode()] = v.decode()
-            print(f"adding:", k, v)
 
     if found != 1:
         print(f"Warning: found {found} and parsed default nvram files. Now have {len(config['nvram'])} keys in config.nvram")

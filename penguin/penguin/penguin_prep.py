@@ -265,11 +265,6 @@ def prepare_run(conf, out_dir, out_filename="image.qcow2"):
         else:
             raise ValueError(f"Unknown type for nvram value {k}: {type(val)}")
 
-        config_files[f"/firmadyne/libnvram.override/{k}"] = {
-            'type': "file",
-            'contents': encoded,
-            'mode': 0o644,
-        }
         config_files[f"/firmadyne/libnvram/{k}"] = {
             'type': "file",
             'contents': encoded,
