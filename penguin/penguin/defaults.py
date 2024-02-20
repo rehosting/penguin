@@ -43,6 +43,11 @@ if [ ! -z "${CID}" ]; then
   unset CID
 fi
 
+if [ ! -z "${STRACE}" ]; then
+  # Strace init in the background (to follow through the exec)
+  /igloo/utils/sh -c "/igloo/utils/strace -p 1" &
+fi
+
 if [ ! -z "${igloo_init}" ]; then
   echo '[IGLOO INIT] Running specified init binary';
   LD_PRELOAD=/igloo/utils/libnvram.so exec "${igloo_init}"
