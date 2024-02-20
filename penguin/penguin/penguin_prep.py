@@ -270,6 +270,11 @@ def prepare_run(conf, out_dir, out_filename="image.qcow2"):
             'contents': encoded,
             'mode': 0o644,
         }
+        config_files[f"/firmadyne/libnvram/{k}"] = {
+            'type': "file",
+            'contents': encoded,
+            'mode': 0o644,
+        }
     # Given this yaml config, we need to make the specified changes both statically and dynamically
 
     # We make the static changes to guest disk in this function

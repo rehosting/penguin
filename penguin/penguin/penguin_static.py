@@ -163,12 +163,6 @@ def pre_shim(config, auto_explore=False):
         'mode': 0o666,
     }
 
-    # Add a directory for firmadyne/libnvram.override
-    config['static_files']['/firmadyne/libnvram.override'] = {
-        'type': 'dir',
-        'mode': 0o755,
-    }
-
     # Directories we want to make sure exist in the FS. This list is based on firmadyne and firmae. Added /dev explicitly because we need
     # it for devtmpfs (e.g., devtmpfs could try mounting before /igloo/init runs and makes the directory)
     directories = ["/dev", "/proc", "/dev/pts", "/etc_ro", "/tmp", "/var", "/run", "/sys", "/root", "/tmp/var", "/tmp/media", "/tmp/etc",
@@ -653,6 +647,178 @@ def add_env_meta(base_config, output_dir):
 
     return base_config
 
+
+def parse_nvram_file(path, f):
+    '''
+    There are a few formats we want to support. binary data like key=value\x00
+    and text files with key=value\n
+    Returns a dictionary of key-value pairs. Potentially empty.
+    '''
+    file_content = f.read()
+    key_val_pairs = file_content.split(b'\x00')
+    results_null = {}
+    results_lines = {}
+
+    #print(f"Parsing potential nvram file {path}")
+    #print(f"Found {len(key_val_pairs)} null terminators pairs vs {len(file_content.splitlines())} lines")
+
+    for pair in key_val_pairs[:-1]:  # Exclude the last split as it might be empty
+        try:
+            key, val = pair.split(b'=', 1)
+            # It's safe to set val as a stirng, even when it's an int
+            results_null[key] = val
+        except ValueError:
+            print(f"Warning: could not process default nvram file {path} for {pair}")
+            continue
+
+    # Second pass, if there are a lot of lines, let's try that way
+    for line in file_content.split(b'\n'):
+        if b'=' not in line:
+            continue
+        key, val = line.split(b'=', 1)
+        results_lines[key] = val
+
+    # Do we have more results in one than the other? Either should have at least 5 for us to have any confidence
+    if len(results_null) > 5 and len(results_null) > len(results_lines):
+        return results_null
+    elif len(results_lines) > 5 and len(results_lines) > len(results_null):
+        return results_lines
+    else:
+        return {}
+
+
+def add_nvram_meta(config, output_dir):
+    fs_path = config['core']['fs']
+
+    # First we'll set the default nvram values from Firmadyne/FirmAE
+    config['nvram'].update({
+        "console_loglevel": "7",
+        "restore_defaults": "1",
+        "sku_name": "",
+        "wla_wlanstate": "",
+        "lan_if": "br0",
+        "lan_ipaddr": "192.168.0.50",
+        "lan_bipaddr": "192.168.0.255",
+        "lan_netmask": "255.255.255.0",
+        "time_zone": "PST8PDT",
+        "wan_hwaddr_def": "01:23:45:67:89:ab",
+        "wan_ifname": "eth0",
+        "lan_ifnames": "eth1 eth2 eth3 eth4",
+        "ethConver": "1",
+        "lan_proto": "dhcp",
+        "wan_ipaddr": "0.0.0.0",
+        "wan_netmask": "255.255.255.0",
+        "wanif": "eth0",
+        "time_zone_x": "0",
+        "rip_multicast": "0",
+        "bs_trustedip_enable": "0",
+        "et0macaddr": "01:23:45:67:89:ab",
+        "filter_rule_tbl": "",
+        "pppoe2_schedule_config": "127:0:0:23:59",
+        "schedule_config": "127:0:0:23:59",
+        "access_control_mode": "0",
+        "fwpt_df_count": "0",
+        "static_if_status": "1",
+        "www_relocation": ""
+    })
+
+    # Add some FirmAE specific values with loops
+    def _add_firmae_for_entries(config_dict, pattern, value, start, end):
+        for index in range(start, end + 1):
+            config_dict[pattern % index] = value
+    _add_firmae_for_entries(config['nvram'], "usb_info_dev%d", "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@", 0, 101)
+    _add_firmae_for_entries(config['nvram'], "wla_ap_isolate_%d", "", 1, 5)
+    _add_firmae_for_entries(config['nvram'], "wlg_ap_isolate_%d", "", 1, 5)
+    _add_firmae_for_entries(config['nvram'], "wlg_allow_access_%d", "", 1, 5)
+    _add_firmae_for_entries(config['nvram'], "%d:macaddr", "01:23:45:67:89:ab", 0, 3)
+    _add_firmae_for_entries(config['nvram'], "lan%d_ifnames", "", 1, 10)
+
+    print(f"Added {len(config['nvram'])} default nvram keys")
+
+    # Next we'll search the filesystem for default NVRAM paths
+    # and if we find one, parse it to populate our config
+    nvram_paths = [
+        "./var/etc/nvram.default",
+        "./etc/nvram.default",
+        "./etc/nvram.conf",
+        "./etc/nvram.deft",
+        "./etc/nvram.update",
+        "./etc/wlan/nvram_params",
+        "./etc/system_nvram_defaults",
+        "./image/mnt/nvram_ap.default",
+        "./etc_ro/Wireless/RT2860AP/RT2860_default_vlan",
+        "./etc_ro/Wireless/RT2860AP/RT2860_default_novlan",
+        "./image/mnt/nvram_whp.default",
+        "./image/mnt/nvram_rt.default",
+        "./image/mnt/nvram_rpt.default",
+        "./image/mnt/nvram.default"]
+    
+    nvram_filenames = set([os.path.basename(x) for x in nvram_paths])
+    results = []
+    
+    # Do any of these files exist in the filesystem?
+    # If so we'll parse nvram keys from them and update config['nvram']
+    found = 0
+    with tarfile.open(fs_path, 'r') as tar:
+        for path in nvram_paths:
+            if path in tar.getnames():
+                # Found a default nvram file, parse it
+                f = tar.extractfile(path)
+                if f is not None:
+                    results.append(parse_nvram_file(path, f))
+                    found += 1
+
+        # Custom mitigation - search these filenames in other paths
+        if found == 0:
+            # Check again, just for filenames, without the path
+            for fname in nvram_filenames:
+                # Check if each filename in the archive ends with the filename we're looking for
+                for member in tar.getmembers():
+                    if member.name.endswith("/" + fname):
+                        f = tar.extractfile(member.name)
+                        if f is not None:
+                            results.append(parse_nvram_file(member.name, f))
+                            found += 1
+            if found != 1:
+                print(f"Warning found no nvram configs at hardcoded paths, but found {found} when just checking filenames")
+
+    # Now let's go through results and add them to our config
+    for result in results:
+        for k, v in result.items():
+            config['nvram'][k.decode()] = v.decode()
+            print(f"adding:", k, v)
+
+    if found != 1:
+        print(f"Warning: found {found} and parsed default nvram files. Now have {len(config['nvram'])} keys in config.nvram")
+
+
+    # FirmAE provides a list of hardcoded files to check for nvram keys, and default values
+    # to add if they're present. Here we add this into our config.
+
+    static_targets = { # filename -> (query, value to set if key is present)
+        './sbin/rc': ('ipv6_6to4_lan_ip', '2002:7f00:0001::'),
+        './lib/libacos_shared.so': ('time_zone_x', '0'),
+        './usr/sbin/httpd': ('rip_multicast', '0'),
+        './usr/sbin/httpd': ('bs_trustedip_enable', '0'),
+        './usr/sbin/httpd': ('filter_rule_tbl', ''),
+        './sbin/acos_service': ('rip_enable', '0'),
+    }
+
+    with tarfile.open(fs_path, 'r') as tar:
+        # For each key in static_targets, check if the query is in the file
+        for key, (query, value) in static_targets.items():
+            if not key in tar.getnames():
+                continue
+
+            # Check if query is in file
+            f = tar.extractfile(key)
+            if f is None:
+                continue
+            if query.encode() in f.read():
+                print(f"Adding {query} to nvram with value {value} since it was found in {key}")
+                config['nvram'][key] = value
+
+
 def extend_config_with_static(base_config, outdir, auto_explore=False):
 
     if 'meta' not in base_config:
@@ -670,6 +836,7 @@ def extend_config_with_static(base_config, outdir, auto_explore=False):
     add_init_meta(base_config, outdir)
     add_env_meta(base_config, outdir)
     add_dev_proc_meta(base_config, outdir)
+    add_nvram_meta(base_config, outdir)
 
     # TODO: Additional static analysis of shell scripts to find more environment variables?
     # We could do some LLM-based shell script analysis
