@@ -49,8 +49,15 @@ RUN wget -qO - https://github.com/panda-re/console/releases/download/release_389
   mv /igloo_static/console/console-mips64eb-linux-musl /igloo_static/console/console.mips64eb
 
 # Download kernels from CI. Populate /igloo_static/kernels
-RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v1.9.17/kernels-latest.tar.gz | \
+RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v1.9.18/kernels-latest.tar.gz | \
       tar xzf - -C /igloo_static
+
+# Download syscalls lists
+RUN mkdir /igloo_static/syscalls && \
+  cd /igloo_static/syscalls && \
+  for arch in arm mips mips64; do \
+  wget -q https://raw.githubusercontent.com/panda-re/panda/dev/panda/plugins/syscalls2/generated-in/linux_${arch}_prototypes.txt; \
+  done
 
 # Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
 # XXX this dependency should be versioned!

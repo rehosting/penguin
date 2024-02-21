@@ -15,7 +15,7 @@ from .manager import graph_search
 from .penguin_run import run_config
 
 from .defaults import default_init_script, default_plugins, default_version
-from .utils import load_config, dump_config
+from .utils import load_config, dump_config, arch_end
 
 static_dir = "/igloo_static/"
 DEFAULT_KERNEL = "4.10"
@@ -147,23 +147,6 @@ def find_architecture(infile):
         return None
     return arch_counts.most_common(1)[0][0]
 
-def archEnd(value):
-    arch = None
-    end = None
-
-    tmp = value.lower()
-    if tmp.startswith("mips64"):
-        arch = "mips64"
-    elif tmp.startswith("mips"):
-        arch = "mips"
-    elif tmp.startswith("arm"):
-        arch = "arm"
-    if tmp.endswith("el"):
-        end = "el"
-    elif tmp.endswith("eb"):
-        end = "eb"
-    return (arch, end)
-
 def _build_image(arch_identified, fs_tar_gz, output_dir, static_dir):
 
     # TODO: makeImage currently adds our utilities into the image. It would be
@@ -231,7 +214,7 @@ def extract_and_build(fw, output_dir):
         raise Exception(f"Architecture {arch_identified} unsupported")
 
     print(f"Identified architecture as {arch_identified}")
-    arch, endianness = archEnd(arch_identified)
+    arch, endianness = arch_end(arch_identified)
     if not arch or not endianness:
         raise Exception("Unsupported target architecture {arch_identified}")
 

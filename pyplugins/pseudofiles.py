@@ -2,11 +2,14 @@ import sys
 import re
 import math
 import logging
+import struct
+import tempfile
 from os.path import dirname, join as pjoin, isfile
 from pandare import PyPlugin
 from copy import deepcopy
 from typing import Dict, Any, List
 from collections import Counter
+import pycparser
 
 from sys import path
 path.append(dirname(__file__))
@@ -19,6 +22,7 @@ KNOWN_PATHS = ["/dev/", "/dev/pts", "/sys", "/proc", "/run", "/tmp",  # Director
 try:
     from penguin import PenguinAnalysis, yaml
     from penguin.graphs import Failure, Mitigation, Configuration
+    from penguin.utils import arch_end
 except ImportError:
     # We can still run as a PyPlugin, but we can't do post-run analysis
     PenguinAnalysis = object
@@ -64,6 +68,52 @@ def ignore_ioctl_path(path):
     if "/pipe:[" in path:
         return True
     return False
+
+def make_syscall_info_table():
+    """
+    Table format: arch -> nr -> (name, arg_names).
+    The names do not have a sys_ prefix.
+    """
+    with tempfile.NamedTemporaryFile(mode="w+") as tmp:
+        def parse_c(input):
+            # We don't care about the types. Just define them as int so parsing succeeds.
+            types = [
+                'size_t', 'umode_t', 'time_t', 'old_uid_t', 'old_gid_t',
+                'off_t', 'pid_t', 'old_sigset_t', 'qid_t', 'loff_t', 'fd_set',
+                'sigset_t', 'siginfo_t', 'cap_user_header_t', 'cap_user_data_t',
+                'uid_t', 'gid_t', 'timer_t', 'u64', 'u32', 'aio_context_t',
+                'clockid_t', 'mqd_t', 'key_t', 'key_serial_t', '__s32',
+                'old_time32_t', '__sighandler_t', 'caddr_t', '__u32', 'rwf_t',
+                'uint32_t',
+            ]
+            input = "\n".join(
+                ["#define __user"]
+                + [f"#define {t} int" for t in types]
+                + [input]
+            )
+            tmp.seek(0)
+            tmp.truncate()
+            tmp.write(input)
+            tmp.seek(0)
+            return pycparser.parse_file(tmp.name, use_cpp=True)
+
+        def parse_protos_file(arch):
+            with open(f"/igloo_static/syscalls/linux_{arch}_prototypes.txt") as f:
+                lines = [
+                    line.split(maxsplit=1) for line in f.readlines()
+                    if not line.startswith("//")
+                ]
+
+            return [(int(nr), parse_c(sig)) for nr, sig in lines]
+
+        return {
+            arch: {
+                nr: (
+                    ast.ext[0].name.replace("sys_", ""),
+                    tuple(p.name for p in ast.ext[0].type.args.params),
+                ) for nr, ast in parse_protos_file(arch)
+            } for arch in ("arm", "mips", "mips64")
+        }
 
 
 class FileFailures(PyPlugin):
@@ -180,102 +230,50 @@ class FileFailures(PyPlugin):
         # Clear results file - we'll update it as we go
         self.dump_results()
 
-        # Mapping from IDs to device filenames passed to currently-running syscalls
-        self.syscall_dev_fnames = {}
+        syscall_info_table = make_syscall_info_table()
 
-        def get_syscall_filename_args(call):
-            fd_args = [] # Tuples of (int argidx)
+        @panda.cb_guest_hypercall
+        def cb_hsc(cpu):
+            num = panda.arch.get_arg(cpu, 0)
+            if num != 0x6408400B:
+                return False  # Not a hypercall for us!
 
-            for arg_idx in range(min(call.nargs, 4)): # Ignore stack based args?
-                # Is this argument named fd or filename?
-                argname = panda.ffi.string(call.argn[arg_idx])
-                if argname in [b'filename', b'path']:
-                    fd_args.append(arg_idx)
+            format_str = f"!i6q{'4096s'*6}q"
 
-            return fd_args
+            buf_addr = panda.arch.get_arg(cpu, 1)
+            buf_size = struct.calcsize(format_str)
+            buf = panda.virtual_memory_read(cpu, buf_addr, buf_size, fmt="bytearray")
 
-        def syscall_is_file_op(cpu, call):
-            return (
-                call != panda.ffi.NULL
-                # Execve doesn't return on success, which causes problems for
-                # the analysis, and device files are probably not going to be
-                # executed anyway
-                and panda.ffi.string(call.name).decode() not in ['sys_execve', 'sys_open', 'sys_openat', 'sys_ioctl', 'sys_close'] # execve is noreturn, others are special
-                and get_syscall_filename_args(call)
+            # Unpack request with our dynamic format string
+            unpacked = struct.unpack_from(format_str, buf)
+
+            nr = unpacked[0]
+            args = unpacked[1:1+6]
+            strings = unpacked[1+6:1+6+6]
+            ret = unpacked[1+6+6]
+
+            arch, _ = arch_end(self.config["core"]["arch"])
+            name, arg_names = syscall_info_table[arch][nr]
+
+            if ret != -2:
+                return True
+
+            if name in ('open', 'openat', 'ioctl', 'close'):
+                return True
+
+            # Use null terminator and interpret as UTF-8
+            strings = [s.split(b'\0', 1)[0].decode() for s in strings]
+
+            fnames = (
+                strings[i]
+                for i, arg_name in enumerate(arg_names)
+                if arg_name in ("filename", "path", "pathname", "fd")
+                and any(strings[i].startswith(x) for x in ("/dev/", "/proc/"))
             )
+            for fname in fnames:
+                self.centralized_log(fname, name)
 
-        @panda.ppp("syscalls2", "on_all_sys_enter2")
-        def all_sysenter(cpu, pc, call, rp):
-            if call == panda.ffi.NULL:
-                callno = panda.arch.get_arg(cpu, 0, convention='syscall')
-                if callno not in self.warned:
-                    print("Pseudofiles unknown syscall #", callno)
-                    self.warned.add(callno)
-
-            if not syscall_is_file_op(cpu, call):
-                return
-
-            fnames = []
-            for arg_idx in get_syscall_filename_args(call):
-                arg_val = panda.arch.get_arg(cpu, arg_idx + 1, convention='syscall')
-                try:
-                    fname = panda.read_str(cpu, arg_val) # Convert filename to string no OSI required. Yay
-                except:
-                    continue
-                if any(fname.startswith(x) for x in ("/dev/", "/proc/")):
-                    fnames.append(fname)
-
-            id = panda.get_id(cpu)
-            # This happens a lot
-            #if (id, pc) in self.syscall_dev_fnames:
-                #print(f"WARNING: overwriting syscall_dev_fnames for {id},{pc}: {self.syscall_dev_fnames[(id,pc)]}")
-            self.syscall_dev_fnames[id] = tuple(fnames)
-
-        @panda.ppp("syscalls2", "on_all_sys_return2")
-        def all_sysret(cpu, pc, call, rp):
-            if not syscall_is_file_op(cpu, call):
-                return
-
-            k = panda.get_id(cpu)
-
-			# If we pop and a key is missing, that's unexpected, I think?
-            if panda.arch.get_retval(cpu, convention="syscall") != -self.ENOENT:
-                if k in self.syscall_dev_fnames:
-                    del self.syscall_dev_fnames[k]
-                return
-
-            # We're in the return handler for a syscall and we're returning -ENOENT
-            # because the requested file doesn't exist. We'd like to log this
-            # so let's look at the argument that contains the filename
-            # and/or the cached filename from the syscall enter handler
-
-			# Try to read the filename from the syscall arguments
-            try:
-                sc_fnames = []
-                for arg_idx in get_syscall_filename_args(call):
-                    # Ugh. Gross conversion. Not sure if it would be right for big endian? XXX
-                    b = [int(self.panda.ffi.cast("unsigned short", rp.args[arg_idx][x])) for x in range(self.panda.bits // 8)]
-                    arg_val = 0
-                    for i in range(self.panda.bits // 8):
-                        arg_val |= b[i] << (i*8)
-                    fname = self.panda.read_str(cpu, arg_val) # Convert filename to string
-
-                    if any(fname.startswith(x) for x in ["/dev/", "/proc/"]):
-                        sc_fnames.append(fname)
-
-            except ValueError:
-                try:
-                    sc_fnames = list(self.syscall_dev_fnames[k])
-                except KeyError:
-                    print(f"Failed to get filename for syscall return at {hex(pc)}")
-                    return
-
-            if k in self.syscall_dev_fnames:
-                del self.syscall_dev_fnames[k]
-
-            call_name = panda.ffi.string(call.name).decode().replace("sys_", "")
-            for fname in sc_fnames:
-                self.centralized_log(fname, call_name)
+            return True
 
         # Open/openat is a special case with hypercalls helping us out
         # because openat requires guest introspection to resolve the dfd, but we just
