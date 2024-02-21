@@ -137,6 +137,8 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
             prepare_run(conf, qcow_dir, out_filename=image_filename)
         except Exception as e:
             print(f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}")
+            if os.path.isfile(os.path.join(qcow_dir, image_filename)):
+                os.remove(os.path.join(qcow_dir, image_filename))
             raise e
         finally:
             # Always remove lock file, even if we failed to make the image
