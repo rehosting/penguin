@@ -78,9 +78,12 @@ def _modify_guestfs(g, file_path, file):
             mode = file['mode']
             # Delete target if it already exists
             if g.is_file(file_path):
+                print(f"WARNING: Deleting existing file {file_path} to replace it")
                 g.rm(file_path)
 
             if g.is_symlink(file_path):
+                # We could alternatively follow the symlink and delete the target
+                print(f"WARNING: Deleting existing symlink {file_path}->{g.readlink(file_path)} to replace it")
                 g.rm_rf(file_path)
 
             # Check if this directory exists, if not we'll need to create it
@@ -94,6 +97,7 @@ def _modify_guestfs(g, file_path, file):
         elif action == 'dir':
             if g.is_dir(file_path):
                 try:
+                    print(f"WARNING: Deleting existing dir {file_path} to replace it")
                     g.rm_rf(file_path) # Delete the directory AND CONTENTS
                 except RuntimeError as e:
                     # If directory is like /asdf/. guestfs gets mad. Just warn.
@@ -146,9 +150,18 @@ def _modify_guestfs(g, file_path, file):
         elif action == 'move_from':
             # Move a file (or directory and children) TO
             # the key in yaml (so we can avoid duplicate keys)
-            if not g.exists(file['from']):
+            if g.is_symlink(file['from']):
+                #print(f"Warning: skipping move_from for symlink {file['from']}")
+                #return
+                # Let's delete it and make a new symlink
+                dest = g.readlink(file['from'])
+                g.rm(file['from'])
+                g.ln_s(dest, file_path)
+
+            elif not g.exists(file['from']):
                 raise ValueError(f"Can't move {file['from']} as it doesn't exist")
-            g.mv(file['from'], file_path)
+            else:
+                g.mv(file['from'], file_path)
 
         elif action == 'chmod':
             # Change the mode of a file or directory
@@ -221,10 +234,44 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
         return resolved_path
 
     # Sort files by the length of their path to ensure directories are created first
-    sorted_files = sorted(files.items(), key=lambda x: len(x[0]))
+    # But we'll handle 'move_from' types first - we need to move these out *before* we
+    # replace them (i.e., /bin/sh goes into /igloo/utils/sh.orig and then we replace /bin/sh)
+
+    # First we'll make any requested directories (which rm -rf anything that exists)
+    mkdirs = {k: v for k, v in files.items() if v['type'] == 'dir'}
+    sorted_mkdirs = sorted(mkdirs.items(), key=lambda x: len(files[x[0]]))
+    for file_path, file in sorted_mkdirs:
+        #resolved_file_path = resolve_symlink_path(g, file_path)
+        #resolved_file_path = os.path.dirname(resolved_file_path) + '/' + os.path.basename(file_path)
+        resolved_file_path = file_path
+        _modify_guestfs(g, resolved_file_path, file)
+
+
+    # Next, we'll do any move_from operations
+    move_from_files = {k: v for k, v in files.items() if v['type'] == 'move_from'}
+    sorted_move_from_files = sorted(move_from_files.items(), key=lambda x: len(files[x[0]]['from']))
+    for file_path, file in sorted_move_from_files:
+        _modify_guestfs(g, file_path, file)
+
+    # Now we'll do everything else
+    sorted_files = {k: v for k, v in files.items() if v['type'] not in ['move_from', 'dir']}
+    sorted_files = sorted(sorted_files.items(), key=lambda x: len(x[0]))
     for file_path, file in sorted_files:
         resolved_file_path = resolve_symlink_path(g, file_path)
+        resolved_file_path = os.path.dirname(resolved_file_path) + '/' + os.path.basename(file_path)
+        #resolved_file_path = file_path
+        #if resolved_file_path != file_path:
+        #    print(f"WARNING: Resolved file path {file_path} to {resolved_file_path}")
+
         _modify_guestfs(g, resolved_file_path, file)
+
+    # Sanity checks. Does guest still have a /bin/sh? Is there a /igloo directory?
+    if not g.is_file("/bin/sh") and not g.is_symlink("/bin/sh"):
+        print("LS /bin:", g.ls("/bin"))
+        raise RuntimeError("Guest filesystem does not contain /bin/sh after modifications")
+
+    if not g.is_dir("/igloo"):
+        raise RuntimeError("Guest filesystem does not contain /igloo after modifications")
 
     # Shutdown and close guestfs handle
     g.shutdown()
