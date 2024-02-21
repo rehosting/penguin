@@ -307,6 +307,12 @@ def pre_shim(config, auto_explore=False):
                     'type': 'delete',
                 }
 
+        # Firmadyne added this file in libnvram, hidden in libnvram "Checked by certain Ralink routers"
+        config['static_files']['/var/run/nvramd.pid'] = {
+            'type': 'file',
+            'contents': '',
+            'mode': 0o644,
+        }
 
         # TODO: The following changes from FirmAE should likely be disabled by default
         # as we can't consider this information as part of our search if it's in the initial config
