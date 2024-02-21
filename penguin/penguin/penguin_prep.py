@@ -201,11 +201,30 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
     devices = g.list_devices()
     g.mount(devices[0], "/")
 
-        # Iterate over files from the YAML file and add them to the guest file system
-        # XXX: file['type'] are a bit of a misnomer, it's more of a filesystem action type
-        # so we can add/delete files, create directories, etc.
-    for file_path, file in files.items():
-        _modify_guestfs(g, file_path, file)
+    # Iterate over files from the YAML file and add them to the guest file system
+    # XXX: file['type'] are a bit of a misnomer, it's more of a filesystem action type
+    # so we can add/delete files, create directories, etc.
+
+    def resolve_symlink_path(g, path):
+        parts = path.strip('/').split('/')
+        resolved_path = '/'
+        for part in parts:
+            current_path = f"{resolved_path}/{part}" if resolved_path else f"/{part}"
+            current_path.replace('//', '/')
+            if g.is_symlink(current_path):
+                link_target = g.readlink(current_path)
+                if not os.path.isabs(link_target):
+                    link_target = os.path.normpath(os.path.join(resolved_path, link_target))
+                resolved_path = link_target
+            else:
+                resolved_path = current_path
+        return resolved_path
+
+    # Sort files by the length of their path to ensure directories are created first
+    sorted_files = sorted(files.items(), key=lambda x: len(x[0]))
+    for file_path, file in sorted_files:
+        resolved_file_path = resolve_symlink_path(g, file_path)
+        _modify_guestfs(g, resolved_file_path, file)
 
     # Shutdown and close guestfs handle
     g.shutdown()
