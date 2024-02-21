@@ -274,12 +274,12 @@ def pre_shim(config, auto_explore=False):
         # Find any files named insmod or modprobe, we want to replace these with symlinks to exit0
         # This is handled in our kernel patches, the relevant syscalls return 0 so these will exit 0 (I think?)
         # TODO: would it be better to have it in here?
-        #for f in find_executables(tmp_dir):
-        #    if os.path.basename(f) in ['insmod', 'modprobe']:
-        #        config['static_files'][f] = {
-        #            'type': 'symlink',
-        #            'target': '/igloo/utils/exit0.sh',
-        #        }
+        for f in find_executables(tmp_dir):
+            if os.path.basename(f) in ['insmod', 'modprobe']:
+                config['static_files'][f] = {
+                    'type': 'symlink',
+                    'target': '/igloo/utils/exit0.sh',
+                }
 
         # Ensure we have an entry for localhost in /etc/hosts. So long as we have an /etc/ directory
         hosts = ""
