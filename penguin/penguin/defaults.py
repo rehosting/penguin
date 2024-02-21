@@ -9,15 +9,19 @@ default_version = "1.0.0"
 default_plugin_path = "/pandata"
 
 default_init_script = """#!/igloo/utils/sh
-/igloo/utils/busybox mkdir -p /sys /proc /run /tmp /dev
+/igloo/utils/busybox mkdir -p /sys /proc /run /tmp /dev /igloo/libnvram_tmpfs
 /igloo/utils/busybox mount -t sysfs sysfs /sys
 /igloo/utils/busybox mount -t proc proc /proc
 /igloo/utils/busybox mount -t tmpfs tmpfs /run
 /igloo/utils/busybox mount -t tmpfs tmpfs /tmp
 /igloo/utils/busybox mount -t devtmpfs devtmpfs /dev
+/igloo/utils/busybox mount -t tmpfs tmpfs /igloo/libnvram_tmpfs
 
 /igloo/utils/busybox mkdir -p /dev/pts
 /igloo/utils/busybox mount -t devpts devpts /dev/pts
+
+# Populate tmpfs with hardcoded libnvram values
+/igloo/utils/busybox cp /igloo/libnvram/* /igloo/libnvram_tmpfs
 
 if [ -e /igloo/utils/random_seed ]; then
   /igloo/utils/busybox cat /igloo/utils/random_seed > /dev/random
