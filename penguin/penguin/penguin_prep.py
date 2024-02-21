@@ -83,6 +83,11 @@ def _modify_guestfs(g, file_path, file):
             if g.is_symlink(file_path):
                 g.rm_rf(file_path)
 
+            # Check if this directory exists, if not we'll need to create it
+            # XXX: Might ignore permissions set elsewhere in config - how
+            # does order of operations work with these config fiiles?
+            if not g.is_dir(os.path.dirname(file_path)):
+                g.mkdir_p(os.path.dirname(file_path))
             g.write(file_path, contents)
             g.chmod(mode, file_path)
 
@@ -256,6 +261,11 @@ def prepare_run(conf, out_dir, out_filename="image.qcow2"):
     config_files = conf['static_files'] if 'static_files' in conf else {}
     config_nvram = conf['nvram'] if 'nvram' in conf else {}
 
+    config_files[f"/igloo/libnvram/"] = {
+        'type': "dir",
+        'mode': 0o755,
+    }
+
     # For each key in config_nvram, we'll just add it to the FS
     for k, val in config_nvram.items():
         if isinstance(val, str):
@@ -265,11 +275,12 @@ def prepare_run(conf, out_dir, out_filename="image.qcow2"):
         else:
             raise ValueError(f"Unknown type for nvram value {k}: {type(val)}")
 
-        config_files[f"/firmadyne/libnvram/{k}"] = {
+        config_files[f"/igloo/libnvram/{k}"] = {
             'type': "file",
             'contents': encoded,
             'mode': 0o644,
         }
+
     # Given this yaml config, we need to make the specified changes both statically and dynamically
 
     # We make the static changes to guest disk in this function
