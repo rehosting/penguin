@@ -280,6 +280,8 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
         'qcow': os.path.join(output_dir, "base/image.qcow"),
         'root_shell': True,
         'show_output': False,
+        'strace': False,
+        'netdevnames': ['eth0', 'eth1', 'eth2', 'eth3', 'wlan0', 'wlan1'],
         'version': default_version,
     }
 
