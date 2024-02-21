@@ -221,7 +221,7 @@ class CoreAnalysis(PenguinAnalysis):
         # First: sanity checks. Do we see any errors in console.log? If so abort
         with open(os.path.join(output_dir, "console.log"), "rb") as f:
             for line in f:
-                if b"BUG" in line:
+                if b" BUG " in line:
                     print(f"KERNEL BUG: {repr(line)}")
                     raise RuntimeError(f"Found BUG in {output_dir}/console.log")
 
