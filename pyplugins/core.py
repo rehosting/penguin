@@ -86,7 +86,7 @@ class Core(PyPlugin):
         # Now define HC callbacks
         # Define 3 callbacks that are triggered from hypercalls
         for cb in ['igloo_open', 'igloo_string_cmp', 'igloo_getenv', 'igloo_strstr',
-                    'igloo_bind', 'igloo_ioctl', 'igloo_proc_mtd']:
+                    'igloo_bind', 'igloo_ioctl', 'igloo_proc_mtd', 'igloo_syscall']:
             self.ppp_cb_boilerplate(cb)
 
     @PyPlugin.ppp_export
@@ -170,6 +170,11 @@ class Core(PyPlugin):
                                             port, self.pending_sin_addr)
             self.pending_procname = None
             self.pending_sin_addr = None
+
+        elif num == 0x6408400B:
+            # syscall
+            buf_addr = self.panda.arch.get_arg(cpu, 1)
+            self.ppp_run_cb('igloo_syscall', cpu, buf_addr)
 
         else:
             raise RuntimeError(f"handle_hc called with unknown hypercall: {num}")
