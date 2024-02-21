@@ -223,12 +223,17 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
         resolved_path = '/'
         for part in parts:
             current_path = f"{resolved_path}/{part}" if resolved_path else f"/{part}"
-            current_path.replace('//', '/')
+            while '//' in current_path:
+                current_path = current_path.replace('//', '/')
             if g.is_symlink(current_path):
                 link_target = g.readlink(current_path)
                 if not os.path.isabs(link_target):
                     link_target = os.path.normpath(os.path.join(resolved_path, link_target))
-                resolved_path = link_target
+                if resolved_path == current_path:
+                    # Delete the symlink loop and then restart this function
+                    print(f"Warning: symlink loop. Deleting: {current_path}")
+                    g.rm(current_path)
+                    return resolve_symlink_path(g, path)
             else:
                 resolved_path = current_path
         return resolved_path
