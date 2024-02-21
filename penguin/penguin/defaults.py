@@ -23,6 +23,13 @@ default_init_script = """#!/igloo/utils/sh
 # Populate tmpfs with hardcoded libnvram values
 /igloo/utils/busybox cp /igloo/libnvram/* /igloo/libnvram_tmpfs
 
+# Make some bridges
+/igloo/utils/busybox ip link add name br0 type bridge
+/igloo/utils/busybox ip link add name br1 type bridge
+/igloo/utils/busybox ip link set dev br0 up
+/igloo/utils/busybox ip link set dev br1 up
+
+
 if [ -e /igloo/utils/random_seed ]; then
   /igloo/utils/busybox cat /igloo/utils/random_seed > /dev/random
   /igloo/utils/busybox cat /igloo/utils/random_seed > /dev/urandom
