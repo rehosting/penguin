@@ -271,3 +271,20 @@ def get_mitigation_providers(config : dict ):
 
         #print(f"Loaded {plugin_name} at version {details['version']}")
     return mitigation_providers
+
+def arch_end(value):
+    arch = None
+    end = None
+
+    tmp = value.lower()
+    if tmp.startswith("mips64"):
+        arch = "mips64"
+    elif tmp.startswith("mips"):
+        arch = "mips"
+    elif tmp.startswith("arm"):
+        arch = "arm"
+    if tmp.endswith("el"):
+        end = "el"
+    elif tmp.endswith("eb"):
+        end = "eb"
+    return (arch, end)
