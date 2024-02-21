@@ -21,7 +21,7 @@ default_init_script = """#!/igloo/utils/sh
 /igloo/utils/busybox mount -t devpts devpts /dev/pts
 
 # Populate tmpfs with hardcoded libnvram values
-/igloo/utils/busybox cp /igloo/libnvram/* /igloo/libnvram_tmpfs
+/igloo/utils/busybox cp /igloo/libnvram/* /igloo/libnvram_tmpfs/
 
 # Make some bridges
 /igloo/utils/busybox ip link add name br0 type bridge
