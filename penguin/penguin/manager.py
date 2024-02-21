@@ -62,8 +62,8 @@ class PandaRunner:
         data = yaml.safe_load(open(conf_yaml))
         if 'plugins' in data and 'core' in data['plugins'] and 'timeout' in data['plugins']['core']:
             # We'll give 3x run time to account for startup and shutdown processing time?
-            timeout_s = data['plugins']['core']['timeout'] * 2 # When the signal is first sent
-            timeout_ks = data['plugins']['core']['timeout'] # If signal is ignored we'll kill after this much additional time
+            timeout_s = data['plugins']['core']['timeout'] + 120 # First send singal 2 minutes after timeout
+            timeout_ks = 60 # If signal is ignored, kill a minute later
             timeout_cmd = f"timeout -k {timeout_ks}  {timeout_s} "
         else:
             timeout_s = None
