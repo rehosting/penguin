@@ -284,6 +284,9 @@ properties:
                 model:
                   title: Write modelling method (write to host file)
                   const: to_file
+                filename:
+                  title: Path to host file
+                  type: string
             - title: Write discard model
               required:
                 - model
