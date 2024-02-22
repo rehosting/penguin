@@ -43,6 +43,10 @@ def path_interesting(path):
 
     if path.startswith("/proc/"):
         return True
+
+    if path.startswith("/sys/"):
+        return True
+
     return False
 
 def ignore_cmd(ioctl):
