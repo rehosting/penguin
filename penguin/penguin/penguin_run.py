@@ -15,24 +15,24 @@ qemu_configs = {
         "armel": { "qemu_machine": "virt",
                     "arch":         "arm",
                     "kconf_group":  "armel",
-                    "mem_gb":          "4",
+                    "mem_gb":          "2",
                 },
 
         "mipsel": {"qemu_machine": "malta",
                     "arch":         "mipsel",
                     "kconf_group":  "mipsel",
-                    "mem_gb":          "1",
+                    "mem_gb":          "2",
                 },
 
         "mipseb": {"qemu_machine": "malta",
                     "arch":         "mips",
                     "kconf_group":  "mipseb",
-                    "mem_gb":          "1",
+                    "mem_gb":          "2",
                 },
         "mips64eb": {"qemu_machine": "malta",
                     "arch":         "mips64",
                     "kconf_group":  "mips64eb",
-                    "mem_gb":          "1",
+                    "mem_gb":          "2",
                 },
 }
 
