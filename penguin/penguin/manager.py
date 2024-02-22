@@ -63,8 +63,8 @@ class PandaRunner:
         if 'plugins' in data and 'core' in data['plugins'] and 'timeout' in data['plugins']['core']:
             # We'll give 3x run time to account for startup and shutdown processing time?
             timeout_s = data['plugins']['core']['timeout'] + 120 # First send singal 2 minutes after timeout
-            timeout_ks = 60 # If signal is ignored, kill a minute later
-            timeout_cmd = f"timeout -k {timeout_ks}  {timeout_s} "
+            timeout_ks = 120 # If signal is ignored, kill 2 minutes later
+            timeout_cmd = f"timeout -s SIGUSR1 -k {timeout_ks}  {timeout_s} "
         else:
             timeout_s = None
             timeout_cmd = ""
