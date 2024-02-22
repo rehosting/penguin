@@ -375,6 +375,8 @@ def shim_configs(config, auto_explore=False):
     shim_targets = {
         'ssh-keygen': 'ssh-keygen',
         'openssl': 'openssl',
+        'reboot': 'exit0.sh',
+        'halt': 'exit0.sh',
         'ash': 'busybox',
         'sh': 'busybox',
         'bash': 'busybox' # Special handling logic below - only safe to shim if it's already a busybox symlink
