@@ -750,7 +750,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
             if path == "/proc/mtd":
                 # This is a special case - the guest is reading /proc/mtd and we don't have any devices
                 # presumably it might want a device and for it to be a device of a specific name.
-                fails.append(Failure(f"/proc/mtd", self.ANALYSIS_TYPE, {'type': "mtd"}))
+                fails.append(Failure(f"/proc/mtd", self.ANALYSIS_TYPE, {'type': "mtd_generic"}))
 
             if path.startswith("/proc"):
                 # Ignoring proc files, at least for now.
@@ -763,11 +763,6 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 # If there are a lot of devices with numeric suffixes, we'll ignore them
                 if path[-1].isdigit() and any(path.startswith(x) for x in ignored_prefixes):
                     #self.logger.debug(f"Ignoring /dev path with numeric suffix because there are lots like it {path}")
-                    continue
-
-                if path.startswith("/dev/mtd"):
-                    #self.logger.debug(f"Ignoring mtd device: {path}")
-                    # TODO: We need to support these!
                     continue
 
                 # If we're doing symex, we only care about "failures" on that one device with that cmd since these
@@ -803,6 +798,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         fail_data = {'cmd': cmd, 'sc': 'ioctl', 'path': path, 'symex_results': results}
                         fails.append(Failure(f"{path}_ioctl_{int(cmd):x}_fromsymex", self.ANALYSIS_TYPE, fail_data))
                 else:
+                    if path.startswith("/dev/mtd"):
+                        fails.append(Failure(path, self.ANALYSIS_TYPE, {'type': "mtd"}))
+                        continue
                     # Normal case: we saw a syscall fail on a given path and we want to report it
                     for sc, raw_data in info.items():
                         data = raw_data
@@ -841,14 +839,17 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         path = failure.info['path'] if 'path' in failure.info else ""
 
-        if 'type' in failure.info and failure.info['type'] == 'mtd':
+        if 'type' in failure.info and failure.info['type'] == 'mtd_generic':
             # We have a /proc/mtd read failure. Two options
             return [
                 # 1) we mitigate with exclusive and "fakemtd" which we'll find dynamic comparisons against
-                #Mitigation(f"pseudofile_fake_proc_mtd", self.ANALYSIS_TYPE, {'path': '/dev/mtd0', 'name': 'fakemtd', 'model': 'zeros', 'weight': 100}, exclusive=True),
+                #Mitigation(f"pseudofile_fake_proc_mtd", self.ANALYSIS_TYPE, {'path': '/dev/mtd0', 'name': 'fakemtd', 'model': 'zero', 'weight': 100}, exclusive=True),
                 # 2) we add a single MTD device with a name and size and hope that's what the guest is looking for
                 Mitigation(f"pseudofile_fixed_mtd", self.ANALYSIS_TYPE, {'path': '/dev/mtd0', 'name': 'uboot', 'model': 'zero', 'weight': 100})
             ]
+        elif 'type' in failure.info and failure.info['type'] == 'mtd':
+            # We saw a failure opening a specific MTD device, let's make it with a fixed name
+                return [Mitigation(f"pseudofile_fixed_mtd", self.ANALYSIS_TYPE, {'path': path, 'name': 'uboot', 'model': 'zero', 'weight': 100})]
 
         #if 'type' in failure.info and failure.info['type'] == 'dynamic_mtd':
         #    # We just did a dynamic search for MTD devices and found some names - let's add them all.

@@ -44,7 +44,7 @@ if [ ! -e "$TARBALL" ]; then
 fi
 
 # Create required directories
-mkdir -p "$WORK_DIR" "$FD/libnvram" "$FD/libnvram.override" "$IGLOO/utils" "$IGLOO/keys"
+mkdir -p "$WORK_DIR" "$FD" "$IGLOO/utils" "$IGLOO/keys"
 
 # Extract fs.tar.gz -> work/fs.tar
 gunzip -c "$TARBALL" > "$TARFILE"
