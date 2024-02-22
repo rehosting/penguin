@@ -1,4 +1,5 @@
 import socket
+import struct
 from pandare import PyPlugin
 from os.path import join
 
@@ -21,23 +22,27 @@ class NetBinds(PyPlugin):
 
         self.ppp.Core.ppp_reg_cb('igloo_bind', self.on_bind)
 
-
     def on_bind(self, cpu, procname, is_ipv4, is_stream, port, sin_addr):
         ipvn = 4 if is_ipv4 else 6
         sock_type = 'tcp' if is_stream else 'udp'
+        is_le = self.panda.endianness == "little"
 
-        # Port is *always* provided in big endian (network byte order)
-        # regardless of the endianness of the guest.
-        # Convert to little endian and ensure it's only 16 bits
-        port = socket.ntohs(port & 0xffff)
+        # Convert to little endian if necessary and ensure it's only 16 bits
+        port = port & 0xffff
+        if is_le:
+            port = socket.ntohs(port)
 
         if ipvn == 4:
             ip = '0.0.0.0'
             if sin_addr != 0:
+                if not is_le:
+                    sin_addr = struct.pack("<I", struct.unpack(">I", sin_addr)[0])
                 ip = socket.inet_ntop(socket.AF_INET, sin_addr)
         else:
             ip = '::1'
             if sin_addr != 0:
+                if not is_le:
+                    sin_addr = struct.pack("<IIII",*(struct.unpack(">IIII",sin_addr)))
                 ip = f"[{socket.inet_ntop(socket.AF_INET6, sin_addr)}]"
 
         # Only report each bind once, if it's identical
