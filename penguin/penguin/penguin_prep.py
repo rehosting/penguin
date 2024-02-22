@@ -125,6 +125,9 @@ def _modify_guestfs(g, file_path, file):
                 raise ValueError(f"Can't add symlink to {file['target']} as it doesn't exist in requested symlink from {linkpath}")
 
             g.ln_s(file['target'], linkpath)
+            # Chmod the symlink to be 777 always
+            g.chmod(0o777, linkpath)
+
         elif action == 'dev':
             if file_path.startswith("/dev/"):
                 print("WARNING: devices in /dev/ should be populated dynamically")
