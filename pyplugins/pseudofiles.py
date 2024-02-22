@@ -575,11 +575,11 @@ class FileFailures(PyPlugin):
 
     # default models - log failures
     def read_default(self, filename, buffer, length, offset, details=None):
-        # TODO: log failure
+        self.centralized_log(filename, 'read')
         return (b'', -22) # -EINVAL - we don't support reads
 
     def write_default(self, filename, buffer, length, offset, contents, details=None):
-        # TODO: log failure
+        self.centralized_log(filename, 'write')
         return -22 # -EINVAL - we don't support writes
 
     # IOCTL is more complicated than read/write.
@@ -889,8 +889,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
             return []
 
         if failure.info['sc'] == 'read':
-            # We saw a read failure. Let's propose some mitigations. Just one for now: read zeros
-            return [Mitigation(f"pseudofile_read_zeros_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'read_model', 'model': 'zero', 'weight': 5})]
+            # We saw a read failure. Let's propose some mitigations. Just one for now: read zero
+            return [Mitigation(f"pseudofile_read_zero_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'read_model', 'model': 'zero', 'weight': 5})]
 
         if failure.info['sc'] == 'write':
             # Saw a write failure. Only thing to do is discard.
@@ -954,8 +954,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
             return [Configuration(mitigation.info['path'], new_config)]
 
         if mitigation.info['action'] == 'read_model':
-            # If model is zeros we know what to do. Otherwise we don't
-            if mitigation.info['model'] != 'zeros':
+            # If model is zero we know what to do. Otherwise we don't
+            if mitigation.info['model'] != 'zero':
                 raise ValueError(f"Unknown read model {mitigation.info['model']}")
 
             new_config['pseudofiles'][mitigation.info['path']] = {
@@ -963,7 +963,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     'model': 'zero'
                 }
             }
-            return [Configuration(f"read_zeros", new_config)]
+            return [Configuration(f"read_zero", new_config)]
 
         if mitigation.info['action'] == 'write_model':
             if mitigation.info['model'] != 'discard':
