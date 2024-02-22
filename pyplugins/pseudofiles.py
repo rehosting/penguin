@@ -853,10 +853,10 @@ class FileFailuresAnalysis(PenguinAnalysis):
         #        results.append(Mitigation(f"pseudofile_dynamic_mtd_{val}", self.ANALYSIS_TYPE, {'path': f"/dev/mtd{idx}", 'name': val, 'model': 'zero', 'weight': 100}))
         #    return results
 
-        if not self.is_dev_path(path):
+        if path in KNOWN_PATHS:
             return []
 
-        if path in KNOWN_PATHS:
+        if not any(path.startswith(x) for x in ["/dev/", "/proc", "/sys"]):
             return []
 
         self.logger.info(f"Generating mitigations for {path} with info {failure.info}")
@@ -882,15 +882,15 @@ class FileFailuresAnalysis(PenguinAnalysis):
             print(f"Warning: pseudofiles reported an access failure for {path} but we've (allegedly) added the file already. Ignoring")
             return []
 
-        if failure.info['sc'] == 'read':
+        elif failure.info['sc'] == 'read':
             # We saw a read failure. Let's propose some mitigations. Just one for now: read zero
             return [Mitigation(f"pseudofile_read_zero_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'read_model', 'model': 'zero', 'weight': 5})]
 
-        if failure.info['sc'] == 'write':
+        elif failure.info['sc'] == 'write':
             # Saw a write failure. Only thing to do is discard.
             return [Mitigation(f"pseudofile_write_discard_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'write_model', 'model': 'discard', 'weight': 5})]
 
-        if failure.info['sc'] == 'ioctl':
+        elif failure.info['sc'] == 'ioctl':
             # Two options. A) We saw an IOCTL fail and we want to make it try symex. B) We have symex results
             # IOCTL modeling is only a good idea (and will only work) if it's a pseudofiles/dyndev-provided device.
             # Otherwise we won't hit dyndev ioctl handling!
@@ -915,6 +915,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 return [Mitigation(f"symex", self.ANALYSIS_TYPE, {'path': path, 'cmd': cmd, 'weight': 5,
                                                                 'action': 'ioctl_model', 'model': 'symex'})]
 
+        elif failure.info['sc'] == 'unlink':
+            # It wants to delete a file that's missing - let's not concern ourselves with this
+            return []
         else:
             # Not sure how to handle other failures. In parse failures we're looking for -EBADF for accesses
             # then failing reads/writes (??) and -ENOTTY ioctls
