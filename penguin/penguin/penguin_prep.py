@@ -224,22 +224,28 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
     def resolve_symlink_path(g, path):
         parts = path.strip('/').split('/')
         resolved_path = '/'
-        for part in parts:
-            current_path = f"{resolved_path}/{part}" if resolved_path else f"/{part}"
-            while '//' in current_path:
-                current_path = current_path.replace('//', '/')
+        for i, part in enumerate(parts[:-1]):
+            # Build the current path incrementally
+            current_path = os.path.join(resolved_path, part) if resolved_path != '/' else '/' + part
+
+            # Check if the current path is a symlink and resolve it
             if g.is_symlink(current_path):
                 link_target = g.readlink(current_path)
-                if not os.path.isabs(link_target):
-                    link_target = os.path.normpath(os.path.join(resolved_path, link_target))
-                if resolved_path == current_path:
-                    # Delete the symlink loop and then restart this function
-                    print(f"Warning: symlink loop. Deleting: {current_path}")
-                    g.rm(current_path)
-                    return resolve_symlink_path(g, path)
-            else:
+                # If the link is absolute or the current part is not the last part (indicating a directory symlink), resolve fully
+                if os.path.isabs(link_target) or i < len(parts) - 1:
+                    current_path = os.path.normpath(link_target)
+                else:
+                    # If the link target is relative and we're at the last part, adjust the path without changing the base
+                    current_path = os.path.normpath(os.path.join(os.path.dirname(resolved_path), link_target))
+                    # Prevent changing the base directory if the symlink is for a file
+                    if not g.is_symlink(current_path):
+                        current_path = os.path.join(os.path.dirname(resolved_path), parts[-1])
+
+            # Update the resolved path only if not dealing with the last component or if it's not a symlink
+            if i < len(parts) - 1 or not g.is_symlink(current_path):
                 resolved_path = current_path
-        return resolved_path
+
+        return resolved_path + '/' + parts[-1]
 
     # Sort files by the length of their path to ensure directories are created first
     # But we'll handle 'move_from' types first - we need to move these out *before* we
