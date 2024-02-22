@@ -66,15 +66,15 @@ def _modify_guestfs(g, file_path, file):
 
     try:
         action = file['type']
-        if action == 'file':
+        if action in ('inline_file', 'host_file'):
             if "contents" in file:
                 contents = file['contents']
-            elif "hostpath" in file:
+            elif "host_path" in file:
                 try:
-                    contents = open(file['hostpath'], 'rb').read()
+                    contents = open(file['host_path'], 'rb').read()
                 except FileNotFoundError:
                     raise FileNotFoundError(
-                        f"Could not find host file at {file['hostpath']} to add to image as {file_path}")
+                        f"Could not find host file at {file['host_path']} to add to image as {file_path}")
             mode = file['mode']
             # Delete target if it already exists
             if g.is_file(file_path):
@@ -183,7 +183,7 @@ def _modify_guestfs(g, file_path, file):
             g.chmod(file['mode'], file_path)
 
         elif action == 'copytar':
-            tar_host_path = file['hostpath']
+            tar_host_path = file['host_path']
             guest_target_path = file_path
             merge = file['merge'] if 'merge' in file else False
             do_copy_tar(g, tar_host_path, guest_target_path, merge)
