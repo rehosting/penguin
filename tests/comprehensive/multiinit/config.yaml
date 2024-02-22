@@ -13,7 +13,7 @@ pseudofiles: {}
 nvram: {}
 static_files:
   /init:
-    type: file
+    type: inline_file
     contents: |
       #!/igloo/utils/sh
       set -eux
@@ -23,7 +23,7 @@ static_files:
     mode: 73
 
   /notinit:
-    type: file
+    type: inline_file
     contents: |
       #!/igloo/utils/sh
       echo "Not the right init. Doing nothing"
@@ -31,7 +31,7 @@ static_files:
     mode: 73
 
   /igloo/init:
-    type: file
+    type: inline_file
     contents: |
       #!/igloo/utils/sh
       /igloo/utils/busybox mkdir -p /sys /proc /run /tmp /dev

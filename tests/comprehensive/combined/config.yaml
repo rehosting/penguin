@@ -14,7 +14,7 @@ pseudofiles: {}
 nvram: {}
 static_files:
   /init:
-    type: file
+    type: inline_file
     contents: |
       #!/igloo/utils/sh
       set -x
@@ -38,7 +38,7 @@ static_files:
     mode: 73
 
   /notinit:
-    type: file
+    type: inline_file
     contents: |
       #!/igloo/utils/sh
       # This isn't the right init binary. No failures. Low coverage
@@ -46,7 +46,7 @@ static_files:
     mode: 73
 
   /igloo/init:
-    type: file
+    type: inline_file
     contents: |
       #!/igloo/utils/sh
       /igloo/utils/busybox mkdir -p /sys /proc /run /tmp /dev

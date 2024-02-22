@@ -217,6 +217,7 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
       lief  \
       lxml \
       lz4 \
+      pydantic \
       pyelftools \
       python-owasp-zap-v2.4 \
       python_hosts \

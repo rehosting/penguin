@@ -10,6 +10,7 @@ from typing import List, Tuple
 from copy import deepcopy
 from os.path import dirname, join
 
+from . import penguin_config
 from .analyses import PenguinAnalysis
 from .defaults import default_plugin_path
 from .common import hash_yaml
@@ -130,12 +131,12 @@ def _jsonify_dict(d):
 
 
 def _validate_config(config):
-    '''Validate config with JSON schema'''
-    config = _jsonify_dict(config)
-    schema_path = join(dirname(dirname(__file__)), "resources", "config_schema.yaml")
-    with open(schema_path) as f:
-        schema = yaml.safe_load(f)
-    jsonschema.validate(instance=config, schema=schema)
+    '''Validate config with Pydantic'''
+    penguin_config.Main(**config).dict()
+    jsonschema.validate(
+        instance=_jsonify_dict(config),
+        schema=penguin_config.Main.model_json_schema(),
+    )
 
 
 def load_config(path):
@@ -186,13 +187,13 @@ def hash_image_inputs(conf):
 
     # If we ever add other ways to import static files, this assert should
     # remind us that the file contents need to be hashed
-    assert all('contents' in f or 'hostpath' for f in static_files.values() if f['type'] == 'file')
+    assert all('contents' in f or 'host_path' for f in static_files.values() if f['type'] == 'file')
 
     # We'll include the files in our hash by reading them into our temporary
     # dict of data. This seems safer than doing hashing ourselves and merging.
     for f in static_files.values():
-        if f['type'] == 'hostpath':
-            with open(f['hostpath'], 'rb') as f:
+        if f['type'] == 'host_path':
+            with open(f['host_path'], 'rb') as f:
                 f['contents'] = f.read()
 
     # If the inputs to the image-generation function change, this assert should
