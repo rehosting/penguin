@@ -1007,12 +1007,12 @@ class ConfigurationManager:
         Update the graph with the new information to set weights
         Add new failures and mitigations to the graph
         """
-        print(f"Running config {config} with weight {weight:,}")
+        if logger is not None:
+            logger.info(f"Running config {config} with weight {weight:,}")
         failures, health_score, run_idx = run_config_f(config)
 
         if logger is not None:
-            logger.info("Finished run")
-            logger.info(f"Run {run_idx} score {health_score:,} vs expected {weight:,} (delta {health_score-weight}): {config}")
+            logger.info(f"Finished run {run_idx} score {health_score:,} vs expected {weight:,} (delta {health_score-weight}): {config}")
 
         # Sets run, health(?), and updates weights
         config.run_idx = run_idx
@@ -1058,6 +1058,8 @@ class ConfigurationManager:
                 raise ValueError(f"Error finding mitigations for {orig_failure} from {config}")
 
             for mitigation in mitigations:
+                if logger is not None:
+                    logger.info(f"Trying to mitigate {failure} with {mitigation}")
                 with self.lock:
                     if existing_mit := self.graph.get_existing_node(mitigation):
                         mitigation = existing_mit
@@ -1073,12 +1075,20 @@ class ConfigurationManager:
 
             # Now try finding mitigations. This might be for the parent failure if it was exclusive
             for mitigation in self.graph.mitigations_for(failure):
+                if logger is not None:
+                    logger.info(f"A mitigation for {failure} is {mitigation}")
                 for new_config in find_new_configs_f(failure, mitigation, target_config):
+                    if logger is not None:
+                        logger.info(f"New config is {new_config}")
                     with self.lock:
                         if existing_config := self.graph.get_existing_node(new_config):
+                            if logger is not None:
+                                logger.info(f"Not adding {new_config} because it already exists as {existing_config}")
                             new_config = existing_config
                         # If we were exclusive we pretend new config is derived from parent config
                         # (Because it kind of is)
+                        if new_config == target_config:
+                            logger.warning("BAD %s %s", new_config, target_config)
                         self.graph.add_derived_configuration(new_config, target_config, mitigation)
 
     def run_exploration_cycle(self, run_config_f : Callable[[Configuration], Tuple[List[Failure], float]],
