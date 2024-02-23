@@ -310,7 +310,7 @@ class FileFailures(PyPlugin):
             if nr not in self.warned:
                 self.warned.add(nr)
                 print(f"Unknown syscall {nr} on {arch}")
-                return
+            return
 
         if name in ('open', 'openat', 'ioctl', 'close'):
             # Handled with other hypercalls
