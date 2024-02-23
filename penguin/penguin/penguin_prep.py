@@ -227,6 +227,8 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
         for i, part in enumerate(parts[:-1]):
             # Build the current path incrementally
             current_path = os.path.join(resolved_path, part) if resolved_path != '/' else '/' + part
+            if not current_path.startswith('/'):
+                current_path = '/' + current_path
 
             # Check if the current path is a symlink and resolve it
             if g.is_symlink(current_path):
