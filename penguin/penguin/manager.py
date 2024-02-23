@@ -141,6 +141,9 @@ class Worker:
             if not isinstance(c, Configuration):
                 raise TypeError(f"Plugin {failure.type} returned a non-Configuration object {c}")
 
+            if c == parent_config:
+                raise ValueError(f"Plugin {failure.type} returned the parent config {c} as a new config")
+
             # If the mitigation has the 'exclusive' property AND already has a child, we skip?
             #if mitigation.exclusive and len(self.config_manager.graph.descendants(mitigation.gid)):
             #    print(f"Skipping {c} as {mitigation} is exclusive and previously used")
