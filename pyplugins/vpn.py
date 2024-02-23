@@ -37,7 +37,6 @@ class VsockVPN(PyPlugin):
         self.wild_ips = set() # (sock_type, port, procname) tuples
         self.mapped_ports = set() # Ports we've mapped
         self.active_listeners = set() # (proto, port)
-        print(f"VPN running with CID {CID}, outdir {self.outdir}")
         assert(CID is not None)
         
         '''
