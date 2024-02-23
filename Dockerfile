@@ -203,14 +203,6 @@ COPY utils/* /igloo_static/utils.source/
 
 WORKDIR /penguin
 
-# Aliases for quick tests. m to make a config for the stride. r to run it. a for auto (config+run+explore)
-RUN echo 'alias m="rm -rf /results/stride; penguin /fws/stride.tar.gz /results/stride/"' >> ~/.bashrc
-RUN echo 'alias r="penguin --config /results/stride/config.yaml /results/stride/out"' >> ~/.bashrc
-RUN echo 'alias a="rm -rf /results/stride_auto; penguin --niters 50 --nthreads 10 /fws/stride.tar.gz /results/stride_auto/"' >> ~/.bashrc
-RUN echo 'alias a1="rm -rf /results/stride_auto; penguin --niters 50 --nthreads 1 /fws/stride.tar.gz /results/stride_auto/"' >> ~/.bashrc
-RUN echo 'alias am="rm -rf /results/mtik; penguin --niters 50 --nthreads 1 /fws/routeros-arm-6.48.6.binwalk.tar.gz /results/mtik/"' >> ~/.bashrc
-RUN echo 'alias aa="rm -rf /results/asus/; penguin --niters 50 --nthreads 10 /fws/FW_BLUECAVE_300438432546.unblob.tar.gz /results/asus"' >> ~/.bashrc
-
 # Now copy in our module and install it
 # penguin is editable so we can mount local copy for dev
 # setuptools is workaround for igloo #131
