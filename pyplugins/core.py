@@ -200,7 +200,6 @@ class Core(PyPlugin):
             # During shutdown, stdout might be closed!
             pass
 
-        # Explicitly disable the hypercall callback
         panda.end_analysis()
 
     def graceful_shutdown(self, sig, frame):
