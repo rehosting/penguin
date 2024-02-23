@@ -3,6 +3,7 @@ import os
 import sys
 import shutil
 import random
+import logging
 from time import sleep
 from pandare import Panda
 from .utils import load_config, hash_image_inputs
@@ -73,7 +74,7 @@ def _sort_plugins_by_dependency(conf_plugins):
 
     return sorted_plugins
 
-def run_config(conf_yaml, out_dir=None, qcow_dir=None):
+def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None):
     '''
     conf_yaml a path to our config
     qcow_dir contains image.qcow + config.yaml
@@ -85,6 +86,10 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
 
     if out_dir is None:
         out_dir = os.path.join(os.path.dirname(conf_yaml), 'output')
+
+    if logger is None:
+        logger = logging.getLogger('penguin_run')
+        logger.setLevel(logging.INFO)
 
     # Image isn't in our config, but the path we use is a property
     # of configs fiiles section - we'll hash it to get a path
@@ -98,7 +103,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     conf_plugins = conf['plugins'] # {plugin_name: {enabled: False, other... opts}}
 
     if isinstance(conf_plugins, list):
-        print("Warning, execpted dict of plugins, got list")
+        logger.info("Warning, execpted dict of plugins, got list")
         conf_plugins = {plugin: {} for plugin in conf_plugins}
 
     if not os.path.isfile(kernel):
@@ -123,7 +128,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     lock_file = os.path.join(qcow_dir, f".{image_filename}.lock")
     while os.path.isfile(lock_file):
         # Stall while there's a lock
-        print("stalling on lock")
+        logger.info("stalling on lock")
         sleep(1)
 
 
@@ -132,11 +137,11 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
         open(lock_file, 'a').close() # create lock file
 
         try:
-            print(f"Missing filesystem image {config_image}, generating from config")
+            logger.info(f"Missing filesystem image {config_image}, generating from config")
             from .penguin_prep import prepare_run
             prepare_run(conf, qcow_dir, out_filename=image_filename)
         except Exception as e:
-            print(f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}")
+            logger.info(f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}")
             if os.path.isfile(os.path.join(qcow_dir, image_filename)):
                 os.remove(os.path.join(qcow_dir, image_filename))
             raise e
@@ -193,7 +198,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     if conf['core'].get('network', False):
         # Connect guest to network if specified
         if archend == "armel":
-            print("WARNING: UNTESTSED network flags for arm")
+            logger.info("WARNING: UNTESTSED network flags for arm")
         args.extend(['-netdev', 'user,id=user.0', '-device', 'virtio-net,netdev=user.0'])
 
     if 'show_output' in conf['core'] and conf['core']['show_output']:
@@ -262,7 +267,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
         details = conf_plugins[plugin_name]
         if 'enabled' in details and not details['enabled']:
             continue # Special arg "enabled" - if false we skip
-        print(f"Loading plugin: {plugin_name}")
+        logger.debug(f"Loading plugin: {plugin_name}")
 
         args ={
             'plugins': conf_plugins,
@@ -282,7 +287,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
             if len(panda.pyplugins.load_all(path, args)) == 0:
                 raise ValueError(f"Failed to load plugin: {plugin_name}")
         except SyntaxError as e:
-            print(f"Syntax error loading pyplugin: {e}")
+            logger.error(f"Syntax error loading pyplugin: {e}")
             raise ValueError(f"Failed to load plugin: {plugin_name}")
 
     # XXX HACK: normally panda args are set at the constructor. But we want to load
@@ -304,11 +309,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
     root_str = f"root={ROOTFS}"
     full_append = root_str + " " + " ".join(config_args) +  panda.panda_args[append_idx].replace(root_str, "")
     if len(full_append) > 255:
-        print("WARNING append may be too long. The following will be passed through reliably:")
-        print(full_append[:255])
-        print("The rest may be dropped:")
-        print(full_append[255:])
-
+        logger.warning("WARNING append may be too long. The following will be passed through reliably: {full_append[:255]}. The rest may be dropped: {full_append[255:]}")
     panda.panda_args[append_idx] = full_append
 
     @panda.cb_pre_shutdown
@@ -329,23 +330,40 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None):
             return target.handle_hc(cpu, num) # True IFF that handles num
         return False
 
-    print("Run emulation")
-    try:
-        panda.run()
-    except KeyboardInterrupt:
-        print("\nStopping for ctrl-c\n")
-    finally:
-        panda.panda_finish()
+    logger.info("Run emulation")
+    with open("/dev/null", "r") as devnull, \
+        open(os.path.join(os.path.dirname(out_dir), 'qemu_stdout.txt'), 'w') as output_file, \
+        open(os.path.join(os.path.dirname(out_dir), 'qemu_stderr.txt'), 'w') as error_file:
+
+        # Save original FDs for std
+        original_stdin_fd = sys.stdin.fileno()
+        original_stdout_fd = sys.stdout.fileno()
+        original_stderr_fd = sys.stderr.fileno()
+
+        # Redirect stdout, stderr to output files
+        os.dup2(devnull.fileno(), original_stdin_fd)
+        os.dup2(output_file.fileno(), original_stdout_fd)
+        os.dup2(error_file.fileno(), original_stderr_fd)
+
+        try:
+            panda.run()
+        except KeyboardInterrupt:
+            logger.info("\nStopping for ctrl-c\n")
+        finally:
+            panda.panda_finish()
+            # XXX no FDs are available - process needs to exit now
 
 def main():
-    print("Penguin run running")
+    logger = logging.getLogger('penguin_run')
+    logger.setLevel(logging.INFO)
+    logger.info("Penguin run running")
     if len(sys.argv) >= 2:
         # Given a config, run it. Specify qcow_dir to store qcow if not "dirname(config)""
         # and specify out_dir to store results if not "dirname(config)/output"
         config = sys.argv[1]
         out_dir = sys.argv[2] if len(sys.argv) > 2 else None
         qcow_dir = sys.argv[3] if len(sys.argv) > 3 else None
-        run_config(config, out_dir, qcow_dir)
+        run_config(config, out_dir, qcow_dir, logger)
     else:
         raise RuntimeError(f"USAGE {sys.argv[0]} [config.yaml] (out_dir: default is dirname(config.yaml)/output) (qcow_dir: dirname(config.yaml)/qcows)")
 
