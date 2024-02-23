@@ -733,6 +733,18 @@ class ConfigurationGraph:
                                 and not node in (exclude or []) ]
         return unexplored
 
+    def get_best_run_configuration(self) -> Optional[Configuration]:
+        '''
+        Find the configuration with the highest health score - not estimated, actual.
+        '''
+        with self.lock:
+            best = None
+            for node in self.graph.nodes:
+                if isinstance(self.graph.nodes[node]['object'], Configuration) and self.graph.nodes[node]['object'].run:
+                    if best is None or self.graph.nodes[node]['object'].health_score > best.health_score:
+                        best = self.graph.nodes[node]['object']
+            return best.run_idx if best else None
+
     def get_all_configurations(self) -> List[Configuration]:
         '''
         Get all configurations in our graph
