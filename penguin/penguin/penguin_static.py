@@ -237,7 +237,11 @@ def pre_shim(config, auto_explore=False):
                     # Make a placeholder file (so we know it exists)
                     open(os.path.join(tmp_dir, member.name), 'w').close()
                 else:
-                    tar.extract(member, tmp_dir)
+                    try:
+                        tar.extract(member, tmp_dir)
+                    except PermissionError:
+                        # XXX We can't look at this file. Whelp. Don't die
+                        continue
 
         # FIRMAE_BOOT mitigation: find path strings in binaries, make their directories if they don't already exist
         for f in find_executables(tmp_dir, {'/bin', '/sbin', '/usr/bin', '/usr/sbin'}):
@@ -276,16 +280,6 @@ def pre_shim(config, auto_explore=False):
                 'type': 'symlink',
                 'target': '/igloo/utils/busybox',
             }
-
-        # Find any files named insmod or modprobe, we want to replace these with symlinks to exit0
-        # This is handled in our kernel patches, the relevant syscalls return 0 so these will exit 0 (I think?)
-        # TODO: would it be better to have it in here?
-        for f in find_executables(tmp_dir):
-            if os.path.basename(f) in ['insmod', 'modprobe']:
-                config['static_files'][f] = {
-                    'type': 'symlink',
-                    'target': '/igloo/utils/exit0.sh',
-                }
 
         # Ensure we have an entry for localhost in /etc/hosts. So long as we have an /etc/ directory
         hosts = ""
@@ -377,6 +371,8 @@ def shim_configs(config, auto_explore=False):
         'openssl': 'openssl',
         'reboot': 'exit0.sh',
         'halt': 'exit0.sh',
+        'insmod': 'exit0.sh',
+        'modprobe': 'exit0.sh',
         'ash': 'busybox',
         'sh': 'busybox',
         'bash': 'busybox' # Special handling logic below - only safe to shim if it's already a busybox symlink
