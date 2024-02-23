@@ -562,6 +562,11 @@ def graph_search(initial_config, output_dir, max_iters=1000, nthreads=1):
     with open(os.path.join(output_dir, "finished.txt"), "w") as f:
         f.write(str(run_index.get()))
 
+    # Let's also write a best.txt file with run index of the best run
+    if best_idx := config_manager.graph.get_best_run_configuration():
+        with open(os.path.join(output_dir, "best.txt"), "w") as f:
+            f.write(str(best_idx))
+
 def main():
     import sys
     if len(sys.argv) < 3:
