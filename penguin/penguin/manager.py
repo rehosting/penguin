@@ -27,6 +27,7 @@ SCORE_CATEGORIES = ['execs', 'bound_sockets', 'devices_accessed', 'processes_run
                     'blocks_covered', 'nopanic', 'script_lines_covered']
 
 logger = logging.getLogger('mgr')
+logger.setLevel(logging.DEBUG)
 
 # Cache output to avoid re-running previously seen configs.
 # This is only useful in debugging where we'll rerun our scripts
@@ -55,22 +56,32 @@ class PandaRunner:
         # So we run it in an isolated process through penguin.penguin_run
         # which is a wrapper to call that script with: run_config(config=argv[1], out=argv[2], qcows=argv[3])
 
-        out_log_path = os.path.join(*[os.path.dirname(out_dir), "qemu_stdout.txt"])
-        err_log_path = os.path.join(*[os.path.dirname(out_dir), "qemu_stderr.txt"])
-
         # Let's call via system instead of subprocess
         data = yaml.safe_load(open(conf_yaml))
+        timeout_s = None
+        timeout_cmd = []
         if 'plugins' in data and 'core' in data['plugins'] and 'timeout' in data['plugins']['core']:
             # We'll give 3x run time to account for startup and shutdown processing time?
             timeout_s = data['plugins']['core']['timeout'] + 120 # First send singal 2 minutes after timeout
             timeout_ks = 120 # If signal is ignored, kill 2 minutes later
-            timeout_cmd = f"timeout -s SIGUSR1 -k {timeout_ks}  {timeout_s} "
-        else:
-            timeout_s = None
-            timeout_cmd = ""
+            timeout_cmd = ["timeout", "-s", "SIGUSR1", "-k", str(timeout_ks), str(timeout_s)]
 
-        full_cmd = f"{timeout_cmd}python3 -m penguin.penguin_run {conf_yaml} {out_dir} {run_base}/qcows > {out_log_path} 2> {err_log_path}"
-        system(full_cmd)
+        # SYSTEM() - not my favorite, but we need to kill the subprocess if it hangs.
+        # Qemu output goes into out_dir/../qemu_std{out,err}.txt
+        # Some initial python output will be returned in the system() call, so let's print it
+        #full_cmd = f"{timeout_cmd}python3 -m penguin.penguin_run {conf_yaml} {out_dir} {run_base}/qcows"
+        #print(system(full_cmd))
+
+        # Python subprocess. No pipe (pipes can get full and deadlock the child!)
+        cmd = timeout_cmd + ["python3", "-m", "penguin.penguin_run", conf_yaml, out_dir, f"{run_base}/qcows"]
+        try:
+            # This timeout is higher than our SIGUSR1 timeout so the guest can process the signal
+            # Before the kill. We have a lot of timeouts...
+            subprocess.run(cmd, timeout=timeout_s+180, check=True)
+        except subprocess.TimeoutExpired:
+            print(f"Timeout expired for {conf_yaml} after {timeout_s} seconds")
+        except subprocess.CalledProcessError as e:
+            print(f"Error running {conf_yaml}: {e}")
 
         ran_file = os.path.join(out_dir, ".ran")
         if not os.path.isfile(ran_file):
