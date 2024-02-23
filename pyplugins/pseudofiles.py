@@ -131,6 +131,7 @@ class FileFailures(PyPlugin):
 
         # XXX: It has seemed like this should be 1 for some architectures, but that can't be right?
         self.ENOENT = 2
+        self.warned = set() # Syscalls we don't know about that we've seen
 
         # We track when processes try accessing or IOCTLing on missing files here:
         self.file_failures = {} # path: {event: {count: X}}. Event is like open/read/ioctl/stat/lstat.
@@ -298,13 +299,21 @@ class FileFailures(PyPlugin):
         strings = unpacked[1+6:1+6+6]
         ret = unpacked[1+6+6]
 
-        arch, _ = arch_end(self.config["core"]["arch"])
-        name, arg_names = self.syscall_info_table[arch][nr]
-
-        if ret != -2:
+        if ret != -self.ENOENT:
+            # File exists or other error. Not of interest.
             return
 
+        arch, _ = arch_end(self.config["core"]["arch"])
+        try:
+            name, arg_names = self.syscall_info_table[arch][nr]
+        except KeyError:
+            if nr not in self.warned:
+                self.warned.add(nr)
+                print(f"Unknown syscall {nr} on {arch}")
+                return
+
         if name in ('open', 'openat', 'ioctl', 'close'):
+            # Handled with other hypercalls
             return
 
         # Use null terminator and interpret as UTF-8
