@@ -314,7 +314,7 @@ class FileFailures(PyPlugin):
             strings[i]
             for i, arg_name in enumerate(arg_names)
             if arg_name in ("filename", "path", "pathname", "fd")
-            and any(strings[i].startswith(x) for x in ("/dev/", "/proc/"))
+            and any(strings[i].startswith(x) for x in ("/dev/", "/proc/", "/sys/"))
         )
         for fname in fnames:
             self.centralized_log(fname, name)
