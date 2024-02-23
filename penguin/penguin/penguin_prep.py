@@ -217,6 +217,8 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
     devices = g.list_devices()
     g.mount(devices[0], "/")
 
+    bin_sh_exists_before_mods = g.exists("/bin/sh")
+
     # Iterate over files from the YAML file and add them to the guest file system
     # XXX: file['type'] are a bit of a misnomer, it's more of a filesystem action type
     # so we can add/delete files, create directories, etc.
@@ -282,7 +284,7 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
         _modify_guestfs(g, resolved_file_path, file)
 
     # Sanity checks. Does guest still have a /bin/sh? Is there a /igloo directory?
-    if not g.is_file("/bin/sh") and not g.is_symlink("/bin/sh"):
+    if bin_sh_exists_before_mods and not g.is_file("/bin/sh") and not g.is_symlink("/bin/sh"):
         print("LS /bin:", g.ls("/bin"))
         raise RuntimeError("Guest filesystem does not contain /bin/sh after modifications")
 
