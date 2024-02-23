@@ -644,6 +644,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
     def __init__(self):
         super().__init__()
         self.logger = logging.getLogger(self.ANALYSIS_TYPE)
+        self.logger.setLevel(logging.DEBUG)
 
     def is_dev_path(self, path: str) -> bool:
         """Check if the path is a device path."""
@@ -833,44 +834,47 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         path = failure.info['path'] if 'path' in failure.info else ""
 
-        if 'type' in failure.info and failure.info['type'] == 'mtd_generic':
-            # We have a /proc/mtd read failure. Two options
-            return [
-                # 1) we mitigate with exclusive and "fakemtd" which we'll find dynamic comparisons against
-                #Mitigation(f"pseudofile_fake_proc_mtd", self.ANALYSIS_TYPE, {'path': '/dev/mtd0', 'name': 'fakemtd', 'model': 'zero', 'weight': 100}, exclusive=True),
-                # 2) we add a single MTD device with a name and size and hope that's what the guest is looking for
-                Mitigation(f"pseudofile_fixed_mtd", self.ANALYSIS_TYPE, {'path': '/dev/mtd0', 'name': 'uboot', 'model': 'zero', 'weight': 100})
-            ]
-        elif 'type' in failure.info and failure.info['type'] == 'mtd':
-            # We saw a failure opening a specific MTD device, let's make it with a fixed name
-                return [Mitigation(f"pseudofile_fixed_mtd", self.ANALYSIS_TYPE, {'path': path, 'name': 'uboot', 'model': 'zero', 'weight': 100})]
-
-        #if 'type' in failure.info and failure.info['type'] == 'dynamic_mtd':
-        #    # We just did a dynamic search for MTD devices and found some names - let's add them all.
-        #    # We'll name them /dev/mtdX where X is the index in the list
-        #    results = []
-        #    for idx, val in enumerate(failure.info['values']):
-        #        results.append(Mitigation(f"pseudofile_dynamic_mtd_{val}", self.ANALYSIS_TYPE, {'path': f"/dev/mtd{idx}", 'name': val, 'model': 'zero', 'weight': 100}))
-        #    return results
-
         if path in KNOWN_PATHS:
             return []
 
         if not any(path.startswith(x) for x in ["/dev/", "/proc", "/sys"]):
             return []
 
-        self.logger.info(f"Generating mitigations for {path} with info {failure.info}")
         if path not in config['pseudofiles']:
-            # If the file doesn't exist of course we'll see -EBADF on accesses
-            # to it. First order of business is adding the device. That's all we do here.
-            # Caller maps failing path -> this mitigation so we don't need to specify
+            '''
+            If the file doesn't exist of course we'll see -EBADF on accesses
+            to it. First order of business is adding the device. That's all we do here.
+            Caller maps failing path -> this mitigation so we don't need to specify
 
-            # There are many syscalls that take a filename and can return -ENOENT - for these we want to make the file
-            # if it's not in our pseudofiles.
+            There are many syscalls that take a filename and can return -ENOENT - for these we want to make the file
+            if it's not in our pseudofiles.
 
-            # Syscalls that take in an FD would be different (ignoring for now) - the guest could only get a FD if the file
-            # already existed - so if we see that case and we're here, that's a non-pseudofile with a regular error
-            # that we shouldn't change (i.e., we cann't add the file since it already exists)
+            Syscalls that take in an FD would be different (ignoring for now) - the guest could only get a FD if the file
+            already existed - so if we see that case and we're here, that's a non-pseudofile with a regular error
+            that we shouldn't change (i.e., we cann't add the file since it already exists)
+            '''
+
+            if 'type' in failure.info:
+                # MTD failures have a 'type' property
+                if failure.info['type'] == 'mtd_generic':
+                    # We have a /proc/mtd read failure. Two options
+                    return [
+                        # 1) we mitigate with exclusive and "fakemtd" which we'll find dynamic comparisons against
+                        #Mitigation(f"pseudofile_fake_proc_mtd", self.ANALYSIS_TYPE, {'path': '/dev/mtd0', 'name': 'fakemtd', 'model': 'zero', 'weight': 100}, exclusive=True),
+                        # 2) we add a single MTD device with a name and size and hope that's what the guest is looking for
+                        Mitigation(f"pseudofile_fixed_mtd", self.ANALYSIS_TYPE, {'path': '/dev/mtd0', 'name': 'uboot', 'model': 'zero', 'weight': 100})
+                    ]
+                elif failure.info['type'] == 'mtd':
+                    # We saw a failure opening a specific MTD device, let's make it with a fixed name
+                        return [Mitigation(f"pseudofile_fixed_mtd", self.ANALYSIS_TYPE, {'path': path, 'name': 'uboot', 'model': 'zero', 'weight': 100})]
+
+                #elif failure.info['type'] == 'dynamic_mtd':
+                #    # We just did a dynamic search for MTD devices and found some names - let's add them all.
+                #    # We'll name them /dev/mtdX where X is the index in the list
+                #    results = []
+                #    for idx, val in enumerate(failure.info['values']):
+                #        results.append(Mitigation(f"pseudofile_dynamic_mtd_{val}", self.ANALYSIS_TYPE, {'path': f"/dev/mtd{idx}", 'name': val, 'model': 'zero', 'weight': 100}))
+                #    return results
 
             return [Mitigation(f"pseudofile_add_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'add', 'weight': 100})]
 
@@ -918,14 +922,16 @@ class FileFailuresAnalysis(PenguinAnalysis):
         elif failure.info['sc'] == 'unlink':
             # It wants to delete a file that's missing - let's not concern ourselves with this
             return []
-        else:
-            # Not sure how to handle other failures. In parse failures we're looking for -EBADF for accesses
-            # then failing reads/writes (??) and -ENOTTY ioctls
-            # We're probably here because 1) a device exists, but 2) a failure still happened with it.
-            # Since we add devices with open permissions (0o777) this might only happen if the guest
-            # chmods a device to be less permissive? Or perhaps we're (incorrectly + should be impossible)
-            # running on a non-dyndev device.
-            self.logger.warning(f"Unexpected failure recorded for {path}: {failure}")
+
+        # Not sure how to handle other failures. In parse failures we're looking for -EBADF for accesses
+        # then failing reads/writes (??) and -ENOTTY ioctls
+        # We're probably here because 1) a device exists, but 2) a failure still happened with it.
+        # Since we add devices with open permissions (0o777) this might only happen if the guest
+        # chmods a device to be less permissive? Or perhaps we're (incorrectly + should be impossible)
+        # running on a non-dyndev device.
+        self.logger.warning(f"Unexpected failure recorded for {path}: {failure}")
+        print(f"Unexpected failure recorded for {path}: {failure}")
+        return []
 
     def implement_mitigation(self, config : Configuration, failure : Failure, mitigation : Mitigation) -> List[Configuration]:
         # Given a mitigation update config to make it happen
@@ -933,6 +939,11 @@ class FileFailuresAnalysis(PenguinAnalysis):
         new_config = deepcopy(config.info)
         if 'pseudofiles' not in new_config:
             new_config['pseudofiles'] = {}
+
+        # Would applying this mitigation to the config be a no-op?
+        if mitigation.info['action'] == 'add' and mitigation.info['path'] in new_config['pseudofiles']:
+            print(f"Mitigation {mitigation.info['path']} already exists in config - can't add")
+            return []
 
         if mitigation.info['path'].startswith("/dev/mtd"):
             # TODO: this could probably be unified with lower code if we clen it up a bit.
