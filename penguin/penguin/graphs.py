@@ -1059,7 +1059,7 @@ class ConfigurationManager:
 
             for mitigation in mitigations:
                 if logger is not None:
-                    logger.info(f"Trying to mitigate {failure} with {mitigation}")
+                    logger.debug(f"Trying to mitigate {failure} with {mitigation}")
                 with self.lock:
                     if existing_mit := self.graph.get_existing_node(mitigation):
                         mitigation = existing_mit
@@ -1076,10 +1076,8 @@ class ConfigurationManager:
             # Now try finding mitigations. This might be for the parent failure if it was exclusive
             for mitigation in self.graph.mitigations_for(failure):
                 if logger is not None:
-                    logger.info(f"A mitigation for {failure} is {mitigation}")
+                    logger.debug(f"A mitigation for {failure} is {mitigation}")
                 for new_config in find_new_configs_f(failure, mitigation, target_config):
-                    if logger is not None:
-                        logger.info(f"New config is {new_config}")
                     with self.lock:
                         if existing_config := self.graph.get_existing_node(new_config):
                             if logger is not None:
@@ -1087,8 +1085,6 @@ class ConfigurationManager:
                             new_config = existing_config
                         # If we were exclusive we pretend new config is derived from parent config
                         # (Because it kind of is)
-                        if new_config == target_config:
-                            logger.warning("BAD %s %s", new_config, target_config)
                         self.graph.add_derived_configuration(new_config, target_config, mitigation)
 
     def run_exploration_cycle(self, run_config_f : Callable[[Configuration], Tuple[List[Failure], float]],
