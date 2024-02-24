@@ -127,4 +127,9 @@ default_plugins = {
         'enabled': True,
         'version': "1.0.0",
     },
+    'nvram2': {
+        "description": "Analysis: Track nvram accesses",
+        'enabled': True,
+        'version': "1.0.0",
+    },
 }
