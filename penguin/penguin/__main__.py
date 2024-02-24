@@ -268,7 +268,9 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
         'version': default_version,
     }
 
-    for blank_field in ['env', 'pseudofiles', 'nvram']:
+    data['blocked_signals'] = []
+
+    for blank_field in ['env', 'pseudofiles']:
         data[blank_field] = {}
 
     data['static_files'] = {
@@ -280,6 +282,9 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
     }
 
     data['plugins'] =  default_plugins
+
+    # Explicitly placing this at the end
+    data['nvram'] = {}
 
     if not use_vsock:
         # Without vsock you can't have the VPN
