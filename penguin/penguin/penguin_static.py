@@ -201,6 +201,9 @@ def pre_shim(config, auto_explore=False):
             print("Skipping directory with .. in path: " + resolved_path)
             continue
 
+        while resolved_path.endswith('/'):
+            resolved_path = resolved_path[:-1]
+
         # Check if this directory looks like / - it might be ./ or something else
         if resolved_path == '.':
             continue
@@ -218,6 +221,9 @@ def pre_shim(config, auto_explore=False):
 
         if resolved_path in existing or resolved_path in config['static_files']:
             continue
+
+        while '/./' in resolved_path:
+            resolved_path = resolved_path.replace('/./', '/')
 
         path_parts = resolved_path.split("/")
         for i in range(1, len(path_parts) + 1):
@@ -267,8 +273,8 @@ def pre_shim(config, auto_explore=False):
                 }
 
         # If /etc/tz is missing, add it
-        if os.path.isdir(tmp_dir + "/etc") and not os.path.isfile(tmp_dir + '/etc/tz'):
-            config['static_files']['/etc/tz'] = {
+        if os.path.isdir(tmp_dir + "/etc") and not os.path.isfile(tmp_dir + '/etc/TZ'):
+            config['static_files']['/etc/TZ'] = {
                 'type': 'file',
                 'contents': 'EST5EDT',
                 'mode': 0o755
@@ -301,6 +307,7 @@ def pre_shim(config, auto_explore=False):
                 }
 
         # Delete some files that we don't want. securetty is general, limits shell access. Sys_resetbutton is some FW-specific hack?
+        # TODO: in manual mode, delete securetty, in automated mode leave it.
         for f in ['/etc/securetty', '/etc/scripts/sys_resetbutton']:
             if os.path.isfile(tmp_dir + f):
                 config['static_files'][f] = {
@@ -455,9 +462,17 @@ def shim_configs(config, auto_explore=False):
                 kernel_version = potential_name
                 break
         if not kernel_version:
-            print("WARNING: multiple kernel versions look valid (TODO improve selection logic, grabbing first)")
-            print(potential_kernels)
-            kernel_version = potential_kernels.pop()
+            # Try again, ignoring dashes
+            for potential_name in potential_kernels:
+                if '.' in potential_name:
+                    kernel_version = potential_name
+                    break
+
+            # Fallback to picking the first one (TODO, could check for numbers at least)
+            if not kernel_version:
+                print("WARNING: multiple kernel versions look valid (TODO improve selection logic, grabbing first)")
+                print(potential_kernels)
+                kernel_version = potential_kernels.pop()
 
     if kernel_version:
         # We have a kernel version, add it to our config
@@ -803,6 +818,10 @@ def add_nvram_meta(config, output_dir):
     # Now let's go through results and add them to our config
     for result in results:
         for k, v in result.items():
+            if '/' in k.decode():
+                # We're using the filesystem path as the key, so we can't have any of these
+                # Might be an issue, but firmadyne's libnvram took the same approach
+                continue
             config['nvram'][k.decode()] = v.decode()
 
     if found != 1:
