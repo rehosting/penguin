@@ -25,6 +25,8 @@ uboot_output = "env_uboot.txt"
 missing_output = "env_missing.yaml"
 mtd_output = "env_mtd.txt"
 
+DEFAULT_ENV_VARS = ["root", "console", "clocksource", "elevator", "nohz", "idle", "acpi", "LD_LIBRARY_PATH"]
+
 class EnvTracker(PyPlugin):
     '''
     Track environment variables that appear to be read
@@ -37,7 +39,7 @@ class EnvTracker(PyPlugin):
         self.uboot_vars = set() # set of env vars that were read through libc getenv
         self.mtd_vars = set() # set of mtd partitions read out of /proc/mtd
 
-        self.default_env_vars = ["root", "console", "clocksource", "elevator", "nohz", "idle", "acpi", "LD_LIBRARY_PATH"]
+        self.default_env_vars = DEFAULT_ENV_VARS
         self.conf = self.get_arg("conf")
         if "env" in self.conf:
             # Track the set env variables so we know they're set
@@ -365,13 +367,17 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                 if None in v and k not in env_accesses:
                     env_accesses.append(k)
 
-        for env in env_accesses:
-            if not (2 < len(env) < 16):
-                print(f"Skipping unset env {env} since it's too long or too short")
+        #for env in env_accesses:
+        #    if not (2 < len(env) < 16):
+        #        print(f"Skipping unset env {env} since it's too long or too short")
+        default_env_vars = DEFAULT_ENV_VARS
+        if "env" in config:
+            # Track the set env variables so we know they're set
+            default_env_vars += list(config["env"].keys())
 
         env_failures = [
             Failure('unset_' + env, self.ANALYSIS_TYPE, {'var': env, 'source': 'unset'})
-            for env in env_accesses if 2 < len(env) < 16
+            for env in env_accesses if 2 < len(env) < 16 and env not in default_env_vars
         ]
 
         # Another failure class is MTD accesses - if we have anything in env_mtd.txt
@@ -429,7 +435,8 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         if var_name in existing_vars:
             # Can't mitigate an unset variable that's already set by our config. If it was magic
             # value, we would've handled above. But we're here so it must be set to a concrete value
-            raise ValueError(f"{var_name} was already set but it was also our failure - what's happening")
+            #raise ValueError(f"{var_name} was already set but it was also our failure - what's happening")
+            return []
 
         # Otherwise: variable was unset. The only mitigation we can propose here is to try magic values.
         # If that fails, we'll add some defaults
