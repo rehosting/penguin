@@ -132,4 +132,9 @@ default_plugins = {
         'enabled': True,
         'version': "1.0.0",
     },
+    'lifeguard': {
+        "description": "Intervention: Block violent signals",
+        'enabled': True,
+        'version': "1.0.0",
+    },
 }

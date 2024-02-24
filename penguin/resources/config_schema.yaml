@@ -145,6 +145,17 @@ properties:
         description: Version of the config file format
         type: string
         const: 1.0.0
+  blocked_signals:
+    title: Blocked signals
+    description: Signals to block within the guest
+    type: array
+    items:
+      title: Signal
+      description: Signal to block
+      type: integer
+      examples:
+        - 9
+        - 15
   env:
     title: Environment
     description: Environment variables to set in the guest
