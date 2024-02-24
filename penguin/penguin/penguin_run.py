@@ -309,7 +309,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None):
     root_str = f"root={ROOTFS}"
     full_append = root_str + " " + " ".join(config_args) +  panda.panda_args[append_idx].replace(root_str, "")
     if len(full_append) > 255:
-        logger.warning("WARNING append may be too long. The following will be passed through reliably: {full_append[:255]}. The rest may be dropped: {full_append[255:]}")
+        logger.warning(f"WARNING append may be too long. The following will be passed through reliably: {full_append[:255]}. The rest may be dropped: {full_append[255:]}")
     panda.panda_args[append_idx] = full_append
 
     @panda.cb_pre_shutdown
