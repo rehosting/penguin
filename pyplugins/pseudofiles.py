@@ -37,6 +37,11 @@ def path_interesting(path):
     if '/pipe:[' in path:
         return False
 
+    if "\\" in path:
+        # non-printable chars get escaped somewhere
+        # These are junk
+        return False
+
     if path.startswith("/dev/"):
         return True
 
