@@ -49,7 +49,14 @@ def arch_filter(header):
         return "unknown"
 
     arch = header.e_machine.replace("EM_","")
-    #print(f"header.e_machine: {arch}")
+
+    if "EI_DATA" in header.e_ident:
+        endianness = header.e_ident["EI_DATA"]
+        if endianness == "ELFDATA2MSB":
+            if arch != 'MIPS':
+                # Only mips big endian is supported for now
+                return arch + "EB"
+
     if arch in supported_map:
         return supported_map[arch]
 
