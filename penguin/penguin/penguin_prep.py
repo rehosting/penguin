@@ -54,7 +54,7 @@ def _modify_guestfs(g, file_path, file):
     '''
 
     if '../' in file_path:
-        print(f"WARNING: Skipping file {file_path} with path {file['path']} as it contains '/..'")
+        print(f"WARNING: Skipping file {file_path} as it contains '/..'")
         return
 
     # Check if file_path involves a broken symlink, if so bail
