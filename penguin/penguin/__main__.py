@@ -264,7 +264,7 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
         'root_shell': True,
         'show_output': False,
         'strace': False,
-        'netdevnames': ['eth0', 'eth1', 'eth2', 'eth3', 'wlan0', 'wlan1'],
+        #'netdevnames': ['eth0', 'eth1', 'eth2', 'eth3', 'wlan0', 'wlan1'], # This doesn't seem to be good
         'version': default_version,
     }
 
