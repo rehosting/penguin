@@ -204,7 +204,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None):
     if 'show_output' in conf['core'] and conf['core']['show_output']:
         console_out = ['-serial', 'mon:stdio']
     else:
-        console_out = ['-serial', f'file:{out_dir}/console.log', '-monitor', 'stdio'] # ttyS0: guest console output
+        console_out = ['-serial', f'file:{out_dir}/console.log', '-monitor', 'null'] # ttyS0: guest console output
 
     shared_dir = conf['core'].get('shared_dir')
     if shared_dir is not None:
@@ -336,14 +336,14 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None):
         open(os.path.join(os.path.dirname(out_dir), 'qemu_stderr.txt'), 'w') as error_file:
 
         # Save original FDs for std
-        original_stdin_fd = sys.stdin.fileno()
-        original_stdout_fd = sys.stdout.fileno()
-        original_stderr_fd = sys.stderr.fileno()
+        #original_stdin_fd = sys.stdin.fileno()
+        #original_stdout_fd = sys.stdout.fileno()
+        #original_stderr_fd = sys.stderr.fileno()
 
-        # Redirect stdout, stderr to output files
-        os.dup2(devnull.fileno(), original_stdin_fd)
-        os.dup2(output_file.fileno(), original_stdout_fd)
-        os.dup2(error_file.fileno(), original_stderr_fd)
+        ## Redirect stdout, stderr to output files
+        #os.dup2(devnull.fileno(), original_stdin_fd)
+        #os.dup2(output_file.fileno(), original_stdout_fd)
+        #os.dup2(error_file.fileno(), original_stderr_fd)
 
         try:
             panda.run()
