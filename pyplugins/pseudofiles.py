@@ -906,6 +906,10 @@ class FileFailuresAnalysis(PenguinAnalysis):
         # This path *is* a pseudofile we added. Errors we see are things we might want
         # to handle
 
+        if 'sc' not in failure.info:
+            print(f"Missing sc type in failure: {failure.info}. Ignoring")
+            return []
+
         if failure.info['sc'] == 'open':
             #raise ValueError(f"We saw an open failure for {path} but it's added by pseudofiles. This shouldn't happen")
             print(f"Warning: pseudofiles reported an access failure for {path} but we've (allegedly) added the file already. Ignoring")
