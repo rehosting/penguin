@@ -24,7 +24,7 @@ from .utils import load_config, dump_config, hash_yaml_config, AtomicCounter, \
 coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 
 SCORE_CATEGORIES = ['execs', 'bound_sockets', 'devices_accessed', 'processes_run', 'modules_loaded',
-                    'blocks_covered', 'nopanic', 'script_lines_covered']
+                    'blocks_covered', 'nopanic', 'script_lines_covered', 'blocked_signals']
 
 logger = logging.getLogger('mgr')
 logger.setLevel(logging.DEBUG)
@@ -361,6 +361,10 @@ class Worker:
         if not os.path.isfile(os.path.join(result_dir, ".ran")):
             raise RuntimeError(f"calculate_score: {result_dir} does not have a .ran file - check logs for error")
 
+        # load config
+        with open(f"{result_dir}/core_config.yaml") as f:
+            config = yaml.safe_load(f)
+
         # System Health: execs, sockets, devices
         with open(f"{result_dir}/health_final.yaml") as f:
             health_data = yaml.safe_load(f)
@@ -405,6 +409,7 @@ class Worker:
             'blocks_covered': blocks_covered,
             'script_lines_covered': shell_cov,
             'nopanic': 1 if not panic else 0,
+            'blocked_signals': -len(config['blocked_signals'] if 'blocked_signals' in config else []) # Negative because we want to minimize!
         }
 
         for k in score.keys():
