@@ -196,6 +196,10 @@ class FileFailures(PyPlugin):
                     # If we have a symex model we'll need to enable some extra introspection
                     need_ioctl_hooks = True
 
+        if do_netdevs := len(self.get_arg("conf").get("netdevs", [])):
+            # We need to add /proc/net/penguin to our procfs list
+            self.procfs.append("/proc/penguin_net")
+
         # We'll update hf_config[dyndev.{devnames,procnames,netdevnames,sysfs}] with the list of devices we're shimming
         for f in ["devnames", "procnames", "netdevnames", "sysfs"]:
             hf_config[f"dyndev.{f}"] = {} #XXX: None of these can be empty - we populate all below
@@ -220,6 +224,14 @@ class FileFailures(PyPlugin):
             #self.get_arg("conf")["env"]["dyndev.sysfs"] = ",".join(sysfs)
             print(f"Configuring dyndev to shim sysfs: {self.sysfs}")
         hf_config["dyndev.sysfs"][hyper("read")] = make_rwif({'val': ",".join(self.sysfs)}, self.read_const_buf)
+
+
+        # IF we have netdevs, we want to pass this info to our int shell script dynmaically.
+        # We'll do it here throough a file at /proc/penguin_net
+        if do_netdevs:
+            hf_config['/proc/penguin_net'] = {
+                hyper("read"): make_rwif({'val': " ".join(self.get_arg("conf")["netdevs"])}, self.read_const_buf)
+            }
 
         # filename -> {read: model, write: model, ioctls: model}
         # Coordinates with hyperfile for modeling behavior!
