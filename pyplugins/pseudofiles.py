@@ -3,7 +3,6 @@ import re
 import math
 import logging
 import struct
-import tempfile
 from os.path import dirname, join as pjoin, isfile
 from pandare import PyPlugin
 from copy import deepcopy
@@ -78,46 +77,38 @@ def make_syscall_info_table():
     Table format: arch -> nr -> (name, arg_names).
     The names do not have a sys_ prefix.
     """
-    with tempfile.NamedTemporaryFile(mode="w+") as tmp:
-        def parse_c(input):
-            # We don't care about the types. Just define them as int so parsing succeeds.
-            types = [
-                'size_t', 'umode_t', 'time_t', 'old_uid_t', 'old_gid_t',
-                'off_t', 'pid_t', 'old_sigset_t', 'qid_t', 'loff_t', 'fd_set',
-                'sigset_t', 'siginfo_t', 'cap_user_header_t', 'cap_user_data_t',
-                'uid_t', 'gid_t', 'timer_t', 'u64', 'u32', 'aio_context_t',
-                'clockid_t', 'mqd_t', 'key_t', 'key_serial_t', '__s32',
-                'old_time32_t', '__sighandler_t', 'caddr_t', '__u32', 'rwf_t',
-                'uint32_t',
+
+    def parse_c(input):
+        input = re.sub(r"\b__user\b", "", input)
+        # We don't care about the types. Just replace them with int so parsing succeeds.
+        types = [
+            'size_t', 'umode_t', 'time_t', 'old_uid_t', 'old_gid_t', 'off_t',
+            'pid_t', 'old_sigset_t', 'qid_t', 'loff_t', 'fd_set', 'sigset_t',
+            'siginfo_t', 'cap_user_header_t', 'cap_user_data_t', 'uid_t',
+            'gid_t', 'timer_t', 'u64', 'u32', 'aio_context_t', 'clockid_t',
+            'mqd_t', 'key_t', 'key_serial_t', '__s32', 'old_time32_t',
+            '__sighandler_t', 'caddr_t', '__u32', 'rwf_t', 'uint32_t',
+        ]
+        input = re.sub(rf"\b({'|'.join(types)})\b", "int", input)
+        return pycparser.c_parser.CParser().parse(input)
+
+    def parse_protos_file(arch):
+        with open(f"/igloo_static/syscalls/linux_{arch}_prototypes.txt") as f:
+            lines = [
+                line.split(maxsplit=1) for line in f.readlines()
+                if not line.startswith("//")
             ]
-            input = "\n".join(
-                ["#define __user"]
-                + [f"#define {t} int" for t in types]
-                + [input]
-            )
-            tmp.seek(0)
-            tmp.truncate()
-            tmp.write(input)
-            tmp.seek(0)
-            return pycparser.parse_file(tmp.name, use_cpp=True)
 
-        def parse_protos_file(arch):
-            with open(f"/igloo_static/syscalls/linux_{arch}_prototypes.txt") as f:
-                lines = [
-                    line.split(maxsplit=1) for line in f.readlines()
-                    if not line.startswith("//")
-                ]
+        return [(int(nr), parse_c(sig)) for nr, sig in lines]
 
-            return [(int(nr), parse_c(sig)) for nr, sig in lines]
-
-        return {
-            arch: {
-                nr: (
-                    ast.ext[0].name.replace("sys_", ""),
-                    tuple(p.name for p in ast.ext[0].type.args.params),
-                ) for nr, ast in parse_protos_file(arch)
-            } for arch in ("arm", "mips", "mips64")
-        }
+    return {
+        arch: {
+            nr: (
+                ast.ext[0].name.replace("sys_", ""),
+                tuple(p.name for p in ast.ext[0].type.args.params),
+            ) for nr, ast in parse_protos_file(arch)
+        } for arch in ("arm", "mips", "mips64")
+    }
 
 
 class FileFailures(PyPlugin):
