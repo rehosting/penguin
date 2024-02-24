@@ -86,7 +86,8 @@ class Core(PyPlugin):
         # Now define HC callbacks
         # Define 3 callbacks that are triggered from hypercalls
         for cb in ['igloo_open', 'igloo_string_cmp', 'igloo_getenv', 'igloo_strstr',
-                    'igloo_bind', 'igloo_ioctl', 'igloo_proc_mtd', 'igloo_syscall']:
+                    'igloo_bind', 'igloo_ioctl', 'igloo_proc_mtd', 'igloo_syscall',
+                    'igloo_nvram_get']:
             self.ppp_cb_boilerplate(cb)
 
     @PyPlugin.ppp_export
@@ -143,6 +144,21 @@ class Core(PyPlugin):
             buffer = self.panda.arch.get_arg(cpu, 1)
             buffer_len = self.panda.arch.get_arg(cpu, 2)
             self.ppp_run_cb('igloo_proc_mtd', cpu, buffer, buffer_len)
+
+        elif num == 107:
+            # NVRAM miss
+            buffer = self.panda.arch.get_arg(cpu, 1)
+            buffer_len = self.panda.arch.get_arg(cpu, 2)
+            s = self.panda.read_str(cpu, buffer, max_length=buffer_len)
+            self.ppp_run_cb('igloo_nvram_get', cpu, s, False)
+
+        elif num == 108:
+            # NVRAM hit
+            buffer = self.panda.arch.get_arg(cpu, 1)
+            buffer_len = self.panda.arch.get_arg(cpu, 2)
+            s = self.panda.read_str(cpu, buffer, max_length=buffer_len)
+            self.ppp_run_cb('igloo_nvram_get', cpu, s, True)
+
 
         elif num in [200, 202]:
             # 200: ipv4 setup, 202: ipv6 setup
