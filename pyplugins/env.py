@@ -415,7 +415,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                         print(f"Ignoring potential dynval {dynval} since it's quite long")
                         continue
 
-                    weight = 10 + min(20, len(dynval))
+                    weight = 10 + max(min(20, len(dynval)), 90)
                     results.append(Mitigation(dynval, self.ANALYSIS_TYPE, {'value': dynval, 'var': var_name,
                                                                         'weight': weight,
                                                                         'source': 'from_dynamic'}))
