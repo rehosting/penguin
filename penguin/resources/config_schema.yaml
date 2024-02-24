@@ -156,6 +156,17 @@ properties:
       examples:
         - 9
         - 15
+  netdevs:
+    title: Net Devices
+    description: Names of network devices to create in the guest
+    type: array
+    items:
+      title: Name
+      description: Device Name
+      type: string
+      examples:
+        - eth0
+        - wlan1
   env:
     title: Environment
     description: Environment variables to set in the guest

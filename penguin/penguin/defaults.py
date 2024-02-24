@@ -23,13 +23,6 @@ default_init_script = """#!/igloo/utils/sh
 # Populate tmpfs with hardcoded libnvram values
 /igloo/utils/busybox cp /igloo/libnvram/* /igloo/libnvram_tmpfs/
 
-# Make some bridges
-/igloo/utils/busybox ip link add name br0 type bridge
-/igloo/utils/busybox ip link add name br1 type bridge
-/igloo/utils/busybox ip link set dev br0 up
-/igloo/utils/busybox ip link set dev br1 up
-
-
 if [ -e /igloo/utils/random_seed ]; then
   /igloo/utils/busybox cat /igloo/utils/random_seed > /dev/random
   /igloo/utils/busybox cat /igloo/utils/random_seed > /dev/urandom
@@ -59,6 +52,13 @@ if [ ! -z "${STRACE}" ]; then
   /igloo/utils/sh -c "/igloo/utils/strace -f -p 1" &
   unset STRACE
 fi
+
+  # Pretend we have some network interfaces. Note these aren't
+  # connected to anything. Pseudofile penguin_net is populated
+  # from config's netdevs list.
+  for iface in $(/igloo/utils/busybox cat /proc/penguin_net); do
+    /igloo/utils/busybox ip link add $iface type dummy
+  done
 
 if [ ! -z "${igloo_init}" ]; then
   echo '[IGLOO INIT] Running specified init binary';

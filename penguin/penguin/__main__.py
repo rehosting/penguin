@@ -269,6 +269,9 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
     }
 
     data['blocked_signals'] = []
+    data['netdevs'] = [f'eth{x}' for x in range(6)] + [f'wlan{x}' for x in range(6)] + \
+                      [f'eno{x}' for x in range(3)] + [f'ens{x}' for x in [33, 192]] + \
+                      ['enx0', 'enp0s25', 'wlp2s0']
 
     for blank_field in ['env', 'pseudofiles']:
         data[blank_field] = {}
