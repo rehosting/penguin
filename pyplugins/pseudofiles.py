@@ -634,8 +634,6 @@ class FileFailures(PyPlugin):
                 # ignore? But we probably could?
                 #raise NotImplementedError("Uhhhh nested symex")
             #self.last_symex = filename
-
-            print("IOCTL DEFAULT USING MAGIC SYMEX RV")
             return MAGIC_SYMEX_RETVAL # We'll detect this on the return and know what to do. I think?
         else:
             # This is an actual error - config is malformed. Bail
@@ -765,11 +763,18 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 fails.append(Failure(f"/proc/mtd", self.ANALYSIS_TYPE, {'type': "mtd_generic"}))
 
             if path.startswith("/proc"):
-                # Ignoring proc files, at least for now.
                 # TODO: let's actually add proc files - we often have scripts that write to them (disard model)
                 # and just adding files (with parent dirs) will help.
-                # One challenge is figuring out if the device is missing or not -ENOENT errors should be sufficient???
-                pass
+
+                # For now we'll support 1 level deep in proc (kernel module doesn't support making directories yet)
+                if path.count("/") > 2:
+                    continue
+
+                for sc, raw_data in info.items():
+                    # XXX We generate distinct failures if we have > 1 SC but there's only a single mitigation!
+                    # That's probalby the source of our duplicate configs later
+                    fails.append(Failure(path, self.ANALYSIS_TYPE, {'type': "proc", "path": path, 'sc': sc}))
+                continue
 
             if path.startswith("/dev"):
                 # If there are a lot of devices with numeric suffixes, we'll ignore them
@@ -884,6 +889,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 elif failure.info['type'] == 'mtd':
                     # We saw a failure opening a specific MTD device, let's make it with a fixed name
                         return [Mitigation(f"pseudofile_fixed_mtd", self.ANALYSIS_TYPE, {'path': path, 'name': 'uboot', 'model': 'zero', 'weight': 100})]
+
+                elif failure.info['type'] == 'proc':
+                    return [Mitigation(f"pseudofile_add_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'add', 'weight': 100})]
 
                 #elif failure.info['type'] == 'dynamic_mtd':
                 #    # We just did a dynamic search for MTD devices and found some names - let's add them all.
