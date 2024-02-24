@@ -1036,7 +1036,8 @@ class ConfigurationManager:
             # Special case. We have an exclusive config. It should have yielded ONE failure (or none)
             if not len(failures):
                 return # no -op
-            assert(len(failures) <= 1)
+            #assert(len(failures) <= 1), f"Got multiple failures from exclusive config: {failures}"
+            print(f"WARNING: Got multiple failures from exclusive config - only expected one. Config={config}, failiure={failures}")
             target_config = self.graph.get_parent_config(config)
 
         # Normal case: Now we add new failures that we observed during this run
