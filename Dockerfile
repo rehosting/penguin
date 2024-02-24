@@ -35,8 +35,12 @@ RUN mkdir /igloo_static && \
   for file in /igloo_static/utils.bin/busybox.*-linux*; do mv "$file" "${file%-linux-*}"; done && \
   mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel
 
+# Download kernels from CI. Populate /igloo_static/kernels
+RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v1.9.19/kernels-latest.tar.gz | \
+      tar xzf - -C /igloo_static
+
 # Download libnvram from CI. Populate /igloo_static/libnvram
-RUN wget -qO - https://github.com/panda-re/libnvram/releases/download/release_8a64a874e08f62db9cf49b05cabf69102da1512d/libnvram-latest.tar.gz | \
+RUN wget -qO - https://github.com/panda-re/libnvram/releases/download/release_fd6fd4479e2ad431547bac9fc386a7021587ac89/libnvram-latest.tar.gz | \
   tar xzf - -C /igloo_static
 
 # Download  console from CI. Populate /igloo_static/console
@@ -47,10 +51,6 @@ RUN wget -qO - https://github.com/panda-re/console/releases/download/release_389
   mv /igloo_static/console/console-mipsel-linux-musl /igloo_static/console/console.mipsel && \
   mv /igloo_static/console/console-mipseb-linux-musl /igloo_static/console/console.mipseb && \
   mv /igloo_static/console/console-mips64eb-linux-musl /igloo_static/console/console.mips64eb
-
-# Download kernels from CI. Populate /igloo_static/kernels
-RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v1.9.18/kernels-latest.tar.gz | \
-      tar xzf - -C /igloo_static
 
 # Download syscalls lists
 RUN mkdir /igloo_static/syscalls && \
