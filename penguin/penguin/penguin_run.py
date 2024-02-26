@@ -208,7 +208,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None):
 
     shared_dir = conf['core'].get('shared_dir')
     if shared_dir is not None:
-        os.makedirs(shared_dir)
+        os.makedirs(shared_dir,exist_ok=True)
         args += [
             '-virtfs',
             ','.join((
