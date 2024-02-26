@@ -1,21 +1,41 @@
+# versions of the various dependencies.
+ARG BASE_IMAGE="ubuntu:22.04"
+ARG GENEXT2FS_VERSION="9bc57e232e8bb7a0e5c8ccf503b57b3b702b973a"
+ARG PANDA_VERSION="1.8.8"
+ARG BUSYBOX_VERSION="25c906fe05766f7fc4765f4e6e719b717cc2d9b7"
+ARG LINUX_VERSION="1.9.19"
+ARG LIBNVRAM_VERSION="fd6fd4479e2ad431547bac9fc386a7021587ac89"
+ARG CONSOLE_VERSION="389e179dde938633ff6a44144fe1e03570497479"
+ARG PENGUIN_PLUGINS_VERSION="1.5.3"
+ARG UTILS_VERSION="4"
+
 ### DOWNLOADER ###
 # Fetch and extract our various dependencies. Roughly ordered on
 # least-frequently changing to most-frequently changing
-
-FROM ubuntu:22.04 as download_base
+FROM $BASE_IMAGE as download_base
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y \
-    xmlstarlet \
-    wget
+RUN apt-get update && \
+    apt-get install -y \
+    xmlstarlet wget ca-certificates && \
+    rm -rf /var/lib/apt/lists/* 
 
 ### DEB DOWNLOADER: get genext2fs and pandare debs ###
 FROM download_base as deb_downloader
-RUN wget -O /tmp/genext2fs.deb https://github.com/panda-re/genext2fs/releases/download/release_9bc57e232e8bb7a0e5c8ccf503b57b3b702b973a/genext2fs.deb && \
-    wget -O /tmp/pandare.deb https://panda.re/secret/pandare_1.8.1b_2204.deb
-    #wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v1.7/pandare_22.04.deb
+ARG BASE_IMAGE
+ARG GENEXT2FS_VERSION
+ARG PANDA_VERSION
+RUN wget -O /tmp/genext2fs.deb https://github.com/panda-re/genext2fs/releases/download/release_${GENEXT2FS_VERSION}/genext2fs.deb && \
+    wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(echo "$BASE_IMAGE" | awk -F':' '{print $2}').deb
+    # wget -O /tmp/pandare.deb https://panda.re/secret/pandare_1.8.1b_2204.deb
 
 ### DOWNLOADER: get zap, libguestfs, busybox, libnvram, console, vpn, kernels, and penguin plugins ###
 FROM download_base as downloader
+ARG BUSYBOX_VERSION
+ARG LINUX_VERSION
+ARG LIBNVRAM_VERSION
+ARG CONSOLE_VERSION
+ARG PENGUIN_PLUGINS_VERSION
+ARG UTILS_VERSION
 # Download ZAP into /zap
 RUN mkdir /zap && \
 wget -qO- https://raw.githubusercontent.com/zaproxy/zap-admin/master/ZapVersions.xml | \
@@ -29,22 +49,22 @@ RUN wget --quiet https://download.libguestfs.org/binaries/appliance/appliance-1.
 
 # Download busybox from CI. Populate /igloo_static/utils.bin/utils/busybox.*
 RUN mkdir /igloo_static && \
-  wget -qO - https://github.com/panda-re/busybox/releases/download/release_25c906fe05766f7fc4765f4e6e719b717cc2d9b7/busybox-latest.tar.gz | \
+  wget -qO - https://github.com/panda-re/busybox/releases/download/release_${BUSYBOX_VERSION}/busybox-latest.tar.gz | \
   tar xzf - -C /igloo_static/ && \
   mv /igloo_static/build/ /igloo_static/utils.bin && \
   for file in /igloo_static/utils.bin/busybox.*-linux*; do mv "$file" "${file%-linux-*}"; done && \
   mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel
 
 # Download kernels from CI. Populate /igloo_static/kernels
-RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v1.9.19/kernels-latest.tar.gz | \
+RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v${LINUX_VERSION}/kernels-latest.tar.gz | \
       tar xzf - -C /igloo_static
 
 # Download libnvram from CI. Populate /igloo_static/libnvram
-RUN wget -qO - https://github.com/panda-re/libnvram/releases/download/release_fd6fd4479e2ad431547bac9fc386a7021587ac89/libnvram-latest.tar.gz | \
+RUN wget -qO - https://github.com/panda-re/libnvram/releases/download/release_${LIBNVRAM_VERSION}/libnvram-latest.tar.gz | \
   tar xzf - -C /igloo_static
 
 # Download  console from CI. Populate /igloo_static/console
-RUN wget -qO - https://github.com/panda-re/console/releases/download/release_389e179dde938633ff6a44144fe1e03570497479/console-latest.tar.gz | \
+RUN wget -qO - https://github.com/panda-re/console/releases/download/release_${CONSOLE_VERSION}/console-latest.tar.gz | \
   tar xzf - -C /igloo_static && \
   mv /igloo_static/build /igloo_static/console && \
   mv /igloo_static/console/console-arm-linux-musleabi /igloo_static/console/console.armel && \
@@ -66,27 +86,28 @@ RUN wget -qO - https://panda.re/igloo/vpn.tar.gz | \
 
 # Download custom panda plugins built from CI. Populate /panda_plugins
 RUN mkdir /panda_plugins && \
-  wget -qO - https://panda.re/secret/penguin_plugins_v1.5.3.tar.gz | \
+  wget -qO - https://panda.re/secret/penguin_plugins_v${PENGUIN_PLUGINS_VERSION}.tar.gz | \
   tar xzf - -C /panda_plugins
 
 RUN mkdir /static_deps && \
-  wget -qO - https://panda.re/secret/utils4.tar.gz | \
+  wget -qO - https://panda.re/secret/utils${UTILS_VERSION}.tar.gz | \
   tar xzf - -C /static_deps
 
 #### QEMU BUILDER: Build qemu-img ####
-FROM ubuntu:22.04 as qemu_builder
+FROM $BASE_IMAGE as qemu_builder
 ENV DEBIAN_FRONTEND=noninteractive
 # Enable source repos
 RUN sed -Ei 's/^# deb-src /deb-src /' /etc/apt/sources.list
 RUN apt-get update && apt-get build-dep -y qemu-utils qemu && \
-    apt-get install -q -y --no-install-recommends ninja-build git
+    apt-get install -q -y --no-install-recommends ninja-build git \
+    && rm -rf /var/lib/apt/lists/*
 RUN git clone --depth 1 https://github.com/panda-re/qemu.git /src
 RUN mkdir /src/build && cd /src/build && ../configure --disable-user --disable-system --enable-tools \
     --disable-capstone --disable-guest-agent && \
   make -j$(nproc)
 
 ### MAIN CONTAINER ###
-FROM ubuntu:22.04 as penguin
+FROM $BASE_IMAGE as penguin
 # Environment setup
 ENV PIP_ROOT_USER_ACTION=ignore
 ENV DEBIAN_FRONTEND=noninteractive
@@ -101,8 +122,9 @@ COPY --from=deb_downloader /tmp/pandare.deb /tmp/genext2fs.deb /tmp/
 # we'll fail because we get a distutils distribution of pycparser 2.19 that we can't
 # uninstall somewhere in setting up other dependencies.
 
-RUN apt-get update && apt-get install -y \
-    python3-pip
+RUN apt-get update && \
+    apt-get install -y python3-pip && \
+    rm -rf /var/lib/apt/lists/*
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip install --upgrade \
         pip \
@@ -130,7 +152,8 @@ RUN apt-get update && apt-get install -y \
     wget \
     libcapstone-dev && \
     apt install -yy -f /tmp/pandare.deb /tmp/genext2fs.deb && \
-    rm /tmp/pandare.deb /tmp/genext2fs.deb
+    rm /tmp/pandare.deb /tmp/genext2fs.deb &&  \
+    rm -rf /var/lib/apt/lists/*
 
 # If we want to run in a venv, we can use this. System site packages means
 # we can still access the apt-installed python packages (e.g. guestfs) in our venv
