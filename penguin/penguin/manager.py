@@ -74,10 +74,15 @@ class PandaRunner:
 
         # Python subprocess. No pipe (pipes can get full and deadlock the child!)
         cmd = timeout_cmd + ["python3", "-m", "penguin.penguin_run", conf_yaml, out_dir, f"{run_base}/qcows"]
+
+        # Prepare output and error log files
+        stdout_log_path = os.path.join(out_dir, "qemu_stdout2.txt")
+        stderr_log_path = os.path.join(out_dir, "qemu_stderr2.txt")
+
         try:
-            # This timeout is higher than our SIGUSR1 timeout so the guest can process the signal
-            # Before the kill. We have a lot of timeouts...
-            subprocess.run(cmd, timeout=timeout_s+180, check=True)
+            # Execute command with subprocess, avoiding deadlock by not using pipes for stdio
+            with open(stdout_log_path, "w") as stdout_log, open(stderr_log_path, "w") as stderr_log:
+                subprocess.run(cmd, timeout=timeout_s+180, check=True, stdout=stdout_log, stderr=stderr_log)
         except subprocess.TimeoutExpired:
             print(f"Timeout expired for {conf_yaml} after {timeout_s} seconds")
         except subprocess.CalledProcessError as e:
@@ -86,6 +91,11 @@ class PandaRunner:
         ran_file = os.path.join(out_dir, ".ran")
         if not os.path.isfile(ran_file):
             logger.error(f"Missing .ran file with {conf_yaml}")
+
+            # We can try to rerun here to find pyplugin syntax errors and the like?
+            logger.warning("FOR DEBUG PURPOSES ONLY: rerunning to get output")
+            subprocess.run(cmd, timeout=30, check=True)
+
             raise RuntimeError(f"ERROR, running {conf_yaml} in {run_dir} did not produce {out_dir}/.ran file")
 
 class Worker:
