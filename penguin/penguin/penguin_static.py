@@ -407,18 +407,6 @@ def shim_configs(config, auto_explore=False):
                 # Skip if it's not a file or non-executable
                 continue
 
-            if fname.issym():
-                # If target doesn't exist or isn't a file, bail. We need to resolve the symlink
-                # based on the current filename and generate a vaild destination within the archive
-                # XXX: If we see a symlink to a symlink we just ignore it.
-                target = "." + os.path.abspath(os.path.join(os.path.dirname(path), fname.linkname))
-                try:
-                    if not fs.getmember(target).isfile():
-                        continue
-                except KeyError as e:
-                    # File not found in tar archive - also bail
-                    continue
-
             # Special case, if we're shimming bash it's only safe if it's a busybox symlink
             if basename == "bash":
                 # Is it a symlink to busybox? If not we can't shim because we might break scripts!
