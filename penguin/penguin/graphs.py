@@ -23,7 +23,7 @@ def get_global_mitigation_weight(mitigation_type : str) -> float:
             'env': 1,
         }[mitigation_type]
     except KeyError:
-        return 0
+        return 1
 
 class GraphNode:
     '''
