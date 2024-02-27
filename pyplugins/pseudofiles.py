@@ -53,6 +53,18 @@ def path_interesting(path):
 
     return False
 
+def proc_interesting(path):
+    # Avoid standard procfs files
+    # Transformed PID references
+    if path.startswith("/proc/PID"):
+        return False
+    if path.startswith("/proc/self"):
+        return False
+    if path.startswith("/proc/thread-self"):
+        return False
+
+    return path.startswith("/proc/")
+
 def ignore_cmd(ioctl):
     '''
     Ignore TTY ioctls, see ioctls.h for T*, TC*, and TIO* ioctls
@@ -770,9 +782,12 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 if path.count("/") > 2:
                     continue
 
+                if not proc_interesting(path):
+                    continue
+
                 for sc, raw_data in info.items():
                     # XXX We generate distinct failures if we have > 1 SC but there's only a single mitigation!
-                    # That's probalby the source of our duplicate configs later
+                    # That's probably the source of our duplicate configs later
                     fails.append(Failure(path, self.ANALYSIS_TYPE, {'type': "proc", "path": path, 'sc': sc}))
                 continue
 
@@ -860,6 +875,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
             return []
 
         if not any(path.startswith(x) for x in ["/dev/", "/proc", "/sys"]):
+            return []
+
+        if path.startswith("/proc/") and not proc_interesting(path):
             return []
 
         if path not in config['pseudofiles']:
