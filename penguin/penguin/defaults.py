@@ -71,6 +71,7 @@ fi
 # from config's netdevs list.
 for iface in $(/igloo/utils/busybox cat /proc/penguin_net); do
   /igloo/utils/busybox ip link add $iface type dummy
+  /igloo/utils/busybox ip link set $iface up
 done
 
 if [ ! -z "${STRACE}" ]; then
