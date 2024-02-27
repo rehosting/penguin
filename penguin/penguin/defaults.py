@@ -149,4 +149,9 @@ default_plugins = {
         'enabled': True,
         'version': "1.0.0",
     },
+    'interfaces': {
+        'description': "Analysis & Intervention: Track network interfaces accessed and add missing ones",
+        'enabled': True,
+        'version': "1.0.0",
+    }
 }
