@@ -134,6 +134,12 @@ for arch in "${archs[@]}"; do
     run_test "$kernel_version" "$arch" "pseudofile_ioctl" assert_pseudofiles_ioctl
   fi
 
+  if [[ ! " ${tests[@]} " =~ " pseudofile_devfs " ]]; then
+    echo "Skipping pseudofile_devfs test for $arch"
+  else
+    run_test "$kernel_version" "$arch" "pseudofile_devfs" assert_ps_output
+  fi
+
   if [[ ! " ${tests[@]} " =~ " hostfile " ]]; then
     echo "Skipping hostfile test for $arch"
   else
