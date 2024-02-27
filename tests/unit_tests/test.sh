@@ -171,5 +171,11 @@ for arch in "${archs[@]}"; do
     run_test "$kernel_version" "$arch" "proc_mtd_dynamic" assert_mtd_found
   fi
 
+  if [[ ! " ${tests[@]} " =~ " pseudofile_sysfs " ]]; then
+    echo "Skipping pseudofile_sysfs test for $arch"
+  else
+    run_test "$kernel_version" "$arch" "pseudofile_sysfs" assert_ps_output
+  fi
+
 done
 done
