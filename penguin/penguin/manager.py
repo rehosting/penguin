@@ -119,7 +119,8 @@ class Worker:
                     logger.info("All workers waiting, exiting")
                     return
                 else:
-                    logger.info(f"Worker got no work, but {self.active_worker_count.get()} workers still active. Stalling")
+                    #logger.debug(f"Worker got no work, but {self.active_worker_count.get()} workers still active. Stalling")
+                    pass
 
     def find_new_configs_f(self, failure : Failure, mitigation : Mitigation, parent_config : Configuration) -> List[Configuration]:
         '''
