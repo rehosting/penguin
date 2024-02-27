@@ -233,7 +233,14 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
                 current_path = '/' + current_path
 
             # Check if the current path is a symlink and resolve it
-            if g.is_symlink(current_path):
+            try:
+                symlink = g.is_symlink(current_path)
+            except RuntimeError:
+                # Bail - infinite loop?
+                print(f"Unable to resolve symlink {current_path} - bailing out")
+                return None
+
+            if symlink:
                 link_target = g.readlink(current_path)
                 # If the link is absolute or the current part is not the last part (indicating a directory symlink), resolve fully
                 if os.path.isabs(link_target) or i < len(parts) - 1:
@@ -261,8 +268,8 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
     for file_path, file in sorted_mkdirs:
         #resolved_file_path = resolve_symlink_path(g, file_path)
         #resolved_file_path = os.path.dirname(resolved_file_path) + '/' + os.path.basename(file_path)
-        resolved_file_path = file_path
-        _modify_guestfs(g, resolved_file_path, file)
+        if resolved_file_path := file_path:
+            _modify_guestfs(g, resolved_file_path, file)
 
 
     # Next, we'll do any move_from operations
@@ -275,13 +282,13 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
     sorted_files = {k: v for k, v in files.items() if v['type'] not in ['move_from', 'dir']}
     sorted_files = sorted(sorted_files.items(), key=lambda x: len(x[0]))
     for file_path, file in sorted_files:
-        resolved_file_path = resolve_symlink_path(g, file_path)
-        resolved_file_path = os.path.dirname(resolved_file_path) + '/' + os.path.basename(file_path)
-        #resolved_file_path = file_path
-        #if resolved_file_path != file_path:
-        #    print(f"WARNING: Resolved file path {file_path} to {resolved_file_path}")
+        if resolved_file_path := resolve_symlink_path(g, file_path):
+            resolved_file_path = os.path.dirname(resolved_file_path) + '/' + os.path.basename(file_path)
+            #resolved_file_path = file_path
+            #if resolved_file_path != file_path:
+            #    print(f"WARNING: Resolved file path {file_path} to {resolved_file_path}")
 
-        _modify_guestfs(g, resolved_file_path, file)
+            _modify_guestfs(g, resolved_file_path, file)
 
     # Sanity checks. Does guest still have a /bin/sh? Is there a /igloo directory?
     if bin_sh_exists_before_mods and not g.is_file("/bin/sh") and not g.is_symlink("/bin/sh"):
