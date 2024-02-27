@@ -838,12 +838,14 @@ class ConfigurationGraph:
             # Get edge from parent -> node and lookup delta
             delta = self.graph[parent.gid][node.gid].get('delta', 'N/A')
 
+        oneline_delta = ", ".join(delta.splitlines())
+
         if node.run_idx is not None:
-            s = f"{pad}{node.run_idx}: score = {node.health_score:_}. delta = {delta}"
+            s = f"{pad}{node.run_idx}: score = {node.health_score:_}. delta = {oneline_delta}"
         elif node in pending_runs:
-            s = f"{pad}running: estimated score = {self.calculate_expected_config_health(node):_}. delta = {delta}"
+            s = f"{pad}running: estimated score = {self.calculate_expected_config_health(node):_}. delta = {oneline_delta}"
         else:
-            s = f"{pad}unexplored: estimated score = {self.calculate_expected_config_health(node):_}. delta = {delta}"
+            s = f"{pad}unexplored: estimated score = {self.calculate_expected_config_health(node):_}. delta = {oneline_delta}"
         output.append(pad + s)
 
         # Now we recurse to children, but we must sort them by score!
