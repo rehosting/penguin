@@ -15,6 +15,18 @@ def get_global_mitigation_weight(mitigation_type : str) -> float:
 
     With new approach of searching across a generation, we'll always
     cover the whole init generation. So now we can leave these all equal?
+
+    TODO: it seems like pseudofiles are generally more important
+    than env variables or blocking signals. Perhaps our search should be more of a:
+
+    If any untested pseudofile failure mitigations - select
+    If any untested env failure mitigations - select (dynval, then apply)
+    If any untested signal failure mitigations - select
+
+    Then select highest estimated scores of remaining un-run nodes.
+
+    This would ensure we create devices (straightforward and often good),
+    before we go into expensive dynval tests that infrequently work
     '''
     try:
         return {
@@ -879,7 +891,7 @@ class ConfigurationGraph:
         # If we saw a new failure in our parent config, that's a pretty good sign - we've uncovered
         # something new that we might want to mitigate. If this mitigation is hitting
         # such a failure, let's give this a big bonus!
-        
+
         # If our parent_fail has a single in-edge, and it's from the parent config, then
         # it's bonus time!
         # The first time we see an SXID it's a mitigation
@@ -887,7 +899,7 @@ class ConfigurationGraph:
 
         # ONLY ONE CONFIG HAS THIS FAIULRE
         # config --> failure_missing_dsa -> *New mitigation = something*  -> New config with bonus
-            
+
         # Check if parent failure has a single in-edge (from parent config)
         ''''
         with self.lock:
