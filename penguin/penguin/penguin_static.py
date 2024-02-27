@@ -837,10 +837,21 @@ def add_nvram_meta(config, output_dir):
             if not key in tar.getnames():
                 continue
 
-            # Check if query is in file
-            f = tar.extractfile(key)
+            # Check if file is a symlink (TODO: do we want this?)
+            #if tar.getmember(key).issym():
+            #    continue
+
+            # Get file
+            try:
+                f = tar.extractfile(key)
+            except KeyError:
+                # File not found - yes, we just checked.
+                # but if it's a symlink to a file that doesn't exist, we'll get a KeyError
+                continue
             if f is None:
                 continue
+
+            # Check if query is in file
             if query.encode() in f.read():
                 print(f"Adding {query} to nvram with value {value} since it was found in {key}")
                 config['nvram'][key] = value
