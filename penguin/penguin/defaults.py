@@ -47,18 +47,30 @@ if [ ! -z "${CID}" ]; then
   unset CID
 fi
 
+# Two devices we want to set up properly (i.e., not as pseudofiles)
+# We can't set these up as static files because /dev would get mounted
+# after we populate it statically.
+if [ ! -c /dev/console ]; then
+  /igloo/utils/busybox mknod /dev/console c 5 1
+fi
+if [ ! -c /dev/ttyS0 ]; then
+  # Must be arm with default /dev/ttyAMA0, let's add ttyS0 for good measure
+  /igloo/utils/busybox mknod /dev/ttyS0 c 204 64
+fi
+
+# Pretend we have some network interfaces. Note these aren't
+# connected to anything. Pseudofile penguin_net is populated
+# from config's netdevs list.
+for iface in $(/igloo/utils/busybox cat /proc/penguin_net); do
+  /igloo/utils/busybox ip link add $iface type dummy
+done
+
 if [ ! -z "${STRACE}" ]; then
   # Strace init in the background (to follow through the exec)
   /igloo/utils/sh -c "/igloo/utils/strace -f -p 1" &
   unset STRACE
 fi
 
-  # Pretend we have some network interfaces. Note these aren't
-  # connected to anything. Pseudofile penguin_net is populated
-  # from config's netdevs list.
-  for iface in $(/igloo/utils/busybox cat /proc/penguin_net); do
-    /igloo/utils/busybox ip link add $iface type dummy
-  done
 
 if [ ! -z "${igloo_init}" ]; then
   echo '[IGLOO INIT] Running specified init binary';
