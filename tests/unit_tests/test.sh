@@ -41,6 +41,10 @@ assert_env_cmp() {
   grep -q 'target' results/env_cmp.txt
 }
 
+assert_uboot_env_cmp() {
+  grep -q 'target' results/env_cmp.txt
+}
+
 assert_ps_output() {
   grep -q '\[bioset\]' results/console.log
 }
@@ -79,7 +83,7 @@ mkdir -p results qcows
 
 kernel_versions=("4.10" "6.7")
 archs=("armel" "mipsel" "mipseb")
-tests=("env_unset" "env_cmp" "pseudofile_missing" "pseudofile_ioctl" "hostfile" "shared_dir" "proc_mtd" "proc_mtd_missing")
+tests=("env_unset" "env_cmp" "uboot_env_cmp" "pseudofile_missing" "pseudofile_ioctl" "hostfile" "shared_dir" "proc_mtd" "proc_mtd_missing")
 
 # We can run a single architecture or a single test.
 # For example:
@@ -110,6 +114,12 @@ for arch in "${archs[@]}"; do
     echo "Skipping env_cmp test for $arch"
   else
     run_test "$kernel_version" "$arch" "env_cmp" assert_env_cmp
+  fi
+
+  if [[ ! " ${tests[@]} " =~ " uboot_env_cmp " ]]; then
+    echo "Skipping uboot_env_cmp test for $arch"
+  else
+    run_test "$kernel_version" "$arch" "uboot_env_cmp" assert_uboot_env_cmp
   fi
 
   if [[ ! " ${tests[@]} " =~ " pseudofile_missing " ]]; then

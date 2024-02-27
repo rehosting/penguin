@@ -1,0 +1,3 @@
+#!/igloo/utils/sh
+
+exec /igloo/utils/send_hypercall "$(/igloo/utils/busybox basename "$0")" "$@"
