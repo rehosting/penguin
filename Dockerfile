@@ -73,6 +73,16 @@ RUN mkdir /static_deps && \
   wget -qO - https://panda.re/secret/utils4.tar.gz | \
   tar xzf - -C /static_deps
 
+#### CROSS BUILDER: Build send_hypercall ###
+FROM ghcr.io/panda-re/embedded-toolchains:latest as cross_builder
+COPY ./utils/send_hypercall.c /
+RUN cd / && \
+  mkdir out && \
+  wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h && \
+  mipseb-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipseb && \
+  mipsel-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipsel && \
+  arm-linux-musleabi-gcc -s -static send_hypercall.c -o out/send_hypercall.armel
+
 #### QEMU BUILDER: Build qemu-img ####
 FROM ubuntu:22.04 as qemu_builder
 ENV DEBIAN_FRONTEND=noninteractive
@@ -191,6 +201,7 @@ COPY --from=downloader /panda_plugins/mips64/ /usr/local/lib/panda/mips64/
 # Copy utils.source (scripts) and utils.bin (binaries) from host
 # Files are named util.[arch] or util.all
 COPY --from=downloader /static_deps/utils/* /igloo_static/utils.bin
+COPY --from=cross_builder /out/* /igloo_static/utils.bin
 COPY utils/* /igloo_static/utils.source/
 
 #COPY fws/kernels-latest.tar.gz /tmp

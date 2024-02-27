@@ -1,6 +1,7 @@
 import sys
 import tarfile
 import re
+import itertools
 from os.path import dirname, join as pjoin, isfile
 from pandare import PyPlugin
 from copy import deepcopy
@@ -267,9 +268,14 @@ class TargetCmp(PyPlugin):
 
     @staticmethod
     def _get_target_str_in_config(config):
-        if "env" not in config:
-            return None
-        matches = [k for k, v in config['env'].items() if v == ENV_MAGIC_VAL]
+        matches = [
+            k
+            for k, v in itertools.chain(
+                config.get('env', {}).items(),
+                config.get('uboot_env', {}).items(),
+            )
+            if v == ENV_MAGIC_VAL
+        ]
         if not len(matches):
             return None
         if len(matches) > 1:

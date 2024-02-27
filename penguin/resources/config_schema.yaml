@@ -365,6 +365,15 @@ properties:
       oneOf:
         - type: string
         - type: integer
+  uboot_env:
+    title: U-Boot environment
+    description: U-Boot environment variables to set in the guest
+    type: object
+    default: {}
+    additionalProperties:
+      title: Value
+      description: Value of the U-Boot environment variable
+      type: string
   static_files:
     title: Static files
     description: Files to create in the guest filesystem
