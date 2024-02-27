@@ -32,10 +32,14 @@ class Health(PyPlugin):
         self.procs_args = set()
         self.devs = set()
 
+        self.ppp_cb_boilerplate('igloo_exec')
+
         #panda.load_plugin("coverage", {"filename": self.outdir+"/cov.csv", "mode": "osi-block",
         #                               "summary": 'true'})
         self.ppp.Core.ppp_reg_cb('igloo_bind', self.health_on_bind)
+        self.ppp.Core.ppp_reg_cb('igloo_open', self.health_detect_opens)
 
+        # TODO: replace with hypercall mechanism
         @panda.ppp("syscalls2", "on_sys_execve_enter")
         def health_execve(cpu, pc, fname_ptr, argv_ptr, envp):
             if self.exiting:
@@ -57,20 +61,24 @@ class Health(PyPlugin):
             
             # Read each argument pointer into argv list
             argv = []
+            nullable_argv = []
             for ptr in argv_buf:
                 if ptr == 0:
                     break
                 try:
                     argv.append(panda.read_str(cpu, ptr))
+                    nullable_argv.append(panda.read_str(cpu, ptr))
                 except ValueError:
                     argv.append(f"(error: 0x{ptr:x})")
+                    nullable_argv.append(None)
+
+            self.ppp_run_cb('igloo_exec', cpu, fname, nullable_argv)
 
             unique_name = f"{fname} {' '.join(argv)}"
             if unique_name not in self.procs_args:
                 self.procs_args.add(unique_name)
                 self.increment_event('nexecs_args')
 
-        self.ppp.Core.ppp_reg_cb('igloo_open', self.health_detect_opens)
 
     def health_on_bind(self, cpu, procname, is_ipv4, is_stream, port, sin_addr):
         if self.exiting:
