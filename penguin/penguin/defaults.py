@@ -8,6 +8,10 @@ default_version = "1.0.0"
 # that we use for env, pseudofiles, etc.
 default_plugin_path = "/pandata"
 
+default_netdevs = [f'eth{x}' for x in range(6)] + [f'wlan{x}' for x in range(6)] + \
+                  [f'eno{x}' for x in range(3)] + [f'ens{x}' for x in [33, 192]] + \
+                  ['enx0', 'enp0s25', 'wlp2s0']
+
 default_init_script = """#!/igloo/utils/sh
 /igloo/utils/busybox mkdir -p /sys /proc /run /tmp /dev /igloo/libnvram_tmpfs
 /igloo/utils/busybox mount -t sysfs sysfs /sys

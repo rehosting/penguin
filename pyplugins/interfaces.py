@@ -7,13 +7,12 @@ from typing import List
 from pandare import PyPlugin
 from penguin import PenguinAnalysis, yaml
 from penguin.graphs import Failure, Mitigation, Configuration
+from penguin.defaults import default_netdevs
 
 # XXX this needs some testing
 
-# matches __main__.py list in default config (TODO: shorten both?)
-DEFAULT_IFACES =  [f'eth{x}' for x in range(6)] + [f'wlan{x}' for x in range(6)] + \
-                  [f'eno{x}' for x in range(3)] + [f'ens{x}' for x in [33, 192]] + \
-                  ['enx0', 'enp0s25', 'wlp2s0']
+# Loopback isn't in our default list but we don't want to add it as a fake device
+DEFAULT_IFACES =  default_netdevs + ["lo"]
 
 iface_log = "iface.log"
 
@@ -49,6 +48,9 @@ class Interfaces(PyPlugin):
                 iface = argv[1]
 
         if iface is None:
+            return
+
+        if iface in DEFAULT_IFACES:
             return
 
         # Is this a valid interface name? It can be alphanumeric and contain dots and dashes
