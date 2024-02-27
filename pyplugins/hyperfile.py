@@ -25,6 +25,15 @@ def hyper(name):
         return HYPER_IOCTL
     raise ValueError(f"Unknown hyperfile operation {name}")
 
+def hyper2name(num):
+    if num == HYPER_READ:
+        return "read"
+    elif num == HYPER_WRITE:
+        return "write"
+    elif num == HYPER_IOCTL:
+        return "ioctl"
+    raise ValueError(f"Unknown hyperfile operation {num}")
+
 class HyperFile(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
@@ -165,7 +174,7 @@ class HyperFile(PyPlugin):
                 return True # We handled the hypercall. Guest needs to retry because nonzero r0
 
             # Set the return value (modify this to actually change the struct in guest memory if needed)
-            #print(f"Success! Handled {type_val} request and returning retval {retval}")
+            #print(f"Success! Handled {hyper2name(type_val)} request and returning retval {retval}")
 
             panda.arch.set_arg(cpu, 0, 0)
             return True
