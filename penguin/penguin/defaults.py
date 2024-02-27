@@ -61,9 +61,15 @@ if [ ! -c /dev/ttyS0 ]; then
   # Must be arm with default /dev/ttyAMA0, let's add ttyS0 for good measure
   /igloo/utils/busybox mknod /dev/ttyS0 c 204 64
 fi
+
 if [ ! -e /dev/root ]; then
   # Symlink to root partition: /dev/vda
   /igloo/utils/busybox ln -s /dev/vda /dev/root
+fi
+
+if [ ! -e /dev/ram ]; then
+  # Symlink to ramdisk
+  /igloo/utils/busybox ln -s /dev/ram0 /dev/ram
 fi
 
 # Pretend we have some network interfaces. Note these aren't
