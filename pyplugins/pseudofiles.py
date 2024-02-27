@@ -137,6 +137,7 @@ class FileFailures(PyPlugin):
 
         self.panda = panda
         self.outdir = self.get_arg("outdir")
+        self.written_data = {} # filename -> data that was written to it
 
         # XXX: It has seemed like this should be 1 for some architectures, but that can't be right?
         self.ENOENT = 2
@@ -467,8 +468,15 @@ class FileFailures(PyPlugin):
             # final results are always written at the end.
             self.dump_results()
 
-    # Simple peripheral models as seen in firmadyne/firmae
     def read_zero(self, filename, buffer, length, offset, details=None):
+        # Simple peripheral model inspired by firmadyne/firmae. Just return 0
+        # Extended to support returning data that was written to the file if it was written to previously
+
+        if filename in self.written_data:
+            data = self.written_data[filename]
+            final_data = data[offset:offset+length]
+            return (final_data, len(final_data))
+
         data = b'0'
         final_data = data[offset:offset+length]
         # XXX if offset > len(data) should we return an error instead of 0?
@@ -476,6 +484,11 @@ class FileFailures(PyPlugin):
 
     def read_one(self, filename, buffer, length, offset, details=None):
         data = b'1'
+        if filename in self.written_data:
+            data = self.written_data[filename]
+            final_data = data[offset:offset+length]
+            return (final_data, len(final_data))
+
         final_data = data[offset:offset+length]
         # XXX if offset > len(data) should we return an error instead of 0?
         return (final_data, len(final_data)) # data, rv
@@ -603,14 +616,30 @@ class FileFailures(PyPlugin):
         # Pretend we wrote everything we were asked to
         return length
 
+    #def write_save(self, filename, buffer, length, offset, contents, details=None):
+    def write_default(self, filename, buffer, length, offset, contents, details=None):
+        # Store the contents for this file
+        if filename not in self.written_data:
+            self.written_data[filename] = b""
+        # Seek to offset and write contents
+        previous = self.written_data[filename][:offset]
+        if len(previous) < offset:
+            # Pad with null bytes
+            previous += b"\x00" * (offset - len(previous))
+        self.written_data[filename] = previous + contents + (self.written_data[filename][offset+length:] if len(self.written_data[filename]) > offset+length else b"")
+        return length
+
+    # XXX on write we can allow and store by default. Or should we explicitly error and require a model?
+    #def write_default(self, filename, buffer, length, offset, contents, details=None):
+    #    self.centralized_log(filename, 'write')
+    #    return -22 # -EINVAL - we don't support writes
+
+
     # default models - log failures
     def read_default(self, filename, buffer, length, offset, details=None):
         self.centralized_log(filename, 'read')
         return (b'', -22) # -EINVAL - we don't support reads
 
-    def write_default(self, filename, buffer, length, offset, contents, details=None):
-        self.centralized_log(filename, 'write')
-        return -22 # -EINVAL - we don't support writes
 
     # IOCTL is more complicated than read/write.
     # default is a bit of a misnomer, it's our default ioctl handler which
