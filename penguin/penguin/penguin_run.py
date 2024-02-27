@@ -285,6 +285,8 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None):
             raise ValueError(f"Plugin not found: {path} with name={plugin_name} and plugin_path={plugin_path}")
         try:
             if len(panda.pyplugins.load_all(path, args)) == 0:
+                with open(os.path.join(out_dir, 'plugin_errors.txt'), 'a') as f:
+                    f.write(f"Failed to load plugin: {plugin_name}")
                 raise ValueError(f"Failed to load plugin: {plugin_name}")
         except SyntaxError as e:
             logger.error(f"Syntax error loading pyplugin: {e}")
