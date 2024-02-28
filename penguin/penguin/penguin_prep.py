@@ -106,7 +106,7 @@ def _modify_guestfs(g, file_path, file):
 
             # Note we ignore mode here?
             dirname = file_path
-            g.mkdir(dirname)
+            g.mkdir_p(dirname)
 
         elif action == 'symlink':
             # file['target'] is what we point to
