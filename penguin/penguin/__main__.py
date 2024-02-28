@@ -227,8 +227,6 @@ def extract_and_build(fw, output_dir):
 
     if not os.path.isfile(f"{base}/image.qcow"):
         raise Exception("Failed to generate qcow image with MakeImage")
-    
-    # Remove the original fs.tar.gz
 
     # Make our base qcow image read-only
     os.chmod(f"{base}/image.qcow", 0o444)
@@ -452,10 +450,13 @@ def main():
 
 
     parser.add_argument('--config', type=str, help='Path to a config file. If set, the firmware argument is not required.')
-    parser.add_argument('--niters', type=int, default=1, help='Maximum number of iterations to run. Special values are -1 for unlimited. Default 1. If run with --config, a config for manual analysis will be generated if niters=1.')
-    parser.add_argument('--nthreads', type=int, default=1, help='Number of threads to use. Default 1.')
+    parser.add_argument('--nthreads', type=int, default=1, help='Number of workers to use (not actually threads). Default 1.')
     parser.add_argument('--novsock', action='store_true', default=False, help='Run running without vsock. Disabled by default')
     parser.add_argument('--timeout', type=int, default=None, help='Timeout in seconds for each run. Default is 300s if auto-explore or no timeout otherwise')
+
+    parser.add_argument('--auto', action='store_true', default=False, help="Automatically explore the provided firmware for niters. Configuration will be generated with automation plugins enabled. Meaningless with --config. Default False.")
+    parser.add_argument('--niters', type=int, default=1, help='How many interations to run. Default 1')
+
     parser.add_argument('firmware', type=str, nargs='?', help='The firmware path. Required if --config is not set, otherwise this must not be set.')
     parser.add_argument('output_dir', type=str, help='The output directory path.')
 
@@ -480,7 +481,7 @@ def main():
 
     if not args.config:
         # We don't have a config. Generate one.
-        # Set up for auto exploration if niters != 0
+        # Set up for auto exploration if --auto
         print(f"Generating config for {args.firmware}")
 
         if args.firmware.endswith(".yaml"):
@@ -489,14 +490,19 @@ def main():
                                "Please provide a firmware file or run with --config to "\
                                "use the config file.")
 
-        args.config = build_config(args.firmware, args.output_dir, auto_explore=args.niters != 1, use_vsock=not args.novsock, timeout=args.timeout)
+        args.config = build_config(args.firmware, args.output_dir, auto_explore=args.auto, use_vsock=not args.novsock, timeout=args.timeout)
 
         # If we were given a firmware, by default we won't run it, but if niters != 1, we will
-        if args.niters != 1:
-            print(f"Running {args.niters} run(s) from {args.config} with {args.nthreads} thread(s)")
-            run_from_config(args.config, args.output_dir, niters=args.niters, nthreads=args.nthreads)
+        if args.auto and args.niters > 0:
+            print(f"Running {args.niters} run(s) from {args.config} with {args.nthreads} thread(s). Storing results in {args.output_dir}/runs")
+
+            # XXX we behave diffrently if niters is 1 in run_from_config. If niters is one we'll spit results into /output
+            # otherwise we'll do runs/X/output
+            output_dir = os.path.join(args.output_dir, "output") if args.niters == 1 else args.output_dir
+            run_from_config(os.path.join(args.output_dir, "config.yaml"), output_dir, niters=args.niters, nthreads=args.nthreads)
 
     else:
+        # We have a config. Run for the specified number of iterations
         print(f"Running {args.niters} run(s) from {args.config} with {args.nthreads} thread(s)")
         run_from_config(args.config, args.output_dir, niters=args.niters, nthreads=args.nthreads)
 
