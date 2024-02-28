@@ -648,13 +648,8 @@ def add_env_meta(base_config, output_dir):
         #base_config['meta']['potential_env'][k] = known_vals
         potential_env[k] = known_vals
 
-    with open(output_dir + "/env.yaml", 'w') as f:
-        yaml.dump(potential_env, f)
-
     base_config['meta']['potential_env'] = potential_env
-    # We're going to sort this as done by firmadyne/firmae - prioritize
-    #   /init, preinitMT, preinit, rcS
-
+    # We're going to sort this as done by firmadyne/firmae - prioritize these:
     target_inits = ["/preinit", "/init", "/rcS"]
     init_list = deepcopy(potential_env['igloo_init'])
     sorted_env = []
@@ -666,6 +661,9 @@ def add_env_meta(base_config, output_dir):
     # Now append any remaining inits
     sorted_env += init_list
     base_config['meta']['potential_env']['igloo_init'] = sorted_env
+
+    with open(output_dir + "/env.yaml", 'w') as f:
+        yaml.dump(potential_env, f)
 
     # We moved potential_init into potential_env
     if 'potential_init' in base_config['meta']:

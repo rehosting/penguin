@@ -425,7 +425,16 @@ def run_from_config(config_path, output_dir, niters=-1, nthreads=1):
         # You already have a config, let's just run it. This is what happens
         # in each iterative run normally. Here we just do it directly.
         # Only needs a single thread, regardless of nthreads.
-        run_config(config_path, out_dir=output_dir)
+        # We need to select an init - grab the first one from our base/env.yaml file
+        with open(join(dirname(output_dir), "base", "env.yaml"), 'r') as f:
+            env = yaml.safe_load(f)
+            try:
+                init = env['igloo_init'][0]
+            except KeyError:
+                raise RuntimeError(f"Static analysis failed to identify an init script. Please specify one in {output_dir}/config.yaml and run again with --config.")
+
+        print(f"RUN CONFIG WITH INIT: {init}")
+        run_config(config_path, out_dir=output_dir, init=init)
 
     else:
         graph_search(config, output_dir, max_iters=niters, nthreads=nthreads)
