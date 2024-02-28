@@ -330,6 +330,11 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                         else:
                             print("Ignoring cpp-discovered dynval as it doesn't match regex:", line)
 
+            if len(dyn_vals) > 10:
+                print(f"Warning, found {len(dyn_vals)} dynamic values for {target_var}. This is a lot! Filtering to first 3")
+                sorted_vals = sorted(dyn_vals, key=lambda x: len(x)) # Sort is so we'll generate the same ones in future analyses
+                dyn_vals = sorted_vals[:3]
+
             #print(f"Found {len(dyn_vals)} dynamic values for {target_var}: {dyn_vals}")
 
             # We found things dynamically. Cool. This is a single failure with details for these values
