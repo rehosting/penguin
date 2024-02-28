@@ -872,6 +872,39 @@ def add_nvram_meta(config, output_dir):
                 print(f"Adding {query} to nvram with value {value} since it was found in {key}")
                 config['nvram'][key] = value
 
+def add_firmae_webserver_hacks(config, output_dir):
+    # This is a hacky FirmAE approach to identify webservers and just start
+    # them. Unsurprisingly, it increases the rate of web servers starting.
+    # We'll export this into our static files section as something we could try to run
+
+    fs_path = config['core']['fs'] # tar archive
+    # Map between filename and command
+    file2cmd = {
+        '/etc/init.d/uhttpd': '/etc/init.d/uhttpd start',
+        '/usr/bin/httpd': '/usr/bin/httpd',
+        '/usr/sbin/httpd': '/usr/sbin/httpd',
+        '/bin/goahead': '/bin/goahead',
+        '/bin/alphapd': '/bin/alphapd',
+        '/bin/boa': '/bin/boa',
+        '/usr/sbin/lighttpd': '/usr/sbin/lighttpd -f /etc/lighttpd/lighttpd.conf',
+    }
+
+    www_cmds = []
+    www_paths = []
+
+    with tarfile.open(fs_path, 'r') as tar:
+        for file, cmd in file2cmd.items():
+            if file in tar.getnames():
+                www_cmds.append(cmd)
+                www_paths.append(file)
+
+    newline = '\n'
+    if len(www_cmds):
+        config['static_files']['/igloo/www_cmds'] = {
+            'type': 'file',
+            'contents': f"#!/igloo/utils/sh\n{''.join([x + '& '+ newline for x in www_cmds])}",
+            'mode': 0o755
+        }
 
 def extend_config_with_static(base_config, outdir, auto_explore=False):
 
@@ -891,6 +924,7 @@ def extend_config_with_static(base_config, outdir, auto_explore=False):
     add_env_meta(base_config, outdir)
     add_dev_proc_meta(base_config, outdir)
     add_nvram_meta(base_config, outdir)
+    add_firmae_webserver_hacks(base_config, outdir)
 
     # TODO: Additional static analysis of shell scripts to find more environment variables?
     # We could do some LLM-based shell script analysis
