@@ -146,7 +146,7 @@ def _modify_guestfs(g, file_path, file):
 
         elif action == 'delete':
             # Delete the file (or directory and children)
-            if not g.exists(file_path):
+            if not g.exists(file_path) and not g.is_symlink(file_path):
                 raise ValueError(f"Can't delete {file_path} as it doesn't exist")
             g.rm_rf(file_path) # We make this one fatal if there's an error.
 
@@ -154,12 +154,14 @@ def _modify_guestfs(g, file_path, file):
             # Move a file (or directory and children) TO
             # the key in yaml (so we can avoid duplicate keys)
             if g.is_symlink(file['from']):
-                #print(f"Warning: skipping move_from for symlink {file['from']}")
-                #return
-                # Let's delete it and make a new symlink
-                dest = g.readlink(file['from'])
-                g.rm(file['from'])
-                g.ln_s(dest, file_path)
+                print(f"Warning: skipping move_from for symlink {file['from']}")
+                return
+                # Let's delete it and make a new symlink (might break?) - xxx does break
+                #dest = g.readlink(file['from'])
+                #g.rm(file['from'])
+                #print(f"Symlink {file['from']} points to {dest}")
+                #print(f"Rewriting to be a symlink to {os.path.normpath(os.path.join(os.path.dirname(file['from']), dest))}")
+                #g.ln_s(os.path.normpath(os.path.join(os.path.dirname(file['from']), dest)), file_path)
 
             elif not g.exists(file['from']):
                 raise ValueError(f"Can't move {file['from']} as it doesn't exist")
