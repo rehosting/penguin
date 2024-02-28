@@ -14,7 +14,7 @@ from .common import yaml
 from .manager import graph_search
 from .penguin_run import run_config
 
-from .defaults import default_init_script, default_plugins, default_version, default_netdevs
+from .defaults import default_init_script, default_plugins, default_version, default_netdevs, default_pseudofiles
 from .utils import load_config, dump_config, arch_end
 
 static_dir = "/igloo_static/"
@@ -278,8 +278,8 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
     data['blocked_signals'] = []
     data['netdevs'] = default_netdevs
 
-    for blank_field in ['env', 'pseudofiles']:
-        data[blank_field] = {}
+    data['env'] = {}
+    data['pseudofiles'] = default_pseudofiles
 
     data['static_files'] = {
         "/igloo/init": {
