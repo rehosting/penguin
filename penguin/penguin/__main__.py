@@ -154,7 +154,7 @@ def find_architecture(infile):
         return None
     return arch_counts.most_common(1)[0][0]
 
-def _build_image(arch_identified, fs_tar_gz, output_dir, static_dir):
+def _build_image(fs_tar_gz, output_dir, static_dir):
 
     # TODO: makeImage currently adds our utilities into the image. It would be
     # nice to support a mode where the utilities are added to the config file instead.
@@ -165,11 +165,8 @@ def _build_image(arch_identified, fs_tar_gz, output_dir, static_dir):
     def _makeImage(_output_dir):
         # Build our fakeroot command to run makeImage with a dynamic output directory
         cmd = ["fakeroot", os.path.join(*[dirname(dirname(__file__)), "scripts", "makeImage.sh"]),
-                arch_identified,
                 fs_tar_gz,
-                _output_dir,
-                os.path.join(dirname(dirname(__file__)), "resources"),
-                static_dir]
+                _output_dir]
         # Check output and report it on error
         try:
             subprocess.check_output(cmd)
@@ -190,7 +187,7 @@ def _build_image(arch_identified, fs_tar_gz, output_dir, static_dir):
 
     # If our enviornment specifies a TEMP_DIR (e.g., LLSC) we should do the unpacking in there
     # to avoid issues with NFS and get better perf. At the end we just move result to output
-    if get_mount_type(os.path.dirname(output_dir)) == "lustre":
+    if get_mount_type(dirname(output_dir)) == "lustre":
         # This FS doesn't support the operations we need to do in converting raw->qcow. Instead try using /tmp
         if "ext3" not in get_mount_type("/tmp"):
             raise RuntimeError("Incompatible filesystem. Neither output_dir nor /tmp are ext3")
@@ -226,7 +223,7 @@ def extract_and_build(fw, output_dir):
         raise Exception("Unsupported target architecture {arch_identified}")
 
     # Generate a qcow image in output_dir/base/image.qcow
-    _build_image(arch_identified, fw, base, static_dir)
+    _build_image(fw, base, static_dir)
 
     if not os.path.isfile(f"{base}/image.qcow"):
         raise Exception("Failed to generate qcow image with MakeImage")
@@ -286,8 +283,62 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
             'type': "file",
             'contents': default_init_script,
             'mode': 0o111,
-        }
+        },
+        '/igloo/utils/sh': {
+            "type": "symlink",
+            'target': "/igloo/utils/busybox",
+        },
+        '/igloo/utils/sleep': {
+            'type': "symlink",
+            'target': "/igloo/utils/busybox",
+        },
     }
+
+    data['static_files']["/igloo/keys/"] = {
+        'type': "dir",
+        'mode': 0o755,
+    }
+    for f in os.listdir(os.path.join(*[dirname(dirname(__file__)), "resources", "static_keys"])):
+        data['static_files'][f"/igloo/keys/{f}"] = {
+            'type': "file",
+            #'contents': open(static_dir + f"static_keys/{f}", 'rb').read(),
+            'hostpath': os.path.join(*[dirname(dirname(__file__)), "resources", "static_keys", f]),
+            'mode': 0o444,
+        }
+
+    #for t in "console" "libnvram" "utils.bin" "utils.source" "vpn"; do
+    #    UTILS="$STATIC_DIR/$t"
+    #    [ -d "$UTILS" ] || { echo "FATAL: Missing utilities directory $UTILS" >&2; exit 1; }
+    #
+    #    for f in "$UTILS"/*.${ARCH} "$UTILS"/*.all; do
+    #        [ -e "$f" ] || { echo "WARN: No files matching pattern $f"; continue; }
+    #        fname=$(basename "$f")
+    #        dest="${IGLOO}/utils/${fname%.*}"
+    #        cp "$f" "$dest"
+    #        chmod +x "$dest"
+    #    done
+    #done
+    data['static_files']["/igloo"] = {
+        'type': "dir",
+        'mode': 0o755,
+    }
+    data['static_files']["/igloo/utils"] = {
+        'type': "dir",
+        'mode': 0o755,
+    }
+
+    arch_suffix = f".{arch}{end}"
+
+    for util_dir in ["console", "libnvram", "utils.bin", "utils.source", "vpn"]:
+        for f in os.listdir(join(static_dir, util_dir)):
+            if f.endswith(arch_suffix) or f.endswith(".all"):
+                out_name = f.replace(arch_suffix, "").replace(".all", "")
+                data['static_files'][f"/igloo/utils/{out_name}"] = {
+                    'type': "file",
+                    'hostpath': f"/igloo_static/{util_dir}/{f}",
+                    'mode': 0o755,
+                }
+
 
     data['plugins'] =  default_plugins
 

@@ -264,7 +264,7 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
 
     # First we'll make any requested directories (which rm -rf anything that exists)
     mkdirs = {k: v for k, v in files.items() if v['type'] == 'dir'}
-    sorted_mkdirs = sorted(mkdirs.items(), key=lambda x: len(files[x[0]]))
+    sorted_mkdirs = sorted(mkdirs.items(), key=lambda x: len(x[0]))
     for file_path, file in sorted_mkdirs:
         #resolved_file_path = resolve_symlink_path(g, file_path)
         #resolved_file_path = os.path.dirname(resolved_file_path) + '/' + os.path.basename(file_path)
@@ -274,12 +274,12 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
 
     # Next, we'll do any move_from operations
     move_from_files = {k: v for k, v in files.items() if v['type'] == 'move_from'}
-    sorted_move_from_files = sorted(move_from_files.items(), key=lambda x: len(files[x[0]]['from']))
+    sorted_move_from_files = sorted(move_from_files.items(), key=lambda x: len(files[x[0]]))
     for file_path, file in sorted_move_from_files:
         _modify_guestfs(g, file_path, file)
 
-    # Now we'll do everything else
-    sorted_files = {k: v for k, v in files.items() if v['type'] not in ['move_from', 'dir']}
+    # Now we'll do everything, except symlinks
+    sorted_files = {k: v for k, v in files.items() if v['type'] not in ['move_from', 'dir', 'symlink']}
     sorted_files = sorted(sorted_files.items(), key=lambda x: len(x[0]))
     for file_path, file in sorted_files:
         if resolved_file_path := resolve_symlink_path(g, file_path):
@@ -287,12 +287,16 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
             #resolved_file_path = file_path
             #if resolved_file_path != file_path:
             #    print(f"WARNING: Resolved file path {file_path} to {resolved_file_path}")
-
             _modify_guestfs(g, resolved_file_path, file)
+
+    # Create symlinks after everything else because guestfs requires destination to exist
+    move_from_files = {k: v for k, v in files.items() if v['type'] == 'symlink'}
+    sorted_move_from_files = sorted(move_from_files.items(), key=lambda x: len(files[x[0]]['target']))
+    for file_path, file in sorted_move_from_files:
+        _modify_guestfs(g, file_path, file)
 
     # Sanity checks. Does guest still have a /bin/sh? Is there a /igloo directory?
     if bin_sh_exists_before_mods and not g.is_file("/bin/sh") and not g.is_symlink("/bin/sh"):
-        print("LS /bin:", g.ls("/bin"))
         raise RuntimeError("Guest filesystem does not contain /bin/sh after modifications")
 
     if not g.is_dir("/igloo"):
