@@ -652,6 +652,20 @@ def add_env_meta(base_config, output_dir):
         yaml.dump(potential_env, f)
 
     base_config['meta']['potential_env'] = potential_env
+    # We're going to sort this as done by firmadyne/firmae - prioritize
+    #   /init, preinitMT, preinit, rcS
+
+    target_inits = ["/preinit", "/init", "/rcS"]
+    init_list = deepcopy(potential_env['igloo_init'])
+    sorted_env = []
+    for target in target_inits:
+        for hit in [x for x in init_list if target in x]:
+            sorted_env.append(hit)
+            init_list.remove(hit)
+
+    # Now append any remaining inits
+    sorted_env += init_list
+    base_config['meta']['potential_env']['igloo_init'] = sorted_env
 
     # We moved potential_init into potential_env
     if 'potential_init' in base_config['meta']:
@@ -775,10 +789,10 @@ def add_nvram_meta(config, output_dir):
         "./image/mnt/nvram_rt.default",
         "./image/mnt/nvram_rpt.default",
         "./image/mnt/nvram.default"]
-    
+
     nvram_filenames = set([os.path.basename(x) for x in nvram_paths])
     results = []
-    
+
     # Do any of these files exist in the filesystem?
     # If so we'll parse nvram keys from them and update config['nvram']
     found = 0
@@ -802,8 +816,11 @@ def add_nvram_meta(config, output_dir):
                         if f is not None:
                             results.append(parse_nvram_file(member.name, f))
                             found += 1
-            if found != 1:
+            if found > 1:
                 print(f"Warning found no nvram configs at hardcoded paths, but found {found} when just checking filenames")
+
+        if found == 0:
+                print(f"Warning found no nvram configs at hardcoded paths or wildcard filenames")
 
     # Now let's go through results and add them to our config
     for result in results:
@@ -822,12 +839,12 @@ def add_nvram_meta(config, output_dir):
     # to add if they're present. Here we add this into our config.
 
     static_targets = { # filename -> (query, value to set if key is present)
-        './sbin/rc': ('ipv6_6to4_lan_ip', '2002:7f00:0001::'),
-        './lib/libacos_shared.so': ('time_zone_x', '0'),
-        './usr/sbin/httpd': ('rip_multicast', '0'),
-        './usr/sbin/httpd': ('bs_trustedip_enable', '0'),
-        './usr/sbin/httpd': ('filter_rule_tbl', ''),
-        './sbin/acos_service': ('rip_enable', '0'),
+        './sbin/rc':                ('ipv6_6to4_lan_ip',    '2002:7f00:0001::'),
+        './lib/libacos_shared.so':  ('time_zone_x',         '0'),
+        './usr/sbin/httpd':         ('rip_multicast',       '0'),
+        './usr/sbin/httpd':         ('bs_trustedip_enable', '0'),
+        './usr/sbin/httpd':         ('filter_rule_tbl',     ''),
+        './sbin/acos_service':      ('rip_enable',          '0'),
     }
 
     with tarfile.open(fs_path, 'r') as tar:
