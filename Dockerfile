@@ -93,6 +93,13 @@ RUN mkdir /static_deps && \
   wget -qO - https://panda.re/secret/utils${UTILS_VERSION}.tar.gz | \
   tar xzf - -C /static_deps
 
+# Download firmadyne's libnvram and place in /igloo_static/firmadyne_libnvram. For armel, mipsel, and mipseb
+RUN mkdir /igloo_static/firmadyne_libnvram && \
+  wget -q https://github.com/firmadyne/libnvram/releases/download/v1.0/libnvram.so.armel -O /igloo_static/firmadyne_libnvram/libnvram.so.armel && \
+  wget -q https://github.com/firmadyne/libnvram/releases/download/v1.0/libnvram.so.mipsel -O /igloo_static/firmadyne_libnvram/libnvram.so.mipsel && \
+  wget -q https://github.com/firmadyne/libnvram/releases/download/v1.0/libnvram.so.mipseb -O /igloo_static/firmadyne_libnvram/libnvram.so.mipseb
+
+
 #### CROSS BUILDER: Build send_hypercall ###
 FROM ghcr.io/panda-re/embedded-toolchains:latest as cross_builder
 COPY ./utils/send_hypercall.c /
