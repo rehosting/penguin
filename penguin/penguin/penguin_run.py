@@ -8,6 +8,7 @@ from time import sleep
 from pandare import Panda
 from .utils import load_config, hash_image_inputs
 from .defaults import default_plugin_path
+from .common import yaml
 
 # Note armel is just panda-system-arm and mipseb is just panda-system-mips
 
@@ -74,7 +75,7 @@ def _sort_plugins_by_dependency(conf_plugins):
 
     return sorted_plugins
 
-def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None):
+def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None):
     '''
     conf_yaml a path to our config
     qcow_dir contains image.qcow + config.yaml
@@ -95,6 +96,20 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None):
     # of configs fiiles section - we'll hash it to get a path
     # Read input config and validate
     conf = load_config(conf_yaml)
+
+    if 'igloo_init' not in conf['env']:
+        if init:
+            conf['env']['igloo_init'] = init
+        else:
+            try:
+                with open(os.path.join(*[os.path.dirname(conf_yaml), 'base', 'env.yaml']), 'r') as f:
+                    # Read yaml file, get 'igloo_init' key
+                    inits = yaml.safe_load(f)['igloo_init']
+            except FileNotFoundError:
+                inits = []
+            raise RuntimeError(f"No init binary is specified in configuraiton, set one in config's env section as igloo_init. Static analysis identified the following: {inits}")
+
+
     archend = conf['core']['arch']
     kernel = conf['core']['kernel']
     config_fs = conf['core']['fs'] # Path to tar filesystem
