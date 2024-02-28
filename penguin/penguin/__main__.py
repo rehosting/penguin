@@ -314,7 +314,7 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
     else:
         # Interactive, let's enable root shell and fully delete some plugins
         data['core']['root_shell'] = True
-        for p in ['zap', 'nmap', 'health', 'shell', 'coverage', 'env']:
+        for p in ['zap', 'nmap', 'health', 'shell', 'coverage', 'env', 'interfaces']:
             if p in data['plugins']:
                 del data['plugins'][p]
 
