@@ -155,6 +155,10 @@ def pre_shim(config, auto_explore=False):
     # This is because arm uses ttyAMA (major 204) and mips uses ttyS (major 4).
     # so calling it ttyS1 is a bit of a misnomer, but we don't want to go patch the console
     # binary to use a different path.
+    config['static_files']['/firmadyne'] = {
+        'type': 'dir',
+        'mode': 0o777
+    }
     config['static_files']['/firmadyne/ttyS1'] = {
         'type': 'dev',
         'devtype': 'char',
@@ -388,19 +392,13 @@ def shim_configs(config, auto_explore=False):
         'bash': 'busybox' # Special handling logic below - only safe to shim if it's already a busybox symlink
     }
 
-    unseen_targets = set(shim_targets.values())
-
     with tarfile.open(fs_path) as fs:
         for fname in fs.getmembers(): # getmembers for full path
             path = fname.path[1:] # Trim leading .
             basename = os.path.basename(path)
 
             if path.startswith("/igloo/utils/"):
-                # This is an igloo-added file, not a guest file.
-                # target's we're linking to, mark that it exists. This is just for a sanity check
-                if basename in unseen_targets:
-                    unseen_targets.remove(basename)
-                continue
+                raise ValueError("Unexpected /igloo/utils present in input filesystem archive")
 
             # It's a guest file/symlink. If it's one of our targets and executable, we want to shim!
             if not (fname.isfile() or fname.issym()) or not fname.mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
@@ -425,9 +423,6 @@ def shim_configs(config, auto_explore=False):
                     'type': 'symlink',
                     'target': f"/igloo/utils/{shim_targets[basename]}",
                 }
-
-    if len(unseen_targets):
-        raise ValueError(f"penguin_static adds shims for unavailable igloo utils: {unseen_targets}")
 
     # Identify original kernel version and shim /lib/modules/4.10.0 to it's /lib/modules path
     kernel_version = None
