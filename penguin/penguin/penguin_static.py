@@ -492,6 +492,10 @@ def _is_init_script(tarinfo):
                 return True
             # TODO: we could prioritize those on standard paths:
             # if tarinfo.name.startswith(('./sbin/', './etc/init.d/', './etc/rc.d/')):
+        elif 'rcS' in name:
+            if tarinfo.mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
+                return True
+
     return False
 
 def add_init_meta(base_config, output_dir):
