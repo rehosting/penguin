@@ -168,5 +168,6 @@ default_plugins = {
         'description': "Analysis & Intervention: Track network interfaces accessed and add missing ones",
         'enabled': True,
         'version': "1.0.0",
+        'depends_on': "health"
     }
 }
