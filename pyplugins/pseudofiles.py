@@ -210,7 +210,7 @@ class FileFailures(PyPlugin):
 
         if do_netdevs := len(self.get_arg("conf").get("netdevs", [])):
             # We need to add /proc/net/penguin to our procfs list
-            self.procfs.append("/proc/penguin_net")
+            self.procfs.append("penguin_net")
 
         # We'll update hf_config[dyndev.{devnames,procnames,netdevnames,sysfs}] with the list of devices we're shimming
         for f in ["devnames", "procnames", "netdevnames", "sysfs"]:
