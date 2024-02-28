@@ -104,9 +104,9 @@ def _modify_guestfs(g, file_path, file):
                     print(f"WARNING: could not delete directory {file_path} to recreate it: {e}")
                     return
 
-                # Note we ignore mode here?
-                dirname = file_path
-                g.mkdir(dirname)
+            # Note we ignore mode here?
+            dirname = file_path
+            g.mkdir(dirname)
 
         elif action == 'symlink':
             # file['target'] is what we point to
