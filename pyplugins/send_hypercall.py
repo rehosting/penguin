@@ -1,9 +1,16 @@
 import struct
+import os
 from pandare import PyPlugin
+
+UBOOT_LOG="uboot.log"
 
 class SendHypercall(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
+        self.outdir = self.get_arg("outdir")
+        open(os.path.join(self.outdir, UBOOT_LOG), "w").close()
+        self.uboot_log = set()
+
         self.ppp.Core.ppp_reg_cb('igloo_send_hypercall', self.on_send_hypercall)
 
         # Command-specific fields
@@ -43,6 +50,10 @@ class SendHypercall(PyPlugin):
         self.panda.arch.set_retval(cpu, ret_val)
 
     def cmd_fw_setenv(self, var, val):
+        if var not in self.uboot_log:
+            self.uboot_log.add(var)
+            with open(os.path.join(self.outdir, UBOOT_LOG), "a") as f:
+                f.write(var + "=" + val + "\n")
         self.uboot_env[var] = val
         return 0, ""
 
@@ -50,6 +61,10 @@ class SendHypercall(PyPlugin):
         try:
             return 0, self.uboot_env[var]
         except KeyError:
+            if var not in self.uboot_log:
+                self.uboot_log.add(var)
+                with open(os.path.join(self.outdir, UBOOT_LOG), "a") as f:
+                    f.write(var + "\n")
             return 1, ""
 
     def cmd_fw_printenv(self):
