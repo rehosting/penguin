@@ -405,7 +405,7 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
     # Config is a path to output_dir/base/config.yaml
     return f"{output_dir}/config.yaml"
 
-def run_from_config(config_path, output_dir, niters=-1, nthreads=1):
+def run_from_config(config_path, output_dir, niters=-1, nthreads=1, timeout=None):
     if not os.path.isfile(config_path):
         raise RuntimeError(f"Config file not found: {config_path}")
 
@@ -426,15 +426,18 @@ def run_from_config(config_path, output_dir, niters=-1, nthreads=1):
         # in each iterative run normally. Here we just do it directly.
         # Only needs a single thread, regardless of nthreads.
         # We need to select an init - grab the first one from our base/env.yaml file
-        with open(join(dirname(output_dir), "base", "env.yaml"), 'r') as f:
-            env = yaml.safe_load(f)
-            try:
-                init = env['igloo_init'][0]
-            except IndexError:
-                raise RuntimeError(f"Static analysis failed to identify an init script. Please specify one in {output_dir}/config.yaml and run again with --config.")
 
-        print(f"RUN CONFIG WITH INIT: {init}")
-        run_config(config_path, out_dir=output_dir, init=init)
+        if not env.get('igloo_init', None):
+            # We need an init binary - try to find one with a calculation relative to output_dir
+            # This is a bad hack though, there should be a way to specify the path to base
+            with open(join(dirname(output_dir), "base", "env.yaml"), 'r') as f:
+                env = yaml.safe_load(f)
+                try:
+                    init = env['igloo_init'][0]
+                except IndexError:
+                    raise RuntimeError(f"Static analysis failed to identify an init script. Please specify one in {output_dir}/config.yaml and run again with --config.")
+
+        run_config(config_path, out_dir=output_dir, init=init, timeout=timeout)
 
     else:
         graph_search(config, output_dir, max_iters=niters, nthreads=nthreads)
@@ -508,7 +511,7 @@ def main():
             # XXX we behave diffrently if niters is 1 in run_from_config. If niters is one we'll spit results into /output
             # otherwise we'll do runs/X/output
             output_dir = os.path.join(args.output_dir, "output") if args.niters == 1 else args.output_dir
-            run_from_config(os.path.join(args.output_dir, "config.yaml"), output_dir, niters=args.niters, nthreads=args.nthreads)
+            run_from_config(os.path.join(args.output_dir, "config.yaml"), output_dir, niters=args.niters, nthreads=args.nthreads, timeout=args.timeout)
 
     else:
         # We have a config. Run for the specified number of iterations
