@@ -27,7 +27,9 @@ class Interfaces(PyPlugin):
     def on_exec(self, cpu, fname, argv):
         # note argv[0] is the binary name, similar to fname
 
-        if not len(argv):
+        if argv is None or not len(argv):
+            if argv is None:
+                print("INTERFACE BUG", self, cpu, fname, argv)
             return
 
         if fname.startswith("/igloo/utils"):
@@ -51,6 +53,10 @@ class Interfaces(PyPlugin):
             return
 
         if iface in DEFAULT_IFACES:
+            return
+
+        # First character must be alphabetical
+        if not iface[0].isalpha():
             return
 
         # Is this a valid interface name? It can be alphanumeric and contain dots and dashes
