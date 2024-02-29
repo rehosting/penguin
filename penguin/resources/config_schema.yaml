@@ -216,6 +216,14 @@ properties:
                 model:
                   title: Read modelling method (read a zero)
                   const: zero
+            - title: Read one model
+              required:
+                - model
+              additionalProperties: false
+              properties:
+                model:
+                  title: Read modelling method (read a zero)
+                  const: one
             - title: Read empty model
               required:
                 - model
