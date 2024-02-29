@@ -169,11 +169,16 @@ default_plugins = {
         "enabled": True,
         "version": "1.0.0",
     },
-    "interfaces": {
+    'interfaces': {
         "description": "Analysis & Intervention: Track network interfaces accessed and add missing ones",
         "enabled": True,
         "version": "1.0.0",
         "depends_on": "health"
+    },
+    'send_hypercall': {
+        'description': "Analysis: Consume hypercall output from the guest (for nvram accesses)",
+        'version': "1.0.0",
+        'depends_on': "core"
     }
 }
 
