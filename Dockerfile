@@ -99,6 +99,15 @@ RUN mkdir /igloo_static/firmadyne_libnvram && \
   wget -q https://github.com/firmadyne/libnvram/releases/download/v1.0/libnvram.so.mipsel -O /igloo_static/firmadyne_libnvram/libnvram.so.mipsel && \
   wget -q https://github.com/firmadyne/libnvram/releases/download/v1.0/libnvram.so.mipseb -O /igloo_static/firmadyne_libnvram/libnvram.so.mipseb
 
+# Download FirmAE's libnvram and place in /igloo_static/firmae_libnvram. For armel, mipsel, and mipseb
+RUN mkdir /igloo_static/firmae_libnvram && \
+  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram.so.armel -O /igloo_static/firmae_libnvram/libnvram.so.armel && \
+  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram.so.mipseb -O /igloo_static/firmae_libnvram/libnvram.so.mipseb && \
+  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram.so.mipsel -O /igloo_static/firmae_libnvram/libnvram.so.mipsel && \
+  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram_ioctl.so.armel -O /igloo_static/firmae_libnvram/libnvram_ioctl.so.armel && \
+  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram_ioctl.so.mipseb -O /igloo_static/firmae_libnvram/libnvram_ioctl.so.mipseb && \
+  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram_ioctl.so.mipsel -O /igloo_static/firmae_libnvram/libnvram_ioctl.so.mipsel
+
 
 #### CROSS BUILDER: Build send_hypercall ###
 FROM ghcr.io/panda-re/embedded-toolchains:latest as cross_builder
