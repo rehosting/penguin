@@ -75,7 +75,7 @@ def _sort_plugins_by_dependency(conf_plugins):
 
     return sorted_plugins
 
-def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None):
+def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, timeout=None):
     '''
     conf_yaml a path to our config
     qcow_dir contains image.qcow + config.yaml
@@ -96,6 +96,11 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None):
     # of configs fiiles section - we'll hash it to get a path
     # Read input config and validate
     conf = load_config(conf_yaml)
+
+    if timeout is not None and conf.get('plugins', {}).get('core', None) is not None:
+        # An arugument setting a timeout overrides the config's timeout
+        conf['plugins']['core']['timeout'] = timeout
+
 
     if 'igloo_init' not in conf['env']:
         if init:
