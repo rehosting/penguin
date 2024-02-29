@@ -8,9 +8,9 @@ default_version = "1.0.0"
 # that we use for env, pseudofiles, etc.
 default_plugin_path = "/pandata"
 
-default_netdevs = [f'eth{x}' for x in range(6)] + [f'wlan{x}' for x in range(6)] + \
-                  [f'eno{x}' for x in range(3)] + [f'ens{x}' for x in [33, 192]] + \
-                  ['enx0', 'enp0s25', 'wlp2s0']
+default_netdevs = [f"eth{x}" for x in range(6)] + [f"wlan{x}" for x in range(6)] + \
+                  [f"eno{x}" for x in range(3)] + [f"ens{x}" for x in [33, 192]] + \
+                  ["enx0", "enp0s25", "wlp2s0"]
 
 default_init_script = """#!/igloo/utils/sh
 /igloo/utils/busybox mkdir -p /sys /proc /run /tmp /dev /igloo/libnvram_tmpfs
@@ -96,78 +96,83 @@ exit 1
 """
 
 default_plugins = {
-    'core': {
+    "core": {
         "description": "Utility: sanity tests and timeout",
-        'version': "1.0.0",
+        "version": "1.0.0",
     },
 
     "netbinds": {
       "description": "Analysis: Track network binds",
-      "version": "1.0.0"
+      "version": "1.0.0",
+      "depends_on": "core"
     },
 
-    'vpn': {
-        'description': "Utility: network bridging",
-        'version': "1.0.0",
-        'depends_on': "netbinds"
+    "vpn": {
+        "description": "Utility: network bridging",
+        "version": "1.0.0",
+        "depends_on": "netbinds"
     },
 
-    'shell': {
+    "shell": {
         "description": "Analysis: track shell script coverage and variable accesses",
-        'version': "1.0.0",
+        "version": "1.0.0",
     },
 
-    'coverage': {
+    "coverage": {
         "description": "Analysis: Track coverage of binaries",
-        'version': "1.0.0",
+        "version": "1.0.0",
     },
 
-    'env': {
+    "env": {
         "description": "Analysis: Track accesses to kernel and uboot environment",
-        'version': "1.0.0",
+        "version": "1.0.0",
+        "depends_on": "core"
     },
 
-    'pseudofiles': {
+    "pseudofiles": {
         "description": "Analysis & Intervention: Track failed /dev and /proc files. Hide these failures using models specifed in config",
-        'version': "1.0.0",
+        "version": "1.0.0",
+        "depends_on": "core"
     },
 
-    'health': {
+    "health": {
         "description": "Analysis: Track health of the system",
-        'version': "1.0.0",
+        "version": "1.0.0",
+        "depends_on": "core"
     },
 
-    'nmap': {
+    "nmap": {
         "description": "Analysis: run nmap scans on guest network services",
-        'depends_on': 'vpn',
-        'enabled': False,
-        'version': "1.0.0",
+        "depends_on": "vpn",
+        "enabled": False,
+        "version": "1.0.0",
     },
-    'zap': {
+    "zap": {
         "description": "Analysis: Run ZAP web crawler on guest web servers",
-        'depends_on': 'vpn',
-        'enabled': False,
-        'version': "1.0.0",
+        "depends_on": "vpn",
+        "enabled": False,
+        "version": "1.0.0",
     },
-    'mount': {
+    "mount": {
         "description": "Analysis: Track when filesystems cannot be mounted",
-        'enabled': True,
-        'version': "1.0.0",
+        "enabled": True,
+        "version": "1.0.0",
     },
-    'nvram2': {
+    "nvram2": {
         "description": "Analysis: Track nvram accesses",
-        'enabled': True,
-        'version': "1.0.0",
+        "enabled": True,
+        "version": "1.0.0",
+        "depends_on": "core"
     },
-    'lifeguard': {
+    "lifeguard": {
         "description": "Intervention: Block violent signals",
-        'enabled': True,
-        'version': "1.0.0",
+        "enabled": True,
+        "version": "1.0.0",
     },
-    'interfaces': {
-        'description': "Analysis & Intervention: Track network interfaces accessed and add missing ones",
-        'enabled': True,
-        'version': "1.0.0",
-        'depends_on': "health"
+    "interfaces": {
+        "description": "Analysis & Intervention: Track network interfaces accessed and add missing ones",
+        "enabled": True,
+        "version": "1.0.0",
+        "depends_on": "health"
     }
 }
