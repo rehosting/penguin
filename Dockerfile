@@ -211,14 +211,14 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
       twisted
 
 # ZAP setup
-#COPY --from=downloader /zap /zap
-#RUN /zap/zap.sh -cmd -silent -addonupdate -addoninstallall && \
-#    cp /root/.ZAP/plugin/*.zap /zapplugin/ || :
-#
-## Install JAVA for ZAP
-#ENV JAVA_HOME=/opt/java/openjdk
-#COPY --from=eclipse-temurin:11 $JAVA_HOME $JAVA_HOME
-#ENV PATH="${JAVA_HOME}/bin:${PATH}"
+COPY --from=downloader /zap /zap
+RUN /zap/zap.sh -cmd -silent -addonupdate -addoninstallall && \
+    cp /root/.ZAP/plugin/*.zap /zapplugin/ || :
+
+# Install JAVA for ZAP
+ENV JAVA_HOME=/opt/java/openjdk
+COPY --from=eclipse-temurin:11 $JAVA_HOME $JAVA_HOME
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 # Libguestfs setup
 COPY --from=downloader /tmp/libguestfs.tar.xz /tmp/libguestfs.tar.xz
