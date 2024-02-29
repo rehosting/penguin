@@ -892,7 +892,7 @@ def add_firmae_webserver_hacks(config, output_dir):
 
     with tarfile.open(fs_path, 'r') as tar:
         for file, cmd in file2cmd.items():
-            if file in tar.getnames():
+            if "." + file in tar.getnames():
                 www_cmds.append(cmd)
                 www_paths.append(file)
 
