@@ -15,6 +15,7 @@ path.append(dirname(__file__))
 from symex import PathExpIoctl
 
 KNOWN_PATHS = ["/dev/", "/dev/pts", "/sys", "/proc", "/run", "/tmp",  # Directories not in static FS that are added by igloo_init
+               "/dev/root", "/dev/ram", "/dev/console", "/dev/ttyS0",  # Devices we'll see from devtmpfs
                "/dev/null", "/dev/zero", "/dev/random", "/dev/urandom", # Standard devices we'll see from devtmpfs
                ]
 
@@ -222,23 +223,23 @@ class FileFailures(PyPlugin):
             netdev_str = self.config['core']['netdevnames'] # It will be a list
         hf_config['dyndev.netdevnames'][hyper("read")] = make_rwif({'val': ",".join(netdev_str)}, self.read_const_buf)
 
-        if len(self.devfs):
+        #if len(self.devfs):
             #self.get_arg("conf")["env"]["dyndev.devnames"] = ",".join(self.devfs)
-            print(f"Configuring dyndev to shim devices: {self.devfs}")
+            #print(f"Configuring dyndev to shim devices: {self.devfs}")
         hf_config["dyndev.devnames"][hyper("read")] = make_rwif({'val': ",".join(self.devfs)}, self.read_const_buf)
 
-        if len(self.procfs):
-            #self.get_arg("conf")["env"]["dyndev.procnames"] = ",".join(procfs)
-            print(f"Configuring dyndev to shim procfiles: {self.procfs}")
+        #if len(self.procfs):
+        #    #self.get_arg("conf")["env"]["dyndev.procnames"] = ",".join(procfs)
+        #    print(f"Configuring dyndev to shim procfiles: {self.procfs}")
         hf_config["dyndev.procnames"][hyper("read")] = make_rwif({'val': ",".join(self.procfs)}, self.read_const_buf)
 
-        if len(self.sysfs):
-            #self.get_arg("conf")["env"]["dyndev.sysfs"] = ",".join(sysfs)
-            print(f"Configuring dyndev to shim sysfs: {self.sysfs}")
+        #if len(self.sysfs):
+        #    #self.get_arg("conf")["env"]["dyndev.sysfs"] = ",".join(sysfs)
+        #    print(f"Configuring dyndev to shim sysfs: {self.sysfs}")
         hf_config["dyndev.sysfs"][hyper("read")] = make_rwif({'val': ",".join(self.sysfs)}, self.read_const_buf)
 
 
-        # IF we have netdevs, we want to pass this info to our int shell script dynmaically.
+        # If we have netdevs, we want to pass this info to our int shell script dynmaically.
         # We'll do it here throough a file at /proc/penguin_net
         if do_netdevs:
             hf_config['/proc/penguin_net'] = {
