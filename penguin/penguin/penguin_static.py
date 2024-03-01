@@ -523,9 +523,6 @@ def shim_configs(config, auto_explore=False):
     Identify binaries in the guest FS that we want to shim
     and add symlinks to go from guest bin -> igloo bin
     into our config.
-
-    Shimming bash with our instrumented sh is scary and we'll
-    only do it if bash is a symlink to busybox.
     '''
     fs_path  = config['core']['fs'] # tar archive
 
@@ -551,7 +548,7 @@ def shim_configs(config, auto_explore=False):
         'umount': 'exit0.sh',
         'ash': 'busybox',
         'sh': 'busybox',
-        'bash': 'busybox' # Special handling logic below - only safe to shim if it's already a busybox symlink
+        'bash': 'bash',
     }
 
     with tarfile.open(fs_path) as fs:
@@ -566,12 +563,6 @@ def shim_configs(config, auto_explore=False):
             if not (fname.isfile() or fname.issym()) or not fname.mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
                 # Skip if it's not a file or non-executable
                 continue
-
-            # Special case, if we're shimming bash it's only safe if it's a busybox symlink
-            if basename == "bash":
-                # Is it a symlink to busybox? If not we can't shim because we might break scripts!
-                if not fname.issym() or not os.path.basename(fname.linkname) == "busybox":
-                    continue
 
             # Is the current file one we want to shim?
             if basename in shim_targets:

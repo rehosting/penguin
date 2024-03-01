@@ -143,6 +143,13 @@ RUN cd / && \
   mipsel-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipsel && \
   arm-linux-musleabi-gcc -s -static send_hypercall.c -o out/send_hypercall.armel
 
+FROM nixos/nix:latest as nix
+RUN mkdir /out && \
+  export NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=1 && \
+  nix-build '<nixpkgs>' -A pkgsCross.armv7l-hf-multiplatform.pkgsStatic.bash && cp result/bin/bash /out/bash-unwrapped.armel && \
+  nix-build '<nixpkgs>' -A pkgsCross.mips-linux-gnu.pkgsStatic.bash && cp result/bin/bash /out/bash-unwrapped.mipseb && \
+  nix-build '<nixpkgs>' -A pkgsCross.mipsel-linux-gnu.pkgsStatic.bash && cp result/bin/bash /out/bash-unwrapped.mipsel
+
 #### QEMU BUILDER: Build qemu-img ####
 FROM $BASE_IMAGE as qemu_builder
 ENV DEBIAN_FRONTEND=noninteractive
@@ -288,6 +295,7 @@ COPY --from=nmap_builder /build/nmap /usr/local/
 # Files are named util.[arch] or util.all
 COPY --from=downloader /static_deps/utils/* /igloo_static/utils.bin
 COPY --from=cross_builder /out/* /igloo_static/utils.bin
+COPY --from=nix /out/* /igloo_static/utils.bin
 COPY utils/* /igloo_static/utils.source/
 
 #COPY fws/kernels-latest.tar.gz /tmp
