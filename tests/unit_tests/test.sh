@@ -79,6 +79,13 @@ assert_mtd_found() {
   grep -q "flash" results/env_mtd.txt && assert_all_good
 }
 
+assert_bash() {
+  grep -q '/init,5,1,"echo ""Hello from $0 $@"""' results/bash_cov.csv && \
+    grep -q '/init,6,1,for x in a b c d' results/bash_cov.csv && \
+    grep -q '/init,7,1,echo $x' results/bash_cov.csv && \
+    ! grep -q 'source' results/bash_cov.csv
+}
+
 mkdir -p results qcows
 
 kernel_versions=("4.10" "6.7")
@@ -175,6 +182,12 @@ for arch in "${archs[@]}"; do
     echo "Skipping pseudofile_sysfs test for $arch"
   else
     run_test "$kernel_version" "$arch" "pseudofile_sysfs" assert_ps_output
+  fi
+
+  if [[ ! " ${tests[@]} " =~ " bash " ]]; then
+    echo "Skipping bash test for $arch"
+  else
+    run_test "$kernel_version" "$arch" "bash" assert_bash
   fi
 
 done

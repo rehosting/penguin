@@ -1,3 +1,5 @@
+import os
+import csv
 import struct
 import os
 from pandare import PyPlugin
@@ -13,8 +15,17 @@ class SendHypercall(PyPlugin):
 
         self.ppp.Core.ppp_reg_cb('igloo_send_hypercall', self.on_send_hypercall)
 
-        # Command-specific fields
+        # Command-specific init
+
+        ## U-Boot
         self.uboot_env = self.get_arg("conf").get("uboot_env", dict())
+
+        ## Bash
+        outdir = self.get_arg("outdir")
+        path = os.path.join(outdir, "bash_cov.csv")
+        self.bash_cov_csv = open(path, "w")
+        csv.writer(self.bash_cov_csv).writerow(["filename", "lineno", "pid", "command"])
+        self.bash_cov_csv.flush()
 
     def on_send_hypercall(self, cpu, buf_addr, buf_num_ptrs):
         arch_bytes = self.panda.bits // 8
@@ -49,10 +60,6 @@ class SendHypercall(PyPlugin):
             print(f"Send hypercall: exception while processing {cmd}: {e}")
             return
 
-        # Debug logging
-        #import sys
-        #print(f"{cmd} {' '.join(args)} -> {ret_val}, {repr(out_str)}", file=sys.stderr)
-
         # Send output to guest
         #assert len(out_str) < 0x1000
         self.panda.virtual_memory_write(cpu, out_addr, out_str.encode())
@@ -78,3 +85,8 @@ class SendHypercall(PyPlugin):
 
     def cmd_fw_printenv(self, arg):
         raise NotImplementedError("fw_printenv shim unimplemented")
+
+    def cmd_bash_command(self, cmd, path, lineno, pid):
+        csv.writer(self.bash_cov_csv).writerow([path, lineno, pid, cmd])
+        self.bash_cov_csv.flush()
+        return 0, ""

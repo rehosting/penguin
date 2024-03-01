@@ -1,0 +1,17 @@
+#!/igloo/utils/bash-unwrapped
+
+set -o functrace
+IGLOO_SOURCED=false
+BASH_ARGV0="$1"
+shift
+trap '
+    if $IGLOO_SOURCED; then
+        /igloo/utils/send_hypercall bash_command \
+            "$BASH_COMMAND" \
+            "$(/igloo/utils/busybox realpath "$0")" \
+            "$LINENO" \
+            "$$"
+    fi
+    IGLOO_SOURCED=true
+' DEBUG
+source "$0" "$@"
