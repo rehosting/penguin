@@ -26,12 +26,16 @@ class SendHypercall(PyPlugin):
         buf = self.panda.virtual_memory_read(cpu, buf_addr, buf_size, fmt="bytearray")
 
         # Unpack list of pointers
-        word_char = 'I' if arch_bytes == 4 else 'Q'
+        word_char = 'I' if arch_bytes == 4 else 'Q' # TODO: is this correct for big-endian guests?
         ptrs = struct.unpack_from(f"{buf_num_ptrs}{word_char}", buf)
         str_ptrs, out_addr = ptrs[:-1], ptrs[-1]
 
         # Read command and arg strings
-        strs = [self.panda.read_str(cpu, ptr) for ptr in str_ptrs]
+        try:
+            strs = [self.panda.read_str(cpu, ptr) for ptr in str_ptrs]
+        except ValueError:
+            print(f"Send hypercall failed to read guest memory. Skipping")
+            return
         cmd, args = strs[0], strs[1:]
 
         # Simulate command
