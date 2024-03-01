@@ -309,13 +309,19 @@ class EnvTrackerAnalysis(PenguinAnalysis):
         with open(pjoin(output_dir, 'core_config.yaml')) as f:
             config = yaml.safe_load(f)
 
-        # Is any env variable set to ENV_MAGIC_VAL?
-        magic_is_set = any(x == ENV_MAGIC_VAL for x in config['env'].values())
+        # Check for our magic variable in boot env, uboot env, and pseudofile read models
+        magic_is_set = any(x == ENV_MAGIC_VAL for x in config['env'].values()) or \
+                       any(x == ENV_MAGIC_VAL for x in config.get('uboot_env', {}).values())
+
+        if not magic_is_set:
+            for path, file_details in config.get('pseudofiles', {}).items():
+                if file_details.get('read', None) and file_details['read'].get('model', None) == 'const_buf':
+                    if const_buf := file_details['read'].get('buf', None) and const_buf == ENV_MAGIC_VAL:
+                        magic_is_set = True
+                        break
 
         if magic_is_set:
-            # We had an ENV_MAGIC_VAL for target_var
             target_var = [k for k, v in config['env'].items() if v == ENV_MAGIC_VAL][0]
-            #print(f"ENV_MAGIC_VAL ({ENV_MAGIC_VAL}) is set for {target_var}. Looking for dynamic values:")
 
             dyn_vals = set()
             if isfile(pjoin(output_dir, cmp_output)):
