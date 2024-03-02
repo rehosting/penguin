@@ -15,14 +15,39 @@ from penguin.defaults import default_netdevs
 DEFAULT_IFACES =  default_netdevs + ["lo"]
 
 iface_log = "iface.log"
+ioctl_log = "iface_ioctl.log"
 
 class Interfaces(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.ppp.Health.ppp_reg_cb('igloo_exec', self.on_exec)
+
         open(f'{self.outdir}/{iface_log}', 'w').close()
+        open(f'{self.outdir}/{ioctl_log}', 'w').close()
+
         self.seen_ifaces = set()
+        self.seen_ioctls = set() # Only failing network ioctls between 0x8000 and 0x9000
+        conf = self.get_arg("conf")
+
+        net_ioctl_block = conf.get("net_ioctl_block", None)
+
+        if not net_ioctl_block:
+            return
+
+
+        @panda.ppp("syscalls2", "on_sys_ioctl_return")
+        def after_ioctl(cpu, pc, fd, request, arg):
+            if 0x8000 < request < 0x9000:
+                rv = panda.arch.get_retval(cpu, convention='syscall')
+                if rv < 0:
+                    if request not in self.seen_ioctls:
+                        self.seen_icotls.add(request)
+                        with open(f'{self.outdir}/{ioctl_log}', 'a') as f:
+                            f.write(f'{request}\n')
+
+                    if rv in net_ioctl_block:
+                        panda.arch.set_retval(cpu, 0, convention='syscall')
 
     def on_exec(self, cpu, fname, argv):
         # note argv[0] is the binary name, similar to fname
