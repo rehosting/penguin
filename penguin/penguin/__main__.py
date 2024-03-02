@@ -465,6 +465,7 @@ def main():
 
     parser.add_argument('--auto', action='store_true', default=False, help="Automatically explore the provided firmware for niters. Configuration will be generated with automation plugins enabled. Meaningless with --config. Default False.")
     parser.add_argument('--niters', type=int, default=1, help='How many interations to run. Default 1')
+    parser.add_argument('--force', action='store_true', default=False, help="Forcefully delete output directory")
 
     parser.add_argument('firmware', type=str, nargs='?', help='The firmware path. Required if --config is not set, otherwise this must not be set.')
     parser.add_argument('output_dir', type=str, help='The output directory path.')
@@ -487,6 +488,9 @@ def main():
     if args.config and args.niters == 0:
         # Nothing to do if you have a config and niters is 0
         parser.error("you provided a config file and set niters=0. That won't do anything")
+
+    if args.force and os.path.isdir(args.output_dir):
+        shutil.rmtree(args.output_dir, ignore_errors=True)
 
     if not args.config:
         # We don't have a config. Generate one.
