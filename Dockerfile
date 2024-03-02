@@ -3,7 +3,7 @@ ARG BASE_IMAGE="ubuntu:22.04"
 ARG GENEXT2FS_VERSION="9bc57e232e8bb7a0e5c8ccf503b57b3b702b973a"
 ARG PANDA_VERSION="1.8.8"
 ARG BUSYBOX_VERSION="25c906fe05766f7fc4765f4e6e719b717cc2d9b7"
-ARG LINUX_VERSION="1.9.20"
+ARG LINUX_VERSION="1.9.22"
 ARG LIBNVRAM_VERSION="9b0ae64bd5db336ab3868de7ec345414263b63b5"
 ARG CONSOLE_VERSION="389e179dde938633ff6a44144fe1e03570497479"
 ARG PENGUIN_PLUGINS_VERSION="1.5.3"
@@ -213,7 +213,7 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
 # ZAP setup
 COPY --from=downloader /zap /zap
 RUN /zap/zap.sh -cmd -silent -addonupdate -addoninstallall && \
-    cp /root/.ZAP/plugin/*.zap /zapplugin/ || :
+    cp /tmp/ZAP/plugin/*.zap /zapplugin/ || :
 
 # Install JAVA for ZAP
 ENV JAVA_HOME=/opt/java/openjdk
