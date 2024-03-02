@@ -7,6 +7,7 @@ import threading
 import os
 import tarfile
 import re
+import logging
 from sys import stdout
 
 from zapv2 import ZAPv2
@@ -68,6 +69,7 @@ class Zap(PyPlugin):
         self.outdir = self.get_arg("outdir")
         self.fs_tar = self.get_arg("fs")
         self.target_host = self.get_arg("target_host")
+        self.logger = logging.getLogger("zap")
 
         if self.target_host:
             h = Hosts(HOSTS_FILE)
@@ -98,14 +100,16 @@ class Zap(PyPlugin):
 
         self.api_base = f"http://127.0.0.1:{self.port}/JSON/"
         # XXX here we block main thread - should be okay? Up to 30s
-        for i in range(10):
-            if i > 5:
-                print(f"Waiting for zap to start ({i*3} / 50s)...")
+        for i in range(6):
             try:
                 requests.get(f"http://127.0.0.1:{self.port}")
                 break
             except Exception as e:
-                time.sleep(3)
+                time.sleep(5)
+        else:
+            # Failed to start zap
+            self.logger.error("Failed to start zap. Not scanning web apps.")
+            return
 
         self.ppp.VsockVPN.ppp_reg_cb('on_bind', self.zap_on_bind)
         #self.ppp.SyscallProxy.ppp_reg_cb('on_pbind', self.zap_on_bind)
