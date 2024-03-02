@@ -371,7 +371,10 @@ def get_string_from_address(elffile, address, is_64=False, is_eb=False):
             data = section.data()[offset_within_section:]
             str_end = data.find(b'\x00')
             if str_end != -1:
-                return data[:str_end].decode('utf-8')
+                try:
+                    return data[:str_end].decode('utf-8')
+                except UnicodeDecodeError:
+                    print(f"Failed to decode string: {data[:str_end]}")
     return None
 
 def analyze_library(elf_path, config):
@@ -390,7 +393,11 @@ def analyze_library(elf_path, config):
     nvram_data = {} # key -> value (may be empty string)
 
     with open(elf_path, 'rb') as f:
-        elffile = ELFFile(f)
+        try:
+            elffile = ELFFile(f)
+        except elftools.common.exceptions.ELFError:
+            print(f"Failed to parse {elf_path} as an ELF file")
+            return nvram_data, symbols
 
         if '.dynsym' in [s.name for s in elffile.iter_sections()]:
             dynsym = elffile.get_section_by_name('.dynsym')
@@ -453,10 +460,11 @@ def library_analysis(config, outdir):
                 file_path = Path(root) / file
                 if file_path.is_file():
                     found_nvram, found_syms = analyze_library(file_path, config)
+                    tmpless_path = str(file_path).replace(tmp_dir, "")
                     for symname, offset in found_syms.items():
-                        symbols[(member.name, symname)] = offset
+                        symbols[(tmpless_path, symname)] = offset
                     for key, value in found_nvram.items():
-                        nvram[(member.name, key)] = value
+                        nvram[(tmpless_path, key)] = value
 
     # Let's use the csv format for now
     with open(os.path.join(outdir,"library_symbols.csv"), 'w') as f:
