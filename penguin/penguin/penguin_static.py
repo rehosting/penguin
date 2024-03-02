@@ -1,11 +1,15 @@
-import tarfile
 import os
 import re
 import stat
+import struct
 import subprocess
+import tarfile
 import tempfile
+import csv
 from pathlib import Path
 from copy import deepcopy
+import elftools
+from elftools.elf.elffile import ELFFile
 
 from .common import yaml
 IGLOO_KERNEL_VERSION = '4.10.0'
@@ -143,8 +147,7 @@ def find_shell_scripts(tmp_dir):
 
 def pre_shim(config, auto_explore=False):
     '''
-    Static modifications to filesystem. Make directories that we think are missing, add some standard files.
-    Update config with these suggested changes.
+    General static analysis for configuration updates. Make directories we think are missing, add standard files.
     '''
     fs_path = config['core']['fs'] # tar archive
 
@@ -349,6 +352,124 @@ def pre_shim(config, auto_explore=False):
                 with open(tmp_dir + file, 'rb') as f:
                     if query.encode() in f.read():
                         config['nvram'][query] = value
+
+def find_symbol_address(elffile, symbol_name):
+    symbol_tables = [s for s in elffile.iter_sections() if isinstance(s, elftools.elf.sections.SymbolTableSection)]
+
+    for section in symbol_tables:
+        if symbol := section.get_symbol_by_name(symbol_name):
+            symbol = symbol[0]
+            return symbol['st_value'], symbol['st_shndx']  # Return symbol address and section index
+    return None, None
+
+def get_string_from_address(elffile, address, is_64=False, is_eb=False):
+    for section in elffile.iter_sections():
+        start_addr = section['sh_addr']
+        end_addr = start_addr + section.data_size
+        if start_addr <= address < end_addr:
+            offset_within_section = address - start_addr
+            data = section.data()[offset_within_section:]
+            str_end = data.find(b'\x00')
+            if str_end != -1:
+                return data[:str_end].decode('utf-8')
+    return None
+
+def analyze_library(elf_path, config):
+    '''
+    Examine a single library. Is there anything we care about in here?
+
+    1) look for exported tables: router_defaults and Nvrams to place in default nvram config
+    2) report all exported function names
+    '''
+
+    archend = config['core']['arch']
+    is_eb = "eb" in archend
+    is_64 = "64" in archend
+
+    symbols = {} # Symbol name -> relative(?) address
+    nvram_data = {} # key -> value (may be empty string)
+
+    with open(elf_path, 'rb') as f:
+        elffile = ELFFile(f)
+
+        if '.dynsym' in [s.name for s in elffile.iter_sections()]:
+            dynsym = elffile.get_section_by_name('.dynsym')
+            for symbol in dynsym.iter_symbols():
+
+                # Filter for exported functions??
+                if symbol['st_info']['bind'] == 'STB_GLOBAL':
+                    symbols[symbol.name] = symbol['st_value']
+
+        # Check for nvram keys
+        for nvram_key in ['Nvrams', 'router_defaults']:
+            address, section_index = find_symbol_address(elffile, nvram_key)
+            if address is None:
+                continue
+
+            section = elffile.get_section(section_index)
+            data = section.data()
+            start_addr = section['sh_addr']
+            offset = address - start_addr
+
+            pointer_size = 8 if is_64 else 4
+            unpack_format = f"{'>' if is_eb else '<'}{'Q' if is_64 else 'I'}"
+
+            # We expect key_ptr, value_ptr, NULL, ...
+            # note that we could have key_ptr, NULL, NULL
+            # end when we get a NULL key
+
+            while offset+(pointer_size*3) < len(data):
+                ptrs = [struct.unpack(unpack_format, data[offset+i*pointer_size:offset+(i+1)*pointer_size])[0] for i in range(3)]
+                if ptrs[0] == 0: # No key
+                    break
+
+                key = get_string_from_address(elffile, ptrs[0], is_64, is_eb)
+                val = get_string_from_address(elffile, ptrs[1], is_64, is_eb)
+                nvram_data[key] = val
+                offset += pointer_size*3
+    return nvram_data, symbols
+
+def library_analysis(config, outdir):
+    '''
+    Examine all the libraries (.so, .so.* files) in the filesystem. Use pyelftools to parse
+    and analyze symbols
+    '''
+
+    symbols = {}
+    nvram = {}
+
+    # Temporary directory for tar file extraction
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        with tarfile.open(config['core']['fs'], 'r') as tar:
+            #tar.extractall(tmp_dir)
+            # Only extract *.so or .so.* files:
+            for member in tar.getmembers():
+                if member.name.endswith('.so') or member.name.endswith('.so.*'):
+                    tar.extract(member, tmp_dir)
+
+        # Now let's examine each extracted library
+        for root, _, files in os.walk(tmp_dir):
+            for file in files:
+                file_path = Path(root) / file
+                if file_path.is_file():
+                    found_nvram, found_syms = analyze_library(file_path, config)
+                    for symname, offset in found_syms.items():
+                        symbols[(member.name, symname)] = offset
+                    for key, value in found_nvram.items():
+                        nvram[(member.name, key)] = value
+
+    # Let's use the csv format for now
+    with open(os.path.join(outdir,"library_symbols.csv"), 'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(["path", "symbol", "offset"])
+        for (path, symname), offset in symbols.items():
+            writer.writerow([path, symname, offset])
+
+    with open(os.path.join(outdir,"nvram.csv"), 'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(["source", "path", "key", "value"])
+        for (path, key), value in nvram.items():
+            writer.writerow(["library", path, key, value])
 
 def _kernel_version_to_int(potential_name):
     try:
@@ -721,12 +842,12 @@ def parse_nvram_file(path, f):
     else:
         return {}
 
+def default_nvram_values():
+    '''
+    Default nvram values from Firmadyne and FirmAE
+    '''
 
-def add_nvram_meta(config, output_dir):
-    fs_path = config['core']['fs']
-
-    # First we'll set the default nvram values from Firmadyne/FirmAE
-    config['nvram'].update({
+    nvram = ({
         "console_loglevel": "7",
         "restore_defaults": "1",
         "sku_name": "",
@@ -761,17 +882,40 @@ def add_nvram_meta(config, output_dir):
     def _add_firmae_for_entries(config_dict, pattern, value, start, end):
         for index in range(start, end + 1):
             config_dict[pattern % index] = value
-    _add_firmae_for_entries(config['nvram'], "usb_info_dev%d", "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@", 0, 101)
-    _add_firmae_for_entries(config['nvram'], "wla_ap_isolate_%d", "", 1, 5)
-    _add_firmae_for_entries(config['nvram'], "wlg_ap_isolate_%d", "", 1, 5)
-    _add_firmae_for_entries(config['nvram'], "wlg_allow_access_%d", "", 1, 5)
-    _add_firmae_for_entries(config['nvram'], "%d:macaddr", "01:23:45:67:89:ab", 0, 3)
-    _add_firmae_for_entries(config['nvram'], "lan%d_ifnames", "", 1, 10)
 
-    print(f"Added {len(config['nvram'])} default nvram keys")
+    _add_firmae_for_entries(nvram, "usb_info_dev%d", "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@", 0, 101)
+    _add_firmae_for_entries(nvram, "wla_ap_isolate_%d", "", 1, 5)
+    _add_firmae_for_entries(nvram, "wlg_ap_isolate_%d", "", 1, 5)
+    _add_firmae_for_entries(nvram, "wlg_allow_access_%d", "", 1, 5)
+    _add_firmae_for_entries(nvram, "%d:macaddr", "01:23:45:67:89:ab", 0, 3)
+    _add_firmae_for_entries(nvram, "lan%d_ifnames", "", 1, 10)
 
-    # Next we'll search the filesystem for default NVRAM paths
-    # and if we find one, parse it to populate our config
+    return nvram
+
+
+def add_nvram_meta(config, output_dir):
+    fs_path = config['core']['fs']
+    nvram_sources = {} # source -> count
+
+    # Open our output dir's library.csv and parse (from library_analysis)
+    if os.path.isfile(output_dir + "/library.csv"):
+        # Nvram source 1: library exported tables
+        with open(output_dir + "/library.csv", 'r') as f:
+            nvram_sources['libraries'] = 0
+            reader = csv.DictReader(f)
+            for row in reader:
+                config['nvram'][row['key']] = row['value']
+                nvram_sources['libraries'] += 1
+    else:
+        # Create with header, we'll append later
+        with open(output_dir + "/library.csv", 'w') as f:
+            writer = csv.writer(f)
+            writer.writerow(["source", "path", "key", "value"])
+
+    # Nvram source 2: standard nvram paths with plaintext data
+    # If we have a hit, we combine with any existing values
+    # These are notionally sorted - if an earlier path provides a value, we won't clobber
+    # but we will consume keys from all paths that we can find and parse
     nvram_paths = [
         "./var/etc/nvram.default",
         "./etc/nvram.default",
@@ -788,54 +932,70 @@ def add_nvram_meta(config, output_dir):
         "./image/mnt/nvram_rpt.default",
         "./image/mnt/nvram.default"]
 
-    nvram_filenames = set([os.path.basename(x) for x in nvram_paths])
-    results = []
-
-    # Do any of these files exist in the filesystem?
-    # If so we'll parse nvram keys from them and update config['nvram']
-    found = 0
+    path_nvrams = {}
     with tarfile.open(fs_path, 'r') as tar:
         for path in nvram_paths:
             if path in tar.getnames():
                 # Found a default nvram file, parse it
                 f = tar.extractfile(path)
                 if f is not None:
-                    results.append(parse_nvram_file(path, f))
-                    found += 1
+                    result = parse_nvram_file(path, f)
+                    # result is key-> value. We want to store path as well
+                    for k, v in result.items():
+                        path_nvrams[(path[1:], k.decode())] = v.decode()
 
-        # Custom mitigation - search these filenames in other paths
-        if found == 0:
-            # Check again, just for filenames, without the path
-            for fname in nvram_filenames:
-                # Check if each filename in the archive ends with the filename we're looking for
-                for member in tar.getmembers():
-                    if member.name.endswith("/" + fname):
-                        f = tar.extractfile(member.name)
-                        if f is not None:
-                            results.append(parse_nvram_file(member.name, f))
-                            found += 1
-            if found > 1:
-                print(f"Warning found no nvram configs at hardcoded paths, but found {found} when just checking filenames")
+    if len(path_nvrams):
+        nvram_sources['full_config_paths'] = len(path_nvrams)
+        with open(output_dir + "/nvram.csv", 'a') as f:
+            writer = csv.writer(f)
+            for (path, k), v in path_nvrams.items():
+                writer.writerow(['nvram', path, k, v])
+                if k not in config['nvram'] and '/' not in k:
+                    # do not overwrite if we had a value from prior
+                    config['nvram'][k] = v
 
-        if found == 0:
-                print(f"Warning found no nvram configs at hardcoded paths or wildcard filenames")
+    if len(config['nvram']) == 0:
+        wild_nvrams = {}
+        # Still haven't found anything. Try widening the search to include these files as basenames, not full paths
+        nvram_filenames = set([os.path.basename(x) for x in nvram_paths])
+        # Do any of these files exist in the filesystem?
+        # If so we'll parse nvram keys from them and update config['nvram']
+        with tarfile.open(fs_path, 'r') as tar:
+                # Check again, just for filenames, without the path
+                for fname in nvram_filenames:
+                    # Check if each filename in the archive ends with the filename we're looking for
+                    for member in tar.getmembers():
+                        if member.name.endswith("/" + fname):
+                            f = tar.extractfile(member.name)
+                            if f is not None:
+                                result = parse_nvram_file(path, f)
+                                for k, v in result.items():
+                                    wild_nvrams[(member.path[1:], k.decode())] = v.decode()
 
-    # Now let's go through results and add them to our config
-    for result in results:
-        for k, v in result.items():
-            if '/' in k.decode():
-                # We're using the filesystem path as the key, so we can't have any of these
-                # Might be an issue, but firmadyne's libnvram took the same approach
-                continue
-            config['nvram'][k.decode()] = v.decode()
+        if len(wild_nvrams):
+            with open(output_dir + "/nvram.csv", 'a') as f:
+                writer = csv.writer(f)
+                nvram_sources['basename_config_file'] = len(wild_nvrams)
+                for (path, k), v in wild_nvrams.items():
+                    writer.writerow(['basename_config_file', path, k, v])
+                    if k not in config['nvram'] and '/' not in k:
+                        # do not overwrite if we had a value from prior
+                        config['nvram'][k] = v
 
-    if found != 1:
-        print(f"Warning: found {found} and parsed default nvram files. Now have {len(config['nvram'])} keys in config.nvram")
+    if not len(config['nvram']):
+        # Time to add default values
+        default_nvram = default_nvram_values()
 
+        with open(output_dir + "/nvram.csv", 'a') as f:
+            writer = csv.writer(f)
+            nvram_sources['defaults'] = len(default_nvram)
+            for k, v in default_nvram.items():
+                writer.writerow(['default', '', k, v])
+                if k not in config['nvram'] and '/' not in k:
+                    config['nvram'][k] = v
 
     # FirmAE provides a list of hardcoded files to check for nvram keys, and default values
     # to add if they're present. Here we add this into our config.
-
     static_targets = { # filename -> (query, value to set if key is present)
         './sbin/rc':                ('ipv6_6to4_lan_ip',    '2002:7f00:0001::'),
         './lib/libacos_shared.so':  ('time_zone_x',         '0'),
@@ -845,17 +1005,13 @@ def add_nvram_meta(config, output_dir):
         './sbin/acos_service':      ('rip_enable',          '0'),
     }
 
+    nvram_sources['firmae_file_specific'] = 0
     with tarfile.open(fs_path, 'r') as tar:
         # For each key in static_targets, check if the query is in the file
         for key, (query, value) in static_targets.items():
             if not key in tar.getnames():
                 continue
 
-            # Check if file is a symlink (TODO: do we want this?)
-            #if tar.getmember(key).issym():
-            #    continue
-
-            # Get file
             try:
                 f = tar.extractfile(key)
             except KeyError:
@@ -867,8 +1023,16 @@ def add_nvram_meta(config, output_dir):
 
             # Check if query is in file
             if query.encode() in f.read():
-                print(f"Adding {query} to nvram with value {value} since it was found in {key}")
-                config['nvram'][key] = value
+                if key not in config['nvram']:
+                    nvram_sources['firmae_file_specific'] += 1
+                    config['nvram'][key] = value
+                    with open(output_dir + "/nvram.csv", 'a') as f:
+                        writer = csv.writer(f)
+                        writer.writerow(['firmae_file_specific', key, query, value])
+
+    # Now report results. How many nvram values from which sources?
+    print(f"Identified {len(config['nvram'])} default NVRAM entries from:" + \
+        " ".join([f"{source} ({count})" for source, count in nvram_sources.items() if count]))
 
 def add_firmae_webserver_hacks(config, output_dir):
     # This is a hacky FirmAE approach to identify webservers and just start
@@ -921,7 +1085,12 @@ def extend_config_with_static(base_config, outdir, auto_explore=False):
     add_init_meta(base_config, outdir)
     add_env_meta(base_config, outdir)
     add_dev_proc_meta(base_config, outdir)
-    add_nvram_meta(base_config, outdir)
+
+    # Analyze *.so, *.so.* to learn about library functions
+    # and exported nvram values
+    library_analysis(base_config, outdir)
+    add_nvram_meta(base_config, outdir) # Sets more nvram values
+
     add_firmae_webserver_hacks(base_config, outdir)
 
     # TODO: Additional static analysis of shell scripts to find more environment variables?
