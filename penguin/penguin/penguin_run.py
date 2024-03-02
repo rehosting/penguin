@@ -385,7 +385,12 @@ def main():
         config = sys.argv[1]
         out_dir = sys.argv[2] if len(sys.argv) > 2 else None
         qcow_dir = sys.argv[3] if len(sys.argv) > 3 else None
-        run_config(config, out_dir, qcow_dir, logger)
+
+        # Two optional args: init and timeout
+        init = sys.argv[4] if len(sys.argv) > 4 else None
+        timeout = int(sys.argv[5]) if len(sys.argv) > 5 else None
+
+        run_config(config, out_dir, qcow_dir, logger, init, timeout)
     else:
         raise RuntimeError(f"USAGE {sys.argv[0]} [config.yaml] (out_dir: default is dirname(config.yaml)/output) (qcow_dir: dirname(config.yaml)/qcows)")
 
