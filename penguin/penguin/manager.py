@@ -287,10 +287,6 @@ class Worker:
         with open(os.path.join(run_dir, "failures.yaml"), "w") as f:
             yaml.dump([fail.to_dict() for fail in failures], f)
 
-        # Dump string representation of graph after
-        with open(os.path.join(run_dir, "graph_after.txt"), "w") as f:
-            f.write(self.config_manager.stringify_state())
-
         # XXX Better score aggregation? Can we use dynamic weights or something?
         return failures, sum(scores.values()), self.run_idx
 
