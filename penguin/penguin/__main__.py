@@ -11,8 +11,7 @@ from elftools.elf.constants import E_FLAGS, E_FLAGS_MASKS
 from os.path import join, dirname
 from .penguin_static import extend_config_with_static
 from .common import yaml
-from .manager import graph_search
-from .penguin_run import run_config
+from .manager import graph_search, PandaRunner, report_best_results
 
 from .defaults import default_init_script, default_plugins, default_version, default_netdevs, default_pseudofiles
 from .utils import load_config, dump_config, arch_end
@@ -155,13 +154,6 @@ def find_architecture(infile):
     return arch_counts.most_common(1)[0][0]
 
 def _build_image(fs_tar_gz, output_dir, static_dir):
-
-    # TODO: makeImage currently adds our utilities into the image. It would be
-    # nice to support a mode where the utilities are added to the config file instead.
-    # Good for dev (i.e., we can swap the /igloo_static/ files and re-running config
-    # would update). Could have usability problems with sharing the static utils
-    # are then pulled out of the sharable blob (fs.tar) and could change across
-    # penguin containers.
     def _makeImage(_output_dir):
         # Build our fakeroot command to run makeImage with a dynamic output directory
         cmd = ["fakeroot", os.path.join(*[dirname(dirname(__file__)), "scripts", "makeImage.sh"]),
@@ -185,21 +177,11 @@ def _build_image(fs_tar_gz, output_dir, static_dir):
         except OSError:
             raise RuntimeError(f"Output directory {output_dir} already exists and is not empty. Refusing to destroy")
 
-    # If our enviornment specifies a TEMP_DIR (e.g., LLSC) we should do the unpacking in there
-    # to avoid issues with NFS and get better perf. At the end we just move result to output
-    if get_mount_type(dirname(output_dir)) == "lustre":
-        # This FS doesn't support the operations we need to do in converting raw->qcow. Instead try using /tmp
-        if "ext3" not in get_mount_type("/tmp"):
-            raise RuntimeError("Incompatible filesystem. Neither output_dir nor /tmp are ext3")
-
-        # Copy the tar.gz to tempdir, makeImage, then move to output_dir
-        with TemporaryDirectory() as temp_dir:
-            shutil.copy(fs_tar_gz, temp_dir)
-            _makeImage(temp_dir)
-            shutil.copytree(temp_dir, output_dir)
-    else:
-        os.mkdir(output_dir)
-        _makeImage(output_dir)
+    # If we ever change makeImage back to extracting the archive, we'll want to restore old logic
+    # to check if output directory is mounted lustre-fs and if so, use $TMPDIR to do our extraction
+    # to avoid permissions issues in extraction
+    os.mkdir(output_dir)
+    _makeImage(output_dir)
 
 def extract_and_build(fw, output_dir):
     base = os.path.join(output_dir, "base")
@@ -214,13 +196,16 @@ def extract_and_build(fw, output_dir):
     if not (arch_identified := find_architecture(fw)):
         raise Exception("Unable to determine architecture of rootfs")
 
-    if arch_identified not in ["mipseb", "mips64eb", "mipsel", "armel"]:
-        raise Exception(f"Architecture {arch_identified} unsupported")
+    if arch_identified not in ["mipseb", "mipsel", "armel"]:
+        #raise Exception(f"Architecture {arch_identified} unsupported")
+        with open(f"{output_dir}/result", 'w') as f:
+            f.write(f"unsupported arch: {arch_identified}")
+        return None, None
 
     print(f"Identified architecture as {arch_identified}")
     arch, endianness = arch_end(arch_identified)
     if not arch or not endianness:
-        raise Exception("Unsupported target architecture {arch_identified}")
+        raise Exception("Arch_end fails to parse {arch_identified}")
 
     # Generate a qcow image in output_dir/base/image.qcow
     _build_image(fw, base, static_dir)
@@ -254,6 +239,8 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
 
     # extract into output_dir/base/{image.qcow,fs.tar}
     arch, end = extract_and_build(firmware, output_dir)
+    if arch is None:
+        return None
 
     kernel = static_dir + f"kernels/{DEFAULT_KERNEL}/" + ("zImage" if arch == "arm" else "vmlinux") + f".{arch}{end}"
 
@@ -419,25 +406,26 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
         # /igloo_static/kernels, but it could be elsewhere.
         raise RuntimeError(f"Base kernel not found: {config['core']['kernel']}")
 
-    if niters == 1:
-        # You already have a config, let's just run it. This is what happens
-        # in each iterative run normally. Here we just do it directly.
-        # Only needs a single thread, regardless of nthreads.
-        # We need to select an init - grab the first one from our base/env.yaml file
+    if niters > 1:
+        return graph_search(config, output_dir, max_iters=niters, nthreads=nthreads)
 
-        init = None
-        if config.get('env', {}).get('igloo_init', None) is None:
-            with open(join(dirname(output_dir), "base", "env.yaml"), 'r') as f:
-                env = yaml.safe_load(f)
-                if env.get('igloo_init', None) and len(env['igloo_init']) > 0:
-                    init = env['igloo_init'][0]
-                else:
-                    raise RuntimeError(f"Static analysis failed to identify an init script. Please specify one in {output_dir}/config.yaml and run again with --config.")
+    # You already have a config, let's just run it. This is what happens
+    # in each iterative run normally. Here we just do it directly.
+    # Only needs a single thread, regardless of nthreads.
+    # We need to select an init - grab the first one from our base/env.yaml file
 
-        run_config(config_path, out_dir=output_dir, init=init, timeout=timeout)
+    init = None
+    if config.get('env', {}).get('igloo_init', None) is None:
+        with open(join(dirname(output_dir), "base", "env.yaml"), 'r') as f:
+            env = yaml.safe_load(f)
+            if env.get('igloo_init', None) and len(env['igloo_init']) > 0:
+                init = env['igloo_init'][0]
+            else:
+                raise RuntimeError(f"Static analysis failed to identify an init script. Please specify one in {output_dir}/config.yaml and run again with --config.")
 
-    else:
-        graph_search(config, output_dir, max_iters=niters, nthreads=nthreads)
+    run_base = os.path.dirname(output_dir)
+    PandaRunner().run(config_path, run_base, run_base, output_dir, init=init, timeout=timeout)
+    report_best_results(run_base, os.path.join(run_base, "output"), os.path.dirname(output_dir))
 
 def main():
     from sys import argv
@@ -504,6 +492,11 @@ def main():
                                "use the config file.")
 
         args.config = build_config(args.firmware, args.output_dir, auto_explore=args.auto, use_vsock=not args.novsock, timeout=args.timeout)
+
+        if args.config is None:
+            # We failed to generate a config. We'll have written a result file to the output dir
+            print(f"Failed to generate config for {args.firmware}. See {args.output_dir}/result for details.")
+            return
 
         # If we were given a firmware, by default we won't run it, but if niters != 1, we will
         if args.auto and args.niters > 0:

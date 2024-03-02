@@ -5,6 +5,7 @@ import select
 import shutil
 import subprocess
 import time
+import csv
 
 import networkx as nx
 import pandas as pd
@@ -49,7 +50,10 @@ class PandaRunner:
     def __init__(self):
         pass
 
-    def run(self, conf_yaml, run_base, run_dir, out_dir):
+    def run(self, conf_yaml, run_base, run_dir, out_dir, init=None, timeout=None):
+        '''
+        If init or timeout are set they override
+        '''
         # penguin_run will run panda directly which might exit (or crash/hang)
         # and definitely will close stdout/stderr which will break subsequent
         # python prints.
@@ -60,9 +64,13 @@ class PandaRunner:
         data = yaml.safe_load(open(conf_yaml))
         timeout_s = None
         timeout_cmd = []
-        if 'plugins' in data and 'core' in data['plugins'] and 'timeout' in data['plugins']['core']:
+
+        if timeout is None and 'plugins' in data and 'core' in data['plugins'] and 'timeout' in data['plugins']['core']:
+            timeout = data['plugins']['core']['timeout']
+
+        if timeout:
             # We'll give 3x run time to account for startup and shutdown processing time?
-            timeout_s = data['plugins']['core']['timeout'] + 120 # First send singal 2 minutes after timeout
+            timeout_s = timeout + 120 # First send singal 2 minutes after timeout
             timeout_ks = 120 # If signal is ignored, kill 2 minutes later
             timeout_cmd = ["timeout", "-s", "SIGUSR1", "-k", str(timeout_ks), str(timeout_s)]
 
@@ -74,6 +82,13 @@ class PandaRunner:
 
         # Python subprocess. No pipe (pipes can get full and deadlock the child!)
         cmd = timeout_cmd + ["python3", "-m", "penguin.penguin_run", conf_yaml, out_dir, f"{run_base}/qcows"]
+
+        if init:
+            cmd.append(init)
+
+        if timeout:
+            cmd.append(str(timeout))
+
         try:
             # This timeout is higher than our SIGUSR1 timeout so the guest can process the signal
             # Before the kill. We have a lot of timeouts...
@@ -508,8 +523,31 @@ def add_init_options_to_graph(config_manager, global_state, base_config):
             config_manager.graph.add_edge(base_config, new_config, delta=f"init={init}")
             config_manager.graph.add_edge(this_init_mit, new_config)
 
+def report_best_results(best_idx, best_output, output_dir):
+    with open(os.path.join(output_dir, "best.txt"), "w") as f:
+        f.write(str(best_idx))
 
-def graph_search(initial_config, output_dir, max_iters=1000, nthreads=1):
+    # Now let's examine the best run's netbinds to report on network binds
+    netbinds = os.path.join(best_output, "netbinds.csv")
+    # parse csv - headers are procname,ipvn,domain,guest_ip,guest_port
+    net_procnames = set()
+    net_count = 0
+
+    with open(netbinds, "r") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            net_procnames.add(row['procname'])
+            net_count += 1
+
+    with open(os.path.join(output_dir, "result"), "w") as f:
+        if net_count == 0:
+            f.write("false\n") # No network binds
+        else:
+            f.write(f"{len(net_procnames)} unique processes bound to {net_count} network sockets\n")
+
+
+
+def graph_search(initial_config, output_dir, max_iters=1000, nthreads=1, init=None):
     '''
     Main entrypoint. Given an initial config and directory run our
     graph search.
@@ -568,8 +606,8 @@ def graph_search(initial_config, output_dir, max_iters=1000, nthreads=1):
 
     # Let's also write a best.txt file with run index of the best run
     if best_idx := config_manager.graph.get_best_run_configuration():
-        with open(os.path.join(output_dir, "best.txt"), "w") as f:
-            f.write(str(best_idx))
+        report_best_results(run_base, os.path.join(*[run_base, str(best_idx), "output"]), output_dir)
+
 
 def main():
     import sys
