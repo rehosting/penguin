@@ -97,16 +97,15 @@ class Zap(PyPlugin):
                                            stdout=self._output_file, stderr=self._output_file)
 
         self.api_base = f"http://127.0.0.1:{self.port}/JSON/"
-        print("Launching ZAP with proxy on port", self.port)
-
         # XXX here we block main thread - should be okay? Up to 30s
         for i in range(10):
+            if i > 5:
+                print(f"Waiting for zap to start ({i*3} / 50s)...")
             try:
                 requests.get(f"http://127.0.0.1:{self.port}")
                 break
             except Exception as e:
                 time.sleep(3)
-                print("Waiting for zap to start...")
 
         self.ppp.VsockVPN.ppp_reg_cb('on_bind', self.zap_on_bind)
         #self.ppp.SyscallProxy.ppp_reg_cb('on_pbind', self.zap_on_bind)
@@ -264,12 +263,6 @@ class Zap(PyPlugin):
         There was a bind - spider and active scan. Note we now go through SyscallProxy
         so we can analyze syscall behavior during each zap-generated requestd
         '''
-
-        print(f"VPN told zap about {procname} binding to guest {guest_ip}:{guest_port}")
-        with open(f"{self.outdir}/binds.txt", "a") as f:
-            f.write(f"{procname} binds to {guest_ip}:{guest_port}\n")
-
-        #if guest_port not in [80, 443] or proto != 'tcp':
         if guest_port not in [80] or proto != 'tcp':
             # Ignore
             return
