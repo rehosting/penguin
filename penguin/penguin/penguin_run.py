@@ -353,19 +353,18 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
         return False
 
     logger.info("Run emulation")
-    with open("/dev/null", "r") as devnull, \
-        open(os.path.join(os.path.dirname(out_dir), 'qemu_stdout.txt'), 'w') as output_file, \
+    with open(os.path.join(os.path.dirname(out_dir), 'qemu_stdout.txt'), 'w') as output_file, \
         open(os.path.join(os.path.dirname(out_dir), 'qemu_stderr.txt'), 'w') as error_file:
 
         # Save original FDs for std
         #original_stdin_fd = sys.stdin.fileno()
-        #original_stdout_fd = sys.stdout.fileno()
-        #original_stderr_fd = sys.stderr.fileno()
+        original_stdout_fd = sys.stdout.fileno()
+        original_stderr_fd = sys.stderr.fileno()
 
         ## Redirect stdout, stderr to output files
         #os.dup2(devnull.fileno(), original_stdin_fd)
-        #os.dup2(output_file.fileno(), original_stdout_fd)
-        #os.dup2(error_file.fileno(), original_stderr_fd)
+        os.dup2(output_file.fileno(), original_stdout_fd)
+        os.dup2(error_file.fileno(), original_stderr_fd)
 
         try:
             panda.run()
@@ -373,7 +372,13 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
             logger.info("\nStopping for ctrl-c\n")
         finally:
             panda.panda_finish()
-            # XXX no FDs are available - process needs to exit now
+            # Restore saved FDs
+            os.dup2(original_stdout_fd, sys.stdout.fileno())
+            os.dup2(original_stderr_fd, sys.stderr.fileno())
+
+            # Close the duplicated FDs to avoid leaks
+            os.close(original_stdout_fd)
+            os.close(original_stderr_fd)
 
 def main():
     logger = logging.getLogger('penguin_run')
