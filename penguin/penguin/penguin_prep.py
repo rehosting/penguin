@@ -164,7 +164,7 @@ def _modify_guestfs(g, file_path, file):
                 new_dest = dest
                 if dest[0] != '/':
                     new_dest = os.path.normpath(os.path.join(os.path.dirname(file['from']), dest))
-                    print(f"Moving symlink {file['from']}->{dest} to {file_path}->{new_dest}")
+                    #print(f"Moving symlink {file['from']}->{dest} to {file_path}->{new_dest}")
 
                 try:
                     g.ln_s(dest, file_path)
