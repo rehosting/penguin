@@ -5,6 +5,7 @@ import shutil
 import random
 import logging
 from time import sleep
+from contextlib import contextmanager
 from pandare import Panda
 from .utils import load_config, hash_image_inputs
 from .defaults import default_plugin_path
@@ -74,6 +75,44 @@ def _sort_plugins_by_dependency(conf_plugins):
             dfs(plugin_name, visited, sorted_plugins)
 
     return sorted_plugins
+
+@contextmanager
+def print_to_log(out, err):
+    original_stdout = sys.stdout  # Save the original stdout
+    original_stderr = sys.stderr  # Save the original stderr
+    sys.stdout = open(out, 'w')  # Redirect stdout to devnull
+    sys.stderr = open(err, 'w')  # Redirect stderr to devnull
+    try:
+        yield
+    finally:
+        sys.stdout.close() # close the file
+        sys.stderr.close() # close the file
+        sys.stdout = original_stdout  # Restore stdout
+        sys.stderr = original_stderr  # Restore stderr
+
+
+@contextmanager
+def redirect_stdout_stderr(stdout_path, stderr_path):
+    original_stdout_fd = sys.stdout.fileno()
+    original_stderr_fd = sys.stderr.fileno()
+    new_stdout = os.open(stdout_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+    new_stderr = os.open(stderr_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+
+    # Redirect stdout and stderr to the files
+    os.dup2(new_stdout, original_stdout_fd)
+    os.dup2(new_stderr, original_stderr_fd)
+
+    try:
+        yield
+    finally:
+        # Restore original stdout and stderr
+        os.dup2(original_stdout_fd, sys.stdout.fileno())
+        os.dup2(original_stderr_fd, sys.stderr.fileno())
+
+        # Close the file descriptors for the new stdout and stderr
+        os.close(new_stdout)
+        os.close(new_stderr)
+
 
 def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, timeout=None):
     '''
@@ -258,18 +297,23 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
     # Disable audio (allegedly speeds up emulation by avoiding running another thread)
     os.environ['QEMU_AUDIO_DRV'] = 'none'
 
-    # Setup PANDA
-    panda = Panda(q_config['arch'], mem=q_config['mem_gb']+"G", extra_args=args)
+    # Setup PANDA. Do not let it print
+    parent_outdir = os.path.dirname(out_dir)
+    stdout_path = os.path.join(parent_outdir, 'qemu_stdout.txt')
+    stderr_path = os.path.join(parent_outdir, 'qemu_stderr.txt')
 
-    if '64' in archend:
-        panda.set_os_name("linux-64-generic")
-    else:
-        panda.set_os_name("linux-32-generic")
+    with print_to_log(stdout_path, stderr_path):
+        panda = Panda(q_config['arch'], mem=q_config['mem_gb']+"G", extra_args=args)
 
-    panda.load_plugin("syscalls2", args = {"load-info": True})
-    panda.load_plugin("osi", args = {"disable-autoload":True})
-    panda.load_plugin("osi_linux", args = {"kconf_file":os.path.join(os.path.dirname(kernel), "osi.config"),
-                                            "kconf_group": q_config['kconf_group']})
+        if '64' in archend:
+            panda.set_os_name("linux-64-generic")
+        else:
+            panda.set_os_name("linux-32-generic")
+
+        panda.load_plugin("syscalls2", args = {"load-info": True})
+        panda.load_plugin("osi", args = {"disable-autoload":True})
+        panda.load_plugin("osi_linux", args = {"kconf_file":os.path.join(os.path.dirname(kernel), "osi.config"),
+                                                "kconf_group": q_config['kconf_group']})
 
     # Plugins names are given out of order (by nature of yaml and sorting),
     # but plugins may have dependencies. We sort by dependencies
@@ -352,33 +396,14 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
             return target.handle_hc(cpu, num) # True IFF that handles num
         return False
 
-    logger.info("Run emulation")
-    with open(os.path.join(os.path.dirname(out_dir), 'qemu_stdout.txt'), 'w') as output_file, \
-        open(os.path.join(os.path.dirname(out_dir), 'qemu_stderr.txt'), 'w') as error_file:
-
-        # Save original FDs for std
-        #original_stdin_fd = sys.stdin.fileno()
-        original_stdout_fd = sys.stdout.fileno()
-        original_stderr_fd = sys.stderr.fileno()
-
-        ## Redirect stdout, stderr to output files
-        #os.dup2(devnull.fileno(), original_stdin_fd)
-        os.dup2(output_file.fileno(), original_stdout_fd)
-        os.dup2(error_file.fileno(), original_stderr_fd)
-
+    logger.info("Run emulation for %s", config_image)
+    with redirect_stdout_stderr(stdout_path, stderr_path):
         try:
             panda.run()
         except KeyboardInterrupt:
             logger.info("\nStopping for ctrl-c\n")
         finally:
             panda.panda_finish()
-            # Restore saved FDs
-            os.dup2(original_stdout_fd, sys.stdout.fileno())
-            os.dup2(original_stderr_fd, sys.stderr.fileno())
-
-            # Close the duplicated FDs to avoid leaks
-            os.close(original_stdout_fd)
-            os.close(original_stderr_fd)
 
 def main():
     logger = logging.getLogger('penguin_run')
