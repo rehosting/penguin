@@ -354,7 +354,10 @@ def pre_shim(config, auto_explore=False):
                         config['nvram'][query] = value
 
 def find_symbol_address(elffile, symbol_name):
-    symbol_tables = [s for s in elffile.iter_sections() if isinstance(s, elftools.elf.sections.SymbolTableSection)]
+    try:
+        symbol_tables = [s for s in elffile.iter_sections() if isinstance(s, elftools.elf.sections.SymbolTableSection)]
+    except elftools.common.exceptions.ELFParseError:
+        return None, None
 
     for section in symbol_tables:
         if symbol := section.get_symbol_by_name(symbol_name):
@@ -419,7 +422,16 @@ def analyze_library(elf_path, config):
             if address is None:
                 continue
 
-            section = elffile.get_section(section_index)
+            if section_index == 'SHN_UNDEF':
+                # This is a common case for shared libraries, it means
+                # the symbol is defined in another library?
+                continue
+
+            try:
+                section = elffile.get_section(section_index)
+            except TypeError:
+                print(f"Failed to get section {section_index} for symbol {nvram_key} in {elf_path}")
+                continue
             data = section.data()
             start_addr = section['sh_addr']
             offset = address - start_addr
@@ -465,7 +477,11 @@ def library_analysis(config, outdir):
             for file in files:
                 file_path = Path(root) / file
                 if file_path.is_file():
-                    found_nvram, found_syms = analyze_library(file_path, config)
+                    try:
+                        found_nvram, found_syms = analyze_library(file_path, config)
+                    except Exception as e:
+                        print(f"Unhandled exception in analyze_library for {file_path}: {e}")
+                        continue
                     tmpless_path = str(file_path).replace(tmp_dir, "")
                     for symname, offset in found_syms.items():
                         symbols[(tmpless_path, symname)] = offset
@@ -483,7 +499,8 @@ def library_analysis(config, outdir):
         writer = csv.writer(f)
         writer.writerow(["source", "path", "key", "value"])
         for (path, key), value in nvram.items():
-            writer.writerow(["library", path, key, value])
+            if key is not None and len(key):
+                writer.writerow(["library", path, key, value if value is not None else ""])
 
 def _kernel_version_to_int(potential_name):
     try:
@@ -912,9 +929,9 @@ def add_nvram_meta(config, output_dir):
     nvram_sources = {} # source -> count
 
     # Open our output dir's library.csv and parse (from library_analysis)
-    if os.path.isfile(output_dir + "/library.csv"):
+    if os.path.isfile(output_dir + "/nvram.csv"):
         # Nvram source 1: library exported tables
-        with open(output_dir + "/library.csv", 'r') as f:
+        with open(output_dir + "/nvram.csv", 'r') as f:
             nvram_sources['libraries'] = 0
             reader = csv.DictReader(f)
             for row in reader:
@@ -922,7 +939,7 @@ def add_nvram_meta(config, output_dir):
                 nvram_sources['libraries'] += 1
     else:
         # Create with header, we'll append later
-        with open(output_dir + "/library.csv", 'w') as f:
+        with open(output_dir + "/nvram.csv", 'w') as f:
             writer = csv.writer(f)
             writer.writerow(["source", "path", "key", "value"])
 
@@ -1048,6 +1065,17 @@ def add_nvram_meta(config, output_dir):
     print(f"Identified {len(config['nvram'])} default NVRAM entries from:" + \
         " ".join([f"{source} ({count})" for source, count in nvram_sources.items() if count]))
 
+    # Make sure everything is string
+    for k, v in config['nvram'].items():
+        if not isinstance(k, str):
+            raise ValueError(f"Expected string value for nvram key, got {k} of type {type(k)}")
+
+        if not len(k):
+            raise ValueError(f"Empty nvram key {k} => {v}")
+
+        if not isinstance(v, str):
+            raise ValueError(f"Expected string key for nvram[{k}], got {v} of type {type(v)}")
+
 def add_firmae_webserver_hacks(config, output_dir):
     # This is a hacky FirmAE approach to identify webservers and just start
     # them. Unsurprisingly, it increases the rate of web servers starting.
@@ -1056,13 +1084,13 @@ def add_firmae_webserver_hacks(config, output_dir):
     fs_path = config['core']['fs'] # tar archive
     # Map between filename and command
     file2cmd = {
-        '/etc/init.d/uhttpd': '/etc/init.d/uhttpd start',
-        '/usr/bin/httpd': '/usr/bin/httpd',
-        '/usr/sbin/httpd': '/usr/sbin/httpd',
-        '/bin/goahead': '/bin/goahead',
-        '/bin/alphapd': '/bin/alphapd',
-        '/bin/boa': '/bin/boa',
-        '/usr/sbin/lighttpd': '/usr/sbin/lighttpd -f /etc/lighttpd/lighttpd.conf',
+        './etc/init.d/uhttpd': '/etc/init.d/uhttpd start',
+        './usr/bin/httpd': '/usr/bin/httpd',
+        './usr/sbin/httpd': '/usr/sbin/httpd',
+        './bin/goahead': '/bin/goahead',
+        './bin/alphapd': '/bin/alphapd',
+        './bin/boa': '/bin/boa',
+        './usr/sbin/lighttpd': '/usr/sbin/lighttpd -f /etc/lighttpd/lighttpd.conf',
     }
 
     www_cmds = []
@@ -1070,13 +1098,13 @@ def add_firmae_webserver_hacks(config, output_dir):
 
     with tarfile.open(fs_path, 'r') as tar:
         for file, cmd in file2cmd.items():
-            if "." + file in tar.getnames():
+            if file in tar.getnames():
                 www_cmds.append(cmd)
                 www_paths.append(file)
 
     newline = '\n'
     if len(www_cmds):
-        config['static_files']['/igloo/www_cmds'] = {
+        config['static_files']['/igloo/utils/www_cmds'] = {
             'type': 'file',
             'contents': f"#!/igloo/utils/sh\n{''.join([x + '& '+ newline for x in www_cmds])}",
             'mode': 0o755
