@@ -177,11 +177,21 @@ def _build_image(fs_tar_gz, output_dir, static_dir):
         except OSError:
             raise RuntimeError(f"Output directory {output_dir} already exists and is not empty. Refusing to destroy")
 
-    # If we ever change makeImage back to extracting the archive, we'll want to restore old logic
-    # to check if output directory is mounted lustre-fs and if so, use $TMPDIR to do our extraction
-    # to avoid permissions issues in extraction
-    os.mkdir(output_dir)
-    _makeImage(output_dir)
+    # If our enviornment specifies a TEMP_DIR (e.g., LLSC) we should do the unpacking in there
+    # to avoid issues with NFS and get better perf. At the end we just move result to output
+    if get_mount_type(dirname(output_dir)) == "lustre":
+        # This FS doesn't support the operations we need to do in converting raw->qcow. Instead try using /tmp
+        if "ext3" not in get_mount_type("/tmp"):
+            raise RuntimeError("Incompatible filesystem. Neither output_dir nor /tmp are ext3")
+
+        # Copy the tar.gz to tempdir, makeImage, then move to output_dir
+        with TemporaryDirectory() as temp_dir:
+            shutil.copy(fs_tar_gz, temp_dir)
+            _makeImage(temp_dir)
+            shutil.copytree(temp_dir, output_dir)
+    else:
+        os.mkdir(output_dir)
+        _makeImage(output_dir)
 
 def extract_and_build(fw, output_dir):
     base = os.path.join(output_dir, "base")
@@ -199,7 +209,7 @@ def extract_and_build(fw, output_dir):
     if arch_identified not in ["mipseb", "mipsel", "armel"]:
         #raise Exception(f"Architecture {arch_identified} unsupported")
         with open(f"{output_dir}/result", 'w') as f:
-            f.write(f"unsupported arch: {arch_identified}")
+            f.write(f"unsupported arch: {arch_identified}\n")
         return None, None
 
     print(f"Identified architecture as {arch_identified}")
@@ -425,7 +435,8 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
 
     run_base = os.path.dirname(output_dir)
     PandaRunner().run(config_path, run_base, run_base, output_dir, init=init, timeout=timeout)
-    report_best_results(run_base, os.path.join(run_base, "output"), os.path.dirname(output_dir))
+    #report_best_results(run_base, os.path.join(run_base, "output"), os.path.dirname(output_dir))
+    report_best_results(run_base, output_dir, os.path.dirname(output_dir))
 
 def main():
     from sys import argv
