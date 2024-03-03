@@ -45,6 +45,14 @@ if [ ! -z "${SHARED_DIR}" ]; then
   unset SHARED_DIR
 fi
 
+if [ ! -z "${WWW}" ]; then
+  if [ -e /igloo/utils/www_cmds ]; then
+    # Give guest 1 minute to startup normally, then launch the webserver commands we detected statically
+    /igloo/utils/sh -c "/igloo/utils/busybox sleep 60 && /igloo/utils/sh /igloo/utils/www_cmds" &
+  fi
+  unset WWW
+fi
+
 if [ ! -z "${CID}" ]; then
   echo '[IGLOO INIT] Launching VPN';
   /igloo/utils/vpn guest -c ${CID} >/dev/null &
