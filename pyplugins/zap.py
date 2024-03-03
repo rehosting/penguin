@@ -88,10 +88,13 @@ class Zap(PyPlugin):
 
         # Run zap, listening with random API key and free port
         self.port = self.find_free_port()
+        # Create /tmp/zap
+        os.makedirs(f"/tmp/zap/{self.api_key}", exist_ok=True)
         self.process = subprocess.Popen(["/zap/zap.sh",
-                                         "-dir", f"/root/.ZAP/{self.api_key}", # This is terrible, but we need something unique
+                                         "-dir", f"/tmp/zap/{self.api_key}", # This is terrible, but we need something unique
                                          "-host", "127.0.0.1",
                                          "-daemon",
+                                         "-silent", # XXX: this is the only way to prevent zap from installing updates on every launch
                                         "-config", f"api.key={self.api_key}",
                                          "-port", str(self.port),
                                          "-Xmx1024m", # Default is EIGHT! Is 1G okay?
