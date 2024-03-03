@@ -271,7 +271,7 @@ class Zap(PyPlugin):
             # Ignore
             return
 
-        f = open(self.outdir + f"/zap_{proto}_{guest_ip}:{guest_port}.log", "w")
+        f = open(self.outdir + f"/zap_{proto}_{guest_ip}_{guest_port}.log", "w")
         self.log_files.append(f)
 
         # Launch a thread to analyze this request
