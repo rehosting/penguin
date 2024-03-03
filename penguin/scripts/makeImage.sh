@@ -45,7 +45,7 @@ fi
 gunzip -c "$TARBALL" > "${ARTIFACTS}/fs.tar"
 
 # Calculate image and filesystem size
-UNPACKED_SIZE=$(zcat $TARBALL | wc -c)
+UNPACKED_SIZE=$(zcat "$TARBALL" | wc -c)
 UNPACKED_SIZE=$(( UNPACKED_SIZE + 1024 * 1024 * PADDING_MB ))
 REQUIRED_BLOCKS=$(( (UNPACKED_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE + 1024 ))
 FILESYSTEM_SIZE=$(( REQUIRED_BLOCKS * BLOCK_SIZE ))
