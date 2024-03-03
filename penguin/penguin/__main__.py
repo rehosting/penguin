@@ -188,6 +188,7 @@ def _build_image(fs_tar_gz, output_dir, static_dir):
         with TemporaryDirectory() as temp_dir:
             shutil.copy(fs_tar_gz, temp_dir)
             _makeImage(temp_dir)
+            os.unlink(os.path.join(temp_dir, os.path.basename(fs_tar_gz))) # Don't leave input .tar.gz in base, we already have fs.tar
             shutil.copytree(temp_dir, output_dir)
     else:
         os.mkdir(output_dir)
