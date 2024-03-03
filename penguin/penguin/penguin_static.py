@@ -363,7 +363,8 @@ def get_string_from_address(elffile, address, is_64=False, is_eb=False):
                 try:
                     return data[:str_end].decode('utf-8')
                 except UnicodeDecodeError:
-                    print(f"Failed to decode string: {data[:str_end]}")
+                    #print(f"Failed to decode string: {data[:str_end]}")
+                    pass
     return None
 
 def analyze_library(elf_path, config):
@@ -1017,7 +1018,7 @@ def add_nvram_meta(config, output_dir):
         writer = csv.writer(f)
         nvram_sources['defaults'] = len(default_nvram)
         for k, v in default_nvram.items():
-            writer.writerow(['default', '', k, v])
+            writer.writerow(['defaults', '', k, v])
 
     # FirmAE provides a list of hardcoded files to check for nvram keys, and default values
     # to add if they're present. Here we add this into our config.
@@ -1089,8 +1090,8 @@ def add_nvram_meta(config, output_dir):
             raise ValueError(f"Expected string key for nvram[{k}], got {v} of type {type(v)}")
 
     # Now report results. How many nvram values from which sources?
-    print(f"Selected {len(config['nvram'])} default NVRAM entries from:" + \
-        " ".join([f"{source} ({count})" for source, count in nvram_sources.items() if count]))
+    print(f"Selected {len(config['nvram'])} default NVRAM entries from: " + \
+        ", ".join([f"{source} ({count})" for source, count in nvram_sources.items() if count]))
 
 
 def add_firmae_webserver_hacks(config, output_dir):
