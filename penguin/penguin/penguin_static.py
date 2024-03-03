@@ -399,7 +399,13 @@ def analyze_library(elf_path, config):
             print(f"Failed to parse {elf_path} as an ELF file")
             return nvram_data, symbols
 
-        if '.dynsym' in [s.name for s in elffile.iter_sections()]:
+        try:
+            match = '.dynsym' in [s.name for s in elffile.iter_sections()]
+        except elftools.common.exceptions.ELFParseError:
+            print(f"Warning: Failed to parse {elf_path} as an ELF file")
+            match = False
+
+        if match:
             dynsym = elffile.get_section_by_name('.dynsym')
             for symbol in dynsym.iter_symbols():
 
