@@ -396,7 +396,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
             return target.handle_hc(cpu, num) # True IFF that handles num
         return False
 
-    logger.info("Run emulation for %s", config_image)
+    logger.info("Run emulation for %s", out_dir)
     with redirect_stdout_stderr(stdout_path, stderr_path):
         try:
             panda.run()
