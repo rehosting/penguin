@@ -51,10 +51,7 @@ class Interfaces(PyPlugin):
 
     def on_exec(self, cpu, fname, argv):
         # note argv[0] is the binary name, similar to fname
-
-        if argv is None or not len(argv):
-            if argv is None:
-                print("INTERFACE BUG", self, cpu, fname, argv)
+        if argv is None or len(argv) == 0:
             return
 
         if fname.startswith("/igloo/utils"):
@@ -64,7 +61,9 @@ class Interfaces(PyPlugin):
         iface = None
         if fname.endswith('/ip') or argv[0] == 'ip':
             # (ip .* dev \K[a-zA-Z0-9.]+(?=))'
-            if any('dev' in arg for arg in argv):
+            # Yes, we explicitly checked if argv was empty. But somehow, it still
+            # is??? So we'll check again. Seems to fix an exception...
+            if argv and any('dev' in arg for arg in argv):
                 for idx, arg in enumerate(argv):
                     if 'dev' in arg and idx < len(argv)-1:
                         iface = argv[idx+1]
