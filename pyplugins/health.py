@@ -72,7 +72,10 @@ class Health(PyPlugin):
                     argv.append(f"(error: 0x{ptr:x})")
                     nullable_argv.append(None)
 
-            self.ppp_run_cb('igloo_exec', cpu, fname, nullable_argv)
+            try:
+                self.ppp_run_cb('igloo_exec', cpu, fname, nullable_argv)
+            except Exception as e:
+                print(f"Exn in health.igloo_exec: {e}")
 
             unique_name = f"{fname} {' '.join(argv)}"
             if unique_name not in self.procs_args:
