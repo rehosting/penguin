@@ -92,7 +92,7 @@ class PandaRunner:
         try:
             # This timeout is higher than our SIGUSR1 timeout so the guest can process the signal
             # Before the kill. We have a lot of timeouts...
-            subprocess.run(cmd, timeout=timeout_s+180, check=True)
+            subprocess.run(cmd, timeout=timeout_s+180 if timeout_s else None, check=True)
         except subprocess.TimeoutExpired:
             print(f"Timeout expired for {conf_yaml} after {timeout_s} seconds")
         except subprocess.CalledProcessError as e:
