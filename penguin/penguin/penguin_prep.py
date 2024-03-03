@@ -197,7 +197,7 @@ def _modify_guestfs(g, file_path, file):
         print(g.df())
         print(g.statvfs("/"))
         print(g.mountpoints())
-        raise
+        #raise
 
 
 def _rebase_and_add_files(qcow_file, new_qcow_file, files):
