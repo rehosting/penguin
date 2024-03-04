@@ -349,7 +349,7 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
         # If auto_explore, we'll enable extra plugins to generate coverage - unless we're told the VPN is disabled.
         if 'vpn' in data['plugins'] and data['plugins']['vpn'].get('enabled', True):
             # If we have VPN (which we will if we have vsock), turn on zap and nmap
-            for p in ['nmap', 'zap']:
+            for p in ['nmap']:
                 if p in data['plugins']:
                     data['plugins'][p]['enabled'] = True
 
