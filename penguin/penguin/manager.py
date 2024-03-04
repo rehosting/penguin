@@ -251,6 +251,9 @@ class Worker:
         # Run emulation `n_config_tests` times
         n_config_tests = 1
 
+        truncated = 0 # How much did we shorten the execution by (as an optimization)
+                      # Number of sections less than our allowed timeout
+
         conf_yaml = os.path.join(run_dir, "config.yaml")
         do_run = True
         if CACHE_SUPPORT:
@@ -276,12 +279,21 @@ class Worker:
                     shutil.rmtree(caches[config_hash])
 
         if do_run:
+            config_depth = self.config_manager.graph.get_config_depth(config)
+            timeout = config.info.get('plugins', {}).get('core', {}).get('timeout', None)
+
+            if timeout is not None:
+                # We want to gradually increase timeout as we get deeper
+                new_timeout = min(30 * config_depth, timeout)
+                truncated = timeout - new_timeout # How truncated were we?
+                timeout = new_timeout
+
             for config_idx in range(n_config_tests):
                 out_dir = os.path.join(run_dir, "output" + (str(config_idx) if config_idx > 0 else ""))
                 os.makedirs(out_dir, exist_ok=True)
                 try:
                     #self._subprocess_panda_run(conf_yaml, run_dir, out_dir)
-                    PandaRunner().run(conf_yaml, self.run_base, run_dir, out_dir)
+                    PandaRunner().run(conf_yaml, self.run_base, run_dir, out_dir, timeout=timeout)
                 except RuntimeError as e:
                     # Uh oh, we got an error while running. Warn and continue
                     this_logger.error(f"Could not run {run_dir}: {e}")
@@ -303,6 +315,11 @@ class Worker:
         scores = self.find_best_score(run_dir, self.run_idx, n_config_tests, config.exclusive is not None, this_logger)
 
         failures = self.analyze_failures(run_dir, config, n_config_tests, this_logger)
+
+        if not len(failures) and truncated > 0:
+            # We saw no failures, but we also were running with a shortened execution. Make a fake failure that
+            # We'll mitigate in core
+            failures.append(Failure("truncation", "core", {"truncated": truncated}))
 
         # Record details of failures into output directory
         # Failures are a list of Failure objects. Above output dir because it's not a part of
