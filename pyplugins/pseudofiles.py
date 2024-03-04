@@ -911,7 +911,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         if path.count("/") >= 3:
                             this_fail = Failure(path, self.ANALYSIS_TYPE, {'type': "sys", "path": path, 'sc': _unify_sc_names(sc)})
                             if this_fail not in fails:
-                                fails.append(f)
+                                fails.append(this_fail)
 
                 elif path.startswith("/proc/"):
                     if path == "/proc/mtd":
