@@ -1,14 +1,12 @@
 import coloredlogs
 import logging
 import os
-import select
 import shutil
 import subprocess
 import time
 import csv
 
 import networkx as nx
-import pandas as pd
 
 from copy import deepcopy
 from os import system
@@ -397,12 +395,25 @@ class Worker:
 
         # Coverage: processes, modules, blocks
         if os.path.isfile(f"{result_dir}/coverage.csv"):
-            with open(f"{result_dir}/coverage.csv") as f:
-                # xxx no header, but it's process, module, offset. no index either
-                df = pd.read_csv(f, header=None, names=['process', 'module', 'offset'], index_col=False)
-            processes_run = df['process'].nunique()
-            modules_loaded =  df['module'].nunique()
-            blocks_covered = df.drop_duplicates(subset=['module', 'offset']).shape[0] # Count of unique (module, offset) pairs
+            with open(f"{result_dir}/coverage.csv", newline='') as f:
+                reader = csv.reader(f)
+                # Initialize sets to store unique values and a list for all rows
+                processes = set()
+                modules = set()
+                module_offset_pairs = set()
+
+                for row in reader:
+                    # Assuming the structure is process, module, offset
+                    process, module, offset = row
+                    processes.add(process)
+                    modules.add(module)
+                    module_offset_pairs.add((module, offset))
+
+            processes_run = len(processes)
+            modules_loaded = len(modules)
+            blocks_covered = len(module_offset_pairs)
+
+
         else:
             print(f"WARNING: No coverage.csv found in {result_dir}")
             processes_run = 0
