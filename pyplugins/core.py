@@ -279,11 +279,11 @@ class CoreAnalysis(PenguinAnalysis):
 
     def get_potential_mitigations(self, config, failure):
         # If there's a failure named 'truncation', we'll propose a mitigateion of "extend"
-        if failure.name == "truncation":
+        if failure.friendly_name == "truncation":
             return [Mitigation("extend", self.ANALYSIS_TYPE, {'duration': failure.info['truncated']})]
 
     def implement_mitigation(self, config, failure, mitigation):
         new_config = deepcopy(config.info)
         how_truncated = mitigation.info['duration'] # How many seconds were truncated?
-        new_config['plugins']['core'].extend = how_truncated # This doesn't actually make sense, but it will be unique
+        new_config['plugins']['core']['extend'] = how_truncated # This doesn't actually make sense, but it will be unique
         return [Configuration("extended_{how_truncated}", new_config)]
