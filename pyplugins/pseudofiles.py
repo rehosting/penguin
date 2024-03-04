@@ -949,7 +949,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                             # Non-IOCTL. Just record the path and syscall
                             data['path'] = path
                             data['sc'] = _unify_sc_names(sc)
-                            this_fail = Failure(f"pseudofile_{path}_{sc}", self.ANALYSIS_TYPE, data)
+                            this_fail = Failure(f"pseudofile_{path}_{_unify_sc_names(sc)}", self.ANALYSIS_TYPE, data)
                             if this_fail not in fails:
                                 fails.append(this_fail)
                         else:
