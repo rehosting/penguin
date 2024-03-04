@@ -921,7 +921,7 @@ class ConfigurationGraph:
         # A mitigation can specify its own weight as a constant that we'll add to our learned
         # weight. This lets a plugin rank the mitigations it produces
         if 'weight' in parent_mit.info:
-            expected += parent_mit.info['weight']
+            expected += round(parent_mit.info['weight'])
 
         # If we saw a new failure in our parent config, that's a pretty good sign - we've uncovered
         # something new that we might want to mitigate. If this mitigation is hitting
@@ -967,12 +967,12 @@ class ConfigurationGraph:
 
         if new_fail_bonus:
             # We like mitigating newly discovered! Give it a big bonus
-            expected += 2000 # TODO: make this hyperparam more explicit?
+            expected += 500 # TODO: make this hyperparam more explicit?
 
         if cc.exclusive:
             # We like running these when we have the chance - bias towards them strongly!
             if not cc.run:
-                expected += 1000 # TODO: make this hyperparam more explicit?
+                expected += 100 # TODO: make this hyperparam more explicit?
 
         return expected
 
