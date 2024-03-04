@@ -839,6 +839,12 @@ class FileFailuresAnalysis(PenguinAnalysis):
         #        # Each of these is a device name we should add - I think we can add them *all at once* and see what happens
         #        return [Failure(f"/proc/mtd", self.ANALYSIS_TYPE, {'type': "dynamic_mtd", 'values': env_mtd})]
 
+        def _unify_sc_names(sc):
+            # SCs are only going to be read/write/ioctl or open. Open being the catch-all
+            if sc in ['read', 'write', 'ioctl']:
+                return sc
+            return 'open'
+
         fails = []
         for path, info in file_failures.items():
             if path in KNOWN_PATHS:
@@ -899,7 +905,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         # XXX our kernel modules only supports /sys/something/file, not just /sys/something
                         # Make sure we have at least 3 slashes
                         if path.count("/") >= 3:
-                            fails.append(Failure(path, self.ANALYSIS_TYPE, {'type': "sys", "path": path, 'sc': sc}))
+                            this_fail = Failure(path, self.ANALYSIS_TYPE, {'type': "sys", "path": path, 'sc': _unify_sc_names(sc)})
+                            if this_fail not in fails:
+                                fails.append(f)
 
                 elif path.startswith("/proc/"):
                     if path == "/proc/mtd":
@@ -914,7 +922,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     for sc, raw_data in info.items():
                         # XXX We generate distinct failures if we have > 1 SC but there's only a single mitigation!
                         # That's probably the source of our duplicate configs later
-                        fails.append(Failure(path, self.ANALYSIS_TYPE, {'type': "proc", "path": path, 'sc': sc}))
+                        this_fail = Failure(path, self.ANALYSIS_TYPE, {'type': "proc", "path": path, 'sc': _unify_sc_names(sc)})
+                        if this_fail not in fails:
+                            fails.append(this_fail)
                     continue
 
                 elif path.startswith("/dev/"):
@@ -938,15 +948,19 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         if sc != 'ioctl':
                             # Non-IOCTL. Just record the path and syscall
                             data['path'] = path
-                            data['sc'] = sc
-                            fails.append(Failure(f"pseudofile_{path}_{sc}", self.ANALYSIS_TYPE, data))
+                            data['sc'] = _unify_sc_names(sc)
+                            this_fail = Failure(f"pseudofile_{path}_{sc}", self.ANALYSIS_TYPE, data)
+                            if this_fail not in fails:
+                                fails.append(this_fail)
                         else:
                             # IOCTL: record path, syscall, and ioctl cmd for each ioctl cmd. Don't update data, just add entries into the failure
                             for cmd in data.keys():
                                 assert(cmd != 'pickle'), f'Malformed pseudofile failure: {info}: {sc}: {data}'
                                 # data[cmd] just has count - let's *not* use that when building our failure
                                 # otherwise we de-duplicate identical failures which completely ruins our search
-                                fails.append(Failure(f"{path}_ioctl_{int(cmd):x}", self.ANALYSIS_TYPE, {'cmd': cmd, 'sc': sc, 'path': path}))
+                                this_fail = Failure(f"{path}_ioctl_{int(cmd):x}", self.ANALYSIS_TYPE, {'cmd': cmd, 'sc': 'ioctl', 'path': path})
+                                if this_fail not in fails:
+                                    fails.append(this_fail)
 
         if not do_symex:
             # After our loop - if we have a much of failed accesses, we can propose adding ~all~ of them
@@ -954,7 +968,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
             missing_files = set()
             for f in fails:
                 path = f.info.get('path', None)
-                if path and path not in config['pseudofiles'] and f.info.get("sc", "") not in ['ioctl', 'read', 'write']:
+                if path and path not in config['pseudofiles'] and f.info.get("sc", "") == 'open':
                     missing_files.add(f.info['path'])
 
             if len(missing_files) > 1:
@@ -1075,7 +1089,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 return [Mitigation(f"{val}", self.ANALYSIS_TYPE, {'path': path, 'cmd': cmd,
                                                                             'action': 'ioctl_model',
                                                                             'model': 'return_const',
-                                                                            'weight': 1001, # XXX We did symex, let's at least try the results!
+                                                                            'weight': 100 + (1 if val== 0 else 0), # We want to use these symex results! Zero more likely to be correct?
                                                                             'val': val}) \
                         for val in failure.info['symex_results']]
 
@@ -1083,10 +1097,6 @@ class FileFailuresAnalysis(PenguinAnalysis):
             else:
                 return [Mitigation(f"symex", self.ANALYSIS_TYPE, {'path': path, 'cmd': cmd, 'weight': 5,
                                                                 'action': 'ioctl_model', 'model': 'symex'})]
-
-        elif failure.info['sc'] == 'unlink':
-            # It wants to delete a file that's missing - let's not concern ourselves with this
-            return []
 
         # Not sure how to handle other failures. In parse failures we're looking for -EBADF for accesses
         # then failing reads/writes (??) and -ENOTTY ioctls
