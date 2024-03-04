@@ -1,5 +1,4 @@
 import networkx as nx
-import matplotlib.pyplot as plt
 import pickle
 from typing import Optional, List, Callable, Tuple, Dict, Set
 from uuid import uuid4, UUID
@@ -607,6 +606,8 @@ class ConfigurationGraph:
         nt.save_graph(file_path)
 
     def create_config_png(self, file_path: str):
+        raise NotImplementedError
+        import matplotlib.pyplot as plt
         """
         Create a PNG image of the graph with just configurations and edges between them.
         We must show the delta property on the edges.
@@ -661,6 +662,9 @@ class ConfigurationGraph:
         Args:
             file_path (str): The file path where the PNG image will be saved.
         """
+        raise NotImplementedError
+        import matplotlib.pyplot as plt
+
         if not isinstance(file_path, str):
             raise ValueError("Invalid input type for file_path.")
 

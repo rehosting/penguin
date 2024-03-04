@@ -222,17 +222,13 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
       lief  \
       lxml \
       lz4 \
-      matplotlib \
-      pandas \
       pyelftools \
-      pygraphviz \
       python-owasp-zap-v2.4 \
       python_hosts \
       pyyaml \
       pyvis \
       jsonschema \
-      setuptools \
-      twisted
+      setuptools
 
 # ZAP setup
 COPY --from=downloader /zap /zap
