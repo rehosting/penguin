@@ -48,7 +48,7 @@ class PandaRunner:
     def __init__(self):
         pass
 
-    def run(self, conf_yaml, run_base, run_dir, out_dir, init=None, timeout=None):
+    def run(self, conf_yaml, run_base, run_dir, out_dir, init=None, timeout=None, show_output=False):
         '''
         If init or timeout are set they override
         '''
@@ -81,11 +81,20 @@ class PandaRunner:
         # Python subprocess. No pipe (pipes can get full and deadlock the child!)
         cmd = timeout_cmd + ["python3", "-m", "penguin.penguin_run", conf_yaml, out_dir, f"{run_base}/qcows"]
 
-        if init:
-            cmd.append(init)
+        # CLI arg parsing is gross. Sorry
+        init_cmd = init if init else "None"
+        timeout_cmd = str(timeout) if timeout else "None"
+        if show_output:
+            cmd.append(init_cmd)
+            cmd.append(timeout_cmd)
+            cmd.append("show")
 
-        if timeout:
-            cmd.append(str(timeout))
+        elif timeout:
+            cmd.append(init_cmd)
+            cmd.append(timeout_cmd)
+
+        elif init:
+            cmd.append(init_cmd)
 
         try:
             # This timeout is higher than our SIGUSR1 timeout so the guest can process the signal
