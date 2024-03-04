@@ -1173,37 +1173,51 @@ class ConfigurationManager:
         First try finding an un-run+non-pending config that's derived from a mitigation
         we've never run before. Prioritize by expected health score.
 
+        Priority init > pseudofile > netdev > signals > env vars
+
         If we've run every mitigation, just select the best config based on expected health score.
         """
         # For every unexplored config, get parent mitigation and store mit -> (weight, config). When we have multiple
         # configs for a mit, clobber if we find a better weight
 
         # Select most shallow un-run config with best health score
-        pending = {}
+        target_configs = []
+
         unexplored_configs = self.graph.find_unexplored_configurations()
-        for config in unexplored_configs:
-            if config not in self.pending_runs:
-                parent_mit = self.graph.get_parent_mitigation(config)
 
-                if parent_mit is None:
-                    continue
+        for priority_type in ["init", "pseudofiles", "interfaces", "signals", "env"]:
+            if len(target_configs):
+                # We found something to do on a prior run
+                break
 
-                # Have *any* of the child configs of parent_mit been run / are running? If so bail
-                if any([self.graph.graph.nodes[child]['object'] in self.pending_runs or \
-                        self.graph.graph.nodes[child]['object'].run \
-                            for child in self.graph.graph.successors(parent_mit.gid) \
-                                if isinstance(self.graph.graph.nodes[child]['object'], Configuration)]):
-                    continue
+            pending = {}
+            for config in unexplored_configs:
+                if config not in self.pending_runs:
+                    parent_mit = self.graph.get_parent_mitigation(config)
 
-                this_score = self.graph.calculate_expected_config_health(config)
-                this_depth = -self.calculate_config_depth(config)
-                if parent_mit not in pending or \
-                        this_depth > pending[parent_mit][2] or \
-                        (this_depth == pending[parent_mit][2]and this_score > pending[parent_mit][0]):
-                    pending[parent_mit] = (this_score, config, this_depth)
+                    if parent_mit is None:
+                        continue
 
-        # Now we have a mapping of mit -> (weight, config) for every unexplored mitigation.
-        target_configs = pending.values()
+                    # Check the type of the parent mitigation
+                    if parent_mit.type != priority_type:
+                        continue
+
+                    # Have *any* of the child configs of parent_mit been run / are running? If so bail
+                    if any([self.graph.graph.nodes[child]['object'] in self.pending_runs or \
+                            self.graph.graph.nodes[child]['object'].run \
+                                for child in self.graph.graph.successors(parent_mit.gid) \
+                                    if isinstance(self.graph.graph.nodes[child]['object'], Configuration)]):
+                        continue
+
+                    this_score = self.graph.calculate_expected_config_health(config)
+                    this_depth = -self.calculate_config_depth(config)
+                    if parent_mit not in pending or \
+                            this_depth > pending[parent_mit][2] or \
+                            (this_depth == pending[parent_mit][2]and this_score > pending[parent_mit][0]):
+                        pending[parent_mit] = (this_score, config, this_depth)
+
+            # Now we have a mapping of mit -> (weight, config) for every unexplored mitigation.
+            target_configs = pending.values()
 
         if not len(target_configs):
             target_configs = []
