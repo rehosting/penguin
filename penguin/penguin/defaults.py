@@ -185,57 +185,42 @@ default_plugins = {
     }
 }
 
-default_proc_model = {
+default_pseudo_model = {
     'read': {
         'model': 'zero',
     },
     'write': {
         'model': 'discard',
-    }
-}
-
-default_dev_model = {
-    'read': {
-        'model': 'zero',
-    },
-    'write': {
-        'model': 'discard',
-    },
-    'ioctl': {
-        '*': {
-          'model': 'return_const',
-          'val': 0
-        }
     }
 }
 
 default_pseudofiles = {
-  '/dev/filename': default_dev_model,
-  '/dev/acos_nat_cli': default_dev_model,
-  '/dev/brcmboard': default_dev_model,
-  '/dev/dsl_cpe_api': default_dev_model,
-  '/dev/gpio': default_dev_model,
-  '/dev/nvram': default_dev_model,
-  '/dev/pib': default_dev_model,
-  '/dev/sc_led': default_dev_model,
-  '/dev/tca0': default_dev_model,
-  '/dev/ticfg': default_dev_model,
-  '/dev/watchdog': default_dev_model,
-  '/dev/wdt': default_dev_model,
-  '/dev/zybtnio': default_dev_model,
-  '/proc/blankstatus': default_proc_model,
-  '/proc/btnCnt': default_proc_model,
-  '/proc/br_igmpProxy': default_proc_model,
-  '/proc/BtnMode': default_proc_model,
-  '/proc/gpio': default_proc_model,
-  '/proc/led': default_proc_model,
-  '/proc/push_button': default_proc_model,
-  '/proc/rtk_promiscuous': default_proc_model,
-  '/proc/rtk_vlan_support': default_proc_model,
-  '/proc/RstBtnCnt': default_proc_model,
-  '/proc/sw_nat': default_proc_model,
-  '/proc/simple_config/reset_button_s': default_proc_model,
-  '/proc/quantum/drv_ctl': default_proc_model,
-  '/proc/rt3052/mii/ctrl': default_proc_model,
-  '/proc/rt3052/mii/data': default_proc_model
+  '/dev/filename': default_pseudo_model,
+  '/dev/acos_nat_cli': default_pseudo_model,
+  '/dev/brcmboard': default_pseudo_model,
+  '/dev/dsl_cpe_api': default_pseudo_model,
+  '/dev/gpio': default_pseudo_model,
+  '/dev/nvram': default_pseudo_model,
+  '/dev/pib': default_pseudo_model,
+  '/dev/sc_led': default_pseudo_model,
+  '/dev/tca0': default_pseudo_model,
+  '/dev/ticfg': default_pseudo_model,
+  '/dev/watchdog': default_pseudo_model,
+  '/dev/wdt': default_pseudo_model,
+  '/dev/zybtnio': default_pseudo_model,
+  '/proc/blankstatus': default_pseudo_model,
+  '/proc/btnCnt': default_pseudo_model,
+  '/proc/br_igmpProxy': default_pseudo_model,
+  '/proc/BtnMode': default_pseudo_model,
+  '/proc/gpio': default_pseudo_model,
+  '/proc/led': default_pseudo_model,
+  '/proc/push_button': default_pseudo_model,
+  '/proc/rtk_promiscuous': default_pseudo_model,
+  '/proc/rtk_vlan_support': default_pseudo_model,
+  '/proc/RstBtnCnt': default_pseudo_model,
+  '/proc/sw_nat': default_pseudo_model,
+  '/proc/simple_config/reset_button_s': default_pseudo_model,
+  '/proc/quantum/drv_ctl': default_pseudo_model,
+  '/proc/rt3052/mii/ctrl': default_pseudo_model,
+  '/proc/rt3052/mii/data': default_pseudo_model
 }
