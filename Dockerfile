@@ -37,12 +37,12 @@ ARG CONSOLE_VERSION
 ARG PENGUIN_PLUGINS_VERSION
 ARG UTILS_VERSION
 # Download ZAP into /zap
-RUN mkdir /zap && \
-wget -qO- https://raw.githubusercontent.com/zaproxy/zap-admin/master/ZapVersions.xml | \
-    xmlstarlet sel -t -v //url | grep -i Linux | wget -q --content-disposition -i - -O - | \
-    tar zxv -C /zap && \
-	mv /zap/ZAP*/* /zap && \
-	rm -R /zap/ZAP*
+#RUN mkdir /zap && \
+#wget -qO- https://raw.githubusercontent.com/zaproxy/zap-admin/master/ZapVersions.xml | \
+#    xmlstarlet sel -t -v //url | grep -i Linux | wget -q --content-disposition -i - -O - | \
+#    tar zxv -C /zap && \
+#	mv /zap/ZAP*/* /zap && \
+#	rm -R /zap/ZAP*
 
 # Libguestfs appliance
 RUN wget --quiet https://download.libguestfs.org/binaries/appliance/appliance-1.46.0.tar.xz -O /tmp/libguestfs.tar.xz
@@ -231,14 +231,14 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
       setuptools
 
 # ZAP setup
-COPY --from=downloader /zap /zap
-RUN /zap/zap.sh -cmd -silent -addonupdate -addoninstallall && \
-    cp /tmp/ZAP/plugin/*.zap /zapplugin/ || :
-
+#COPY --from=downloader /zap /zap
+#RUN /zap/zap.sh -cmd -silent -addonupdate -addoninstallall && \
+#    cp /tmp/ZAP/plugin/*.zap /zapplugin/ || :
+#
 # Install JAVA for ZAP
-ENV JAVA_HOME=/opt/java/openjdk
-COPY --from=eclipse-temurin:11 $JAVA_HOME $JAVA_HOME
-ENV PATH="${JAVA_HOME}/bin:${PATH}"
+#ENV JAVA_HOME=/opt/java/openjdk
+#COPY --from=eclipse-temurin:11 $JAVA_HOME $JAVA_HOME
+#ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 # Libguestfs setup
 COPY --from=downloader /tmp/libguestfs.tar.xz /tmp/libguestfs.tar.xz
