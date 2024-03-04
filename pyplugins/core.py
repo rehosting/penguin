@@ -2,9 +2,11 @@ import signal
 import os
 import time
 import threading
+from copy import deepcopy
 from pandare import PyPlugin
 try:
     from penguin import PenguinAnalysis, yaml
+    from penguin.graphs import Failure, Mitigation, Configuration
 except ImportError:
     # We can still run as a PyPlugin, but we can't do post-run analysis
     import yaml
@@ -248,7 +250,11 @@ class CoreAnalysis(PenguinAnalysis):
     def parse_failures(self, output_dir):
         '''
         We don't really parse failures mitigations, we just make sure there's no python
-        errors during our analysis
+        errors during our analysis.
+
+        XXX Manager ads a failure of type 'core' IFF no other failures are detected
+        and execution was terminated early. In htis case, we mitigate by adding a no-op
+        extend option to the config - this increases depth which increases the timeout.
         '''
         # First: sanity checks. Do we see any errors in console.log? If so abort
         with open(os.path.join(output_dir, "console.log"), "rb") as f:
@@ -272,7 +278,12 @@ class CoreAnalysis(PenguinAnalysis):
         return []
 
     def get_potential_mitigations(self, config, failure):
-        return []
+        # If there's a failure named 'truncation', we'll propose a mitigateion of "extend"
+        if failure.name == "truncation":
+            return [Mitigation("extend", self.ANALYSIS_TYPE, {'duration': failure.info['truncated']})]
 
     def implement_mitigation(self, config, failure, mitigation):
-        raise NotImplementedError("Core doesn't do mitigations")
+        new_config = deepcopy(config.info)
+        how_truncated = mitigation.info['duration'] # How many seconds were truncated?
+        new_config['plugins']['core'].extend = how_truncated # This doesn't actually make sense, but it will be unique
+        return [Configuration("extended_{how_truncated}", new_config)]
