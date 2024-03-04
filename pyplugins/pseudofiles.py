@@ -962,6 +962,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                 if this_fail not in fails:
                                     fails.append(this_fail)
 
+        '''
+        # Disabled for now - we end up with various permutations of the list (i.e., slightly different sets of missing files) and it pollutes our search
         if not do_symex:
             # After our loop - if we have a much of failed accesses, we can propose adding ~all~ of them
             # at once!
@@ -972,8 +974,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     missing_files.add(f.info['path'])
 
             if len(missing_files) > 1:
-                file_group = Failure(f"pseudofile_add_group_{len(missing_files)}", self.ANALYSIS_TYPE, {'paths': list(missing_files), 'sc': 'open', 'type': 'multifile'})
+                file_group = Failure(f"pseudofile_add_group_{len(missing_files)}", self.ANALYSIS_TYPE, {'paths': sorted(list(missing_files)), 'sc': 'open', 'type': 'multifile'})
                 fails.append(file_group)
+        '''
 
         return fails
 
