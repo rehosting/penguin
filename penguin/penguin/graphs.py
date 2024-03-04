@@ -777,7 +777,7 @@ class ConfigurationGraph:
                 if isinstance(self.graph.nodes[node]['object'], Configuration) and self.graph.nodes[node]['object'].run:
                     if best is None or self.graph.nodes[node]['object'].health_score > best.health_score:
                         best = self.graph.nodes[node]['object']
-            return best.run_idx if best else None
+            return best if best else None
 
     def get_all_configurations(self) -> List[Configuration]:
         '''
