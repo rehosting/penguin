@@ -773,6 +773,48 @@ class FileFailuresAnalysis(PenguinAnalysis):
         with open(pjoin(output_dir, outfile_missing)) as f:
             file_failures = yaml.safe_load(f)
 
+        with open(pjoin(output_dir, outfile_models)) as f:
+            modeled = yaml.safe_load(f)
+            # Look through modeled to identify default returnvalues - i.e.,
+            # things not specified in our config. We'll add to file_failures
+            # Start with ioctls. Look at each device and see if we have a default
+            for dev, details in modeled.items():
+                if 'ioctl' not in details:
+                    continue
+
+                ioctls = {} # cmd -> {'retval': retval, 'count'}
+
+                for result in details['ioctl']:
+                    if result['cmd'] not in ioctls:
+                        ioctls[result['cmd']] = {'retval': result['retval'], 'count': 0}
+
+                    # Retval must be const
+                    if ioctls[result['cmd']]['retval'] != result['retval']:
+                        print(f"WARNING modeled ioctl {result['cmd']} on {dev} had different return values {ioctls[result['cmd']]['retval']} and {result['retval']}")
+                    ioctls[result['cmd']]['count'] += 1
+
+                # did any ioctls return -ENOTTY and have that not be specified in our config?
+                for cmd, data in ioctls.items():
+                    retval = data['retval']
+                    if retval != -25:
+                        # Check config
+                        if config.get('pseudofiles', {}).get(dev, {}).get('ioctl', {}).get(cmd, {}).get('model', None):
+                            # It was set
+                            continue
+                        # Must have been a failure - Add into file_failures
+                        if dev not in file_failures:
+                            file_failures[dev] = {}
+                            if 'ioctl' not in file_failures[dev]:
+                                file_failures[dev]['ioctl'] = {}
+                            if cmd not in file_failures[dev]['ioctl']:
+                                file_failures[dev]['ioctl'][cmd] = {'count': data['count']}
+                            else:
+                                file_failures[dev]['ioctl'][cmd]['count'] += data['count']
+
+                            print(f"TESTING: Added new failure for ioctl {cmd} on {dev} with count {data['count']}")
+
+
+
         # Let's look at all file_failures with paths that end with numbers to decide if they're excessive (> 5) or not
         # If they're excessive, we'll ignore them
         _prefix_counter = Counter()
@@ -803,7 +845,6 @@ class FileFailuresAnalysis(PenguinAnalysis):
         for path, info in file_failures.items():
             if path in KNOWN_PATHS:
                 continue
-
 
 
             if path.startswith("/sys/"):
@@ -896,21 +937,19 @@ class FileFailuresAnalysis(PenguinAnalysis):
                             # IOCTL: record path, syscall, and ioctl cmd for each ioctl cmd. Don't update data, just add entries into the failure
                             for cmd in data.keys():
                                 assert(cmd != 'pickle'), f'Malformed pseudofile failure: {info}: {sc}: {data}'
-
-                                new_data = deepcopy(data[cmd])
-                                if not isinstance(new_data, dict):
-                                    print(f"Unexpected data[{cmd}] = {new_data} in {data}")
-
-                                fails.append(Failure(f"{path}_ioctl_{int(cmd):x}", self.ANALYSIS_TYPE, {'cmd': cmd, 'sc': sc, 'path': path, **new_data}))
+                                # data[cmd] just has count - let's *not* use that when building our failure
+                                # otherwise we de-duplicate identical failures which completely ruins our search
+                                fails.append(Failure(f"{path}_ioctl_{int(cmd):x}", self.ANALYSIS_TYPE, {'cmd': cmd, 'sc': sc, 'path': path}))
 
         # Final case - if we have a much of failed accesses, we can propose adding ~all~ of them
         # at once! We'll select all
         missing_files = set()
         for f in fails:
-            if 'path' in f.info and f.info['path'] not in config['pseudofiles'] and f.info.get("sc", "") not in ['ioctl', 'read', 'write']:
+            path = f.info.get('path', None)
+            if path and path not in config['pseudofiles'] and f.info.get("sc", "") not in ['ioctl', 'read', 'write']:
                 missing_files.add(f.info['path'])
 
-        if len(missing_files):
+        if len(missing_files) > 1:
             file_group = Failure(f"pseudofile_add_group_{len(missing_files)}", self.ANALYSIS_TYPE, {'paths': list(missing_files), 'sc': 'open', 'type': 'multifile'})
             print(f"Adding pseudofile add all group:", missing_files)
             fails.append(file_group)
@@ -995,14 +1034,21 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         if failure.info['sc'] == 'open':
             #raise ValueError(f"We saw an open failure for {path} but it's added by pseudofiles. This shouldn't happen")
-            print(f"Warning: pseudofiles reported an access failure for {path} but we've (allegedly) added the file already. Ignoring")
+            #print(f"Warning: pseudofiles reported an access failure for {path} but we've (allegedly) added the file already. Ignoring")
             return []
 
         elif failure.info['sc'] == 'read':
+            # Check if there's already a read model for this file
+            if 'read' in config['pseudofiles'][path]:
+                # TODO: if we had a different read model, we could still propose read_zero, but for now I don't think we'd ever encounter that
+                return []
             # We saw a read failure. Let's propose some mitigations. Just one for now: read zero
             return [Mitigation(f"pseudofile_read_zero_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'read_model', 'model': 'zero', 'weight': 5})]
 
         elif failure.info['sc'] == 'write':
+            if 'write' in config['pseudofiles'][path]:
+                # TODO: if we had a different write model, we could still propose read_zero, but for now I don't think we'd ever encounter that
+                return []
             # Saw a write failure. Only thing to do (for now) is discard.
             return [Mitigation(f"pseudofile_write_discard_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'write_model', 'model': 'discard', 'weight': 5})]
 
@@ -1051,6 +1097,15 @@ class FileFailuresAnalysis(PenguinAnalysis):
         new_config = deepcopy(config.info)
         if 'pseudofiles' not in new_config:
             new_config['pseudofiles'] = {}
+
+        # XXX: When multiple pseudofiles have similar models (i.e., defaults), the yaml loader may use IDs
+        # to store a single object that gets referenced multiple times. But when we go to modify this,
+        # we **must** make sure we're modifying a unique object. We'll deepcopy the specific pseudofile
+        # we're modifying to ensure this.
+
+        path = mitigation.info.get('path')
+        if path and path in new_config['pseudofiles']:
+            new_config['pseudofiles'][path] = deepcopy(new_config['pseudofiles'][path])
 
         # Would applying this mitigation to the config be a no-op?
         if mitigation.info['action'] == 'add' and mitigation.info['path'] in new_config['pseudofiles']:
