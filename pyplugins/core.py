@@ -50,6 +50,12 @@ class Core(PyPlugin):
         if conf['core'].get('strace', False):
             conf['env']['STRACE'] = "1"
 
+        if conf['core'].get('force_www', False):
+            if conf.get("static_files", {}).get("/igloo/utils/www_cmds", None) is None:
+                print(f"WARNING: Force WWW unavailable - no webservers were statically identified (/igloo/utils/www_cmds is empty)")
+            else:
+                conf['env']['WWW'] = "1"
+
         # Record loaded plugins
         with open(os.path.join(self.outdir, "core_plugins.yaml"), "w") as f:
             f.write(yaml.dump(plugins)) # Names and args
