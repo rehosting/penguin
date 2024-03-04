@@ -425,6 +425,17 @@ class ConfigurationGraph:
                     sub_delta = ConfigurationGraph.find_delta(derived_value, parent_value, prefix=f"{prefix}{key}.")
                     if sub_delta:
                         delta += sub_delta
+            elif isinstance(derived_value, list) and isinstance(parent_value, list):
+                # Shwo list difference
+                if derived_value != parent_value:
+                    # What keys are in derived that aren't in parent?
+                    added_keys = [x for x in derived_value if x not in parent_value]
+                    # What keys are removed?
+                    removed_keys = [x for x in parent_value if x not in derived_value]
+                    if len(added_keys):
+                        delta += f"{prefix}{key}: adds {added_keys}\n"
+                    if len(removed_keys):
+                        delta += f"{prefix}{key}: removes {added_keys}\n"
             else:
                 if derived_value != parent_value:
                     delta += f"{prefix}{key}: {parent_value} -> {derived_value}\n"
