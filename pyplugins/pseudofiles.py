@@ -844,75 +844,80 @@ class FileFailuresAnalysis(PenguinAnalysis):
             if path in KNOWN_PATHS:
                 continue
 
-
-            if path.startswith("/sys/"):
-                # Everything that failed in sysfs might be interesting. The guest could be creating something though,
-                # in which case we want the directory to appear, not the exact file
-
-                for sc, raw_data in info.items():
-                    # XXX We generate distinct failures if we have > 1 SC but there's only a single mitigation!
-                    # That's probably the source of our duplicate configs later
-
-                    # XXX our kernel modules only supports /sys/something/file, not just /sys/something
-                    # Make sure we have at least 3 slashes
-                    if path.count("/") >= 3:
-                        fails.append(Failure(path, self.ANALYSIS_TYPE, {'type': "sys", "path": path, 'sc': sc}))
-
-            elif path.startswith("/proc/"):
-                if path == "/proc/mtd":
-                    # This is a special case - the guest is reading /proc/mtd and we don't have any devices
-                    # presumably it might want a device and for it to be a device of a specific name.
-                    fails.append(Failure(f"/proc/mtd", self.ANALYSIS_TYPE, {'type': "mtd_generic"}))
-                    continue
-
-                if not proc_interesting(path):
-                    continue
-
-                for sc, raw_data in info.items():
-                    # XXX We generate distinct failures if we have > 1 SC but there's only a single mitigation!
-                    # That's probably the source of our duplicate configs later
-                    fails.append(Failure(path, self.ANALYSIS_TYPE, {'type': "proc", "path": path, 'sc': sc}))
+            # If there are a lot of devices with numeric suffixes, we'll ignore them
+            if path[-1].isdigit() and any(path.startswith(x) for x in ignored_prefixes):
+                #self.logger.debug(f"Ignoring /dev path with numeric suffix because there are lots like it {path}")
                 continue
 
-            elif path.startswith("/dev/"):
-                # If there are a lot of devices with numeric suffixes, we'll ignore them
-                if path[-1].isdigit() and any(path.startswith(x) for x in ignored_prefixes):
-                    #self.logger.debug(f"Ignoring /dev path with numeric suffix because there are lots like it {path}")
-                    continue
-
+            if do_symex:
                 # If we're doing symex, we only care about "failures" on that one device with that cmd since these
                 # are what we'd meaningfully "mitigate" with children. We don't want to mitigate something else and
                 # re-symex later.
 
-                if do_symex:
-                    # If it's a different device, skip it
-                    if symex_path != path:
+                # If it's a different device, skip it
+                if symex_path != path:
+                    continue
+
+                if not path.startswith("/dev/"):
+                    # We only can symex on /dev/ devices for now.
+                    print(f"WARNING: cannot symex on non-dev file {path} - ignoring")
+                    continue
+
+                # Drop anything except 'ioctl' info
+                info = {k: v for k, v in info.items() if k == 'ioctl'}
+
+                if not len(info): # There wasn't anything else. Skip this
+                    continue
+
+                # Within IOCTL drop anything except our target cmd
+                info['ioctl'] = {k: v for k, v in info['ioctl'].items() if k == symex_cmd}
+
+                if not len(info['ioctl']): # There wasn't anything else. Skip this
+                    continue
+
+                # We have a failure for each command we symex'd (probably just one?)
+                for cmd, data in info['ioctl'].items():
+                    symex = PathExpIoctl(output_dir, None, read_only=True)
+                    models = symex.hypothesize_models(target=path, cmd=cmd, verbose=False)
+                    if path not in models or cmd not in models[path]:
+                        continue
+                    results = [rv for rv in models[path][cmd]]
+                    # We want to have symex_results
+                    #print(f"Dropping symex data because it's junk, right?: {data}") # data is like {count: '1'}
+                    fail_data = {'cmd': cmd, 'sc': 'ioctl', 'path': path, 'symex_results': results}
+                    fails.append(Failure(f"{path}_ioctl_{int(cmd):x}_fromsymex", self.ANALYSIS_TYPE, fail_data))
+
+            else:
+                if path.startswith("/sys/"):
+                    # Everything that failed in sysfs might be interesting. The guest could be creating something though,
+                    # in which case we want the directory to appear, not the exact file
+
+                    for sc, raw_data in info.items():
+                        # XXX We generate distinct failures if we have > 1 SC but there's only a single mitigation!
+                        # That's probably the source of our duplicate configs later
+
+                        # XXX our kernel modules only supports /sys/something/file, not just /sys/something
+                        # Make sure we have at least 3 slashes
+                        if path.count("/") >= 3:
+                            fails.append(Failure(path, self.ANALYSIS_TYPE, {'type': "sys", "path": path, 'sc': sc}))
+
+                elif path.startswith("/proc/"):
+                    if path == "/proc/mtd":
+                        # This is a special case - the guest is reading /proc/mtd and we don't have any devices
+                        # presumably it might want a device and for it to be a device of a specific name.
+                        fails.append(Failure(f"/proc/mtd", self.ANALYSIS_TYPE, {'type': "mtd_generic"}))
                         continue
 
-                    # Drop anything except 'ioctl' info
-                    info = {k: v for k, v in info.items() if k == 'ioctl'}
-
-                    if not len(info): # There wasn't anything else. Skip this
+                    if not proc_interesting(path):
                         continue
 
-                    # Within IOCTL drop anything except our target cmd
-                    info['ioctl'] = {k: v for k, v in info['ioctl'].items() if k == symex_cmd}
+                    for sc, raw_data in info.items():
+                        # XXX We generate distinct failures if we have > 1 SC but there's only a single mitigation!
+                        # That's probably the source of our duplicate configs later
+                        fails.append(Failure(path, self.ANALYSIS_TYPE, {'type': "proc", "path": path, 'sc': sc}))
+                    continue
 
-                    if not len(info['ioctl']): # There wasn't anything else. Skip this
-                        continue
-
-                    # We have a failure for each command we symex'd (probably just one?)
-                    for cmd, data in info['ioctl'].items():
-                        symex = PathExpIoctl(output_dir, None, read_only=True)
-                        models = symex.hypothesize_models(target=path, cmd=cmd, verbose=False)
-                        if path not in models or cmd not in models[path]:
-                            continue
-                        results = [rv for rv in models[path][cmd]]
-                        # We want to have symex_results
-                        #print(f"Dropping symex data because it's junk, right?: {data}") # data is like {count: '1'}
-                        fail_data = {'cmd': cmd, 'sc': 'ioctl', 'path': path, 'symex_results': results}
-                        fails.append(Failure(f"{path}_ioctl_{int(cmd):x}_fromsymex", self.ANALYSIS_TYPE, fail_data))
-                else:
+                elif path.startswith("/dev/"):
                     if path.startswith("/dev/mtd"):
                         fails.append(Failure(path, self.ANALYSIS_TYPE, {'type': "mtd"}))
                         continue
@@ -943,18 +948,18 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                 # otherwise we de-duplicate identical failures which completely ruins our search
                                 fails.append(Failure(f"{path}_ioctl_{int(cmd):x}", self.ANALYSIS_TYPE, {'cmd': cmd, 'sc': sc, 'path': path}))
 
-        # Final case - if we have a much of failed accesses, we can propose adding ~all~ of them
-        # at once! We'll select all
-        missing_files = set()
-        for f in fails:
-            path = f.info.get('path', None)
-            if path and path not in config['pseudofiles'] and f.info.get("sc", "") not in ['ioctl', 'read', 'write']:
-                missing_files.add(f.info['path'])
+        if not do_symex:
+            # After our loop - if we have a much of failed accesses, we can propose adding ~all~ of them
+            # at once!
+            missing_files = set()
+            for f in fails:
+                path = f.info.get('path', None)
+                if path and path not in config['pseudofiles'] and f.info.get("sc", "") not in ['ioctl', 'read', 'write']:
+                    missing_files.add(f.info['path'])
 
-        if len(missing_files) > 1:
-            file_group = Failure(f"pseudofile_add_group_{len(missing_files)}", self.ANALYSIS_TYPE, {'paths': list(missing_files), 'sc': 'open', 'type': 'multifile'})
-            print(f"Adding pseudofile add all group:", missing_files)
-            fails.append(file_group)
+            if len(missing_files) > 1:
+                file_group = Failure(f"pseudofile_add_group_{len(missing_files)}", self.ANALYSIS_TYPE, {'paths': list(missing_files), 'sc': 'open', 'type': 'multifile'})
+                fails.append(file_group)
 
         return fails
 
@@ -1070,7 +1075,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 return [Mitigation(f"{val}", self.ANALYSIS_TYPE, {'path': path, 'cmd': cmd,
                                                                             'action': 'ioctl_model',
                                                                             'model': 'return_const',
-                                                                            'weight': 7,
+                                                                            'weight': 1001, # XXX We did symex, let's at least try the results!
                                                                             'val': val}) \
                         for val in failure.info['symex_results']]
 
