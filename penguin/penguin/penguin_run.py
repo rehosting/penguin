@@ -326,6 +326,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
     # Set umask so that plugin created files are o+rw. Since we're in a container
     # and we want host user to be able to read (and delete)
     os.umask(0o001)
+    os.makedirs(out_dir, exist_ok=True)
 
     for plugin_name in _sort_plugins_by_dependency(conf_plugins):
         details = conf_plugins[plugin_name]
