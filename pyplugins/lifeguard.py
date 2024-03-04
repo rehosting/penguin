@@ -84,7 +84,7 @@ class SigInt(PenguinAnalysis):
 
         # Each blockable signal is a failure we could try to mitigate. Weight is fraction of total blockable signals
         # Weight will be 100x number of times we saw the signal
-        return [Failure(f"sig{sig}", self.ANALYSIS_TYPE, {'signal': sig, 'weight': (int(100 * count))}) \
+        return [Failure(f"sig{sig}", self.ANALYSIS_TYPE, {'signal': sig}) \
                 for sig, count in blockable_singals.items()]
     
     def get_potential_mitigations(self, config, failure : Failure) -> List[Mitigation]:
@@ -94,7 +94,7 @@ class SigInt(PenguinAnalysis):
         sig = failure.info['signal']
         if sig in config.get('blocked_signals', []):
             return []
-        return [Mitigation(f"block_sig{sig}", self.ANALYSIS_TYPE, {'signal': sig, 'weight': failure.info['weight']})]
+        return [Mitigation(f"block_sig{sig}", self.ANALYSIS_TYPE, {'signal': sig, 'weight': 50})]
 
     def implement_mitigation(self, config : Configuration, failure : Failure, mitigation : Mitigation) -> List[Configuration]:
         '''
