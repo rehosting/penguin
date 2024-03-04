@@ -882,12 +882,16 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     continue
 
                 # We have a failure for each command we symex'd (probably just one?)
+                if not len(info['ioctl']):
+                    # If we got no symex results, just report that we could return 0 since it will often help.
+                    fails.append(Failure(f"{path}_ioctl_{int(symex_cmd):x}_from_symex", self.ANALYSIS_TYPE, {'cmd': symex_cmd, 'sc': 'ioctl', 'path': path, 'symex_results': [0]}))
+
                 for cmd, data in info['ioctl'].items():
                     symex = PathExpIoctl(output_dir, None, read_only=True)
                     models = symex.hypothesize_models(target=path, cmd=cmd, verbose=False)
                     if path not in models or cmd not in models[path]:
                         continue
-                    results = [rv for rv in models[path][cmd]]
+                    results = sorted([rv for rv in models[path][cmd]])
                     # We want to have symex_results
                     #print(f"Dropping symex data because it's junk, right?: {data}") # data is like {count: '1'}
                     fail_data = {'cmd': cmd, 'sc': 'ioctl', 'path': path, 'symex_results': results}
@@ -1126,6 +1130,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
         path = mitigation.info.get('path')
         if path and path in new_config['pseudofiles']:
             new_config['pseudofiles'][path] = deepcopy(new_config['pseudofiles'][path])
+
+        if 'action' not in mitigation.info:
+            raise ValueError(f"Mitigation {mitigation.info} has no action")
 
         # Would applying this mitigation to the config be a no-op?
         if mitigation.info['action'] == 'add' and mitigation.info['path'] in new_config['pseudofiles']:
