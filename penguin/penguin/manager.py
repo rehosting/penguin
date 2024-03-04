@@ -110,9 +110,11 @@ class PandaRunner:
             print(f"Error running {conf_yaml}: {e}")
         except KeyboardInterrupt:
             print(f"Keyboard interrupt while PANDA was running - killing")
-            # We need to kill the qemu process
-            if p and p.poll() is None:  # Check if p is defined and the process is still running
+            # This doesn't seem to help?
+            if p and p.poll() is None:
                 p.kill()
+                # Now terminate the process
+                p.terminate()
 
         #elapsed = time.time() - start
         #logger.info(f"Emulation finishes after {elapsed:.02f} seconds with return code {p.returncode if p else 'N/A'} for {conf_yaml}")
@@ -647,12 +649,17 @@ def graph_search(initial_config, output_dir, max_iters=1000, nthreads=1, init=No
                                         run_base, max_iters, run_index,
                                         active_worker_count, thread_id=idx)
             t = Thread(target=worker_instance.run)
+            t.daemon = True
             t.start()
             worker_threads.append(t)
 
         # Wait for all threads to finish
         for t in worker_threads:
-            t.join()
+            try:
+                t.join() # This isn't working well for multi-threaded shutdowns
+            except KeyboardInterrupt:
+                print("Keyboard interrupt while waiting for threads to finish - killing")
+                raise
     else:
         # Single thread mode, try avoiding deadlocks by just running directly
         Worker(global_state, config_manager, run_base, max_iters,
