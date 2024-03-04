@@ -114,7 +114,7 @@ def redirect_stdout_stderr(stdout_path, stderr_path):
         os.close(new_stderr)
 
 
-def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, timeout=None):
+def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, timeout=None, show_output=False):
     '''
     conf_yaml a path to our config
     qcow_dir contains image.qcow + config.yaml
@@ -397,13 +397,19 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
         return False
 
     logger.info("Run emulation for %s", out_dir)
-    with redirect_stdout_stderr(stdout_path, stderr_path):
+    def _run():
         try:
             panda.run()
         except KeyboardInterrupt:
             logger.info("\nStopping for ctrl-c\n")
         finally:
             panda.panda_finish()
+
+    if show_output:
+        _run()
+    else:
+        with redirect_stdout_stderr(stdout_path, stderr_path):
+            _run()
 
 def main():
     logger = logging.getLogger('penguin_run')
@@ -417,10 +423,11 @@ def main():
         qcow_dir = sys.argv[3] if len(sys.argv) > 3 else None
 
         # Two optional args: init and timeout
-        init = sys.argv[4] if len(sys.argv) > 4 else None
-        timeout = int(sys.argv[5]) if len(sys.argv) > 5 else None
+        init = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] != "None" else None
+        timeout = int(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] != "None" else None
+        show_output = sys.argv[6]=='show' if len(sys.argv) > 6 else False
 
-        run_config(config, out_dir, qcow_dir, logger, init, timeout)
+        run_config(config, out_dir, qcow_dir, logger, init, timeout, show_output)
     else:
         raise RuntimeError(f"USAGE {sys.argv[0]} [config.yaml] (out_dir: default is dirname(config.yaml)/output) (qcow_dir: dirname(config.yaml)/qcows)")
 
