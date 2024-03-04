@@ -217,8 +217,8 @@ class HyperFile(PyPlugin):
         self.results[device_name][event].append(result)
 
         # XXX TESTING ONLY, dump log in a stream?
-        with open(self.log_file, "w") as f:
-            yaml.dump(self.results, f)
+        #with open(self.log_file, "w") as f:
+        #    yaml.dump(self.results, f)
 
         # event="read": {bytes_read: X, data: "0"}
         # event="write": {bytes_written: X, data: ...}
