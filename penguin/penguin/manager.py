@@ -316,7 +316,7 @@ class Worker:
         if parent_cc:
             parent_score = parent_cc.health_score
             with open(os.path.join(run_dir, "score_delta.txt"), "w") as f:
-                f.write(f"{parent_score-final_score:.02f}")
+                f.write(f"{final_score-parent_score:.02f}")
 
         return failures, final_score, self.run_idx
 

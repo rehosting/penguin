@@ -1078,7 +1078,8 @@ class ConfigurationManager:
             if not len(failures):
                 return # no -op
             #assert(len(failures) <= 1), f"Got multiple failures from exclusive config: {failures}"
-            print(f"WARNING: Got multiple failures from exclusive config - only expected one. Config={config}, failiure={failures}")
+            if len(failures) > 1:
+                print(f"WARNING: Got multiple failures from exclusive config - only expected one. Config={config}, failiures={failures}")
             target_config = self.graph.get_parent_config(config)
 
         # Normal case: Now we add new failures that we observed during this run
@@ -1231,9 +1232,7 @@ class ConfigurationManager:
         # many mitigations (using our whole run queue) before we've even finished running the first config
 
         # find lowest depth of all running nodes
-        lowest_depth = min([self.calculate_config_depth(x) for x in self.pending_runs], default=self.calculate_config_depth(best))
-
-
+        #lowest_depth = min([self.calculate_config_depth(x) for x in self.pending_runs], default=self.calculate_config_depth(best))
         #if self.calculate_config_depth(best) - lowest_depth > 3:
         #    print(f"Stalling {best} with score {weight:,} because it's too deep in the graph ({self.calculate_config_depth(best)}) compared to running nodes ({lowest_depth})")
         #    return None, 0
