@@ -132,6 +132,21 @@ RUN mkdir /src/build && cd /src/build && ../configure --disable-user --disable-s
     --disable-capstone --disable-guest-agent && \
   make -j$(nproc)
 
+#### NMAP BUILDER: Build nmap ####
+FROM $BASE_IMAGE as nmap_builder
+ENV DEBIAN_FRONTEND=noninteractive
+# Enable source repos
+RUN sed -Ei 's/^# deb-src /deb-src /' /etc/apt/sources.list
+RUN apt-get update && apt-get install -q -y \
+      git \
+      python3-setuptools \
+    && apt-get build-dep -y nmap \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 https://github.com/AndrewFasano/nmap.git /src
+# We want to install into /build/nmap
+RUN cd /src && ./configure --prefix=/build/nmap && make -j$(nproc) && make install
+
+
 ### MAIN CONTAINER ###
 FROM $BASE_IMAGE as penguin
 # Environment setup
@@ -165,9 +180,18 @@ RUN apt-get update && apt-get install -y \
     graphviz \
     graphviz-dev \
     libarchive13 \
+    libcapstone-dev \
+    libgcc-s1 \
     libguestfs-tools \
+    liblinear4 \
+    liblua5.3-0\
+    libpcap0.8 \
+    libpcre3 \
+    libssh2-1 \
+    libssl3 \
+    libstdc++6 \
     libxml2 \
-    nmap \
+    lua-lpeg \
     openjdk-11-jdk \
     python3 \
     python3-guestfs \
@@ -176,7 +200,7 @@ RUN apt-get update && apt-get install -y \
     telnet \
     vim \
     wget \
-    libcapstone-dev && \
+    zlib1g && \
     apt install -yy -f /tmp/pandare.deb /tmp/genext2fs.deb && \
     rm /tmp/pandare.deb /tmp/genext2fs.deb &&  \
     rm -rf /var/lib/apt/lists/*
@@ -236,6 +260,9 @@ COPY --from=downloader /panda_plugins/arm/ /usr/local/lib/panda/arm/
 COPY --from=downloader /panda_plugins/mips/ /usr/local/lib/panda/mips/
 COPY --from=downloader /panda_plugins/mipsel/ /usr/local/lib/panda/mipsel/
 COPY --from=downloader /panda_plugins/mips64/ /usr/local/lib/panda/mips64/
+
+# Copy nmap build into /usr/local/bin
+COPY --from=nmap_builder /build/nmap /usr/local/
 
 # Copy utils.source (scripts) and utils.bin (binaries) from host
 # Files are named util.[arch] or util.all
