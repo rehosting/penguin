@@ -852,7 +852,11 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 for sc, raw_data in info.items():
                     # XXX We generate distinct failures if we have > 1 SC but there's only a single mitigation!
                     # That's probably the source of our duplicate configs later
-                    fails.append(Failure(path, self.ANALYSIS_TYPE, {'type': "sys", "path": path, 'sc': sc}))
+
+                    # XXX our kernel modules only supports /sys/something/file, not just /sys/something
+                    # Make sure we have at least 3 slashes
+                    if path.count("/") >= 3:
+                        fails.append(Failure(path, self.ANALYSIS_TYPE, {'type': "sys", "path": path, 'sc': sc}))
 
             elif path.startswith("/proc/"):
                 if path == "/proc/mtd":
