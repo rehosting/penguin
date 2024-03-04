@@ -1,44 +1,7 @@
-import requests
 import subprocess
 import time
-import socket
-import random
 import threading
-import os
-import tempfile
-import shutil
-
-from contextlib import closing
 from pandare import PyPlugin
-
-def customize_nmap_services(original_port, new_port):
-    # Path to the original nmap-services file
-    original_file_path = '/usr/share/nmap/nmap-services'
-    
-    # Create a temporary directory
-    temp_dir = tempfile.mkdtemp()
-    
-    # Copy nmap-services to temporary directory
-    temp_file_path = os.path.join(temp_dir, 'nmap-services')
-    shutil.copy2(original_file_path, temp_file_path)
-    
-    # Read original nmap-services and write to a new temporary file
-    with open(original_file_path, 'r') as f_orig:
-        lines = f_orig.readlines()
-    
-    with open(temp_file_path, 'w') as f_temp:
-        for line in lines:
-            # Skip any line that includes the new port
-            if f"{new_port}/" in line:
-                continue
-            
-            # Change the original port to the new port
-            if f"{original_port}/" in line:
-                line = line.replace(f"{original_port}/", f"{new_port}/")
-            
-            f_temp.write(line)
-    
-    return temp_file_path
 
 class Nmap(PyPlugin):
     def __init__(self, panda):
@@ -51,6 +14,12 @@ class Nmap(PyPlugin):
         There was a bind - run nmap! Maybe bail if we've already seen this port
         or something for systems that repeatedly start/stop  listening?
         '''
+
+        if proto != 'tcp':
+            # We can't do UDP scans without root permissions to create raw sockets.
+            # Let's just ignore entirely.
+            return
+
         f = self.outdir + f"/nmap_{proto}_{guest_port}.log"
 
         # Launch a thread to analyze this request
@@ -59,24 +28,23 @@ class Nmap(PyPlugin):
         t.start()
 
     def scan_thread(self, guest_port, host_port, log_file_name):
-        # Make sure syscall proxy is up. Not in main thread so this is okay?
-        time.sleep(5)
-
-        # Now we need to get a nmap services file that has the right ports setup
-        # since nmap will use that to determine what to scan and we have host_port
-        # but we want to preserve the "guest_port" info
-        custom_nmapdir_path = customize_nmap_services(guest_port, host_port)
-
         # nmap scan our target in service-aware mode
-        env = os.environ.copy()
-        env['NMAPDIR'] = custom_nmapdir_path
         process = subprocess.Popen(
-            ["nmap", f"-p{host_port}", "-sV", "-sC", "--script=default,vuln,version", "127.0.0.1", "-oN", log_file_name],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        process.wait()
-
-        # Now cleanup the nmap services file
-        os.remove(custom_nmapdir_path)
-
-    def uninit(self):
-        pass
+            ["nmap",
+                f"-p{guest_port}", # Target guest port. XXX: redirect-port below means this actually hits host_port, but gets scanned as if it was this
+                                   # port (i.e., if 80 we scan for http, even if we're going through 4321)
+            ]
+            + (["--redirect-port", str(guest_port), str(host_port)  # Pretend we're connecting to guest_port, but internally connect to host_port
+              ] if guest_port != host_port else []) # If ports actually match, we skip this
+            + [
+                "-unprivileged", # Don't try anything privileged
+                "-n", # Do not do DNS resolution
+                "-sV", # Scan for service version
+                "--script=default,vuln,version", # Run NSE scripts to enumerate service
+                "-d", # Print debug info about scripts
+                "127.0.0.1", # Target is localhost
+                "-oG", log_file_name, # Greppable output format, store in log file
+             ],
+            #stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        )
+        process.daemon = True
