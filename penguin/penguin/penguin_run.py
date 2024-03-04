@@ -206,7 +206,8 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
             raise e
         finally:
             # Always remove lock file, even if we failed to make the image
-            os.remove(lock_file)
+            if os.path.isfile(lock_file):
+                os.remove(lock_file)
 
         # We expect to have the image now
         if not os.path.isfile(config_image):
