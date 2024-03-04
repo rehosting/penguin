@@ -240,16 +240,9 @@ class PathExpIoctl:
         # and identify the binary that was loaded at targ_addr
         for mapping in panda_target.get_mappings():
             target_files.add(mapping.name)
-
-            if mapping.offset == 0 and ".so" in mapping.name:
-                # Library loaded at base address so we want to load it.
-                # I think this is a hack - what we really want is to load the executable sections
-                # with the right offsets. But angr doesn't support offsets?
-                # Fortunately the executable sections seem to end up at offset 0 and it just works
-                lib_opts[os.path.basename(mapping.name)] = {'base_addr': mapping.start_address,
-                                                        #'offset': mapping.offset
-                                                     }
-
+            lib_opts[os.path.basename(mapping.name)] = {'base_addr': mapping.start_address,
+                                                        'offset': mapping.offset
+                                                    }
             if targ_addr >= mapping.start_address < mapping.end_address:
                 # This mapping contains the target address - we'll configure this binary as our
                 # main object
