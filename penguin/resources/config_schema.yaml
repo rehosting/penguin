@@ -103,6 +103,14 @@ properties:
         examples:
           - false
           - true
+      force_www:
+        title: Force webserver start
+        description: Whether to force a webserver to start 60s after boot (if one was identified)
+        type: boolean
+        default: false
+        examples:
+          - false
+          - true
       cpu:
         title: CPU model
         description: Specify non-default QEMU CPU model
