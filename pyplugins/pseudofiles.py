@@ -811,8 +811,6 @@ class FileFailuresAnalysis(PenguinAnalysis):
                             else:
                                 file_failures[dev]['ioctl'][cmd]['count'] += data['count']
 
-                            print(f"TESTING: Added new failure for ioctl {cmd} on {dev} with count {data['count']}")
-
 
 
         # Let's look at all file_failures with paths that end with numbers to decide if they're excessive (> 5) or not
