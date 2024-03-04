@@ -15,6 +15,7 @@ running_vpns = []
 def kill_vpn():
     for p in running_vpns:
         p.kill()
+        p.wait()
 
 atexit.register(kill_vpn)
 
@@ -160,5 +161,5 @@ class VsockVPN(PyPlugin):
             print("Killing VPN")
             self.host_vpn.terminate()
             self.host_vpn.kill()
-            running_vpns[:] = [x for x in running_vpns if x != running_vpns]
+            running_vpns[:] = [x for x in running_vpns if x != self.host_vpn]
             print("Killed VPN")
