@@ -404,32 +404,39 @@ class ConfigurationGraph:
             return [self.graph.nodes[n]['object'] for n in self.graph.successors(failure.gid) \
                         if isinstance(self.graph.nodes[n]['object'], Mitigation)]
 
-
     @staticmethod
     def find_delta(derived, parent, prefix=""):
         '''
-        Given two dicts, create a string repr of the difference between them
+        Given two dicts, create a string representation of the difference between them.
         '''
         delta = ""
-        for key, value in derived.items():
-            if isinstance(value, dict):
-                if key in parent:
-                    delta += ConfigurationGraph.find_delta(value, parent[key], prefix=f"{prefix}{key}.")
+        all_keys = set(derived.keys()) | set(parent.keys())  # Union of keys in both dicts
+
+        for key in all_keys:
+            derived_value = derived.get(key, None)
+            parent_value = parent.get(key, None)
+
+            if isinstance(derived_value, dict) or isinstance(parent_value, dict):
+                # If only one value is a dict, treat as a complete change.
+                if not (isinstance(derived_value, dict) and isinstance(parent_value, dict)):
+                    delta += f"{prefix}{key}: {parent_value if isinstance(parent_value, dict) else 'N/A'} -> {derived_value}\n"
                 else:
-                    # Key wasn't in parent, it's all new
-                    delta += f"{prefix}{key}: {value}\n"
+                    # Both are dicts, recurse.
+                    sub_delta = ConfigurationGraph.find_delta(derived_value, parent_value, prefix=f"{prefix}{key}.")
+                    if sub_delta:
+                        delta += sub_delta
             else:
-                if key not in parent or parent[key] != value:
-                    delta += f"{prefix}{key}: {parent.get(key, 'N/A')} -> {value}\n"
+                if derived_value != parent_value:
+                    delta += f"{prefix}{key}: {parent_value} -> {derived_value}\n"
 
-        # What if there's something in parent that's not in derived? TODO
-
+        # After refactoring to correctly identify differences, ensure this check reflects actual undetected changes.
         if delta == "" and derived != parent:
             print("WARNING: delta is empty but derived != parent")
-            print(derived)
-            print(parent)
+            print("Derived:", derived)
+            print("Parent:", parent)
 
         return delta.strip()
+
 
     def add_derived_configuration(self, derived_config: GraphNode, parent_config: GraphNode, mitigation: GraphNode):
         """
