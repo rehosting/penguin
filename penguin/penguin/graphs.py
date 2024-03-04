@@ -998,7 +998,7 @@ class ConfigurationManager:
             for node in self.graph.graph.nodes:
                 node_obj = self.graph.graph.nodes[node]['object']
                 # We'll print the config, then the edges
-                output.append(f"{node_obj}, {node_obj.gid}")
+                output.append(f"{node_obj}, {node_obj.gid}, {node_obj.info}")
                 # For each adjacent node, print the node
                 for neighbor in self.graph.graph.adj[node]:
                     weight = self.graph.graph[node][neighbor].get('weight', '')
@@ -1116,8 +1116,8 @@ class ConfigurationManager:
                 for new_config in find_new_configs_f(failure, mitigation, target_config):
                     with self.lock:
                         if existing_config := self.graph.get_existing_node(new_config):
-                            if logger is not None:
-                                logger.info(f"Not adding {new_config} because it already exists as {existing_config}")
+                            #if logger is not None:
+                            #    logger.info(f"Not adding {new_config} because it already exists as {existing_config}")
                             new_config = existing_config
                         # If we were exclusive we pretend new config is derived from parent config
                         # (Because it kind of is)
