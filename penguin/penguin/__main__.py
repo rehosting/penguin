@@ -435,7 +435,7 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
                 raise RuntimeError(f"Static analysis failed to identify an init script. Please specify one in {output_dir}/config.yaml and run again with --config.")
 
     run_base = os.path.dirname(output_dir)
-    PandaRunner().run(config_path, run_base, run_base, output_dir, init=init, timeout=timeout)
+    PandaRunner().run(config_path, run_base, run_base, output_dir, init=init, timeout=timeout, show_output=True) # niters is 1
     #report_best_results(run_base, os.path.join(run_base, "output"), os.path.dirname(output_dir))
     report_best_results(run_base, output_dir, os.path.dirname(output_dir))
 
