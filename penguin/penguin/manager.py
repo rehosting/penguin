@@ -282,8 +282,11 @@ class Worker:
             config_depth = self.config_manager.graph.get_config_depth(config)
             timeout = config.info.get('plugins', {}).get('core', {}).get('timeout', None)
 
-            if timeout is not None:
+            if timeout is not None and not config.exclusive:
                 # We want to gradually increase timeout as we get deeper
+                # Exclusive nodes are important analyses and we don't want to rerun them. Let them have full time.
+                # Also if we truncate exclusive nodes we need to fix a bug where the truncation failure gets
+                # passed to the exclusive mitigation provider. It's a mess.
                 new_timeout = min(30 * config_depth, timeout)
                 truncated = timeout - new_timeout # How truncated were we?
                 timeout = new_timeout
