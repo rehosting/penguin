@@ -228,6 +228,17 @@ class ConfigurationGraph:
                     return self.graph.nodes[pred]['object']
             raise ValueError(f"Could not find parent config for {config}")
 
+    def get_config_depth(self, config: Configuration) -> int:
+        '''
+        Given a config, find its depth in the graph
+        '''
+        depth = -1
+        with self.lock:
+            while config:
+                config = self.get_parent_config(config)
+                depth += 1
+        return depth
+
     def get_child_configs(self, config: Configuration) -> List[Configuration]:
         with self.lock:
             return [self.graph.nodes[n]['object'] for n in self.graph.successors(config.gid) \
