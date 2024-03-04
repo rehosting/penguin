@@ -96,14 +96,26 @@ class PandaRunner:
         elif init:
             cmd.append(init_cmd)
 
+        #start = time.time()
         try:
             # This timeout is higher than our SIGUSR1 timeout so the guest can process the signal
             # Before the kill. We have a lot of timeouts...
-            subprocess.run(cmd, timeout=timeout_s+180 if timeout_s else None, check=True)
+            p = subprocess.Popen(cmd)
+            p.wait(timeout=timeout_s+180 if timeout_s else None)
         except subprocess.TimeoutExpired:
             print(f"Timeout expired for {conf_yaml} after {timeout_s} seconds")
+            if p:  # Ensure p is not None before attempting to kill
+                p.kill()
         except subprocess.CalledProcessError as e:
             print(f"Error running {conf_yaml}: {e}")
+        except KeyboardInterrupt:
+            print(f"Keyboard interrupt while PANDA was running - killing")
+            # We need to kill the qemu process
+            if p and p.poll() is None:  # Check if p is defined and the process is still running
+                p.kill()
+
+        #elapsed = time.time() - start
+        #logger.info(f"Emulation finishes after {elapsed:.02f} seconds with return code {p.returncode if p else 'N/A'} for {conf_yaml}")
 
         ran_file = os.path.join(out_dir, ".ran")
         if not os.path.isfile(ran_file):
@@ -220,6 +232,10 @@ class Worker:
             # Record parent in output directory:
             with open(os.path.join(run_dir, "parent.txt"), "w") as f:
                 f.write(f"parent={parent_cc.run_idx}\n")
+            with open(os.path.join(run_dir, "parent_mitigation.txt"), "w") as f:
+                f.write(f"{parent_mitigation.type}\n")
+                f.write(f"{parent_mitigation.exclusive}\n")
+                f.write(f"{parent_mitigation.info}\n")
         else:
             this_logger.debug(f"Root config")
 
@@ -295,7 +311,14 @@ class Worker:
             yaml.dump([fail.to_dict() for fail in failures], f)
 
         # XXX Better score aggregation? Can we use dynamic weights or something?
-        return failures, sum(scores.values()), self.run_idx
+        final_score = sum(scores.values())
+        # Compare to parent score, if we had a parent
+        if parent_cc:
+            parent_score = parent_cc.health_score
+            with open(os.path.join(run_dir, "score_delta.txt"), "w") as f:
+                f.write(f"{parent_score-final_score:.02f}")
+
+        return failures, final_score, self.run_idx
 
     def find_best_score(self, run_dir, run_idx, n_config_tests, is_exclusive, this_logger):
         '''
@@ -325,7 +348,7 @@ class Worker:
         # Write a single score to disk
         with open(os.path.join(run_dir, "score.txt"), "w") as f:
             total_score = sum(best_scores.values())
-            f.write(f"{total_score:.02f}")
+            f.write(f"{total_score:.02f}\n")
 
         return best_scores
 
