@@ -109,12 +109,13 @@ class PandaRunner:
         except subprocess.CalledProcessError as e:
             print(f"Error running {conf_yaml}: {e}")
         except KeyboardInterrupt:
-            print(f"Keyboard interrupt while PANDA was running - killing")
-            # This doesn't seem to help?
-            if p and p.poll() is None:
-                p.kill()
-                # Now terminate the process
-                p.terminate()
+            print(f"Keyboard interrupt while PANDA was running - killing {p.pid} with SIGUSR1")
+            # Send SIGUSR1 to the process
+            system(f"kill -USR1 {p.pid}")
+            # Wait a moment, then kill it hard
+            time.sleep(5)
+            system(f"kill -9 {p.pid}")
+            raise
 
         #elapsed = time.time() - start
         #logger.info(f"Emulation finishes after {elapsed:.02f} seconds with return code {p.returncode if p else 'N/A'} for {conf_yaml}")
@@ -650,7 +651,7 @@ def graph_search(initial_config, output_dir, max_iters=1000, nthreads=1, init=No
                                         run_base, max_iters, run_index,
                                         active_worker_count, thread_id=idx)
             t = Thread(target=worker_instance.run)
-            t.daemon = True
+            #t.daemon = True
             t.start()
             worker_threads.append(t)
 
