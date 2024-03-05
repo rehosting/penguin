@@ -1091,11 +1091,11 @@ def add_nvram_meta(config, output_dir):
         ", ".join([f"{source} ({count})" for source, count in nvram_sources.items() if count]))
 
 
-def add_firmae_webserver_hacks(config, output_dir):
+def add_firmae_hacks(config, output_dir):
     # This is a hacky FirmAE approach to identify webservers and just start
     # them. Unsurprisingly, it increases the rate of web servers starting.
     # We'll export this into our static files section so we could later decide
-    # to try it
+    # to try it. We'll enable this by default here.
 
     fs_path = config['core']['fs'] # tar archive
     # Map between filename and command
@@ -1122,13 +1122,16 @@ def add_firmae_webserver_hacks(config, output_dir):
                 www_cmds.append(cmd)
                 www_paths.append(file)
 
-    newline = '\n'
     if len(www_cmds):
+        # TODO: For real-world use we probably want to add a sleep in here so
+        # we give the servers a chance to start organically before forcing them to run
+        # like this
         config['static_files']['/igloo/utils/www_cmds'] = {
             'type': 'file',
-            'contents': f"#!/igloo/utils/sh\n{''.join([x + '& '+ newline for x in www_cmds])}",
+            'contents': "#!/igloo/utils/sh\n" + ''.join([(x + '&\n') for x in www_cmds]),
             'mode': 0o755
         }
+        config['core']['force_www'] = True
 
 def extend_config_with_static(base_config, outdir, auto_explore=False):
 
@@ -1153,7 +1156,7 @@ def extend_config_with_static(base_config, outdir, auto_explore=False):
     library_analysis(base_config, outdir)
     add_nvram_meta(base_config, outdir) # Sets more nvram values
 
-    add_firmae_webserver_hacks(base_config, outdir)
+    add_firmae_hacks(base_config, outdir)
 
     # TODO: Additional static analysis of shell scripts to find more environment variables?
     # We could do some LLM-based shell script analysis
