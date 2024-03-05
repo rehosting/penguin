@@ -1,6 +1,7 @@
 # This file contains default values for penguin configuration
 # We specify a default init script, and a set of default plugins
 # along with their descriptions and default settings.
+from copy import deepcopy
 
 default_version = "1.0.0"
 
@@ -47,8 +48,8 @@ fi
 
 if [ ! -z "${WWW}" ]; then
   if [ -e /igloo/utils/www_cmds ]; then
-    # Give guest 1 minute to startup normally, then launch the webserver commands we detected statically
-    /igloo/utils/sh -c "/igloo/utils/busybox sleep 60 && /igloo/utils/sh /igloo/utils/www_cmds" &
+    echo '[IGLOO INIT] Force-launching webserver commands';
+    /igloo/utils/www_cmds &
   fi
   unset WWW
 fi
@@ -199,9 +200,33 @@ default_pseudo_model = {
     }
 }
 
+# https://github.com/pr0v3rbs/FirmAE_kernel-v4.1/blob/master/drivers/firmadyne/devfs_stubs.c#L37-L52
+acos_pseudo_model = deepcopy(default_pseudo_model)
+acos_pseudo_model['ioctl'] = {
+    0x40046431: {
+        'model': 'return_const',
+        'val': 1
+    },
+    0x80046431: {
+        'model': 'return_const',
+        'val': 1
+    },
+    0x40046432: {
+        'model': 'return_const',
+        'val': 1
+    },
+    0x80046432: {
+        'model': 'return_const',
+        'val': 1
+    },
+    '*': {
+        'model': 'return_const',
+        'val': 0
+    }
+}
+
 default_pseudofiles = {
-  '/dev/filename': default_pseudo_model,
-  '/dev/acos_nat_cli': default_pseudo_model,
+  '/dev/acos_nat_cli': acos_pseudo_model,
   '/dev/brcmboard': default_pseudo_model,
   '/dev/dsl_cpe_api': default_pseudo_model,
   '/dev/gpio': default_pseudo_model,
