@@ -1053,18 +1053,19 @@ def add_nvram_meta(config, output_dir):
     # We'd prefer libraries, full_config_paths, basename_config_file, defaults.
     # We'll always add firmae_file_specific, so long as those values aren't already in the config
     # We have a minimum of 10 values for us to select from a source
-    with open(output_dir + "/nvram.csv", 'r') as f:
-        nvram_data = csv.DictReader(f)
-
-        for src in ['libraries', 'full_config_paths', 'basename_config_file', 'defaults']:
+    for src in ['libraries', 'full_config_paths', 'basename_config_file', 'defaults']:
+        with open(output_dir + "/nvram.csv", 'r') as f:
+            nvram_data = csv.DictReader(f)
             if nvram_sources.get(src, 0) > 10:
                 # Now select data from nvram_data that matches this src
                 print(f"Found {nvram_sources[src]} nvram entries from {src} - selecting")
                 for row in nvram_data:
                     if row['source'] == src:
-                        if row['key'] not in config['nvram']:
-                            config['nvram'][row['key']] = row['value']
-                break
+                        if row['key'] in config['nvram'] and config['nvram'][row['key']] != row['value']:
+                            print(f"WARNING: nvram key {row['key']} has conflicting values {config['nvram'][row['key']]} vs {row['value']}")
+                            # Preserve original value, unless it was empty
+                            if not len(config['nvram'][row['key']]):
+                                config['nvram'][row['key']] = row['value']
 
     # Re-open so we're at the start of the file?
     with open(output_dir + "/nvram.csv", 'r') as f:
