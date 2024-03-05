@@ -914,7 +914,11 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                 fails.append(this_fail)
 
                 elif path.startswith("/proc/"):
-                    if path == "/proc/mtd":
+                    if path == "/proc/sys/":
+                        # Unsupported in our kernel module
+                        continue
+
+                    elif path == "/proc/mtd":
                         # This is a special case - the guest is reading /proc/mtd and we don't have any devices
                         # presumably it might want a device and for it to be a device of a specific name.
                         fails.append(Failure(f"/proc/mtd", self.ANALYSIS_TYPE, {'type': "mtd_generic"}))
