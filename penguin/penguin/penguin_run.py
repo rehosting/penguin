@@ -123,9 +123,13 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
 
     if qcow_dir is None:
         qcow_dir = os.path.join(os.path.dirname(conf_yaml), 'qcows')
+    if not os.path.isdir(qcow_dir):
+        os.makedirs(qcow_dir, exist_ok=True)
 
     if out_dir is None:
         out_dir = os.path.join(os.path.dirname(conf_yaml), 'output')
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
 
     if logger is None:
         logger = logging.getLogger('penguin_run')
