@@ -1061,11 +1061,15 @@ def add_nvram_meta(config, output_dir):
                 print(f"Found {nvram_sources[src]} nvram entries from {src} - selecting")
                 for row in nvram_data:
                     if row['source'] == src:
+                        # Preserve original value, unless it was empty
+                        take_val = True
                         if row['key'] in config['nvram'] and config['nvram'][row['key']] != row['value']:
-                            print(f"WARNING: nvram key {row['key']} has conflicting values {config['nvram'][row['key']]} vs {row['value']}")
-                            # Preserve original value, unless it was empty
-                            if not len(config['nvram'][row['key']]):
-                                config['nvram'][row['key']] = row['value']
+                            take_val = len(config['nvram'].get(row['key'], '').strip()) == 0 # If old value was empty, take the new one
+                            print(f"NVRAM {row['key']} is {config['nvram'][row['key']]} but {row['source']} suggests {row['value']} instead. " + \
+                                  ("Taking new value" if take_val else "Ignoring"))
+
+                        if take_val:
+                            config['nvram'][row['key']] = row['value']
 
     # Re-open so we're at the start of the file?
     with open(output_dir + "/nvram.csv", 'r') as f:
