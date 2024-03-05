@@ -12,7 +12,8 @@ from penguin.defaults import default_netdevs
 # XXX this needs some testing
 
 # Loopback isn't in our default list but we don't want to add it as a fake device
-DEFAULT_IFACES =  default_netdevs + ["lo"]
+# Same with bridges
+DEFAULT_IFACES =  default_netdevs + ["lo"] + ["br0", "br1"]
 
 iface_log = "iface.log"
 ioctl_log = "iface_ioctl.log"
