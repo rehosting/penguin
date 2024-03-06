@@ -309,46 +309,13 @@ class FileFailures(PyPlugin):
                 panda.arch.set_retval(cpu, 0, convention="syscall", failure=False)
 
     def on_syscall(self, cpu, buf_addr):
-        format_str = f"!i6q{'4096s'*6}q"
-        buf_size = struct.calcsize(format_str)
-        buf = self.panda.virtual_memory_read(cpu, buf_addr, buf_size, fmt="bytearray")
-
-        # Unpack request with our dynamic format string
-        unpacked = struct.unpack_from(format_str, buf)
-
-        nr = unpacked[0]
-        args = unpacked[1:1+6]
-        strings = unpacked[1+6:1+6+6]
-        ret = unpacked[1+6+6]
-
-        if ret != -self.ENOENT:
-            # File exists or other error. Not of interest.
-            return
-
-        arch, _ = arch_end(self.config["core"]["arch"])
         try:
-            name, arg_names = self.syscall_info_table[arch][nr]
-        except KeyError:
-            if nr not in self.warned:
-                self.warned.add(nr)
-                print(f"Unknown syscall {nr} on {arch}")
+            name = self.panda.read_str(cpu, buf_addr)
+        except ValueError:
+            # TODO: retry on errors
             return
-
-        if name in ('open', 'openat', 'ioctl', 'close'):
-            # Handled with other hypercalls
-            return
-
-        # Use null terminator and interpret as UTF-8
-        strings = [s.split(b'\0', 1)[0].decode() for s in strings]
-
-        fnames = (
-            strings[i]
-            for i, arg_name in enumerate(arg_names)
-            if arg_name in ("filename", "path", "pathname", "fd")
-            and any(strings[i].startswith(x) for x in ("/dev/", "/proc/", "/sys/"))
-        )
-        for fname in fnames:
-            self.centralized_log(fname, name)
+        if any(name.startswith(x) for x in ("/dev/", "/proc/", "/sys/")):
+            self.centralized_log(name, "syscall")
 
     #######################################
     def centralized_log(self, path, event, event_details = None):
