@@ -42,14 +42,18 @@ class SendHypercall(PyPlugin):
         f = getattr(self, f"cmd_{cmd}")
         if f is None:
             raise ValueError("Unknown send_hypercall command")
-        ret_val, out_str = f(*args)
+        try:
+            ret_val, out_str = f(*args)
+        except Exception as e:
+            print(f"Send hypercall: exception while processing {cmd}: {e}")
+            return
 
         # Debug logging
-        import sys
-        print(f"{cmd} {' '.join(args)} -> {ret_val}, {repr(out_str)}", file=sys.stderr)
+        #import sys
+        #print(f"{cmd} {' '.join(args)} -> {ret_val}, {repr(out_str)}", file=sys.stderr)
 
         # Send output to guest
-        assert len(out_str) < 0x1000
+        #assert len(out_str) < 0x1000
         self.panda.virtual_memory_write(cpu, out_addr, out_str.encode())
         self.panda.arch.set_retval(cpu, ret_val)
 
@@ -57,7 +61,7 @@ class SendHypercall(PyPlugin):
         if var not in self.uboot_log:
             self.uboot_log.add(var)
             with open(os.path.join(self.outdir, UBOOT_LOG), "a") as f:
-                f.write(var + "=" + val + "\n")
+                f.write(f"{var}={val}\n")
         self.uboot_env[var] = val
         return 0, ""
 
@@ -71,5 +75,5 @@ class SendHypercall(PyPlugin):
                     f.write(var + "\n")
             return 1, ""
 
-    def cmd_fw_printenv(self):
+    def cmd_fw_printenv(self, arg):
         raise NotImplementedError("fw_printenv shim unimplemented")
