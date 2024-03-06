@@ -1128,12 +1128,36 @@ def add_firmae_hacks(config, output_dir):
                 www_paths.append(file)
 
     if len(www_cmds):
-        # TODO: For real-world use we probably want to add a sleep in here so
-        # we give the servers a chance to start organically before forcing them to run
-        # like this
+        # We want to start each identified webserver in a loop
+
+        # Start of the shell script
+        cmd_str = """#!/igloo/utils/sh
+        set -eux
+
+        # Give some time for the system to stabilize if just started
+        /igloo/utils/busybox sleep 120
+
+        # Loop indefinitely
+        while true; do
+            # Wait for 10 seconds before each check
+            /igloo/utils/busybox sleep 10
+        """
+
+        # Loop through the commands to add them to the script
+        for cmd in www_cmds:
+            cmd_str += f"""
+            if ! (/igloo/utils/busybox ps | /igloo/utils/busybox grep -v grep | /igloo/utils/busybox grep -sqi "{cmd}"); then
+               {cmd} &
+            fi
+        """
+        # Close the loop
+        cmd_str += """
+            done
+        """
+
         config['static_files']['/igloo/utils/www_cmds'] = {
             'type': 'file',
-            'contents': "#!/igloo/utils/sh\n/igloo/utils/busybox sleep 30\n" + ''.join([(x + ' &\n') for x in www_cmds]),
+            'contents': cmd_str,
             'mode': 0o755
         }
         config['core']['force_www'] = True
