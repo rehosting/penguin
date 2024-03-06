@@ -22,7 +22,7 @@ class Interfaces(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
-        self.ppp.Health.ppp_reg_cb('igloo_exec', self.on_exec)
+        self.ppp.Health.ppp_reg_cb('igloo_exec', self.iface_on_exec)
 
         open(f'{self.outdir}/{iface_log}', 'w').close()
         open(f'{self.outdir}/{ioctl_log}', 'w').close()
@@ -50,7 +50,7 @@ class Interfaces(PyPlugin):
                     if rv in net_ioctl_block:
                         panda.arch.set_retval(cpu, 0, convention='syscall')
 
-    def on_exec(self, cpu, fname, argv):
+    def iface_on_exec(self, cpu, fname, argv):
         # note argv[0] is the binary name, similar to fname
         if argv is None or len(argv) == 0:
             return
@@ -62,9 +62,7 @@ class Interfaces(PyPlugin):
         iface = None
         if fname.endswith('/ip') or argv[0] == 'ip':
             # (ip .* dev \K[a-zA-Z0-9.]+(?=))'
-            # Yes, we explicitly checked if argv was empty. But somehow, it still
-            # is??? So we'll check again. Seems to fix an exception...
-            if argv and any('dev' in arg for arg in argv):
+            if any('dev' in arg for arg in argv if arg is not None):
                 for idx, arg in enumerate(argv):
                     if 'dev' in arg and idx < len(argv)-1:
                         iface = argv[idx+1]
