@@ -591,7 +591,7 @@ class FileFailures(PyPlugin):
     #def write_default(self, filename, buffer, length, offset, contents, details=None):
     def write_discard(self, filename, buffer, length, offset, contents, details=None):
         # Store the contents for this file
-        print(f"{filename} writes {length} bytes at {offset}: {contents[:100]}")
+        #print(f"{filename} writes {length} bytes at {offset}: {contents[:100]}")
         if filename not in self.written_data:
             self.written_data[filename] = b""
         # Seek to offset and write contents
