@@ -1133,7 +1133,7 @@ def add_firmae_hacks(config, output_dir):
         # like this
         config['static_files']['/igloo/utils/www_cmds'] = {
             'type': 'file',
-            'contents': "#!/igloo/utils/sh\n" + ''.join([(x + '&\n') for x in www_cmds]),
+            'contents': "#!/igloo/utils/sh\n/igloo/utils/busybox sleep 30\n" + ''.join([(x + ' &\n') for x in www_cmds]),
             'mode': 0o755
         }
         config['core']['force_www'] = True
