@@ -108,6 +108,9 @@ class Core(PyPlugin):
         except RuntimeError:
             # Not one of ours
             return False
+        except Exception as e:
+            print(f"ERROR running hypercall: {num:x}: {e}")
+            return True # Technically we processed it, just badly. We need to explicitly return here to avoid pypanda getting mad about bad return types
         return True
 
     def _handle_hc(self, cpu, num):
