@@ -440,13 +440,18 @@ class FileFailures(PyPlugin):
         # If we've seen a write to this device, mix that data in with 0s padding around it
         if filename in self.written_data:
             data = self.written_data[filename]
-            final_data = data[offset:offset+length]
-            return (final_data, len(final_data))
+            data_length = len(data)
+            # Calculate how many bytes can actually be read from the data
+            readable_bytes = max(0, min(length, data_length - offset))
+            final_data = data[offset:offset + readable_bytes]
+            padding_needed = length - readable_bytes
+        else:
+            final_data = b'0'
+            padding_needed = length-1
 
-        data = b'0'
-        final_data = data[offset:offset+length]
-        # XXX if offset > len(data) should we return an error instead of 0?
-        return (final_data, len(final_data)) # data, rv
+        # Pad the data to meet the requested read length
+        final_data += b'\x00' * padding_needed
+        return (final_data, len(final_data))
 
     def read_one(self, filename, buffer, length, offset, details=None):
         data = b'1'
