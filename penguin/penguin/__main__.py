@@ -431,6 +431,7 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
             env = yaml.safe_load(f)
             if env.get('igloo_init', None) and len(env['igloo_init']) > 0:
                 init = env['igloo_init'][0]
+                print(f"Config does not specify init. Selecting first option: {init}." + ((" Other options are: " + ", ".join(env['igloo_init'][1:])) if len(env['igloo_init']) > 1 else ""))
             else:
                 raise RuntimeError(f"Static analysis failed to identify an init script. Please specify one in {output_dir}/config.yaml and run again with --config.")
 
