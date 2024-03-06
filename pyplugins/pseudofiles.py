@@ -436,9 +436,8 @@ class FileFailures(PyPlugin):
             self.dump_results()
 
     def read_zero(self, filename, buffer, length, offset, details=None):
-        # Simple peripheral model inspired by firmadyne/firmae. Just return 0
-        # Extended to support returning data that was written to the file if it was written to previously
-
+        # Simple peripheral model inspired by firmadyne/firmae. Just return 0.
+        # If we've seen a write to this device, mix that data in with 0s padding around it
         if filename in self.written_data:
             data = self.written_data[filename]
             final_data = data[offset:offset+length]
@@ -579,13 +578,15 @@ class FileFailures(PyPlugin):
 
         return length
 
-    def write_discard(self, filename, buffer, length, offset, contents, details=None):
-        # Pretend we wrote everything we were asked to
-        return length
+    # TODO: expose both 'write_default' below and 'write_discard' as distinct models
+    #def write_discard(self, filename, buffer, length, offset, contents, details=None):
+    #    # Pretend we wrote everything we were asked to
+    #    return length
 
-    #def write_save(self, filename, buffer, length, offset, contents, details=None):
-    def write_default(self, filename, buffer, length, offset, contents, details=None):
+    #def write_default(self, filename, buffer, length, offset, contents, details=None):
+    def write_discard(self, filename, buffer, length, offset, contents, details=None):
         # Store the contents for this file
+        print(f"{filename} writes {length} bytes at {offset}: {contents[:100]}")
         if filename not in self.written_data:
             self.written_data[filename] = b""
         # Seek to offset and write contents
