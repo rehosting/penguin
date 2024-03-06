@@ -399,35 +399,39 @@ def main():
         """,
         formatter_class=argparse.RawTextHelpFormatter)
 
+    def positive_int(value):
+        ivalue = int(value)
+        if ivalue <= 0 and ivalue != -1:
+            raise argparse.ArgumentTypeError(f"{value} must be positive")
+        return ivalue
 
-    parser.add_argument('--config', type=str, help='Path to a config file. If set, the firmware argument is not required.')
-    parser.add_argument('--niters', type=int, default=1, help='Maximum number of iterations to run. Special values are -1 for unlimited. Default 1. If run with --config, a config for manual analysis will be generated if niters=1.')
-    parser.add_argument('--nthreads', type=int, default=1, help='Number of threads to use. Default 1.')
-    parser.add_argument('--novsock', action='store_true', default=False, help='Run running without vsock. Disabled by default')
-    parser.add_argument('--timeout', type=int, default=None, help='Timeout in seconds for each run. Default is 300s if auto-explore or no timeout otherwise')
-    parser.add_argument('firmware', type=str, nargs='?', help='The firmware path. Required if --config is not set, otherwise this must not be set.')
+    subparsers = parser.add_subparsers(help='Available subcommands', dest="subcommand")
+
+    # penguin run
+    parse_run = subparsers.add_parser('run', help='Run a system from a config file')
+    parse_run.add_argument('config', type=str, help='Path to config file')
+
+    # penguin explore
+    parse_explore = subparsers.add_parser('explore', help='Explore the contents of a firmware file, generating a config')
+    parse_explore.add_argument('firmware', type=str, help='Path to firmware to explore')
+
+    # penguin autoexplore
+    parse_autoexplore = subparsers.add_parser('autoexplore', help='Explore the contents of a firmware file, generating a config and running it')
+    parse_autoexplore.add_argument('firmware', type=str, help='Path to firmware to explore and run')
+
+    # arguments shared between run and autoexplore
+    for subcommand in [parse_run, parse_autoexplore]:
+        subcommand.add_argument('--novsock', action='store_true', default=False, help='Run running without vsock. Disabled by default')
+        subcommand.add_argument('--niters', type=positive_int, default=1, help='Maximum number of iterations to run. Special values are -1 for unlimited. Default 1.')
+        subcommand.add_argument('--nthreads', type=positive_int, default=1, help='Number of threads to use. Default 1.')
+        subcommand.add_argument('--timeout', type=int, default=None, help='Timeout in seconds for each run. Default is 300s if auto-explore or no timeout otherwise')
+
     parser.add_argument('output_dir', type=str, help='The output directory path.')
 
     args = parser.parse_args()
 
-    if not args.config and not args.firmware:
-        # We must have either a config or a firmware
-        parser.error("you must specify a config file (with --config) or a firmware file.")
-
-    if args.config and args.firmware:
-        # Can't have both
-        parser.error("you provided both a config file and a firmware file. Please choose one.")
-
-    if not args.novsock and not os.path.exists("/dev/vhost-vsock"):
-        raise RuntimeError("FATAL: No vsock device found. Please load the vhost_vsock"\
-                            " module. Or run with --novsock if you want to run "\
-                            " without networking")
-
-    if args.config and args.niters == 0:
-        # Nothing to do if you have a config and niters is 0
-        parser.error("you provided a config file and set niters=0. That won't do anything")
-
-    if not args.config:
+    # Explore step
+    if args.subcommand in ["explore", "autoexplore"]:
         # We don't have a config. Generate one.
         # Set up for auto exploration if niters != 0
         print(f"Generating config for {args.firmware}")
@@ -438,17 +442,24 @@ def main():
                                "Please provide a firmware file or run with --config to "\
                                "use the config file.")
 
-        args.config = build_config(args.firmware, args.output_dir, auto_explore=args.niters != 1, use_vsock=not args.novsock, timeout=args.timeout)
+        autoexplore = args.subcommand == "autoexplore"
 
-        # If we were given a firmware, by default we won't run it, but if niters != 1, we will
-        if args.niters != 1:
-            print(f"Running {args.niters} run(s) from {args.config} with {args.nthreads} thread(s)")
-            run_from_config(args.config, args.output_dir, niters=args.niters, nthreads=args.nthreads)
+        args.config = build_config(
+            args.firmware,
+            args.output_dir,
+            auto_explore=autoexplore,
+            use_vsock=not autoexplore or not args.novsock,
+            timeout=args.timeout if autoexplore else None
+        )
 
-    else:
+    # Run step
+    if args.subcommand in ["run", "autoexplore"]:
+        if not args.novsock and not os.path.exists("/dev/vhost-vsock"):
+            raise RuntimeError("FATAL: No vsock device found. Please load the vhost_vsock"\
+                                " module. Or run with --novsock if you want to run "\
+                                " without networking")
         print(f"Running {args.niters} run(s) from {args.config} with {args.nthreads} thread(s)")
         run_from_config(args.config, args.output_dir, niters=args.niters, nthreads=args.nthreads)
-
 
 if __name__ == "__main__":
     main()
