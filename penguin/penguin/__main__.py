@@ -392,7 +392,7 @@ def main():
 
         EXAMPLE USAGE:
             # First generate a config for firmware.bin at /results/myfirmware/config.yaml
-            penguin explore /fws/firmware.bin /results/myfirmware
+            penguin init /fws/firmware.bin /results/myfirmware
 
             # Then run with that config and log results to the results directory
             penguin run /results/myfirmware/config.yaml /results/myfirmware/results
@@ -412,15 +412,15 @@ def main():
     parse_run.add_argument('config', type=str, help='Path to config file')
 
     # penguin explore
-    parse_explore = subparsers.add_parser('explore', help='Explore the contents of a firmware file, generating a config')
-    parse_explore.add_argument('firmware', type=str, help='Path to firmware to explore')
+    parse_init = subparsers.add_parser('init', help='Explore the contents of a firmware file, generating a config')
+    parse_init.add_argument('firmware', type=str, help='Path to firmware to explore')
 
-    # penguin autoexplore
-    parse_autoexplore = subparsers.add_parser('autoexplore', help='Explore the contents of a firmware file, generating a config and running it')
-    parse_autoexplore.add_argument('firmware', type=str, help='Path to firmware to explore and run')
+    # penguin explore
+    parse_explore = subparsers.add_parser('explore', help='Explore the contents of a firmware file, generating a config and running it')
+    parse_explore.add_argument('firmware', type=str, help='Path to firmware to explore and run')
 
-    # arguments shared between run and autoexplore
-    for subcommand in [parse_run, parse_autoexplore]:
+    # arguments shared between run and explore
+    for subcommand in [parse_run, parse_explore]:
         subcommand.add_argument('--novsock', action='store_true', default=False, help='Run running without vsock. Disabled by default')
         subcommand.add_argument('--niters', type=positive_int, default=1, help='Maximum number of iterations to run. Special values are -1 for unlimited. Default 1.')
         subcommand.add_argument('--nthreads', type=positive_int, default=1, help='Number of threads to use. Default 1.')
@@ -431,7 +431,7 @@ def main():
     args = parser.parse_args()
 
     # Explore step
-    if args.subcommand in ["explore", "autoexplore"]:
+    if args.subcommand in ['init', 'explore']:
         # We don't have a config. Generate one.
         # Set up for auto exploration if niters != 0
         print(f"Generating config for {args.firmware}")
@@ -442,18 +442,18 @@ def main():
                                "Please provide a firmware file or run with --config to "\
                                "use the config file.")
 
-        autoexplore = args.subcommand == "autoexplore"
+        explore = args.subcommand == "explore"
 
         args.config = build_config(
             args.firmware,
             args.output_dir,
-            auto_explore=autoexplore,
-            use_vsock=not autoexplore or not args.novsock,
-            timeout=args.timeout if autoexplore else None
+            auto_explore=explore,
+            use_vsock=not explore or not args.novsock,
+            timeout=args.timeout if explore else None
         )
 
     # Run step
-    if args.subcommand in ["run", "autoexplore"]:
+    if args.subcommand in ["run", "explore"]:
         if not args.novsock and not os.path.exists("/dev/vhost-vsock"):
             raise RuntimeError("FATAL: No vsock device found. Please load the vhost_vsock"\
                                 " module. Or run with --novsock if you want to run "\
