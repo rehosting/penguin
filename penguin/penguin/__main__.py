@@ -391,11 +391,11 @@ def main():
     Configuration based firmware rehosting. Penguin can generate configs from a firmware or run a config.
 
         EXAMPLE USAGE:
-            # First generate a config for firmware.bin at /output/myfirmware/config.yaml
-            penguin /fws/firmware.bin /results/myfirmware
+            # First generate a config for firmware.bin at /results/myfirmware/config.yaml
+            penguin explore /fws/firmware.bin /results/myfirmware
 
             # Then run with that config and log results to the results directory
-            penguin --config /results/myfirmware/config.yaml /results/myfirmware/results
+            penguin run /results/myfirmware/config.yaml /results/myfirmware/results
         """,
         formatter_class=argparse.RawTextHelpFormatter)
 
