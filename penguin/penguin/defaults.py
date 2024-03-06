@@ -91,13 +91,13 @@ done
 
 # Add a bridge with eth0 and assign it an IP
 /igloo/utils/busybox brctl addbr br0
-/igloo/utils/busybox ifconfig br0 192.168.0.1
+/igloo/utils/busybox ifconfig br0 192.168.1.1
 /igloo/utils/busybox brctl addif br0 eth0
 /igloo/utils/busybox ifconfig eth0 0.0.0.0 up
 
 # Add a second bridge with eth1 and assign it an IP
 /igloo/utils/busybox brctl addbr br1
-/igloo/utils/busybox ifconfig br1 192.168.1.1
+/igloo/utils/busybox ifconfig br1 10.0.1.1
 /igloo/utils/busybox brctl addif br1 eth1
 /igloo/utils/busybox ifconfig eth1 0.0.0.0 up
 
