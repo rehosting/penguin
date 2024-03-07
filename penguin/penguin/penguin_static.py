@@ -57,9 +57,11 @@ def _find_in_fs(target_regex, tar_path, only_files=True):
             # Apply regex pattern
             matches = target_regex.findall(content)
             for match in matches:
-                if match not in results and match not in boring_vars:
-                    results[match] = {'count': 0, 'files': []}
+                if match in boring_vars:
+                    continue
 
+                if match not in results :
+                    results[match] = {'count': 0, 'files': []}
                 results[match]['count'] += 1
                 results[match]['files'].append(member.name)
     return results
