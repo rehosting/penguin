@@ -2,6 +2,7 @@ import signal
 import os
 import time
 import threading
+import sys
 from copy import deepcopy
 from pandare import PyPlugin
 try:
@@ -233,22 +234,19 @@ class Core(PyPlugin):
             # During shutdown, stdout might be closed!
             pass
 
+        open(os.path.join(self.outdir, ".ran"), "w").close()
         panda.end_analysis()
 
     def graceful_shutdown(self, sig, frame):
-        print("Caught SIGUSR1 - gracefully shutdown emulation")
-        self.shutdown_event.set()
-        #self.panda.end_analysis()
+        print("Caught SIGUSR1 - gracefully shutdown emulation", file=sys.stderr)
+        open(os.path.join(self.outdir, ".ran"), "w").close()
+        self.uninit() # explicitly call uninit?
+        self.panda.end_analysis()
 
     def uninit(self):
         # Create .ran
         open(os.path.join(self.outdir, ".ran"), "w").close()
 
-        try:
-            print("Uninit runs")
-        except OSError:
-            # Shutdown wonky?
-            pass
         if hasattr(self, 'shutdown_event') and not self.shutdown_event.is_set():
             # Tell the shutdown thread to exit if it was started
             self.shutdown_event.set()
