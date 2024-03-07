@@ -438,27 +438,18 @@ class FileFailures(PyPlugin):
     def read_zero(self, filename, buffer, length, offset, details=None):
         # Simple peripheral model inspired by firmadyne/firmae. Just return 0.
         # If we've seen a write to this device, mix that data in with 0s padding around it
+        data = b'0'
         if filename in self.written_data:
             data = self.written_data[filename]
-            data_length = len(data)
-            # Calculate how many bytes can actually be read from the data
-            readable_bytes = max(0, min(length, data_length - offset))
-            final_data = data[offset:offset + readable_bytes]
-            padding_needed = length - readable_bytes
-        else:
-            final_data = b'0'
-            padding_needed = length-1
 
-        # Pad the data to meet the requested read length
-        final_data += b'\x00' * padding_needed
-        return (final_data, len(final_data))
+        final_data = data[offset:offset+length]
+        # XXX if offset > len(data) should we return an error instead of 0?
+        return (final_data, len(final_data)) # data, rv
 
     def read_one(self, filename, buffer, length, offset, details=None):
         data = b'1'
         if filename in self.written_data:
             data = self.written_data[filename]
-            final_data = data[offset:offset+length]
-            return (final_data, len(final_data))
 
         final_data = data[offset:offset+length]
         # XXX if offset > len(data) should we return an error instead of 0?
@@ -583,13 +574,11 @@ class FileFailures(PyPlugin):
 
         return length
 
-    # TODO: expose both 'write_default' below and 'write_discard' as distinct models
-    #def write_discard(self, filename, buffer, length, offset, contents, details=None):
-    #    # Pretend we wrote everything we were asked to
-    #    return length
-
-    #def write_default(self, filename, buffer, length, offset, contents, details=None):
     def write_discard(self, filename, buffer, length, offset, contents, details=None):
+        # TODO: make this actually discard - not sure where it's used right now and default is a better model in general
+        return self.write_default(filename, buffer, length, offset, contents, details)
+
+    def write_default(self, filename, buffer, length, offset, contents, details=None):
         # Store the contents for this file
         #print(f"{filename} writes {length} bytes at {offset}: {contents[:100]}")
         if filename not in self.written_data:
@@ -601,6 +590,7 @@ class FileFailures(PyPlugin):
             previous += b"\x00" * (offset - len(previous))
         self.written_data[filename] = previous + contents + (self.written_data[filename][offset+length:] if len(self.written_data[filename]) > offset+length else b"")
         return length
+
 
     # XXX on write we can allow and store by default. Or should we explicitly error and require a model?
     #def write_default(self, filename, buffer, length, offset, contents, details=None):
