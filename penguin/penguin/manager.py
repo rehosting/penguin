@@ -109,12 +109,24 @@ class PandaRunner:
         except subprocess.CalledProcessError as e:
             print(f"Error running {conf_yaml}: {e}")
         except KeyboardInterrupt:
-            print(f"Keyboard interrupt while PANDA was running - killing {p.pid} with SIGUSR1")
+            print(f"Keyboard interrupt while PANDA was running - killing {p.pid} with SIGUSR1 (please wait up to 30s)...")
             # Send SIGUSR1 to the process
             system(f"kill -USR1 {p.pid}")
             # Wait a moment, then kill it hard
-            time.sleep(5)
-            system(f"kill -9 {p.pid}")
+            for _ in range(30):
+                time.sleep(1)
+                if p.poll() is None:
+                    # Still running, wait
+                    continue
+                break
+            else:
+                # Didn't break the loop - process is still running
+                print(f"Process {p.pid} still running after SIGUSR1 + 30s: killing hard")
+                system(f"kill -9 {p.pid}")
+            # Now we should wait for the process to finish
+            print("Wait for shutdown")
+            p.wait()
+            print("Waited")
             raise
 
         #elapsed = time.time() - start
