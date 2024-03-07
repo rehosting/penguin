@@ -1,5 +1,6 @@
 import subprocess
 import time
+import os
 import threading
 from pandare import PyPlugin
 from threading import Lock
@@ -24,7 +25,7 @@ class Nmap(PyPlugin):
             # Let's just ignore entirely.
             return
 
-        f = self.outdir + f"/nmap_{proto}_{guest_port}.log"
+        f = self.outdir + f"/nmap_{proto}_{guest_port}_{host_port}.log"
 
         # Launch a thread to analyze this request
         t = threading.Thread(target=self.scan_thread, args=(guest_port, host_port, f))
@@ -33,6 +34,12 @@ class Nmap(PyPlugin):
 
     def scan_thread(self, guest_port, host_port, log_file_name):
         # nmap scan our target in service-aware mode
+
+        if os.path.isfile(log_file_name):
+            # Need a unique name - unlikely that host_port would get reused so this might just stack if it ever happens
+            log_file_name += f".alt"
+
+
         process = subprocess.Popen(
             ["nmap",
                 f"-p{guest_port}", # Target guest port. XXX: redirect-port below means this actually hits host_port, but gets scanned as if it was this
