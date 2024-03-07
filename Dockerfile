@@ -1,9 +1,9 @@
 # versions of the various dependencies.
 ARG BASE_IMAGE="ubuntu:22.04"
 ARG GENEXT2FS_VERSION="9bc57e232e8bb7a0e5c8ccf503b57b3b702b973a"
-ARG PANDA_VERSION="1.8.8"
+ARG PANDA_VERSION="1.8.8" # XXX UNUSED: we have a hardcoded branch used below in deb_downloader - this has a fix for targetcmp we really want
 ARG BUSYBOX_VERSION="25c906fe05766f7fc4765f4e6e719b717cc2d9b7"
-ARG LINUX_VERSION="1.9.24"
+ARG LINUX_VERSION="1.9.26"
 ARG LIBNVRAM_VERSION="04c3955d255cdca0c880dbfcc6d3c77bb8c927d7"
 ARG CONSOLE_VERSION="389e179dde938633ff6a44144fe1e03570497479"
 ARG PENGUIN_PLUGINS_VERSION="1.5.3"
@@ -25,8 +25,8 @@ ARG BASE_IMAGE
 ARG GENEXT2FS_VERSION
 ARG PANDA_VERSION
 RUN wget -O /tmp/genext2fs.deb https://github.com/panda-re/genext2fs/releases/download/release_${GENEXT2FS_VERSION}/genext2fs.deb && \
-    wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(echo "$BASE_IMAGE" | awk -F':' '{print $2}').deb
-    # wget -O /tmp/pandare.deb https://panda.re/secret/pandare_1.8.1b_2204.deb
+    wget -O /tmp/pandare.deb https://panda.re/secret/pandare_1.8.1b_2204.deb
+    #wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(echo "$BASE_IMAGE" | awk -F':' '{print $2}').deb
 
 ### DOWNLOADER: get zap, libguestfs, busybox, libnvram, console, vpn, kernels, and penguin plugins ###
 FROM download_base as downloader
