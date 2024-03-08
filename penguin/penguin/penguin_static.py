@@ -1060,7 +1060,7 @@ def add_nvram_meta(config, output_dir):
             nvram_data = csv.DictReader(f)
             if nvram_sources.get(src, 0) > 10:
                 # Now select data from nvram_data that matches this src
-                print(f"Found {nvram_sources[src]} nvram entries from {src} - selecting")
+                #print(f"Found {nvram_sources[src]} nvram entries from {src} - selecting")
                 for row in nvram_data:
                     if row['source'] == src:
                         # Preserve original value, unless it was empty
@@ -1070,8 +1070,16 @@ def add_nvram_meta(config, output_dir):
                             print(f"NVRAM {row['key']} is {config['nvram'][row['key']]} but {row['source']} suggests {row['value']} instead. " + \
                                   ("Taking new value" if take_val else "Ignoring"))
 
+                        # If key is non-printable, ignore it
+                        if not row['key'].isprintable():
+                            take_val = False
+
                         if take_val:
                             config['nvram'][row['key']] = row['value']
+
+            #if len(config['nvram']) > 10:
+            #    # Don't mix our sources - just take what we got
+            #    break
 
     # Re-open so we're at the start of the file?
     with open(output_dir + "/nvram.csv", 'r') as f:
