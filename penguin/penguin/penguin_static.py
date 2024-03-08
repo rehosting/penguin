@@ -1142,18 +1142,13 @@ def add_firmae_hacks(config, output_dir):
 
         # Start of the shell script
         cmd_str = """#!/igloo/utils/sh
-        set -eux
-
-        # Give some time for the system to stabilize if just started
         /igloo/utils/busybox sleep 120
 
-        # Loop indefinitely
         while true; do
-            # Wait for 10 seconds before each check
-            /igloo/utils/busybox sleep 10
         """
 
         # Loop through the commands to add them to the script
+        # XXX we need to preload our libnvram here. If we ever mess with that we should also change it here
         for cmd in www_cmds:
             cmd_str += f"""
             if ! (/igloo/utils/busybox ps | /igloo/utils/busybox grep -v grep | /igloo/utils/busybox grep -sqi "{cmd}"); then
@@ -1162,6 +1157,7 @@ def add_firmae_hacks(config, output_dir):
         """
         # Close the loop
         cmd_str += """
+            /igloo/utils/busybox sleep 30
             done
         """
 
