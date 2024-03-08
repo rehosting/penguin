@@ -96,7 +96,7 @@ class Core(PyPlugin):
         # Define callbacks that are triggered from hypercalls
         for cb in ['igloo_open', 'igloo_string_cmp', 'igloo_getenv', 'igloo_strstr',
                     'igloo_bind', 'igloo_ioctl', 'igloo_proc_mtd', 'igloo_syscall',
-                    'igloo_nvram_get', 'igloo_send_hypercall']:
+                    'igloo_nvram_get', 'igloo_nvram_set', 'igloo_nvram_clear', 'igloo_send_hypercall']:
             self.ppp_cb_boilerplate(cb)
 
     @PyPlugin.ppp_export
@@ -170,6 +170,21 @@ class Core(PyPlugin):
             buffer_len = self.panda.arch.get_arg(cpu, 2)
             s = self.panda.read_str(cpu, buffer, max_length=buffer_len)
             self.ppp_run_cb('igloo_nvram_get', cpu, s, True)
+
+        elif num == 109:
+            # NVRAM set
+            buffer = self.panda.arch.get_arg(cpu, 1)
+            val = self.panda.arch.get_arg(cpu, 2)
+            s1 = self.panda.read_str(cpu, buffer)
+            s2 = self.panda.read_str(cpu, val)
+            self.ppp_run_cb('igloo_nvram_set', cpu, s1, s2)
+
+        elif num == 110:
+            # NVRAM clear
+            buffer = self.panda.arch.get_arg(cpu, 1)
+            buffer_len = self.panda.arch.get_arg(cpu, 2)
+            s = self.panda.read_str(cpu, buffer, max_length=buffer_len)
+            self.ppp_run_cb('igloo_nvram_clear', cpu, s)
 
 
         elif num in [200, 202]:
