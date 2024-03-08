@@ -703,7 +703,7 @@ def graph_search(initial_config, output_dir, max_iters=1000, nthreads=1, init=No
 
     # Let's also write a best.txt file with run index of the best run
     if best := config_manager.graph.get_best_run_configuration():
-        report_best_results(run_base, os.path.join(*[run_base, str(best.run_idx), "output"]), output_dir)
+        report_best_results(best.run_idx, os.path.join(*[run_base, str(best.run_idx), "output"]), output_dir)
 
 
 def main():
