@@ -22,6 +22,8 @@ from .utils import load_config, dump_config, hash_yaml_config, AtomicCounter, \
 
 coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 
+WWW_ONLY = True # Evaluation only - bail as soon as we see a webserver start
+
 SCORE_CATEGORIES = ['execs', 'bound_sockets', 'devices_accessed', 'processes_run', 'modules_loaded',
                     'blocks_covered', 'nopanic', 'script_lines_covered', 'blocked_signals']
 
@@ -239,6 +241,7 @@ class Worker:
 
         # Log info
         this_logger = logging.getLogger(f"mgr{self.thread_id if self.thread_id is not None else ''}.run.{self.run_idx}")
+        this_logger.setLevel(logging.INFO)
 
         if parent_cc := self.config_manager.graph.get_parent_config(config):
             parent_failure = self.config_manager.graph.get_parent_failure(config)
@@ -353,6 +356,20 @@ class Worker:
             parent_score = parent_cc.health_score
             with open(os.path.join(run_dir, "score_delta.txt"), "w") as f:
                 f.write(f"{final_score-parent_score:.02f}")
+
+        # Config option to bail after we first see a webserver start
+        if WWW_ONLY:
+            # Check if netbinds.csv contains a bind for port 80. If so we'll terminate early
+            # If this config was non-exclusive (i.e., it was a normal run, no symex/dynval), we're done!
+            if not config.exclusive and os.path.isfile(os.path.join(run_dir, "output", "netbinds.csv")):
+                with open(os.path.join(run_dir, "output", "netbinds.csv"), "r") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        if row['guest_port'] == '80':
+                            this_logger.info(f"Terminating early due to port 80 bind in {run_dir}")
+                            for _ in range(self.max_iters):
+                                self.run_index.increment() # There must be a better way to do this
+                            break
 
         return failures, final_score, self.run_idx
 
