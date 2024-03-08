@@ -49,7 +49,7 @@ fi
 if [ ! -z "${WWW}" ]; then
   if [ -e /igloo/utils/www_cmds ]; then
     echo '[IGLOO INIT] Force-launching webserver commands';
-    /igloo/utils/www_cmds &
+    LD_PRELOAD=/igloo/utils/libnvram.so /igloo/utils/sh /igloo/utils/www_cmds &
   fi
   unset WWW
 fi
