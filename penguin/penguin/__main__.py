@@ -228,7 +228,7 @@ def extract_and_build(fw, output_dir):
     os.chmod(f"{base}/image.qcow", 0o444)
     return arch, endianness
 
-def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeout=None):
+def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeout=None, niters=1):
     '''
     Given a firmware binary and an output directory, this function will
     extract the firmware, build a qemu image, and create a config file
@@ -236,6 +236,10 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
 
     Timeout enforced if it's provided.
     If it's None and auto_explore is true, we'll use 300s
+
+    Auto controls if we turn on nmap scanning (auto = yes)
+    If niters is 1 we'll select a default init and set the /dev/gpio ioctl model to return 0
+    (Otherwise we'll learn both of these dynamically)
 
     Returns the path to the config file.
     '''
@@ -374,13 +378,67 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
 
     data = extend_config_with_static(data, f"{output_dir}/base/", auto_explore)
 
-    if auto_explore and 'igloo_init' in data['env']:
-        # Make sure we didn't set an igloo_init in our env if there are multiple potential values
+    if niters == 1:
+        # We want to build this configuration for a single-shot rehost.
+        # We'll ensure it has an igloo_init set and we'll specify an ioctl model for all our pseudofiles in /dev
+        print(f"Tailoring configuration for single-iteration: selecting init and configuring default catch-all ioctl models")
+
         with open(f"{output_dir}/base/env.yaml", 'r') as f:
             static_env = yaml.safe_load(f)
-            if 'igloo_init' in static_env:
+            if 'igloo_init' in static_env and len(static_env['igloo_init']) > 0:
+                data['env']['igloo_init'] = static_env['igloo_init'][0]
+                print(f"\tinit set to: {data['env']['igloo_init']}")
                 if len(static_env['igloo_init']) > 1:
-                    del data['env']['igloo_init']
+                    print(f"\tOther options are: {', '.join(static_env['igloo_init'][1:])}")
+
+        # For all identified pseudofiles, try adding them. This reliably causes kernel panics - are we running
+        # out of kernel memory or are we clobbering important things?
+        '''
+        with open(f"{output_dir}/base/pseudofiles.yaml", 'r') as f:
+            static_pseudofiles = yaml.safe_load(f)
+            print(f"Static analysis identified {len(static_pseudofiles)} potential pseudofiles")
+            cnt = 0
+            for f in static_pseudofiles:
+                if f in data['pseudofiles']:
+                    continue
+
+                if len(f.split("/")) == 3: # /proc/foo good, /proc/asdf/zoo less good
+                    continue
+                cnt += 1
+
+                data['pseudofiles'][f] = {
+                    'read': {
+                        "model": "zero",
+                    },
+                    'write': {
+                        "model": "discard",
+                    }
+                }
+
+                if f.startswith("/proc/mtd"):
+                    data['pseudo_files'][f]['name'] = "uboot." + f.split("/")[-1]
+            print(f"\tAdded {cnt} of them")
+        '''
+
+        # Now we'll set a default ioctl model for all our pseudofiles in /dev
+        for dev in data['pseudofiles']:
+            if dev.startswith("/dev/"):
+                data['pseudofiles'][dev]['ioctl'] = {
+                    '*': {
+                            "model": "return_const",
+                            "val": 0,
+                        }
+                }
+
+    else:
+        # Automated mode - make sure we dont' have an igloo_init set
+        if 'igloo_init' in data['env']:
+            # Make sure we didn't set an igloo_init in our env if there are multiple potential values
+            with open(f"{output_dir}/base/env.yaml", 'r') as f:
+                static_env = yaml.safe_load(f)
+                if 'igloo_init' in static_env:
+                    if len(static_env['igloo_init']) > 1:
+                        del data['env']['igloo_init']
 
     # Data includes 'meta' field with hypotheses about files/devices
     # Let's drop that. It's stored in base/{env,files}.yaml
@@ -504,7 +562,7 @@ def main():
                                "Please provide a firmware file or run with --config to "\
                                "use the config file.")
 
-        args.config = build_config(args.firmware, args.output_dir, auto_explore=args.auto, use_vsock=not args.novsock, timeout=args.timeout)
+        args.config = build_config(args.firmware, args.output_dir, auto_explore=args.auto, use_vsock=not args.novsock, timeout=args.timeout, niters=args.niters)
 
         if args.config is None:
             # We failed to generate a config. We'll have written a result file to the output dir
