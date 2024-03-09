@@ -206,6 +206,11 @@ default_plugins = {
     }
 }
 
+# We add ioctl wildcard -> 0 in single-iteration mode
+# In multi-iteration mode we dynamically build ioctl models
+
+# Hardcoded device list and acos ioctls are from Firmadyne/FirmAE
+# https://github.com/pr0v3rbs/FirmAE_kernel-v4.1/blob/master/drivers/firmadyne/devfs_stubs.c#L37-L52
 default_pseudo_model = {
     'read': {
         'model': 'zero',
@@ -214,8 +219,6 @@ default_pseudo_model = {
         'model': 'discard',
     }
 }
-
-# https://github.com/pr0v3rbs/FirmAE_kernel-v4.1/blob/master/drivers/firmadyne/devfs_stubs.c#L37-L52
 acos_pseudo_model = deepcopy(default_pseudo_model)
 acos_pseudo_model['ioctl'] = {
     0x40046431: {
@@ -234,10 +237,6 @@ acos_pseudo_model['ioctl'] = {
         'model': 'return_const',
         'val': 1
     },
-    '*': {
-        'model': 'return_const',
-        'val': 0
-    }
 }
 
 default_pseudofiles = {
