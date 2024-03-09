@@ -431,7 +431,12 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
                 }
 
     else:
-        # Automated mode - make sure we dont' have an igloo_init set
+        # Automated mode
+
+        # Turn on force_www -> it will probably help?
+        data['core']['force_www'] = True
+
+        # Make sure we dont' have an igloo_init set
         if 'igloo_init' in data['env']:
             # Make sure we didn't set an igloo_init in our env if there are multiple potential values
             with open(f"{output_dir}/base/env.yaml", 'r') as f:
