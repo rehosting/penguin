@@ -290,7 +290,7 @@ class FileFailures(PyPlugin):
                 filename = None
                 for fname, file_model in self.config['pseudofiles'].items():
                     if 'ioctl' in file_model:
-                        for cmd, model in file_model['ioctl'].items():
+                        for _, model in file_model['ioctl'].items():
                             if model['model'] == 'symex':
                                 filename = fname
                                 break
