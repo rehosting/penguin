@@ -33,6 +33,19 @@ def angr_block(state):
         state.block().pp()
         DBG_LAST_BB = state.block().addr
 
+def load_data_from_file(filepath, offset, size):
+    """
+    Load a segment of data from a binary or library file.
+
+    :param filepath: Path to the binary or library file.
+    :param offset: Offset within the file to start reading data.
+    :param size: Size of the data to read.
+    :return: The data read from the file.
+    """
+    with open(filepath, 'rb') as f:
+        f.seek(offset)
+        return f.read(size)
+
 class IoctlSimProcedure(angr.SimProcedure):
     '''
     SimProcedure to return a unconstrained symbolic value for an IOCTL
@@ -79,6 +92,7 @@ class PathExpIoctl:
         at an IOCTL return, run symex in order identify distinct reachable paths
         '''
         self.log(f"do_symex for ioctl {num:x} on {name}")
+
 
         # We're hooking at syscall return. This is often libc's ioctl function or another
         # library, not a part of the main binary. But it seems to work anyway! (previously
@@ -231,18 +245,25 @@ class PathExpIoctl:
         panda_target = PandaConcreteTarget(panda)
         target_binary, target_base = None, None
         target_files = set()
-        lib_opts = {}
+        #lib_opts = {}
+        maps = []
 
         # Make a directory in scratch
         os.mkdir(os.path.join(scratch, "lib"))
 
         # Look through our mappings. Track all unique filenames
         # and identify the binary that was loaded at targ_addr
+        print(f"Mapping: name start-end offset")
         for mapping in panda_target.get_mappings():
             target_files.add(mapping.name)
-            lib_opts[os.path.basename(mapping.name)] = {'base_addr': mapping.start_address,
-                                                        'offset': mapping.offset
-                                                    }
+            print(f"Mapping: {mapping.name} {mapping.start_address:x}-{mapping.end_address:x} {mapping.offset:x}")
+            print(mapping)
+            maps.append({
+                'filepath': mapping.name,
+                'start_address': mapping.start_address,
+                'end_address': mapping.end_address,
+                'file_offset': mapping.offset,
+            })
             if targ_addr >= mapping.start_address < mapping.end_address:
                 # This mapping contains the target address - we'll configure this binary as our
                 # main object
@@ -264,9 +285,9 @@ class PathExpIoctl:
                         continue
 
                     # Extract into scratch dir and preserve paths
-                    #tar.extract(member, scratch)
+                    tar.extract(member, scratch)
 
-                    # Extract into ./scratch/ and discard original path
+                    # Extract into ./scratch/ and discard original path. Yes, we do both.
                     file_content = tar.extractfile(member).read()
                     final_path = os.path.basename(fname)
                     output_file_path = os.path.join(*[scratch, final_path])
@@ -283,10 +304,10 @@ class PathExpIoctl:
 
         load_options = {
             'auto_load_libs': False,
-            'except_missing_libs': True,
-            'ld_path': scratch,
-            'lib_opts': lib_opts,
-            'force_load_libs': list(lib_opts.keys()),
+            #'except_missing_libs': True,
+            #'ld_path': scratch,
+            #'lib_opts': lib_opts,
+            #'force_load_libs': list(lib_opts.keys()),
             'main_opts': {'base_addr': target_base},
         }
 
@@ -295,7 +316,7 @@ class PathExpIoctl:
                             use_sim_procedures=False,
                             load_options=load_options
                             )
-        return proj
+        return maps, proj
 
     def setup_project_state(self, panda, targ_addr):
         '''
@@ -304,18 +325,37 @@ class PathExpIoctl:
         with PANDA concrete state.
         '''
         with tempfile.TemporaryDirectory(prefix="penguin_") as tmpdir:
-            proj = self.create_proj(panda, targ_addr, tmpdir)
+            mappings, proj = self.create_proj(panda, targ_addr, tmpdir)
 
-        # Now create state, synchronize it, and do some sanity checks
 
-        # Create a state at the target address
-        state = proj.factory.entry_state(addr=targ_addr)
+            # Create a state at the target address
+            state = proj.factory.entry_state(addr=targ_addr)
 
-        state.options.add(angr.options.SYMBION_SYNC_CLE)
-        state.options.add(angr.options.SYMBION_KEEP_STUBS_ON_SYNC)
+            state.options.add(angr.options.SYMBION_SYNC_CLE)
+            state.options.add(angr.options.SYMBION_KEEP_STUBS_ON_SYNC)
 
-        # Now pull in the concrete state from PANDA
-        state.concrete.sync()
+            # Now pull in the concrete state from PANDA
+            state.concrete.sync()
+
+            # Now load our memory mappings into the state
+            for mapping in mappings:
+                print(f"Creating mapping: {mapping['start_address']:x} {mapping['end_address']:x} {mapping['filepath']}")
+                size = mapping['end_address'] - mapping['start_address']
+
+                try:
+                    data = load_data_from_file(tmpdir + "/" + mapping['filepath'], mapping['file_offset'], size)
+                except FileNotFoundError:
+                    print(f"No file found at {tmpdir}/{mapping['filepath']} - SKIP")
+                    continue
+
+                try:
+                    state.memory.map_region(mapping['start_address'], size, 7)  # 7 = rwx permissions
+                    state.memory.store(mapping['start_address'], data)
+                except angr.errors.SimMemoryError as e:
+                    # Already mapped - probably okay?
+                    print(f"\tSKIP: {e}")
+                    continue
+
 
         return proj, state
 
