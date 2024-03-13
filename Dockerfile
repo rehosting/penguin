@@ -1,12 +1,14 @@
 # versions of the various dependencies.
 ARG BASE_IMAGE="ubuntu:22.04"
-ARG PANDA_VERSION="1.8.8" # XXX UNUSED: we have a hardcoded branch used below in deb_downloader - this has a fix for targetcmp we really want
-ARG BUSYBOX_VERSION="25c906fe05766f7fc4765f4e6e719b717cc2d9b7"
-ARG LINUX_VERSION="1.9.29n"
-ARG LIBNVRAM_VERSION="04c3955d255cdca0c880dbfcc6d3c77bb8c927d7"
-ARG CONSOLE_VERSION="389e179dde938633ff6a44144fe1e03570497479"
+ARG GENEXT2FS_VERSION="0.0.1"
+ARG PANDA_VERSION="1.8.8"
+ARG BUSYBOX_VERSION="0.0.1"
+ARG LINUX_VERSION="1.9.20"
+ARG LIBNVRAM_VERSION="0.0.1"
+ARG CONSOLE_VERSION="1.0.1"
 ARG PENGUIN_PLUGINS_VERSION="1.5.3"
 ARG UTILS_VERSION="4"
+ARG VPN_VERSION="1.0.1"
 
 ### DOWNLOADER ###
 # Fetch and extract our various dependencies. Roughly ordered on
@@ -34,6 +36,7 @@ ARG LIBNVRAM_VERSION
 ARG CONSOLE_VERSION
 ARG PENGUIN_PLUGINS_VERSION
 ARG UTILS_VERSION
+ARG VPN_VERSION
 # Download ZAP into /zap
 #RUN mkdir /zap && \
 #wget -qO- https://raw.githubusercontent.com/zaproxy/zap-admin/master/ZapVersions.xml | \
@@ -47,7 +50,7 @@ RUN wget --quiet https://download.libguestfs.org/binaries/appliance/appliance-1.
 
 # Download busybox from CI. Populate /igloo_static/utils.bin/utils/busybox.*
 RUN mkdir /igloo_static && \
-  wget -qO - https://github.com/panda-re/busybox/releases/download/release_${BUSYBOX_VERSION}/busybox-latest.tar.gz | \
+  wget -qO - https://github.com/panda-re/busybox/releases/download/v${BUSYBOX_VERSION}/busybox-latest.tar.gz | \
   tar xzf - -C /igloo_static/ && \
   mv /igloo_static/build/ /igloo_static/utils.bin && \
   for file in /igloo_static/utils.bin/busybox.*-linux*; do mv "$file" "${file%-linux-*}"; done && \
@@ -62,7 +65,7 @@ RUN wget -qO - https://github.com/rehosting/libnvram/releases/download/release_$
   tar xzf - -C /igloo_static
 
 # Download  console from CI. Populate /igloo_static/console
-RUN wget -qO - https://github.com/panda-re/console/releases/download/release_${CONSOLE_VERSION}/console-latest.tar.gz | \
+RUN wget -qO - https://github.com/panda-re/console/releases/download/v${CONSOLE_VERSION}/console-latest.tar.gz | \
   tar xzf - -C /igloo_static && \
   mv /igloo_static/build /igloo_static/console && \
   mv /igloo_static/console/console-arm-linux-musleabi /igloo_static/console/console.armel && \
@@ -79,7 +82,7 @@ RUN mkdir /igloo_static/syscalls && \
 
 # Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
 # XXX this dependency should be versioned!
-RUN wget -qO - https://panda.re/igloo/vpn.tar.gz | \
+RUN wget -qO - https://panda.re/igloo/vpn-v${VPN_VERSION}.tar.gz | \
   tar xzf - -C /
 
 # Download custom panda plugins built from CI. Populate /panda_plugins
