@@ -82,7 +82,7 @@ RUN mkdir /igloo_static/syscalls && \
   done
 
 # Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
-# XXX this dependency should be versioned!
+# this dependency is versioned. For the latest version use vpn-latest.tar.gz
 RUN wget -qO - https://panda.re/igloo/vpn-v${VPN_VERSION}.tar.gz | \
   tar xzf - -C /
 
