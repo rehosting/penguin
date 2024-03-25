@@ -29,9 +29,6 @@ md5sum /tmp/fs.tar.gz
 rm -rf "$d"
 
 # Now make us an image in /tmp/empty
-#fakeroot /pkg/scripts/makeImage.sh $ARCH /tmp/fs.tar.gz /tmp/empty /pkg/resources /igloo_static
-
-#ARCH="$1"
 TARBALL="/tmp/fs.tar.gz"
 REPACK_DIR="/tmp/empty"
 RESOURCE_DIR="/pkg/resources"
@@ -39,11 +36,8 @@ STATIC_DIR="/igloo_static"
 
 WORK_DIR="${REPACK_DIR}/work"
 TARFILE="${REPACK_DIR}/fs.tar"
-#IMAGE="${REPACK_DIR}/image.raw"
-#QCOW="${REPACK_DIR}/image.qcow"
 FD="${WORK_DIR}/firmadyne"
 IGLOO="${WORK_DIR}/igloo"
-#BLOCK_SIZE=4096
 
 # Validate and prepare tarball
 if [ ! -e "$TARBALL" ]; then
