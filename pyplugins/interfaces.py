@@ -39,6 +39,9 @@ class Interfaces(PyPlugin):
 
         @panda.ppp("syscalls2", "on_sys_ioctl_return")
         def after_ioctl(cpu, pc, fd, request, arg):
+            # This seems to never happen, even though we'll see errors about SIOCSIFHWADDR
+            # if ifconfig tries to interact with a misisng device. It's trying to issue that ioctl
+            # but fails to get a handle to the device - an ioctl is never actually issued!
             if 0x8000 < request < 0x9000:
                 rv = panda.arch.get_retval(cpu, convention='syscall')
                 if rv < 0:
@@ -110,29 +113,38 @@ class InterfaceAnalysis(PenguinAnalysis):
             self.config = yaml.safe_load(f)
 
         # Read existing interfaces from config's netdevs list
-        netdevs = set(self.config.get('netdevs', []))
 
-        fails = []
+        # Return a list of all interfaces identified - in the mitigation stage
+        # we'll filter to drop existing/default ones (this reduces duplication)
+        ifaces = []
         with open(f'{output_dir}/{iface_log}', 'r') as f:
             for iface in f.readlines():
                 iface = iface.strip()
-                if iface in netdevs:
-                    continue
-                fails.append(Failure(f"net_{iface}", self.ANALYSIS_TYPE, {"iface": iface}))
-        return fails
-    
+                ifaces.append(iface)
+
+        if not len([iface not in DEFAULT_IFACES for iface in ifaces]):
+            # All default
+            return []
+
+        # Single failure with all ifaces
+        return [Failure(f"net_ifaces_{len(ifaces)}", self.ANALYSIS_TYPE, {"ifaces": sorted(ifaces)})]
+
     def get_potential_mitigations(self, config, failure : Failure) -> List[Mitigation]:
-        iface = failure.info['iface']
-        if iface not in config.get('netdevs', []):
-            return [Mitigation(f"add_{iface}", self.ANALYSIS_TYPE, {"iface": iface})]
+        # Create a mitiation with every iface in the list, so long as at least one isn't already in the config
+        ifaces = failure.info['ifaces']
+        if not any([iface not in config.get('netdevs', []) for iface in ifaces]):
+            return [] # Already present
+
+        # Create a mitigation with all the ifaces
+        return [Mitigation(f"iface_{len(ifaces)}", self.ANALYSIS_TYPE, {"ifaces": ifaces})]
 
 
     def implement_mitigation(self, config : Configuration, failure : Failure, mitigation : Mitigation) -> List[Configuration]:
-        iface = failure.info['iface']
-        if iface in config.info.get('netdevs', []):
-            print(f"Warning: Interface {iface} already exists, refusing toa dd")
+        ifaces = failure.info['ifaces']
+        if all(iface in config.info.get('netdevs', []) for iface in ifaces):
+            print(f"Warning: Interface {ifaces} already exists, refusing to add")
             return []
 
         new_config = deepcopy(config.info)
-        new_config['netdevs'] = config.info.get('netdevs', []) + [iface]
-        return [Configuration(f"iface_{iface}", new_config)]
+        new_config['netdevs'] = config.info.get('netdevs', []) + ifaces
+        return [Configuration(f"iface_{len(ifaces)}", new_config)]
