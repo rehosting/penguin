@@ -26,8 +26,9 @@ class SendHypercall(PyPlugin):
         buf = self.panda.virtual_memory_read(cpu, buf_addr, buf_size, fmt="bytearray")
 
         # Unpack list of pointers
-        word_char = 'I' if arch_bytes == 4 else 'Q' # TODO: is this correct for big-endian guests?
-        ptrs = struct.unpack_from(f"{buf_num_ptrs}{word_char}", buf)
+        word_char = 'I' if arch_bytes == 4 else 'Q' 
+        endianness = '>' if self.panda.arch_name in ["mips", "mips64eb"] else '<'
+        ptrs = struct.unpack_from(f"{endianness}{buf_num_ptrs}{word_char}", buf)
         str_ptrs, out_addr = ptrs[:-1], ptrs[-1]
 
         # Read command and arg strings
