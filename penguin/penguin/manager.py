@@ -22,7 +22,7 @@ from .utils import load_config, dump_config, hash_yaml_config, AtomicCounter, \
 
 coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 
-WWW_ONLY = True # Evaluation only - bail as soon as we see a webserver start
+WWW_ONLY = False # To simplify large scale evaluations - should we bail early if we see a webserver start?
 
 SCORE_CATEGORIES = ['execs', 'bound_sockets', 'devices_accessed', 'processes_run', 'modules_loaded',
                     'blocks_covered', 'nopanic', 'script_lines_covered', 'blocked_signals']
@@ -38,6 +38,88 @@ import glob
 CACHE_SUPPORT = False
 cache_dir = "/cache"
 caches = {} # config hash -> output directory with .run.
+
+def calculate_score(result_dir, have_console=True):
+    '''
+    Return a dict of the distinct metrics we care about name: value
+    XXX should have a global of how many fields this is
+
+    XXX: We should call into our loaded plugins to calculate
+    this score metric! Plugins could raise a fatal error
+    or return a dict with names and values
+    '''
+    if not os.path.isfile(os.path.join(result_dir, ".ran")):
+        raise RuntimeError(f"calculate_score: {result_dir} does not have a .ran file - check logs for error")
+
+    # load config
+    with open(f"{result_dir}/core_config.yaml") as f:
+        config = yaml.safe_load(f)
+
+    # System Health: execs, sockets, devices
+    with open(f"{result_dir}/health_final.yaml") as f:
+        health_data = yaml.safe_load(f)
+
+    # Panic or not (inverted so we can maximize)
+    panic = False
+
+    # We can only read console output if it's saved to disk
+    # (instead of being shown on stdout)
+    #if not self.global_state.info['show_output']:
+    if have_console:
+        with open(f"{result_dir}/console.log", 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f.readlines():
+                if "Kernel panic" in line:
+                    panic = True
+                    break
+
+    # Shell cov: number of lines (minus one) in shell_cov.csv
+    with open(f"{result_dir}/shell_cov.csv") as f:
+        shell_cov = len(f.readlines()) - 1
+
+    # Coverage: processes, modules, blocks
+    if os.path.isfile(f"{result_dir}/coverage.csv"):
+        with open(f"{result_dir}/coverage.csv", newline='') as f:
+            reader = csv.reader(f)
+            # Initialize sets to store unique values and a list for all rows
+            processes = set()
+            modules = set()
+            module_offset_pairs = set()
+
+            for row in reader:
+                # Assuming the structure is process, module, offset
+                process, module, offset = row
+                processes.add(process)
+                modules.add(module)
+                module_offset_pairs.add((module, offset))
+
+        processes_run = len(processes)
+        modules_loaded = len(modules)
+        blocks_covered = len(module_offset_pairs)
+
+
+    else:
+        print(f"WARNING: No coverage.csv found in {result_dir}")
+        processes_run = 0
+        modules_loaded = 0
+        blocks_covered = 0
+
+
+    score = {
+        'execs': health_data['nexecs'],
+        'bound_sockets': health_data['nbound_sockets'],
+        'devices_accessed': health_data['nuniquedevs'],
+        'processes_run': processes_run,
+        'modules_loaded': modules_loaded,
+        'blocks_covered': blocks_covered,
+        'script_lines_covered': shell_cov,
+        'nopanic': 1 if not panic else 0,
+        'blocked_signals': -len(config['blocked_signals'] if 'blocked_signals' in config else []) # Negative because we want to minimize!
+    }
+
+    for k in score.keys():
+        if k not in SCORE_CATEGORIES:
+            raise ValueError(f"BUG: score type {k} is unknown")
+    return score
 
 
 class PandaRunner:
@@ -381,7 +463,7 @@ class Worker:
         '''
         best_scores = {} # For each key, maximal score across all runs
         for config_idx in range(n_config_tests):
-            these_scores = self.calculate_score(os.path.join(run_dir, f"output{config_idx}" if config_idx > 0 else "output"))
+            these_scores = calculate_score(os.path.join(run_dir, f"output{config_idx}" if config_idx > 0 else "output"), have_console=not self.global_state.info['show_output'])
             for score_name, score in these_scores.items():
                 if score_name not in best_scores or score > best_scores[score_name]:
                     best_scores[score_name] = score
@@ -442,86 +524,6 @@ class Worker:
         # We might have duplicate failures, but that's okay, caller will dedup?
         return fails
 
-    def calculate_score(self, result_dir):
-        '''
-        Return a dict of the distinct metrics we care about name: value
-        XXX should have a global of how many fields this is
-
-        XXX: We should call into our loaded plugins to calculate
-        this score metric! Plugins could raise a fatal error
-        or return a dict with names and values
-        '''
-        if not os.path.isfile(os.path.join(result_dir, ".ran")):
-            raise RuntimeError(f"calculate_score: {result_dir} does not have a .ran file - check logs for error")
-
-        # load config
-        with open(f"{result_dir}/core_config.yaml") as f:
-            config = yaml.safe_load(f)
-
-        # System Health: execs, sockets, devices
-        with open(f"{result_dir}/health_final.yaml") as f:
-            health_data = yaml.safe_load(f)
-
-        # Panic or not (inverted so we can maximize)
-        panic = False
-
-        # We can only read console output if it's saved to disk
-        # (instead of being shown on stdout)
-        if not self.global_state.info['show_output']:
-            with open(f"{result_dir}/console.log", 'r', encoding='utf-8', errors='ignore') as f:
-                for line in f.readlines():
-                    if "Kernel panic" in line:
-                        panic = True
-                        break
-
-        # Shell cov: number of lines (minus one) in shell_cov.csv
-        with open(f"{result_dir}/shell_cov.csv") as f:
-            shell_cov = len(f.readlines()) - 1
-
-        # Coverage: processes, modules, blocks
-        if os.path.isfile(f"{result_dir}/coverage.csv"):
-            with open(f"{result_dir}/coverage.csv", newline='') as f:
-                reader = csv.reader(f)
-                # Initialize sets to store unique values and a list for all rows
-                processes = set()
-                modules = set()
-                module_offset_pairs = set()
-
-                for row in reader:
-                    # Assuming the structure is process, module, offset
-                    process, module, offset = row
-                    processes.add(process)
-                    modules.add(module)
-                    module_offset_pairs.add((module, offset))
-
-            processes_run = len(processes)
-            modules_loaded = len(modules)
-            blocks_covered = len(module_offset_pairs)
-
-
-        else:
-            print(f"WARNING: No coverage.csv found in {result_dir}")
-            processes_run = 0
-            modules_loaded = 0
-            blocks_covered = 0
-
-
-        score = {
-            'execs': health_data['nexecs'],
-            'bound_sockets': health_data['nbound_sockets'],
-            'devices_accessed': health_data['nuniquedevs'],
-            'processes_run': processes_run,
-            'modules_loaded': modules_loaded,
-            'blocks_covered': blocks_covered,
-            'script_lines_covered': shell_cov,
-            'nopanic': 1 if not panic else 0,
-            'blocked_signals': -len(config['blocked_signals'] if 'blocked_signals' in config else []) # Negative because we want to minimize!
-        }
-
-        for k in score.keys():
-            if k not in SCORE_CATEGORIES:
-                raise ValueError(f"BUG: score type {k} is unknown")
-        return score
 
 
 class GlobalState:
@@ -625,11 +627,14 @@ def report_best_results(best_idx, best_output, output_dir):
     net_procnames = set()
     net_count = 0
 
-    with open(netbinds, "r") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            net_procnames.add(row['procname'])
-            net_count += 1
+    if netbinds is not None:
+        with open(netbinds, "r") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                net_procnames.add(row['procname'])
+                net_count += 1
+    else:
+        net_count = 0
 
     with open(os.path.join(output_dir, "result"), "w") as f:
         if net_count == 0:

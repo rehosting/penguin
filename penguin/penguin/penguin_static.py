@@ -527,7 +527,7 @@ def shim_configs(config, auto_explore=False):
     Shimming bash with our instrumented sh is scary and we'll
     only do it if bash is a symlink to busybox.
     '''
-    fs_path = config['core']['fs'] # tar archive
+    fs_path  = config['core']['fs'] # tar archive
 
     # XXX: For now we'll only shim executables - if we later want to shim other things we need to
     # Update some of the later checks
@@ -538,12 +538,17 @@ def shim_configs(config, auto_explore=False):
         #'fw_printenv': 'fw_printenv', # NYI
         #'fw_getenv': 'fw_printenv',
         #'fw_setenv': 'fw_printenv',
-        #'ssh-keygen': 'ssh-keygen',
-        #'openssl': 'openssl',
+
+        # XXX ssh keygen and openssl were disabled for large scale single-iter. Whoops
+        'ssh-keygen': 'ssh-keygen',
+        'openssl': 'openssl',
+
         'reboot': 'exit0.sh',
         'halt': 'exit0.sh',
         'insmod': 'exit0.sh',
         'modprobe': 'exit0.sh',
+        'mount': 'exit0.sh',
+        'umount': 'exit0.sh',
         'ash': 'busybox',
         'sh': 'busybox',
         'bash': 'busybox' # Special handling logic below - only safe to shim if it's already a busybox symlink
@@ -625,7 +630,7 @@ def shim_configs(config, auto_explore=False):
         }
 
 
-def _is_init_script(tarinfo):
+def _is_init_script(tarinfo, fs):
     if tarinfo.name.startswith('./igloo'):
         return False
 
@@ -633,12 +638,33 @@ def _is_init_script(tarinfo):
     if tarinfo.isreg() or tarinfo.issym():
         name = os.path.basename(tarinfo.name)
         # Add more specific conditions to match the init script names. Exclude standard linux script names that aren't init scripts
-        if any([x in name for x in ["init", "start"]]) and not any([x in name for x in ["inittab", "telinit"]]):
+        if any([x in name for x in ["init", "start"]]) and not any([x in name for x in ["inittab", "telinit", "initd"]]):
 
             # If start is in the name, we want something with a clear "start" not "restart" or "startup".
             # Consider _ - and . as word boundaries and check
             if "start" in name:
                 if not re.search(r'[\W_\-\.]start[\W_\-\.]', name):
+                    return False
+
+            # If it's a symlink, make sure the link target exists
+            if tarinfo.issym():
+                link_target = tarinfo.linkname
+
+                # Now we need to make the symlink absolute
+                if not link_target.startswith('/'):
+                    # If it's not absolute, it's relative to the directory the symlink is in
+                    link_target = os.path.dirname(tarinfo.name) + '/' + link_target
+                    # Now simplify the path
+                    link_target = os.path.normpath(link_target)
+
+                if not link_target.startswith('./'):
+                    link_target = './' + link_target
+
+                # Does link_target exist in fs?
+                try:
+                    fs.getmember(link_target)
+                except KeyError:
+                    print(f"WARNING: Potential init '{tarinfo.name}' is a symlink to '{link_target}' which does not exist in the filesystem")
                     return False
 
             # If we have init in the name, make sure it's not named .init (e.g., rc.d startup names)
@@ -663,7 +689,7 @@ def add_init_meta(base_config, output_dir):
     try:
         with tarfile.open(fs_path) as fs:
             # Use generator expression for more efficient filtering
-            inits = [member.name[1:].strip() for member in fs.getmembers() if _is_init_script(member)]
+            inits = [member.name[1:].strip() for member in fs.getmembers() if _is_init_script(member, fs)]
     except FileNotFoundError:
         print(f"Target filesystem {fs_path} was not found.")
         raise
