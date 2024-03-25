@@ -11,7 +11,7 @@ from elftools.elf.constants import E_FLAGS, E_FLAGS_MASKS
 from os.path import join, dirname
 from .penguin_static import extend_config_with_static
 from .common import yaml
-from .manager import graph_search, PandaRunner, report_best_results
+from .manager import graph_search, PandaRunner, report_best_results, calculate_score
 
 from .defaults import default_init_script, default_plugins, default_version, default_netdevs, default_pseudofiles
 from .utils import load_config, dump_config, arch_end
@@ -268,7 +268,6 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
         'root_shell': True,
         'show_output': False,
         'strace': False,
-        #'netdevnames': ['eth0', 'eth1', 'eth2', 'eth3', 'wlan0', 'wlan1'], # This doesn't seem to be good
         'version': default_version,
     }
 
@@ -500,8 +499,19 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
 
     run_base = os.path.dirname(output_dir)
     PandaRunner().run(config_path, run_base, run_base, output_dir, init=init, timeout=timeout, show_output=True) # niters is 1
-    #report_best_results(run_base, os.path.join(run_base, "output"), os.path.dirname(output_dir))
-    report_best_results(run_base, output_dir, os.path.dirname(output_dir))
+
+    # Single iteration: there is not best - don't report that
+    #report_best_results(run_base, output_dir, os.path.dirname(output_dir))
+
+    # But do calculate and report scores. Unlike multi-run mode, we'll write scores right into output dir instead of in parent
+    best_scores = calculate_score(output_dir)
+    with open(os.path.join(output_dir, "scores.txt"), "w") as f:
+        f.write("score_type,score\n")
+        for k, v in best_scores.items():
+            f.write(f"{k},{v:.02f}\n")
+    with open(os.path.join(output_dir, "score.txt"), "w") as f:
+        total_score = sum(best_scores.values())
+        f.write(f"{total_score:.02f}\n")
 
 def main():
     from sys import argv
