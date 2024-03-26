@@ -210,6 +210,8 @@ class FileFailures(PyPlugin):
                     # If we have a symex model we'll need to enable some extra introspection
                     need_ioctl_hooks = True
 
+        self.config['env']['IGLOO_HYPERFILE_PATHS'] = ":".join(hf_config.keys())
+
         if do_netdevs := len(self.get_arg("conf").get("netdevs", [])):
             # We need to add /proc/net/penguin to our procfs list
             self.procfs.append("penguin_net")
