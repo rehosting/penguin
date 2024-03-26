@@ -9,6 +9,7 @@ ARG CONSOLE_VERSION="1.0.1"
 ARG PENGUIN_PLUGINS_VERSION="1.5.4"
 ARG UTILS_VERSION="4"
 ARG VPN_VERSION="1.0.5"
+ARG HYPERFS_VERSION="0.0.1"
 
 ### DOWNLOADER ###
 # Fetch and extract our various dependencies. Roughly ordered on
@@ -102,6 +103,12 @@ RUN /get_release.sh rehosting libnvram ${LIBNVRAM_VERSION} ${DOWNLOAD_TOKEN} | \
 ARG VPN_VERSION
 RUN /get_release.sh rehosting vpnguin ${VPN_VERSION} ${DOWNLOAD_TOKEN} | \
     tar xzf - -C /igloo_static
+
+ARG HYPERFS_VERSION
+RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} | \
+  tar xzf - -C / && \
+  mv /result/* /igloo_static/utils.bin/ && \
+  rmdir /result
 
 # Download custom panda plugins built from CI. Populate /panda_plugins
 # https://panda.re/secret/penguin_plugins_v${PENGUIN_PLUGINS_VERSION}.tar.gz | \
