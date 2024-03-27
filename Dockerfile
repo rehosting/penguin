@@ -1,9 +1,8 @@
 # versions of the various dependencies.
 ARG BASE_IMAGE="ubuntu:22.04"
-ARG GENEXT2FS_VERSION="9bc57e232e8bb7a0e5c8ccf503b57b3b702b973a"
 ARG PANDA_VERSION="1.8.8" # XXX UNUSED: we have a hardcoded branch used below in deb_downloader - this has a fix for targetcmp we really want
 ARG BUSYBOX_VERSION="25c906fe05766f7fc4765f4e6e719b717cc2d9b7"
-ARG LINUX_VERSION="1.9.26"
+ARG LINUX_VERSION="1.9.29n"
 ARG LIBNVRAM_VERSION="04c3955d255cdca0c880dbfcc6d3c77bb8c927d7"
 ARG CONSOLE_VERSION="389e179dde938633ff6a44144fe1e03570497479"
 ARG PENGUIN_PLUGINS_VERSION="1.5.3"
@@ -17,15 +16,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y \
     xmlstarlet wget ca-certificates && \
-    rm -rf /var/lib/apt/lists/* 
+    rm -rf /var/lib/apt/lists/*
 
 ### DEB DOWNLOADER: get genext2fs and pandare debs ###
 FROM download_base as deb_downloader
 ARG BASE_IMAGE
 ARG GENEXT2FS_VERSION
 ARG PANDA_VERSION
-RUN wget -O /tmp/genext2fs.deb https://github.com/panda-re/genext2fs/releases/download/release_${GENEXT2FS_VERSION}/genext2fs.deb && \
-    wget -O /tmp/pandare.deb https://panda.re/secret/pandare_1.8.1b_2204.deb
+RUN  wget -O /tmp/pandare.deb https://panda.re/secret/pandare_1.8.1b_2204.deb
     #wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(echo "$BASE_IMAGE" | awk -F':' '{print $2}').deb
 
 ### DOWNLOADER: get zap, libguestfs, busybox, libnvram, console, vpn, kernels, and penguin plugins ###
@@ -56,11 +54,11 @@ RUN mkdir /igloo_static && \
   mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel
 
 # Download kernels from CI. Populate /igloo_static/kernels
-RUN wget -qO - https://github.com/panda-re/linux_builder/releases/download/v${LINUX_VERSION}/kernels-latest.tar.gz | \
+RUN wget -qO - https://github.com/rehosting/linux_builder/releases/download/v${LINUX_VERSION}/kernels-latest.tar.gz | \
       tar xzf - -C /igloo_static
 
 # Download libnvram from CI. Populate /igloo_static/libnvram
-RUN wget -qO - https://github.com/panda-re/libnvram/releases/download/release_${LIBNVRAM_VERSION}/libnvram-latest.tar.gz | \
+RUN wget -qO - https://github.com/rehosting/libnvram/releases/download/release_${LIBNVRAM_VERSION}/libnvram-latest.tar.gz | \
   tar xzf - -C /igloo_static
 
 # Download  console from CI. Populate /igloo_static/console
@@ -157,7 +155,7 @@ ENV PROMPT_COMMAND=""
 # Add rootshell helper command
 RUN echo "#!/bin/sh\ntelnet localhost 4321" > /usr/local/bin/rootshell && chmod +x /usr/local/bin/rootshell
 
-COPY --from=deb_downloader /tmp/pandare.deb /tmp/genext2fs.deb /tmp/
+COPY --from=deb_downloader /tmp/pandare.deb /tmp/
 
 # We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
 # we'll fail because we get a distutils distribution of pycparser 2.19 that we can't
@@ -171,11 +169,12 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         pip \
         "pycparser>=2.21"
 
-# Install apt dependencies - largely for binwalk, some for pandata
+# Install apt dependencies - largely for binwalk, some for penguin
 RUN apt-get update && apt-get install -y \
     fakechroot \
     fakeroot \
     firefox \
+    genext2fs \
     git \
     graphviz \
     graphviz-dev \
@@ -201,9 +200,8 @@ RUN apt-get update && apt-get install -y \
     vim \
     wget \
     zlib1g && \
-    apt install -yy -f /tmp/pandare.deb /tmp/genext2fs.deb && \
-    rm /tmp/pandare.deb /tmp/genext2fs.deb &&  \
-    rm -rf /var/lib/apt/lists/*
+    apt install -yy -f /tmp/pandare.deb && \
+    rm -rf /var/lib/apt/lists/* /tmp/pandare.deb
 
 # If we want to run in a venv, we can use this. System site packages means
 # we can still access the apt-installed python packages (e.g. guestfs) in our venv
