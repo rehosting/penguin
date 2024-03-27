@@ -5,7 +5,7 @@ ARG PANDA_VERSION="1.8.8" # XXX UNUSED: we have a hardcoded branch used below in
 ARG BUSYBOX_VERSION="0.0.1"
 ARG LINUX_VERSION="1.9.29n"
 ARG LIBNVRAM_VERSION="0.0.1"
-ARG CONSOLE_VERSION="1.0.1"
+ARG CONSOLE_VERSION="1.0.2"
 ARG PENGUIN_PLUGINS_VERSION="1.5.4"
 ARG UTILS_VERSION="4"
 ARG VPN_VERSION="1.0.5"
@@ -23,7 +23,11 @@ RUN apt-get update && \
     jq \
     wget \
     xmlstarlet && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir -p /igloo_static \
+             /igloo_static/syscalls \
+             /panda_plugins \
+             /static_deps
 
 COPY ./utils/get_release.sh /get_release.sh
 
@@ -46,60 +50,42 @@ ARG BASE_IMAGE
 RUN  wget -O /tmp/pandare.deb https://panda.re/secret/pandare_1.8.1b_2204.deb
     #wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(echo "$BASE_IMAGE" | awk -F':' '{print $2}').deb
 
-# Get panda provided busybox. Populate /igloo_static/utils.bin/utils/busybox.*
-ARG BUSYBOX_VERSION
-RUN mkdir /igloo_static && \
-  wget -qO - https://github.com/panda-re/busybox/releases/download/v${BUSYBOX_VERSION}/busybox-latest.tar.gz | \
-  tar xzf - -C /igloo_static/ && \
-  mv /igloo_static/build/ /igloo_static/utils.bin && \
-  for file in /igloo_static/utils.bin/busybox.*-linux*; do mv "$file" "${file%-linux-*}"; done && \
-  mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel
-
-# Get panda provided console from CI. Populate /igloo_static/console
-ARG CONSOLE_VERSION
-RUN wget -qO - https://github.com/panda-re/console/releases/download/v${CONSOLE_VERSION}/console-latest.tar.gz | \
-  tar xzf - -C /igloo_static && \
-  mv /igloo_static/build /igloo_static/console && \
-  mv /igloo_static/console/console-arm-linux-musleabi /igloo_static/console/console.armel && \
-  mv /igloo_static/console/console-mipsel-linux-musl /igloo_static/console/console.mipsel && \
-  mv /igloo_static/console/console-mipseb-linux-musl /igloo_static/console/console.mipseb && \
-  mv /igloo_static/console/console-mips64eb-linux-musl /igloo_static/console/console.mips64eb
-
 # Get syscall list from PANDA
-RUN mkdir /igloo_static/syscalls && \
-  cd /igloo_static/syscalls && \
-  for arch in arm mips mips64; do \
-  wget -q https://raw.githubusercontent.com/panda-re/panda/dev/panda/plugins/syscalls2/generated-in/linux_${arch}_prototypes.txt; \
+RUN for arch in arm mips mips64; do \
+    wget -q https://raw.githubusercontent.com/panda-re/panda/dev/panda/plugins/syscalls2/generated-in/linux_${arch}_prototypes.txt -O /igloo_static/syscalls/linux_${arch}_prototypes.txt; \
   done
 
 ARG UTILS_VERSION
-RUN mkdir /static_deps && \
-  wget -qO - https://panda.re/secret/utils${UTILS_VERSION}.tar.gz | \
-  tar xzf - -C /static_deps
-
+RUN wget -qO - https://panda.re/secret/utils${UTILS_VERSION}.tar.gz | \
+    tar xzf - -C /static_deps
 
 # 3) Get penguin resources
 # Download kernels from CI. Populate /igloo_static/kernels
-#RUN wget -qO - https://github.com/rehosting/linux_builder/releases/download/v${LINUX_VERSION}/kernels-latest.tar.gz | \
-#      tar xzf - -C /igloo_static
-
-
 ARG DOWNLOAD_TOKEN
 ARG LINUX_VERSION
 RUN /get_release.sh rehosting linux_builder ${LINUX_VERSION} ${DOWNLOAD_TOKEN} | \
     tar xzf - -C /igloo_static
 
+# Populate /igloo_static/utils.bin/utils/busybox.*
+ARG BUSYBOX_VERSION
+RUN /get_release.sh rehosting busybox ${BUSYBOX_VERSION} ${DOWNLOAD_TOKEN} | \
+    tar xzf - -C /igloo_static/ && \
+    mv /igloo_static/build/ /igloo_static/utils.bin && \
+    for file in /igloo_static/utils.bin/busybox.*-linux*; do mv "$file" "${file%-linux-*}"; done && \
+    mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel
+
+# Get panda provided console from CI. Populate /igloo_static/console
+ARG CONSOLE_VERSION
+RUN /get_release.sh rehosting console ${CONSOLE_VERSION} ${DOWNLOAD_TOKEN} | \
+    tar xzf - -C /igloo_static
+
 
 # Download libnvram from CI. Populate /igloo_static/libnvram
-#RUN wget -qO - https://github.com/rehosting/libnvram/releases/download/v${LIBNVRAM_VERSION}/libnvram-latest.tar.gz | \
-#  tar xzf - -C /igloo_static
-
 ARG LIBNVRAM_VERSION
 RUN /get_release.sh rehosting libnvram ${LIBNVRAM_VERSION} ${DOWNLOAD_TOKEN} | \
     tar xzf - -C /igloo_static
 
 # Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
-# https://panda.re/igloo/vpn-v${VPN_VERSION}.tar.gz
 ARG VPN_VERSION
 RUN /get_release.sh rehosting vpnguin ${VPN_VERSION} ${DOWNLOAD_TOKEN} | \
     tar xzf - -C /igloo_static
@@ -111,27 +97,9 @@ RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} | \
   rmdir /result
 
 # Download custom panda plugins built from CI. Populate /panda_plugins
-# https://panda.re/secret/penguin_plugins_v${PENGUIN_PLUGINS_VERSION}.tar.gz | \
 ARG PENGUIN_PLUGINS_VERSION
-RUN mkdir /panda_plugins && \
-  /get_release.sh rehosting penguin_plugins ${PENGUIN_PLUGINS_VERSION} ${DOWNLOAD_TOKEN} | \
+RUN /get_release.sh rehosting penguin_plugins ${PENGUIN_PLUGINS_VERSION} ${DOWNLOAD_TOKEN} | \
     tar xzf - -C /panda_plugins
-
-# Download firmadyne's libnvram and place in /igloo_static/firmadyne_libnvram. For armel, mipsel, and mipseb
-#RUN mkdir /igloo_static/firmadyne_libnvram && \
-#  wget -q https://github.com/firmadyne/libnvram/releases/download/v1.0/libnvram.so.armel -O /igloo_static/firmadyne_libnvram/libnvram.so.armel && \
-#  wget -q https://github.com/firmadyne/libnvram/releases/download/v1.0/libnvram.so.mipsel -O /igloo_static/firmadyne_libnvram/libnvram.so.mipsel && \
-#  wget -q https://github.com/firmadyne/libnvram/releases/download/v1.0/libnvram.so.mipseb -O /igloo_static/firmadyne_libnvram/libnvram.so.mipseb
-#
-## Download FirmAE's libnvram and place in /igloo_static/firmae_libnvram. For armel, mipsel, and mipseb
-#RUN mkdir /igloo_static/firmae_libnvram && \
-#  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram.so.armel -O /igloo_static/firmae_libnvram/libnvram.so.armel && \
-#  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram.so.mipseb -O /igloo_static/firmae_libnvram/libnvram.so.mipseb && \
-#  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram.so.mipsel -O /igloo_static/firmae_libnvram/libnvram.so.mipsel && \
-#  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram_ioctl.so.armel -O /igloo_static/firmae_libnvram/libnvram_ioctl.so.armel && \
-#  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram_ioctl.so.mipseb -O /igloo_static/firmae_libnvram/libnvram_ioctl.so.mipseb && \
-#  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram_ioctl.so.mipsel -O /igloo_static/firmae_libnvram/libnvram_ioctl.so.mipsel
-
 
 #### CROSS BUILDER: Build send_hypercall ###
 FROM ghcr.io/panda-re/embedded-toolchains:latest as cross_builder
@@ -158,7 +126,10 @@ RUN sed -Ei 's/^# deb-src /deb-src /' /etc/apt/sources.list
 RUN apt-get update && apt-get build-dep -y qemu-utils qemu && \
     apt-get install -q -y --no-install-recommends ninja-build git \
     && rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 https://github.com/panda-re/qemu.git /src
+RUN git clone --depth 1 --no-checkout https://github.com/qemu/qemu.git /src && \
+  cd /src && \
+  git fetch --depth 1 origin tag v7.2.0 && \
+  git checkout v7.2.0
 RUN mkdir /src/build && cd /src/build && ../configure --disable-user --disable-system --enable-tools \
     --disable-capstone --disable-guest-agent && \
   make -j$(nproc)
