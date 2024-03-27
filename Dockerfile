@@ -1,42 +1,32 @@
 # versions of the various dependencies.
 ARG BASE_IMAGE="ubuntu:22.04"
-ARG GENEXT2FS_VERSION="0.0.1"
-ARG PANDA_VERSION="1.8.8"
+ARG DOWNLOAD_TOKEN="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"
+ARG PANDA_VERSION="1.8.8" # XXX UNUSED: we have a hardcoded branch used below in downloader - this has a fix for targetcmp we really want
 ARG BUSYBOX_VERSION="0.0.1"
-ARG LINUX_VERSION="1.9.20"
+ARG LINUX_VERSION="1.9.29n"
 ARG LIBNVRAM_VERSION="0.0.1"
 ARG CONSOLE_VERSION="1.0.1"
-ARG PENGUIN_PLUGINS_VERSION="1.5.3"
+ARG PENGUIN_PLUGINS_VERSION="1.5.4"
 ARG UTILS_VERSION="4"
-ARG VPN_VERSION="1.0.1"
+ARG VPN_VERSION="1.0.5"
 
 ### DOWNLOADER ###
 # Fetch and extract our various dependencies. Roughly ordered on
 # least-frequently changing to most-frequently changing
-FROM $BASE_IMAGE as download_base
+FROM $BASE_IMAGE as downloader
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y \
-    xmlstarlet wget ca-certificates && \
+    ca-certificates \
+    curl \
+    jq \
+    wget \
+    xmlstarlet && \
     rm -rf /var/lib/apt/lists/*
 
-### DEB DOWNLOADER: get genext2fs and pandare debs ###
-FROM download_base as deb_downloader
-ARG BASE_IMAGE
-ARG GENEXT2FS_VERSION
-ARG PANDA_VERSION
-RUN  wget -O /tmp/pandare.deb https://panda.re/secret/pandare_1.8.1b_2204.deb
-    #wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(echo "$BASE_IMAGE" | awk -F':' '{print $2}').deb
+COPY ./utils/get_release.sh /get_release.sh
 
-### DOWNLOADER: get zap, libguestfs, busybox, libnvram, console, vpn, kernels, and penguin plugins ###
-FROM download_base as downloader
-ARG BUSYBOX_VERSION
-ARG LINUX_VERSION
-ARG LIBNVRAM_VERSION
-ARG CONSOLE_VERSION
-ARG PENGUIN_PLUGINS_VERSION
-ARG UTILS_VERSION
-ARG VPN_VERSION
+# 1) Get external resources
 # Download ZAP into /zap
 #RUN mkdir /zap && \
 #wget -qO- https://raw.githubusercontent.com/zaproxy/zap-admin/master/ZapVersions.xml | \
@@ -48,7 +38,15 @@ ARG VPN_VERSION
 # Libguestfs appliance
 RUN wget --quiet https://download.libguestfs.org/binaries/appliance/appliance-1.46.0.tar.xz -O /tmp/libguestfs.tar.xz
 
-# Download busybox from CI. Populate /igloo_static/utils.bin/utils/busybox.*
+# 2) Get PANDA resources
+# Get panda .deb
+ARG PANDA_VERSION
+ARG BASE_IMAGE
+RUN  wget -O /tmp/pandare.deb https://panda.re/secret/pandare_1.8.1b_2204.deb
+    #wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(echo "$BASE_IMAGE" | awk -F':' '{print $2}').deb
+
+# Get panda provided busybox. Populate /igloo_static/utils.bin/utils/busybox.*
+ARG BUSYBOX_VERSION
 RUN mkdir /igloo_static && \
   wget -qO - https://github.com/panda-re/busybox/releases/download/v${BUSYBOX_VERSION}/busybox-latest.tar.gz | \
   tar xzf - -C /igloo_static/ && \
@@ -56,15 +54,8 @@ RUN mkdir /igloo_static && \
   for file in /igloo_static/utils.bin/busybox.*-linux*; do mv "$file" "${file%-linux-*}"; done && \
   mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel
 
-# Download kernels from CI. Populate /igloo_static/kernels
-RUN wget -qO - https://github.com/rehosting/linux_builder/releases/download/v${LINUX_VERSION}/kernels-latest.tar.gz | \
-      tar xzf - -C /igloo_static
-
-# Download libnvram from CI. Populate /igloo_static/libnvram
-RUN wget -qO - https://github.com/rehosting/libnvram/releases/download/release_${LIBNVRAM_VERSION}/libnvram-latest.tar.gz | \
-  tar xzf - -C /igloo_static
-
-# Download  console from CI. Populate /igloo_static/console
+# Get panda provided console from CI. Populate /igloo_static/console
+ARG CONSOLE_VERSION
 RUN wget -qO - https://github.com/panda-re/console/releases/download/v${CONSOLE_VERSION}/console-latest.tar.gz | \
   tar xzf - -C /igloo_static && \
   mv /igloo_static/build /igloo_static/console && \
@@ -73,41 +64,66 @@ RUN wget -qO - https://github.com/panda-re/console/releases/download/v${CONSOLE_
   mv /igloo_static/console/console-mipseb-linux-musl /igloo_static/console/console.mipseb && \
   mv /igloo_static/console/console-mips64eb-linux-musl /igloo_static/console/console.mips64eb
 
-# Download syscalls lists
+# Get syscall list from PANDA
 RUN mkdir /igloo_static/syscalls && \
   cd /igloo_static/syscalls && \
   for arch in arm mips mips64; do \
   wget -q https://raw.githubusercontent.com/panda-re/panda/dev/panda/plugins/syscalls2/generated-in/linux_${arch}_prototypes.txt; \
   done
 
-# Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
-# XXX this dependency should be versioned!
-RUN wget -qO - https://panda.re/igloo/vpn-v${VPN_VERSION}.tar.gz | \
-  tar xzf - -C /
-
-# Download custom panda plugins built from CI. Populate /panda_plugins
-RUN mkdir /panda_plugins && \
-  wget -qO - https://panda.re/secret/penguin_plugins_v${PENGUIN_PLUGINS_VERSION}.tar.gz | \
-  tar xzf - -C /panda_plugins
-
+ARG UTILS_VERSION
 RUN mkdir /static_deps && \
   wget -qO - https://panda.re/secret/utils${UTILS_VERSION}.tar.gz | \
   tar xzf - -C /static_deps
 
-# Download firmadyne's libnvram and place in /igloo_static/firmadyne_libnvram. For armel, mipsel, and mipseb
-RUN mkdir /igloo_static/firmadyne_libnvram && \
-  wget -q https://github.com/firmadyne/libnvram/releases/download/v1.0/libnvram.so.armel -O /igloo_static/firmadyne_libnvram/libnvram.so.armel && \
-  wget -q https://github.com/firmadyne/libnvram/releases/download/v1.0/libnvram.so.mipsel -O /igloo_static/firmadyne_libnvram/libnvram.so.mipsel && \
-  wget -q https://github.com/firmadyne/libnvram/releases/download/v1.0/libnvram.so.mipseb -O /igloo_static/firmadyne_libnvram/libnvram.so.mipseb
 
-# Download FirmAE's libnvram and place in /igloo_static/firmae_libnvram. For armel, mipsel, and mipseb
-RUN mkdir /igloo_static/firmae_libnvram && \
-  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram.so.armel -O /igloo_static/firmae_libnvram/libnvram.so.armel && \
-  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram.so.mipseb -O /igloo_static/firmae_libnvram/libnvram.so.mipseb && \
-  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram.so.mipsel -O /igloo_static/firmae_libnvram/libnvram.so.mipsel && \
-  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram_ioctl.so.armel -O /igloo_static/firmae_libnvram/libnvram_ioctl.so.armel && \
-  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram_ioctl.so.mipseb -O /igloo_static/firmae_libnvram/libnvram_ioctl.so.mipseb && \
-  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram_ioctl.so.mipsel -O /igloo_static/firmae_libnvram/libnvram_ioctl.so.mipsel
+# 3) Get penguin resources
+# Download kernels from CI. Populate /igloo_static/kernels
+#RUN wget -qO - https://github.com/rehosting/linux_builder/releases/download/v${LINUX_VERSION}/kernels-latest.tar.gz | \
+#      tar xzf - -C /igloo_static
+
+
+ARG DOWNLOAD_TOKEN
+ARG LINUX_VERSION
+RUN /get_release.sh rehosting linux_builder ${LINUX_VERSION} ${DOWNLOAD_TOKEN} | \
+    tar xzf - -C /igloo_static
+
+
+# Download libnvram from CI. Populate /igloo_static/libnvram
+#RUN wget -qO - https://github.com/rehosting/libnvram/releases/download/v${LIBNVRAM_VERSION}/libnvram-latest.tar.gz | \
+#  tar xzf - -C /igloo_static
+
+ARG LIBNVRAM_VERSION
+RUN /get_release.sh rehosting libnvram ${LIBNVRAM_VERSION} ${DOWNLOAD_TOKEN} | \
+    tar xzf - -C /igloo_static
+
+# Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
+# https://panda.re/igloo/vpn-v${VPN_VERSION}.tar.gz
+ARG VPN_VERSION
+RUN /get_release.sh rehosting vpnguin ${VPN_VERSION} ${DOWNLOAD_TOKEN} | \
+    tar xzf - -C /igloo_static
+
+# Download custom panda plugins built from CI. Populate /panda_plugins
+# https://panda.re/secret/penguin_plugins_v${PENGUIN_PLUGINS_VERSION}.tar.gz | \
+ARG PENGUIN_PLUGINS_VERSION
+RUN mkdir /panda_plugins && \
+  /get_release.sh rehosting penguin_plugins ${PENGUIN_PLUGINS_VERSION} ${DOWNLOAD_TOKEN} | \
+    tar xzf - -C /panda_plugins
+
+# Download firmadyne's libnvram and place in /igloo_static/firmadyne_libnvram. For armel, mipsel, and mipseb
+#RUN mkdir /igloo_static/firmadyne_libnvram && \
+#  wget -q https://github.com/firmadyne/libnvram/releases/download/v1.0/libnvram.so.armel -O /igloo_static/firmadyne_libnvram/libnvram.so.armel && \
+#  wget -q https://github.com/firmadyne/libnvram/releases/download/v1.0/libnvram.so.mipsel -O /igloo_static/firmadyne_libnvram/libnvram.so.mipsel && \
+#  wget -q https://github.com/firmadyne/libnvram/releases/download/v1.0/libnvram.so.mipseb -O /igloo_static/firmadyne_libnvram/libnvram.so.mipseb
+#
+## Download FirmAE's libnvram and place in /igloo_static/firmae_libnvram. For armel, mipsel, and mipseb
+#RUN mkdir /igloo_static/firmae_libnvram && \
+#  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram.so.armel -O /igloo_static/firmae_libnvram/libnvram.so.armel && \
+#  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram.so.mipseb -O /igloo_static/firmae_libnvram/libnvram.so.mipseb && \
+#  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram.so.mipsel -O /igloo_static/firmae_libnvram/libnvram.so.mipsel && \
+#  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram_ioctl.so.armel -O /igloo_static/firmae_libnvram/libnvram_ioctl.so.armel && \
+#  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram_ioctl.so.mipseb -O /igloo_static/firmae_libnvram/libnvram_ioctl.so.mipseb && \
+#  wget -q https://github.com/pr0v3rbs/FirmAE/releases/download/v1.0/libnvram_ioctl.so.mipsel -O /igloo_static/firmae_libnvram/libnvram_ioctl.so.mipsel
 
 
 #### CROSS BUILDER: Build send_hypercall ###
@@ -158,7 +174,7 @@ ENV PROMPT_COMMAND=""
 # Add rootshell helper command
 RUN echo "#!/bin/sh\ntelnet localhost 4321" > /usr/local/bin/rootshell && chmod +x /usr/local/bin/rootshell
 
-COPY --from=deb_downloader /tmp/pandare.deb /tmp/
+COPY --from=downloader /tmp/pandare.deb /tmp/
 
 # We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
 # we'll fail because we get a distutils distribution of pycparser 2.19 that we can't
