@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://rehosti.ng/igloo/config_schema.yaml
 core:
-  arch: ARCH
+  arch: @ARCH@
   kernel: /igloo_static/kernels/zImage.ARCH
   fs: /tmp/empty/fs.tar
   qcow: /tmp/empty/image.qcow
