@@ -1,0 +1,20 @@
+env:
+  envvar: DYNVALDYNVALDYNVAL
+
+static_files:
+  /init:
+    type: file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+      # Env test
+      v=`/igloo/utils/busybox cat /proc/cmdline | /igloo/utils/busybox awk '{for (i=1; i<=NF; i++) if ($i ~ /^envvar=/) print substr($i, 8)}'`
+
+      if [ "$v" != "target" ]; then
+        echo "Bad envvar $v"
+        exit 1
+      fi
+      
+      echo "Everything is good"
+      echo "Passed all init checks"
+    mode: 73

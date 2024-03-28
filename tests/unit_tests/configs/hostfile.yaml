@@ -1,0 +1,17 @@
+static_files:
+  /init:
+    type: file
+    contents: |
+      #!/igloo/utils/sh
+      set -eu
+
+      # Run our test file mapped in from the host as binary data
+      /igloo/utils/busybox ls -al /init.bin
+      /igloo/utils/busybox cat /init.bin
+      exec /init.bin
+    mode: 00555
+
+  /init.bin:
+    type: file
+    hostpath: /tmp/init.bin
+    mode: 00555

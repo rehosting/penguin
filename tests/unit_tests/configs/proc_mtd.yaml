@@ -1,0 +1,37 @@
+pseudofiles:
+  /dev/mtd0:
+    name: flash
+    read:
+      model: const_buf
+      val: "hello world"
+
+static_files:
+  /init:
+    type: file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+
+      # Look for the device named "flash" in /proc/mtd
+      device_info=$(/igloo/utils/busybox grep '"flash"' /proc/mtd)
+
+      if [ -n "$device_info" ]; then
+          # Extract the device identifier (e.g., mtd0) from the search result
+          device=$(echo $device_info | /igloo/utils/busybox cut -d':' -f1)
+
+          # Construct the path to the device
+          device_path="/dev/${device}"
+
+          if $(/igloo/utils/busybox grep -q "hello world" $device_path); then
+            echo "All good: The path of the MTD device named 'flash' is: $device_path"
+            exit 0
+          else
+            echo "Error: MTD device flash has bad data: $(cat $device_path)"
+            exit 1
+          fi
+      else
+          echo "No MTD device named 'flash' found."
+          exit 1
+      fi
+    mode: 73

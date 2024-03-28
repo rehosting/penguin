@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://rehosti.ng/igloo/config_schema.yaml
+static_files:
+  /init:
+    type: file
+    contents: |
+      #!/igloo/utils/sh
+      set -ex
+
+      # Env test. Kernel boot args make it through to init binaries so we'll inherit envvar
+      # We should be able to detect this with our busybox instrumentation
+      # XXX: we wouldn't detect this if it operated directly on /proc/cmdline as busybox
+      # is statically linked and we won't see a strstr search
+
+      # This wouldn't work 
+      #envvar=$(/igloo/utils/busybox cat /proc/cmdline | /igloo/utils/busybox grep -o "envvar=[^ ]*" |  /igloo/utils/busybox cut -d'=' -f2)
+
+      if [ -z "$envvar" ]; then
+        echo "Unset envvar!"
+        exit 1
+      fi
+
+      echo "Everything is good"
+      echo "Passed all init checks"
+    mode: 73

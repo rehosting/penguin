@@ -1,0 +1,17 @@
+static_files:
+  /init:
+    type: file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      if [ ! -e /dev/missing ]; then
+        echo "Missing /dev/missing"
+        exit 1
+      fi
+
+      /igloo/utils/busybox cat /dev/missing
+
+      echo "Everything is good"
+      echo "Passed all init checks"
+    mode: 73
