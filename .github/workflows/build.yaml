@@ -17,8 +17,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build
-        run: cd $GITHUB_WORKSPACE && docker build -t pandare/igloo:penguin .
+      - name: Build Docker image
+        id: docker_build
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          push: false
+          tags: pandare/igloo:penguin
+          load: true
 
   run_tests:
     needs: build_container
