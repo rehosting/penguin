@@ -123,9 +123,12 @@ RUN git clone --depth 1 --no-checkout https://github.com/qemu/qemu.git /src && \
   cd /src && \
   git fetch --depth 1 origin tag v7.2.0 && \
   git checkout v7.2.0
-RUN mkdir /src/build && cd /src/build && ../configure --disable-user --disable-system --enable-tools \
-    --disable-capstone --disable-guest-agent && \
-  make -j$(nproc)
+RUN mkdir /src/build && cd /src/build && ../configure \
+    --without-default-features \
+    --disable-system \
+    --disable-user \
+    --enable-tools \
+    && make -j$(nproc)
 
 #### NMAP BUILDER: Build nmap ####
 FROM $BASE_IMAGE as nmap_builder
