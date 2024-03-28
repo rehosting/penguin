@@ -101,7 +101,7 @@ class TestRunner:
             subprocess.run([
                 "docker", "run", "--rm", "-v", f"{SCRIPT_PATH}:/tests",
                 "-v", f"{tmpdir}:{tmpdir}",
-                "pandare/igloo:penguin", "/tests/_in_container_run.sh", tmpdir, arch
+                "rehosting/penguin", "/tests/_in_container_run.sh", tmpdir, arch
             ],
             check=True,
             stdout=open(tmpdir / Path("test_log.txt"), "w"),

@@ -6,7 +6,7 @@ These tests are designed to evaluate our ability to detect failures, propose mit
 
 ### Usage
 ```
-docker build -t pandare/igloo:penguin ..
+docker build -t rehosting/penguin ..
 ./test.sh
 ```
 

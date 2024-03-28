@@ -15,7 +15,7 @@ if ! [ -d /pkg/penguin ]; then
     docker run --rm -t \
         -v "$mnt":/fw \
         -v "$(pwd)":/tests \
-        pandare/igloo:penguin \
+        rehosting/penguin \
         /tests/perf-regress.sh
     exit $?
 fi

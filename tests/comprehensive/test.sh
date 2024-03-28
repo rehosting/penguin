@@ -20,7 +20,7 @@ run_test() {
 
   echo "Testing $test_name on architecture $arch..."
   # If docker run fails, print log and bail
-  docker run --rm -it -v "$(pwd)":/tests pandare/igloo:penguin \
+  docker run --rm -it -v "$(pwd)":/tests rehosting/penguin \
     /tests/_in_container_run.sh "$kernel_version" "$arch" "$test_name" > log.txt || (tail log.txt && exit 1)
 
   echo -n "$test_name: "

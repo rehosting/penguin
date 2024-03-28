@@ -7,7 +7,7 @@ Each config adds a shell script at `/init` that drives the guest to take some ac
 Run after building the container with:
 
 ```sh
-docker build -t pandare/igloo:penguin ..
+docker build -t rehosting/penguin ..
 ./test.sh
 ```
 
