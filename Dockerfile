@@ -9,7 +9,7 @@ ARG CONSOLE_VERSION="1.0.2"
 ARG PENGUIN_PLUGINS_VERSION="1.5.4"
 ARG UTILS_VERSION="4"
 ARG VPN_VERSION="1.0.5"
-ARG HYPERFS_VERSION="0.0.1"
+ARG HYPERFS_VERSION="0.0.2"
 
 ### DOWNLOADER ###
 # Fetch and extract our various dependencies. Roughly ordered on
@@ -110,13 +110,6 @@ RUN cd / && \
   mipseb-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipseb && \
   mipsel-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipsel && \
   arm-linux-musleabi-gcc -s -static send_hypercall.c -o out/send_hypercall.armel
-
-FROM nixos/nix:latest as nix
-RUN mkdir /out && \
-  export NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=1 && \
-  nix-build '<nixpkgs>' -A pkgsCross.armv7l-hf-multiplatform.pkgsStatic.bash && cp result/bin/bash /out/bash-unwrapped.armel && \
-  nix-build '<nixpkgs>' -A pkgsCross.mips-linux-gnu.pkgsStatic.bash && cp result/bin/bash /out/bash-unwrapped.mipseb && \
-  nix-build '<nixpkgs>' -A pkgsCross.mipsel-linux-gnu.pkgsStatic.bash && cp result/bin/bash /out/bash-unwrapped.mipsel
 
 #### QEMU BUILDER: Build qemu-img ####
 FROM $BASE_IMAGE as qemu_builder
@@ -266,7 +259,6 @@ COPY --from=nmap_builder /build/nmap /usr/local/
 # Files are named util.[arch] or util.all
 COPY --from=downloader /static_deps/utils/* /igloo_static/utils.bin
 COPY --from=cross_builder /out/* /igloo_static/utils.bin
-COPY --from=nix /out/* /igloo_static/utils.bin
 COPY utils/* /igloo_static/utils.source/
 
 #COPY fws/kernels-latest.tar.gz /tmp
