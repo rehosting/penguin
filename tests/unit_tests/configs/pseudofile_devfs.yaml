@@ -1,0 +1,33 @@
+pseudofiles:
+  /dev/test1: {}
+  /dev/testdir/foo: {}
+  /dev/dir/test:
+   read:
+     model: const_buf
+     val: "1"
+static_files:
+  /init:
+    type: file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      # First check existance of device explicitly (hdparam does this too)
+      if [ ! -e /dev/dir/test ]; then
+        /igloo/utils/busybox ls -alt /dev/dir
+        /igloo/utils/busybox ls -alt /dev/test1
+        /igloo/utils/busybox ls -alt /dev/testdir
+        echo "Missing /dev/dir/test"
+        exit 1
+      fi
+
+      if [ $(/igloo/utils/busybox cat /dev/dir/test) != "1" ]; then
+        echo "Incorrect content: $(/igloo/utils/busybox cat /dev/dir/test)";
+        exit 1
+      fi
+
+
+      echo "Everything is good"
+      echo "Passed all init checks"
+      /igloo/utils/busybox ps aux
+    mode: 73

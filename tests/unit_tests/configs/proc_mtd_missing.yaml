@@ -1,0 +1,19 @@
+static_files:
+  /init:
+    type: file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+
+      # Look for the device named "flash" in /proc/mtd
+      device_info=$(/igloo/utils/busybox grep '"flash"' /proc/mtd)
+
+      if [ -n "$device_info" ]; then
+        echo "Somehow found MTD device? Bad"
+        exit 1
+      else
+        echo "MTD device missing (as expected)"
+        exit 0
+      fi
+    mode: 73

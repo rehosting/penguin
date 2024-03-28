@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://rehosti.ng/igloo/config_schema.yaml
+core:
+  shared_dir: /tests/results/shared
+
+static_files:
+  /init:
+    type: file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+      echo 'Hello from guest!' > /igloo/shared/from_guest.txt
+    mode: 73

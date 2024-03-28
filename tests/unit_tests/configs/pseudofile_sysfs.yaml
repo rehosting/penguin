@@ -1,0 +1,39 @@
+pseudofiles:
+  /sys/foo/mytest: {}
+  /sys/testdir/foo: {}
+  /sys/dir/test:
+    read:
+      model: one
+    write:
+      model: discard
+
+static_files:
+  /init:
+    type: file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      # These will fail if files are missing (because -e)
+      /igloo/utils/busybox ls -alt /sys/foo/mytest
+      /igloo/utils/busybox ls -alt /sys/testdir/foo
+      /igloo/utils/busybox ls -alt /sys/dir/test
+      
+      # Explicitly check existance of our file (redundant)
+      if [ ! -e /sys/dir/test ]; then
+        echo "Missing /sys/dir/test"
+        exit 1
+      fi
+
+      if [ ! "$(/igloo/utils/busybox cat /sys/dir/test)" == "1" ]; then
+        echo "Incorrect content: $(/igloo/utils/busybox cat /sys/dir/test)";
+        exit 1
+      fi
+
+      echo "foo" > /sys/dir/test
+
+
+      echo "Everything is good"
+      echo "Passed all init checks"
+      /igloo/utils/busybox ps aux
+    mode: 73

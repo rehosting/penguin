@@ -1,0 +1,11 @@
+static_files:
+  /init:
+    type: file
+    contents: |
+      #!/igloo/utils/bash
+
+      echo "Hello from $0 $@"
+      for x in a b c d; do
+        echo $x
+      done
+    mode: 73

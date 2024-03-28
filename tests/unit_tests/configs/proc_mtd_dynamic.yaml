@@ -1,0 +1,34 @@
+pseudofiles:
+  /dev/mtd100:
+    name: fakemtd
+static_files:
+  /init:
+    type: file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      /igloo/utils/busybox cat /proc/mtd
+
+      # Look for the device named "flash" in /proc/mtd
+      #device_info=$(/igloo/utils/busybox grep '"flash"' /proc/mtd)
+      device_path=""
+
+      # XXX read line by line
+      while IFS= read -r line; do
+        if [[ "$line" == *\"flash\"* ]]; then
+          device="${line%%:*}"
+          device_path="/dev/${device}"
+          break
+        fi
+      done < /proc/mtd
+      
+
+      if [ -n "$device_info" ]; then
+          echo "Error: found an MTD device named flash somehow"
+          exit 1
+      else
+          echo "Correctly found no MTD flash device"
+          exit 0
+      fi
+    mode: 73
