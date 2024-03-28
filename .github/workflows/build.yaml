@@ -17,11 +17,32 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build 
+      - name: Build
         run: cd $GITHUB_WORKSPACE && docker build -t pandare/igloo:penguin .
 
+  run_tests:
+    needs: build_container
+    runs-on: ubuntu-latest
+    # matrix for kernel versions 4.10 or 6.7
+    strategy:
+        matrix:
+          kernel: ["4.10"]
+          arch: ["armel", "mipsel", "mipseb"]
+          test: ["env_unset", "env_cmp", "pseudofile_missing", "pseudofile_ioctl", "hostfile", "shared_dir"]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Test ${{ matrix.test }} for ${{ matrix.arch }} kernel v${{ matrix.kernel }}
+        run: python3 $GITHUB_WORKSPACE/tests/unit_tests/test.py --kernel-version ${{ matrix.kernel }} \
+                                                          --arch ${{ matrix.arch }} \
+                                                          --test ${{ matrix.test }}
+  push_to_dockerhub:
+    needs: run_tests
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
       - name: Push to dockerhub
-        if: github.ref == 'refs/heads/main'
         run: |
           docker login -u pandare -p ${{secrets.pandare_dockerhub}}
           docker push pandare/igloo:penguin
