@@ -11,56 +11,73 @@ on:
 
 jobs:
   build_container:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: rehosting
+          password: ${{secrets.DOCKERHUB_TOKEN}}
+
+      - name: Pull latest Docker image for cache
+        run: docker pull rehosting/penguin:latest || true
+
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Build Docker image
         id: docker_build
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v5
         with:
           context: .
-          push: false
-          tags: |
-            rehosting/penguin:${{ github.sha }}
-            rehosting/penguin:latest
-          load: true
+          push: true
+          tags: rehosting/penguin:${{ github.sha }}
+          cache-from: type=registry,ref=rehosting/penguin:latest
+          cache-to: type=inline
 
   run_tests:
+    if: github.ref != 'refs/heads/main'
     needs: build_container
     runs-on: ubuntu-latest
-    # matrix for kernel versions 4.10 or 6.7
     strategy:
-        matrix:
-          kernel: ["4.10"]
-          arch: ["armel", "mipsel", "mipseb"]
-          test: ["env_unset", "env_cmp", "pseudofile_missing", "pseudofile_ioctl", "hostfile", "shared_dir"]
+      fail-fast: false
+      matrix:
+        kernel: ["4.10"]
+        arch: ["armel", "mipsel", "mipseb"]
+        test: ["env_unset", "env_cmp", "pseudofile_missing", "pseudofile_ioctl", "hostfile", "shared_dir"]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: rehosting
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Locally tag as latest, just for testing
+      - name: Pull the image again
+        run: |
+              docker pull rehosting/penguin:${{ github.sha }};
+              docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
+
       - name: Test ${{ matrix.test }} for ${{ matrix.arch }} kernel v${{ matrix.kernel }}
-        run: python3 $GITHUB_WORKSPACE/tests/unit_tests/test.py --kernel-version ${{ matrix.kernel }} \
-                                                          --arch ${{ matrix.arch }} \
-                                                          --test ${{ matrix.test }}
+        run: python3 $GITHUB_WORKSPACE/tests/unit_tests/test.py --kernel-version ${{ matrix.kernel }} --arch ${{ matrix.arch }} --test ${{ matrix.test }}
+
   push_to_dockerhub:
     needs: run_tests
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: github.ref == 'refs/heads/main'
     steps:
       - name: Log in to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: rehosting
           password: ${{secrets.DOCKERHUB_TOKEN}}
 
-      - name: Push to Docker Hub
-        uses: docker/build-push-action@v3
-        with:
-          context: .
-          push: true
-          tags: |
-            rehosting/penguin:${{ github.sha }}
-            rehosting/penguin:latest
+      - name: Bump latest tag
+        run: |
+              docker pull rehosting/penguin:${{ github.sha }};
+              docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
+              docker push rehosting/penguin:latest

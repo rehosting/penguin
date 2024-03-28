@@ -163,7 +163,7 @@ def main():
         tests = list(tests_to_checks.keys())
 
 
-    runner = TestRunner(kernel_versions, archs, tests, tests_to_checks)
+    runner = TestRunner(kernel_versions, archs, tests, {test: tests_to_checks[test] for test in tests})
     runner.run_all()
 
 if __name__ == "__main__":
