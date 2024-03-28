@@ -21,20 +21,20 @@ mkdir fws results
 ```
 
 ## Pull Container
-You next need the container named `pandare/igloo:penguin`, you can build this from the
+You next need the container named `rehosting/penguin`, you can build this from the
 source of this repository or by pulling from dockerhub.
 
 If pulling from dockerhub:
 
 ```
 docker login
-docker pull pandare/igloo:penguin
+docker pull rehosting/penguin
 ```
 
 If build from source:
 
 ```
-docker build -t pandare/igloo:penguin .
+docker build -t rehosting/penguin .
 ```
 
 ## Run container
@@ -43,7 +43,7 @@ docker build -t pandare/igloo:penguin .
 docker run --rm -it --privileged \
   -v $(pwd)/fws:/fws -v $(pwd)/results:/results \
   -p 8000:80 \
-  pandare/igloo:penguin \
+  rehosting/penguin \
   bash
 ```
 
