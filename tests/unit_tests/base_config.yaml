@@ -17,9 +17,6 @@ static_files:
     type: host_file
     host_path: /pkg/resources/init.sh
     mode: 00555
-  /dev:
-    type: dir
-    mode: 00755
 
 plugins:
   core:
