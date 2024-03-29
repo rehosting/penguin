@@ -14,7 +14,7 @@ pseudofiles: {}
 nvram: {}
 static_files:
   /igloo/init:
-    type: file
+    type: inline_file
     contents: |
       #!/igloo/utils/sh
       /igloo/utils/busybox mkdir -p /sys /proc /run /tmp /dev
