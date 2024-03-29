@@ -21,6 +21,9 @@ EOF
 # Share qcows between tests (only) if FS hashes match
 ln -s /tests/qcows "/tmp/qcows"
 
+# Make a consistent shared directory which goes into results
+ln -s $RESULTS/ /results
+
 # Directly setup a filesystem to pair with our config instead of using the standard entrypoint
 # This lets us get around the fact that there's no arch to identify here and no real rootfs at all
 d=$(mktemp -d)
