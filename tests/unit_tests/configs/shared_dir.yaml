@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://rehosti.ng/igloo/config_schema.yaml
 core:
-  shared_dir: /tests/results/shared
+  shared_dir: /results/shared
 
 static_files:
   /init:
