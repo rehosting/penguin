@@ -311,12 +311,35 @@ class FileFailures(PyPlugin):
                 panda.arch.set_retval(cpu, 0, convention="syscall", failure=False)
 
     def on_syscall(self, cpu, buf_addr):
-        try:
-            name = self.panda.read_str(cpu, buf_addr)
-        except ValueError:
-            # TODO: retry on errors
-            return
-        if any(name.startswith(x) for x in ("/dev/", "/proc/", "/sys/")):
+        # TODO: if we end up using this in multiple places we should centralize the unpacking
+        # Also we might want to consider reducing the size of these buffers
+        format_str = f"!i6q{'4096s'*6}q"
+        buf_size = struct.calcsize(format_str)
+        buf = self.panda.virtual_memory_read(cpu, buf_addr, buf_size, fmt="bytearray")
+
+        # Unpack request with our dynamic format string
+        unpacked = struct.unpack_from(format_str, buf)
+
+        nr = unpacked[0]
+        #args = unpacked[1:1+6]
+        strings = unpacked[1+6:1+6+6]
+        #ret = unpacked[1+6+6]
+
+        arch, _ = arch_end(self.config["core"]["arch"])
+        name, arg_names = self.syscall_info_table[arch][nr]
+        #assert(ret == -2), f"Unexpected return value {ret} from igloo_syscall"
+        #assert name not in ('open', 'openat', 'ioctl', 'close'), f"Unexpected syscall {name} in igloo_syscall"
+
+        # Use null terminator and interpret as UTF-8
+        strings = [s.split(b'\0', 1)[0].decode() for s in strings]
+
+        fnames = (
+            strings[i]
+            for i, arg_name in enumerate(arg_names)
+            if arg_name in ("filename", "path", "pathname", "fd")
+            and any(strings[i].startswith(x) for x in ("/dev/", "/proc/", "/sys/"))
+        )
+        for name in fnames:
             self.centralized_log(name, "syscall")
 
     #######################################
