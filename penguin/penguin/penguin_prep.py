@@ -64,6 +64,10 @@ def _modify_guestfs(g, file_path, file):
         print(f"WARNING: Skipping file {file_path} as it's a broken symlink (detected on exn)")
         return
 
+    if file_path.startswith("/dev/") or file_path == "/dev":
+        print(f"WARNING: /dev/ must be populated dynamically in config.pseudofiles - ignoring request to modify {file_path}")
+        return
+
     try:
         action = file['type']
         if action in ('inline_file', 'host_file'):
@@ -129,8 +133,6 @@ def _modify_guestfs(g, file_path, file):
             g.chmod(0o777, linkpath)
 
         elif action == 'dev':
-            if file_path.startswith("/dev/"):
-                print("WARNING: devices in /dev/ should be populated dynamically")
             major = file['major']
             minor = file['minor']
             mode = file['mode']
