@@ -79,5 +79,5 @@ jobs:
       - name: Bump latest tag
         run: |
               docker pull rehosting/penguin:${{ github.sha }};
-              docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
+              docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:latest;
               docker push rehosting/penguin:latest
