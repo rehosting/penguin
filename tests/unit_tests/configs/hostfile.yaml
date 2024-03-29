@@ -13,5 +13,5 @@ static_files:
 
   /init.bin:
     type: host_file
-    host_path: /tmp/init.bin
+    host_path: /tmp/hostfile/init.bin
     mode: 00555
