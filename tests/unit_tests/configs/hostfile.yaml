@@ -1,6 +1,6 @@
 static_files:
   /init:
-    type: file
+    type: inline_file
     contents: |
       #!/igloo/utils/sh
       set -eu
@@ -12,6 +12,6 @@ static_files:
     mode: 00555
 
   /init.bin:
-    type: file
-    hostpath: /tmp/init.bin
+    type: host_file
+    host_path: /tmp/init.bin
     mode: 00555

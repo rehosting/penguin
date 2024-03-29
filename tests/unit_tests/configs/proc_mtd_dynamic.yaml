@@ -3,7 +3,7 @@ pseudofiles:
     name: fakemtd
 static_files:
   /init:
-    type: file
+    type: inline_file
     contents: |
       #!/igloo/utils/sh
       set -eux
