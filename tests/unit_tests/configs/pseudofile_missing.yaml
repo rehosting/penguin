@@ -6,12 +6,11 @@ static_files:
       set -eux
 
       if [ ! -e /dev/missing ]; then
-        echo "Missing /dev/missing"
+        echo "Missing /dev/missing (expected)"
         exit 1
       fi
+      echo "FAIL /dev/misisng present when we didn't expect it to be"
 
       /igloo/utils/busybox cat /dev/missing
-
-      echo "Everything is good"
-      echo "Passed all init checks"
+      exit 1
     mode: 73

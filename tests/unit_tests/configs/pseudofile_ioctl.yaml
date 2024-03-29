@@ -5,12 +5,12 @@ static_files:
     type: inline_file
     contents: |
       #!/igloo/utils/sh
-      set -eux
+      set -ux
       
       # First check existance of device explicitly (hdparam does this too)
       if [ ! -e /dev/missing ]; then
         /igloo/utils/busybox ls -alt /dev/missing
-        echo "Missing /dev/missing"
+        echo "Missing /dev/missing (unexpected)"
         exit 1
       fi
 
