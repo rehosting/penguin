@@ -279,7 +279,7 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
 
     data['static_files'] = {
         "/igloo/init": {
-            'type': "file",
+            'type': "inline_file",
             'contents': default_init_script,
             'mode': 0o111,
         },
@@ -299,9 +299,9 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
     }
     for f in os.listdir(os.path.join(*[dirname(dirname(__file__)), "resources", "static_keys"])):
         data['static_files'][f"/igloo/keys/{f}"] = {
-            'type': "file",
+            'type': "host_file",
             #'contents': open(static_dir + f"static_keys/{f}", 'rb').read(),
-            'hostpath': os.path.join(*[dirname(dirname(__file__)), "resources", "static_keys", f]),
+            'host_path': os.path.join(*[dirname(dirname(__file__)), "resources", "static_keys", f]),
             'mode': 0o444,
         }
 
@@ -333,8 +333,8 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
             if f.endswith(arch_suffix) or f.endswith(".all"):
                 out_name = f.replace(arch_suffix, "").replace(".all", "")
                 data['static_files'][f"/igloo/utils/{out_name}"] = {
-                    'type': "file",
-                    'hostpath': f"/igloo_static/{util_dir}/{f}",
+                    'type': "host_file",
+                    'host_path': f"/igloo_static/{util_dir}/{f}",
                     'mode': 0o755,
                 }
 
