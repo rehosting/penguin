@@ -284,7 +284,7 @@ def pre_shim(config, auto_explore=False):
         # If /etc/tz is missing, add it
         if os.path.isdir(tmp_dir + "/etc") and not os.path.isfile(tmp_dir + '/etc/TZ'):
             config['static_files']['/etc/TZ'] = {
-                'type': 'file',
+                'type': 'inline_file',
                 'contents': 'EST5EDT',
                 'mode': 0o755
             }
@@ -310,7 +310,7 @@ def pre_shim(config, auto_explore=False):
                     hosts += "\n"
                 hosts += "127.0.0.1 localhost\n"
                 config['static_files']['/etc/hosts'] = {
-                    'type': 'file',
+                    'type': 'inline_file',
                     'contents': hosts,
                     'mode': 0o755,
                 }
@@ -325,7 +325,7 @@ def pre_shim(config, auto_explore=False):
 
         # Firmadyne added this file in libnvram, hidden in libnvram "Checked by certain Ralink routers"
         config['static_files']['/var/run/nvramd.pid'] = {
-            'type': 'file',
+            'type': 'inline_file',
             'contents': '',
             'mode': 0o644,
         }
@@ -568,7 +568,7 @@ def shim_configs(config, auto_explore=False):
             if basename in shim_targets:
                 # Backup the original binary
                 config['static_files'][f"/igloo/utils/{basename}.orig"] = {
-                    'type': 'move_from',
+                    'type': 'move',
                     'from': path
                 }
                 # Add a symlink from the guest path to the shim path
@@ -1179,7 +1179,7 @@ def add_firmae_hacks(config, output_dir):
         """
 
         config['static_files']['/igloo/utils/www_cmds'] = {
-            'type': 'file',
+            'type': 'inline_file',
             'contents': cmd_str,
             'mode': 0o755
         }
