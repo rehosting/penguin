@@ -111,6 +111,15 @@ class Core(BaseModel):
             examples=[False, True],
         ),
     ]
+    force_www: Annotated[
+        bool,
+        Field(
+            False,
+            title="Try to force webserver start",
+            description="Whether to try forcing webserver start",
+            examples=[False, True],
+        ),
+    ]
     cpu: Annotated[
         Optional[str],
         Field(
@@ -155,17 +164,6 @@ class Core(BaseModel):
             examples=["/shared"],
         ),
     ]
-    netdevnames: Annotated[
-        set[str],
-        Field(
-            set(),
-            title="Names for guest network devices",
-            description="List of names for guest network devices",
-            examples=[
-                {"eth0", "eth1"},
-            ],
-        ),
-    ]
     version: Annotated[
         Literal["1.0.0"],
         Field(
@@ -201,7 +199,29 @@ Env = _newtype(
         ),
     ],
 )
+NetDevs = _newtype(
+    class_name="NetDevs",
+    type_=list[str],
+    title="Network Devices",
+    description="Names for guest network interfaces",
+    examples=[
+        ["eth0",
+         "eth1"],
+        ["ens33",
+         "wlp3s0"]
+    ],
+)
 
+BlockedSignals = _newtype(
+    class_name="BlockedSignals",
+    type_=list[str],
+    title="Signals to block",
+    description="Signals numbers to block within guest",
+    examples=[
+        [15],
+        [9, 14],
+    ],
+)
 
 ConstMapVal = _newtype(
     class_name="ConstMapVal",
@@ -535,7 +555,9 @@ class Main(BaseModel):
     env: Env
     pseudofiles: Pseudofiles
     nvram: NVRAM
+    netdevs: Optional[NetDevs] = None
     uboot_env: Optional[UBootEnv] = None
+    blocked_signals: Optional[BlockedSignals] = None
     static_files: StaticFiles
     plugins: Annotated[dict[str, Plugin], Field(title="Plugins")]
 
