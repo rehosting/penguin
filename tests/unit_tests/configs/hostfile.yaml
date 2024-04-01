@@ -5,13 +5,53 @@ static_files:
       #!/igloo/utils/sh
       set -eu
 
+      # Does /hostpasswd exist?
+      if [ ! -e /hostpasswd ]; then
+        echo "Missing /hostpasswd (unexpected)"
+        exit 1
+      fi
+
+      # Does /etc/hostpasswd exist?
+      if [ ! -e /etc/hostpasswd ]; then
+        echo "Missing /etc/hostpasswd (unexpected)"
+        exit 1
+      fi
+
+      # Does /etc/new/hostpasswd exist?
+      if [ ! -e /etc/new/hostpasswd ]; then
+        echo "Missing /etc/new/hostpasswd (unexpected)"
+        exit 1
+      fi
+
       # Run our test file mapped in from the host as binary data
-      /igloo/utils/busybox ls -al /init.bin
-      /igloo/utils/busybox cat /init.bin
-      exec /init.bin
+      /init.bin
+
+      # Check if /tmp/success exists
+      if [ ! -e /tmp/success ]; then
+        echo "Missing /tmp/success (unexpected)"
+        exit 1
+      fi
+
+      echo "tests pass"
+      exit 0
     mode: 00555
 
   /init.bin:
     type: host_file
     host_path: /tmp/hostfile/init.bin
+    mode: 00555
+
+  /hostpasswd:
+    type: host_file
+    host_path: /etc/passwd
+    mode: 00555
+
+  /etc/hostpasswd:
+    type: host_file
+    host_path: /etc/passwd
+    mode: 00555
+
+  /etc/new/hostpasswd:
+    type: host_file
+    host_path: /etc/passwd
     mode: 00555

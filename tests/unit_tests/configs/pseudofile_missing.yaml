@@ -5,12 +5,15 @@ static_files:
       #!/igloo/utils/sh
       set -eux
 
-      if [ ! -e /dev/missing ]; then
-        echo "Missing /dev/missing (expected)"
-        exit 1
-      fi
-      echo "FAIL /dev/misisng present when we didn't expect it to be"
+      paths="/dev/missing /dev/net/missing /dev/foo/missing /proc/missing /proc/fs/missing /proc/foo/missing /sys/missing /sys/fs/missing /sys/foo/missing"
 
-      /igloo/utils/busybox cat /dev/missing
-      exit 1
+      for path in $paths; do
+          if [ -e "$path" ]; then
+              echo "Unexpected: $path present when we didn't expect it to be"
+              exit 1
+          fi
+      done
+
+      echo "tests pass"
+      exit 0
     mode: 73

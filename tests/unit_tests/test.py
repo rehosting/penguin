@@ -18,26 +18,36 @@ DEFAULT_KERNELS = ["4.10",
                    ]
 DEFAULT_ARCHS = ["armel", "mipsel", "mipseb"]
 
-def assert_generic(filepath, pattern):
+def assert_generic(filepath, patterns):
     '''
     Does a file within the results directory contain a pattern?
     '''
     def assert_func(results_dir):
-        return re.search(pattern, (results_dir / Path(filepath)).read_text()) is not None
+        for pattern in patterns if isinstance(patterns, list) else [patterns]:
+            if not re.search(pattern, (results_dir / Path(filepath)).read_text()):
+                print(f"FAILURE: Pattern {pattern} not found in {filepath}")
+                return False
+        return True
     return assert_func
 
-def assert_yaml(filepath, key, subkeys=None, assertion=None):
+def assert_yaml(filepath, subkeys_l, assertion=None):
     def assert_func(results_dir):
         data = yaml.safe_load((results_dir / Path(filepath)).open())
-        try:
-            data_key = data[key]
-            for subkey in (subkeys or []):
-                data_key = data_key[subkey]
-            if assertion:
-                return assertion(data_key)
-            return True
-        except KeyError:
-            return False
+        for subkeys in subkeys_l:
+            try:
+                data_key = data
+                for subkey in (subkeys or []):
+                    data_key = data_key[subkey]
+                if assertion:
+                    if assertion(data_key):
+                        return True
+                    print(f"FAILURE: assertion failed on {key} in {filepath}")
+                    return False
+                continue
+            except KeyError:
+                print(f"FAILURE: key {key} not found in {filepath}") # May be nested
+                return False
+        return True
     return assert_func
 
 class TestRunner:
@@ -134,11 +144,34 @@ class TestRunner:
 
 def main():
     tests_to_checks = {
-        "env_unset": assert_generic("shell_env.csv", "('envvar', None)"),
-        "env_cmp": assert_generic("env_cmp.txt", "target"),
-        "pseudofile_missing": assert_yaml("pseudofiles_failures.yaml", "/dev/missing"),
-        "pseudofile_ioctl": assert_yaml("pseudofiles_failures.yaml", "/dev/missing", ["ioctl", 799, "count"], lambda x: x > 0),
-        "hostfile": assert_generic("console.log", "\[bioset\]"),
+        "env_unset": assert_generic("shell_env.csv", [
+            "('var2', None)",
+            "('anothervar', None)"
+        ]),
+        "env_cmp": assert_generic("env_cmp.txt", [
+            "firsttarget",
+            # "secondtarget" # TODO: this is not found
+        ]),
+        "pseudofile_missing": assert_generic("pseudofiles_failures.yaml", [
+            "/dev/missing",
+            "/dev/net/missing",
+            "/dev/foo/missing",
+            "/proc/missing",
+            "/proc/fs/missing",
+            "/proc/foo/missing",
+            "/sys/missing",
+            "/sys/fs/missing",
+            "/sys/foo/missing"
+        ]),
+        "pseudofile_ioctl": assert_yaml("pseudofiles_failures.yaml", [
+                ["/dev/missing", "ioctl", 799, "count"],
+                ["/dev/fs/missing",
+                "ioctl", 799, "count"],
+                ["/dev/foo/missing",
+                "ioctl", 799, "count"],
+            ],
+            lambda x: x > 0),
+        "hostfile": assert_generic("console.log", "tests pass"),
         "shared_dir": assert_generic("shared/from_guest.txt", "Hello from guest"),
     }
 

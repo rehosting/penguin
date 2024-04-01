@@ -1,4 +1,12 @@
-# yaml-language-server: $schema=https://rehosti.ng/igloo/config_schema.yaml
+env:
+  # These are *not* the variables we're looking for below
+  #envvar_: "trailing_underscore"
+  #_envvar: "prefix_underscore" # Grep below would actually match this. Skip
+  var2_: "trailing_underscore"
+  _var2: "prefix_underscore"
+  anothervar_: "trailing_underscore"
+  _anothervar: "prefix_underscore"
+
 static_files:
   /init:
     type: inline_file
@@ -8,17 +16,25 @@ static_files:
 
       # Env test. Kernel boot args make it through to init binaries so we'll inherit envvar
       # We should be able to detect this with our busybox instrumentation
-      # XXX: we wouldn't detect this if it operated directly on /proc/cmdline as busybox
-      # is statically linked and we won't see a strstr search
 
-      # This wouldn't work 
+      # XXX: we can't detect this as busybox (and its grep)
+      # is statically linked so there won't be a strstr call to detect
       #envvar=$(/igloo/utils/busybox cat /proc/cmdline | /igloo/utils/busybox grep -o "envvar=[^ ]*" |  /igloo/utils/busybox cut -d'=' -f2)
+      #if [ ! -z "$envvar" ]; then
+      #  echo "envvar is set when it should not be: $envvar"
+      #  exit 1
+      #fi
 
-      if [ -z "$envvar" ]; then
-        echo "Unset envvar!"
+      if [ ! -z "$var2" ]; then
+        echo "var2 is set when it should not be: $var2"
         exit 1
       fi
 
-      echo "Everything is good"
-      echo "Passed all init checks"
+      if [ ! -z "$anothervar" ]; then
+        echo "anothervar is set when it should not be: $anothervar"
+        exit 1
+      fi
+
+      echo "tests pass"
+      exit 0
     mode: 73

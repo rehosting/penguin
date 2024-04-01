@@ -1,5 +1,8 @@
 pseudofiles:
   /dev/missing: {}
+  /dev/fs/missing: {}
+  /dev/foo/missing: {}
+
 static_files:
   /init:
     type: inline_file
@@ -7,16 +10,18 @@ static_files:
       #!/igloo/utils/sh
       set -ux
       
-      # First check existance of device explicitly (hdparam does this too)
+      # First check existance of device explicitly to make sure that it's present
       if [ ! -e /dev/missing ]; then
         /igloo/utils/busybox ls -alt /dev/missing
         echo "Missing /dev/missing (unexpected)"
         exit 1
       fi
 
-      # Run hdparam on /dev/missing which issues ioctl HDIO_DRIVE_CMD twice
+      # Run hdparam on each device which issues ioctl HDIO_DRIVE_CMD twice
       /igloo/utils/busybox hdparm -I /dev/missing
+      /igloo/utils/busybox hdparm -I /dev/fs/missing
+      /igloo/utils/busybox hdparm -I /dev/foo/missing
 
-      echo "Everything is good"
-      echo "Passed all init checks"
+      echo "tests pass"
+      exit 0
     mode: 73

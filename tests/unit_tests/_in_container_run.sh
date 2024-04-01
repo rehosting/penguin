@@ -15,7 +15,7 @@ mkdir /tmp/hostfile
 cat <<EOF > /tmp/hostfile/init.bin
 #!/igloo/utils/sh
 echo custom bin runs;
-/igloo/utils/busybox ps;
+/igloo/utils/busybox touch /tmp/success
 EOF
 
 # Share qcows between tests (only) if FS hashes match

@@ -10,11 +10,16 @@ static_files:
       # Env test
       v=`/igloo/utils/busybox cat /proc/cmdline | /igloo/utils/busybox awk '{for (i=1; i<=NF; i++) if ($i ~ /^envvar=/) print substr($i, 8)}'`
 
-      if [ "$v" != "target" ]; then
-        echo "Bad envvar $v"
+      if [ "$v" == "firsttarget" ]; then
+        echo "Unexpected, envvar is set to first target"
+        exit 1
+      fi
+
+      if [ "$v" == "secondtarget" ]; then
+        echo "Unexpected, envvar is set to second target"
         exit 1
       fi
       
-      echo "Everything is good"
-      echo "Passed all init checks"
+      echo "tests pass"
+      exit 0
     mode: 73
