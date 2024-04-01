@@ -1,4 +1,4 @@
-from typing import Optional, Union, Literal, Annotated
+from typing import Optional, Union, Literal, Annotated, Dict
 
 from pydantic import BaseModel, RootModel, Field
 from pydantic.config import ConfigDict
@@ -361,10 +361,27 @@ IoctlCommand = _union(
 
 Ioctls = _newtype(
     class_name="Ioctls",
-    type_=dict[int,IoctlCommand],
+    type_=Dict[Union[int, str], IoctlCommand], # TODO: str should only allow for "*" but we need a custom validator for that
     title="ioctl",
     description="How to handle ioctl() calls",
     default=dict(),
+    examples=[
+        {
+            "*": dict(
+                model="return_const",
+                val=0,
+            ),
+            "1000": dict(
+                model="return_const",
+                val=5,
+            ),
+        },
+        {
+            "*": dict(
+                model="return_const",
+            ),
+        },
+    ],
 )
 
 
