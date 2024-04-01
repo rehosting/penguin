@@ -152,7 +152,7 @@ def _modify_guestfs(g, file_path, file):
                 raise ValueError(f"Can't delete {file_path} as it doesn't exist")
             g.rm_rf(file_path) # We make this one fatal if there's an error.
 
-        elif action == 'move_from':
+        elif action == 'move':
             # Move a file (or directory and children) TO
             # the key in yaml (so we can avoid duplicate keys)
             if g.is_symlink(file['from']):
@@ -383,7 +383,7 @@ def prepare_run(conf, out_dir, out_filename="image.qcow2"):
             raise ValueError(f"Unknown type for nvram value {k}: {type(val)}")
 
         config_files[f"/igloo/libnvram/{k}"] = {
-            'type': "file",
+            'type': "inline_file",
             'contents': encoded,
             'mode': 0o644,
         }
