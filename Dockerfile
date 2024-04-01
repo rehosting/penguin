@@ -1,7 +1,7 @@
 # versions of the various dependencies.
 ARG BASE_IMAGE="ubuntu:22.04"
 ARG DOWNLOAD_TOKEN="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"
-ARG PANDA_VERSION="1.8.8" # XXX UNUSED: we have a hardcoded branch used below in downloader - this has a fix for targetcmp we really want
+ARG PANDA_VERSION="1.8.17"
 ARG BUSYBOX_VERSION="0.0.1"
 ARG LINUX_VERSION="1.9.29n"
 ARG LIBNVRAM_VERSION="0.0.1"
@@ -47,8 +47,7 @@ RUN wget --quiet https://download.libguestfs.org/binaries/appliance/appliance-1.
 # Get panda .deb
 ARG PANDA_VERSION
 ARG BASE_IMAGE
-RUN  wget -O /tmp/pandare.deb https://panda.re/secret/pandare_1.8.1b_2204.deb
-    #wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(echo "$BASE_IMAGE" | awk -F':' '{print $2}').deb
+RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(echo "$BASE_IMAGE" | awk -F':' '{print $2}').deb
 
 # Get syscall list from PANDA
 RUN for arch in arm mips mips64; do \
