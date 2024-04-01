@@ -239,8 +239,7 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
 #ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 # Libguestfs setup
-COPY --from=downloader /tmp/libguestfs.tar.xz /tmp/libguestfs.tar.xz
-RUN tar xf /tmp/libguestfs.tar.xz -C /usr/local/
+COPY --from=downloader /tmp/libguestfs.tar.xz /usr/local/libguestfs.tar.xz
 ENV LIBGUESTFS_PATH=/usr/local/appliance
 
 # qemu-img
