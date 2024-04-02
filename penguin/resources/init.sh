@@ -106,6 +106,8 @@ for iface in $(/igloo/utils/busybox cat /proc/penguin_net); do
   /igloo/utils/busybox ip link add $iface type dummy
   /igloo/utils/busybox ip link set $iface up
 done
+  /igloo/utils/busybox ip link delete dummy0 || true
+
 
 ## Add a bridge with eth0 and assign it an IP
 #/igloo/utils/busybox brctl addbr br0
