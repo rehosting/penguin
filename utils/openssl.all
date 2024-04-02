@@ -11,7 +11,7 @@ function finish {
   if [ $? -ne 0 ]; then
     echo "openssl.shim: Error generating keys for openssl. Bailing on shim and running" > $LOGGER
     echo "openssl.shim: original with args $ARGS" > $LOGGER
-    exec /igloo/utils/openssl.orig "$ARGS"
+    exec /igloo/utils/openssl.orig $ARGS
   fi
 }
 trap finish EXIT
