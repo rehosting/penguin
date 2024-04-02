@@ -7,13 +7,8 @@ from typing import List
 from pandare import PyPlugin
 from penguin import PenguinAnalysis, yaml
 from penguin.graphs import Failure, Mitigation, Configuration
-from penguin.defaults import default_netdevs
 
 # XXX this needs some testing
-
-# Loopback isn't in our default list but we don't want to add it as a fake device
-# Same with bridges
-DEFAULT_IFACES =  default_netdevs + ["lo"] + ["br0", "br1"]
 
 iface_log = "iface.log"
 ioctl_log = "iface_ioctl.log"
@@ -22,10 +17,12 @@ class Interfaces(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
+        self.conf = self.get_arg("conf")
         self.ppp.Health.ppp_reg_cb('igloo_exec', self.iface_on_exec)
 
         open(f'{self.outdir}/{iface_log}', 'w').close()
         open(f'{self.outdir}/{ioctl_log}', 'w').close()
+        self.added_ifaces = self.conf.get("netdevs", [])
 
         self.seen_ifaces = set()
         self.seen_ioctls = set() # Only failing network ioctls between 0x8000 and 0x9000
@@ -78,7 +75,7 @@ class Interfaces(PyPlugin):
         if iface is None:
             return
 
-        if iface in DEFAULT_IFACES:
+        if iface in self.added_ifaces:
             return
 
         # First character must be alphabetical
@@ -89,7 +86,7 @@ class Interfaces(PyPlugin):
         if not iface.replace('.', '').replace('-', '').isalnum():
             return
 
-        if iface in self.seen_ifaces:
+        if iface in self.seen_ifaces or iface in ["lo"]:
             return
 
         self.seen_ifaces.add(iface)
@@ -122,9 +119,8 @@ class InterfaceAnalysis(PenguinAnalysis):
                 iface = iface.strip()
                 ifaces.append(iface)
 
-        if not len([iface not in DEFAULT_IFACES for iface in ifaces]):
-            # All default
-            return []
+        # Delete anything from ifaces that's in already in self.config['netdevs']
+        ifaces = [iface for iface in ifaces if iface not in self.config.get('netdevs', [])]
 
         # Single failure with all ifaces
         return [Failure(f"net_ifaces_{len(ifaces)}", self.ANALYSIS_TYPE, {"ifaces": sorted(ifaces)})]
