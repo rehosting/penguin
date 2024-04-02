@@ -56,3 +56,7 @@ plugins:
     depends_on: vpn
     enabled: false
     version: 1.0.0
+  interfaces:
+    description: 'Analysis: Track network interfaces'
+    version: 1.0.0
+    depends_on: health

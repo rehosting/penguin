@@ -45,7 +45,8 @@ jobs:
       matrix:
         kernel: ["4.10"]
         arch: ["armel", "mipsel", "mipseb"]
-        test: ["env_unset", "env_cmp", "pseudofile_missing", "pseudofile_ioctl", "hostfile", "shared_dir"]
+        test: ["env_unset", "env_cmp", "pseudofile_missing", "pseudofile_ioctl",
+               "hostfile", "shared_dir", "net_missing"]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

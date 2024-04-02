@@ -1,0 +1,35 @@
+# Netdev names do not match what we check for below, but they're similar
+netdevs:
+  - _eth0
+  - eth0_
+  - ens3_
+  - _ens3
+  - eth1
+  - ens4
+
+static_files:
+  /init:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -ex
+
+      # create ip as symlink to busybox since interfaces looks at process names
+      /igloo/utils/busybox mkdir /bin
+      /igloo/utils/busybox ln -s /igloo/utils/busybox /bin/ip
+
+      # Check if interface eth0 is up
+      if ip link show dev eth0 | /igloo/utils/busybox grep -q 'state UP'; then
+          echo "eth0 unexpectedly up"
+          exit 1
+      fi
+
+      # Check if interface ens3 is up
+      if ip link show dev ens3 | /igloo/utils/busybox grep -q 'state UP'; then
+          echo "ens3 unexpectedly up"
+          exit 1
+      fi
+
+      echo "tests pass"
+      exit 0
+    mode: 73

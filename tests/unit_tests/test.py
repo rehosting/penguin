@@ -173,6 +173,7 @@ def main():
             lambda x: x > 0),
         "hostfile": assert_generic("console.log", "tests pass"),
         "shared_dir": assert_generic("shared/from_guest.txt", "Hello from guest"),
+        "net_missing": assert_generic("iface.log", ["eth0", "ens3"])
     }
 
     parser = argparse.ArgumentParser(description="Run PENGUIN unit tests.")
