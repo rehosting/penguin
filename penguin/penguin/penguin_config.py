@@ -214,7 +214,7 @@ NetDevs = _newtype(
 
 BlockedSignals = _newtype(
     class_name="BlockedSignals",
-    type_=list[str],
+    type_=list[int],
     title="Signals to block",
     description="Signals numbers to block within guest",
     examples=[
