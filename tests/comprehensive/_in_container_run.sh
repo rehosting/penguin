@@ -43,4 +43,4 @@ if [ "$ARCH" != "armel" ]; then
 fi
 
 # Now render and run the config
-penguin --novsock --config /tmp/config.yaml --niters $NITERS --nthreads 1 /tests/results
+penguin --config /tmp/config.yaml --niters $NITERS --nthreads 1 /tests/results

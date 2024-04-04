@@ -83,5 +83,5 @@ gzip "$TARFILE"
 fakeroot /pkg/scripts/makeImage.sh "${REPACK_DIR}/fs.tar.gz" /tmp/generated
 mkdir -p $RESULTS $TESTDIR
 chmod -R 777 $RESULTS $TESTDIR
-penguin --novsock --config $TESTDIR/config.yaml $RESULTS || (echo "Test failed"; chmod -R 777 $RESULTS; exit 1)
+penguin --config $TESTDIR/config.yaml $RESULTS || (echo "Test failed"; chmod -R 777 $RESULTS; exit 1)
 chmod -R 777 $RESULTS $TESTDIR
