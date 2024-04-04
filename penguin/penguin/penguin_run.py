@@ -225,7 +225,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
 
     # Launch a process that listens on the file socket and forwards to the uds
     # which QEMU connects to. TODO: move to vpn plugin?
-    host_vsock_bridge = subprocess.Popen(["vhost-user-vsock", "--guest-cid", str(CID), "--socket", socket_path, "--uds-path" , uds_path])
+    host_vsock_bridge = subprocess.Popen(["vhost-device-vsock", "--guest-cid", str(CID), "--socket", socket_path, "--uds-path" , uds_path])
 
     try:
         q_config = qemu_configs[archend]
