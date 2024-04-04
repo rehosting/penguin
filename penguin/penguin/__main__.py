@@ -228,7 +228,7 @@ def extract_and_build(fw, output_dir):
     os.chmod(f"{base}/image.qcow", 0o444)
     return arch, endianness
 
-def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeout=None, niters=1):
+def build_config(firmware, output_dir, auto_explore=False, timeout=None, niters=1):
     '''
     Given a firmware binary and an output directory, this function will
     extract the firmware, build a qemu image, and create a config file
@@ -343,10 +343,6 @@ def build_config(firmware, output_dir, auto_explore=False, use_vsock=True, timeo
 
     # Explicitly placing this at the end
     data['nvram'] = {}
-
-    if not use_vsock:
-        # Without vsock you can't have the VPN
-        data['plugins']['vpn']['enabled'] = False
 
     if auto_explore:
         # If auto_explore, we'll enable extra plugins to generate coverage - unless we're told the VPN is disabled.
@@ -534,7 +530,6 @@ def main():
 
     parser.add_argument('--config', type=str, help='Path to a config file. If set, the firmware argument is not required.')
     parser.add_argument('--nthreads', type=int, default=1, help='Number of workers to use (not actually threads). Default 1.')
-    parser.add_argument('--novsock', action='store_true', default=False, help='Run running without vsock. Disabled by default')
     parser.add_argument('--timeout', type=int, default=None, help='Timeout in seconds for each run. Default is 300s if auto-explore or no timeout otherwise')
 
     parser.add_argument('--auto', action='store_true', default=False, help="Automatically explore the provided firmware for niters. Configuration will be generated with automation plugins enabled. Meaningless with --config. Default False.")
@@ -577,7 +572,7 @@ def main():
                                "Please provide a firmware file or run with --config to "\
                                "use the config file.")
 
-        args.config = build_config(args.firmware, args.output_dir, auto_explore=args.auto, use_vsock=not args.novsock, timeout=args.timeout, niters=args.niters)
+        args.config = build_config(args.firmware, args.output_dir, auto_explore=args.auto, timeout=args.timeout, niters=args.niters)
 
         if args.config is None:
             # We failed to generate a config. We'll have written a result file to the output dir

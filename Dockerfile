@@ -11,6 +11,11 @@ ARG UTILS_VERSION="4"
 ARG VPN_VERSION="1.0.5"
 ARG HYPERFS_VERSION="0.0.2"
 
+FROM rust as vhost_builder
+RUN git clone -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
+RUN cd /root/vhost-device/ && \
+  RUSTFLAGS="-C target-feature=+crt-static" PATH="/root/.cargo/bin:${PATH}" cargo build --release --bin vhost-device-vsock --target x86_64-unknown-linux-gnu
+
 ### DOWNLOADER ###
 # Fetch and extract our various dependencies. Roughly ordered on
 # least-frequently changing to most-frequently changing
@@ -262,6 +267,7 @@ COPY --from=nmap_builder /build/nmap /usr/local/
 COPY --from=downloader /static_deps/utils/* /igloo_static/utils.bin
 COPY --from=cross_builder /out/* /igloo_static/utils.bin
 COPY utils/* /igloo_static/utils.source/
+COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
 
 #COPY fws/kernels-latest.tar.gz /tmp
 #RUN rm -rf /igloo_static/kernels && \
