@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
 import os
 import sys
 import shutil
@@ -38,13 +43,6 @@ qemu_configs = {
                     "mem_gb":          "2",
                 },
 }
-
-def make_unique_cid():
-    max_cid = 2**32-1 # Try to keep these small to save kernel arg space
-    CID=random.randint(3,max_cid) # +3 is to shift past the special CIDs
-    while any(fname.startswith(f"vpn_events_{CID}_") for fname in os.listdir("/tmp")):
-        CID=random.randint(3, max_cid)
-    return CID
 
 def _sort_plugins_by_dependency(conf_plugins):
     """
@@ -217,23 +215,34 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
         if not os.path.isfile(config_image):
             raise ValueError(f"Image file invalid: {config_image}")
         
-    # Generate a unique CID
-    CID = make_unique_cid()
+    CID=4 # We can use a constant CID with vhost-user-vsock
+    # Create a temp dir for our vhost files:
+    tmpdir = tempfile.TemporaryDirectory()
+    path = Path(tmpdir.name)
+    socket_path = path / "socket"
+    uds_path =    path / "vsocket"
+    mem_path =    path / "mem_path"
+
+    # Launch a process that listens on the file socket and forwards to the uds
+    # which QEMU connects to. TODO: move to vpn plugin?
+    host_vsock_bridge = subprocess.Popen(["vhost-device-vsock", "--guest-cid", str(CID), "--socket", socket_path, "--uds-path" , uds_path])
 
     try:
         q_config = qemu_configs[archend]
     except KeyError:
         raise ValueError(f"Unknown architecture: {archend}")
+    
+    vsock_args = [
+        '-object', f'memory-backend-file,id=mem0,mem-path={mem_path},size={q_config["mem_gb"]}G,share=on',
+        '-numa', 'node,memdev=mem0',
+        '-chardev', f'socket,id=char0,reconnect=0,path={socket_path}',
+        '-device', 'vhost-user-vsock-pci,chardev=char0'
+        ]
 
     append = f"root={ROOTFS} init=/igloo/init console=ttyS0  CID={CID} rw panic=1" # Required
     append += " rootfstype=ext2 norandmaps nokaslr" # Nice to have
     append += " clocksource=jiffies nohz_full nohz=off no_timer_check" # Improve determinism?
     append += " idle=poll acpi=off nosoftlockup " # Improve determinism?
-
-    have_vsock = os.path.exists("/dev/vhost-vsock") and 'vpn' in conf['plugins'] and ('enabled' not in conf['plugins']['vpn'] or conf['plugins']['vpn']['enabled'])
-
-    if not have_vsock:
-        append = append.replace(f" CID={CID}", "") # Remove CID if we don't have vhost-vsock
 
     if archend == "armel":
         append = append.replace("console=ttyS0", "console=ttyAMA0")
@@ -254,10 +263,6 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
             "-drive", drive]
 
     args += ['-no-reboot']
-
-    if have_vsock:
-        # Only add vhost-vsock if we have it and the vpn plugin is enabled
-        args.extend(['-device', f'vhost-vsock-pci,id=vhost-vsock-pci0,guest-cid={CID}'])
 
     if conf['core'].get('network', False):
         # Connect guest to network if specified
@@ -298,6 +303,9 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
 
     # Fixed clock time.
     args = args + ['-rtc', 'base=2023-01-01T00:00:00']
+
+    # Add vsock args
+    args += vsock_args
 
     # Disable audio (allegedly speeds up emulation by avoiding running another thread)
     os.environ['QEMU_AUDIO_DRV'] = 'none'
@@ -342,6 +350,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
         args ={
             'plugins': conf_plugins,
             'CID': CID,
+            'vhost_socket': uds_path,
             'conf': conf,
             'fs': config_fs,
             'fw': config_image,
@@ -407,6 +416,8 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
             logger.info("\nStopping for ctrl-c\n")
         finally:
             panda.panda_finish()
+            host_vsock_bridge.kill()
+            shutil.rmtree(tmpdir.name)
 
     if show_output:
         _run()

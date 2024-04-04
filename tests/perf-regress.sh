@@ -23,10 +23,10 @@ fi
 # In container
 set -eu
 trap 'rm -rf /fw/*' EXIT
-penguin --novsock /fw/fw.rootfs.tar.gz /fw/results
+penguin /fw/fw.rootfs.tar.gz /fw/results
 
 # Start emulation
-penguin --novsock --config /fw/results/config.yaml /fw/results/out &
+penguin --config /fw/results/config.yaml /fw/results/out &
 penguin_pid=$!
 
 # Wait for HTTP server to start
