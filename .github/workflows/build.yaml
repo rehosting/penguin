@@ -66,11 +66,30 @@ jobs:
       - name: Test ${{ matrix.test }} for ${{ matrix.arch }} kernel v${{ matrix.kernel }}
         run: python3 $GITHUB_WORKSPACE/tests/unit_tests/test.py --kernel-version ${{ matrix.kernel }} --arch ${{ matrix.arch }} --test ${{ matrix.test }}
 
-  push_to_dockerhub:
+  push_docker_and_release:
     needs: run_tests
     runs-on: self-hosted
     if: github.ref == 'refs/heads/main'
     steps:
+      - name: Get next version
+        uses: reecetech/version-increment@2023.10.1
+        id: version
+        with:
+          use_api: true
+      
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.v-version }}
+          release_name: Release ${{ steps.version.outputs.v-version }} ${{ github.ref }}
+          body: |
+            Release ${{ steps.version.outputs.v-version }} @${{ github.ref }}
+          draft: true
+          prerelease: false
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -81,4 +100,5 @@ jobs:
         run: |
               docker pull rehosting/penguin:${{ github.sha }};
               docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:latest;
-              docker push rehosting/penguin:latest
+              docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:${{ steps.version.outputs.v-version }};
+              docker push -a rehosting/penguin:latest
