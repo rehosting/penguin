@@ -67,7 +67,7 @@ jobs:
         run: python3 $GITHUB_WORKSPACE/tests/unit_tests/test.py --kernel-version ${{ matrix.kernel }} --arch ${{ matrix.arch }} --test ${{ matrix.test }}
 
   push_docker_and_release:
-    needs: run_tests
+    needs: build_container
     runs-on: self-hosted
     if: github.ref == 'refs/heads/main'
     steps:
