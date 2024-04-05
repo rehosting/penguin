@@ -536,9 +536,11 @@ def shim_configs(config, auto_explore=False):
         #'fw_getenv': 'fw_printenv',
         #'fw_setenv': 'fw_printenv',
 
-        # XXX ssh keygen and openssl were disabled for large scale single-iter. Whoops
-        'ssh-keygen': 'ssh-keygen',
-        'openssl': 'openssl',
+        # XXX: We should re-enable these later when they work better
+        # For now we could consider trying them in automated analyses, but openssl
+        # shim breaks guests sometimes
+        #'ssh-keygen': 'ssh-keygen',
+        #'openssl': 'openssl',
 
         'reboot': 'exit0.sh',
         'halt': 'exit0.sh',
