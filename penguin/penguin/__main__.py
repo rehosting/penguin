@@ -490,6 +490,7 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
                 raise RuntimeError(f"Static analysis failed to identify an init script. Please specify one in {output_dir}/config.yaml and run again with --config.")
 
     run_base = os.path.dirname(output_dir)
+    print(f"Generating initial filesystem and launching emulation. Please wait a minute")
     PandaRunner().run(config_path, run_base, run_base, output_dir, init=init, timeout=timeout, show_output=True) # niters is 1
 
     # Single iteration: there is not best - don't report that
@@ -583,7 +584,8 @@ def main():
 
     else:
         # We have a config. Run for the specified number of iterations
-        print(f"Running {args.niters} run(s) from {args.config} with {args.nthreads} thread(s)")
+        if args.niters != 1:
+            print(f"Running {args.niters} run(s) from {args.config} with {args.nthreads} thread(s)")
         run_from_config(args.config, args.output_dir, niters=args.niters, nthreads=args.nthreads)
 
 
