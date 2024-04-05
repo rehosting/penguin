@@ -101,4 +101,4 @@ jobs:
               docker pull rehosting/penguin:${{ github.sha }};
               docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:latest;
               docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:${{ steps.version.outputs.v-version }};
-              docker push -a rehosting/penguin:latest
+              docker push -a rehosting/penguin
