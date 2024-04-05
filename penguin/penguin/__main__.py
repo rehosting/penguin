@@ -228,7 +228,7 @@ def extract_and_build(fw, output_dir):
     os.chmod(f"{base}/image.qcow", 0o444)
     return arch, endianness
 
-def build_config(firmware, output_dir, auto_explore=False, timeout=None, niters=1):
+def build_config(firmware, output_dir, auto_explore=False, timeout=None, niters=1, derive_from=None):
     '''
     Given a firmware binary and an output directory, this function will
     extract the firmware, build a qemu image, and create a config file
@@ -305,18 +305,6 @@ def build_config(firmware, output_dir, auto_explore=False, timeout=None, niters=
             'mode': 0o444,
         }
 
-    #for t in "console" "libnvram" "utils.bin" "utils.source" "vpn"; do
-    #    UTILS="$STATIC_DIR/$t"
-    #    [ -d "$UTILS" ] || { echo "FATAL: Missing utilities directory $UTILS" >&2; exit 1; }
-    #
-    #    for f in "$UTILS"/*.${ARCH} "$UTILS"/*.all; do
-    #        [ -e "$f" ] || { echo "WARN: No files matching pattern $f"; continue; }
-    #        fname=$(basename "$f")
-    #        dest="${IGLOO}/utils/${fname%.*}"
-    #        cp "$f" "$dest"
-    #        chmod +x "$dest"
-    #    done
-    #done
     data['static_files']["/igloo"] = {
         'type': "dir",
         'mode': 0o755,
@@ -337,7 +325,6 @@ def build_config(firmware, output_dir, auto_explore=False, timeout=None, niters=
                     'host_path': f"/igloo_static/{util_dir}/{f}",
                     'mode': 0o755,
                 }
-
 
     data['plugins'] =  default_plugins
 
@@ -445,6 +432,15 @@ def build_config(firmware, output_dir, auto_explore=False, timeout=None, niters=
     if 'meta' in data:
         del data['meta']
 
+    # If we have a derive_from, we'll load it and update our data with it
+    if derive_from:
+        if not os.path.isfile(derive_from):
+            raise RuntimeError(f"Derive_from file not found: {derive_from}")
+
+        print(f"Refining configuration with provided configuration overrides {derive_from}")
+        with open(derive_from, 'r') as f:
+            data.update(yaml.safe_load(f))
+
     # Write config to both output and base directories. Disable flow style and width
     # so that our multi-line init script renders the way we want
     for idx, outfile in enumerate([f"{output_dir}/base/initial_config.yaml",
@@ -536,6 +532,8 @@ def main():
     parser.add_argument('--niters', type=int, default=1, help='How many interations to run. Default 1')
     parser.add_argument('--force', action='store_true', default=False, help="Forcefully delete output directory")
 
+    parser.add_argument('--derive_from', type=str, help='Baseline YAML configuration to override defaults when generating a new config', default=None)
+
     parser.add_argument('firmware', type=str, nargs='?', help='The firmware path. Required if --config is not set, otherwise this must not be set.')
     parser.add_argument('output_dir', type=str, help='The output directory path.')
 
@@ -567,7 +565,7 @@ def main():
                                "Please provide a firmware file or run with --config to "\
                                "use the config file.")
 
-        args.config = build_config(args.firmware, args.output_dir, auto_explore=args.auto, timeout=args.timeout, niters=args.niters)
+        args.config = build_config(args.firmware, args.output_dir, auto_explore=args.auto, timeout=args.timeout, niters=args.niters, derive_from=args.derive_from)
 
         if args.config is None:
             # We failed to generate a config. We'll have written a result file to the output dir
