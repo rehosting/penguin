@@ -109,5 +109,5 @@ if [[ "$1" == "req" ]]; then
 else
     # No need to log this in general, we expect to see it quite often
     #echo "openssl:shim Unsupported openssl command $@" > $LOGGER
-    exec /igloo/utils/openssl.orig "$@"
+    exec /igloo/utils/openssl.orig $@
 fi
