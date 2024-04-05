@@ -1183,7 +1183,7 @@ def add_firmae_hacks(config, output_dir):
             'contents': cmd_str,
             'mode': 0o755
         }
-        config['core']['force_www'] = True
+        config['core']['force_www'] = False
 
 def extend_config_with_static(base_config, outdir, auto_explore=False):
 
