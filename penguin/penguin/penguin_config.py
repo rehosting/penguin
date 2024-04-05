@@ -158,7 +158,7 @@ class Core(BaseModel):
     shared_dir: Annotated[
         Optional[str],
         Field(
-            False,
+            None,
             title="Host path of shared directory",
             description="Share this directory as /igloo/shared in the guest.",
             examples=["/shared"],
