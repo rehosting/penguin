@@ -87,7 +87,7 @@ jobs:
           release_name: Release ${{ steps.version.outputs.v-version }} ${{ github.ref }}
           body: |
             Release ${{ steps.version.outputs.v-version }} @${{ github.ref }}
-          draft: true
+          draft: false
           prerelease: false
 
       - name: Log in to Docker Hub
