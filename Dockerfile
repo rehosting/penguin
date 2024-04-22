@@ -144,7 +144,7 @@ RUN apt-get update && apt-get install -q -y \
       python3-setuptools \
     && apt-get build-dep -y nmap \
     && rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 https://github.com/AndrewFasano/nmap.git /src
+RUN git clone --depth 1 https://github.com/rehosting/nmap.git /src
 # We want to install into /build/nmap
 RUN cd /src && ./configure --prefix=/build/nmap && make -j$(nproc) && make install
 
