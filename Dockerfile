@@ -4,7 +4,7 @@ ARG DOWNLOAD_TOKEN="github_pat_11AACH7QA0tuVodqXUxSAy_Wq5btZcV0nnuFbRv2XDZRAci4A
 ARG PANDA_VERSION="1.8.17"
 ARG BUSYBOX_VERSION="0.0.1"
 ARG LINUX_VERSION="2.2.0"
-ARG LIBNVRAM_VERSION="0.0.1"
+ARG LIBNVRAM_VERSION="0.0.2"
 ARG CONSOLE_VERSION="1.0.2"
 ARG PENGUIN_PLUGINS_VERSION="1.5.6"
 ARG UTILS_VERSION="4"
@@ -203,6 +203,8 @@ RUN apt-get update && apt-get install -y \
     telnet \
     vim \
     wget \
+    clang \
+    lld \
     zlib1g && \
     apt install -yy -f /tmp/pandare.deb && \
     rm -rf /var/lib/apt/lists/* /tmp/pandare.deb

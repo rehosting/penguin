@@ -369,6 +369,42 @@ def derive_qcow_from(qcow_file, out_dir, files, out_filename=None):
 
     return new_qcow_file
 
+def add_lib_inject(config):
+    arch = config['core']['arch']
+
+    target_triple = {
+        "armel": "armv5-linux-musleabi",
+        "mipsel": "mipsel-linux-musl",
+        "mipseb": "mips-linux-musl",
+        "mips64eb": "mips64-linux-musl",
+    }[arch]
+
+    lib_inject = config.get('lib_inject', dict())
+
+    p = subprocess.run(
+        [
+            "clang",
+            "-fuse-ld=lld", "-Oz", "-shared", "-nostdlib",
+            "-target", target_triple,
+            f"/igloo_static/libnvram/nvram.o.{arch}",
+            "--language", "c", "-",
+            "-o", "-",
+            "-Wl," + ",".join([
+                f"--defsym={sym}={repl}"
+                for sym, repl in lib_inject.get('aliases', dict()).items()
+            ])
+        ],
+        input=lib_inject.get('extra', '').encode(),
+        stdout=subprocess.PIPE,
+    )
+    assert p.returncode == 0
+
+    config['static_files']['/igloo/lib_inject.so'] = {
+        'type': 'inline_file',
+        'contents': p.stdout,
+        'mode': 0o444,
+    }
+
 def prepare_run(conf, out_dir, out_filename="image.qcow2"):
     base_qcow = conf['core']['qcow']
     config_files = conf['static_files'] if 'static_files' in conf else {}
@@ -393,6 +429,8 @@ def prepare_run(conf, out_dir, out_filename="image.qcow2"):
             'contents': encoded,
             'mode': 0o644,
         }
+
+    add_lib_inject(conf)
 
     # Given this yaml config, we need to make the specified changes both statically and dynamically
 
