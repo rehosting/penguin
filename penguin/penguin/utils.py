@@ -203,7 +203,7 @@ def hash_image_inputs(conf):
     args = str(inspect.signature(penguin_prep.derive_qcow_from))
     assert args == '(qcow_file, out_dir, files, out_filename=None)'
 
-    return hash_yaml([static_files, qcow_hash])
+    return hash_yaml([static_files, qcow_hash, conf.get('lib_inject')])
 
 
 def _load_penguin_analysis_from(plugin_file):

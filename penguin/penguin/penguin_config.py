@@ -442,6 +442,30 @@ UBootEnv = _newtype(
     default=dict(),
 )
 
+LibInjectAliases = _newtype(
+    class_name="LibInjectAliases",
+    type_=dict[str,str],
+    title="Injected library aliases",
+    description="Mapping between names of external library functions and names of functions defined in the injected library. This allows replacing arbitrary library functions with your own code.",
+    default=dict(),
+    examples=[
+        dict(fputs="false", nvram_load="nvram_init"),
+    ],
+)
+
+class LibInject(BaseModel):
+    """Configuration for a dynamically-linked C library to be injected into all dynamically-linked programs in the guest"""
+    model_config = ConfigDict(title="Injected library configuration", extra="forbid")
+
+    aliases: Optional[LibInjectAliases] = None
+    extra: Annotated[
+        Optional[str],
+        Field(
+            None,
+            title="Extra injected library code",
+            description="Additional custom source code to include in the library",
+        ),
+    ]
 
 StaticFileAction = _union(
     class_name="StaticFileAction",
@@ -575,6 +599,7 @@ class Main(BaseModel):
     netdevs: Optional[NetDevs] = None
     uboot_env: Optional[UBootEnv] = None
     blocked_signals: Optional[BlockedSignals] = None
+    lib_inject: Optional[LibInject] = None
     static_files: StaticFiles
     plugins: Annotated[dict[str, Plugin], Field(title="Plugins")]
 
