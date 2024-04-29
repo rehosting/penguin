@@ -233,7 +233,8 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
       pyyaml \
       pyvis \
       jsonschema \
-      setuptools
+      setuptools \
+      art
 
 # ZAP setup
 #COPY --from=downloader /zap /zap
