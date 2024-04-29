@@ -4,6 +4,8 @@ import os
 import shutil
 import subprocess
 import tarfile
+import argparse
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from collections import Counter
 from elftools.elf.elffile import ELFFile
@@ -506,88 +508,163 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
         total_score = sum(best_scores.values())
         f.write(f"{total_score:.02f}\n")
 
-def main():
+
+def penguin_new(args):
+    firmware = Path(args.firmware)
+
+    assert firmware.exists(), "provided firmware does not exist"
+    # We don't have a config. Generate one.
+    # Set up for auto exploration if --auto
+    print(f"Generating config for {args.firmware}")
+
+    if args.firmware.endswith(".yaml"):
+        # We were given a config, not a firmware
+        raise RuntimeError("FATAL: It looks like provided a config file ending with .yaml."\
+                           "Please provide a firmware file or run with --config to "\
+                           "use the config file.")
+
+    args.config = build_config(args.firmware, args.output_dir, auto_explore=args.auto, timeout=args.timeout, niters=args.niters, derive_from=args.derive_from)
+
+    if args.config is None:
+        # We failed to generate a config. We'll have written a result file to the output dir
+        print(f"Failed to generate config for {args.firmware}. See {args.output_dir}/result for details.")
+        return
+
+    # Do we still want this functionality?
+    # # If we were given a firmware, by default we won't run it, but if niters != 1, we will
+    # if args.auto and args.niters > 0:
+    #     print(f"Running {args.niters} run(s) from {args.config} with {args.nthreads} thread(s). Storing results in {args.output_dir}/runs")
+
+    #     # XXX we behave diffrently if niters is 1 in run_from_config. If niters is one we'll spit results into /output
+    #     # otherwise we'll do runs/X/output
+    #     output_dir = os.path.join(args.output_dir, "output") if args.niters == 1 else args.output_dir
+    #     run_from_config(os.path.join(args.output_dir, "config.yaml"), output_dir, niters=args.niters, nthreads=args.nthreads, timeout=args.timeout)
+
+def penguin_run(args):
+    if args.force and os.path.isdir(args.output_dir):
+        shutil.rmtree(args.output_dir, ignore_errors=True)
+
+    config = Path(args.config)
+    assert config.exists(), "Config file does not exist"
+    run_from_config(args.config, args.output_dir)
+
+def penguin_explore(args):
+    if args.force and os.path.isdir(args.output_dir):
+        shutil.rmtree(args.output_dir, ignore_errors=True)
+    
+    assert args.niters > 0, "you provided a config file and set niters=0. That won't do anything"
+    # We have a config. Run for the specified number of iterations
+    run_from_config(args.config, args.output_dir, niters=args.niters, nthreads=args.nthreads)
+
+'''
+These are arguments shared by the parsers who implement the "new" command
+'''
+def add_new_arguments(parser):
+    parser.add_argument('firmware', type=str, help='The firmware path. (e.g. /path/to/fw.tar.gz)')
+    parser.add_argument('--output_dir', type=str, help="Optional path for specifying artifacts path")
+    parser.add_argument('--derive_from', type=str, help='Baseline YAML configuration to override defaults when generating a new config', default=None)
+
+'''
+These are arguments shared by the parsers who implement the "run" command
+'''
+def add_run_arguments(parser):
+    parser.add_argument('config', type=str, help='Path to a config file. If set, the firmware argument is not required.', default='config.yml')
+    parser.add_argument('--output_dir', type=str, help='The output directory path.')
+    parser.add_argument('--force', action='store_true', default=False, help="Forcefully delete output directory")
+
+'''
+These are arguments shared by the parsers who implement the "explore" command
+'''
+def add_explore_arguments(parser):
+    add_run_arguments(parser)
+    parser.add_argument('--nthreads', type=int, default=1, help='Number of workers to use (not actually threads). Default 1.')
+    parser.add_argument('--timeout', type=int, default=None, help='Timeout in seconds for each run. Default is 300s if auto-explore or no timeout otherwise')
+    parser.add_argument('--auto', action='store_true', default=False, help="Automatically explore the provided firmware for niters. Configuration will be generated with automation plugins enabled. Meaningless with --config. Default False.")
+    parser.add_argument('--niters', type=int, default=1, help='How many interations to run. Default 1')
+
+def pretty_print_penguin_banner():    
+    import art
+    art.tprint("penguin", "tarty1-large")
+
+def penguin_entry():
+    pretty_print_penguin_banner()
     from sys import argv
-    import argparse
 
     # Create the parser
     parser = argparse.ArgumentParser(description="""
 
-    Configuration based firmware rehosting. Penguin can generate configs from a firmware or run a config.
+Configuration based firmware rehosting. Penguin can generate configs from a firmware or run a config.
 
-        EXAMPLE USAGE:
-            # First generate a config for firmware.bin at /output/myfirmware/config.yaml
-            penguin /fws/firmware.bin /results/myfirmware
-
-            # Then run with that config and log results to the results directory
-            penguin --config /results/myfirmware/config.yaml /results/myfirmware/results
+    EXAMPLE USAGE:
+        # Generate a config for firmware.bin
+        penguin new /fws/firmware.bin
+        
+        # OR:
+        penguin new /fws/firmware.bin --out /results/firmware
+        
+        # Both output a config at /results/firmware/config.yaml
+        
+        # Run that config with:
+        penguin run /results/firmware/config.yaml
+        
+        # which will output results in the folder /results/firmware/1/
+        
+        # Alternatively you can specify a folder for results with
+        
+        penguin run /results/firmware/config.yaml --out /results/firmware/results/
+        
         """,
         formatter_class=argparse.RawTextHelpFormatter)
+    
+    subparsers = parser.add_subparsers(help='subcommand help', dest='cmd')
 
+    parser_cmd_new = subparsers.add_parser('new', help='New penguin project')
+    add_new_arguments(parser_cmd_new)
+    
+    parser_cmd_run = subparsers.add_parser('run', help='Run penguin from a config')
+    add_run_arguments(parser_cmd_run)
 
-    parser.add_argument('--config', type=str, help='Path to a config file. If set, the firmware argument is not required.')
-    parser.add_argument('--nthreads', type=int, default=1, help='Number of workers to use (not actually threads). Default 1.')
-    parser.add_argument('--timeout', type=int, default=None, help='Timeout in seconds for each run. Default is 300s if auto-explore or no timeout otherwise')
-
-    parser.add_argument('--auto', action='store_true', default=False, help="Automatically explore the provided firmware for niters. Configuration will be generated with automation plugins enabled. Meaningless with --config. Default False.")
-    parser.add_argument('--niters', type=int, default=1, help='How many interations to run. Default 1')
-    parser.add_argument('--force', action='store_true', default=False, help="Forcefully delete output directory")
-
-    parser.add_argument('--derive_from', type=str, help='Baseline YAML configuration to override defaults when generating a new config', default=None)
-
-    parser.add_argument('firmware', type=str, nargs='?', help='The firmware path. Required if --config is not set, otherwise this must not be set.')
-    parser.add_argument('output_dir', type=str, help='The output directory path.')
-
+    parser_cmd_explore = subparsers.add_parser('explore', help='Explore penguin configuration space')
+    add_explore_arguments(parser_cmd_explore)
+    
     args = parser.parse_args()
-
-    if not args.config and not args.firmware:
-        # We must have either a config or a firmware
-        parser.error("you must specify a config file (with --config) or a firmware file.")
-
-    if args.config and args.firmware:
-        # Can't have both
-        parser.error("you provided both a config file and a firmware file. Please choose one.")
-
-    if args.config and args.niters == 0:
-        # Nothing to do if you have a config and niters is 0
-        parser.error("you provided a config file and set niters=0. That won't do anything")
-
-    if args.force and os.path.isdir(args.output_dir):
-        shutil.rmtree(args.output_dir, ignore_errors=True)
-
-    if not args.config:
-        # We don't have a config. Generate one.
-        # Set up for auto exploration if --auto
-        print(f"Generating config for {args.firmware}")
-
-        if args.firmware.endswith(".yaml"):
-            # We were given a config, not a firmware
-            raise RuntimeError("FATAL: It looks like provided a config file ending with .yaml."\
-                               "Please provide a firmware file or run with --config to "\
-                               "use the config file.")
-
-        args.config = build_config(args.firmware, args.output_dir, auto_explore=args.auto, timeout=args.timeout, niters=args.niters, derive_from=args.derive_from)
-
-        if args.config is None:
-            # We failed to generate a config. We'll have written a result file to the output dir
-            print(f"Failed to generate config for {args.firmware}. See {args.output_dir}/result for details.")
-            return
-
-        # If we were given a firmware, by default we won't run it, but if niters != 1, we will
-        if args.auto and args.niters > 0:
-            print(f"Running {args.niters} run(s) from {args.config} with {args.nthreads} thread(s). Storing results in {args.output_dir}/runs")
-
-            # XXX we behave diffrently if niters is 1 in run_from_config. If niters is one we'll spit results into /output
-            # otherwise we'll do runs/X/output
-            output_dir = os.path.join(args.output_dir, "output") if args.niters == 1 else args.output_dir
-            run_from_config(os.path.join(args.output_dir, "config.yaml"), output_dir, niters=args.niters, nthreads=args.nthreads, timeout=args.timeout)
-
+    
+    if args.cmd == "new":
+        penguin_new(args)
+    elif args.cmd == "run":
+        penguin_run(args)
+    elif args.cmd == "explore":
+        penguin_explore(args)
     else:
-        # We have a config. Run for the specified number of iterations
-        if args.niters != 1:
-            print(f"Running {args.niters} run(s) from {args.config} with {args.nthreads} thread(s)")
-        run_from_config(args.config, args.output_dir, niters=args.niters, nthreads=args.nthreads)
+        parser.print_help()
 
+'''
+Functions of the type penguin_CMD_entry are entrypoints from setup.cfg for any 
+command which does not specify "penguin" before running.
+'''
+def penguin_new_entry():
+    pretty_print_penguin_banner()
+    parser = argparse.ArgumentParser()
+    add_new_arguments(parser)
+    args = parser.parse_args()
+    penguin_new(args)
+
+def penguin_run_entry():
+    pretty_print_penguin_banner()
+    parser = argparse.ArgumentParser()
+    add_run_arguments(parser)
+    args = parser.parse_args()
+    penguin_run(args)
+
+def penguin_explore_entry():
+    pretty_print_penguin_banner()
+    parser = argparse.ArgumentParser()
+    add_explore_arguments(parser)
+    args = parser.parse_args()
+    penguin_new(args)
+
+def main():
+    penguin_entry()
 
 if __name__ == "__main__":
     main()
