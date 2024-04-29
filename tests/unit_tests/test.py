@@ -150,7 +150,7 @@ def main():
         ]),
         "env_cmp": assert_generic("env_cmp.txt", [
             "firsttarget",
-            # "secondtarget" # TODO: this is not found
+            "secondtarget"
         ]),
         "pseudofile_missing": assert_generic("pseudofiles_failures.yaml", [
             "/dev/missing",
