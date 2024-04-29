@@ -13,7 +13,7 @@ from .penguin_static import extend_config_with_static
 from .common import yaml
 from .manager import graph_search, PandaRunner, report_best_results, calculate_score
 
-from .defaults import default_init_script, default_plugins, default_version, default_netdevs, default_pseudofiles
+from .defaults import default_init_script, default_plugins, default_version, default_netdevs, default_pseudofiles, default_lib_aliases
 from .utils import load_config, dump_config, arch_end
 
 static_dir = "/igloo_static/"
@@ -276,6 +276,7 @@ def build_config(firmware, output_dir, auto_explore=False, timeout=None, niters=
 
     data['env'] = {}
     data['pseudofiles'] = default_pseudofiles
+    data['lib_inject'] = {'aliases': default_lib_aliases}
 
     data['static_files'] = {
         "/igloo/init": {
