@@ -87,7 +87,7 @@ RUN /get_release.sh rehosting console ${CONSOLE_VERSION} ${DOWNLOAD_TOKEN} | \
 # Download libnvram from CI. Populate /igloo_static/libnvram
 ARG LIBNVRAM_VERSION
 RUN /get_release.sh rehosting libnvram ${LIBNVRAM_VERSION} ${DOWNLOAD_TOKEN} | \
-    tar xzf - -C /igloo_static
+    tar xzf - -C /igloo_static --exclude 'libnvram.so.*'
 
 # Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
 ARG VPN_VERSION
