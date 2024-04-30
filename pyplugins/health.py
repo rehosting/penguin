@@ -3,7 +3,7 @@ from os import environ as env
 import socket
 import time
 import random
-
+import traceback
 
 class Health(PyPlugin):
     def __init__(self, panda):
@@ -76,6 +76,7 @@ class Health(PyPlugin):
                 self.ppp_run_cb('igloo_exec', cpu, fname, nullable_argv)
             except Exception as e:
                 print(f"Exn in health.igloo_exec: {e}")
+                traceback.print_exc()
 
             unique_name = f"{fname} {' '.join(argv)}"
             if unique_name not in self.procs_args:
