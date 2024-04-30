@@ -62,10 +62,11 @@ class Interfaces(PyPlugin):
         iface = None
         if fname.endswith('/ip') or argv[0] == 'ip':
             # (ip .* dev \K[a-zA-Z0-9.]+(?=))'
-            if any('dev' in arg for arg in argv if arg is not None):
-                for idx, arg in enumerate(argv):
-                    if 'dev' in arg and idx < len(argv)-1:
-                        iface = argv[idx+1]
+            for idx, arg in enumerate(argv):
+                if not arg:
+                    continue
+                if 'dev' in arg and idx < len(argv)-1:
+                    iface = argv[idx+1]
 
         if fname.endswith('/ifconfig') or argv[0] == 'ifconfig':
             # device is the first argument
