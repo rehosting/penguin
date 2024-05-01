@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import tarfile
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from collections import Counter
 from elftools.elf.elffile import ELFFile
@@ -457,6 +458,7 @@ def build_config(firmware, output_dir, auto_explore=False, timeout=None, niters=
     return f"{output_dir}/config.yaml"
 
 def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None):
+
     if not os.path.isfile(config_path):
         raise RuntimeError(f"Config file not found: {config_path}")
 
@@ -493,7 +495,8 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
             else:
                 raise RuntimeError(f"Static analysis failed to identify an init script. Please specify one in {output_dir}/config.yaml and run again with --config.")
 
-    run_base = os.path.dirname(output_dir)
+    # XXX is this the right run_base? It's now our project dir
+    run_base = os.path.dirname(config_path)
     print(f"Generating initial filesystem and launching emulation. Please wait a minute")
     PandaRunner().run(config_path, run_base, run_base, output_dir, init=init, timeout=timeout, show_output=True) # niters is 1
 
@@ -510,88 +513,199 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
         total_score = sum(best_scores.values())
         f.write(f"{total_score:.02f}\n")
 
-def main():
-    from sys import argv
-    import argparse
-
-    # Create the parser
-    parser = argparse.ArgumentParser(description="""
-
-    Configuration based firmware rehosting. Penguin can generate configs from a firmware or run a config.
-
-        EXAMPLE USAGE:
-            # First generate a config for firmware.bin at /output/myfirmware/config.yaml
-            penguin /fws/firmware.bin /results/myfirmware
-
-            # Then run with that config and log results to the results directory
-            penguin --config /results/myfirmware/config.yaml /results/myfirmware/results
-        """,
-        formatter_class=argparse.RawTextHelpFormatter)
-
-
-    parser.add_argument('--config', type=str, help='Path to a config file. If set, the firmware argument is not required.')
-    parser.add_argument('--nthreads', type=int, default=1, help='Number of workers to use (not actually threads). Default 1.')
-    parser.add_argument('--timeout', type=int, default=None, help='Timeout in seconds for each run. Default is 300s if auto-explore or no timeout otherwise')
-
-    parser.add_argument('--auto', action='store_true', default=False, help="Automatically explore the provided firmware for niters. Configuration will be generated with automation plugins enabled. Meaningless with --config. Default False.")
-    parser.add_argument('--niters', type=int, default=1, help='How many interations to run. Default 1')
-    parser.add_argument('--force', action='store_true', default=False, help="Forcefully delete output directory")
-
+def add_init_arguments(parser):
+    parser.add_argument('firmware', type=str, help='The firmware path. (e.g. /path/to/fw.tar.gz)')
+    parser.add_argument('--output', type=str, help="Optional path for specifying project path.")
     parser.add_argument('--derive_from', type=str, help='Baseline YAML configuration to override defaults when generating a new config', default=None)
+    parser.add_argument('--force', action='store_true', default=False, help="Forcefully delete project directory if it exists")
+    parser.add_argument('--output_base', type=str, help="Default project directory base. Default is 'projects'", default="projects")
 
-    parser.add_argument('firmware', type=str, nargs='?', help='The firmware path. Required if --config is not set, otherwise this must not be set.')
-    parser.add_argument('output_dir', type=str, help='The output directory path.')
+def penguin_init(args):
+    '''
+    Initialize a project from a firmware rootfs
+    '''
+    firmware = Path(args.firmware)
+
+    if not firmware.exists():
+        raise ValueError(f"Firmware file not found: {firmware}")
+
+    if args.firmware.endswith(".yaml"):
+        raise ValueError("FATAL: It looks like you provided a config file (it ends with .yaml)." \
+                         "Please provide a firmware file")
+
+    if args.output is None:
+        # Expect filename to end with .tar.gz - drop that extension
+        if args.firmware.endswith(".rootfs.tar.gz"):
+            basename_stem = os.path.basename(args.firmware)[0:-14] # Drop the .rootfs.tar.gz
+        elif args.firmware.endswith(".tar.gz"):
+            basename_stem = os.path.basename(args.firmware)[0:-7] # Drop the .tar.gz
+        else:
+            # Drop the extension
+            basename_stem = os.path.splitext(os.path.basename(args.firmware))[0]
+
+        if not os.path.exists(args.output_base):
+            os.makedirs(args.output_base)
+        args.output = args.output_base  + "/" + basename_stem
+        print(f"Creating project at generated path: {args.output}")
+    else:
+        print(f"Creating project at specified path: {args.output}")
+
+    if args.force and os.path.isdir(args.output):
+        print(f"Deleting existing project directory: {args.output}")
+        shutil.rmtree(args.output, ignore_errors=True)
+
+    # Ensure output parent directory exists
+    if not os.path.exists(os.path.dirname(args.output)):
+        os.makedirs(os.path.dirname(args.output))
+
+    config = build_config(args.firmware, args.output, auto_explore=False, timeout=None, niters=1,derive_from=args.derive_from)
+
+    if not config:
+        # We failed to generate a config. We'll have written a result file to the output dir
+        print(f"Failed to generate config for {args.firmware}. See {args.output}/result for details.")
+
+def add_patch_arguments(parser):
+    parser.add_argument('config', type=str, help='Path to the full config file to be updated')
+    parser.add_argument('patch', type=str, help='Path to the config patch')
+
+def penguin_patch(args):
+    '''
+    Given a config to be updated and a partial config (the patch), update each
+    field in the config with the corresponding field in the patch.
+    '''
+
+    config = Path(args.config)
+    patch = Path(args.patch)
+
+    if not config.exists():
+        raise ValueError(f"Config file does not exist: {args.config}")
+
+    if not patch.exists():
+        raise ValueError(f"Patch file does not exist: {args.patch}")
+
+    # Read both yaml files
+    with open(config, 'r') as f:
+        base_config = yaml.safe_load(f)
+
+    with open(patch, 'r') as f:
+        patch_config = yaml.safe_load(f)
+
+    # Merge configs.
+    def _recursive_update(base, new):
+        for k, v in new.items():
+            if isinstance(v, dict):
+                base[k] = _recursive_update(base.get(k, {}), v)
+            else:
+                base[k] = v
+        return base
+
+    for key, value in patch_config.items():
+        # Check if the key already exists in the base_config
+        if key in base_config:
+            # If the value is a dictionary, update subfields
+            if isinstance(value, dict):
+                # Recursive update to handle nested dictionaries
+                base_config[key] = _recursive_update(base_config.get(key, {}), value)
+            elif isinstance(value, list):
+                # Replace the list with the incoming list
+                base_config[key] = value
+            else:
+                # Replace the base value with the incoming value
+                base_config[key] = value
+        else:
+            # New key, add all data directly
+            base_config[key] = value
+
+    # Replace the original config with the updated one
+    with open(config, 'w') as f:
+        yaml.dump(base_config, f)
+
+def add_run_arguments(parser):
+    parser.add_argument('config', type=str, help='Path to a config file within a project directory.')
+    parser.add_argument('--output', type=str, help='The output directory path. Defaults to results/X in project directory where X auto-increments.', default=None)
+    parser.add_argument('--force', action='store_true', default=False, help="Forcefully delete output directory if it exists.")
+
+def penguin_run(args):
+    if args.force and os.path.isdir(args.output):
+        shutil.rmtree(args.output, ignore_errors=True)
+
+    config = Path(args.config)
+    if not config.exists():
+        raise ValueError(f"Config file does not exist: {args.config}")
+
+    # Allow config to be the project dir (which contains config.yaml)
+    if os.path.isdir(args.config) and os.path.exists(os.path.join(args.config, "config.yaml")):
+        args.config = os.path.join(args.config, "config.yaml")
+
+    # Sanity check, should have a 'base' directory next to the config
+    if not os.path.isdir(os.path.join(os.path.dirname(args.config), "base")):
+        raise ValueError(f"Config directory does not contain a 'base' directory: {os.path.dirname(args.config)}.")
+
+    if args.output is None:
+        # Expect a config like ./project/myfirmware/config.yaml, get myfirmware from there
+        # and create ./project/myfirmware/results/X and auto-increment X
+        results_base = os.path.dirname(args.config) + "/results/"
+
+        if not os.path.exists(results_base):
+            os.makedirs(results_base)
+            idx = 0
+        else:
+            results = [int(d) for d in os.listdir(results_base) if os.path.isdir(os.path.join(results_base, d))]
+            if len(results) == 0:
+                idx = 0
+            else:
+                idx = max(results) + 1
+        args.output = results_base + str(idx)
+
+    print(f"Running config {args.config}. Results saved to {args.output}")
+    run_from_config(args.config, args.output)
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="""
+    Configuration based firmware rehosting. PENGUIN can generate a project with a configuration for a firmware,
+    run a rehosting as specified in a config, or automatically refine a configuration.
+
+    # First generate a project for a given FW root filesystem which creates
+    # a config file and other artifactrs in results/myfirmware/
+    penguin init myfirmware.bin --output projects/myfirmware
+
+    # Then run with that config and log results to the results directory
+    penguin run projects/myfirmware/config.yaml projects/myfirmware/results/myresults
+    """,
+    formatter_class=argparse.RawTextHelpFormatter)
+
+    subparsers = parser.add_subparsers(help='subcommand', dest='cmd')
+
+    parser_cmd_init = subparsers.add_parser('init', help='Create project from firmware')
+    add_init_arguments(parser_cmd_init)
+
+    parser_cmd_patch = subparsers.add_parser('patch', help='Patch a config file')
+    add_patch_arguments(parser_cmd_patch)
+
+    parser_cmd_run = subparsers.add_parser('run', help='Run from a config')
+    add_run_arguments(parser_cmd_run)
+
+    # NYI
+    #parser_cmd_explore = subparsers.add_parser('explore', help='Explore configuration space')
+    #add_explore_arguments(parser_cmd_explore)
+
+    # Add help and --wrapper-help stub
+    parser.add_argument('--wrapper-help', action='store_true', help='Show help for host penguin wrapper')
 
     args = parser.parse_args()
-
-    if not args.config and not args.firmware:
-        # We must have either a config or a firmware
-        parser.error("you must specify a config file (with --config) or a firmware file.")
-
-    if args.config and args.firmware:
-        # Can't have both
-        parser.error("you provided both a config file and a firmware file. Please choose one.")
-
-    if args.config and args.niters == 0:
-        # Nothing to do if you have a config and niters is 0
-        parser.error("you provided a config file and set niters=0. That won't do anything")
-
-    if args.force and os.path.isdir(args.output_dir):
-        shutil.rmtree(args.output_dir, ignore_errors=True)
-
-    if not args.config:
-        # We don't have a config. Generate one.
-        # Set up for auto exploration if --auto
-        print(f"Generating config for {args.firmware}")
-
-        if args.firmware.endswith(".yaml"):
-            # We were given a config, not a firmware
-            raise RuntimeError("FATAL: It looks like provided a config file ending with .yaml."\
-                               "Please provide a firmware file or run with --config to "\
-                               "use the config file.")
-
-        args.config = build_config(args.firmware, args.output_dir, auto_explore=args.auto, timeout=args.timeout, niters=args.niters, derive_from=args.derive_from)
-
-        if args.config is None:
-            # We failed to generate a config. We'll have written a result file to the output dir
-            print(f"Failed to generate config for {args.firmware}. See {args.output_dir}/result for details.")
-            return
-
-        # If we were given a firmware, by default we won't run it, but if niters != 1, we will
-        if args.auto and args.niters > 0:
-            print(f"Running {args.niters} run(s) from {args.config} with {args.nthreads} thread(s). Storing results in {args.output_dir}/runs")
-
-            # XXX we behave diffrently if niters is 1 in run_from_config. If niters is one we'll spit results into /output
-            # otherwise we'll do runs/X/output
-            output_dir = os.path.join(args.output_dir, "output") if args.niters == 1 else args.output_dir
-            run_from_config(os.path.join(args.output_dir, "config.yaml"), output_dir, niters=args.niters, nthreads=args.nthreads, timeout=args.timeout)
-
+    if args.cmd == "init":
+        penguin_init(args)
+    elif args.cmd == "run":
+        penguin_run(args)
+    elif args.cmd == "patch":
+        penguin_patch(args)
+    elif args.cmd == "explore":
+        raise NotImplementedError("Exploration not yet implemented")
+        #penguin_explore(args)
     else:
-        # We have a config. Run for the specified number of iterations
-        if args.niters != 1:
-            print(f"Running {args.niters} run(s) from {args.config} with {args.nthreads} thread(s)")
-        run_from_config(args.config, args.output_dir, niters=args.niters, nthreads=args.nthreads)
-
+        parser.print_help()
 
 if __name__ == "__main__":
     main()
