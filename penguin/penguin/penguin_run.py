@@ -408,7 +408,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
             return target.handle_hc(cpu, num) # True IFF that handles num
         return False
 
-    logger.info("Run emulation for %s", out_dir)
+    logger.info("Launching rehosting")
     def _run():
         try:
             panda.run()
