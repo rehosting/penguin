@@ -132,7 +132,7 @@ class PandaRunner:
     def __init__(self):
         pass
 
-    def run(self, conf_yaml, run_base, run_dir, out_dir, init=None, timeout=None, show_output=False):
+    def run(self, conf_yaml, proj_dir, out_dir, init=None, timeout=None, show_output=False):
         '''
         If init or timeout are set they override
         '''
@@ -159,11 +159,11 @@ class PandaRunner:
         # SYSTEM() - not my favorite, but we need to kill the subprocess if it hangs.
         # Qemu output goes into out_dir/../qemu_std{out,err}.txt
         # Some initial python output will be returned in the system() call, so let's print it
-        #full_cmd = f"{timeout_cmd}python3 -m penguin.penguin_run {conf_yaml} {out_dir} {run_base}/qcows"
+        #full_cmd = f"{timeout_cmd}python3 -m penguin.penguin_run {conf_yaml} {out_dir} {proj_dir}/qcows"
         #print(system(full_cmd))
 
         # Python subprocess. No pipe (pipes can get full and deadlock the child!)
-        cmd = timeout_cmd + ["python3", "-m", "penguin.penguin_run", conf_yaml, out_dir, f"{run_base}/qcows"]
+        cmd = timeout_cmd + ["python3", "-m", "penguin.penguin_run", conf_yaml, out_dir, f"{proj_dir}/qcows"]
 
         # CLI arg parsing is gross. Sorry
         init_cmd = init if init else "None"
@@ -219,7 +219,7 @@ class PandaRunner:
         ran_file = os.path.join(out_dir, ".ran")
         if not os.path.isfile(ran_file):
             logger.error(f"Missing .ran file with {conf_yaml}")
-            raise RuntimeError(f"ERROR, running {conf_yaml} in {run_dir} did not produce {out_dir}/.ran file")
+            raise RuntimeError(f"ERROR, running {conf_yaml} in {proj_dir} did not produce {out_dir}/.ran file")
 
 class Worker:
     def __init__(self, global_state, config_manager, run_base, max_iters, run_index, active_worker_count, thread_id=None):

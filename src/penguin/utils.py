@@ -168,7 +168,7 @@ def hash_yaml_config(config : dict):
     return hashlib.md5(str(target).encode()).hexdigest()
 
 
-def hash_image_inputs(conf):
+def hash_image_inputs(proj_dir, conf):
     """Create a hash of all the inputs of the image creation process"""
 
     static_files = conf['static_files']
@@ -176,7 +176,7 @@ def hash_image_inputs(conf):
     # Hash contents of qcow
     #
     # TODO: Replace this with Python 3.11's hashlib.hash_file()
-    with open(conf['core']['qcow'], 'rb') as f:
+    with open(os.path.join(proj_dir, conf['core']['qcow']), 'rb') as f:
         qcow_hash = hashlib.sha256()
         while True:
             data = f.read(0x1000)

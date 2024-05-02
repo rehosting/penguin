@@ -264,8 +264,8 @@ def build_config(firmware, output_dir, auto_explore=False, timeout=None, niters=
     data['core'] = {
         'arch': arch+end,
         'kernel': kernel,
-        'fs': os.path.join(output_dir, "base/fs.tar"),
-        'qcow': os.path.join(output_dir, "base/image.qcow"),
+        'fs': "base/fs.tar",
+        'qcow': "base/image.qcow",
         'root_shell': True,
         'show_output': False,
         'strace': False,
@@ -360,7 +360,7 @@ def build_config(firmware, output_dir, auto_explore=False, timeout=None, niters=
     # readable/writable by everyone since non-container users will want to access them
     os.umask(0o000)
 
-    data = extend_config_with_static(data, f"{output_dir}/base/", auto_explore)
+    data = extend_config_with_static(output_dir, data, f"{output_dir}/base/", auto_explore)
 
     if niters == 1:
         # We want to build this configuration for a single-shot rehost.
@@ -462,15 +462,17 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
     if not os.path.isfile(config_path):
         raise RuntimeError(f"Config file not found: {config_path}")
 
+    proj_dir = os.path.dirname(config_path)
+
     try:
         config = load_config(config_path)
     except UnicodeDecodeError:
         raise RuntimeError(f"Config file {config_path} is not a valid unicode YAML file. Is it a firmware file instead of a configuration?")
 
-    if not os.path.isfile(config['core']['qcow']):
+    if not os.path.isfile(os.path.join(proj_dir, config['core']['qcow'])):
         # The config specifies where the qcow should be. Generally this is in
         # the base directory, but it could be elsewhere.
-        raise RuntimeError(f"Base qcow not found: {config['core']['qcow']}")
+        raise RuntimeError(f"Base qcow not found in project {proj_dir}: {config['core']['qcow']}")
 
     if not os.path.isfile(config['core']['kernel']):
         # The config specifies where the kernel shoudl be. Generally this is in
@@ -496,9 +498,9 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
                 raise RuntimeError(f"Static analysis failed to identify an init script. Please specify one in {output_dir}/config.yaml and run again with --config.")
 
     # XXX is this the right run_base? It's now our project dir
-    run_base = os.path.dirname(config_path)
+    proj_dir = os.path.dirname(config_path)
     print(f"Generating initial filesystem and launching emulation. Please wait a minute")
-    PandaRunner().run(config_path, run_base, run_base, output_dir, init=init, timeout=timeout, show_output=True) # niters is 1
+    PandaRunner().run(config_path, proj_dir, output_dir, init=init, timeout=timeout, show_output=True) # niters is 1
 
     # Single iteration: there is not best - don't report that
     #report_best_results(run_base, output_dir, os.path.dirname(output_dir))
