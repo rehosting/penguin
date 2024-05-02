@@ -147,11 +147,11 @@ def find_shell_scripts(tmp_dir):
             if file_path.is_file() and os.access(file_path, os.X_OK) and str(file_path).endswith('.sh'):
                 yield file_path
 
-def pre_shim(config, auto_explore=False):
+def pre_shim(proj_dir, config, auto_explore=False):
     '''
     General static analysis for configuration updates. Make directories we think are missing, add standard files.
     '''
-    fs_path = config['core']['fs'] # tar archive
+    fs_path = os.path.join(proj_dir, config['core']['fs']) # tar archive
 
     # Add /firmadyne/ttyS1 for console - we could pick a different major/minor number later to ensure the guest
     # can't stomp on us. Or we could patch console to use a different path (i.e., something sane in /dev)
@@ -459,7 +459,7 @@ def analyze_library(elf_path, config):
 
     return nvram_data, symbols
 
-def library_analysis(config, outdir):
+def library_analysis(proj_dir ,config, outdir):
     '''
     Examine all the libraries (.so, .so.* files) in the filesystem. Use pyelftools to parse
     and analyze symbols
@@ -470,7 +470,7 @@ def library_analysis(config, outdir):
 
     # Temporary directory for tar file extraction
     with tempfile.TemporaryDirectory() as tmp_dir:
-        with tarfile.open(config['core']['fs'], 'r') as tar:
+        with tarfile.open(os.path.join(proj_dir, config['core']['fs']), 'r') as tar:
             #tar.extractall(tmp_dir)
             # Only extract *.so or .so.* files:
             for member in tar.getmembers():
@@ -518,13 +518,13 @@ def _kernel_version_to_int(potential_name):
     return comps[0] * 10000 + comps[1] * 100 + comps[2]
 
 
-def shim_configs(config, auto_explore=False):
+def shim_configs(proj_dir, config, auto_explore=False):
     '''
     Identify binaries in the guest FS that we want to shim
     and add symlinks to go from guest bin -> igloo bin
     into our config.
     '''
-    fs_path  = config['core']['fs'] # tar archive
+    fs_path = os.path.join(proj_dir, config['core']['fs']) # tar archive
 
     # XXX: For now we'll only shim executables - if we later want to shim other things we need to
     # Update some of the later checks
@@ -674,9 +674,9 @@ def _is_init_script(tarinfo, fs):
 
     return False
 
-def add_init_meta(base_config, output_dir):
+def add_init_meta(proj_dir, base_config, output_dir):
     # Examine the filesystem and find any binaries that might be an init binary
-    fs_path = base_config['core']['fs'] # tar archive
+    fs_path = os.path.join(proj_dir, base_config['core']['fs']) # tar archive
     inits = []
 
     try:
@@ -736,10 +736,10 @@ def add_init_meta(base_config, output_dir):
     base_config['meta']['potential_init'] = inits
 
 
-def add_dev_proc_meta(base_config, output_dir):
+def add_dev_proc_meta(proj_dir, base_config, output_dir):
     pattern = re.compile(r'\/dev\/([A-Za-z0-9_/]+)', re.MULTILINE)
 
-    tar_path = base_config['core']['fs'] # Should all be the same
+    tar_path = os.path.join(proj_dir, base_config['core']['fs']) # Should all be the same
     potential_devfiles = ["/dev/" + x for x in _find_in_fs(pattern, tar_path).keys()]
 
     # Drop anything already in the FS or in our list of known device files
@@ -783,11 +783,11 @@ def add_dev_proc_meta(base_config, output_dir):
 
     base_config['meta']['potential_files'] = potential_files
 
-def add_env_meta(base_config, output_dir):
+def add_env_meta(proj_dir, base_config, output_dir):
     # We want to search the filesystem for shell scripts accessing /proc/cmdline
     # and try to guess at what environment variables we might want to set
     # based on that. Store in meta ['potential_env'] field - we'll set them later
-    tar_path = base_config['core']['fs'] # Should all have the same FS
+    tar_path = os.path.join(proj_dir, base_config['core']['fs']) # Should all have the same FS
     pattern = re.compile(r'\/proc\/cmdline.*?([A-Za-z0-9_]+)=', re.MULTILINE)
     potential_keys = _find_in_fs(pattern, tar_path).keys()
 
@@ -948,8 +948,8 @@ def default_nvram_values():
     return nvram
 
 
-def add_nvram_meta(config, output_dir):
-    fs_path = config['core']['fs']
+def add_nvram_meta(proj_dir, config, output_dir):
+    fs_path = os.path.join(proj_dir, config['core']['fs'])
     nvram_sources = {} # source -> count
 
     # Open our output dir's library.csv and parse (from library_analysis)
@@ -1125,13 +1125,13 @@ def add_nvram_meta(config, output_dir):
         ", ".join([f"{source} ({count})" for source, count in nvram_sources.items() if count]))
 
 
-def add_firmae_hacks(config, output_dir):
+def add_firmae_hacks(proj_dir, config, output_dir):
     # This is a hacky FirmAE approach to identify webservers and just start
     # them. Unsurprisingly, it increases the rate of web servers starting.
     # We'll export this into our static files section so we could later decide
     # to try it. We'll enable this by default here.
 
-    fs_path = config['core']['fs'] # tar archive
+    fs_path = os.path.join(proj_dir, config['core']['fs']) # tar archive
     # Map between filename and command
     file2cmd = {
         './etc/init.d/uhttpd': '/etc/init.d/uhttpd start',
@@ -1187,30 +1187,30 @@ def add_firmae_hacks(config, output_dir):
         }
         config['core']['force_www'] = False
 
-def extend_config_with_static(base_config, outdir, auto_explore=False):
+def extend_config_with_static(proj_dir, base_config, outdir, auto_explore=False):
 
     if 'meta' not in base_config:
         base_config['meta'] = {}
 
-    pre_shim(base_config)
+    pre_shim(proj_dir, base_config)
 
     # Search the filesystem for filenames that we want to shim with igloo-utils
     # We shim them all, every time
-    shim_configs(base_config, auto_explore)
+    shim_configs(proj_dir, base_config, auto_explore)
 
     # Next we want to identify potential device files and environment variables
     # These are stored in our metadata: [meta][potential_dev] and [meta][potential_env]
     # and they write to base/{env,files,init}.yaml
-    add_init_meta(base_config, outdir)
-    add_env_meta(base_config, outdir)
-    add_dev_proc_meta(base_config, outdir)
+    add_init_meta(proj_dir, base_config, outdir)
+    add_env_meta(proj_dir, base_config, outdir)
+    add_dev_proc_meta(proj_dir, base_config, outdir)
 
     # Analyze *.so, *.so.* to learn about library functions
     # and exported nvram values
-    library_analysis(base_config, outdir)
-    add_nvram_meta(base_config, outdir) # Sets more nvram values
+    library_analysis(proj_dir, base_config, outdir)
+    add_nvram_meta(proj_dir, base_config, outdir) # Sets more nvram values
 
-    add_firmae_hacks(base_config, outdir)
+    add_firmae_hacks(proj_dir, base_config, outdir)
 
     # TODO: Additional static analysis of shell scripts to find more environment variables?
     # We could do some LLM-based shell script analysis
@@ -1228,7 +1228,8 @@ def main():
     # We don't use the returned object with the meta fields when called directly
     inconf = yaml.load(open(argv[1]), Loader=yaml.FullLoader)
     outdir = argv[2] if len(argv) > 2 else dirname(argv[1])
-    extend_config_with_static(inconf, outdir)
+    proj_dir = dirname(argv[1])
+    extend_config_with_static(proj_dir, inconf, outdir)
 
 if __name__ == '__main__':
     main()

@@ -112,15 +112,18 @@ def redirect_stdout_stderr(stdout_path, stderr_path):
         os.close(new_stderr)
 
 
-def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, timeout=None, show_output=False):
+def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, timeout=None, show_output=False):
     '''
-    conf_yaml a path to our config
-    qcow_dir contains image.qcow + config.yaml
+    conf_yaml a path to our config within proj_dir
+    proj_dir contains config.yaml
     out_dir stores results and a copy of config.yaml
     '''
 
-    if qcow_dir is None:
-        qcow_dir = os.path.join(os.path.dirname(conf_yaml), 'qcows')
+    # Ensure config_yaml is directly in proj_dir
+    if os.path.dirname(conf_yaml) != proj_dir:
+        raise ValueError(f"config_yaml must be in proj_dir: config directory {os.path.dirname(conf_yaml)} != {proj_dir}")
+
+    qcow_dir = os.path.join(proj_dir, 'qcows')
     if not os.path.isdir(qcow_dir):
         os.makedirs(qcow_dir, exist_ok=True)
 
@@ -158,7 +161,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
 
     archend = conf['core']['arch']
     kernel = conf['core']['kernel']
-    config_fs = conf['core']['fs'] # Path to tar filesystem
+    config_fs = os.path.join(proj_dir, conf['core']['fs']) # Path to tar filesystem
     plugin_path = conf['core']['plugin_path'] if 'plugin_path' in conf['core'] else default_plugin_path
     static_files = conf['static_files'] if 'static_files' in conf else {} # FS shims
     conf_plugins = conf['plugins'] # {plugin_name: {enabled: False, other... opts}}
@@ -173,7 +176,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
     if not os.path.isfile(config_fs):
         raise ValueError(f"Missing filesystem archive in base directory: {config_fs}")
 
-    h = hash_image_inputs(conf)
+    h = hash_image_inputs(proj_dir, conf)
     image_filename = f"image_{h}.qcow2"
     config_image = os.path.join(qcow_dir, image_filename)
 
@@ -200,7 +203,7 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
         try:
             logger.info(f"Missing filesystem image {config_image}, generating from config")
             from .penguin_prep import prepare_run
-            prepare_run(conf, qcow_dir, out_filename=image_filename)
+            prepare_run(proj_dir, conf, qcow_dir, out_filename=image_filename)
         except Exception as e:
             logger.info(f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}")
             if os.path.isfile(os.path.join(qcow_dir, image_filename)):
@@ -275,8 +278,11 @@ def run_config(conf_yaml, out_dir=None, qcow_dir=None, logger=None, init=None, t
     else:
         console_out = ['-serial', f'file:{out_dir}/console.log', '-monitor', 'null'] # ttyS0: guest console output
 
-    shared_dir = conf['core'].get('shared_dir')
-    if shared_dir is not None:
+    if 'shared_dir' in conf['core']:
+        shared_dir = conf['core']['shared_dir']
+        if shared_dir[0] == '/':
+            shared_dir = shared_dir[1:] # Ensure it's relative path to proj_dir
+        shared_dir = os.path.join(proj_dir, shared_dir)
         os.makedirs(shared_dir,exist_ok=True)
         args += [
             '-virtfs',
@@ -434,14 +440,15 @@ def main():
         # and specify out_dir to store results if not "dirname(config)/output"
         config = sys.argv[1]
         out_dir = sys.argv[2] if len(sys.argv) > 2 else None
-        qcow_dir = sys.argv[3] if len(sys.argv) > 3 else None
+
+        proj_dir = os.path.dirname(config)
 
         # Two optional args: init and timeout
         init = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] != "None" else None
         timeout = int(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] != "None" else None
         show_output = sys.argv[6]=='show' if len(sys.argv) > 6 else False
 
-        run_config(config, out_dir, qcow_dir, logger, init, timeout, show_output)
+        run_config(config, proj_dir, out_dir, logger, init, timeout, show_output)
     else:
         raise RuntimeError(f"USAGE {sys.argv[0]} [config.yaml] (out_dir: default is dirname(config.yaml)/output) (qcow_dir: dirname(config.yaml)/qcows)")
 

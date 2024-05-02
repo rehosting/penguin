@@ -404,8 +404,8 @@ def add_lib_inject(config):
         'mode': 0o444,
     }
 
-def prepare_run(conf, out_dir, out_filename="image.qcow2"):
-    base_qcow = conf['core']['qcow']
+def prepare_run(proj_dir, conf, out_dir, out_filename="image.qcow2"):
+    base_qcow = os.path.join(proj_dir, conf['core']['qcow'])
     config_files = conf['static_files'] if 'static_files' in conf else {}
     config_nvram = conf['nvram'] if 'nvram' in conf else {}
 
@@ -446,4 +446,4 @@ def prepare_run(conf, out_dir, out_filename="image.qcow2"):
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         raise RuntimeError(f"USAGE {sys.argv[0]} [config.yaml] [qcow_dir]")
-    prepare_run(sys.argv[1], sys.argv[2])
+    prepare_run(os.path.dirname(sys.argv[1]), sys.argv[1], sys.argv[2])
