@@ -1,9 +1,13 @@
-import click
+import click, os
 from pathlib import Path
 from subprocess import check_output
 import tempfile, tarfile
-from .utils import load_config
-import os, shutil
+
+'''
+gen_image can be run as a separate script if this is loaded at the module
+level. This makes it easier to profile.
+'''
+from penguin.penguin_config import load_config
 
 '''
 This class wrapped what used to be a libguestfs interface
@@ -17,7 +21,7 @@ class LocalGuestFS:
 
     def adjust_path(self, fname):
         fn = Path(fname)
-        return Path(self.base, "./"+str(fn))
+        return Path(self.base, "./"+str(fn), follow_symlinks=False)
 
     def write(self, path, content):
         p = self.adjust_path(path)
@@ -25,19 +29,22 @@ class LocalGuestFS:
             f.write(content)
 
     def exists(self, fname):
-        return self.adjust_path(fname).exists()
+        # https://stackoverflow.com/questions/75444181/pathlib-path-exists-returns-false-for-broken-symlink
+        q = self.adjust_path(fname)
+        return q.is_symlink() or q.exists()
 
     def is_file(self, d):
         p = self.adjust_path(d)
-        return p.exists() and p.is_file()
+        return p.is_file()
 
     def is_dir(self, d):
         p = self.adjust_path(d)
-        return p.exists() and p.is_dir()
+        return p.is_dir()
 
     def is_symlink(self, d):
+        # https://stackoverflow.com/questions/75444181/pathlib-path-exists-returns-false-for-broken-symlink
         p = self.adjust_path(d)
-        return p.exists() and p.is_symlink()
+        return p.is_symlink()
 
     def mkdir_p(self, d):
         p = self.adjust_path(d)
@@ -69,7 +76,7 @@ class LocalGuestFS:
     def mv(self, fr, to):
         from_ = self.adjust_path(fr)
         to_ = self.adjust_path(to)
-        check_output(f"mv {from_} {to_}")
+        check_output(f"mv {from_} {to_}", shell=True)
 
     def rm(self, path):
         self.rm_rf(path)
@@ -359,61 +366,54 @@ def fs_make_config_changes(fs_base,config):
     if not g.is_dir("/igloo"):
         raise RuntimeError("Guest filesystem does not contain /igloo after modifications")
 
-@click.command()
-@click.option('--fs', required=True, help="Path to a filesystem as a tar gz")
-@click.option('--out', required=True, help="Path to a qcow to be created")
-@click.option('--artifacts', default=None, help="Path to a directory for artifacts")
-@click.option('--config', default=None, help="Path to config file")
-def makeImage(fs, out, artifacts, config):
+def _makeImage(fs, out, artifacts, config):
     IN_TARBALL = Path(fs)
     ARTIFACTS = Path(artifacts or "/tmp")
     QCOW = Path(out)
-
     ARTIFACTS.mkdir(exist_ok=True)
-
-    # 1GB of padding. XXX is this a good amount - does it slow things down if it's too much?
-    # Our disk images are sparse, so this doesn't actually take up any space?
-    PADDING_MB=1024
-    BLOCK_SIZE=4096
-
     # Decompress the archive and store in artifacts/fs.tar
     ORIGINAL_DECOMP_FS = Path(ARTIFACTS, "fs_orig.tar")
 
     check_output(f'gunzip -c "{IN_TARBALL}" > "{ORIGINAL_DECOMP_FS}"', shell=True)
 
     MODIFIED_TARBALL = Path(ARTIFACTS, "fs_out.tar")
-    with tempfile.TemporaryDirectory() as TMP_DIR:
-        check_output(f"tar -xvf {IN_TARBALL} -C {TMP_DIR}", shell=True)
-        fs_make_config_changes(TMP_DIR, load_config(config))
-        check_output(f"tar czvf {MODIFIED_TARBALL} -C {TMP_DIR} .", shell=True)
-
-    TARBALL = MODIFIED_TARBALL
-
-
+    if config:
+        with tempfile.TemporaryDirectory() as TMP_DIR:
+            check_output(f"tar -xvf {IN_TARBALL} -C {TMP_DIR}", shell=True)
+            fs_make_config_changes(TMP_DIR, load_config(config))
+            check_output(f"tar czvf {MODIFIED_TARBALL} -C {TMP_DIR} .", shell=True)
+        TARBALL = MODIFIED_TARBALL
+    else:
+        TARBALL = IN_TARBALL
+    
+    # 1GB of padding. XXX is this a good amount - does it slow things down if it's too much?
+    # Our disk images are sparse, so this doesn't actually take up any space?
+    PADDING_MB=1024
+    BLOCK_SIZE=4096
+    
     # Calculate image and filesystem size
     UNPACKED_SIZE = int(check_output(f'zcat {TARBALL} | wc -c', shell=True))
     UNPACKED_SIZE = UNPACKED_SIZE + 1024 * 1024 * PADDING_MB
     REQUIRED_BLOCKS=int((UNPACKED_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE + 1024)
     FILESYSTEM_SIZE=int(REQUIRED_BLOCKS * BLOCK_SIZE)
-
-    print(f"{UNPACKED_SIZE=} {REQUIRED_BLOCKS=} {FILESYSTEM_SIZE=}")
-
+    
     # Calculate the number of inodes - err on the side of too big since we'll add more to the FS later
     INODE_SIZE=8192  # For every 8KB of disk space, we'll allocate an inode
     NUMBER_OF_INODES= int(FILESYSTEM_SIZE / INODE_SIZE)
     NUMBER_OF_INODES= NUMBER_OF_INODES + 1000 # Padding for more files getting added later
-    # Make tempfile
     with tempfile.TemporaryDirectory() as WORK_DIR:
         IMAGE = Path(WORK_DIR,"image.raw")
-        print(f"Creating raw Image {IMAGE} with size {FILESYSTEM_SIZE}")
-        print(f'truncate -s "{FILESYSTEM_SIZE}" "{IMAGE}"')
-        print(check_output(f'truncate -s "{FILESYSTEM_SIZE}" "{IMAGE}"', shell=True))
-        print(f'genext2fs --faketime  -N "{NUMBER_OF_INODES}" -b "{REQUIRED_BLOCKS}" -B {BLOCK_SIZE} -a "{TARBALL}" "{IMAGE}" 2>&1 | grep -v "bad type \'x\'"')
-        print(check_output(f'genext2fs --faketime  -N "{NUMBER_OF_INODES}" -b "{REQUIRED_BLOCKS}" -B {BLOCK_SIZE} -a "{TARBALL}" "{IMAGE}" 2>&1 | grep -v "bad type \'x\'"', shell=True))
-        print("Converting image to QCOW2 format")
+        check_output(f'truncate -s "{FILESYSTEM_SIZE}" "{IMAGE}"', shell=True)
+        check_output(f'genext2fs --faketime  -N "{NUMBER_OF_INODES}" -b "{REQUIRED_BLOCKS}" -B {BLOCK_SIZE} -a "{TARBALL}" "{IMAGE}" 2>&1 | grep -v "bad type \'x\'"', shell=True)
         check_output(f'qemu-img convert -f raw -O qcow2 "{IMAGE}" "{QCOW}"', shell=True)
-        print(check_output(f'md5sum "{QCOW}"', shell=True))
-        check_output(f'rm -rf "{IMAGE}" "{WORK_DIR}"', shell=True)
+
+@click.command()
+@click.option('--fs', required=True, help="Path to a filesystem as a tar gz")
+@click.option('--out', required=True, help="Path to a qcow to be created")
+@click.option('--artifacts', default=None, help="Path to a directory for artifacts")
+@click.option('--config', default=None, help="Path to config file")
+def makeImage(fs, out, artifacts, config):
+    _makeImage(fs, out, artifacts, config)
 
 if __name__ == "__main__":
     makeImage()
