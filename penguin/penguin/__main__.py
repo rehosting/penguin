@@ -460,7 +460,10 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
     if not os.path.isfile(config_path):
         raise RuntimeError(f"Config file not found: {config_path}")
 
-    config = load_config(config_path)
+    try:
+        config = load_config(config_path)
+    except UnicodeDecodeError:
+        raise RuntimeError(f"Config file {config_path} is not a valid unicode YAML file. Is it a firmware file instead of a configuration?")
 
     if not os.path.isfile(config['core']['qcow']):
         # The config specifies where the qcow should be. Generally this is in
