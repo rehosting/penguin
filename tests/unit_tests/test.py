@@ -175,6 +175,8 @@ def main():
         "shared_dir": assert_generic("shared/from_guest.txt", "Hello from guest"),
         "net_missing": assert_generic("iface.log", ["eth0", "ens3"]),
         "netdevs": assert_generic("console.log", "tests pass"),
+        "proc_self": assert_generic("console.log", "tests pass"),
+        "pseudofile_readdir": assert_generic("console.log", "tests pass"),
     }
 
     parser = argparse.ArgumentParser(description="Run PENGUIN unit tests.")

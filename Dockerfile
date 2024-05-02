@@ -9,7 +9,7 @@ ARG CONSOLE_VERSION="1.0.2"
 ARG PENGUIN_PLUGINS_VERSION="1.5.6"
 ARG UTILS_VERSION="4"
 ARG VPN_VERSION="1.0.5"
-ARG HYPERFS_VERSION="0.0.5"
+ARG HYPERFS_VERSION="0.0.8"
 
 FROM rust as vhost_builder
 RUN git clone -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device

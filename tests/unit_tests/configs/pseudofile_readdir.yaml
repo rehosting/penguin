@@ -1,0 +1,28 @@
+# Ensure that readdir() lists both pseudofiles and real files, and that it filters duplicates
+
+pseudofiles:
+  /dev/a/c: {}
+  /dev/a/e: {}
+  /dev/a/b: {}
+
+static_files:
+  /init:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      for dir in b d f; do
+        /igloo/utils/busybox mkdir -p "/igloo/pfs/real/dev/a/$dir"
+      done
+
+      /igloo/utils/strace /igloo/utils/busybox ls -a /dev/a
+
+      if [ "$(cd /dev/a && echo *)" != "b c d e f" ]; then
+        echo "wrong readdir result"
+        exit 1
+      fi
+
+      echo "tests pass"
+      exit 0
+    mode: 73

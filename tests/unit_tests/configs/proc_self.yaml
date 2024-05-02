@@ -1,0 +1,23 @@
+# The /proc/self symlink location depends on the accessing PID, which has the potential for issues with hyperfs, so we test it here
+
+static_files:
+  /init:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      if [ "$(/igloo/utils/busybox readlink /proc/self/exe)" != "/igloo/utils/busybox" ]; then
+        echo "Readlink /proc/self/exe wrong result"
+        exit 1
+      fi
+
+      cd /proc/self
+      if [ "$(/igloo/utils/busybox readlink cwd)" != "/proc/$$" ]; then
+        echo "Readlink /proc/self/cwd wrong result"
+        exit 1
+      fi
+
+      echo "tests pass"
+      exit 0
+    mode: 73
