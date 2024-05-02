@@ -87,13 +87,6 @@ class Core(BaseModel):
         str,
         Field("/pandata", title="Path to search for PyPlugins", examples=["/pandata"]),
     ]
-    qcow: Annotated[
-        str,
-        Field(
-            title="Project-relative path to filesystem qcow file",
-            examples=["base/image.qcow"],
-        ),
-    ]
     root_shell: Annotated[
         bool,
         Field(
