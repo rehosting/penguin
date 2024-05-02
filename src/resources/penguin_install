@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# Generate commands to write the contents of /penguin/cmd to /usr/local/bin/penguin
+# This script is run as ./penguin_install | sudo sh
+
+echo "#!/bin/bash"
+
+echo "cat << 'EOF' | sudo tee /usr/local/bin/penguin >/dev/null"
+cat /penguin/cmd
+
+echo
+echo "EOF"
+echo sudo chmod +x /usr/local/bin/penguin
+
+echo echo "Penguin installed successfully to /usr/local/bin/penguin"

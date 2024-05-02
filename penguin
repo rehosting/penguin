@@ -1,0 +1,188 @@
+#!/bin/bash
+
+set -eu
+
+CONTAINER="rehosting/penguin"
+
+penguin_run() {
+    local cmd=("$@")
+    local maps=()
+    local build=false
+    local pydev=false
+
+    if [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "--wrapper-help" ]]; then
+        echo "Usage: penguin [WRAPPER_OPTIONS] COMMAND [ARGS]"
+        echo "Wrapper script for running PENGUIN in a Docker container"
+        echo ""
+        echo "Wrapper-specific flags may be passed in *before* the PENGUIN command:"
+        echo "  --wrapper-help: this message"
+        echo "  --build: Build the PENGUIN container before running the specified command"
+        echo "  --pydev: Map local python package source into container and reinstall before running the specified command"
+        echo "Each option is mutually exclusive."
+        echo ""
+        echo "All other arguments will be passed through to the main PENGUIN command in the container."
+        echo "For example try:"
+        echo "  penguin --help"
+        echo "  penguin init --help"
+        echo "  penguin run --help"
+        exit 0
+
+    # Check for build and development mode (build must come first)
+    elif [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "--build" ]]; then
+        build=true
+        cmd=("${cmd[@]:1}")
+    elif [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "--pydev" ]]; then
+        pydev=true
+        cmd=("${cmd[@]:1}")
+    fi
+
+    # Handle special case for "init" command by ensuring ./projects is mapped
+    if [[ ${#cmd[@]} -gt 1 && "${cmd[0]}" == "init" && ! " ${cmd[@]} " =~ " --output " ]]; then
+        if [ ! -d "projects" ]; then
+            mkdir "projects"
+        fi
+        maps+=("$(pwd)/projects:/host_projects")
+        cmd+=("--output_base")
+        cmd+=("/host_projects")
+    fi
+
+    # Check for "--output" flag and create the specified directory if it doesn't exist
+    for ((i=1; i<${#cmd[@]}; i++)); do
+        if [[ "${cmd[$i]}" == "--output" && $((i+1)) -lt ${#cmd[@]} ]]; then
+            output_dir="${cmd[$i+1]}"
+            if [[ ! -d "$output_dir" ]]; then
+                mkdir -p "$output_dir"
+            fi
+        fi
+    done
+
+    # Create mappings for existing paths
+    paths=("${cmd[@]:1}")
+    for arg in "${paths[@]}"; do
+        if [[ -e "$arg" ]]; then
+            local abspath=$(realpath "$arg")
+            local host_path=$(dirname "$abspath")
+            local guest_path="/host_$(basename "$host_path")"
+
+            maps+=("$host_path:$guest_path")
+        fi
+    done
+
+    # If pydev mode we need to also map ./pkg to /pkg
+    if $pydev; then
+        maps+=("$(pwd)/src:/pkg")
+    fi
+
+    # Sort mappings by path length
+    IFS=$'\n' maps=($(sort -r <<<"${maps[*]}"))
+    unset IFS
+
+    # Rewrite paths
+    new_cmd=()
+    if [[ ${#cmd[@]} -gt 1 ]]; then
+        new_cmd+=("${cmd[0]}")
+    fi
+    for ((i=1; i<${#cmd[@]}; i++)); do
+        arg="${cmd[$i]}"
+        local rewritten=false
+
+        for map in "${maps[@]}"; do
+            local host_path="${map%%:*}"
+            local guest_path="${map#*:}"
+
+            # Check if the real directory path of the argument matches the host path
+            local real_arg_path="$(realpath "$arg" 2>/dev/null)"
+            if [[ "$real_arg_path" == "$host_path"* ]]; then
+                # Accurately replace the host path with the guest path
+                local rewritten_path="${real_arg_path//$host_path/$guest_path}"
+                new_cmd+=("$rewritten_path")
+                rewritten=true
+                break
+            fi
+        done
+
+        if ! $rewritten; then
+            new_cmd+=("$arg")
+        fi
+    done
+
+     # Build Docker command
+    docker_cmd=("docker" "run" "--rm")
+
+    # Check if we're in an interactive terminal, if so add -it
+    if [ -t 0 ]; then
+        # Add -it if it's running in an interactive terminal
+        docker_cmd+=("-it")
+    fi
+
+    # Add mappings
+    for map in "${maps[@]}"; do
+        docker_cmd+=("-v" "$map")
+    done
+
+    if $build; then
+        echo "Running with container rebuild (--build). Entire container will be rebuilt."
+        # Rebuild container
+        # Make sure we have Dockerfile and directory is named penguin
+        if [ ! -f "Dockerfile" ]; then
+            echo "Dockerfile not found in current directory and you requested a container rebuild"
+            exit 1
+        fi
+        # Check if current directory is named penguin
+        if [ ! "$(basename "$(pwd)")" == "penguin" ]; then
+            echo "Current directory is not named penguin and you requested a container rebuild"
+            exit 1
+        fi
+        DOCKER_BUILDKIT=1 docker build -t rehosting/penguin .
+    fi
+
+    # Add the command
+    if $pydev; then
+        echo "Running in Python development mode (--pydev). Python package will be reinstalled on each run"
+
+        # We install penguin as root (mirroring main docker logic)
+        # And then run it as the current user. To do this we add the current UID/GID to the container
+
+        # make a tempdir
+        d=$(mktemp -d)
+
+        # Create etc/{passwd,group} and map into container so current user exists. Based on contents in real container
+        # Username matches host UID and we add a group named 'g' that matches the host GID
+        docker run --rm "$CONTAINER" /bin/bash -c "cat /etc/passwd" > $d/passwd_user
+        echo "$(id -un):x:$(id -u):$(id -g):,,,:$(eval echo ~$USER):/bin/bash" >> $d/passwd_user
+
+        docker run --rm "$CONTAINER" /bin/bash -c "cat /etc/group" > $d/group_user
+        echo "g:x:$(id -g):" >> $d/group_user
+
+        docker_cmd+=("-v" "$d/passwd_user:/etc/passwd")
+        docker_cmd+=("-v" "$d/group_user:/etc/group")
+        docker_cmd+=("$CONTAINER")
+
+        docker_cmd+=("/bin/bash" "-c" "pip install -e /pkg &>/tmp/log.txt || { cat /tmp/log.txt; exit 1; }; sudo -su \"$(id -un)\" -g g penguin ${new_cmd[*]}")
+    else
+        d=""
+        # Ensure we maintain the same user in the container
+        docker_cmd+=("-u" "$(id -u):$(id -g)")
+
+        docker_cmd+=("$CONTAINER")
+        docker_cmd+=("penguin")
+        docker_cmd+=("${new_cmd[@]}")
+    fi
+
+    # Execute Docker command
+    "${docker_cmd[@]}"
+
+    # Clean up tempdir if it was created
+    if [ -n "$d" ]; then
+        rm -rf "$d"
+    fi
+}
+
+# Main function
+main() {
+    penguin_run "$@"
+}
+
+# Find and replace /host_ with ./
+#main "$@" | sed 's/\/host_/\.\//g'
+main "$@"

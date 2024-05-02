@@ -200,6 +200,7 @@ RUN apt-get update && apt-get install -y \
     python3-guestfs \
     python3-lxml \
     python3-venv \
+    sudo \
     telnet \
     vim \
     wget \
@@ -278,6 +279,10 @@ COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/rel
 #COPY fws/libnvram-latest.tar.gz /tmp
 #RUN rm -rf /igloo_static/libnvram && \
 #    tar xvf /tmp/libnvram-latest.tar.gz -C /igloo_static/
+
+COPY ./penguin /penguin/cmd
+COPY ./src/resources/banner.sh ./src/resources/penguin_install ./src/resources/penguin_install.local /usr/local/bin/
+RUN echo '[ ! -z "$TERM" -a -r /usr/local/banner.sh ] && /usr/local/banner.sh' >> /etc/bash.bashrc
 
 WORKDIR /penguin
 
