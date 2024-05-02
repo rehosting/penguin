@@ -247,7 +247,7 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
 
 # Libguestfs setup
 COPY --from=downloader /tmp/libguestfs.tar.xz /usr/local/libguestfs.tar.xz
-ENV LIBGUESTFS_PATH=/usr/local/appliance
+ENV LIBGUESTFS_PATH=/tmp/appliance
 
 # qemu-img
 COPY --from=qemu_builder /src/build/qemu-img /usr/local/bin/qemu-img

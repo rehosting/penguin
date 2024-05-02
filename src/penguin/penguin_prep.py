@@ -222,8 +222,7 @@ def _rebase_and_add_files(qcow_file, new_qcow_file, files):
     # Extract guestfs appliance on demand
     if os.path.exists("/usr/local/libguestfs.tar.xz"):
         with tarfile.open("/usr/local/libguestfs.tar.xz", 'r:*') as tar:
-            tar.extractall("/usr/local")
-        os.remove("/usr/local/libguestfs.tar.xz")
+            tar.extractall("/tmp")
 
     g = guestfs.GuestFS(python_return_dict=True)
 
