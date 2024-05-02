@@ -284,7 +284,7 @@ WORKDIR /penguin
 # Now copy in our module and install it
 # penguin is editable so we can mount local copy for dev
 # setuptools is workaround for igloo #131
-COPY ./penguin /pkg
+COPY ./src /pkg
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip install -e /pkg && \
       pip install setuptools==67.7.2
