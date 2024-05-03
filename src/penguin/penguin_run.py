@@ -332,6 +332,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
         panda.load_plugin("syscalls2", args = {"load-info": True})
         panda.load_plugin("osi", args = {"disable-autoload":True})
         panda.load_plugin("osi_linux", args = {"kconf_file":os.path.join(os.path.dirname(kernel), "osi.config"),
+                                                "pagewalk": True,
                                                 "kconf_group": q_config['kconf_group']})
 
     # Plugins names are given out of order (by nature of yaml and sorting),
