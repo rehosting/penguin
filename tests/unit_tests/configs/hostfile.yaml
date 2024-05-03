@@ -1,3 +1,9 @@
+core:
+  root_shell: false
+
+env:
+  igloo_init: /init
+
 static_files:
   /init:
     type: inline_file
@@ -38,7 +44,7 @@ static_files:
 
   /init.bin:
     type: host_file
-    host_path: /tmp/hostfile/init.bin
+    host_path: /pkg/resources/testinit.sh
     mode: 00555
 
   /hostpasswd:
