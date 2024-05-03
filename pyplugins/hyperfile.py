@@ -94,7 +94,13 @@ class HyperFile(PyPlugin):
 
             # Unpack request with our dynamic format string
             type_val, path_ptr = struct.unpack_from(header_fmt, buf)
-            device_name = panda.read_str(cpu, path_ptr)
+            try:
+                device_name = panda.read_str(cpu, path_ptr)
+            except ValueError:
+                # Memory read failed - tell guest to retry
+                panda.arch.set_retval(cpu, 1)  # non-zero = error
+                print("Failed to read hyperfile struct from guest - retry")
+                return True
 
             sub_offset = struct.calcsize(header_fmt)
 
