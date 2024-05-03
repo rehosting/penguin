@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - penguin/penguin/penguin_config.py
+      - src/penguin/penguin_config.py
       - .github/workflows/upload_config_schema.yaml
 
 jobs:
@@ -15,7 +15,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - run: pip install pydantic pyyaml
-    - run: python3 penguin/penguin/penguin_config.py > config_schema.yaml
+    - run: python3 src/penguin/penguin_config.py > config_schema.yaml
     - name: Upload config schema to server
       uses: easingthemes/ssh-deploy@main
       with:
