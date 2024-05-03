@@ -5,7 +5,8 @@ from collections import Counter
 from copy import deepcopy
 from pandare import PyPlugin
 
-from penguin import PenguinAnalysis, yaml
+from penguin import yaml
+from penguin.analyses import PenguinAnalysis
 from penguin.graphs import Failure, Mitigation, Configuration
 
 '''

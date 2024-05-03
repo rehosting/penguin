@@ -9,7 +9,8 @@ from pandare import PyPlugin
 import coloredlogs
 coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 try:
-    from penguin import PenguinAnalysis, yaml
+    from penguin import yaml
+    from penguin.analyses import PenguinAnalysis
     from penguin.graphs import Failure, Mitigation, Configuration
 except ImportError:
     # We can still run as a PyPlugin, but we can't do post-run analysis

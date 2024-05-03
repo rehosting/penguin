@@ -5,7 +5,8 @@ from os.path import join as pjoin
 from typing import List
 
 from pandare import PyPlugin
-from penguin import PenguinAnalysis, yaml
+from penguin import yaml
+from penguin.analyses import PenguinAnalysis
 from penguin.graphs import Failure, Mitigation, Configuration
 
 # XXX this needs some testing

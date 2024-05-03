@@ -6,7 +6,8 @@ from pandare import PyPlugin
 from copy import deepcopy
 from typing import List, Optional
 try:
-    from penguin import PenguinAnalysis, yaml
+    from penguin import yaml
+    from penguin.analyses import PenguinAnalysis
 except ImportError:
     PenguinAnalysis = object
     import yaml

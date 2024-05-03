@@ -20,7 +20,8 @@ KNOWN_PATHS = ["/dev/", "/dev/pts", "/sys", "/proc", "/run", "/tmp",  # Director
                ]
 
 try:
-    from penguin import PenguinAnalysis, yaml
+    from penguin import yaml
+    from penguin.analyses import PenguinAnalysis
     from penguin.graphs import Failure, Mitigation, Configuration
     from penguin.utils import arch_end
 except ImportError:
