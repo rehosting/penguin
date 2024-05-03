@@ -4,6 +4,8 @@ import os
 import shutil
 import subprocess
 import tarfile
+import logging
+import coloredlogs
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from collections import Counter
@@ -17,6 +19,7 @@ from .manager import graph_search, PandaRunner, report_best_results, calculate_s
 from .defaults import default_init_script, default_plugins, default_version, default_netdevs, default_pseudofiles, default_lib_aliases
 from .utils import load_config, dump_config, arch_end
 
+coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 static_dir = "/igloo_static/"
 DEFAULT_KERNEL = "4.10"
 
@@ -659,7 +662,14 @@ def penguin_run(args):
                 idx = max(results) + 1
         args.output = results_base + str(idx)
 
-    print(f"Running config {args.config}. Results saved to {args.output}")
+    logger = logging.getLogger("PENGUIN")
+    logger.info(f"Running config {args.config}")
+    logger.info(f"Saving results to {args.output}")
+
+    if '/host_' in args.config or '/host_' in args.output:
+        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments")
+
+
     run_from_config(args.config, args.output)
 
 
