@@ -40,6 +40,13 @@ class VsockVPN(PyPlugin):
         self.mapped_ports = set() # Ports we've mapped
         self.active_listeners = set() # (proto, port)
         assert(CID is not None)
+
+        self.has_perms = geteuid() == 0
+        if not self.has_perms:
+            # Non-root, but do we have CAP_NET_BIND_SERVICE?
+            with open("/proc/self/status") as f:
+                status = f.read()
+                self.has_perms = "CapInh:.*cap_net_bind_service" in status
         
         '''
         Fixed maps:
@@ -117,7 +124,7 @@ class VsockVPN(PyPlugin):
             host_port = mapped_host_port
             assert self.is_port_open(host_port), f"User requested to map host port {host_port} but it is not free!"
             print(f"VPN started for {procname} listening on {sock_type} {ip}:{guest_port}, connect to container port {host_port} (via fixed mapping)")
-        elif guest_port < 1024 and geteuid() != 0:
+        elif guest_port < 1024 and self.has_perms:
             host_port = self.find_free_port()
             print(f"VPN started for {procname} listening on {sock_type} {ip}:{guest_port}, connect to container port {host_port} ({guest_port} is privileged and user is not root)")
         elif guest_port in self.mapped_ports or not self.is_port_open(guest_port):
