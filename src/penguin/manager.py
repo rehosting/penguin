@@ -15,9 +15,9 @@ from threading import Thread, Lock
 from typing import List, Tuple
 
 from .common import yaml
-from .penguin_prep import prepare_run
 from .graphs import Configuration, ConfigurationManager, Failure, Configuration, Mitigation
-from .utils import load_config, dump_config, hash_yaml_config, AtomicCounter, \
+from .penguin_config import load_config, dump_config, hash_yaml_config
+from .utils import  AtomicCounter, \
                     _load_penguin_analysis_from, get_mitigation_providers
 
 coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')

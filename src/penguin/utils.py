@@ -3,14 +3,9 @@ import hashlib
 import subprocess
 import importlib
 import os
-import yaml
-import jsonschema
 from threading import Lock
 from typing import List, Tuple
-from copy import deepcopy
-from os.path import dirname, join
 
-from . import penguin_config
 from .analyses import PenguinAnalysis
 from .defaults import default_plugin_path
 from .common import hash_yaml
@@ -117,58 +112,7 @@ def run_command_with_output(cmd: List[str], ignore1, ignore2) -> Tuple[str, str]
         return -1, '', f"An exception occurred: {str(e)}"
 
 
-def _jsonify_dict(d):
-    '''
-    Recursively walk a nested dict and stringify all the keys
-
-    This is required for jsonschema.validate() to succeed,
-    since JSON requires keys to be strings.
-    '''
-    return {
-        str(k): _jsonify_dict(v) if isinstance(v, dict) else v
-        for k, v in d.items()
-    }
-
-
-def _validate_config(config):
-    '''Validate config with Pydantic'''
-    penguin_config.Main(**config).dict()
-    jsonschema.validate(
-        instance=_jsonify_dict(config),
-        schema=penguin_config.Main.model_json_schema(),
-    )
-
-
-def load_config(path):
-    '''Load penguin config from path'''
-    with open(path, "r") as f:
-        config = yaml.safe_load(f)
-    _validate_config(config)
-    return config
-
-
-def dump_config(config, path):
-    '''Write penguin config to path'''
-    _validate_config(config)
-    with open(path, "w") as f:
-        f.write("# yaml-language-server: $schema=https://rehosti.ng/igloo/config_schema.yaml\n")
-        yaml.dump(config, f, sort_keys=False, default_flow_style=False, width=None)
-
-
-def hash_yaml_config(config : dict):
-    '''
-    Given a config dict, generate a hash
-    '''
-    target = config
-    if 'meta' in config:
-        # We want to ignore the 'meta' field because it's an internal detail
-        config2 = deepcopy(config)
-        del config2['meta']
-        target = config2
-    return hashlib.md5(str(target).encode()).hexdigest()
-
-
-def hash_image_inputs(proj_dir, conf):
+def hash_image_inputs(conf):
     """Create a hash of all the inputs of the image creation process"""
 
     static_files = conf['static_files']
