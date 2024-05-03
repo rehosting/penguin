@@ -4,6 +4,54 @@ set -eu
 
 CONTAINER="rehosting/penguin"
 
+BOLD=""
+RESET=""
+RED=""
+GREEN=""
+if [ -t 0 ]; then
+    # Can only use colors if we're in a terminal
+    BOLD=$(tput bold)
+    RESET=$(tput sgr0)
+    RED=$(tput setaf 1)
+    GREEN=$(tput setaf 2)
+fi
+
+is_subnet_in_use() {
+    local subnet=$1
+    local networks=$(docker network ls --quiet)
+    for net_id in $networks; do
+        local net_info=$(docker network inspect $net_id --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}')
+        if [[ "$net_info" == "$subnet" ]]; then
+            return 0  # Subnet is in use
+        fi
+    done
+    return 1  # Subnet is not in use
+}
+
+# Function to generate a random network name
+generate_network_name() {
+    echo "nw_$RANDOM"
+}
+
+# Generate a random subnet
+find_available_subnet() {
+    local base="192.168"  # Base is 2 octets
+    local found=0
+    local subnet
+    for i in {0..255}; do
+        subnet="$base.$i.0/24"  # Correct subnet notation for /24 networks
+        if ! is_subnet_in_use $subnet; then
+            echo $subnet
+            found=1
+            break
+        fi
+    done
+    if [ $found -eq 0 ]; then
+        echo "No available subnet found!" >&2
+        exit 1
+    fi
+}
+
 penguin_run() {
     local cmd=("$@")
     local maps=()
@@ -116,6 +164,25 @@ penguin_run() {
         docker_cmd+=("-it")
     fi
 
+    # Dynamic network
+    #docker network create -d bridge --subnet=192.168.0.0/24 fw --gateway="192.168.0.1"
+    network_name=$(generate_network_name)
+    subnet=$(find_available_subnet)
+    gateway="${subnet%.*}.1"
+    ip="${subnet%.*}.2"
+
+    # Create the network
+    docker network create -d bridge --subnet=$subnet --gateway=$gateway $network_name > /dev/null
+
+    # Setup  on-exit cleanup
+    trap "docker network rm $network_name>/dev/null" EXIT
+
+    echo
+    echo "${BOLD}Network services will be reachable at ${GREEN}${ip}${RESET}"
+    echo
+
+    docker_cmd+=("--network" "$network_name" "--ip" "$ip")
+
     # Add mappings
     for map in "${maps[@]}"; do
         docker_cmd+=("-v" "$map")
@@ -135,6 +202,12 @@ penguin_run() {
             exit 1
         fi
         DOCKER_BUILDKIT=1 docker build -t rehosting/penguin .
+
+        # If we have no other args, exit 0
+        if [[ ${#new_cmd[@]} -eq 0 ]]; then
+            echo "Container build. Exiting as no command was specified."
+            exit 0
+        fi
     fi
 
     # Add the command
@@ -157,6 +230,7 @@ penguin_run() {
 
         docker_cmd+=("-v" "$d/passwd_user:/etc/passwd")
         docker_cmd+=("-v" "$d/group_user:/etc/group")
+        docker_cmd+=("--cap-add=NET_BIND_SERVICE")
         docker_cmd+=("$CONTAINER")
 
         docker_cmd+=("/bin/bash" "-c" "pip install -e /pkg &>/tmp/log.txt || { cat /tmp/log.txt; exit 1; }; sudo -su \"$(id -un)\" -g g penguin ${new_cmd[*]}")
@@ -164,6 +238,7 @@ penguin_run() {
         d=""
         # Ensure we maintain the same user in the container
         docker_cmd+=("-u" "$(id -u):$(id -g)")
+        docker_cmd+=("--cap-add=NET_BIND_SERVICE")
 
         docker_cmd+=("$CONTAINER")
         docker_cmd+=("penguin")
