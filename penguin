@@ -57,6 +57,7 @@ penguin_run() {
     local maps=()
     local build=false
     local pydev=false
+    local subnet=""
 
     if [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "--wrapper-help" ]]; then
         echo "Usage: penguin [WRAPPER_OPTIONS] COMMAND [ARGS]"
@@ -66,6 +67,7 @@ penguin_run() {
         echo "  --wrapper-help: this message"
         echo "  --build: Build the PENGUIN container before running the specified command"
         echo "  --pydev: Map local python package source into container and reinstall before running the specified command"
+        echo "  --subnet: IP subnet to use. For example --subnet 192.168.0.0/24 would produce a network with firmware reachable at 192.168.0.2. Default: automaticly find next free /24 subnet in 192.168.x.x"
         echo "Each option is mutually exclusive."
         echo ""
         echo "All other arguments will be passed through to the main PENGUIN command in the container."
@@ -82,6 +84,10 @@ penguin_run() {
     elif [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "--pydev" ]]; then
         pydev=true
         cmd=("${cmd[@]:1}")
+    elif [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "--subnet" ]]; then
+        # Get next arg
+        subnet="${cmd[1]}"
+        cmd=("${cmd[@]:2}")
     fi
 
     # Handle special case for "init" command by ensuring ./projects is mapped
@@ -167,7 +173,10 @@ penguin_run() {
     # Dynamic network
     #docker network create -d bridge --subnet=192.168.0.0/24 fw --gateway="192.168.0.1"
     network_name=$(generate_network_name)
-    subnet=$(find_available_subnet)
+    # if subnet is empty, find one
+    if [ -z "$subnet" ]; then
+        subnet=$(find_available_subnet)
+    fi
     gateway="${subnet%.*}.1"
     ip="${subnet%.*}.2"
 
@@ -182,6 +191,8 @@ penguin_run() {
     echo
 
     docker_cmd+=("--network" "$network_name" "--ip" "$ip")
+    # Add env variable CONTAINER_IP=ip
+    docker_cmd+=("-e" "CONTAINER_IP=$ip")
 
     # Add mappings
     for map in "${maps[@]}"; do

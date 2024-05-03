@@ -5,10 +5,14 @@ import socket
 from contextlib import closing
 import atexit
 import re
+import logging
+
+import coloredlogs
 from os import environ as env
 from os.path import join
 from os import geteuid
 
+coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 static_dir = "/igloo_static/"
 
 running_vpns = []
@@ -41,13 +45,19 @@ class VsockVPN(PyPlugin):
         self.active_listeners = set() # (proto, port)
         assert(CID is not None)
 
+        self.logger = logging.getLogger("VPN")
+        self.logger.setLevel(logging.INFO)
+
+        # Check if we have CONTAINER_IP in env
+        self.exposed_ip = env.get("CONTAINER_IP", None)
+
         self.has_perms = geteuid() == 0
         if not self.has_perms:
             # Non-root, but do we have CAP_NET_BIND_SERVICE?
             with open("/proc/self/status") as f:
                 status = f.read()
                 self.has_perms = "CapInh:.*cap_net_bind_service" in status
-        
+
         '''
         Fixed maps:
             Map[(sock_type, guest_ip, guest_port)] = host_port
@@ -71,7 +81,7 @@ class VsockVPN(PyPlugin):
                     self.fixed_maps[(sock_type, guest_ip, guest_port)] = host_port
                 else:
                     raise ValueError(f"Couldn't parse port map: {arg}")
-            print(f"VPN loaded fixed port assingments: {self.fixed_maps}")
+            self.logger.info(f"VPN loaded fixed port assingments: {self.fixed_maps}")
 
         # Launch VPN on host as panda starts. Init in the guest will launch the VPN in the guest
         self.event_file = tempfile.NamedTemporaryFile(prefix=f'/tmp/vpn_events_{CID}_')
@@ -120,18 +130,29 @@ class VsockVPN(PyPlugin):
     
     def map_bound_socket(self, sock_type, ip, guest_port, procname):
         host_port = guest_port
+        # procname, listening, port, reason
+        reason = ""
         if mapped_host_port := self.fixed_maps.get((sock_type,ip,guest_port), None):
             host_port = mapped_host_port
-            assert self.is_port_open(host_port), f"User requested to map host port {host_port} but it is not free!"
-            print(f"VPN started for {procname} listening on {sock_type} {ip}:{guest_port}, connect to container port {host_port} (via fixed mapping)")
+            if not self.is_port_open(host_port):
+                raise RuntimeError(f"User requested to map host port {host_port} but it is not free")
+            reason = "(via fixed mapping)"
         elif guest_port < 1024 and self.has_perms:
             host_port = self.find_free_port()
-            print(f"VPN started for {procname} listening on {sock_type} {ip}:{guest_port}, connect to container port {host_port} ({guest_port} is privileged and user is not root)")
+            reason = f"({guest_port} is privileged and user cannot bind)"
         elif guest_port in self.mapped_ports or not self.is_port_open(guest_port):
             host_port = self.find_free_port()
-            print(f"VPN started for {procname} listening on {sock_type} {ip}:{guest_port}, connect to container port {host_port} ({guest_port} unavailable)")
+            reason = f"({guest_port} is already in use)"
+
+        if self.exposed_ip:
+            connect_to = f"{self.exposed_ip}:{host_port}"
         else:
-            print(f"VPN started for {procname} listening on {sock_type} {ip}:{guest_port}, connect to container port {host_port}")
+            connect_to = f"container {host_port}"
+
+        listen_on = f"{sock_type} {ip}:{guest_port}"
+
+        self.logger.info(f"{procname: >10} binds {listen_on: <20} reach it at {connect_to: <20} {reason}")
+
         return host_port
 
     def bridge(self, sock_type, ip, guest_port, procname, ipvn):
@@ -165,8 +186,8 @@ class VsockVPN(PyPlugin):
 
     def uninit(self):
         if hasattr(self, 'host_vpn'):
-            print("Killing VPN")
+            self.logger.debug("Killing VPN")
             self.host_vpn.terminate()
             self.host_vpn.kill()
             running_vpns[:] = [x for x in running_vpns if x != self.host_vpn]
-            print("Killed VPN")
+            self.logger.debug("Killed VPN")
