@@ -1,7 +1,10 @@
+import jsonschema
+import hashlib
 from typing import Optional, Union, Literal, Annotated, Dict, List
-
 from pydantic import BaseModel, RootModel, Field
 from pydantic.config import ConfigDict
+from copy import deepcopy
+from .common import yaml
 
 
 ENV_MAGIC_VAL = "DYNVALDYNVALDYNVAL"
@@ -598,6 +601,59 @@ class Main(BaseModel):
     lib_inject: LibInject
     static_files: StaticFiles
     plugins: Annotated[dict[str, Plugin], Field(title="Plugins")]
+
+
+def _jsonify_dict(d):
+    '''
+    Recursively walk a nested dict and stringify all the keys
+
+    This is required for jsonschema.validate() to succeed,
+    since JSON requires keys to be strings.
+    '''
+    return {
+        str(k): _jsonify_dict(v) if isinstance(v, dict) else v
+        for k, v in d.items()
+    }
+
+
+def _validate_config(config):
+    '''Validate config with Pydantic'''
+    Main(**config).model_dump()
+    jsonschema.validate(
+        instance=_jsonify_dict(config),
+        schema=Main.model_json_schema(),
+    )
+
+
+def load_config(path):
+    '''Load penguin config from path'''
+    with open(path, "r") as f:
+        config = yaml.safe_load(f)
+    _validate_config(config)
+    return config
+
+
+def dump_config(config, path):
+    '''Write penguin config to path'''
+    _validate_config(config)
+    with open(path, "w") as f:
+        f.write("# yaml-language-server: $schema=https://rehosti.ng/igloo/config_schema.yaml\n")
+        yaml.dump(config, f, sort_keys=False, default_flow_style=False, width=None)
+
+
+def hash_yaml_config(config : dict):
+    '''
+    Given a config dict, generate a hash
+    '''
+    target = config
+    if 'meta' in config:
+        # We want to ignore the 'meta' field because it's an internal detail
+        config2 = deepcopy(config)
+        del config2['meta']
+        target = config2
+    return hashlib.md5(str(target).encode()).hexdigest()
+
+
 
 
 if __name__ == "__main__":
