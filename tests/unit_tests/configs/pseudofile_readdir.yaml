@@ -1,4 +1,10 @@
 # Ensure that readdir() lists both pseudofiles and real files, and that it filters duplicates
+core:
+  root_shell: false
+
+env:
+  igloo_init: /init
+
 
 pseudofiles:
   /dev/a/c: {}

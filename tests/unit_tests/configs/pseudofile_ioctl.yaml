@@ -1,3 +1,9 @@
+core:
+  root_shell: false
+
+env:
+  igloo_init: /init
+
 pseudofiles:
   /dev/missing: {}
   /dev/fs/missing: {}

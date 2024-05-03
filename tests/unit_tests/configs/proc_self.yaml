@@ -1,5 +1,11 @@
 # The /proc/self symlink location depends on the accessing PID, which has the potential for issues with hyperfs, so we test it here
 
+core:
+  root_shell: false
+
+env:
+  igloo_init: /init
+
 static_files:
   /init:
     type: inline_file

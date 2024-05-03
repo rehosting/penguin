@@ -1,4 +1,8 @@
+core:
+  root_shell: false
+
 env:
+  igloo_init: /init
   # These are *not* the variables we're looking for below
   #envvar_: "trailing_underscore"
   #_envvar: "prefix_underscore" # Grep below would actually match this. Skip

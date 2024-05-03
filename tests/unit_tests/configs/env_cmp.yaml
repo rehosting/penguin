@@ -1,4 +1,8 @@
+core:
+  root_shell: false
+
 env:
+  igloo_init: /init
   envvar: DYNVALDYNVALDYNVAL
 
 static_files:

@@ -6,6 +6,8 @@ import subprocess
 import sys
 import tempfile
 import yaml
+import struct
+import os
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -50,76 +52,127 @@ def assert_yaml(filepath, subkeys_l, assertion=None):
         return True
     return assert_func
 
+def create_elf_file(filename, e_machine, endian=">"):
+    # ELF Header fields
+    # e_ident part: EI_MAG, EI_CLASS, EI_DATA, EI_VERSION, EI_OSABI, EI_ABIVERSION
+    ei_mag = b"\x7fELF"  # Magic number
+    ei_class = b"\x01"   # 32-bit architecture
+    ei_data = b"\x01" if endian == "<" else b"\x02"  # Little-endian for <, big-endian for >
+    ei_version = b"\x01"  # Original version of ELF
+    ei_osabi = b"\x00"    # System V
+    ei_abiversion = b"\x00"
+    ei_pad = b"\x00" * 7
+ 
+    e_type = struct.pack(endian + "H", 0x02)  # Executable file
+    e_machine = struct.pack(endian + "H", e_machine)  # Architecture type
+    e_version = struct.pack(endian + "I", 0x01)  # ELF version
+    e_entry = struct.pack(endian + "I", 0x00)  # Entry point virtual address
+    e_phoff = struct.pack(endian + "I", 0x00)  # Program header table file offset
+    e_shoff = struct.pack(endian + "I", 0x00)  # Section header table file offset
+    e_flags = struct.pack(endian + "I", 0x00)  # Processor-specific flags
+    e_ehsize = struct.pack(endian + "H", 0x34)  # ELF header size
+    e_phentsize = struct.pack(endian + "H", 0x00)  # Program header table entry size
+    e_phnum = struct.pack(endian + "H", 0x00)  # Program header table entry count
+    e_shentsize = struct.pack(endian + "H", 0x00)  # Section header table entry size
+    e_shnum = struct.pack(endian + "H", 0x00)  # Section header table entry count
+    e_shstrndx = struct.pack(endian + "H", 0x00)  # Section header string table index
+
+    # Assemble the complete ELF header
+    header = (ei_mag + ei_class + ei_data + ei_version + ei_osabi + ei_abiversion + ei_pad +
+              e_type + e_machine + e_version + e_entry + e_phoff + e_shoff + e_flags +
+              e_ehsize + e_phentsize + e_phnum + e_shentsize + e_shnum + e_shstrndx)
+    
+    # Write to file
+    with open(filename, "wb") as f:
+        f.write(header)
+
+
 class TestRunner:
     def __init__(self, kernel_versions, archs, tests, checks):
         self.kernel_versions = kernel_versions
         self.archs = archs
         self.tests = tests
         self.checks = checks
-        self.qcows_dir = SCRIPT_PATH / Path("qcows")
-        self.qcows_dir.mkdir(exist_ok=True)
+        #self.qcows_dir = SCRIPT_PATH / Path("qcows") # TODO: can we cache these across projects?
+        #self.qcows_dir.mkdir(exist_ok=True)
 
-    def run_test(self, kernel_version, arch, test_name, assertion):
-        # Create a scratch directory + results dir in it
+    def _make_project(self, test_name, kernel_version, arch, proj_dir):
+        # First we need to create a tar archive for the rootfs with "./bin/busybox" of
+        # the target arch (note it won't be the real binary), we'll use create_elf_file
+
+        kwargs = {
+            "e_machine": 0x28 if arch == "armel" else 0x08,
+            "endian": ">" if arch == "mipseb" else "<" # mipseb is only big endian for now
+        }
+
+        # Create tar archive with the ELF file at /bin/busybox
         with tempfile.TemporaryDirectory() as tmpdir:
-            self._generate_config(test_name, kernel_version, arch, tmpdir)
-            self._run_test(kernel_version, arch, test_name, tmpdir)
+            tmp = Path(tmpdir)
+            os.makedirs(tmp / Path("fs/bin"))
+            create_elf_file(tmp / "fs/bin/busybox", **kwargs)
+            subprocess.run(["tar", "-C", tmp / "fs", "-czf",
+                           f"{tmpdir}/rootfs.tar.gz", "."])
 
-            # Backup output from the run (not the full tmpdir, just output)
-            output_dir = SCRIPT_PATH / Path("results") / Path(f"{test_name}_{kernel_version}_{arch}")
-            # Replace the output directory if it already exists
-            if output_dir.exists():
-                subprocess.run(["rm", "-rf", output_dir])
-            output_dir.mkdir(exist_ok=True, parents=True)
-            subprocess.run(["mv", f"{tmpdir}/output", output_dir])
-            subprocess.run(["mv", f"{tmpdir}/config.yaml", output_dir])
-            subprocess.run(["mv", f"{tmpdir}/test_log.txt", output_dir])
-            if not self._check_results(test_name, output_dir / Path("output"), assertion):
-                logging.error(f"Test {test_name} failed on kernel version {kernel_version} with architecture {arch}")
-                return False
-        return True
+            # Now we have a "rootfs" to import
+            # Run penguin script (up 2 directories) to initialize
+            subprocess.run([
+                os.path.dirname(os.path.dirname(SCRIPT_PATH)) + "/penguin",
+                "init",
+                f"{tmpdir}/rootfs.tar.gz",
+                "--output",
+                f"{proj_dir}"
+                ],
+                    check=True
+                )
 
-    def _generate_config(self, test_name, kernel_version, arch, tmpdir):
+        assert (os.path.isfile(f"{proj_dir}/config.yaml")), \
+            f"config.yaml not found in generated {proj_dir}"
+
+    def _patch_config(self, test_name, proj_dir):
+        # TODO: consider setting kernel version here if we add multiple kernel versions
+
         if not (test_path := (TEST_DIR / Path(test_name + ".yaml"))).is_file():
             raise ValueError(f"Test {test_name} does not exist")
 
-        test_data = yaml.safe_load(test_path.open())
+        subprocess.run([
+            os.path.dirname(os.path.dirname(SCRIPT_PATH)) + "/penguin",
+            "patch",
+            f"{proj_dir}/config.yaml",
+            TEST_DIR / Path(test_name + ".yaml"),
+        ], check=True)
 
-        with open(BASE_CONFIG, "r") as f:
-            base_data = f.read()
-            base_data = base_data.replace("@KERNEL_VERSION@", kernel_version)
-            base_data = base_data.replace("@ARCH@", arch)
-            if arch == "armel":
-                base_data = base_data.replace("vmlinux", "zImage")
-        base_config = yaml.safe_load(base_data)
-
-        # For each key in test_data, update base_config - note it's a dict so we need to
-        # go through each key and update the base_config
-        for key in test_data:
-            if key in base_config:
-                base_config[key].update(test_data[key])
-            else:
-                base_config[key] = test_data[key]
-
-        # Write the updated base_config to a file in the tmpdir
-        with open(tmpdir / Path("config.yaml"), "w") as f:
-            yaml.dump(base_config, f)
-
-    def _run_test(self, kernel_version, arch, test_name, tmpdir):
+    def _run_config(self, kernel_version, arch, test_name, proj_dir):
         logging.info(f"Testing {test_name} on kernel version {kernel_version} with architecture {arch}...")
         try:
             subprocess.run([
-                "docker", "run", "--rm", "-v", f"{SCRIPT_PATH}:/tests",
-                "-v", f"{tmpdir}:{tmpdir}",
-                "rehosting/penguin", "/tests/_in_container_run.sh", tmpdir, arch
+                os.path.dirname(os.path.dirname(SCRIPT_PATH)) + "/penguin",
+                "run",
+                f"{proj_dir}/config.yaml",
+                "--output",
+                f"{proj_dir}/output"
             ],
             check=True,
-            stdout=open(tmpdir / Path("test_log.txt"), "w"),
+            stdout=open(proj_dir / Path("test_log.txt"), "w"),
             stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
-            logging.error("Docker run failed, showing last 30 lines from log:")
-            subprocess.run(["tail", "-n", "30", tmpdir / Path("test_log.txt")])
+            logging.error("Penguin run failed, showing last 30 lines from log:")
+            #subprocess.run(["tail", "-n", "30", tmpdir / Path("test_log.txt")])
             sys.exit(1)
+
+    def run_test(self, kernel_version, arch, test_name, assertion):
+        # Create a project directory for this test
+        proj_dir = SCRIPT_PATH / Path("results") / Path(f"{test_name}_{kernel_version}_{arch}")
+        if proj_dir.exists():
+            subprocess.run(["rm", "-rf", proj_dir])
+
+        self._make_project(test_name, kernel_version, arch, proj_dir)
+        self._patch_config(test_name, proj_dir)
+        self._run_config(kernel_version, arch, test_name, proj_dir)
+
+        if not self._check_results(test_name, proj_dir / Path("output"), assertion):
+            logging.error(f"Test {test_name} failed on kernel version {kernel_version} with architecture {arch}")
+            return False
+        return True
 
     def _check_results(self, test_name, outdir, assertion):
         if assertion(outdir):
@@ -172,7 +225,10 @@ def main():
             ],
             lambda x: x > 0),
         "hostfile": assert_generic("console.log", "tests pass"),
-        "shared_dir": assert_generic("shared/from_guest.txt", "Hello from guest"),
+
+        # shared directory isn't in proj/output, it's in proj itself. So go up
+        "shared_dir": assert_generic("../host_shared/from_guest.txt", "Hello from guest"),
+
         "net_missing": assert_generic("iface.log", ["eth0", "ens3"]),
         "netdevs": assert_generic("console.log", "tests pass"),
         "proc_self": assert_generic("console.log", "tests pass"),
@@ -184,7 +240,13 @@ def main():
     parser.add_argument('--arch', nargs='*', help=f'Architecture(s) to test. Default: {", ".join(DEFAULT_ARCHS)}', default=DEFAULT_ARCHS)
     parser.add_argument('--test', nargs='*', help=f'Specific test(s) to run. Default: {", ".join(list(tests_to_checks.keys()))}')
     args = parser.parse_args()
+
     kernel_versions = args.kernel_version
+    if kernel_versions != ["4.10"]:
+        # TODO: when we support multiple kernel versions, support testing each.
+        # Will need to update how we generate configs to support this.
+        raise ValueError("Only kernel version 4.10 is supported at this time.")
+
     archs = args.arch
 
     # Load all tests if none are specified, else filter the requested tests.
