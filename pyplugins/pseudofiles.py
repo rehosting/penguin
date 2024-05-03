@@ -23,7 +23,7 @@ try:
     from penguin import yaml
     from penguin.analyses import PenguinAnalysis
     from penguin.graphs import Failure, Mitigation, Configuration
-    from penguin.utils import arch_end
+    from penguin.gen_config import arch_end
 except ImportError:
     # We can still run as a PyPlugin, but we can't do post-run analysis
     PenguinAnalysis = object
