@@ -1,97 +1,110 @@
 Penguin: Configuration Based Rehosting
 ====
 
-Given a firmware image root filesystem, Penguin will set up an initial rehosting combined
-with an editable configuration that you may need to adjust depending on your system.
-Penguin also uses static analysis to identify things you may need to adjust for your firmware.
+Given a tarball of a firmware's root filesystem, penguin generates a configuration file specifying
+the rehosting process for the firmware. This configueration file can be refined by hand or automated
+analyses to improve a rehosting.
 
-Given a configuration, Penguin rehosts the system with the specified 
-options and leverages custom dynamic analyses to tell you what sorts of things are 
-happening.
+There are two stages to running penguin:
 
-You are then tasked with refining this configuration and re-running your system
-until you're happy with how it behaves. You'll do this by going through the Rehosting Workflow
-loop described below.
+## Project Creation: `init`
 
-# Penguin Setup
-
-First make two directories, one for your firmware images, and one for your results:
+Initialize a penguin project with the `init` command. By default this will create a project folder in `./projects/firmware_name/` which
+contains `config.yaml` specifying the rehosting as well as static analysis results. An `--output` argument can be passed to specify
+another directory to store the project in.
 ```
-mkdir fws results
+./penguin init ./path/to/your_firmware.tar.gz
 ```
 
-## Pull Container
-You next need the container named `rehosting/penguin`, you can build this from the
-source of this repository or by pulling from dockerhub.
+## Run configuration: `run`
 
-If pulling from dockerhub:
+Run the rehosting as specified by a given configuration. Note that configuration files can have arbitrary names, but must be stored
+within a penguin project directory. By default output from a run will be stored within the project directory at `results/X` where `X` is
+an auto-incrementing run number. An `--output` argument can be passed to specify another directory to store results in.
 
 ```
+penguin run ./projects/your_firmware/config.yaml
+```
+
+
+# Installation
+
+Penguin consists of two components, a container named `rehosting/penguin` and a wrapper script `penguin` that runs your host machine.
+The `penguin` wrapper script can be installed from a pre-built container.
+
+## Pull Container and install `penguin`
+
+First download the container from dockerhub (requires authentication).
+```sh
 docker login
 docker pull rehosting/penguin
 ```
 
-If build from source:
+You can then install the penguin command system-wide or locally:
 
-```
-docker build -t rehosting/penguin .
-```
-
-## Run container
-
-```
-docker run --rm -it --privileged \
-  -v $(pwd)/fws:/fws -v $(pwd)/results:/results \
-  -p 8000:80 \
-  rehosting/penguin \
-  bash
+### System-wide install:
+```sh
+docker run rehosting/penguin penguin_install | sudo sh
 ```
 
+### Local install:
+```sh
+docker run rehosting/penguin penguin_install.local | sh
+```
+
+## Local development from source
+
+After cloning this repository you can use the local `./penguin` script to build your container and to run penguin.
+To build the container you can run:
+```sh
+./penguin --build
+```
+
+You can view all the wrapper arguments that may assist with development by running
+```sh
+./penguin --wrapper-help
+```
 
 # Rehosting Workflow
-## Generate initial configuration
-Start by having Penguin statically analyze a firmware in your `fws` directory
-and create the project in the `results` directory
+
+## Convert firmware blob to root filesystem archive
+
+Install [fw2tar](https://github.com/rehosting/fw2tar) (or `docker pull rehosting/fw2tar`) and use it to convert a firmware blob into a root filesystem.
+
+## Initialize project from root filesystem archive
 ```
-penguin /fws/your_fw.tar.gz /results/your_fw
+./penguin init ./path/to/your_firmware.tar.gz
 ```
 
-### View config
-Running the above command will generate a starting config at `/results/your_fw/config.yaml`.
-
-### Examine static output in `base` directory
-A number of helpful files will be generated in the `/results/your_fw/base/` directory.
+This will create a project in `./projects/your_firmware`. In this directory you can view and edit the generated `config.yaml` file.
+You can also examine static analysis outputs in the `base` directory which has useful information, including:
 
 * `image.qcow`: an immutable "base image" that stores the original firmware's filesystem with minimal modifications.
 * `env.yaml`: a list of statically-identified environment variables you may later need to set
 * `pseudofiles.yaml`: a list of statically-identified `/dev` and `/proc` files that you may later need to model.
 
-## Run initial configuration
-Run your initial configuration into a directory called `default`:
+## Run your configuration and collect output:
+Run your initial configuration and store output in a directory called `test`:
 ```
-penguin --config /results/your_fw/config.yaml /results/your_fw/default
+penguin run projects/your_firmware/config.yaml --output projects/your_firmware/test
 ```
 
-This command will give you an emulator  monitor prompt of `(qemu)` where you can type `q` or `quit` at any time and press enter to end the emulation. Alternatively, if the firmware you're trying to rehost shuts down or kernel panics, it will terminate.
-
-### View dynamic output
-In `/results/your_fw/default` you'll have a number of files that tell you about what happened during your initial run. For now, just examine:
-
-* `console.log`: which contains the console output from the system while it ran.
-
-This file contains what the firmware explicitly tells you while it's running, the messages it chooses to print to the serial console. But our dynamic analysis can collect much more information which is captured in the other files. These files are named based on the _penguin plugin_ that created them. See the **Penguin Plugins** section below for an overview of what penguin plugins are available and how to
-interpret the files they create.
+This rehosting will run until you terminate the command or the rehosting shuts down. Press Ctrl-C to gracefully shutdown the rehosting.
+While the rehosting runs you will see some results in your output directory (e.g., `tail -f your_firmware/test/console.log` will trace the console output).
+After the rehosting terminates, additional output will be produced. See the **Penguin Plugins** section below for an overview of the analysis output produced by the
+various penguin plugins.
 
 ## Update configuration
-Modify your configuration in some way to try improving something about your rehosting. A detailed guide of changes to make are listed in the **Penguin Playbook** section
+You can modify a configuration file to try improving or chaning your rehosting.
+A detailed guide of changes to make are listed in the **Penguin Playbook** section
 below.
 
 After you've modified your configuration, run the updated configuration and
 specify a new output directory. Pick a better name than `second_try`, perhaps
-something that describes what you changed.
+something that describes what you changed (or drop the `--output` argument to get an auto-incrementing numerical directory in `[project_dir]/results`).
 
 ```
-penguin --config /results/your_fw/config.yaml /results/your_fw/second_try
+penguin run projects/your_firmware/config.yaml --output projects/your_firmware/changed_something
 ```
 
 If this run doesn't panic, you can shut it down by typing `q` at the `(qemu)` prompt after a minute. Then examine the output and try refining it further.
