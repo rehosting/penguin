@@ -1,14 +1,31 @@
 import click, yaml
-from .penguin_static import extend_config_with_static
+import tempfile, shutil
 import os, tarfile
+from pathlib import Path
 from collections import Counter
 from os.path import join, dirname
 from elftools.elf.elffile import ELFFile
 from elftools.elf.constants import E_FLAGS, E_FLAGS_MASKS
-from .utils import load_config, dump_config, arch_end
+from .penguin_static import extend_config_with_static
+from .penguin_config import dump_config
 from .defaults import default_init_script, default_plugins, default_version, default_netdevs, default_pseudofiles, default_lib_aliases, static_dir, DEFAULT_KERNEL
-from pathlib import Path
-import tempfile, shutil
+
+def arch_end(value):
+    arch = None
+    end = None
+
+    tmp = value.lower()
+    if tmp.startswith("mips64"):
+        arch = "mips64"
+    elif tmp.startswith("mips"):
+        arch = "mips"
+    elif tmp.startswith("arm"):
+        arch = "arm"
+    if tmp.endswith("el"):
+        end = "el"
+    elif tmp.endswith("eb"):
+        end = "eb"
+    return (arch, end)
 
 def binary_filter(fsbase, name):
     base_directories = ["sbin","bin","usr/sbin","usr/bin"]
@@ -157,10 +174,10 @@ def _makeConfig(fs, out, artifacts, derive_from=None, timeout=None, auto_explore
     # Note that there's no way for a user to control that flag yet.
 
     if not os.path.isfile(fs):
-        raise RuntimeError(f"FATAL: Firmware file not found: {firmware}")
+        raise RuntimeError(f"FATAL: Firmware file not found: {fs}")
     
     if not fs.endswith(".tar.gz"):
-        raise ValueError(f"Penguin should begin post extraction and be given a .tar.gz archive of a root fs, not {fw}")
+        raise ValueError(f"Penguin should begin post extraction and be given a .tar.gz archive of a root fs, not {fs}")
 
     tmpdir = None
     if artifacts is None:
