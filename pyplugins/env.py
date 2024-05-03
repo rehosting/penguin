@@ -7,7 +7,8 @@ from pandare import PyPlugin
 from copy import deepcopy
 from typing import List, Optional
 try:
-    from penguin import PenguinAnalysis, yaml
+    from penguin import yaml
+    from penguin.analyses import PenguinAnalysis
     from penguin.graphs import Failure, Mitigation, Configuration
 except ImportError:
     # We can still run as a PyPlugin, but we can't do post-run analysis
