@@ -211,7 +211,7 @@ def extract_and_build(fw, output_dir):
     if not (arch_identified := find_architecture(fw)):
         raise Exception("Unable to determine architecture of rootfs")
 
-    if arch_identified not in ["mipseb", "mipsel", "armel"]:
+    if arch_identified not in ["mipseb", "mipsel", "armel", "mips64eb"]:
         #raise Exception(f"Architecture {arch_identified} unsupported")
         with open(f"{output_dir}/result", 'w') as f:
             f.write(f"unsupported arch: {arch_identified}\n")
