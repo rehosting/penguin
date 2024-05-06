@@ -110,8 +110,9 @@ class Core(PyPlugin):
             # Not one of ours
             return False
         except Exception as e:
-            print(f"ERROR running hypercall: {num:x}: {e}")
-            return True # Technically we processed it, just badly. We need to explicitly return here to avoid pypanda getting mad about bad return types
+            print(f"Error running hypercall: {e}")
+            self.panda.arch.dump_regs(cpu)
+            pass # Technically we processed it, just badly. Need to ensure we still return bool instead of raising exn
         return True
 
     def _handle_hc(self, cpu, num):
