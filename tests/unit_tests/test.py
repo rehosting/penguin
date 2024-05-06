@@ -18,7 +18,7 @@ BASE_CONFIG=Path(f"{SCRIPT_PATH}/base_config.yaml")
 DEFAULT_KERNELS = ["4.10",
                     #"6.7"
                    ]
-DEFAULT_ARCHS = ["armel", "mipsel", "mipseb"]
+DEFAULT_ARCHS = ["armel", "mipsel", "mipseb", "mips64eb"]
 
 def assert_generic(filepath, patterns):
     '''
