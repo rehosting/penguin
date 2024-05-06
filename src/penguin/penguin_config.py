@@ -597,7 +597,7 @@ class Main(BaseModel):
     pseudofiles: Pseudofiles
     nvram: NVRAM
     netdevs: Optional[NetDevs] = None
-    uboot_env: Optional[UBootEnv] = None
+    #uboot_env: Optional[UBootEnv] = None
     blocked_signals: Optional[BlockedSignals] = None
     lib_inject: Optional[LibInject] = None
     static_files: StaticFiles
