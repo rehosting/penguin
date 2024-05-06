@@ -1,8 +1,0 @@
-#!/bin/sh
-docker build -t penguin .
-docker run --rm -it \
-    --privileged \
-    -v $(pwd)/fws:/fws -v $(pwd)/results:/results \
-    -v $(pwd)/penguin:/pkg \
-    penguin \
-    bash -c "pip install -e /pkg && bash"
