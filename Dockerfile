@@ -4,11 +4,11 @@ ARG DOWNLOAD_TOKEN="github_pat_11AACH7QA0tuVodqXUxSAy_Wq5btZcV0nnuFbRv2XDZRAci4A
 ARG PANDA_VERSION="1.8.24"
 ARG BUSYBOX_VERSION="0.0.1"
 ARG LINUX_VERSION="2.2.0"
-ARG LIBNVRAM_VERSION="0.0.3"
+ARG LIBNVRAM_VERSION="0.0.4"
 ARG CONSOLE_VERSION="1.0.2"
 ARG PENGUIN_PLUGINS_VERSION="1.5.6"
 ARG UTILS_VERSION="4"
-ARG VPN_VERSION="1.0.5"
+ARG VPN_VERSION="1.0.8"
 ARG HYPERFS_VERSION="0.0.8"
 
 FROM rust as vhost_builder
@@ -112,6 +112,7 @@ RUN cd / && \
   mkdir out && \
   wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h && \
   mipseb-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipseb && \
+  mips64eb-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/send_hypercall.mips64eb  && \
   mipsel-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipsel && \
   arm-linux-musleabi-gcc -s -static send_hypercall.c -o out/send_hypercall.armel
 
