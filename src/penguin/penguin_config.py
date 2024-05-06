@@ -1,4 +1,4 @@
-from typing import Optional, Union, Literal, Annotated, Dict
+from typing import Optional, Union, Literal, Annotated, Dict, List
 
 from pydantic import BaseModel, RootModel, Field
 from pydantic.config import ConfigDict
@@ -54,6 +54,7 @@ def _union(class_name, title, description, discrim_key, discrim_title, variants)
 
 
 class Core(BaseModel):
+    """Core configuration options for this rehosting"""
     model_config = ConfigDict(title="Core configuration options", extra="forbid")
 
     arch: Annotated[
@@ -78,8 +79,8 @@ class Core(BaseModel):
     fs: Annotated[
         str,
         Field(
-            title="Path to filesystem tarball",
-            examples=["/output/device_name/base/fs.tar"],
+            title="Project-relative path to filesystem tarball",
+            examples=["base/fs.tar"],
         ),
     ]
     plugin_path: Annotated[
@@ -89,8 +90,8 @@ class Core(BaseModel):
     qcow: Annotated[
         str,
         Field(
-            title="Path to filesystem qcow file",
-            examples=["/output/device_name/base/image.qcow"],
+            title="Project-relative path to filesystem qcow file",
+            examples=["base/image.qcow"],
         ),
     ]
     root_shell: Annotated[
@@ -159,9 +160,9 @@ class Core(BaseModel):
         Optional[str],
         Field(
             None,
-            title="Host path of shared directory",
+            title="Project-relative path of shared directory",
             description="Share this directory as /igloo/shared in the guest.",
-            examples=["/shared"],
+            examples=["my_shared_directory"],
         ),
     ]
     version: Annotated[
@@ -199,10 +200,8 @@ Env = _newtype(
         ),
     ],
 )
-NetDevs = _newtype(
-    class_name="NetDevs",
-    type_=list[str],
-    title="Network Devices",
+NetDevs = Field(
+    default=None,
     description="Names for guest network interfaces",
     examples=[
         ["eth0",
@@ -212,16 +211,12 @@ NetDevs = _newtype(
     ],
 )
 
-BlockedSignals = _newtype(
-    class_name="BlockedSignals",
-    type_=list[int],
-    title="Signals to block",
-    description="Signals numbers to block within guest",
-    examples=[
-        [15],
-        [9, 14],
-    ],
+BlockedSignalsField = Field(
+    default=None,
+    description="Signals numbers to block within the guest. Supported values are 6 (SIGABRT), 9 (SIGKILL), 15 (SIGTERM), and 17 (SIGCHLD).",
+    example=[[9], [9, 15]]
 )
+
 
 ConstMapVal = _newtype(
     class_name="ConstMapVal",
@@ -454,16 +449,24 @@ LibInjectAliases = _newtype(
 )
 
 class LibInject(BaseModel):
-    """Configuration for a dynamically-linked C library to be injected into all dynamically-linked programs in the guest"""
+    """Library functions to be intercepted"""
     model_config = ConfigDict(title="Injected library configuration", extra="forbid")
 
-    aliases: Optional[LibInjectAliases] = None
+    aliases: Annotated[
+        Optional[LibInjectAliases],
+        Field(
+            None,
+            title="Function names to alias to existing library function shims",
+            descriptions="Mapping between new names (e.g., my_nvram_get) and existing library function shims (e.g., nvram_get)"
+        )
+    ]
+
     extra: Annotated[
         Optional[str],
         Field(
             None,
             title="Extra injected library code",
-            description="Additional custom source code to include in the library",
+            description="Custom source code for library functions to intercept and model",
         ),
     ]
 
@@ -596,10 +599,10 @@ class Main(BaseModel):
     env: Env
     pseudofiles: Pseudofiles
     nvram: NVRAM
-    netdevs: Optional[NetDevs] = None
+    netdevs: List[str] = NetDevs
     #uboot_env: Optional[UBootEnv] = None
-    blocked_signals: Optional[BlockedSignals] = None
-    lib_inject: Optional[LibInject] = None
+    blocked_signals: List[int] = BlockedSignalsField
+    lib_inject: LibInject
     static_files: StaticFiles
     plugins: Annotated[dict[str, Plugin], Field(title="Plugins")]
 
