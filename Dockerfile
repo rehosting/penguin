@@ -26,6 +26,7 @@ RUN apt-get update && \
     ca-certificates \
     curl \
     jq \
+    less \
     wget \
     xmlstarlet && \
     rm -rf /var/lib/apt/lists/* && \

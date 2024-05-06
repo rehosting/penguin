@@ -615,6 +615,52 @@ def penguin_patch(args):
     with open(config, 'w') as f:
         yaml.dump(base_config, f)
 
+def add_docs_arguments(parser):
+    #parser.add_argument('filename', type=str,
+    #    help='Documentation file to render. If unset, filenames are printed.',
+    #    default=None)
+    parser.add_argument('--filename', type=str, default=None, nargs='?',
+        help='Documentation file to render. If unset, filenames are printed.')
+
+
+def penguin_docs(args):
+    #docs_path = join(dirname(dirname(__file__)), "docs")
+    # Only valid in container
+    docs_path = "/docs"
+
+    if args.filename:
+        if not args.filename.endswith(".md"):
+            args.filename += ".md"
+        full_path = join(docs_path, args.filename)
+
+        if '..' in args.filename:
+            raise ValueError("Invalid filename")
+
+        if not os.path.isfile(full_path):
+            print(f"Documentation file not found: {args.filename}")
+        else:
+            # How many lines are in the file?
+            with open(full_path, 'r') as f:
+                lines = len(f.readlines())
+
+            # How many lines are in the terminal (if available)
+            try:
+                rows, _ = os.get_terminal_size()
+            except OSError:
+                rows = None
+
+            if rows and lines > rows:
+                # We'll render with less
+                subprocess.run(["less", full_path])
+            else:
+                # Otherwise print directly
+                with open(full_path, 'r') as f:
+                    print(f.read())
+    else:
+        print("Available documentation files. Select one to view by running penguin docs --filename <filename>")
+        for f in os.listdir(docs_path):
+            print("  ", f)
+
 def add_run_arguments(parser):
     parser.add_argument('config', type=str, help='Path to a config file within a project directory.')
     parser.add_argument('--output', type=str, help='The output directory path. Defaults to results/X in project directory where X auto-increments.', default=None)
@@ -678,7 +724,7 @@ def main():
     """,
     formatter_class=argparse.RawTextHelpFormatter)
 
-    subparsers = parser.add_subparsers(help='subcommand', dest='cmd')
+    subparsers = parser.add_subparsers(help='subcommand', dest='cmd', required=True)
 
     parser_cmd_init = subparsers.add_parser('init', help='Create project from firmware root filesystem archive')
     add_init_arguments(parser_cmd_init)
@@ -689,6 +735,9 @@ def main():
     parser_cmd_run = subparsers.add_parser('run', help='Run from a config')
     add_run_arguments(parser_cmd_run)
 
+    parser_cmd_docs = subparsers.add_parser('docs', help='Show documentation')
+    add_docs_arguments(parser_cmd_docs)
+
     # NYI
     #parser_cmd_explore = subparsers.add_parser('explore', help='Explore configuration space')
     #add_explore_arguments(parser_cmd_explore)
@@ -697,12 +746,15 @@ def main():
     parser.add_argument('--wrapper-help', action='store_true', help='Show help for host penguin wrapper')
 
     args = parser.parse_args()
+
     if args.cmd == "init":
         penguin_init(args)
     elif args.cmd == "run":
         penguin_run(args)
     elif args.cmd == "patch":
         penguin_patch(args)
+    elif args.cmd == "docs":
+        penguin_docs(args)
     elif args.cmd == "explore":
         raise NotImplementedError("Exploration not yet implemented")
         #penguin_explore(args)
