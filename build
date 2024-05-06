@@ -1,2 +1,0 @@
-#!/bin/sh
-DOCKER_BUILDKIT=1 docker build -t rehosting/penguin $(dirname $0)
