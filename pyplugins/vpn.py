@@ -48,8 +48,9 @@ class VsockVPN(PyPlugin):
         self.logger = logging.getLogger("VPN")
         self.logger.setLevel(logging.INFO)
 
-        # Check if we have CONTAINER_IP in env
+        # Check if we have CONTAINER_{IP,NAME} in env
         self.exposed_ip = env.get("CONTAINER_IP", None)
+        self.container_name = env.get("CONTAINER_NAME", None)
 
         self.has_perms = geteuid() == 0
         if not self.has_perms:
@@ -146,8 +147,10 @@ class VsockVPN(PyPlugin):
 
         if self.exposed_ip:
             connect_to = f"{self.exposed_ip}:{host_port}"
+        elif self.container_name:
+            connect_to = f"container {self.container_name}:{host_port}"
         else:
-            connect_to = f"container {host_port}"
+            connect_to = f"container on port {host_port}"
 
         listen_on = f"{sock_type} {ip}:{guest_port}"
 
