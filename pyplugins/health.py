@@ -55,7 +55,7 @@ class Health(PyPlugin):
 
             # Now get args
             try:
-                argv_buf = panda.virtual_memory_read(cpu, argv_ptr, 100, fmt='ptrlist')
+                argv_buf = panda.virtual_memory_read(cpu, argv_ptr, 96, fmt='ptrlist')
             except ValueError:
                 return
             
