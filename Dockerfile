@@ -280,8 +280,11 @@ COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/rel
 #RUN rm -rf /igloo_static/libnvram && \
 #    tar xvf /tmp/libnvram-latest.tar.gz -C /igloo_static/
 
-COPY ./penguin /penguin/cmd
+# Copy wrapper script into container so we can copy out - note we don't put it on guest path
+COPY ./penguin /usr/local/src/penguin_wrapper
+# And add install helpers which generate shell commands to install it on host
 COPY ./src/resources/banner.sh ./src/resources/penguin_install ./src/resources/penguin_install.local /usr/local/bin/
+# Warn on interactive shell sessions and provide instructions for install
 RUN echo '[ ! -z "$TERM" -a -r /usr/local/banner.sh ] && /usr/local/banner.sh' >> /etc/bash.bashrc
 
 WORKDIR /penguin
