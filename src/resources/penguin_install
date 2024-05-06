@@ -6,7 +6,7 @@
 echo "#!/bin/bash"
 
 echo "cat << 'EOF' | sudo tee /usr/local/bin/penguin >/dev/null"
-cat /penguin/cmd
+cat /usr/local/src/penguin_wrapper
 
 echo
 echo "EOF"
