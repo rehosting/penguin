@@ -519,8 +519,8 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
         f.write(f"{total_score:.02f}\n")
 
 def add_init_arguments(parser):
-    parser.add_argument('firmware', type=str, help='The firmware path. (e.g. /path/to/fw.tar.gz)')
-    parser.add_argument('--output', type=str, help="Optional path for specifying project path.")
+    parser.add_argument('rootfs', type=str, help='The rootfs path. (e.g. path/to/fw_rootfs.tar.gz)')
+    parser.add_argument('--output', type=str, help="Optional argument specifying the path where the project will be created. Default is projects/<basename of firmware file>.", default=None)
     parser.add_argument('--derive_from', type=str, help='Baseline YAML configuration to override defaults when generating a new config', default=None)
     parser.add_argument('--force', action='store_true', default=False, help="Forcefully delete project directory if it exists")
     parser.add_argument('--output_base', type=str, help="Default project directory base. Default is 'projects'", default="projects")
@@ -529,24 +529,24 @@ def penguin_init(args):
     '''
     Initialize a project from a firmware rootfs
     '''
-    firmware = Path(args.firmware)
+    firmware = Path(args.rootfs)
 
     if not firmware.exists():
         raise ValueError(f"Firmware file not found: {firmware}")
 
-    if args.firmware.endswith(".yaml"):
+    if args.rootfs.endswith(".yaml"):
         raise ValueError("FATAL: It looks like you provided a config file (it ends with .yaml)." \
                          "Please provide a firmware file")
 
     if args.output is None:
         # Expect filename to end with .tar.gz - drop that extension
-        if args.firmware.endswith(".rootfs.tar.gz"):
-            basename_stem = os.path.basename(args.firmware)[0:-14] # Drop the .rootfs.tar.gz
-        elif args.firmware.endswith(".tar.gz"):
-            basename_stem = os.path.basename(args.firmware)[0:-7] # Drop the .tar.gz
+        if args.rootfs.endswith(".rootfs.tar.gz"):
+            basename_stem = os.path.basename(args.rootfs)[0:-14] # Drop the .rootfs.tar.gz
+        elif args.rootfs.endswith(".tar.gz"):
+            basename_stem = os.path.basename(args.rootfs)[0:-7] # Drop the .tar.gz
         else:
             # Drop the extension
-            basename_stem = os.path.splitext(os.path.basename(args.firmware))[0]
+            basename_stem = os.path.splitext(os.path.basename(args.rootfs))[0]
 
         if not os.path.exists(args.output_base):
             os.makedirs(args.output_base)
@@ -563,11 +563,11 @@ def penguin_init(args):
     if not os.path.exists(os.path.dirname(args.output)):
         os.makedirs(os.path.dirname(args.output))
 
-    config = build_config(args.firmware, args.output, auto_explore=False, timeout=None, niters=1,derive_from=args.derive_from)
+    config = build_config(args.rootfs, args.output, auto_explore=False, timeout=None, niters=1,derive_from=args.derive_from)
 
     if not config:
         # We failed to generate a config. We'll have written a result file to the output dir
-        print(f"Failed to generate config for {args.firmware}. See {args.output}/result for details.")
+        print(f"Failed to generate config for {args.rootfs}. See {args.output}/result for details.")
 
 def add_patch_arguments(parser):
     parser.add_argument('config', type=str, help='Path to the full config file to be updated')
@@ -690,7 +690,7 @@ def main():
 
     subparsers = parser.add_subparsers(help='subcommand', dest='cmd')
 
-    parser_cmd_init = subparsers.add_parser('init', help='Create project from firmware')
+    parser_cmd_init = subparsers.add_parser('init', help='Create project from firmware root filesystem archive')
     add_init_arguments(parser_cmd_init)
 
     parser_cmd_patch = subparsers.add_parser('patch', help='Patch a config file')
