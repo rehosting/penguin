@@ -2,8 +2,6 @@
 
 set -eu
 
-CONTAINER="rehosting/penguin"
-
 BOLD=""
 RESET=""
 RED=""
@@ -59,7 +57,8 @@ penguin_run() {
     local pydev=false
     local verbose=false
     local subnet=""
-    local container_name=""
+    local container_name="" # Name of the instance
+    local image="rehosting/penguin" # Container to run
     local extra_docker_args=""
 
     # Process each command-line argument
@@ -69,16 +68,17 @@ penguin_run() {
                 echo "Usage: penguin [WRAPPER FLAGS] [COMMAND] [ARGS]"
                 echo "Wrapper script for running PENGUIN in a Docker container"
                 echo ""
-                echo "Wrapper-specific flags may be passed in *before* the PENGUIN command:"
-                echo "  --wrapper-help: this message"
+                echo "Wrapper-specific flags may be passed in *before* the PENGUIN command. If a value is required, it must be specified immediately after the flag with a space."
                 echo "  --build: Build the PENGUIN container before running the specified command. If no command is specifed, just build and exit"
                 echo "  --pydev: Map local python package and plugin code into container and reinstall before running the specified command."
                 echo "  --subnet: IP subnet to use. For example --subnet 192.168.0.0/24 would produce a network with firmware reachable at 192.168.0.2."
                 echo "            Default: automatically find next free /24 subnet in 192.168.x.x"
                 echo "            Set to 'none' to disable network creation."
-                echo "  --name: Container name to use. By default based on project directory (if available)"
+                echo "  --name: A name to identify the penguin container. By default based on project directory (if available)"
+                echo "  --image: Which image to run. Default: rehosting/penguin"
                 echo "  --extra_docker_args: Extra arguments to pass to docker. For example --extra_docker_args \"-p 8000:80\" to expose container port 80 on host port 8000."
                 echo "  --verbose: Print verbose output for penguin wrapper (e.g., filesystem mappings, docker command)"
+                echo "  --wrapper-help: this message"
                 echo ""
                 echo "All other arguments will be passed through to the main PENGUIN command in the container."
                 echo "For example try:"
@@ -101,6 +101,10 @@ penguin_run() {
                 ;;
             --name)
                 container_name="$2"
+                shift 2
+                ;;
+            --image)
+                image="$2"
                 shift 2
                 ;;
             --extra_docker_args)
@@ -342,16 +346,16 @@ penguin_run() {
 
         # Create etc/{passwd,group} and map into container so current user exists. Based on contents in real container
         # Username matches host UID and we add a group named 'g' that matches the host GID
-        docker run --rm "$CONTAINER" /bin/bash -c "cat /etc/passwd" > $d/passwd_user
+        docker run --rm "$image" /bin/bash -c "cat /etc/passwd" > $d/passwd_user
         echo "$(id -un):x:$(id -u):$(id -g):,,,:$(eval echo ~$USER):/bin/bash" >> $d/passwd_user
 
-        docker run --rm "$CONTAINER" /bin/bash -c "cat /etc/group" > $d/group_user
+        docker run --rm "$image" /bin/bash -c "cat /etc/group" > $d/group_user
         echo "g:x:$(id -g):" >> $d/group_user
 
         docker_cmd+=("-v" "$d/passwd_user:/etc/passwd")
         docker_cmd+=("-v" "$d/group_user:/etc/group")
         docker_cmd+=("--cap-add=NET_BIND_SERVICE")
-        docker_cmd+=("$CONTAINER")
+        docker_cmd+=("$image")
 
         docker_cmd+=("/bin/bash" "-c" "pip install -e /pkg &>/tmp/log.txt || { cat /tmp/log.txt; exit 1; }; sudo -su \"$(id -un)\" -g g penguin ${new_cmd[*]}")
     else
@@ -360,7 +364,7 @@ penguin_run() {
         docker_cmd+=("-u" "$(id -u):$(id -g)")
         docker_cmd+=("--cap-add=NET_BIND_SERVICE")
 
-        docker_cmd+=("$CONTAINER")
+        docker_cmd+=("$image")
         docker_cmd+=("penguin")
         docker_cmd+=("${new_cmd[@]}")
     fi
