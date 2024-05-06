@@ -2,9 +2,12 @@ import signal
 import os
 import time
 import threading
+import logging
 import sys
 from copy import deepcopy
 from pandare import PyPlugin
+import coloredlogs
+coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 try:
     from penguin import PenguinAnalysis, yaml
     from penguin.graphs import Failure, Mitigation, Configuration
@@ -38,6 +41,9 @@ class Core(PyPlugin):
         self.pending_procname = None
         self.pending_sin_addr = None
 
+        self.logger = logging.getLogger("core")
+        self.logger.setLevel(logging.INFO)
+
         plugins = self.get_arg("plugins")
         conf = self.get_arg("conf")
 
@@ -45,6 +51,15 @@ class Core(PyPlugin):
         # so that the init script knows to start a root shell
         if conf['core'].get('root_shell', False):
             conf['env']['ROOT_SHELL'] = "1"
+            # Print port info
+            if container_ip := os.environ.get("CONTAINER_IP", None):
+                self.logger.info(f"Root shell will be available at: {container_ip}:4321")
+                self.logger.info(f"Connect with: telnet {container_ip} 4321")
+            elif container_name := os.environ.get("CONTAINER_NAME", None):
+                self.logger.info(f"Root shell will be available in container {container_name} on port 4321")
+                self.logger.info(f"Connect with: docker exec -it {container_name} telnet 4321")
+            else:
+                self.logger.info("Root shell enabled. Connect with docker exec -it [your_container_name] telnet 4321")
 
         # Same thing, but for a shared directory
         if conf['core'].get('shared_dir', False):
@@ -55,7 +70,7 @@ class Core(PyPlugin):
 
         if conf['core'].get('force_www', False):
             if conf.get("static_files", {}).get("/igloo/utils/www_cmds", None) is None:
-                print(f"WARNING: Force WWW unavailable - no webservers were statically identified (/igloo/utils/www_cmds is empty)")
+                self.logger.warning(f"WARNING: Force WWW unavailable - no webservers were statically identified (/igloo/utils/www_cmds is empty)")
             else:
                 conf['env']['WWW'] = "1"
 
