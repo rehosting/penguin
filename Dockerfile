@@ -214,6 +214,7 @@ RUN apt-get update && apt-get install -y \
 # we can still access the apt-installed python packages (e.g. guestfs) in our venv
 #RUN python3 -m venv --system-site-packages /venv
 #ENV PATH="/venv/bin:$PATH"
+ARG PANDA_VERSION
 
       #http://panda.re/secret/pandare-0.1.2.0.tar.gz
 RUN --mount=type=cache,target=/root/.cache/pip pip install \
@@ -222,7 +223,7 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
       coloredlogs \
       git+https://github.com/AndrewFasano/angr-targets.git@af_fixes \
       html5lib \
-      https://panda.re/secret/pandare-0.1.2.0-py3-none-any.whl \
+      pandare==${PANDA_VERSION} \
       ipdb \
       lief  \
       lxml \
