@@ -232,7 +232,7 @@ def extract_and_build(fw, output_dir):
     os.chmod(f"{base}/image.qcow", 0o444)
     return arch, endianness
 
-def build_config(firmware, output_dir, auto_explore=False, timeout=None, niters=1, derive_from=None):
+def build_config(firmware, output_dir, auto_explore=False, timeout=None, niters=1):
     '''
     Given a firmware binary and an output directory, this function will
     extract the firmware, build a qemu image, and create a config file
@@ -437,15 +437,6 @@ def build_config(firmware, output_dir, auto_explore=False, timeout=None, niters=
     if 'meta' in data:
         del data['meta']
 
-    # If we have a derive_from, we'll load it and update our data with it
-    if derive_from:
-        if not os.path.isfile(derive_from):
-            raise RuntimeError(f"Derive_from file not found: {derive_from}")
-
-        print(f"Refining configuration with provided configuration overrides {derive_from}")
-        with open(derive_from, 'r') as f:
-            data.update(yaml.safe_load(f))
-
     # Write config to both output and base directories. Disable flow style and width
     # so that our multi-line init script renders the way we want
     for idx, outfile in enumerate([f"{output_dir}/base/initial_config.yaml",
@@ -521,7 +512,6 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
 def add_init_arguments(parser):
     parser.add_argument('rootfs', type=str, help='The rootfs path. (e.g. path/to/fw_rootfs.tar.gz)')
     parser.add_argument('--output', type=str, help="Optional argument specifying the path where the project will be created. Default is projects/<basename of firmware file>.", default=None)
-    parser.add_argument('--derive_from', type=str, help='Baseline YAML configuration to override defaults when generating a new config', default=None)
     parser.add_argument('--force', action='store_true', default=False, help="Forcefully delete project directory if it exists")
     parser.add_argument('--output_base', type=str, help="Default project directory base. Default is 'projects'", default="projects")
 
@@ -563,7 +553,7 @@ def penguin_init(args):
     if not os.path.exists(os.path.dirname(args.output)):
         os.makedirs(os.path.dirname(args.output))
 
-    config = build_config(args.rootfs, args.output, auto_explore=False, timeout=None, niters=1,derive_from=args.derive_from)
+    config = build_config(args.rootfs, args.output, auto_explore=False, timeout=None, niters=1)
 
     if not config:
         # We failed to generate a config. We'll have written a result file to the output dir
