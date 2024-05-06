@@ -36,7 +36,7 @@ class BBCov(PyPlugin):
 
         @self.panda.cb_guest_hypercall
         def cb_hypercall(cpu):
-            magic = self.panda.arch.get_arg(cpu, 0, convention='syscall')
+            magic = self.panda.arch.get_arg(cpu, 0, convention='syscall') & 0xFFFFFFFF
             if magic != EXPECTED_MAGIC:
                 return False
 
