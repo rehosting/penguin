@@ -53,44 +53,89 @@ find_available_subnet() {
 }
 
 penguin_run() {
-    local cmd=("$@")
+    local cmd=()
     local maps=()
     local build=false
     local pydev=false
+    local verbose=false
     local subnet=""
+    local container_name=""
+    local extra_docker_args=""
 
-    if [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "--wrapper-help" ]]; then
-        echo "Usage: penguin [WRAPPER_OPTIONS] COMMAND [ARGS]"
-        echo "Wrapper script for running PENGUIN in a Docker container"
-        echo ""
-        echo "Wrapper-specific flags may be passed in *before* the PENGUIN command:"
-        echo "  --wrapper-help: this message"
-        echo "  --build: Build the PENGUIN container before running the specified command"
-        echo "  --pydev: Map local python package source into container and reinstall before running the specified command"
-        echo "  --subnet: IP subnet to use. For example --subnet 192.168.0.0/24 would produce a network with firmware reachable at 192.168.0.2. Default: automaticly find next free /24 subnet in 192.168.x.x"
-        echo "Each option is mutually exclusive."
-        echo ""
-        echo "All other arguments will be passed through to the main PENGUIN command in the container."
-        echo "For example try:"
-        echo "  penguin --help"
-        echo "  penguin init --help"
-        echo "  penguin run --help"
-        exit 0
-
-    # Check for build and development mode (build must come first)
-    elif [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "--build" ]]; then
-        build=true
-        cmd=("${cmd[@]:1}")
-    elif [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "--pydev" ]]; then
-        pydev=true
-        cmd=("${cmd[@]:1}")
-    elif [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "--subnet" ]]; then
-        # Get next arg
-        subnet="${cmd[1]}"
-        cmd=("${cmd[@]:2}")
+    # Process each command-line argument
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --wrapper-help)
+                echo "Usage: penguin [WRAPPER FLAGS] [COMMAND] [ARGS]"
+                echo "Wrapper script for running PENGUIN in a Docker container"
+                echo ""
+                echo "Wrapper-specific flags may be passed in *before* the PENGUIN command:"
+                echo "  --wrapper-help: this message"
+                echo "  --build: Build the PENGUIN container before running the specified command. If no command is specifed, just build and exit"
+                echo "  --pydev: Map local python package and plugin code into container and reinstall before running the specified command."
+                echo "  --subnet: IP subnet to use. For example --subnet 192.168.0.0/24 would produce a network with firmware reachable at 192.168.0.2."
+                echo "            Default: automatically find next free /24 subnet in 192.168.x.x"
+                echo "            Set to 'none' to disable network creation."
+                echo "  --name: Container name to use. By default based on project directory (if available)"
+                echo "  --extra_docker_args: Extra arguments to pass to docker. For example --extra_docker_args \"-p 8000:80\" to expose container port 80 on host port 8000."
+                echo "  --verbose: Print verbose output for penguin wrapper (e.g., filesystem mappings, docker command)"
+                echo ""
+                echo "All other arguments will be passed through to the main PENGUIN command in the container."
+                echo "For example try:"
+                echo "  penguin --help"
+                echo "  penguin init --help"
+                echo "  penguin run --help"
+                exit 0
+                ;;
+            --build)
+                build=true
+                shift
+                ;;
+            --pydev)
+                pydev=true
+                shift
+                ;;
+            --subnet)
+                subnet="$2"
+                shift 2
+                ;;
+            --name)
+                container_name="$2"
+                shift 2
+                ;;
+            --extra_docker_args)
+                extra_docker_args="$2"
+                shift 2
+                ;;
+            --verbose)
+                verbose=true
+                shift
+                ;;
+            *)  # Default case: If no more known options, keep as part of command
+                cmd=("$@")
+                break
+                ;;
+        esac
+    done
+    # If command is empty, parse any un-shifted args into array - probably means we were run with wrapper flags only
+    if [[ ${#cmd[@]} -eq 0 ]]; then
+        cmd=("$@")
     fi
 
-    # Handle special case for "init" command by ensuring ./projects is mapped
+    # If verbose, log all wrapper args and command
+    if $verbose; then
+        echo "${BOLD}Wrapper args:${RESET}"
+        echo "  build: $build"
+        echo "  pydev: $pydev"
+        echo "  subnet: $subnet"
+        echo "  name: $container_name"
+        echo "  extra_docker_args: $extra_docker_args"
+        echo "  verbose: $verbose"
+        echo "  penguin cmd: ${cmd[*]}"
+        echo
+    fi
+
+    # Handle special case for "init" command by ensuring ./projects is mapped if no output directory is specified
     if [[ ${#cmd[@]} -gt 1 && "${cmd[0]}" == "init" && ! " ${cmd[@]} " =~ " --output " ]]; then
         if [ ! -d "projects" ]; then
             mkdir "projects"
@@ -99,6 +144,7 @@ penguin_run() {
         cmd+=("--output_base")
         cmd+=("/host_projects")
     fi
+
 
     # Check for "--output" flag and create the specified directory if it doesn't exist
     for ((i=1; i<${#cmd[@]}; i++)); do
@@ -134,8 +180,8 @@ penguin_run() {
 
     # Rewrite paths
     new_cmd=()
-    if [[ ${#cmd[@]} -gt 1 ]]; then
-        new_cmd+=("${cmd[0]}")
+    if [[ ${#cmd[@]} -gt 0 ]]; then
+        new_cmd+=("${cmd[0]}") # Never rewrite the first arg (penguin subcommand: init/run/patch/etc)
     fi
     for ((i=1; i<${#cmd[@]}; i++)); do
         arg="${cmd[$i]}"
@@ -161,43 +207,106 @@ penguin_run() {
         fi
     done
 
+    if $verbose; then
+        echo "${BOLD}Mappings from host paths to guest paths: $RESET"
+        for map in "${maps[@]}"; do
+            echo "  $map"
+        done
+        echo
+    fi
+
+
      # Build Docker command
     docker_cmd=("docker" "run" "--rm")
 
+    # If we have a name set, ensure it's available. We only really care about this for the run (and maybe explore) action
+    if [[ ${#cmd[@]} -gt 1 && "${cmd[0]}" == "run" ]]; then
+        if [ -z "$container_name" ]; then
+            # No name set - try to grab it - find last argument with host path and use that
+            for ((i=${#cmd[@]}-1; i>0; i--)); do
+                # Check if it's a directory or file
+                if [[ -e "${cmd[$i]}" ]]; then
+                    container_name=$(basename "${cmd[$i]}")
+                    if $verbose; then
+                        echo "${BOLD}Calculated name for container: ${GREEN}$container_name${RESET}"
+                        echo
+                    fi
+                    break
+                fi
+            done
+        else
+            if $verbose; then
+                echo "${BOLD}Using provided for container: ${GREEN}$container_name${RESET}"
+                echo
+            fi
+        fi
+
+        if [ -n "$container_name" ]; then
+            if docker ps --all --format '{{.Names}}' | grep -q "^$container_name$"; then
+                echo "${BOLD}ERROR: Container name ${RED}$container_name${RESET}${BOLD} is already in use!${RESET}"
+                echo "  Please specify a different name with ${BOLD}--name${RESET}"
+                exit 1
+            fi
+            # Unique name - add it to command
+            docker_cmd+=("--name" "$container_name")
+        fi
+    fi
+
     # Check if we're in an interactive terminal, if so add -it
     if [ -t 0 ]; then
-        # Add -it if it's running in an interactive terminal
         docker_cmd+=("-it")
     fi
 
     # Dynamic network
-    #docker network create -d bridge --subnet=192.168.0.0/24 fw --gateway="192.168.0.1"
-    network_name=$(generate_network_name)
-    # if subnet is empty, find one
-    if [ -z "$subnet" ]; then
-        subnet=$(find_available_subnet)
+    if [ "$subnet" != "none" ]; then
+        network_name=$(generate_network_name)
+        if [ -z "$subnet" ]; then
+            # if subnet is empty, find one. Otherwise if subet is none skip
+            subnet=$(find_available_subnet)
+        fi
+        gateway="${subnet%.*}.1"
+        ip="${subnet%.*}.2"
+
+        # Create the network
+        docker network create -d bridge --subnet=$subnet --gateway=$gateway $network_name > /dev/null
+
+        # Setup  on-exit cleanup
+        trap "docker network rm $network_name>/dev/null" EXIT
+
+        docker_cmd+=("--network" "$network_name" "--ip" "$ip")
+        # Add env variable CONTAINER_IP=ip
+        docker_cmd+=("-e" "CONTAINER_IP=$ip")
+
+        # Add container name if set
+        if [ -n "$container_name" ]; then
+            docker_cmd+=("-e" "CONTAINER_NAME=$container_name")
+        fi
+
+        if $verbose; then
+            echo "${BOLD}Docker network setup:${RESET}"
+            echo "  Network name: $network_name"
+            echo "  Subnet: $subnet"
+            echo "  Gateway: $gateway"
+            echo "  Container IP: $ip"
+            echo
+        fi
+    else
+        if $verbose; then
+            echo "${BOLD}Docker network setup:${RESET}"
+            echo "  Skipped due to --subnet none flag"
+            echo
+        fi
     fi
-    gateway="${subnet%.*}.1"
-    ip="${subnet%.*}.2"
 
-    # Create the network
-    docker network create -d bridge --subnet=$subnet --gateway=$gateway $network_name > /dev/null
-
-    # Setup  on-exit cleanup
-    trap "docker network rm $network_name>/dev/null" EXIT
-
-    echo
-    echo "${BOLD}Network services will be reachable at ${GREEN}${ip}${RESET}"
-    echo
-
-    docker_cmd+=("--network" "$network_name" "--ip" "$ip")
-    # Add env variable CONTAINER_IP=ip
-    docker_cmd+=("-e" "CONTAINER_IP=$ip")
-
-    # Add mappings
+    # Add mappings to docker command
     for map in "${maps[@]}"; do
         docker_cmd+=("-v" "$map")
     done
+
+    # Add extra args, if set
+    if [ -n "$extra_docker_args" ]; then
+        docker_cmd+=($extra_docker_args)
+    fi
 
     if $build; then
         echo "Running with container rebuild (--build). Entire container will be rebuilt."
@@ -212,11 +321,11 @@ penguin_run() {
             echo "Current directory is not named penguin and you requested a container rebuild"
             exit 1
         fi
-        DOCKER_BUILDKIT=1 docker build -t rehosting/penguin .
+        DOCKER_BUILDKIT=1 docker build -t $image .
 
         # If we have no other args, exit 0
         if [[ ${#new_cmd[@]} -eq 0 ]]; then
-            echo "Container build. Exiting as no command was specified."
+            echo "$image built. Exiting as no command was specified."
             exit 0
         fi
     fi
@@ -254,6 +363,21 @@ penguin_run() {
         docker_cmd+=("$CONTAINER")
         docker_cmd+=("penguin")
         docker_cmd+=("${new_cmd[@]}")
+    fi
+
+    if $verbose; then
+        echo "${BOLD}PENGUIN command:${RESET}"
+        echo "  penguin ${new_cmd[@]}"
+        echo
+
+        echo "${BOLD}Complete docker commands:${RESET}"
+        if [ "$subnet" != "none" ]; then
+            echo "  docker network create -d bridge --subnet=$subnet --gateway=$gateway $network_name"
+        fi
+        echo "  ${docker_cmd[*]}"
+        echo
+
+        echo "${BOLD}Command output:${RESET}"
     fi
 
     # Execute Docker command
