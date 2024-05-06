@@ -43,11 +43,11 @@ def assert_yaml(filepath, subkeys_l, assertion=None):
                 if assertion:
                     if assertion(data_key):
                         return True
-                    print(f"FAILURE: assertion failed on {key} in {filepath}")
+                    print(f"FAILURE: assertion failed on {data_key} in {filepath}")
                     return False
                 continue
             except KeyError:
-                print(f"FAILURE: key {key} not found in {filepath}") # May be nested
+                print(f"FAILURE: key {data_key} not found in {filepath}") # May be nested
                 return False
         return True
     return assert_func
