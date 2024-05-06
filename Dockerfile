@@ -287,6 +287,10 @@ COPY ./src/resources/banner.sh ./src/resources/penguin_install ./src/resources/p
 # Warn on interactive shell sessions and provide instructions for install
 RUN echo '[ ! -z "$TERM" -a -r /usr/local/banner.sh ] && /usr/local/banner.sh' >> /etc/bash.bashrc
 
+# Install docs
+COPY ./docs /docs
+COPY ./README.md /docs/README.md
+
 WORKDIR /penguin
 
 # Now copy in our module and install it
