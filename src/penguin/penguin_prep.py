@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-import guestfs
-import os
 import subprocess
-import tarfile
-import sys
-from tempfile import TemporaryDirectory
-import shutil
-from .common import yaml, hash_yaml
-from .utils import get_mount_type
 
 def add_lib_inject(config):
     arch = config['core']['arch']
@@ -45,8 +37,7 @@ def add_lib_inject(config):
         'mode': 0o444,
     }
 
-def prepare_run(proj_dir, conf, out_dir, out_filename="image.qcow2"):
-    base_qcow = os.path.join(proj_dir, conf['core']['qcow'])
+def prep_config(conf):
     config_files = conf['static_files'] if 'static_files' in conf else {}
     config_nvram = conf['nvram'] if 'nvram' in conf else {}
 
@@ -71,20 +62,3 @@ def prepare_run(proj_dir, conf, out_dir, out_filename="image.qcow2"):
         }
 
     add_lib_inject(conf)
-
-    # Given this yaml config, we need to make the specified changes both statically and dynamically
-
-    # We make the static changes to guest disk in this function
-    new_image = derive_qcow_from(base_qcow, out_dir, config_files, out_filename)
-
-    # This config's static_files section is all we cared about when making the qcow. So we can write that down.
-    h = hash_yaml(config_files)
-    new_conf = f"{out_dir}/files_config_{h}.yaml"
-    with open(new_conf, "w") as f:
-        yaml.dump(conf['static_files'], f)
-    return new_conf
-
-if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        raise RuntimeError(f"USAGE {sys.argv[0]} [config.yaml] [qcow_dir]")
-    prepare_run(os.path.dirname(sys.argv[1]), sys.argv[1], sys.argv[2])
