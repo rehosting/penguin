@@ -4,7 +4,7 @@ from typing import Optional, Union, Literal, Annotated, Dict, List
 from pydantic import BaseModel, RootModel, Field
 from pydantic.config import ConfigDict
 from copy import deepcopy
-from .common import yaml
+import yaml
 
 
 ENV_MAGIC_VAL = "DYNVALDYNVALDYNVAL"
