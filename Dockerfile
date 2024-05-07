@@ -46,9 +46,6 @@ COPY ./utils/get_release.sh /get_release.sh
 #	mv /zap/ZAP*/* /zap && \
 #	rm -R /zap/ZAP*
 
-# Libguestfs appliance
-RUN wget --quiet https://download.libguestfs.org/binaries/appliance/appliance-1.46.0.tar.xz -O /tmp/libguestfs.tar.xz
-
 # 2) Get PANDA resources
 # Get panda .deb
 ARG PANDA_VERSION
@@ -187,7 +184,6 @@ RUN apt-get update && apt-get install -y \
     libarchive13 \
     libcapstone-dev \
     libgcc-s1 \
-    libguestfs-tools \
     liblinear4 \
     liblua5.3-0\
     libpcap0.8 \
@@ -199,7 +195,6 @@ RUN apt-get update && apt-get install -y \
     lua-lpeg \
     openjdk-11-jdk \
     python3 \
-    python3-guestfs \
     python3-lxml \
     python3-venv \
     sudo \
@@ -237,6 +232,7 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
       pyyaml \
       pyvis \
       jsonschema \
+      click \
       setuptools
 
 # ZAP setup
@@ -249,9 +245,6 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
 #COPY --from=eclipse-temurin:11 $JAVA_HOME $JAVA_HOME
 #ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
-# Libguestfs setup
-COPY --from=downloader /tmp/libguestfs.tar.xz /usr/local/libguestfs.tar.xz
-ENV LIBGUESTFS_PATH=/tmp/appliance
 
 # qemu-img
 COPY --from=qemu_builder /src/build/qemu-img /usr/local/bin/qemu-img
