@@ -19,10 +19,10 @@ echo -e "${BOLD}${RED}Step 2: Install PENGUIN${RESET}\n"
 echo -e "To install PENGUIN on your host machine, choose one of the following options:\n"
 
 echo -e "- ${BOLD}System-wide Installation:${RESET} This makes the penguin command available to all users:\n"
-echo -e "  docker run rehosting/penguin /penguin/install | sudo sh"
+echo -e "  docker run rehosting/penguin penguin_install | sudo sh"
 
 echo -e "- ${BOLD}Local Installation:${RESET} This makes penguin command available to your user\n"
-echo -e "  docker run rehosting/penguin /penguin/install.local | sh"
+echo -e "  docker run rehosting/penguin penguin_install.local | sh"
 
 echo -e "${BOLD}${RED}Step 3: Run PENGUIN${RESET}\n"
 echo -e "You can now run PENGUIN. For examples and usage information run:"
