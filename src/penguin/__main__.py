@@ -16,55 +16,6 @@ from .penguin_config import load_config
 
 coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 
-def get_mount_type(path):
-    try:
-        stat_output = subprocess.check_output(['stat', '-f', '-c', '%T', path])
-        return stat_output.decode('utf-8').strip().lower()
-    except subprocess.CalledProcessError:
-        return None
-
-def _build_image(fs_tar_gz, output_dir, static_dir):
-    def _makeImage(_output_dir):
-        # Build our fakeroot command to run makeImage with a dynamic output directory
-        cmd = ["fakeroot", os.path.join(*[dirname(dirname(__file__)), "scripts", "makeImage.sh"]),
-                fs_tar_gz,
-                _output_dir]
-        # Check output and report it on error
-        try:
-            subprocess.check_output(cmd)
-        except subprocess.CalledProcessError as e:
-            # Also print the command we ran
-            print(" ".join(cmd))
-
-            print(e.output.decode('utf-8'))
-            if e.stderr:
-                print(e.stderr.decode('utf-8'))
-            raise e
-
-    if os.path.isdir(output_dir):
-        try:
-            os.rmdir(output_dir)
-        except OSError:
-            raise RuntimeError(f"Output directory {output_dir} already exists and is not empty. Refusing to destroy")
-
-    # If our enviornment specifies a TEMP_DIR (e.g., LLSC) we should do the unpacking in there
-    # to avoid issues with NFS and get better perf. At the end we just move result to output
-    if get_mount_type(dirname(output_dir)) == "lustre":
-        # This FS doesn't support the operations we need to do in converting raw->qcow. Instead try using /tmp
-        if "ext3" not in get_mount_type("/tmp"):
-            raise RuntimeError("Incompatible filesystem. Neither output_dir nor /tmp are ext3")
-
-        # Copy the tar.gz to tempdir, makeImage, then move to output_dir
-        with TemporaryDirectory() as temp_dir:
-            shutil.copy(fs_tar_gz, temp_dir)
-            _makeImage(temp_dir)
-            os.unlink(os.path.join(temp_dir, os.path.basename(fs_tar_gz))) # Don't leave input .tar.gz in base, we already have fs.tar
-            shutil.copytree(temp_dir, output_dir)
-    else:
-        os.mkdir(output_dir)
-        _makeImage(output_dir)
-
-
 def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None):
 
     if not os.path.isfile(config_path):
@@ -314,7 +265,6 @@ def penguin_run(args):
 
     if '/host_' in args.config or '/host_' in args.output:
         logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments")
-
 
     run_from_config(args.config, args.output)
 
