@@ -1,30 +1,43 @@
 #!/bin/bash
 
 # ANSI escape codes for text formatting
-BOLD=$(tput bold)
-RESET=$(tput sgr0)
-RED=$(tput setaf 1)
-GREEN=$(tput setaf 2)
+if [ -t 0 ]; then
+    BOLD=$(tput bold)
+    RESET=$(tput sgr0)
+    RED=$(tput setaf 1)
+    GREEN=$(tput setaf 2)
+    INTERACTIVE=true
+    STARS=""
+else
+    BOLD=""
+    STARS="**" # Alternative when no colors available
+    RESET=""
+    RED=""
+    GREEN=""
+    INTERACTIVE=false
+fi
 
 echo
-echo -e "${BOLD}${GREEN}WELCOME TO PENGUIN${RESET}\n"
+echo -e "${BOLD}${GREEN}Welcome to the penguin container${RESET}\n"
 
-echo -e "You're in an interactive Docker shell. For a smoother experience, consider using PENGUIN directly from your host machine with the following steps:\n"
+echo -e "We recommend using this container through our ${GREEN}penguin${RESET} CLI utility on your host machine."
+echo -e "Follow the instructions below to install the utility and run it on your host machine.\n"
 
-echo -e "${BOLD}${RED}Step 1: Exit this shell${RESET}\n"
-echo -e "To exit, type:\n"
-echo -e "exit 0\n"
+if $INTERACTIVE; then
+    # If in a terminal, print instructions to exit the shell
+    echo -e "${BOLD}${RED}${STARS}Step 0: If you are in an interactive docker shell, exit it${RESET}${STARS}"
+    echo -e "  # exit\n"
+fi
 
-echo -e "${BOLD}${RED}Step 2: Install PENGUIN${RESET}\n"
-echo -e "To install PENGUIN on your host machine, choose one of the following options:\n"
+echo -e "${BOLD}${RED}${STARS}Step 1: Install ${GREEN}penguin${RESET}${STARS}\n"
+echo -e "To install ${GREEN}penguin${RESET} on your host machine, choose one of the following options:\n"
 
-echo -e "- ${BOLD}System-wide Installation:${RESET} This makes the penguin command available to all users:\n"
-echo -e "  docker run rehosting/penguin penguin_install | sudo sh"
+echo -e "- ${BOLD}System-wide Installation:${RESET} This makes the ${GREEN}penguin${RESET} command available to all users:"
+echo -e "  $ docker run rehosting/penguin penguin_install | sudo sh\n"
 
-echo -e "- ${BOLD}Local Installation:${RESET} This makes penguin command available to your user\n"
-echo -e "  docker run rehosting/penguin penguin_install.local | sh"
+echo -e "- ${BOLD}Local Installation:${RESET} This makes ${GREEN}penguin${RESET} command available to your user"
+echo -e "  $ docker run rehosting/penguin penguin_install.local | sh\n"
 
-echo -e "${BOLD}${RED}Step 3: Run PENGUIN${RESET}\n"
-echo -e "You can now run PENGUIN. For examples and usage information run:"
-echo -e "penguin --help\n"
+echo -e "${BOLD}${RED}${STARS}Step 2: Run ${GREEN}penguin${RESET}${STARS}"
+echo -e "  $ penguin --help\n"
 

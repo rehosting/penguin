@@ -11,6 +11,16 @@ cat /usr/local/src/penguin_wrapper
 echo
 echo "EOF"
 
+# Make the script executable and add to path
 echo "chmod +x \$HOME/.local/bin/penguin"
 echo "echo 'export PATH="\$HOME/.local/bin:\$PATH"' >> \$HOME/.bashrc"
-echo "echo \"Penguin installed successfully to ~/.local/bin/penguin\". Run 'source ~/.bashrc' to update your PATH before using."
+
+# Ask user to reload .bashrc to update path
+echo 'BOLD=$(tput bold)'
+echo 'RESET=$(tput sgr0)'
+
+echo "echo \"${BOLD}Success!${RESET} Penguin installed to ~/.local/bin/penguin. Update your PATH to use it by running:\""
+echo "echo \"  $ \${BOLD}source ~/.bashrc\${RESET}\""
+echo "echo"
+echo "echo \"Then run penguin, for example:\""
+echo "echo \"  $ \${BOLD}penguin --help\""

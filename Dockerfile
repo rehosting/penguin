@@ -287,14 +287,12 @@ COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/rel
 COPY ./penguin /usr/local/src/penguin_wrapper
 # And add install helpers which generate shell commands to install it on host
 COPY ./src/resources/banner.sh ./src/resources/penguin_install ./src/resources/penguin_install.local /usr/local/bin/
-# Warn on interactive shell sessions and provide instructions for install
-RUN echo '[ ! -z "$TERM" -a -r /usr/local/banner.sh ] && /usr/local/banner.sh' >> /etc/bash.bashrc
+# Warn on interactive shell sessions and provide instructions for install. Suppress with `docker run ... -e NOBANNER=1 ... bash`
+RUN echo '[ ! -z "$TERM" ] && [ -z "$NOBANNER" ] && /usr/local/bin/banner.sh' >> /etc/bash.bashrc
 
 # Install docs
 COPY ./docs /docs
 COPY ./README.md /docs/README.md
-
-WORKDIR /penguin
 
 # Now copy in our module and install it
 # penguin is editable so we can mount local copy for dev
@@ -308,3 +306,6 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # this from the host during development. In the long term we'll
 # merge these into the main penguin module
 COPY ./pyplugins/ /pandata
+
+# Default command: echo install instructions
+CMD ["/usr/local/bin/banner.sh"]
