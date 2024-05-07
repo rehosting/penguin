@@ -115,6 +115,10 @@ class BBCov(PyPlugin):
             return
         file_str_ptr, lineno_ptr, pid_ptr, envs_ptr, env_vals_ptr, envs_count_ptr = argv
         filename = self.try_read_string(cpu, file_str_ptr)
+        if filename is None:
+            # We failed to read guest virtual memory. Nothing we can do since we haven't setup
+            # a good retry mechanism for this yet.
+            filename = f'[error reading guest memory at {file_str_ptr:#x}]'
 
         if filename.startswith("/igloo/"):
             return
