@@ -1,6 +1,7 @@
 import click, yaml
 import tempfile, shutil
 import os, tarfile
+import subprocess, sys
 from pathlib import Path
 from collections import Counter
 from os.path import join, dirname
@@ -155,7 +156,7 @@ def find_architecture(infile):
         return None
     return arch_counts.most_common(1)[0][0]
 
-def _makeConfig(fs, out, artifacts, derive_from=None, timeout=None, auto_explore=False):
+def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     '''
     Given a filesystem as a .tar.gz make a configuration
 
@@ -184,7 +185,8 @@ def _makeConfig(fs, out, artifacts, derive_from=None, timeout=None, auto_explore
         tmpdir = tempfile.TemporaryDirectory()
         output_dir = tmpdir.name
     else:
-        output_dir = artifacts
+        output_dir = Path(artifacts)
+        output_dir.mkdir(exist_ok=True)
     
     # extract into output_dir/base/{image.qcow,fs.tar}
     arch_identified =  find_architecture(fs)
@@ -196,15 +198,14 @@ def _makeConfig(fs, out, artifacts, derive_from=None, timeout=None, auto_explore
     kernel = static_dir + f"kernels/{DEFAULT_KERNEL}/" + ("zImage" if arch == "arm" else "vmlinux") + f".{arch}{end}"
 
     base_dir = Path(output_dir, "base")
-    base_dir.mkdir(exist_ok=True)
+    base_dir.mkdir(exist_ok=True, parents=True)
     base_fs = Path(base_dir, "fs.tar.gz")
     shutil.copy(fs, base_fs)
     data = {}
     data['core'] = {
         'arch': arch+end,
         'kernel': kernel,
-        'fs': str(base_fs),
-        # 'qcow': os.path.join(output_dir, "base/image.qcow"),
+        'fs': "./base/fs.tar.gz",
         'root_shell': True,
         'show_output': False,
         'strace': False,
@@ -299,7 +300,7 @@ def _makeConfig(fs, out, artifacts, derive_from=None, timeout=None, auto_explore
     # readable/writable by everyone since non-container users will want to access them
     os.umask(0o000)
 
-    data = extend_config_with_static(data, f"{output_dir}/base/", auto_explore)
+    data = extend_config_with_static(output_dir, data, f"{output_dir}/base/", auto_explore)
 
     if not auto_explore:
         # We want to build this configuration for a single-shot rehost.
@@ -373,15 +374,6 @@ def _makeConfig(fs, out, artifacts, derive_from=None, timeout=None, auto_explore
     if 'meta' in data:
         del data['meta']
 
-    # If we have a derive_from, we'll load it and update our data with it
-    if derive_from:
-        if not os.path.isfile(derive_from):
-            raise RuntimeError(f"Derive_from file not found: {derive_from}")
-
-        print(f"Refining configuration with provided configuration overrides {derive_from}")
-        with open(derive_from, 'r') as f:
-            data.update(yaml.safe_load(f))
-
     # Write config to both output and base directories. Disable flow style and width
     # so that our multi-line init script renders the way we want
     for idx, outfile in enumerate([f"{output_dir}/base/initial_config.yaml",
@@ -396,11 +388,13 @@ def _makeConfig(fs, out, artifacts, derive_from=None, timeout=None, auto_explore
 
     # Config is a path to output_dir/base/config.yaml
     if out:
-        shutil.copyfile(outfile, out)
+        if not shutil._samefile(outfile, out):
+            shutil.copyfile(outfile, out)
         final_out = out
     else:
-        default_out =  f"{output_dir}/config.yaml"
-        shutil.copy(outfile, default_out)
+        default_out =  f"{output_dir}/base/config.yaml"
+        if not shutil._samefile(outfile, default_out):
+            shutil.copy(outfile, default_out)
         final_out = default_out
     
     if tmpdir:
@@ -408,14 +402,23 @@ def _makeConfig(fs, out, artifacts, derive_from=None, timeout=None, auto_explore
     
     return final_out
 
-
+def fakeroot_gen_config(fs, out, artifacts):
+    o = Path(out)
+    cmd = ["fakeroot", "gen_config", 
+           "--fs", str(fs), 
+           "--out", str(o), 
+           "--artifacts", artifacts]
+    p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
+    p.wait()
+    if o.exists():
+        return str(o)
+    
 @click.command()
 @click.option('--fs', required=True, help="Path to a filesystem as a tar gz")
 @click.option('--out', required=True, help="Path to a config to be created")
 @click.option('--artifacts', default=None, help="Path to a directory for artifacts")
-@click.option('--derive', default=None, help="Path to a config to be created")
-def makeConfig(fs, out, artifacts, derive):
-    config = _makeConfig(fs, out, artifacts, derive_from=derive)
+def makeConfig(fs, out, artifacts):
+    config = make_config(fs, out, artifacts)
     if not config:
         print(f"Error! Could not generate config for {fs}")
     else:
