@@ -3,7 +3,6 @@
 import os
 import shutil
 import subprocess
-import tarfile
 import logging
 import coloredlogs
 from pathlib import Path
@@ -11,9 +10,9 @@ from tempfile import TemporaryDirectory
 from os.path import join, dirname
 from .common import yaml
 from .manager import graph_search, PandaRunner, calculate_score
+from .gen_config import fakeroot_gen_config 
+from .penguin_config import load_config
 
-from .utils import load_config
-from .defaults import static_dir, DEFAULT_KERNEL
 
 coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 
@@ -72,16 +71,12 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
         raise RuntimeError(f"Config file not found: {config_path}")
 
     proj_dir = os.path.dirname(config_path)
+    logging.getLogger("PENGUIN").info(f"Generating initial filesystem and launching emulation...")
 
     try:
         config = load_config(config_path)
     except UnicodeDecodeError:
         raise RuntimeError(f"Config file {config_path} is not a valid unicode YAML file. Is it a firmware file instead of a configuration?")
-
-    if not os.path.isfile(os.path.join(proj_dir, config['core']['qcow'])):
-        # The config specifies where the qcow should be. Generally this is in
-        # the base directory, but it could be elsewhere.
-        raise RuntimeError(f"Base qcow not found in project {proj_dir}: {config['core']['qcow']}")
 
     if not os.path.isfile(config['core']['kernel']):
         # The config specifies where the kernel shoudl be. Generally this is in
@@ -108,7 +103,6 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None)
 
     # XXX is this the right run_base? It's now our project dir
     proj_dir = os.path.dirname(config_path)
-    print(f"Generating initial filesystem and launching emulation. Please wait a minute")
     PandaRunner().run(config_path, proj_dir, output_dir, init=init, timeout=timeout, show_output=True) # niters is 1
 
     # Single iteration: there is not best - don't report that
@@ -167,10 +161,11 @@ def penguin_init(args):
     # Ensure output parent directory exists
     if not os.path.exists(os.path.dirname(args.output)):
         os.makedirs(os.path.dirname(args.output))
+    
+    out_config_path = Path(args.output, "config.yaml")
+    fakeroot_gen_config(args.rootfs, out_config_path, args.output)
 
-    config = build_config(args.rootfs, args.output, auto_explore=False, timeout=None, niters=1)
-
-    if not config:
+    if not out_config_path.exists():
         # We failed to generate a config. We'll have written a result file to the output dir
         print(f"Failed to generate config for {args.rootfs}. See {args.output}/result for details.")
 

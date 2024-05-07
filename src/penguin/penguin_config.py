@@ -654,8 +654,5 @@ def hash_yaml_config(config : dict):
     return hashlib.md5(str(target).encode()).hexdigest()
 
 
-
-
 if __name__ == "__main__":
-    import yaml
     print(yaml.dump(Main.model_json_schema(), indent=2))
