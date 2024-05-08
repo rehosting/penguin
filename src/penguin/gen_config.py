@@ -1,6 +1,6 @@
 import click, yaml
 import tempfile, shutil
-import os, tarfile
+import os, tarfile, logging
 import subprocess, sys
 from pathlib import Path
 from collections import Counter
@@ -10,6 +10,8 @@ from elftools.elf.constants import E_FLAGS, E_FLAGS_MASKS
 from .penguin_static import extend_config_with_static
 from .penguin_config import dump_config
 from .defaults import default_init_script, default_plugins, default_version, default_netdevs, default_pseudofiles, default_lib_aliases, static_dir, DEFAULT_KERNEL
+
+logger = logging.getLogger("PENGUIN")
 
 def arch_end(value):
     arch = None
@@ -120,7 +122,7 @@ def arch_filter(header):
         else:
             bits = 32
 
-        #print(f"Identified MIPS firmware: arch={mips_arch}, bits={bits}, abi={abi}, endian={endianness}, extras={description}")
+        logger.debug(f"Identified MIPS firmware: arch={mips_arch}, bits={bits}, abi={abi}, endian={endianness}, extras={description}")
 
         if bits == 32:
             if endianness == "ELFDATA2LSB":
@@ -139,7 +141,7 @@ def find_architecture(infile):
     arch_counts = Counter()
     for member in tf.getmembers():
         if member.isfile() and binary_filter(fsbase, member.name):
-            #print(f"Checking architecture in {member.name}")
+            logger.debug(f"Checking architecture in {member.name}")
             member_file = tf.extractfile(member.name)
             if member_file.read(4) != b'\x7fELF':
                 continue
@@ -157,6 +159,7 @@ def find_architecture(infile):
     return arch_counts.most_common(1)[0][0]
 
 def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
+    logger.info(f"Generating new configuration for {fs}...")
     '''
     Given a filesystem as a .tar.gz make a configuration
 
@@ -191,7 +194,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     # extract into output_dir/base/{image.qcow,fs.tar}
     arch_identified =  find_architecture(fs)
     if arch_identified is None:
-        print(f"Failed to determine architecture for {fs}")
+        logger.error(f"Failed to determine architecture for {fs}")
         return
     arch, end = arch_end(arch_identified)
 
@@ -305,15 +308,15 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     if not auto_explore:
         # We want to build this configuration for a single-shot rehost.
         # We'll ensure it has an igloo_init set and we'll specify an ioctl model for all our pseudofiles in /dev
-        print(f"Tailoring configuration for single-iteration: selecting init and configuring default catch-all ioctl models")
+        logger.info(f"Tailoring configuration for single-iteration: selecting init and configuring default catch-all ioctl models")
 
         with open(f"{output_dir}/base/env.yaml", 'r') as f:
             static_env = yaml.safe_load(f)
             if 'igloo_init' in static_env and len(static_env['igloo_init']) > 0:
                 data['env']['igloo_init'] = static_env['igloo_init'][0]
-                print(f"\tinit set to: {data['env']['igloo_init']}")
+                logger.info(f"\tinit set to: {data['env']['igloo_init']}")
                 if len(static_env['igloo_init']) > 1:
-                    print(f"\tOther options are: {', '.join(static_env['igloo_init'][1:])}")
+                    logger.debug(f"\tOther options are: {', '.join(static_env['igloo_init'][1:])}")
 
         # For all identified pseudofiles, try adding them. This reliably causes kernel panics - are we running
         # out of kernel memory or are we clobbering important things?
@@ -381,7 +384,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
         if idx == 1 and os.path.isfile(outfile):
             # Don't clobber existing config.yaml in main output dir
             # (but do clobber the initial_config.yaml in base if it exists)
-            print(f"Not overwriting existing config file: {outfile}")
+            logger.debug(f"Not overwriting existing config file: {outfile}")
             continue
         dump_config(data, outfile)
     
@@ -402,12 +405,14 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     
     return final_out
 
-def fakeroot_gen_config(fs, out, artifacts):
+def fakeroot_gen_config(fs, out, artifacts, verbose):
     o = Path(out)
     cmd = ["fakeroot", "gen_config", 
            "--fs", str(fs), 
            "--out", str(o), 
            "--artifacts", artifacts]
+    if verbose:
+        cmd.extend(["--verbose"])
     p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
     p.wait()
     if o.exists():
@@ -417,12 +422,17 @@ def fakeroot_gen_config(fs, out, artifacts):
 @click.option('--fs', required=True, help="Path to a filesystem as a tar gz")
 @click.option('--out', required=True, help="Path to a config to be created")
 @click.option('--artifacts', default=None, help="Path to a directory for artifacts")
-def makeConfig(fs, out, artifacts):
+@click.option('-v', '--verbose', count=True)
+def makeConfig(fs, out, artifacts, verbose):
+    if verbose:
+        import coloredlogs
+        from penguin import LOG_FMT
+        coloredlogs.install(level='DEBUG', fmt=LOG_FMT)
     config = make_config(fs, out, artifacts)
     if not config:
-        print(f"Error! Could not generate config for {fs}")
+        logger.error(f"Error! Could not generate config for {fs}")
     else:
-        print(f"Generated config at {config}")
+        logger.info(f"Generated config at {config}")
 
 if __name__ == "__main__":
     makeConfig()

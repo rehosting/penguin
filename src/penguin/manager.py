@@ -19,8 +19,8 @@ from .graphs import Configuration, ConfigurationManager, Failure, Configuration,
 from .penguin_config import load_config, dump_config, hash_yaml_config
 from .utils import  AtomicCounter, \
                     _load_penguin_analysis_from, get_mitigation_providers
+from penguin import LOG_FMT
 
-coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 
 WWW_ONLY = False # To simplify large scale evaluations - should we bail early if we see a webserver start?
 
@@ -28,7 +28,7 @@ SCORE_CATEGORIES = ['execs', 'bound_sockets', 'devices_accessed', 'processes_run
                     'blocks_covered', 'nopanic', 'script_lines_covered', 'blocked_signals']
 
 logger = logging.getLogger('mgr')
-logger.setLevel(logging.DEBUG)
+coloredlogs.install(level='DEBUG', fmt=LOG_FMT, logger=logger)
 
 # Cache output to avoid re-running previously seen configs.
 # This is only useful in debugging where we'll rerun our scripts
@@ -132,7 +132,7 @@ class PandaRunner:
     def __init__(self):
         pass
 
-    def run(self, conf_yaml, proj_dir, out_dir, init=None, timeout=None, show_output=False):
+    def run(self, conf_yaml, proj_dir, out_dir, init=None, timeout=None, show_output=False, verbose=False):
         '''
         If init or timeout are set they override
         '''
@@ -179,6 +179,9 @@ class PandaRunner:
 
         elif init:
             cmd.append(init_cmd)
+        
+        if verbose:
+            cmd.append("verbose")
 
         #start = time.time()
         try:
@@ -187,13 +190,13 @@ class PandaRunner:
             p = subprocess.Popen(cmd)
             p.wait(timeout=timeout_s+180 if timeout_s else None)
         except subprocess.TimeoutExpired:
-            print(f"Timeout expired for {conf_yaml} after {timeout_s} seconds")
+            logging.info(f"Timeout expired for {conf_yaml} after {timeout_s} seconds")
             if p:  # Ensure p is not None before attempting to kill
                 p.kill()
         except subprocess.CalledProcessError as e:
-            print(f"Error running {conf_yaml}: {e}")
+            logger.error(f"Error running {conf_yaml}: {e}")
         except KeyboardInterrupt:
-            print(f"Keyboard interrupt while PANDA was running - killing {p.pid} with SIGUSR1 (please wait up to 30s)...")
+            logger.info(f"Keyboard interrupt while PANDA was running - killing {p.pid} with SIGUSR1 (please wait up to 30s)...")
             # Send SIGUSR1 to the process
             system(f"kill -USR1 {p.pid}")
             # Wait a moment, then kill it hard
@@ -205,12 +208,12 @@ class PandaRunner:
                 break
             else:
                 # Didn't break the loop - process is still running
-                print(f"Process {p.pid} still running after SIGUSR1 + 30s: killing hard")
+                logger.error(f"Process {p.pid} still running after SIGUSR1 + 30s: killing hard")
                 system(f"kill -9 {p.pid}")
             # Now we should wait for the process to finish
-            print("Wait for shutdown")
+            logger.debug("Wait for shutdown")
             p.wait()
-            print("Waited")
+            logger.debug("Waited")
             raise
 
         #elapsed = time.time() - start

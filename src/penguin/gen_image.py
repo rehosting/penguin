@@ -1,4 +1,4 @@
-import click, os, sys
+import click, os, sys, logging
 import tempfile, tarfile, subprocess
 from pathlib import Path
 from subprocess import check_output
@@ -15,6 +15,8 @@ This class wrapped what used to be a libguestfs interface
 At this point it allows us to pretend that the temporary directory we have
 is another file system
 '''
+logger = logging.getLogger("PENGUIN")
+
 class LocalGuestFS:
     def __init__(self, base):
         self.base = base
@@ -138,18 +140,18 @@ def _modify_guestfs(g, file_path, file):
     '''
 
     if '../' in file_path:
-        print(f"WARNING: Skipping file {file_path} as it contains '/..'")
+        logger.warning(f"Skipping file {file_path} as it contains '/..'")
         return
 
     # Check if file_path involves a broken symlink, if so bail
     try:
         g.is_dir(file_path)
     except RuntimeError as e:
-        print(f"WARNING: Skipping file {file_path} as it's a broken symlink (detected on exn)")
+        logger.warning(f"Skipping file {file_path} as it's a broken symlink (detected on exn)")
         return
 
     if file_path.startswith("/dev/") or file_path == "/dev":
-        print(f"WARNING: /dev/ must be populated dynamically in config.pseudofiles - ignoring request to modify {file_path}")
+        logger.warning(f"/dev/ must be populated dynamically in config.pseudofiles - ignoring request to modify {file_path}")
         return
 
     try:
@@ -166,12 +168,12 @@ def _modify_guestfs(g, file_path, file):
             mode = file['mode']
             # Delete target if it already exists
             if g.is_file(file_path):
-                print(f"WARNING: Deleting existing file {file_path} to replace it")
+                logger.warning(f"Deleting existing file {file_path} to replace it")
                 g.rm(file_path)
 
             if g.is_symlink(file_path):
                 # We could alternatively follow the symlink and delete the target
-                print(f"WARNING: Deleting existing symlink {file_path}->{g.readlink(file_path)} to replace it")
+                logger.warning(f"Deleting existing symlink {file_path}->{g.readlink(file_path)} to replace it")
                 g.rm_rf(file_path)
 
             # Check if this directory exists, if not we'll need to create it
@@ -185,11 +187,11 @@ def _modify_guestfs(g, file_path, file):
         elif action == 'dir':
             if g.is_dir(file_path):
                 try:
-                    print(f"WARNING: Deleting existing dir {file_path} to replace it")
+                    logger.warning(f"Deleting existing dir {file_path} to replace it")
                     g.rm_rf(file_path) # Delete the directory AND CONTENTS
                 except RuntimeError as e:
                     # If directory is like /asdf/. guestfs gets mad. Just warn.
-                    print(f"WARNING: could not delete directory {file_path} to recreate it: {e}")
+                    logger.warning(f"could not delete directory {file_path} to recreate it: {e}")
                     return
 
             # Note we ignore mode here?
@@ -205,7 +207,7 @@ def _modify_guestfs(g, file_path, file):
                     g.rm_rf(linkpath)
                 except RuntimeError as e:
                     # If directory is like /asdf/. guestfs gets mad. Just warn.
-                    print(f"WARNING: could not delete exixsting {linkpath} to recreate it: {e}")
+                    logger.warning(f"could not delete exixsting {linkpath} to recreate it: {e}")
                     return
 
             # If target doesn't exist, we can't symlink
@@ -250,7 +252,7 @@ def _modify_guestfs(g, file_path, file):
                 new_dest = dest
                 if dest[0] != '/':
                     new_dest = os.path.normpath(os.path.join(os.path.dirname(file['from']), dest))
-                    #print(f"Moving symlink {file['from']}->{dest} to {file_path}->{new_dest}")
+                    logger.debug(f"Moving symlink {file['from']}->{dest} to {file_path}->{new_dest}")
 
                 try:
                     g.ln_s(dest, file_path)
@@ -278,7 +280,7 @@ def _modify_guestfs(g, file_path, file):
             raise RuntimeError(f"Unknown file system action {action}")
 
     except Exception as e:
-        print(f"Exception modifying guest filesystem for {file_path}: {file}: {e}")
+        logger.error(f"Exception modifying guest filesystem for {file_path}: {file}: {e}")
         raise e
 
 
@@ -305,7 +307,7 @@ def fs_make_config_changes(fs_base,config):
                 symlink = g.is_symlink(current_path)
             except RuntimeError:
                 # Bail - infinite loop?
-                print(f"Unable to resolve symlink {current_path} - bailing out")
+                logger.error(f"Unable to resolve symlink {current_path} - bailing out")
                 return None
 
             if symlink:
@@ -372,6 +374,7 @@ def fs_make_config_changes(fs_base,config):
         raise RuntimeError("Guest filesystem does not contain /igloo after modifications")
 
 def make_image(fs, out, artifacts, config):
+    logger.info(f"Generating new image from config...")
     IN_TARBALL = Path(fs)
     ARTIFACTS = Path(artifacts or "/tmp")
     QCOW = Path(out)
@@ -425,6 +428,8 @@ def fakeroot_gen_image(fs, out, artifacts, config):
            "--out", str(o), 
            "--artifacts", str(artifacts),
            "--config", str(config)]
+    if logger.level == logging.DEBUG:
+        cmd.extend(["--verbose"])
     p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
     p.wait()
     if o.exists():
@@ -435,7 +440,12 @@ def fakeroot_gen_image(fs, out, artifacts, config):
 @click.option('--out', required=True, help="Path to a qcow to be created")
 @click.option('--artifacts', default=None, help="Path to a directory for artifacts")
 @click.option('--config', default=None, help="Path to config file")
-def makeImage(fs, out, artifacts, config):
+@click.option('-v', '--verbose', count=True)
+def makeImage(fs, out, artifacts, config, verbose):
+    if verbose:
+        import coloredlogs
+        coloredlogs.install(level='DEBUG', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
+
     make_image(fs, out, artifacts, config)
 
 if __name__ == "__main__":

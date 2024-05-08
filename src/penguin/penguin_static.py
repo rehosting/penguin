@@ -1,6 +1,7 @@
 import os
 import re
 import stat
+import logging
 import struct
 import subprocess
 import tarfile
@@ -22,6 +23,8 @@ the filesystem and populate metadata fields
     - potential_env: dict of potential environment variables (keys = None or list of values)
     - potential_proc: list of potential /proc/ files
 '''
+
+logger = logging.getLogger("PENGUIN")
 
 
 def _find_in_fs(target_regex, tar_path, only_files=True):
@@ -207,7 +210,7 @@ def pre_shim(proj_dir, config, auto_explore=False):
             resolved_path = os.path.normpath(resolved_path)
 
         if '..' in resolved_path.split('/'):
-            print("Skipping directory with .. in path: " + resolved_path)
+            logger.debug("Skipping directory with .. in path: " + resolved_path)
             continue
 
         while resolved_path.endswith('/'):
@@ -225,7 +228,7 @@ def pre_shim(proj_dir, config, auto_explore=False):
         for i in range(1, len(resolved_path.split('/'))):
             parent = '/'.join(resolved_path.split('/')[:i])
             if parent in symlinks:
-                print(f"Skipping {resolved_path} because parent {parent} is a symlink")
+                logger.debug(f"Skipping {resolved_path} because parent {parent} is a symlink")
                 continue
 
         if resolved_path in existing or resolved_path in config['static_files']:
@@ -388,13 +391,13 @@ def analyze_library(elf_path, config):
         try:
             elffile = ELFFile(f)
         except elftools.common.exceptions.ELFError:
-            print(f"Failed to parse {elf_path} as an ELF file")
+            logger.error(f"Failed to parse {elf_path} as an ELF file")
             return nvram_data, symbols
 
         try:
             match = '.dynsym' in [s.name for s in elffile.iter_sections()]
         except elftools.common.exceptions.ELFParseError:
-            print(f"Warning: Failed to parse {elf_path} as an ELF file")
+            logger.error(f"Warning: Failed to parse {elf_path} as an ELF file")
             match = False
 
         if match:
@@ -419,7 +422,7 @@ def analyze_library(elf_path, config):
             try:
                 section = elffile.get_section(section_index)
             except TypeError:
-                print(f"Failed to get section {section_index} for symbol {nvram_key} in {elf_path}")
+                logger.error(f"Failed to get section {section_index} for symbol {nvram_key} in {elf_path}")
                 continue
             data = section.data()
             start_addr = section['sh_addr']
@@ -485,7 +488,7 @@ def library_analysis(proj_dir ,config, outdir):
                     try:
                         found_nvram, found_syms = analyze_library(file_path, config)
                     except Exception as e:
-                        print(f"Unhandled exception in analyze_library for {file_path}: {e}")
+                        logger.error(f"Unhandled exception in analyze_library for {file_path}: {e}")
                         continue
                     tmpless_path = str(file_path).replace(tmp_dir, "")
                     for symname, offset in found_syms.items():
@@ -611,8 +614,8 @@ def shim_configs(proj_dir, config, auto_explore=False):
 
             # Fallback to picking the first one (TODO, could check for numbers at least)
             if not kernel_version:
-                print("WARNING: multiple kernel versions look valid (TODO improve selection logic, grabbing first)")
-                print(potential_kernels)
+                logger.warning("multiple kernel versions look valid (TODO improve selection logic, grabbing first)")
+                logger.warning(potential_kernels)
                 kernel_version = potential_kernels.pop()
 
     if kernel_version:
@@ -657,7 +660,7 @@ def _is_init_script(tarinfo, fs):
                 try:
                     fs.getmember(link_target)
                 except KeyError:
-                    print(f"WARNING: Potential init '{tarinfo.name}' is a symlink to '{link_target}' which does not exist in the filesystem")
+                    logger.warning(f"Potential init '{tarinfo.name}' is a symlink to '{link_target}' which does not exist in the filesystem")
                     return False
 
             # If we have init in the name, make sure it's not named .init (e.g., rc.d startup names)
@@ -684,10 +687,10 @@ def add_init_meta(proj_dir, base_config, output_dir):
             # Use generator expression for more efficient filtering
             inits = [member.name[1:].strip() for member in fs.getmembers() if _is_init_script(member, fs)]
     except FileNotFoundError:
-        print(f"Target filesystem {fs_path} was not found.")
+        logger.error(f"Target filesystem {fs_path} was not found.")
         raise
     except tarfile.TarError:
-        print(f"Target filesystem {fs_path} is not a valid tar.gz archive.")
+        logger.error(f"Target filesystem {fs_path} is not a valid tar.gz archive.")
         raise
 
     # Sort inits by length shortest to longest
@@ -722,7 +725,7 @@ def add_init_meta(proj_dir, base_config, output_dir):
     # If anything is longer than 32 characters, it's probably not an init script, warn and drop it
     for i in list(inits):
         if len(i) > 32:
-            print(f"WARNING: {i} is too long to be an init script, dropping")
+            logger.debug(f"{i} is too long to be an init script, dropping")
             inits.remove(i)
 
     # Final pass, go through archive and make sure all inits are executable
@@ -850,7 +853,7 @@ def add_env_meta(proj_dir, base_config, output_dir):
         base_config['env']['igloo_init'] = base_config['meta']['potential_env']['igloo_init'][0]
     else:
         base_config['env']['igloo_init'] = "TODO_MANUALLY_SET_ME"
-        print("WARNING: no init binaries identified. Manually set one in config['env']['igloo_init']")
+        logger.warning("no init binaries identified. Manually set one in config['env']['igloo_init']")
 
     return base_config
 
@@ -877,7 +880,7 @@ def parse_nvram_file(path, f):
                 continue
             results_null[key] = val
         except ValueError:
-            print(f"Warning: could not process default nvram file {path} for {pair}")
+            logger.warning(f"could not process default nvram file {path} for {pair}")
             continue
 
     # Second pass, if there are a lot of lines, let's try that way
@@ -1086,7 +1089,7 @@ def add_nvram_meta(proj_dir, config, output_dir):
                         take_val = True
                         if row['key'] in config['nvram'] and config['nvram'][row['key']] != row['value']:
                             take_val = len(config['nvram'].get(row['key'], '').strip()) == 0 # If old value was empty, take the new one
-                            print(f"NVRAM {row['key']} is {config['nvram'][row['key']]} but {row['source']} suggests {row['value']} instead. " + \
+                            logger.debug(f"NVRAM {row['key']} is {config['nvram'][row['key']]} but {row['source']} suggests {row['value']} instead. " + \
                                   ("Taking new value" if take_val else "Ignoring"))
 
                         # If key is non-printable, ignore it
@@ -1121,7 +1124,7 @@ def add_nvram_meta(proj_dir, config, output_dir):
             raise ValueError(f"Expected string key for nvram[{k}], got {v} of type {type(v)}")
 
     # Now report results. How many nvram values from which sources?
-    print(f"Selected {len(config['nvram'])} default NVRAM entries from: " + \
+    logger.info(f"Selected {len(config['nvram'])} default NVRAM entries from: " + \
         ", ".join([f"{source} ({count})" for source, count in nvram_sources.items() if count]))
 
 
