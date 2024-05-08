@@ -1,7 +1,7 @@
-import click, os
+import click, os, sys
+import tempfile, tarfile, subprocess
 from pathlib import Path
 from subprocess import check_output
-import tempfile, tarfile
 
 '''
 gen_image can be run as a separate script if this is loaded at the module
@@ -55,13 +55,18 @@ class LocalGuestFS:
         return str(p.readlink())
 
     def ln_s(self, target, path):
-        target = self.adjust_path(target)
         path = self.adjust_path(path)
         path.symlink_to(target)
 
     def chmod(self, mode, fpath):
         fp = self.adjust_path(fpath)
-        fp.chmod(mode)
+        if self.is_symlink(fpath):
+            # theoretically this could stack overflow
+            l = self.readlink(fpath)
+            self.chmod(mode, l)
+        else:
+            # better to do this with pathlib, but it follows symlinks until v3.10
+            os.chmod(fp, mode)
 
     def _mknod(self, t, mode, major, minor, file_path):
         f = self.adjust_path(file_path)
@@ -366,11 +371,12 @@ def fs_make_config_changes(fs_base,config):
     if not g.is_dir("/igloo"):
         raise RuntimeError("Guest filesystem does not contain /igloo after modifications")
 
-def _makeImage(fs, out, artifacts, config):
+def make_image(fs, out, artifacts, config):
     IN_TARBALL = Path(fs)
     ARTIFACTS = Path(artifacts or "/tmp")
     QCOW = Path(out)
     ARTIFACTS.mkdir(exist_ok=True)
+
     # Decompress the archive and store in artifacts/fs.tar
     ORIGINAL_DECOMP_FS = Path(ARTIFACTS, "fs_orig.tar")
 
@@ -378,25 +384,30 @@ def _makeImage(fs, out, artifacts, config):
 
     MODIFIED_TARBALL = Path(ARTIFACTS, "fs_out.tar")
     if config:
+        # support passing config as dict
+        if type(config) is str:
+            config = load_config(config)
         with tempfile.TemporaryDirectory() as TMP_DIR:
-            check_output(f"tar -xvf {IN_TARBALL} -C {TMP_DIR}", shell=True)
-            fs_make_config_changes(TMP_DIR, load_config(config))
-            check_output(f"tar czvf {MODIFIED_TARBALL} -C {TMP_DIR} .", shell=True)
+            check_output(f"tar -xpsvf {IN_TARBALL} -C {TMP_DIR}", shell=True)
+            from .penguin_prep import prep_config
+            prep_config(config)
+            fs_make_config_changes(TMP_DIR, config)
+            check_output(f"tar -czpvf {MODIFIED_TARBALL} -C {TMP_DIR} .", shell=True)
         TARBALL = MODIFIED_TARBALL
     else:
         TARBALL = IN_TARBALL
-    
+
     # 1GB of padding. XXX is this a good amount - does it slow things down if it's too much?
     # Our disk images are sparse, so this doesn't actually take up any space?
     PADDING_MB=1024
     BLOCK_SIZE=4096
-    
+
     # Calculate image and filesystem size
     UNPACKED_SIZE = int(check_output(f'zcat {TARBALL} | wc -c', shell=True))
     UNPACKED_SIZE = UNPACKED_SIZE + 1024 * 1024 * PADDING_MB
     REQUIRED_BLOCKS=int((UNPACKED_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE + 1024)
     FILESYSTEM_SIZE=int(REQUIRED_BLOCKS * BLOCK_SIZE)
-    
+
     # Calculate the number of inodes - err on the side of too big since we'll add more to the FS later
     INODE_SIZE=8192  # For every 8KB of disk space, we'll allocate an inode
     NUMBER_OF_INODES= int(FILESYSTEM_SIZE / INODE_SIZE)
@@ -407,13 +418,25 @@ def _makeImage(fs, out, artifacts, config):
         check_output(f'genext2fs --faketime  -N "{NUMBER_OF_INODES}" -b "{REQUIRED_BLOCKS}" -B {BLOCK_SIZE} -a "{TARBALL}" "{IMAGE}" 2>&1 | grep -v "bad type \'x\'"', shell=True)
         check_output(f'qemu-img convert -f raw -O qcow2 "{IMAGE}" "{QCOW}"', shell=True)
 
+def fakeroot_gen_image(fs, out, artifacts, config):
+    o = Path(out)
+    cmd = ["fakeroot", "gen_image", 
+           "--fs", str(fs), 
+           "--out", str(o), 
+           "--artifacts", str(artifacts),
+           "--config", str(config)]
+    p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
+    p.wait()
+    if o.exists():
+        return str(o)
+
 @click.command()
 @click.option('--fs', required=True, help="Path to a filesystem as a tar gz")
 @click.option('--out', required=True, help="Path to a qcow to be created")
 @click.option('--artifacts', default=None, help="Path to a directory for artifacts")
 @click.option('--config', default=None, help="Path to config file")
 def makeImage(fs, out, artifacts, config):
-    _makeImage(fs, out, artifacts, config)
+    make_image(fs, out, artifacts, config)
 
 if __name__ == "__main__":
     makeImage()
