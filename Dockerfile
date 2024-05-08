@@ -168,7 +168,7 @@ COPY --from=downloader /tmp/pandare.deb /tmp/
 # uninstall somewhere in setting up other dependencies.
 
 RUN apt-get update && \
-    apt-get install -y python3-pip && \
+    apt-get --no-install-recommends install -y python3-pip && \
     rm -rf /var/lib/apt/lists/*
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip install --upgrade \
