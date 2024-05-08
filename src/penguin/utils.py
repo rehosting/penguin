@@ -117,17 +117,17 @@ def hash_image_inputs(proj_dir, conf):
 
     static_files = conf['static_files']
 
-    # Hash contents of qcow
+    # Hash contents of fs
     #
     # TODO: Replace this with Python 3.11's hashlib.hash_file()
-    with open(os.path.join(proj_dir, conf['core']['qcow']), 'rb') as f:
-        qcow_hash = hashlib.sha256()
+    with open(os.path.join(proj_dir, conf['core']['fs']), 'rb') as f:
+        fs_hash = hashlib.sha256()
         while True:
             data = f.read(0x1000)
             if not data:
                 break
-            qcow_hash.update(data)
-    qcow_hash = qcow_hash.hexdigest()
+            fs_hash.update(data)
+    fs_hash = fs_hash.hexdigest()
 
     # If we ever add other ways to import static files, this assert should
     # remind us that the file contents need to be hashed
@@ -140,14 +140,7 @@ def hash_image_inputs(proj_dir, conf):
             with open(f['host_path'], 'rb') as f:
                 f['contents'] = f.read()
 
-    # If the inputs to the image-generation function change, this assert should
-    # remind us to also update the hashing to include those inputs
-    import inspect
-    from . import penguin_prep
-    args = str(inspect.signature(penguin_prep.derive_qcow_from))
-    assert args == '(qcow_file, out_dir, files, out_filename=None)'
-
-    return hash_yaml([static_files, qcow_hash, conf.get('lib_inject')])
+    return hash_yaml([static_files, fs_hash, conf.get('lib_inject')])
 
 
 def _load_penguin_analysis_from(plugin_file):
