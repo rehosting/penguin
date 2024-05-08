@@ -201,8 +201,8 @@ RUN apt-get update && apt-get install -y \
     telnet \
     vim \
     wget \
-    clang \
-    lld \
+    clang-11 \
+    lld-11 \
     zlib1g && \
     apt install -yy -f /tmp/pandare.deb && \
     rm -rf /var/lib/apt/lists/* /tmp/pandare.deb
