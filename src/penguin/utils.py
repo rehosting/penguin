@@ -112,7 +112,7 @@ def run_command_with_output(cmd: List[str], ignore1, ignore2) -> Tuple[str, str]
         return -1, '', f"An exception occurred: {str(e)}"
 
 
-def hash_image_inputs(conf):
+def hash_image_inputs(proj_dir, conf):
     """Create a hash of all the inputs of the image creation process"""
 
     static_files = conf['static_files']
