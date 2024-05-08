@@ -6,8 +6,6 @@ import logging
 import sys
 from copy import deepcopy
 from pandare import PyPlugin
-import coloredlogs
-coloredlogs.install(level='INFO', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
 try:
     from penguin import yaml
     from penguin.analyses import PenguinAnalysis

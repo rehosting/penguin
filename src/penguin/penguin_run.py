@@ -18,6 +18,8 @@ from .defaults import default_plugin_path
 from .common import yaml
 
 # Note armel is just panda-system-arm and mipseb is just panda-system-mips
+logger = logging.getLogger('penguin_run')
+    
 
 ROOTFS="/dev/vda" # Common to all
 qemu_configs = {
@@ -271,12 +273,14 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
     if conf['core'].get('network', False):
         # Connect guest to network if specified
         if archend == "armel":
-            logger.info("WARNING: UNTESTSED network flags for arm")
+            logger.warning("UNTESTED network flags for arm")
         args.extend(['-netdev', 'user,id=user.0', '-device', 'virtio-net,netdev=user.0'])
 
     if 'show_output' in conf['core'] and conf['core']['show_output']:
+        logger.info("Logging console output to stdout")
         console_out = ['-serial', 'mon:stdio']
     else:
+        logger.info(f"Logging console output to {out_dir}/console.log")
         console_out = ['-serial', f'file:{out_dir}/console.log', '-monitor', 'null'] # ttyS0: guest console output
 
     if 'shared_dir' in conf['core']:
@@ -321,8 +325,12 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
     parent_outdir = os.path.dirname(out_dir)
     stdout_path = os.path.join(parent_outdir, 'qemu_stdout.txt')
     stderr_path = os.path.join(parent_outdir, 'qemu_stderr.txt')
+    
+    logger.info("Emulation launching")
 
     with print_to_log(stdout_path, stderr_path):
+        logger.debug(f"Launching PANDA with args: {args}")
+        logger.debug(f"Architecture: {q_config['arch']} Mem: {q_config['mem_gb']+'G'}")
         panda = Panda(q_config['arch'], mem=q_config['mem_gb']+"G", extra_args=args)
 
         if '64' in archend:
@@ -434,8 +442,11 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
             _run()
 
 def main():
-    logger = logging.getLogger('penguin_run')
-    logger.setLevel(logging.INFO)
+    if any(x == 'verbose' for x in sys.argv):
+        import coloredlogs
+        from penguin import LOG_FMT
+        coloredlogs.install(level='DEBUG', fmt=LOG_FMT)
+
     logger.info("Penguin run running")
     if len(sys.argv) >= 2:
         # Given a config, run it. Specify qcow_dir to store qcow if not "dirname(config)""

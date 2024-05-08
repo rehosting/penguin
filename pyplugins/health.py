@@ -1,15 +1,14 @@
 from pandare import PyPlugin
-from os import environ as env
-import socket
 import time
-import random
 import traceback
+import logging
 
 class Health(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
         self.start_time = time.time()
         self.exiting = False
+        self.logger = logging.getLogger("HEALTH")
 
         # XXX no longer used to track time
         self.events = { # Class: [(time, score)]
@@ -75,7 +74,7 @@ class Health(PyPlugin):
             try:
                 self.ppp_run_cb('igloo_exec', cpu, fname, nullable_argv)
             except Exception as e:
-                print(f"Exn in health.igloo_exec: {e}")
+                logging.error(f"Exn in health.igloo_exec: {e}")
                 traceback.print_exc()
 
             unique_name = f"{fname} {' '.join(argv)}"
@@ -119,7 +118,7 @@ class Health(PyPlugin):
 
     def uninit(self):
         self.exiting = True
-        print("Health unloading")
+        logging.debug("Health unloading")
         # Dump self.events to outdir/health.csv
         # Format: class, time, score
 
@@ -155,4 +154,4 @@ class Health(PyPlugin):
             for proc in sorted(self.procs_args):
                 f.write(f"{proc}\n")
 
-        print("Health unloaded")
+        logging.debug("Health unloaded")

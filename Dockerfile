@@ -233,6 +233,7 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
       pyvis \
       jsonschema \
       click \
+      art \
       setuptools
 
 # ZAP setup
