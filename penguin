@@ -230,7 +230,18 @@ penguin_run() {
             for ((i=${#cmd[@]}-1; i>0; i--)); do
                 # Check if it's a directory or file
                 if [[ -e "${cmd[$i]}" ]]; then
-                    container_name=$(basename "${cmd[$i]}")
+                    potential_name=$(basename "${cmd[$i]}")
+                    # If potential name is config.yaml or starts with a number try up a level
+                    # or config.yaml
+                    if [[ $potential_name =~ ^[0-9] ]] || [[ $potential_name =~ ^config.yaml ]]; then
+                        # Take the dirname then basename
+                        potential_name=$(basename "$(dirname "${cmd[$i]}")")
+                        if [[ $potential_name =~ ^[0-9] || $potential_name =~ ^config.yaml ]]; then
+                            # Still bad - skip
+                            continue
+                        fi
+                    fi
+                    container_name=$potential_name
                     if $verbose; then
                         echo "${BOLD}Calculated name for container: ${GREEN}$container_name${RESET}"
                         echo
