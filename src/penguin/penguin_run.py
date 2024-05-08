@@ -12,7 +12,8 @@ import logging
 from time import sleep
 from contextlib import contextmanager
 from pandare import Panda
-from .utils import load_config, hash_image_inputs
+from .penguin_config import load_config
+from .utils import hash_image_inputs
 from .defaults import default_plugin_path
 from .common import yaml
 
@@ -202,8 +203,8 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
 
         try:
             logger.info(f"Missing filesystem image {config_image}, generating from config")
-            from .penguin_prep import prepare_run
-            prepare_run(proj_dir, conf, qcow_dir, out_filename=image_filename)
+            from .gen_image import fakeroot_gen_image
+            fakeroot_gen_image(config_fs, config_image, qcow_dir, conf_yaml)
         except Exception as e:
             logger.info(f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}")
             if os.path.isfile(os.path.join(qcow_dir, image_filename)):
