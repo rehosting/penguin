@@ -382,7 +382,7 @@ def add_lib_inject(config):
 
     p = subprocess.run(
         [
-            "clang",
+            "clang-11",
             "-fuse-ld=lld", "-Oz", "-shared", "-nostdlib",
             "-target", target_triple,
             f"/igloo_static/libnvram/nvram.o.{arch}",
