@@ -122,8 +122,6 @@ def penguin_init(args):
     if not config:
         # We failed to generate a config. We'll have written a result file to the output dir
         logger.error(f"Failed to generate config for {args.rootfs}. See {args.output}/result for details.")
-    else:
-        logger.info(f"Generated config at {out_config_path}")
         
 
 def add_patch_arguments(parser):
