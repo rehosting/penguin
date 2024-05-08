@@ -174,11 +174,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Install apt dependencies - largely for binwalk, some for penguin
 RUN apt-get update && apt-get install -y \
-    fakechroot \
     fakeroot \
-    firefox \
     genext2fs \
-    git \
     graphviz \
     graphviz-dev \
     libarchive13 \
@@ -193,7 +190,6 @@ RUN apt-get update && apt-get install -y \
     libstdc++6 \
     libxml2 \
     lua-lpeg \
-    openjdk-11-jdk \
     python3 \
     python3-lxml \
     python3-venv \
@@ -227,8 +223,6 @@ RUN --mount=type=cache,target=/root/.cache/pip pip install \
       lz4 \
       pydantic \
       pyelftools \
-      python-owasp-zap-v2.4 \
-      python_hosts \
       pyyaml \
       pyvis \
       jsonschema \
