@@ -224,7 +224,7 @@ def penguin_docs(args):
             else:
                 # Otherwise print directly
                 with open(full_path, 'r') as f:
-                    logger.info(f.read())
+                    print(f.read())
     else:
         logger.info("Available documentation files. Select one to view by running penguin docs --filename <filename>")
         for f in os.listdir(docs_path):
