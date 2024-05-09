@@ -241,6 +241,15 @@ penguin_run() {
                             continue
                         fi
                     fi
+
+                    # Filter out any non alpha numeric characters
+                    potential_name=$(echo "$potential_name" | tr -cd '[:alnum:]')
+
+                    # If potential name is empty after filtering, skip
+                    if [ -z "$potential_name" ]; then
+                        continue
+                    fi
+
                     container_name=$potential_name
                     if $verbose; then
                         echo "${BOLD}Calculated name for container: ${GREEN}$container_name${RESET}"
