@@ -10,6 +10,7 @@ ARG PENGUIN_PLUGINS_VERSION="1.5.6"
 ARG UTILS_VERSION="4"
 ARG VPN_VERSION="1.0.8"
 ARG HYPERFS_VERSION="0.0.8"
+ARG GLOW_VERSION="1.5.1"
 
 FROM rust as vhost_builder
 RUN git clone -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
@@ -56,6 +57,9 @@ RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download
 RUN for arch in arm mips mips64; do \
     wget -q https://raw.githubusercontent.com/panda-re/panda/dev/panda/plugins/syscalls2/generated-in/linux_${arch}_prototypes.txt -O /igloo_static/syscalls/linux_${arch}_prototypes.txt; \
   done
+
+ARG GLOW_VERSION
+RUN wget -qO /tmp/glow.deb https://github.com/charmbracelet/glow/releases/download/v${GLOW_VERSION}/glow_${GLOW_VERSION}_amd64.deb
 
 ARG UTILS_VERSION
 RUN wget -qO - https://panda.re/secret/utils${UTILS_VERSION}.tar.gz | \
@@ -187,6 +191,7 @@ ENV PROMPT_COMMAND=""
 RUN echo "#!/bin/sh\ntelnet localhost 4321" > /usr/local/bin/rootshell && chmod +x /usr/local/bin/rootshell
 
 COPY --from=downloader /tmp/pandare.deb /tmp/
+COPY --from=downloader /tmp/glow.deb /tmp/
 
 # We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
 # we'll fail because we get a distutils distribution of pycparser 2.19 that we can't
@@ -228,8 +233,8 @@ RUN apt-get update && apt-get install -y \
     clang-11 \
     lld-11 \
     zlib1g && \
-    apt install -yy -f /tmp/pandare.deb && \
-    rm -rf /var/lib/apt/lists/* /tmp/pandare.deb
+    apt install -yy -f /tmp/pandare.deb -f /tmp/glow.deb && \
+    rm -rf /var/lib/apt/lists/* /tmp/*.deb
 
 # If we want to run in a venv, we can use this. System site packages means
 # we can still access the apt-installed python packages (e.g. guestfs) in our venv
