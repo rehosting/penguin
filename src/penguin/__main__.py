@@ -216,13 +216,13 @@ def penguin_docs(args):
             except OSError:
                 rows = None
 
+            glow_args = ["glow", full_path]
             if rows and lines > rows:
-                # We'll render with less
-                subprocess.run(["less", full_path])
+                # We'll render with a pager
+                subprocess.run(glow_args + ["--pager"])
             else:
                 # Otherwise print directly
-                with open(full_path, 'r') as f:
-                    print(f.read())
+                subprocess.run(glow_args)
     else:
         logger.info("Available documentation files. Select one to view by running penguin docs --filename <filename>")
         for f in os.listdir(docs_path):
