@@ -43,7 +43,7 @@ class VsockVPN(PyPlugin):
         self.active_listeners = set() # (proto, port)
         assert(CID is not None)
 
-        self.logger = getColoredLogger("plugins.VPN")
+        self.logger = getColoredLogger("plugins.VPN", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
 
         # Check if we have CONTAINER_{IP,NAME} in env
         self.exposed_ip = env.get("CONTAINER_IP", None)
@@ -134,13 +134,13 @@ class VsockVPN(PyPlugin):
             host_port = mapped_host_port
             if not self.is_port_open(host_port):
                 raise RuntimeError(f"User requested to map host port {host_port} but it is not free")
-            reason = "(via fixed mapping)"
+            reason = "via fixed mapping"
         elif guest_port < 1024 and self.has_perms:
             host_port = self.find_free_port()
-            reason = f"({guest_port} is privileged and user cannot bind)"
+            reason = f"{guest_port} is privileged and user cannot bind"
         elif guest_port in self.mapped_ports or not self.is_port_open(guest_port):
             host_port = self.find_free_port()
-            reason = f"({guest_port} is already in use)"
+            reason = f"{guest_port} is already in use"
 
         if self.exposed_ip:
             connect_to = f"{self.exposed_ip}:{host_port}"
@@ -151,7 +151,9 @@ class VsockVPN(PyPlugin):
 
         listen_on = f"{sock_type} {ip}:{guest_port}"
 
-        self.logger.info(f"{procname: >10} binds {listen_on: <20} reach it at {connect_to: <20} {reason}")
+        self.logger.info(f"{procname: >16} binds {listen_on: <20} reach it at {connect_to: <20}")
+        if reason:
+            self.logger.info(f"    {reason}")
 
         return host_port
 

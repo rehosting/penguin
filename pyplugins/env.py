@@ -2,6 +2,7 @@ import sys
 import tarfile
 import re
 import itertools
+from penguin import getColoredLogger
 from os.path import dirname, join as pjoin, isfile
 from pandare import PyPlugin
 from copy import deepcopy
@@ -40,6 +41,7 @@ class EnvTracker(PyPlugin):
         self.env_vars = set() # set of env vars that were read through libc getenv
         self.uboot_vars = set() # set of env vars that were read through libc getenv
         self.mtd_vars = set() # set of mtd partitions read out of /proc/mtd
+        self.logger = getColoredLogger("plugins.env_tracker", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
 
         self.default_env_vars = DEFAULT_ENV_VARS
         self.conf = self.get_arg("conf")
@@ -96,16 +98,22 @@ class EnvTracker(PyPlugin):
 
     def addvar(self, cpu, match):
         #proc = self.panda.get_process_name(cpu)
+        if match not in self.default_env_vars and match not in self.env_vars:
+            self.logger.debug(f"New environment variable referenced: {match}")
         self.env_vars.add(match)
 
     def uboot_addvar(self, cpu, match):
         #proc = self.panda.get_process_name(cpu)
         #print(f"UBOOTVAR: {match} in {proc}")
+        if match not in self.default_env_vars and match not in self.uboot_vars:
+            self.logger.debug(f"New uboot environment variable referenced: {match}")
         self.uboot_vars.add(match)
 
     def mtd_addvar(self, cpu, match):
         #proc = self.panda.get_process_name(cpu)
         #print(f"MTDVAR: {match} in {proc}")
+        if match not in self.default_env_vars and match not in self.mtd_vars:
+            self.logger.debug(f"New mtd partition referenced: {match}")
         self.mtd_vars.add(match)
 
     def uninit(self):
@@ -192,8 +200,10 @@ class TargetCmp(PyPlugin):
         # in targetcmp/callwitharg/callstack_instr.
         panda.disable_tb_chaining()
 
+        self.logger = getColoredLogger("plugins.TargetCmp", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
+
         self.outdir = self.get_arg("outdir")
-        print("TargetCMP loaded to dynamically search for", self.target_key)
+        self.logger.info(f"Dynamically searching for {self.target_key}")
         assert(self.outdir is not None), f"NO OUTDIR"
         self.env_var_matches = set()
 
@@ -238,6 +248,7 @@ class TargetCmp(PyPlugin):
         valid_vars = self.filter_env_var_values(self.target_key, self.env_var_matches)
         with open(pjoin(self.outdir, cmp_output), "w") as f:
             for x in valid_vars:
+                self.logger.debug(f"Found potential value {x}")
                 f.write(x + "\n")
 
     @staticmethod

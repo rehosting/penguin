@@ -1,4 +1,5 @@
 from pandare import PyPlugin
+from penguin import getColoredLogger
 
 log = "nvram.csv"
 
@@ -8,6 +9,9 @@ class Nvram2(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
         self.panda = panda
+        self.logger = getColoredLogger("plugins.nvram2", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
+        # Even at debug level, logging every nvram get/clear can be very verbose.
+        # As such, we only debug log nvram sets
 
         self.ppp.Core.ppp_reg_cb('igloo_nvram_get', self.on_nvram_get)
         self.ppp.Core.ppp_reg_cb('igloo_nvram_set', self.on_nvram_set)
@@ -26,6 +30,7 @@ class Nvram2(PyPlugin):
         with open(f'{self.outdir}/{log}', 'a') as f:
             f.write(f'{key},{status},\n')
         self.panda.arch.set_arg(cpu, 1, 0)
+        #self.logger.debug(f"nvram get {key} {status}")
 
     def on_nvram_set(self, cpu, key, newval):
         if '/' not in key:
@@ -34,6 +39,7 @@ class Nvram2(PyPlugin):
         with open(f'{self.outdir}/{log}', 'a') as f:
             f.write(f'{key},set,{newval}\n')
         self.panda.arch.set_arg(cpu, 1, 0)
+        self.logger.debug(f"nvram set {key} {newval}")
 
     def on_nvram_clear(self, cpu, key):
         if '/' not in key:
@@ -42,3 +48,4 @@ class Nvram2(PyPlugin):
         with open(f'{self.outdir}/{log}', 'a') as f:
             f.write(f'{key},clear,\n')
         self.panda.arch.set_arg(cpu, 1, 0)
+        #self.logger.debug(f"nvram clear {key}")

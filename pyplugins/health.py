@@ -1,6 +1,6 @@
+from penguin import getColoredLogger
 from pandare import PyPlugin
 import time
-import traceback
 import logging
 
 class Health(PyPlugin):
@@ -8,7 +8,7 @@ class Health(PyPlugin):
         self.outdir = self.get_arg("outdir")
         self.start_time = time.time()
         self.exiting = False
-        self.logger = logging.getLogger("HEALTH")
+        self.logger = getColoredLogger("plugins.health", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
 
         # XXX no longer used to track time
         self.events = { # Class: [(time, score)]
@@ -74,8 +74,8 @@ class Health(PyPlugin):
             try:
                 self.ppp_run_cb('igloo_exec', cpu, fname, nullable_argv)
             except Exception as e:
-                logging.error(f"Exn in health.igloo_exec: {e}")
-                traceback.print_exc()
+                self.logger.error(f"Exn in health.igloo_exec")
+                self.logger.exception(e)
 
             unique_name = f"{fname} {' '.join(argv)}"
             if unique_name not in self.procs_args:
@@ -115,10 +115,11 @@ class Health(PyPlugin):
         if fname not in self.devs:
             self.devs.add(fname)
             self.increment_event('nuniquedevs')
+            self.logger.debug("New device opened: %s", fname)
 
     def uninit(self):
         self.exiting = True
-        logging.debug("Health unloading")
+        self.logger.debug("Unloading")
         # Dump self.events to outdir/health.csv
         # Format: class, time, score
 
@@ -153,5 +154,3 @@ class Health(PyPlugin):
         with open(f"{self.outdir}/health_procs_with_args.txt", 'w') as f:
             for proc in sorted(self.procs_args):
                 f.write(f"{proc}\n")
-
-        logging.debug("Health unloaded")

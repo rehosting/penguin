@@ -5,6 +5,7 @@ from os.path import dirname, join as pjoin, isfile
 from pandare import PyPlugin
 from copy import deepcopy
 from typing import List, Optional
+from penguin import getColoredLogger
 try:
     from penguin import yaml
     from penguin.analyses import PenguinAnalysis
@@ -37,6 +38,7 @@ class MountTracker(PyPlugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.mounts = set()
+        self.logger = getColoredLogger("plugins.mount", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
 
         @self.panda.ppp("syscalls2", "on_sys_mount_return")
         def post_mount(cpu, pc, source, target, fs_type, flags, data):
@@ -74,3 +76,4 @@ class MountTracker(PyPlugin):
             self.mounts.add((src, tgt, fs))
             with open(pjoin(self.outdir, mount_log), "a") as f:
                 f.write(f"{src},{tgt},{fs},{retval}\n")
+            self.logger.debug(f"Mount returns {retval} for: mount -t {fs} {src} {tgt}")

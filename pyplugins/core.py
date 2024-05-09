@@ -126,7 +126,8 @@ class Core(PyPlugin):
             # Not one of ours
             return False
         except Exception as e:
-            print(f"Error running hypercall: {e}")
+            self.logger.warning(f"Error running hypercall {num}")
+            self.logger.exception(e)
             self.panda.arch.dump_regs(cpu)
             pass # Technically we processed it, just badly. Need to ensure we still return bool instead of raising exn
         return True
@@ -251,7 +252,7 @@ class Core(PyPlugin):
             # Check if the event is set
             if shutdown_event.is_set():
                 try:
-                    print("Shutdown thread: Guest shutdown detected, exiting thread.")
+                    self.logger.warning("Shutdown thread: Guest shutdown detected, exiting thread.")
                 except OSError:
                     pass # Can't print but it's not important
                 return
@@ -261,7 +262,7 @@ class Core(PyPlugin):
             wait_time += 1
 
         try:
-            print(f"Shutdown thread: execution timed out after {timeout}s - shutting down guest")
+            self.logger.warning(f"Shutdown thread: execution timed out after {timeout}s - shutting down guest")
         except OSError:
             # During shutdown, stdout might be closed!
             pass
@@ -270,7 +271,7 @@ class Core(PyPlugin):
         panda.end_analysis()
 
     def graceful_shutdown(self, sig, frame):
-        print("Caught SIGUSR1 - gracefully shutdown emulation", file=sys.stderr)
+        self.logger.info("Caught SIGUSR1 - gracefully shutdown emulation", file=sys.stderr)
         open(os.path.join(self.outdir, ".ran"), "w").close()
         self.uninit() # explicitly call uninit?
         self.panda.end_analysis()

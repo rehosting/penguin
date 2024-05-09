@@ -139,6 +139,7 @@ class FileFailures(PyPlugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.written_data = {} # filename -> data that was written to it
+        self.logger = getColoredLogger("plugins.pseudofiles", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
 
         # XXX: It has seemed like this should be 1 for some architectures, but that can't be right?
         self.ENOENT = 2
@@ -217,6 +218,10 @@ class FileFailures(PyPlugin):
             }
 
         self.config['env']['IGLOO_HYPERFILE_PATHS'] = ":".join(hf_config.keys())
+
+        self.logger.debug(f"Registered pseudofiles:")
+        for filename, details in hf_config.items():
+            self.logger.debug(f"  {filename}")
 
         # We'll update hf_config[dyndev.{devnames,procnames,netdevnames,sysfs}] with the list of devices we're shimming
         for f in ["devnames", "procnames", "netdevnames", "sysfs"]:
@@ -383,17 +388,17 @@ class FileFailures(PyPlugin):
                 idx = idx[1:]
 
             if not idx.isdigit():
-                print(f"WARNING: mtd device {filename} is non-numeric. Skipping in /proc/mtd report")
+                self.logger.warning(f"Mtd device {filename} is non-numeric. Skipping in /proc/mtd report")
                 continue
 
             if not 'name' in details:
-                print(f"WARNING: mtd device {filename} has no name. Skipping in /proc/mtd report")
+                self.logger.warning(f"Mtd device {filename} has no name. Skipping in /proc/mtd report")
                 continue
 
             buf += "mtd{}: {:08x} {:08x} \"{}\"\n".format(int(idx), 0x1000000, 0x20000, details['name'])
 
         if len(buf) > buffer_sz:
-            print(f"WARNING truncating mtd buffer from {len(buf)} to {buffer_sz}")
+            self.logger.warning(f"Truncating mtd buffer from {len(buf)} to {buffer_sz}")
             buf = buf[:buffer_sz]
 
         try:
@@ -448,6 +453,7 @@ class FileFailures(PyPlugin):
             # This is just relevant if someone's watching the output during a run
             # final results are always written at the end.
             self.dump_results()
+            self.logger.debug(f"New ioctl failure observed: {cmd:x} on {path}")
 
     def read_zero(self, filename, buffer, length, offset, details=None):
         # Simple peripheral model inspired by firmadyne/firmae. Just return 0.
@@ -569,7 +575,7 @@ class FileFailures(PyPlugin):
         return (final_data, len(final_data)) # data, length
 
     def read_from_file(self, filename, buffer, length, offset, details=None):
-        #print(f"Reading {filename} with {length} bytes at {offset}:")
+        self.logger.debug(f"Reading {filename} with {length} bytes at {offset}:")
         fname = details['filename'] # Host file
 
         with open(fname, "rb") as f:
@@ -580,7 +586,7 @@ class FileFailures(PyPlugin):
 
     def write_to_file(self, filename, buffer, length, offset, contents, details=None):
         fname = details['filename'] # Host file
-        #print(f"Writing {fname} with {length} bytes at {offset}: {contents[:100]}")
+        self.logger.debug(f"Writing {fname} with {length} bytes at {offset}: {contents[:100]}")
 
         with open(fname, "r+b") as f:
             f.seek(offset)
