@@ -1,12 +1,12 @@
 import os
 import re
 import stat
-import logging
 import struct
 import subprocess
 import tarfile
 import tempfile
 import csv
+from penguin import getColoredLogger
 from pathlib import Path
 from copy import deepcopy
 import elftools
@@ -24,7 +24,7 @@ the filesystem and populate metadata fields
     - potential_proc: list of potential /proc/ files
 '''
 
-logger = logging.getLogger("PENGUIN")
+logger = getColoredLogger("penguin.static")
 
 
 def _find_in_fs(target_regex, tar_path, only_files=True):

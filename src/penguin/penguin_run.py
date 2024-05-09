@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
+import logging
+import os
+import random
+import shutil
 import shutil
 import subprocess
 import sys
-import tempfile
-from pathlib import Path
-import os
 import sys
-import shutil
-import random
-import logging
-from time import sleep
+import tempfile
 from contextlib import contextmanager
 from pandare import Panda
+from pathlib import Path
+from time import sleep
+from penguin import getColoredLogger
 from .penguin_config import load_config
 from .utils import hash_image_inputs
 from .defaults import default_plugin_path
 from .common import yaml
 
 # Note armel is just panda-system-arm and mipseb is just panda-system-mips
-logger = logging.getLogger('penguin_run')
-    
-
 ROOTFS="/dev/vda" # Common to all
 qemu_configs = {
         "armel": { "qemu_machine": "virt",
@@ -136,8 +134,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
         os.makedirs(out_dir, exist_ok=True)
 
     if logger is None:
-        logger = logging.getLogger('penguin_run')
-        logger.setLevel(logging.INFO)
+        logger = getColoredLogger('penguin.run', level='INFO')
 
     # Image isn't in our config, but the path we use is a property
     # of configs fiiles section - we'll hash it to get a path
@@ -204,11 +201,10 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
         open(lock_file, 'a').close() # create lock file
 
         try:
-            logger.info(f"Missing filesystem image {config_image}, generating from config")
             from .gen_image import fakeroot_gen_image
             fakeroot_gen_image(config_fs, config_image, qcow_dir, conf_yaml)
         except Exception as e:
-            logger.info(f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}")
+            logger.error(f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}")
             if os.path.isfile(os.path.join(qcow_dir, image_filename)):
                 os.remove(os.path.join(qcow_dir, image_filename))
             raise e
@@ -220,7 +216,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
         # We expect to have the image now
         if not os.path.isfile(config_image):
             raise ValueError(f"Image file invalid: {config_image}")
-        
+
     CID=4 # We can use a constant CID with vhost-user-vsock
     # Create a temp dir for our vhost files:
     tmpdir = tempfile.TemporaryDirectory()
@@ -326,10 +322,9 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
     stdout_path = os.path.join(parent_outdir, 'qemu_stdout.txt')
     stderr_path = os.path.join(parent_outdir, 'qemu_stderr.txt')
     
-    logger.info("Emulation launching")
 
     with print_to_log(stdout_path, stderr_path):
-        logger.debug(f"Launching PANDA with args: {args}")
+        logger.debug(f"Preparing PANDA args: {args}")
         logger.debug(f"Architecture: {q_config['arch']} Mem: {q_config['mem_gb']+'G'}")
         panda = Panda(q_config['arch'], mem=q_config['mem_gb']+"G", extra_args=args)
 
@@ -357,6 +352,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
     os.umask(0o001)
     os.makedirs(out_dir, exist_ok=True)
 
+    logger.info("Loading plugins")
     for plugin_name in _sort_plugins_by_dependency(conf_plugins):
         details = conf_plugins[plugin_name]
         if 'enabled' in details and not details['enabled']:
@@ -443,11 +439,12 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
 
 def main():
     if any(x == 'verbose' for x in sys.argv):
-        import coloredlogs
-        from penguin import LOG_FMT
-        coloredlogs.install(level='DEBUG', fmt=LOG_FMT)
+        logger = getColoredLogger('penguin.runner', level='DEBUG')
+        logger.warning("Debugging enabled")
+        logger.debug("Debugging enabled")
+    else:
+        logger = getColoredLogger('penguin.runner')
 
-    logger.info("Penguin run running")
     if len(sys.argv) >= 2:
         # Given a config, run it. Specify qcow_dir to store qcow if not "dirname(config)""
         # and specify out_dir to store results if not "dirname(config)/output"

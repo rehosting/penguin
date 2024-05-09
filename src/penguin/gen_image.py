@@ -1,5 +1,11 @@
-import click, os, sys, logging
-import tempfile, tarfile, subprocess
+import click
+import logging
+import os
+import subprocess
+import sys
+import tarfile
+import tempfile
+from penguin import getColoredLogger
 from pathlib import Path
 from subprocess import check_output
 
@@ -15,7 +21,7 @@ This class wrapped what used to be a libguestfs interface
 At this point it allows us to pretend that the temporary directory we have
 is another file system
 '''
-logger = logging.getLogger("PENGUIN")
+logger = getColoredLogger("penguin.gen_image")
 
 class LocalGuestFS:
     def __init__(self, base):
@@ -443,8 +449,7 @@ def fakeroot_gen_image(fs, out, artifacts, config):
 @click.option('-v', '--verbose', count=True)
 def makeImage(fs, out, artifacts, config, verbose):
     if verbose:
-        import coloredlogs
-        coloredlogs.install(level='DEBUG', fmt='%(asctime)s %(name)s %(levelname)s %(message)s')
+        logger.setLevel(logging.DEBUG)
 
     make_image(fs, out, artifacts, config)
 

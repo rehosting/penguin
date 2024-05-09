@@ -1,4 +1,3 @@
-import coloredlogs
 import logging
 import os
 import shutil
@@ -8,6 +7,7 @@ import csv
 
 import networkx as nx
 
+from penguin import getColoredLogger
 from copy import deepcopy
 from os import system
 from random import choice
@@ -19,16 +19,13 @@ from .graphs import Configuration, ConfigurationManager, Failure, Configuration,
 from .penguin_config import load_config, dump_config, hash_yaml_config
 from .utils import  AtomicCounter, \
                     _load_penguin_analysis_from, get_mitigation_providers
-from penguin import LOG_FMT
-
 
 WWW_ONLY = False # To simplify large scale evaluations - should we bail early if we see a webserver start?
 
 SCORE_CATEGORIES = ['execs', 'bound_sockets', 'devices_accessed', 'processes_run', 'modules_loaded',
                     'blocks_covered', 'nopanic', 'script_lines_covered', 'blocked_signals']
 
-logger = logging.getLogger('mgr')
-coloredlogs.install(level='DEBUG', fmt=LOG_FMT, logger=logger)
+logger = getColoredLogger('penguin.run_manager')
 
 # Cache output to avoid re-running previously seen configs.
 # This is only useful in debugging where we'll rerun our scripts
@@ -190,13 +187,15 @@ class PandaRunner:
             p = subprocess.Popen(cmd)
             p.wait(timeout=timeout_s+180 if timeout_s else None)
         except subprocess.TimeoutExpired:
-            logging.info(f"Timeout expired for {conf_yaml} after {timeout_s} seconds")
+            logger.info(f"Timeout expired for {conf_yaml} after {timeout_s} seconds")
             if p:  # Ensure p is not None before attempting to kill
                 p.kill()
         except subprocess.CalledProcessError as e:
             logger.error(f"Error running {conf_yaml}: {e}")
         except KeyboardInterrupt:
-            logger.info(f"Keyboard interrupt while PANDA was running - killing {p.pid} with SIGUSR1 (please wait up to 30s)...")
+            logger.warning(f"Recieved keyboard interrupt while running emulation")
+            logger.info("Please wait up to 30s for graceful shutdown and result reporting")
+            logger.info("Otherwise, press Ctrl+C again to force kill")
             # Send SIGUSR1 to the process
             system(f"kill -USR1 {p.pid}")
             # Wait a moment, then kill it hard
@@ -221,7 +220,7 @@ class PandaRunner:
 
         ran_file = os.path.join(out_dir, ".ran")
         if not os.path.isfile(ran_file):
-            logger.error(f"Missing .ran file with {conf_yaml}")
+            self.logger.error(f"Missing .ran file with {conf_yaml}")
             raise RuntimeError(f"ERROR, running {conf_yaml} in {proj_dir} did not produce {out_dir}/.ran file")
 
 class Worker:
@@ -325,8 +324,7 @@ class Worker:
             f.write(self.config_manager.stringify_state2())
 
         # Log info
-        this_logger = logging.getLogger(f"mgr{self.thread_id if self.thread_id is not None else ''}.run.{self.run_idx}")
-        this_logger.setLevel(logging.INFO)
+        this_logger = getColoredLogger(f"mgr{self.thread_id if self.thread_id is not None else ''}.run.{self.run_idx}")
 
         if parent_cc := self.config_manager.graph.get_parent_config(config):
             parent_failure = self.config_manager.graph.get_parent_failure(config)
