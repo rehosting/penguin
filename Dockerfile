@@ -277,14 +277,6 @@ COPY --from=cross_builder /out/* /igloo_static/utils.bin
 COPY utils/* /igloo_static/utils.source/
 COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
 
-#COPY fws/kernels-latest.tar.gz /tmp
-#RUN rm -rf /igloo_static/kernels && \
-#    tar xvf /tmp/kernels-latest.tar.gz -C /igloo_static/
-#
-#COPY fws/libnvram-latest.tar.gz /tmp
-#RUN rm -rf /igloo_static/libnvram && \
-#    tar xvf /tmp/libnvram-latest.tar.gz -C /igloo_static/
-
 # Copy wrapper script into container so we can copy out - note we don't put it on guest path
 COPY ./penguin /usr/local/src/penguin_wrapper
 # And add install helpers which generate shell commands to install it on host
@@ -311,3 +303,23 @@ COPY ./pyplugins/ /pandata
 
 # Default command: echo install instructions
 CMD ["/usr/local/bin/banner.sh"]
+
+
+# To install local builds of penguin deps, build and copy
+# into this directory and then uncomment the relevant lines
+
+#COPY penguin_plugins.tar.gz /tmp
+#RUN mkdir -p /tmp/plug && \
+#    tar xzf /tmp/penguin_plugins.tar.gz -C /tmp/plug && \
+#    mv /tmp/plug/arm/* /usr/local/lib/panda/arm && \
+#    mv /tmp/plug/mips/* /usr/local/lib/panda/mips && \
+#    mv /tmp/plug/mipsel/* /usr/local/lib/panda/mipsel && \
+#    mv /tmp/plug/mips64/* /usr/local/lib/panda/mips64
+
+#COPY kernels-latest.tar.gz /tmp
+#RUN rm -rf /igloo_static/kernels && \
+#    tar xvf /tmp/kernels-latest.tar.gz -C /igloo_static/
+
+#COPY libnvram-latest.tar.gz /tmp
+#RUN rm -rf /igloo_static/libnvram && \
+#    tar xvf /tmp/libnvram-latest.tar.gz -C /igloo_static/
