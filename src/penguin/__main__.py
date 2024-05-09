@@ -10,7 +10,7 @@ from pathlib import Path
 from os.path import join, dirname
 from .common import yaml
 from .manager import graph_search, PandaRunner, calculate_score
-from .gen_config import fakeroot_gen_config 
+from .gen_config import fakeroot_gen_config
 from .penguin_config import load_config
 from penguin import VERSION, getColoredLogger
 
@@ -115,14 +115,14 @@ def penguin_init(args):
     # Ensure output parent directory exists
     if not os.path.exists(os.path.dirname(args.output)):
         os.makedirs(os.path.dirname(args.output))
-    
+
     out_config_path = Path(args.output, "config.yaml")
     config = fakeroot_gen_config(args.rootfs, out_config_path, args.output, args.verbose)
 
     if not config:
         # We failed to generate a config. We'll have written a result file to the output dir
         logger.error(f"Failed to generate config for {args.rootfs}. See {args.output}/result for details.")
-        
+
 
 def add_patch_arguments(parser):
     parser.add_argument('config', type=str, help='Path to the full config file to be updated')
@@ -271,7 +271,7 @@ def penguin_run(args):
 
     if '/host_' in args.config or '/host_' in args.output:
         logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments")
-    
+
     run_from_config(args.config, args.output, verbose=args.verbose)
 
 def main():

@@ -429,9 +429,9 @@ def make_image(fs, out, artifacts, config):
 
 def fakeroot_gen_image(fs, out, artifacts, config):
     o = Path(out)
-    cmd = ["fakeroot", "gen_image", 
-           "--fs", str(fs), 
-           "--out", str(o), 
+    cmd = ["fakeroot", "gen_image",
+           "--fs", str(fs),
+           "--out", str(o),
            "--artifacts", str(artifacts),
            "--config", str(config)]
     if logger.level == logging.DEBUG:
