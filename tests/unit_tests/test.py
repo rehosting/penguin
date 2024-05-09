@@ -155,8 +155,8 @@ class TestRunner:
             stdout=open(proj_dir / Path("test_log.txt"), "w"),
             stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
-            logging.error("Penguin run failed, showing last 30 lines from log:")
-            #subprocess.run(["tail", "-n", "30", tmpdir / Path("test_log.txt")])
+            logging.error("Penguin run failed, showing last 50 lines from log:")
+            subprocess.run(["tail", "-n", "50", tmpdir / Path("test_log.txt")])
             sys.exit(1)
 
     def run_test(self, kernel_version, arch, test_name, assertion):
