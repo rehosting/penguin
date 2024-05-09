@@ -391,11 +391,11 @@ def make_image(fs, out, artifacts, config):
         if type(config) is str:
             config = load_config(config)
         with tempfile.TemporaryDirectory() as TMP_DIR:
-            check_output(f"tar -xpsvf {IN_TARBALL} -C {TMP_DIR}", shell=True)
+            check_output(["tar", "xpsvf", IN_TARBALL, "-C", TMP_DIR])
             from .penguin_prep import prep_config
             prep_config(config)
             fs_make_config_changes(TMP_DIR, config)
-            check_output(f"tar -czpvf {MODIFIED_TARBALL} -C {TMP_DIR} .", shell=True)
+            check_output(["tar", "czpvf", MODIFIED_TARBALL, "-C", TMP_DIR, "."])
         TARBALL = MODIFIED_TARBALL
     else:
         TARBALL = IN_TARBALL
@@ -406,7 +406,7 @@ def make_image(fs, out, artifacts, config):
     BLOCK_SIZE=4096
 
     # Calculate image and filesystem size
-    UNPACKED_SIZE = int(check_output(f'zcat {TARBALL} | wc -c', shell=True))
+    UNPACKED_SIZE = int(check_output(f'zcat "{TARBALL}" | wc -c', shell=True))
     UNPACKED_SIZE = UNPACKED_SIZE + 1024 * 1024 * PADDING_MB
     REQUIRED_BLOCKS=int((UNPACKED_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE + 1024)
     FILESYSTEM_SIZE=int(REQUIRED_BLOCKS * BLOCK_SIZE)
@@ -417,9 +417,9 @@ def make_image(fs, out, artifacts, config):
     NUMBER_OF_INODES= NUMBER_OF_INODES + 1000 # Padding for more files getting added later
     with tempfile.TemporaryDirectory() as WORK_DIR:
         IMAGE = Path(WORK_DIR,"image.raw")
-        check_output(f'truncate -s "{FILESYSTEM_SIZE}" "{IMAGE}"', shell=True)
-        check_output(f'genext2fs --faketime  -N "{NUMBER_OF_INODES}" -b "{REQUIRED_BLOCKS}" -B {BLOCK_SIZE} -a "{TARBALL}" "{IMAGE}" 2>&1 | grep -v "bad type \'x\'"', shell=True)
-        check_output(f'qemu-img convert -f raw -O qcow2 "{IMAGE}" "{QCOW}"', shell=True)
+        check_output(["truncate", "-s", str(FILESYSTEM_SIZE), IMAGE])
+        check_output(["genext2fs", "--faketime",  "-N", str(NUMBER_OF_INODES), "-b", str(REQUIRED_BLOCKS), "-B", str(BLOCK_SIZE), "-a", TARBALL, IMAGE])
+        check_output(["qemu-img", "convert", "-f", "raw", "-O", "qcow2", IMAGE, QCOW])
 
 def fakeroot_gen_image(fs, out, artifacts, config):
     o = Path(out)
