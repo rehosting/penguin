@@ -109,6 +109,9 @@ def penguin_init(args):
         logger.info(f"Deleting existing project directory: {args.output}")
         shutil.rmtree(args.output, ignore_errors=True)
 
+    if '/host_' in args.rootfs or '/host_' in args.output:
+        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments")
+
     # Ensure output parent directory exists
     if not os.path.exists(os.path.dirname(args.output)):
         os.makedirs(os.path.dirname(args.output))
