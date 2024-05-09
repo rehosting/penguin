@@ -147,6 +147,34 @@ RUN git clone --depth 1 https://github.com/rehosting/nmap.git /src
 # We want to install into /build/nmap
 RUN cd /src && ./configure --prefix=/build/nmap && make -j$(nproc) && make install
 
+### Python Builder: Build all wheel files necessary###
+FROM $BASE_IMAGE as python_builder
+ARG PANDA_VERSION
+
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+RUN apt-get update && apt-get install -y python3-pip git
+RUN --mount=type=cache,target=/root/.cache/pip \
+      pip wheel --no-cache-dir --wheel-dir /app/wheels \
+      angr \
+      beautifulsoup4 \
+      coloredlogs \
+      git+https://github.com/AndrewFasano/angr-targets.git@af_fixes \
+      html5lib \
+      pandare==${PANDA_VERSION} \
+      ipdb \
+      lief  \
+      lxml \
+      lz4 \
+      pydantic \
+      pyelftools \
+      pyyaml \
+      pyvis \
+      jsonschema \
+      click \
+      art \
+      setuptools
+
 
 ### MAIN CONTAINER ###
 FROM $BASE_IMAGE as penguin
@@ -207,28 +235,9 @@ RUN apt-get update && apt-get install -y \
 # we can still access the apt-installed python packages (e.g. guestfs) in our venv
 #RUN python3 -m venv --system-site-packages /venv
 #ENV PATH="/venv/bin:$PATH"
-ARG PANDA_VERSION
-
-      #http://panda.re/secret/pandare-0.1.2.0.tar.gz
-RUN --mount=type=cache,target=/root/.cache/pip pip install \
-      angr \
-      beautifulsoup4 \
-      coloredlogs \
-      git+https://github.com/AndrewFasano/angr-targets.git@af_fixes \
-      html5lib \
-      pandare==${PANDA_VERSION} \
-      ipdb \
-      lief  \
-      lxml \
-      lz4 \
-      pydantic \
-      pyelftools \
-      pyyaml \
-      pyvis \
-      jsonschema \
-      click \
-      art \
-      setuptools
+# install prebuilt python packages
+COPY --from=python_builder /app/wheels /wheels
+RUN pip install --no-cache /wheels/*
 
 # ZAP setup
 #COPY --from=downloader /zap /zap
