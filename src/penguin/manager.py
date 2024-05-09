@@ -25,8 +25,6 @@ WWW_ONLY = False # To simplify large scale evaluations - should we bail early if
 SCORE_CATEGORIES = ['execs', 'bound_sockets', 'devices_accessed', 'processes_run', 'modules_loaded',
                     'blocks_covered', 'nopanic', 'script_lines_covered', 'blocked_signals']
 
-logger = getColoredLogger('penguin.run_manager')
-
 # Cache output to avoid re-running previously seen configs.
 # This is only useful in debugging where we'll rerun our scripts
 # multiple times. In production we'll only run a search once per FW
@@ -127,7 +125,7 @@ class PandaRunner:
     (deadlock) or if it crashes.
     '''
     def __init__(self):
-        pass
+        self.logger = getColoredLogger('penguin.run_manager')
 
     def run(self, conf_yaml, proj_dir, out_dir, init=None, timeout=None, show_output=False, verbose=False):
         '''
@@ -187,15 +185,15 @@ class PandaRunner:
             p = subprocess.Popen(cmd)
             p.wait(timeout=timeout_s+180 if timeout_s else None)
         except subprocess.TimeoutExpired:
-            logger.info(f"Timeout expired for {conf_yaml} after {timeout_s} seconds")
+            self.logger.info(f"Timeout expired for {conf_yaml} after {timeout_s} seconds")
             if p:  # Ensure p is not None before attempting to kill
                 p.kill()
         except subprocess.CalledProcessError as e:
-            logger.error(f"Error running {conf_yaml}: {e}")
+            self.logger.error(f"Error running {conf_yaml}: {e}")
         except KeyboardInterrupt:
-            logger.warning(f"Recieved keyboard interrupt while running emulation")
-            logger.info("Please wait up to 30s for graceful shutdown and result reporting")
-            logger.info("Otherwise, press Ctrl+C again to force kill")
+            self.logger.warning(f"Recieved keyboard interrupt while running emulation")
+            self.logger.info("Please wait up to 30s for graceful shutdown and result reporting")
+            self.logger.info("Otherwise, press Ctrl+C again to force kill")
             # Send SIGUSR1 to the process
             system(f"kill -USR1 {p.pid}")
             # Wait a moment, then kill it hard
@@ -207,12 +205,12 @@ class PandaRunner:
                 break
             else:
                 # Didn't break the loop - process is still running
-                logger.error(f"Process {p.pid} still running after SIGUSR1 + 30s: killing hard")
+                self.logger.error(f"Process {p.pid} still running after SIGUSR1 + 30s: killing hard")
                 system(f"kill -9 {p.pid}")
             # Now we should wait for the process to finish
-            logger.debug("Wait for shutdown")
+            self.logger.debug("Wait for shutdown")
             p.wait()
-            logger.debug("Waited")
+            self.logger.debug("Waited")
             return
 
         #elapsed = time.time() - start
@@ -224,7 +222,7 @@ class PandaRunner:
             raise RuntimeError(f"ERROR, running {conf_yaml} in {proj_dir} did not produce {out_dir}/.ran file")
 
 class Worker:
-    def __init__(self, global_state, config_manager, run_base, max_iters, run_index, active_worker_count, thread_id=None):
+    def __init__(self, global_state, config_manager, run_base, max_iters, run_index, active_worker_count, thread_id=None, logger=None):
         self.global_state = global_state
         self.config_manager = config_manager
         self.run_base = run_base
@@ -232,6 +230,7 @@ class Worker:
         self.run_index = run_index
         self.active_worker_count = active_worker_count
         self.thread_id = thread_id
+        self.logger = logger or getColoredLogger(f"mgr{self.thread_id if self.thread_id is not None else ''}.run.{self.run_index.get()}")
 
     def run(self):
         while self.max_iters == -1 or self.run_index.get() < self.max_iters:
@@ -240,9 +239,9 @@ class Worker:
                 config = self.config_manager.run_exploration_cycle(self.run_config_f,
                                                                 self.find_mitigations_f,
                                                                 self.find_new_configs_f,
-                                                                logger=logger)
+                                                                logger=self.logger)
             except Exception as e:
-                logger.error(f"Error in run_exploration_cycle: {e}")
+                self.logger.error(f"Error in run_exploration_cycle: {e}")
                 raise e
             finally:
                 self.active_worker_count.decrement()
@@ -251,7 +250,7 @@ class Worker:
                 time.sleep(1)
                 # If all workers are waiting, that means we're done
                 if self.active_worker_count.get() == 0:
-                    logger.info("All workers waiting, exiting")
+                    self.logger.info("All workers waiting, exiting")
                     return
 
     def find_new_configs_f(self, failure : Failure, mitigation : Mitigation, parent_config : Configuration) -> List[Configuration]:
@@ -262,7 +261,7 @@ class Worker:
         providers = get_mitigation_providers(parent_config.info)
 
         if failure.type not in providers:
-            logger.warning(f"No mitigation provider for {failure.id} - ignoring")
+            self.logger.warning(f"No mitigation provider for {failure.id} - ignoring")
             return []
 
         results = []
@@ -275,7 +274,7 @@ class Worker:
                 raise TypeError(f"Plugin {failure.type} returned a non-Configuration object {c}")
 
             if c == parent_config:
-                logger.error(f"Plugin {failure.type} returned the parent config {c} as a new config Ignoring")
+                self.logger.error(f"Plugin {failure.type} returned the parent config {c} as a new config Ignoring")
                 continue
 
             # If the mitigation has the 'exclusive' property AND already has a child, we skip?
@@ -295,8 +294,7 @@ class Worker:
         for m in analysis.get_potential_mitigations(config.info, failure) or []:
             if not isinstance(m, Mitigation):
                 raise TypeError(f"Plugin {analysis.ANALYSIS_TYPE} returned a non-Mitigation object {m}")
-            #this_logger = logging.getLogger(f"mgr{self.thread_id if self.thread_id is not None else ''}.run.{self.run_idx}")
-            #this_logger.info(f"Plugin {analysis.ANALYSIS_TYPE} suggests mitigation {m}")
+            #self.logger.info(f"Plugin {analysis.ANALYSIS_TYPE} suggests mitigation {m}")
             results.append(m)
         return results
 
@@ -323,13 +321,10 @@ class Worker:
         with open(os.path.join(run_dir, "full_graph.txt"), "w") as f:
             f.write(self.config_manager.stringify_state2())
 
-        # Log info
-        this_logger = getColoredLogger(f"mgr{self.thread_id if self.thread_id is not None else ''}.run.{self.run_idx}")
-
         if parent_cc := self.config_manager.graph.get_parent_config(config):
             parent_failure = self.config_manager.graph.get_parent_failure(config)
             parent_mitigation = self.config_manager.graph.get_parent_mitigation(config)
-            this_logger.debug(f"Derived from {parent_cc} with {parent_mitigation} to fix {parent_failure}")
+            self.logger.debug(f"Derived from {parent_cc} with {parent_mitigation} to fix {parent_failure}")
             # Record parent in output directory:
             with open(os.path.join(run_dir, "parent.txt"), "w") as f:
                 f.write(f"parent={parent_cc.run_idx}\n")
@@ -338,7 +333,7 @@ class Worker:
                 f.write(f"{parent_mitigation.exclusive}\n")
                 f.write(f"{parent_mitigation.info}\n")
         else:
-            this_logger.debug(f"Root config")
+            self.logger.debug(f"Root config")
 
         # DEBUG: save graph to disk
         #if len(self.config_manager.graph.graph.nodes) < 50:
@@ -401,7 +396,7 @@ class Worker:
                     PandaRunner().run(conf_yaml, self.run_base, run_dir, out_dir, timeout=timeout)
                 except RuntimeError as e:
                     # Uh oh, we got an error while running. Warn and continue
-                    this_logger.error(f"Could not run {run_dir}: {e}")
+                    self.logger.error(f"Could not run {run_dir}: {e}")
                     return [], 0, None
 
             if CACHE_SUPPORT:
@@ -417,9 +412,9 @@ class Worker:
                     print(f"Not caching config as it did not produce a .ran file")
 
         # if we have an exclusive config, treat score as 0
-        scores = self.find_best_score(run_dir, self.run_idx, n_config_tests, config.exclusive is not None, this_logger)
+        scores = self.find_best_score(run_dir, self.run_idx, n_config_tests, config.exclusive is not None)
 
-        failures = self.analyze_failures(run_dir, config, n_config_tests, this_logger)
+        failures = self.analyze_failures(run_dir, config, n_config_tests)
 
         if not len(failures) and truncated > 0:
             # We saw no failures, but we also were running with a shortened execution. Make a fake failure that
@@ -449,14 +444,14 @@ class Worker:
                     reader = csv.DictReader(f)
                     for row in reader:
                         if row['guest_port'] == '80':
-                            this_logger.info(f"Terminating early due to port 80 bind in {run_dir}")
+                            self.logger.info(f"Terminating early due to port 80 bind in {run_dir}")
                             for _ in range(self.max_iters):
                                 self.run_index.increment() # There must be a better way to do this
                             break
 
         return failures, final_score, self.run_idx
 
-    def find_best_score(self, run_dir, run_idx, n_config_tests, is_exclusive, this_logger):
+    def find_best_score(self, run_dir, run_idx, n_config_tests, is_exclusive):
         '''
         Look acrous our `n_config_tests` runs. Calculate the maximal score for each
         score type our various metrics. Note n_config_tests is 1 for now. Later
@@ -474,7 +469,7 @@ class Worker:
             best_scores = {k: 0 for k in best_scores}
 
         # Report scores and save to disk
-        #this_logger.info(f"scores: {[f'{k[:4]}:{v}' for k, v in best_scores.items()]}")
+        #self.logger.info(f"scores: {[f'{k[:4]}:{v}' for k, v in best_scores.items()]}")
         with open(os.path.join(run_dir, "scores.txt"), "w") as f:
             f.write("score_type,score\n")
 
@@ -488,7 +483,7 @@ class Worker:
 
         return best_scores
 
-    def analyze_failures(self, run_dir, node, n_config_tests, this_logger):
+    def analyze_failures(self, run_dir, node, n_config_tests):
         '''
         After we run a configuration, do our post-run analysis of failures.
         Run each PyPlugin that has a PenguinAnalysis implemented. Have each
@@ -511,11 +506,11 @@ class Worker:
                 try:
                     failures = analysis.parse_failures(output_dir)
                 except Exception as e:
-                    this_logger.error(e)
+                    self.logger.error(e)
                     raise e
 
                 #if len(failures):
-                    #this_logger.info(f"Plugin {plugin_name} reports {len(failures)} failures: {failures}")
+                    #self.logger.info(f"Plugin {plugin_name} reports {len(failures)} failures: {failures}")
 
                 for failure in (failures or []):
                     if not isinstance(failure, Failure):
