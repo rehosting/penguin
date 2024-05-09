@@ -6,7 +6,6 @@ on:
       - main
     paths:
       - src/penguin/penguin_config.py
-      - src/resources/doc_format.yaml
       - .github/workflows/test_schema.yaml
       - docs/config_schema.md
 
@@ -16,8 +15,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - run: pip install pydantic pyyaml json-schema-for-humans
-    - run: python3 src/penguin/penguin_config.py > config_schema.yaml
-    - run: generate-schema-doc --config-file src/resources/doc_format.yaml config_schema.yaml
+    - run: pip install pydantic pyyaml
+    - run: python3 src/penguin/penguin_config.py docs > config_schema.md
     # Ensure generated config_schma matches the one in the repo at docs/config_schema.md
-    - run: if [ -e docs/config_schema.md ]; then diff config_schema.md docs/config_schema.md || (echo "Config schema is out of date. Please run 'python3 src/penguin/penguin_config.py > config_schema.yaml && generate-schema-doc --config-file src/resources/doc_format.yaml config_schema.yaml && mv config_schma.yaml docs && git add docs/config_schema.md' and push a commit with the updated schema." && exit 1) fi;
+    - run: if [ -e docs/config_schema.md ]; then diff config_schema.md docs/config_schema.md || (echo "Config schema is out of date. Please run 'python3 src/penguin/penguin_config.py docs > docs/config_schema.md && git add docs/config_schema.md' and push a commit with the updated schema." && exit 1) fi;
