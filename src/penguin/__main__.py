@@ -6,17 +6,15 @@ import subprocess
 import logging
 import art
 import argparse
-import coloredlogs
 from pathlib import Path
 from os.path import join, dirname
 from .common import yaml
 from .manager import graph_search, PandaRunner, calculate_score
 from .gen_config import fakeroot_gen_config 
 from .penguin_config import load_config
-from penguin import VERSION
+from penguin import VERSION, getColoredLogger
 
-
-logger = logging.getLogger("PENGUIN")
+logger = getColoredLogger("penguin")
 
 def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None, verbose=False):
 
@@ -24,7 +22,6 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None,
         raise RuntimeError(f"Config file not found: {config_path}")
 
     proj_dir = os.path.dirname(config_path)
-    logging.getLogger("PENGUIN").info(f"Generating initial filesystem and launching emulation...")
 
     try:
         config = load_config(config_path)
@@ -226,7 +223,7 @@ def penguin_docs(args):
     else:
         logger.info("Available documentation files. Select one to view by running penguin docs --filename <filename>")
         for f in os.listdir(docs_path):
-            logger.info("  ", f)
+            logger.info("  %s", f)
 
 def add_run_arguments(parser):
     parser.add_argument('config', type=str, help='Path to a config file within a project directory.')
@@ -315,8 +312,8 @@ def main():
 
     args = parser.parse_args()
     if args.verbose:
-        from penguin import LOG_FMT
-        coloredlogs.install(level='DEBUG', fmt=LOG_FMT)
+        # Set level to debug
+        logger.setLevel(logging.DEBUG)
         logger.debug("Verbose logging enabled")
 
     if args.cmd == "init":

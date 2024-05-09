@@ -1,5 +1,8 @@
 import yaml
 import hashlib
+import coloredlogs
+import logging
+import re
 
 # Hex integers
 def int_to_hex_representer(dumper, data):
@@ -46,3 +49,38 @@ def hash_yaml(section_to_hash):
     hash_object.update(section_bytes)
     hash_digest = hash_object.hexdigest()
     return hash_digest
+
+class PathHighlightingFormatter(coloredlogs.ColoredFormatter):
+    def format(self, record):
+        message = super().format(record)
+        # This regex can be adjusted to better match your specific path formats
+        message = re.sub(r'(/[^ ]*)', coloredlogs.ansi_wrap(r'\1', color='blue', bold=True), message)
+
+        # Also find and replace ip:port with green bold
+        message = re.sub(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5})', coloredlogs.ansi_wrap(r'\1', color='green', bold=True), message)
+        return message
+
+def getColoredLogger(name, level='INFO'):
+    logger = logging.getLogger(name)
+    logger.setLevel(level)  # Set the logger level
+
+    # Set formatter with custom path highlighting
+    formatter = PathHighlightingFormatter(fmt='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S')
+
+    # Check if the logger already has handlers to prevent duplicate logs
+    if not logger.handlers:
+        # Create and configure a stream handler
+        handler = logging.StreamHandler()
+        handler.setLevel(level)  # Set the handler level
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    else:
+        # Check if requested level is different from the current level
+        if logger.getEffectiveLevel() != level:
+            logger.warning(f"Logger {name} already configured with level {logger.getEffectiveLevel()}")
+            logger.warning("To change the level of an existing logger, please use the setLevel method instead of getColoredLogger")
+
+    # Prevent log messages from propagating to parent loggers (i.e., penguin.manager should not also log for penguin)
+    logger.propagate = False
+
+    return logger

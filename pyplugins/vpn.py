@@ -5,16 +5,12 @@ import socket
 from contextlib import closing
 import atexit
 import re
-import logging
 
-import coloredlogs
+from penguin import getColoredLogger
 from os import environ as env
 from os.path import join
 from os import geteuid
-from penguin import LOG_FMT
 
-logger = logging.getLogger("VPN")
-coloredlogs.install(level='INFO', fmt=LOG_FMT, logger=logger)
 static_dir = "/igloo_static/"
 
 running_vpns = []
@@ -47,8 +43,7 @@ class VsockVPN(PyPlugin):
         self.active_listeners = set() # (proto, port)
         assert(CID is not None)
 
-        self.logger = logger
-        self.logger.setLevel(logging.INFO)
+        self.logger = getColoredLogger("plugins.VPN")
 
         # Check if we have CONTAINER_{IP,NAME} in env
         self.exposed_ip = env.get("CONTAINER_IP", None)

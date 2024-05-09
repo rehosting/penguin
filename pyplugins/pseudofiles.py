@@ -3,6 +3,7 @@ import re
 import math
 import logging
 import struct
+from penguin import getColoredLogger
 from os.path import dirname, join as pjoin, isfile
 from pandare import PyPlugin
 from copy import deepcopy
@@ -682,8 +683,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
     def __init__(self):
         super().__init__()
-        self.logger = logging.getLogger(self.ANALYSIS_TYPE)
-        self.logger.setLevel(logging.DEBUG)
+        self.logger = getColoredLogger(f"plugin.{self.ANALYSIS_TYPE}", level='INFO')
         from symex import PathExpIoctl
 
     def is_dev_path(self, path: str) -> bool:

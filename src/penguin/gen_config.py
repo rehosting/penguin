@@ -1,17 +1,24 @@
-import click, yaml
-import tempfile, shutil
-import os, tarfile, logging
-import subprocess, sys
+import click
+import coloredlogs
+import logging
+import os
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import yaml
 from pathlib import Path
 from collections import Counter
 from os.path import join, dirname
 from elftools.elf.elffile import ELFFile
 from elftools.elf.constants import E_FLAGS, E_FLAGS_MASKS
+from penguin import getColoredLogger
 from .penguin_static import extend_config_with_static
 from .penguin_config import dump_config
 from .defaults import default_init_script, default_plugins, default_version, default_netdevs, default_pseudofiles, default_lib_aliases, static_dir, DEFAULT_KERNEL
 
-logger = logging.getLogger("PENGUIN")
+logger = getColoredLogger("penguin.gen_confg")
 
 def arch_end(value):
     arch = None
@@ -425,9 +432,8 @@ def fakeroot_gen_config(fs, out, artifacts, verbose):
 @click.option('-v', '--verbose', count=True)
 def makeConfig(fs, out, artifacts, verbose):
     if verbose:
-        import coloredlogs
-        from penguin import LOG_FMT
-        coloredlogs.install(level='DEBUG', fmt=LOG_FMT)
+        logger.setLevel(logging.DEBUG)
+
     config = make_config(fs, out, artifacts)
     if not config:
         logger.error(f"Error! Could not generate config for {fs}")

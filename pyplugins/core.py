@@ -4,8 +4,11 @@ import time
 import threading
 import logging
 import sys
+
 from copy import deepcopy
 from pandare import PyPlugin
+from penguin import getColoredLogger
+
 try:
     from penguin import yaml
     from penguin.analyses import PenguinAnalysis
@@ -40,8 +43,7 @@ class Core(PyPlugin):
         self.pending_procname = None
         self.pending_sin_addr = None
 
-        self.logger = logging.getLogger("core")
-        self.logger.setLevel(logging.INFO)
+        self.logger = getColoredLogger("plugins.core", level='INFO')
 
         plugins = self.get_arg("plugins")
         conf = self.get_arg("conf")
