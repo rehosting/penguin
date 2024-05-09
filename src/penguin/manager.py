@@ -1,24 +1,20 @@
-import logging
 import os
 import shutil
 import subprocess
 import time
 import csv
-
-import networkx as nx
+import glob
 
 from penguin import getColoredLogger
 from copy import deepcopy
 from os import system
-from random import choice
-from threading import Thread, Lock
+from threading import Thread
 from typing import List, Tuple
 
 from .common import yaml
-from .graphs import Configuration, ConfigurationManager, Failure, Configuration, Mitigation
+from .graphs import Configuration, ConfigurationManager, Failure, Mitigation
 from .penguin_config import load_config, dump_config, hash_yaml_config
-from .utils import  AtomicCounter, \
-                    _load_penguin_analysis_from, get_mitigation_providers
+from .utils import  AtomicCounter, get_mitigation_providers
 
 WWW_ONLY = False # To simplify large scale evaluations - should we bail early if we see a webserver start?
 
@@ -29,7 +25,6 @@ SCORE_CATEGORIES = ['execs', 'bound_sockets', 'devices_accessed', 'processes_run
 # This is only useful in debugging where we'll rerun our scripts
 # multiple times. In production we'll only run a search once per FW
 # since nothing's configurable at runtime.
-import glob
 CACHE_SUPPORT = False
 cache_dir = "/cache"
 caches = {} # config hash -> output directory with .run.
@@ -174,7 +169,7 @@ class PandaRunner:
 
         elif init:
             cmd.append(init_cmd)
-        
+
         if verbose:
             cmd.append("verbose")
 
@@ -375,7 +370,7 @@ class Worker:
                     shutil.rmtree(caches[config_hash])
 
         if do_run:
-            config_depth = self.config_manager.graph.get_config_depth(config)
+            #config_depth = self.config_manager.graph.get_config_depth(config)
             timeout = config.info.get('plugins', {}).get('core', {}).get('timeout', None)
             # XXX: Disabled - premature optimization? It's nice when it works, but we might end up
             # fixing low-priority failures that occur early instead of the important ones
@@ -409,7 +404,7 @@ class Worker:
                         shutil.copytree(run_dir, this_cache_dir)
                         caches[config_hash] = this_cache_dir
                 else:
-                    print(f"Not caching config as it did not produce a .ran file")
+                    print("Not caching config as it did not produce a .ran file")
 
         # if we have an exclusive config, treat score as 0
         scores = self.find_best_score(run_dir, self.run_idx, n_config_tests, config.exclusive is not None)

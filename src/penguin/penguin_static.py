@@ -127,7 +127,7 @@ def find_strings_in_file(file_path, pattern):
 def find_executables(tmp_dir, target_dirs=None):
     if not target_dirs:
         target_dirs = {'/'}
-    for root, dirs, files in os.walk(tmp_dir):
+    for root, _, files in os.walk(tmp_dir):
         # Exclude the '/igloo' path
         if '/igloo' in root:
             continue
@@ -139,7 +139,7 @@ def find_executables(tmp_dir, target_dirs=None):
                 yield file_path
 
 def find_shell_scripts(tmp_dir):
-    for root, dirs, files in os.walk(tmp_dir):
+    for root, _, files in os.walk(tmp_dir):
         # Exclude the '/igloo' path
         if '/igloo' in root:
             continue
@@ -1014,16 +1014,16 @@ def add_nvram_meta(proj_dir, config, output_dir):
     # Do any of these files exist in the filesystem?
     # If so we'll parse nvram keys from them and update config['nvram']
     with tarfile.open(fs_path, 'r') as tar:
-            # Check again, just for filenames, without the path
-            for member in tar.getmembers():
-                if member.path in nvram_paths:
-                    # Exact match - we already checked this
-                    continue
-                if any(member.name.endswith("/" + fname) for fname in nvram_filenames):
-                    if f := tar.extractfile(member.name):
-                        result = parse_nvram_file(path, f)
-                        for k, v in result.items():
-                            wild_nvrams[(member.path[1:], k.decode())] = v.decode()
+        # Check again, just for filenames, without the path
+        for member in tar.getmembers():
+            if member.path in nvram_paths:
+                # Exact match - we already checked this
+                continue
+            if any(member.name.endswith("/" + fname) for fname in nvram_filenames):
+                if f := tar.extractfile(member.name):
+                    result = parse_nvram_file(path, f)
+                    for k, v in result.items():
+                        wild_nvrams[(member.path[1:], k.decode())] = v.decode()
 
     if len(wild_nvrams):
         with open(output_dir + "/nvram.csv", 'a') as f:
@@ -1055,7 +1055,7 @@ def add_nvram_meta(proj_dir, config, output_dir):
     nvram_sources['firmae_file_specific'] = 0
     with tarfile.open(fs_path, 'r') as tar:
         # For each key in static_targets, check if the query is in the file
-        for key, (query, value) in static_targets.items():
+        for key, (query, _) in static_targets.items():
             if not key in tar.getnames():
                 continue
 

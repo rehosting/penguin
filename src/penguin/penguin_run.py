@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
-import logging
 import os
-import random
-import shutil
 import shutil
 import subprocess
-import sys
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -163,7 +159,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
     kernel = conf['core']['kernel']
     config_fs = os.path.join(proj_dir, conf['core']['fs']) # Path to tar filesystem
     plugin_path = conf['core']['plugin_path'] if 'plugin_path' in conf['core'] else default_plugin_path
-    static_files = conf['static_files'] if 'static_files' in conf else {} # FS shims
+    #static_files = conf['static_files'] if 'static_files' in conf else {} # FS shims
     conf_plugins = conf['plugins'] # {plugin_name: {enabled: False, other... opts}}
 
     if isinstance(conf_plugins, list):
@@ -233,7 +229,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
         q_config = qemu_configs[archend]
     except KeyError:
         raise ValueError(f"Unknown architecture: {archend}")
-    
+
     vsock_args = [
         '-object', f'memory-backend-file,id=mem0,mem-path={mem_path},size={q_config["mem_gb"]}G,share=on',
         '-numa', 'node,memdev=mem0',
@@ -321,7 +317,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
     parent_outdir = os.path.dirname(out_dir)
     stdout_path = os.path.join(parent_outdir, 'qemu_stdout.txt')
     stderr_path = os.path.join(parent_outdir, 'qemu_stderr.txt')
-    
+
 
     with print_to_log(stdout_path, stderr_path):
         logger.debug(f"Preparing PANDA args: {args}")
@@ -382,7 +378,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
                 raise ValueError(f"Failed to load plugin: {plugin_name}")
         except SyntaxError as e:
             logger.error(f"Syntax error loading pyplugin: {e}")
-            raise ValueError(f"Failed to load plugin: {plugin_name}")
+            raise ValueError(f"Failed to load plugin: {plugin_name}") from e
 
     # XXX HACK: normally panda args are set at the constructor. But we want to load
     # our plugins first and these need a handle to panda. So after we've constructed

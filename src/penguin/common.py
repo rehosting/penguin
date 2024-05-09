@@ -1,8 +1,8 @@
-import yaml
 import hashlib
-import coloredlogs
 import logging
 import re
+import coloredlogs
+import yaml
 
 # Hex integers
 def int_to_hex_representer(dumper, data):
@@ -77,7 +77,7 @@ def getColoredLogger(name, level='INFO'):
     else:
         # Check if requested level is different from the current level
         if logger.getEffectiveLevel() != level:
-            logger.warning(f"Logger {name} already configured with level {logger.getEffectiveLevel()}")
+            logger.warning(f"Logger %s already configured with level %s", name, logger.getEffectiveLevel())
             logger.warning("To change the level of an existing logger, please use the setLevel method instead of getColoredLogger")
 
     # Prevent log messages from propagating to parent loggers (i.e., penguin.manager should not also log for penguin)

@@ -1,5 +1,4 @@
 import click
-import coloredlogs
 import logging
 import os
 import shutil
@@ -186,7 +185,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
 
     if not os.path.isfile(fs):
         raise RuntimeError(f"FATAL: Firmware file not found: {fs}")
-    
+
     if not fs.endswith(".tar.gz"):
         raise ValueError(f"Penguin should begin post extraction and be given a .tar.gz archive of a root fs, not {fs}")
 
@@ -197,7 +196,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     else:
         output_dir = Path(artifacts)
         output_dir.mkdir(exist_ok=True)
-    
+
     # extract into output_dir/base/{image.qcow,fs.tar}
     arch_identified =  find_architecture(fs)
     if arch_identified is None:
@@ -394,7 +393,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
             logger.debug(f"Not overwriting existing config file: {outfile}")
             continue
         dump_config(data, outfile)
-    
+
 
     # Config is a path to output_dir/base/config.yaml
     if out:
@@ -406,17 +405,17 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
         if not shutil._samefile(outfile, default_out):
             shutil.copy(outfile, default_out)
         final_out = default_out
-    
+
     if tmpdir:
         tmpdir.cleanup()
-    
+
     return final_out
 
 def fakeroot_gen_config(fs, out, artifacts, verbose):
     o = Path(out)
-    cmd = ["fakeroot", "gen_config", 
-           "--fs", str(fs), 
-           "--out", str(o), 
+    cmd = ["fakeroot", "gen_config",
+           "--fs", str(fs),
+           "--out", str(o),
            "--artifacts", artifacts]
     if verbose:
         cmd.extend(["--verbose"])
@@ -424,7 +423,7 @@ def fakeroot_gen_config(fs, out, artifacts, verbose):
     p.wait()
     if o.exists():
         return str(o)
-    
+
 @click.command()
 @click.option('--fs', required=True, help="Path to a filesystem as a tar gz")
 @click.option('--out', required=True, help="Path to a config to be created")
