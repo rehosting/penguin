@@ -12,7 +12,6 @@ import pycparser
 
 from sys import path
 path.append(dirname(__file__))
-from symex import PathExpIoctl
 
 KNOWN_PATHS = ["/dev/", "/dev/pts", "/sys", "/proc", "/run", "/tmp",  # Directories not in static FS that are added by igloo_init (mostly irrelevant with wrong prefixes)
                "/dev/ttyS0", "/dev/console", "/dev/root", "/dev/ram", "/dev/ram0" # We set these up in our init script, common device types
@@ -273,6 +272,7 @@ class FileFailures(PyPlugin):
 
                 if not hasattr(self, 'symex'):
                     # Initialize symex on first use
+                    from symex import PathExpIoctl
                     self.symex = PathExpIoctl(self.outdir, self.config['core']['fs'])
 
                 # Look through our config and find the filename with a symex model
@@ -684,6 +684,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
         super().__init__()
         self.logger = logging.getLogger(self.ANALYSIS_TYPE)
         self.logger.setLevel(logging.DEBUG)
+        from symex import PathExpIoctl
 
     def is_dev_path(self, path: str) -> bool:
         """Check if the path is a device path."""
