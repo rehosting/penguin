@@ -271,7 +271,7 @@ class Core(PyPlugin):
         panda.end_analysis()
 
     def graceful_shutdown(self, sig, frame):
-        self.logger.info("Caught SIGUSR1 - gracefully shutdown emulation", file=sys.stderr)
+        self.logger.info("Caught SIGUSR1 - gracefully shutdown emulation")
         open(os.path.join(self.outdir, ".ran"), "w").close()
         self.uninit() # explicitly call uninit?
         self.panda.end_analysis()
