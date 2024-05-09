@@ -2,6 +2,7 @@ import os
 import csv
 import struct
 import os
+from penguin import getColoredLogger
 from pandare import PyPlugin
 
 UBOOT_LOG="uboot.log"
@@ -14,6 +15,7 @@ class SendHypercall(PyPlugin):
         self.uboot_log = set()
 
         self.ppp.Core.ppp_reg_cb('igloo_send_hypercall', self.on_send_hypercall)
+        self.logger = getColoredLogger("plugins.send_hypercall", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
 
         # Command-specific init
 
@@ -46,7 +48,7 @@ class SendHypercall(PyPlugin):
         try:
             strs = [self.panda.read_str(cpu, ptr) for ptr in str_ptrs]
         except ValueError:
-            print(f"Send hypercall failed to read guest memory. Skipping")
+            self.logger.error(f"Failed to read guest memory. Skipping")
             return
         cmd, args = strs[0], strs[1:]
 
@@ -57,7 +59,8 @@ class SendHypercall(PyPlugin):
         try:
             ret_val, out_str = f(*args)
         except Exception as e:
-            print(f"Send hypercall: exception while processing {cmd}: {e}")
+            self.logger.error(f"Exception while processing {cmd}:")
+            self.logger.exception(e)
             return
 
         # Send output to guest
@@ -71,6 +74,7 @@ class SendHypercall(PyPlugin):
             with open(os.path.join(self.outdir, UBOOT_LOG), "a") as f:
                 f.write(f"{var}={val}\n")
         self.uboot_env[var] = val
+        self.logger.debug(f"fw_setenv {var}={val}")
         return 0, ""
 
     def cmd_fw_getenv(self, var):
@@ -81,6 +85,7 @@ class SendHypercall(PyPlugin):
                 self.uboot_log.add(var)
                 with open(os.path.join(self.outdir, UBOOT_LOG), "a") as f:
                     f.write(var + "\n")
+            self.logger.debug(f"fw_getenv {var}")
             return 1, ""
 
     def cmd_fw_printenv(self, arg):
@@ -89,4 +94,5 @@ class SendHypercall(PyPlugin):
     def cmd_bash_command(self, cmd, path, lineno, pid):
         csv.writer(self.bash_cov_csv).writerow([path, lineno, pid, cmd])
         self.bash_cov_csv.flush()
+        self.logger.debug(f"bash_command {path}:{lineno} {pid}: {cmd}")
         return 0, ""

@@ -213,7 +213,7 @@ class PandaRunner:
             logger.debug("Wait for shutdown")
             p.wait()
             logger.debug("Waited")
-            raise
+            return
 
         #elapsed = time.time() - start
         #logger.info(f"Emulation finishes after {elapsed:.02f} seconds with return code {p.returncode if p else 'N/A'} for {conf_yaml}")

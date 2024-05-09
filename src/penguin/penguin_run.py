@@ -113,7 +113,7 @@ def redirect_stdout_stderr(stdout_path, stderr_path):
         os.close(new_stderr)
 
 
-def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, timeout=None, show_output=False):
+def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, timeout=None, show_output=False, verbose=False):
     '''
     conf_yaml a path to our config within proj_dir
     proj_dir contains config.yaml
@@ -366,7 +366,8 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
             'conf': conf,
             'fs': config_fs,
             'fw': config_image,
-            'outdir': out_dir
+            'outdir': out_dir,
+            'verbose': verbose,
         }
         # If we have any deatils, pass them along
         if details is not None:
@@ -438,7 +439,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
             _run()
 
 def main():
-    if any(x == 'verbose' for x in sys.argv):
+    if verbose := any(x == 'verbose' for x in sys.argv):
         logger = getColoredLogger('penguin.runner', level='DEBUG')
         logger.warning("Debugging enabled")
         logger.debug("Debugging enabled")
@@ -458,7 +459,7 @@ def main():
         timeout = int(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] != "None" else None
         show_output = sys.argv[6]=='show' if len(sys.argv) > 6 else False
 
-        run_config(config, proj_dir, out_dir, logger, init, timeout, show_output)
+        run_config(config, proj_dir, out_dir, logger, init, timeout, show_output, verbose=verbose)
     else:
         raise RuntimeError(f"USAGE {sys.argv[0]} [config.yaml] (out_dir: default is dirname(config.yaml)/output) (qcow_dir: dirname(config.yaml)/qcows)")
 

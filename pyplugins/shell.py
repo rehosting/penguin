@@ -1,6 +1,7 @@
 from pandare import PyPlugin
 from os.path import join
 import tarfile
+from penguin import getColoredLogger
 
 
 # crc32("busybox")
@@ -23,6 +24,8 @@ class BBCov(PyPlugin):
 
         self.read_scripts = {} # filename -> contents
         self.last_line = None
+
+        self.logger = getColoredLogger("plugins.shell", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
 
         # initialize outfiles:
         with open(join(self.outdir, outfile_cov), "w") as f:
@@ -64,7 +67,7 @@ class BBCov(PyPlugin):
 
     def log_line_no(self, cpu, argv):
         if len(argv) != 3:
-            print(f"[shell] ERROR: Invalid argv in log_line_no: {argv}")
+            self.logger.warning(f"Invalid argv in log_line_no: {argv}")
             return
         file_str_ptr, lineno_ptr, pid_ptr = argv
 
@@ -105,13 +108,14 @@ class BBCov(PyPlugin):
         else:
             self.last_line = None
 
-        #print(f"filename: {filename}, lineno = {lineno}, pid = {pid}")
+        # This is too verbose even for debug
+        #self.logger.debug(f"filename: {filename}, lineno = {lineno}, pid = {pid}")
         with open(join(self.outdir, outfile_cov), "a") as f:
             f.write(f"{filename},{lineno},{pid}\n")
 
     def log_env_args(self, cpu, argv):
         if len(argv) != 6:
-            print(f"[shell] ERROR: Invalid argv in log_env_args: {argv}")
+            self.logger.warning(f"Invalid argv in log_env_args: {argv}")
             return
         file_str_ptr, lineno_ptr, pid_ptr, envs_ptr, env_vals_ptr, envs_count_ptr = argv
         filename = self.try_read_string(cpu, file_str_ptr)

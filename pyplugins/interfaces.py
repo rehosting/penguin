@@ -5,7 +5,7 @@ from os.path import join as pjoin
 from typing import List
 
 from pandare import PyPlugin
-from penguin import yaml
+from penguin import yaml, getColoredLogger
 from penguin.analyses import PenguinAnalysis
 from penguin.graphs import Failure, Mitigation, Configuration
 
@@ -20,6 +20,7 @@ class Interfaces(PyPlugin):
         self.outdir = self.get_arg("outdir")
         self.conf = self.get_arg("conf")
         self.ppp.Health.ppp_reg_cb('igloo_exec', self.iface_on_exec)
+        self.logger = getColoredLogger("plugins.interfaces", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
 
         open(f'{self.outdir}/{iface_log}', 'w').close()
         open(f'{self.outdir}/{ioctl_log}', 'w').close()
@@ -47,6 +48,7 @@ class Interfaces(PyPlugin):
                         self.seen_icotls.add(request)
                         with open(f'{self.outdir}/{ioctl_log}', 'a') as f:
                             f.write(f'{request}\n')
+                        self.logger.debug(f"Failed net ioctl {request} with return {rv}")
 
                     if rv in net_ioctl_block:
                         panda.arch.set_retval(cpu, 0, convention='syscall')
@@ -94,6 +96,7 @@ class Interfaces(PyPlugin):
         self.seen_ifaces.add(iface)
         with open(f'{self.outdir}/{iface_log}', 'a') as f:
             f.write(f'{iface}\n')
+        self.logger.debug(f"Detected new interface reference {iface}")
 
 
 class InterfaceAnalysis(PenguinAnalysis):

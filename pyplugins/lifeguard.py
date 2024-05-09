@@ -5,7 +5,7 @@ from collections import Counter
 from copy import deepcopy
 from pandare import PyPlugin
 
-from penguin import yaml
+from penguin import yaml, getColoredLogger
 from penguin.analyses import PenguinAnalysis
 from penguin.graphs import Failure, Mitigation, Configuration
 
@@ -18,7 +18,7 @@ LIFELOG = "lifeguard.csv"
 class Lifeguard(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
-        self.logger = logging.getLogger("lifeguard")
+        self.logger = getColoredLogger("plugins.lifeguard", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
 
         blocked_signals = []
         conf = self.get_arg("conf")

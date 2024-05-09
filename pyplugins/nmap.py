@@ -74,5 +74,4 @@ class Nmap(PyPlugin):
             self.subprocesses.clear()
 
     def uninit(self):
-        print("Shutting down")
         self.cleanup_subprocesses()
