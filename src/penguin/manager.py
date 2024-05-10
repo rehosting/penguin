@@ -88,7 +88,7 @@ def calculate_score(result_dir, have_console=True):
 
 
     else:
-        print(f"WARNING: No coverage.csv found in {result_dir}")
+        #print(f"WARNING: No coverage.csv found in {result_dir}")
         processes_run = 0
         modules_loaded = 0
         blocks_covered = 0
