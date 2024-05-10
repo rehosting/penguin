@@ -41,7 +41,11 @@ class NetBinds(PyPlugin):
             if sin_addr != 0:
                 if not is_le:
                     sin_addr = struct.pack("<I", struct.unpack(">I", sin_addr)[0])
+                # some programs will list themselves as binding to 0.0.0.X
+                # we map these to 0.0.0.0
                 ip = socket.inet_ntop(socket.AF_INET, sin_addr)
+                if ip.startswith("0."):
+                    ip = "0.0.0.0"
         else:
             ip = '::1'
             if sin_addr != 0:
