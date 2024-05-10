@@ -139,7 +139,7 @@ def do_copy_tar(g, tar_host_path, guest_target_path, merge=False):
     except Exception as e:
         raise RuntimeError(f"Failed to extract tar archive {tar_host_path} to {guest_target_path}: {e}")
 
-def _modify_guestfs(g, file_path, file):
+def _modify_guestfs(g, file_path, file, project_dir):
     '''
     Given a guestfs handle, a file path, and a file dict, perform the specified action on the guestfs filesystem.
     If the action is unsupported or fails, we'll print details and raise an exception.
@@ -166,8 +166,13 @@ def _modify_guestfs(g, file_path, file):
             if "contents" in file:
                 contents = file['contents']
             elif "host_path" in file:
+                # absolute paths are used as-is, relative paths are relative to the project directory
+                if os.path.isabs(file['host_path']):
+                    hp = file['host_path']
+                else:
+                    hp = os.path.join(project_dir, file['host_path'])
                 try:
-                    contents = open(file['host_path'], 'rb').read()
+                    contents = open(hp, 'rb').read()
                 except FileNotFoundError:
                     raise FileNotFoundError(
                         f"Could not find host file at {file['host_path']} to add to image as {file_path}")
@@ -290,7 +295,7 @@ def _modify_guestfs(g, file_path, file):
         raise e
 
 
-def fs_make_config_changes(fs_base,config):
+def fs_make_config_changes(fs_base,config,project_dir):
     g = LocalGuestFS(fs_base)
 
     bin_sh_exists_before_mods = g.exists("/bin/sh")
@@ -346,14 +351,14 @@ def fs_make_config_changes(fs_base,config):
         #resolved_file_path = resolve_symlink_path(g, file_path)
         #resolved_file_path = os.path.dirname(resolved_file_path) + '/' + os.path.basename(file_path)
         if resolved_file_path := file_path:
-            _modify_guestfs(g, resolved_file_path, file)
+            _modify_guestfs(g, resolved_file_path, file, project_dir)
 
 
     # Next, we'll do any move_from operations
     move_from_files = {k: v for k, v in files.items() if v['type'] == 'move_from'}
     sorted_move_from_files = sorted(move_from_files.items(), key=lambda x: len(files[x[0]]))
     for file_path, file in sorted_move_from_files:
-        _modify_guestfs(g, file_path, file)
+        _modify_guestfs(g, file_path, file, project_dir)
 
     # Now we'll do everything, except symlinks
     sorted_files = {k: v for k, v in files.items() if v['type'] not in ['move_from', 'dir', 'symlink']}
@@ -364,13 +369,13 @@ def fs_make_config_changes(fs_base,config):
             #resolved_file_path = file_path
             #if resolved_file_path != file_path:
             #    print(f"WARNING: Resolved file path {file_path} to {resolved_file_path}")
-            _modify_guestfs(g, resolved_file_path, file)
+            _modify_guestfs(g, resolved_file_path, file, project_dir)
 
     # Create symlinks after everything else because guestfs requires destination to exist
     move_from_files = {k: v for k, v in files.items() if v['type'] == 'symlink'}
     sorted_move_from_files = sorted(move_from_files.items(), key=lambda x: len(files[x[0]]['target']))
     for file_path, file in sorted_move_from_files:
-        _modify_guestfs(g, file_path, file)
+        _modify_guestfs(g, file_path, file, project_dir)
 
     # Sanity checks. Does guest still have a /bin/sh? Is there a /igloo directory?
     if bin_sh_exists_before_mods and not g.is_file("/bin/sh") and not g.is_symlink("/bin/sh"):
@@ -379,7 +384,7 @@ def fs_make_config_changes(fs_base,config):
     if not g.is_dir("/igloo"):
         raise RuntimeError("Guest filesystem does not contain /igloo after modifications")
 
-def make_image(fs, out, artifacts, config):
+def make_image(fs, out, artifacts, config_path):
     logger.info(f"Generating new image from config...")
     IN_TARBALL = Path(fs)
     ARTIFACTS = Path(artifacts or "/tmp")
@@ -390,17 +395,16 @@ def make_image(fs, out, artifacts, config):
     ORIGINAL_DECOMP_FS = Path(ARTIFACTS, "fs_orig.tar")
 
     check_output(f'gunzip -c "{IN_TARBALL}" > "{ORIGINAL_DECOMP_FS}"', shell=True)
+    project_dir = os.path.dirname(os.path.realpath(config_path))
 
     MODIFIED_TARBALL = Path(ARTIFACTS, "fs_out.tar")
-    if config:
-        # support passing config as dict
-        if type(config) is str:
-            config = load_config(config)
+    if config_path:
+        config = load_config(config_path)
         with tempfile.TemporaryDirectory() as TMP_DIR:
             check_output(["tar", "xpsvf", IN_TARBALL, "-C", TMP_DIR])
             from .penguin_prep import prep_config
             prep_config(config)
-            fs_make_config_changes(TMP_DIR, config)
+            fs_make_config_changes(TMP_DIR, config, project_dir)
             check_output(["tar", "czpvf", MODIFIED_TARBALL, "-C", TMP_DIR, "."])
         TARBALL = MODIFIED_TARBALL
     else:
