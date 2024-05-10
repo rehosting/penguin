@@ -45,6 +45,7 @@ default_plugins = {
     "coverage": {
         "description": "Analysis: Track coverage of binaries",
         "version": "1.0.0",
+        "enabled": False,
     },
 
     "env": {
