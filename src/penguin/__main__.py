@@ -279,19 +279,47 @@ def main():
     {art.text2art("PENGUIN", font='tarty1-large')}
 \t\t\t\tversion {VERSION}
 
-    Configuration based firmware rehosting. PENGUIN can generate a project with a configuration for a firmware,
-    run a rehosting as specified in a config, or automatically refine a configuration.
+Configuration based firmware rehosting. Penguin can generate a project with a configuration for a firmware and
+run a rehosting as specified in a config.
 
-    # First generate a project for a given FW root filesystem which creates
-    # a config file and other artifactrs in results/myfirmware/
-    penguin init myfirmware.bin --output projects/myfirmware
+Before you start with PENGUIN, you'll need an archive of a firmware root filesystem. This is a tarball of the root
+filesystem with permissions and ownership preserved. You can generate this with the 'fw2tar' utility or by hand.
 
-    # Then run with that config and log results to the results directory
-    penguin run projects/myfirmware/config.yaml projects/myfirmware/results/myresults
+    fw2tar your_fw.bin
+
+Once you have a root filesystem, you can generate an initial rehosting configuration based on a static analysis
+of the filesystem. This initial configuration is stored within a "project directory" which will hold the config,
+static analysis results, and the output from every dynamic analysis you run.
+
+To generate your initial configuration you'll use the "init" subcommand to penguin. This will generate a configuration
+for the provided firmware root filesystem. By default the configuration will be stored in
+./projects/<firmware_name>/config.yaml. You can specify a different output directory with the --output flag.
+
+    penguin init your_fw.rootfs.tar.gz --output projects/your_fw
+
+Once you have created an initial configuration you can view and edit it if necessary.
+
+To run a configuration, use the "run" subcommand. This will run the rehosting as specified in the configuration file and
+report dynamic analysis results in a "results directory." By default this directory will be within the project directory
+at <project directory>/results/<auto-incrementing number>.  You can also specify an output directory with the --output
+flag and replace an existing directory with --force.
+
+    penguin run projects/your_fw/config.yaml --output projects/your_fw/results/0
+
+Some dynamic analysis output will be logged into the results directory *during* the emulation, for example the file `console.log`
+within the directory will be updated as console output is produced from the guest. Other output will be generated after the emulation
+completes such as information on pseudofiles accessed, network binds, and environment variables accessed.
+
+
+To learn more about PENGUIN view documentation by running the "docs" subcommand. This will list available documentation files which
+you can then select to view with the --filename flag. The `README.md` file contains an overview of the project while `schema_doc.md`
+contains details on the configuration file format and options.
+
+    penguin docs --filename schema_doc.md
     """,
     formatter_class=argparse.RawTextHelpFormatter)
 
-    subparsers = parser.add_subparsers(help='subcommand', dest='cmd', required=True)
+    subparsers = parser.add_subparsers(help='subcommand', dest='cmd', required=False)
 
     parser_cmd_init = subparsers.add_parser('init', help='Create project from firmware root filesystem archive')
     add_init_arguments(parser_cmd_init)
@@ -314,6 +342,12 @@ def main():
 
 
     args = parser.parse_args()
+
+    # If cmd is unset show help
+    if not args.cmd:
+        parser.print_help()
+        return
+
     if args.verbose:
         # Set level to debug
         logger.setLevel(logging.DEBUG)
