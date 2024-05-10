@@ -175,7 +175,7 @@ def _modify_guestfs(g, file_path, file, project_dir):
                     contents = open(hp, 'rb').read()
                 except FileNotFoundError:
                     raise FileNotFoundError(
-                        f"Could not find host file at {file['host_path']} to add to image as {file_path}")
+                        f"Could not find host file at {hp} to add to image as {file_path}")
             mode = file['mode']
             # Delete target if it already exists
             if g.is_file(file_path):
@@ -283,9 +283,14 @@ def _modify_guestfs(g, file_path, file, project_dir):
 
         elif action == 'copytar':
             tar_host_path = file['host_path']
+            # absolute paths are used as-is, relative paths are relative to the project directory
+            if os.path.isabs(tar_host_path):
+                hp = tar_host_path
+            else:
+                hp = os.path.join(project_dir, tar_host_path)
             guest_target_path = file_path
             merge = file['merge'] if 'merge' in file else False
-            do_copy_tar(g, tar_host_path, guest_target_path, merge)
+            do_copy_tar(g, hp, guest_target_path, merge)
 
         else:
             raise RuntimeError(f"Unknown file system action {action}")
