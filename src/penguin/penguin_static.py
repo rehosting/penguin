@@ -163,11 +163,7 @@ def pre_shim(proj_dir, config, auto_explore=False):
     # This is because arm uses ttyAMA (major 204) and mips uses ttyS (major 4).
     # so calling it ttyS1 is a bit of a misnomer, but we don't want to go patch the console
     # binary to use a different path.
-    config['static_files']['/firmadyne'] = {
-        'type': 'dir',
-        'mode': 0o777
-    }
-    config['static_files']['/firmadyne/ttyS1'] = {
+    config['static_files']['/igloo/serial'] = {
         'type': 'dev',
         'devtype': 'char',
         'major': 4 if 'mips' in config['core']['arch'] else 204,
