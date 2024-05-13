@@ -36,21 +36,23 @@ tracking down other failures and seeing what changes.
 
 
 ### Potential init programs to choose from
-The static analysis that put results in `/results/your_fw/base/` will have created a
-file called `init.yaml` with a list of likely init binaries found inside your firmware.
+Penguin's initial static analysis populates `<project_dir>/base` with a file
+`env.yaml`. Within this file, there will typically be one or more
+statically-identified init programs, listed under `igloo_init`.
 Note that this list isn't comprehensive (it's just finding executables that contain
 `start` or `init`), but it will usually find the right binary.
 
 ### How to change init:
 In your config file, change the `igloo_init` key under the `env` section:
 
-```
+```yaml
 env:
   igloo_init: /your/desired/init
 ```
 
 ## Pseudofile modeling
-Unlike regular files stored on disk, files in `/proc` (procfs) and `/dev` (devtmpfs) aren't really a part of your filesystem. Instead these files just a way for user
+Unlike regular files stored on disk, files in `/proc` (procfs) and `/dev` (devtmpfs)
+aren't really a part of your filesystem. Instead these files just a way for user
 space applications and the kernel to communicate. Through this interface applications
 can learn about the hardware state of a system and interact with attached peripherals.
 
@@ -185,7 +187,7 @@ read from or dynamically search `/proc/mtd` to find which device a
 given name corresponds to.
 
 Typically a custom binary is used to access U-Boot environments with
-support for getting and setting keys. These are foten based off the
+support for getting and setting keys. These are often based off the
 open source [fw_env](https://github.com/ARM-software/u-boot/blob/master/tools/env/fw_env.c) program.
 
 ### When to set boot arguments
@@ -197,17 +199,18 @@ try the magic value `DYNVALDYNVALDYNVAL` in your config and run again.
 Then examine the generated `env_cmp.txt` output file
 which will report strings that this magic value was compared against.
 
-Altneratively, you might want to search through the filesystem to identify which
-binaries or scripts are parsing this environment variable and reverse enginner them
-to determine a good value. For identifying such binaries, extract the `base/fs.tar` file and then `grep` through all files. For example, to find programs that reference
-`myvar` you could do:
+Alteratively, you might want to search through the filesystem to identify which
+binaries or scripts are parsing this environment variable and reverse engineer them
+to determine a good value. For identifying such binaries, extract the
+`<project_dir>/base/fs.tar` file and then `grep` through all files. For example,
+to find programs that reference `myvar` you could do:
 
 ```
 # Extract filesystem
 mkdir /tmp/fs
 tar xvf base/fs.tar -C /tmp/fs
 
-# Find binaries and scripts that reference myvar
+# Find binaries and scripts that reference `myvar`
 grep --binary 'myvar' /tmp/fs'
 ```
 
@@ -223,6 +226,9 @@ env:
 ```
 
 ### When to set U-Boot Environment variables
+
+**WARNING: this interface is subject to change and the documentation may be outdated**
+
 If you see output in `env_mtd.txt`, penguin detected an application searching
 for an MTD device with a specified name. When you see this, you may wish to add
 a new MTD device by adding an `mtdparts` env variable specifying values for the `0.flash` device. After this device name, you'll craft a comma-seperated list of `0xsize(name)` values. Your sizes should be multiples of 0x4000.
@@ -252,7 +258,7 @@ create the file `/results/mtd.flash` (abusing the shared `results` directory to 
 something that isn't a result) with `makeuboot.py` and then pass it through
 to your firmware with a config with elements like this:
 
-```
+```yaml
 env:
     mtdparts: 0.flash:0x4000(flash)
 
@@ -289,12 +295,8 @@ foo.sh:10,if [ -e $(myfile=>/root/myfile)]
 ```
 
 Next enable the root shell by changing your config's `base` section's `root_shell`
-value to be `true`. Then run your target and connect from another shell on your
-host machine with:
-
-```
-docker exec -it [YOUR_CONTAINER_NAME] rootshell
-```
+value to be `true`. Then run your target and connect with `telnet as described
+in the Penguin output to get a root shell.
 
 After launching this, press enter a few times and perhaps wait ~10s.
 You should then get a root prompt and be able to run shell commands.
@@ -309,7 +311,7 @@ more explicit control of what's being run, you can change your config
 to skip running the right init program and instead just launch a shell
 that doesn't exit by setting:
 
-```
+```yaml
 env:
     igloo_init: /igloo/utils/sh
-``
+```
