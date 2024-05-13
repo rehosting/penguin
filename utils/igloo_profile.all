@@ -2,3 +2,9 @@ for cmd in $(/igloo/utils/busybox --list); do
   alias "$cmd"="/igloo/utils/busybox $cmd"
 done
 export PATH="/igloo/utils:$PATH"
+
+# Show project name in prompt if we have it, otherwise hostname
+if [ -z "${PROJ_NAME}" ]; then
+  PROJ_NAME="\h"
+fi
+export PS1='\[\e[32m\]\u@$PROJ_NAME \[\e[34m\]\w \[\e[35m\](penguin shell) \[\e[33m\]\$\[\e[0m\] '

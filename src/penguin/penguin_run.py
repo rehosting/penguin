@@ -360,6 +360,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
             'CID': CID,
             'vhost_socket': uds_path,
             'conf': conf,
+            'proj_name': os.path.basename(proj_dir).replace("host_",""),
             'fs': config_fs,
             'fw': config_image,
             'outdir': out_dir,
