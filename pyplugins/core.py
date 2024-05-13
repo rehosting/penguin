@@ -75,6 +75,10 @@ class Core(PyPlugin):
             else:
                 conf['env']['WWW'] = "1"
 
+        # Add PROJ_NAME into env based on dirname of config
+        if proj_name := self.get_arg("proj_name"):
+            conf['env']['PROJ_NAME'] = proj_name
+
         # Record loaded plugins
         with open(os.path.join(self.outdir, "core_plugins.yaml"), "w") as f:
             f.write(yaml.dump(plugins)) # Names and args
