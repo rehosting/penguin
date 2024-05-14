@@ -265,6 +265,19 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
         'mode': 0o755,
     }
 
+    # Add ltrace prototype files.
+    #
+    # They to go in `/igloo/ltrace`, because `/igloo` is treated as ltrace's
+    # `/usr/share`, and the files are normally in `/usr/share/ltrace`.
+    data['static_files']['/igloo/ltrace'] = dict(type="dir", mode=0o755)
+    ltrace_prots_dir = join(static_dir, "ltrace")
+    for f in os.listdir(ltrace_prots_dir):
+        data['static_files'][f'/igloo/ltrace/{f}'] = dict(
+            type="host_file",
+            host_path=join(ltrace_prots_dir, f),
+            mode=0o444,
+        )
+
     arch_suffix = f".{arch}{end}"
 
     for util_dir in ["console", "libnvram", "utils.bin", "utils.source", "vpn"]:
