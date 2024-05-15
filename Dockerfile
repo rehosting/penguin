@@ -7,10 +7,11 @@ ARG LINUX_VERSION="2.2.2"
 ARG LIBNVRAM_VERSION="0.0.4"
 ARG CONSOLE_VERSION="1.0.3"
 ARG PENGUIN_PLUGINS_VERSION="1.5.6"
-ARG UTILS_VERSION="4"
 ARG VPN_VERSION="1.0.8"
-ARG HYPERFS_VERSION="0.0.8"
+ARG HYPERFS_VERSION="0.0.12"
 ARG GLOW_VERSION="1.5.1"
+ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
+ARG LTRACE_PROTOTYPES_HASH="9db3bdee7cf3e11c87d8cc7673d4d25b"
 
 FROM rust as vhost_builder
 RUN git clone -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
@@ -29,12 +30,12 @@ RUN apt-get update && \
     jq \
     less \
     wget \
+    bzip2 \
     xmlstarlet && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /igloo_static \
              /igloo_static/syscalls \
-             /panda_plugins \
-             /static_deps
+             /panda_plugins
 
 COPY ./utils/get_release.sh /get_release.sh
 
@@ -60,10 +61,6 @@ RUN for arch in arm mips mips64; do \
 
 ARG GLOW_VERSION
 RUN wget -qO /tmp/glow.deb https://github.com/charmbracelet/glow/releases/download/v${GLOW_VERSION}/glow_${GLOW_VERSION}_amd64.deb
-
-ARG UTILS_VERSION
-RUN wget -qO - https://panda.re/secret/utils${UTILS_VERSION}.tar.gz | \
-    tar xzf - -C /static_deps
 
 # 3) Get penguin resources
 # Download kernels from CI. Populate /igloo_static/kernels
@@ -101,6 +98,18 @@ RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} | \
   tar xzf - -C / && \
   mv /result/* /igloo_static/utils.bin/ && \
   rmdir /result
+
+# Download prototype files for ltrace.
+#
+# Download the tarball from Fedora, because ltrace.org doesn't store old
+# versions and we want this container to build even when dependencies are
+# outdated.
+ARG LTRACE_PROTOTYPES_VERSION
+ARG LTRACE_PROTOTYPES_HASH
+RUN wget -qO- https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-${LTRACE_PROTOTYPES_VERSION}.tar.bz2/${LTRACE_PROTOTYPES_HASH}/ltrace-${LTRACE_PROTOTYPES_VERSION}.tar.bz2 \
+  | tar xjf - -C / && \
+  mv /ltrace-*/etc /tmp/ltrace && \
+  rm -rf /ltrace-*
 
 # Download custom panda plugins built from CI. Populate /panda_plugins
 ARG PENGUIN_PLUGINS_VERSION
@@ -270,9 +279,10 @@ COPY --from=downloader /panda_plugins/mips64/ /usr/local/lib/panda/mips64/
 # Copy nmap build into /usr/local/bin
 COPY --from=nmap_builder /build/nmap /usr/local/
 
+COPY --from=downloader /tmp/ltrace /igloo_static/ltrace
+
 # Copy utils.source (scripts) and utils.bin (binaries) from host
 # Files are named util.[arch] or util.all
-COPY --from=downloader /static_deps/utils/* /igloo_static/utils.bin
 COPY --from=cross_builder /out/* /igloo_static/utils.bin
 COPY utils/* /igloo_static/utils.source/
 COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
