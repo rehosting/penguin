@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import subprocess
 
-def add_lib_inject(config):
+def add_lib_inject_with_bits(config, bits):
     arch = config['core']['arch']
 
     target_triple = {
@@ -17,7 +17,7 @@ def add_lib_inject(config):
         [
             "clang-11",
             "-fuse-ld=lld", "-Oz", "-shared", "-nostdlib",
-            "-target", target_triple,
+            "-target", target_triple, f"-m{bits}",
             f"/igloo_static/libnvram/nvram.o.{arch}",
             "--language", "c", "-",
             "-o", "-",
@@ -31,11 +31,17 @@ def add_lib_inject(config):
     )
     assert p.returncode == 0
 
-    config['static_files']['/igloo/lib_inject.so'] = {
+    lib_prefix = "lib64" if bits == 64 else "lib"
+    config['static_files'][f'/igloo/{lib_prefix}_inject.so'] = {
         'type': 'inline_file',
         'contents': p.stdout,
         'mode': 0o444,
     }
+
+def add_lib_inject(config):
+    add_lib_inject_with_bits(config, 32)
+    if "64" in config['core']['arch']:
+        add_lib_inject_with_bits(config, 64)
 
 def prep_config(conf):
     config_files = conf['static_files'] if 'static_files' in conf else {}
