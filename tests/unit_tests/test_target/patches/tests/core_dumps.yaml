@@ -1,0 +1,30 @@
+plugins:
+  verifier:
+    conditions:
+      core_dumps:
+        type: file_contains
+        file: console.log
+        string: "/tests/core_dumps.sh PASS"
+
+# core:
+#   shared_dir: /host_shared
+
+static_files:
+  /tests/core_dumps.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      /igloo/utils/busybox chmod +x /igloo/dylibs/lib_inject.so
+      for _ in $(/igloo/utils/busybox seq 7); do
+        /igloo/dylibs/lib_inject.so || true
+      done
+
+      if [ "$(/igloo/utils/busybox find /igloo/shared -name 'core_lib_inject.so.*' | /igloo/utils/busybox wc -l)" != 7 ]; then
+        exit 1
+      fi
+
+      exit 0
+
+    mode: 73
