@@ -1,13 +1,13 @@
 # versions of the various dependencies.
 ARG BASE_IMAGE="ubuntu:22.04"
 ARG DOWNLOAD_TOKEN="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"
-ARG PANDA_VERSION="1.8.24"
+ARG PANDA_VERSION="1.8.26"
 ARG BUSYBOX_VERSION="0.0.1"
 ARG LINUX_VERSION="2.2.9"
-ARG LIBNVRAM_VERSION="0.0.4"
+ARG LIBNVRAM_VERSION="0.0.5"
 ARG CONSOLE_VERSION="1.0.3"
-ARG PENGUIN_PLUGINS_VERSION="1.5.6"
-ARG VPN_VERSION="1.0.8"
+ARG PENGUIN_PLUGINS_VERSION="1.5.8"
+ARG VPN_VERSION="1.0.10"
 ARG HYPERFS_VERSION="0.0.15"
 ARG GLOW_VERSION="1.5.1"
 ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
@@ -55,7 +55,7 @@ ARG BASE_IMAGE
 RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(echo "$BASE_IMAGE" | awk -F':' '{print $2}').deb
 
 # Get syscall list from PANDA
-RUN for arch in arm mips mips64; do \
+RUN for arch in arm arm64 mips mips64; do \
     wget -q https://raw.githubusercontent.com/panda-re/panda/dev/panda/plugins/syscalls2/generated-in/linux_${arch}_prototypes.txt -O /igloo_static/syscalls/linux_${arch}_prototypes.txt; \
   done
 
@@ -98,7 +98,8 @@ RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} | \
   tar xzf - -C / && \
   mv /result/utils/* /igloo_static/utils.bin/ && \
   mv /result/dylibs /igloo_static/dylibs && \
-  rm -rf /result
+  rm -rf /result && \
+  for f in  /igloo_static/utils.bin/*.arm64; do mv -- "$f" "${f%.arm64}.aarch64"; done
 
 # Download prototype files for ltrace.
 #
@@ -126,7 +127,8 @@ RUN cd / && \
   mipseb-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipseb && \
   mips64eb-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/send_hypercall.mips64eb  && \
   mipsel-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipsel && \
-  arm-linux-musleabi-gcc -s -static send_hypercall.c -o out/send_hypercall.armel
+  arm-linux-musleabi-gcc -s -static send_hypercall.c -o out/send_hypercall.armel && \
+  aarch64-linux-musl-gcc -s -static send_hypercall.c -o out/send_hypercall.aarch64
 
 #### QEMU BUILDER: Build qemu-img ####
 FROM $BASE_IMAGE as qemu_builder
@@ -273,6 +275,7 @@ COPY --from=downloader /igloo_static/ /igloo_static/
 
 # Copy plugins into panda install. We want /panda_plugins/arch/foo to go into /usr/local/lib/panda/foo
 COPY --from=downloader /panda_plugins/arm/ /usr/local/lib/panda/arm/
+COPY --from=downloader /panda_plugins/aarch64/ /usr/local/lib/panda/aarch64/
 COPY --from=downloader /panda_plugins/mips/ /usr/local/lib/panda/mips/
 COPY --from=downloader /panda_plugins/mipsel/ /usr/local/lib/panda/mipsel/
 COPY --from=downloader /panda_plugins/mips64/ /usr/local/lib/panda/mips64/
