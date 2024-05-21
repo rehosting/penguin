@@ -23,6 +23,13 @@ qemu_configs = {
                     "mem_gb":          "2",
                 },
 
+        "aarch64": { "qemu_machine": "virt",
+                    "arch":         "aarch64",
+                    "kconf_group":  "arm64",
+                    "mem_gb":          "2",
+                    "cpu": "cortex-a57",
+                },
+
         "mipsel": {"qemu_machine": "malta",
                     "arch":         "mipsel",
                     "kconf_group":  "mipsel",
@@ -38,6 +45,7 @@ qemu_configs = {
                     "arch":         "mips64",
                     "kconf_group":  "mips64eb",
                     "mem_gb":          "2",
+                    "cpu": "MIPS63R2-generic",
                 },
 }
 
@@ -242,7 +250,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
     append += " clocksource=jiffies nohz_full nohz=off no_timer_check" # Improve determinism?
     append += " idle=poll acpi=off nosoftlockup " # Improve determinism?
 
-    if archend == "armel":
+    if archend in ["armel", "aarch64"]:
         append = append.replace("console=ttyS0", "console=ttyAMA0")
 
     root_shell = []
@@ -299,8 +307,8 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
 
     if conf['core'].get('cpu', None):
         args += ['-cpu', conf['core']['cpu']]
-    elif archend == 'mips64eb':
-        args += ['-cpu', 'MIPS64R2-generic']
+    elif q_config.get('cpu', None):
+        args += ['-cpu', q_config['cpu']]
 
     ############# Reduce determinism #############
 
@@ -317,7 +325,6 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
     parent_outdir = os.path.dirname(out_dir)
     stdout_path = os.path.join(parent_outdir, 'qemu_stdout.txt')
     stderr_path = os.path.join(parent_outdir, 'qemu_stderr.txt')
-
 
     with print_to_log(stdout_path, stderr_path):
         logger.debug(f"Preparing PANDA args: {args}")
@@ -430,6 +437,8 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
             panda.run()
         except KeyboardInterrupt:
             logger.info("\nStopping for ctrl-c\n")
+        except Exception as e:
+            logger.exception(e)
         finally:
             panda.panda_finish()
             host_vsock_bridge.kill()
