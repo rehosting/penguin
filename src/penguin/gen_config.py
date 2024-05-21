@@ -28,6 +28,9 @@ def arch_end(value):
         arch = "mips64"
     elif tmp.startswith("mips"):
         arch = "mips"
+    elif tmp.startswith("aarch64"):
+        arch = "aarch64"
+        end = "el"
     elif tmp.startswith("arm"):
         arch = "arm"
     if tmp.endswith("el"):
@@ -49,7 +52,7 @@ def arch_filter(header):
         "X86_64": "intel64",
         "386": "intel",
         "ARM": "armel",
-        "AARCH64": "arm64",
+        "AARCH64": "aarch64",
         "PPC": "ppc",
         "PPC64": "ppc64",
     }
@@ -164,6 +167,14 @@ def find_architecture(infile):
         return None
     return arch_counts.most_common(1)[0][0]
 
+def get_kernel_path(arch, end, static_dir):
+    if arch == "arm":
+        return static_dir + f"kernels/{DEFAULT_KERNEL}/zImage.arm{end}"
+    elif arch == "aarch64":
+        return static_dir + f"kernels/{DEFAULT_KERNEL}/zImage.arm64"
+    else:
+        return static_dir + f"kernels/{DEFAULT_KERNEL}/" + "vmlinux" + f".{arch}{end}"
+
 def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     logger.info(f"Generating new configuration for {fs}...")
     '''
@@ -204,7 +215,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
         return
     arch, end = arch_end(arch_identified)
 
-    kernel = static_dir + f"kernels/{DEFAULT_KERNEL}/" + ("zImage" if arch == "arm" else "vmlinux") + f".{arch}{end}"
+    kernel = get_kernel_path(arch, end, static_dir)
 
     base_dir = Path(output_dir, "base")
     base_dir.mkdir(exist_ok=True, parents=True)
@@ -212,7 +223,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     shutil.copy(fs, base_fs)
     data = {}
     data['core'] = {
-        'arch': arch+end,
+        'arch': arch if arch== "aarch64" else arch+end,
         'kernel': kernel,
         'fs': "./base/fs.tar.gz",
         'root_shell': True,
@@ -272,6 +283,11 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
         )
 
     arch_suffix = f".{arch}{end}"
+    dylib_dir = join(static_dir, "dylibs", arch+end)
+    if arch == "aarch64":
+        # TODO: We should use a consistent name here. Perhaps aarch64eb?
+        arch_suffix = ".aarch64"
+        dylib_dir = join(static_dir, "dylibs", "arm64")
 
     # Add executable binaries
     for util_dir in ["console", "libnvram", "utils.bin", "utils.source", "vpn"]:
@@ -285,7 +301,6 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
                 }
 
     # Add dynamically-linked libraries
-    dylib_dir = join(static_dir, "dylibs", arch+end)
     for f in os.listdir(dylib_dir):
         data['static_files'][f"/igloo/dylibs/{f}"] = dict(
             type="host_file",
