@@ -119,15 +119,17 @@ def make_syscall_info_table():
             ]
 
         return [(int(nr), parse_c(sig)) for nr, sig in lines]
-
-    return {
+    vals =  {
         arch: {
             nr: (
                 ast.ext[0].name.replace("sys_", ""),
                 tuple(p.name for p in ast.ext[0].type.args.params),
             ) for nr, ast in parse_protos_file(arch)
-        } for arch in ("arm", "mips", "mips64")
+        } for arch in ("arm", "arm64", "mips", "mips64")
     }
+
+    vals["aarch64"] = vals["arm64"]
+    return vals
 
 
 class FileFailures(PyPlugin):
@@ -320,7 +322,15 @@ class FileFailures(PyPlugin):
         #ret = unpacked[1+6+6]
 
         arch, _ = arch_end(self.config["core"]["arch"])
-        name, arg_names = self.syscall_info_table[arch][nr]
+        name, arg_names = self.syscall_info_table[arch].get(nr,(None,None))
+        if name is None:
+            if "aarch64" in arch:
+                name, arg_names = self.syscall_info_table["arm"].get(nr, (None, None))
+            elif "mips64eb" in arch:
+                name, arg_names = self.syscall_info_table["mipseb"].get(nr)
+
+            if name is None:
+                return
         #assert(ret == -2), f"Unexpected return value {ret} from igloo_syscall"
         #assert name not in ('open', 'openat', 'ioctl', 'close'), f"Unexpected syscall {name} in igloo_syscall"
 
