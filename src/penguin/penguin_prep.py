@@ -6,6 +6,7 @@ def add_lib_inject(config):
 
     target_triple = {
         "armel": "armv5-linux-musleabi",
+        "aarch64": "aarch64-linux-musl",
         "mipsel": "mipsel-linux-musl",
         "mipseb": "mips-linux-musl",
         "mips64eb": "mips64-linux-musl",
