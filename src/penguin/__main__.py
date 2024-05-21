@@ -259,7 +259,12 @@ def penguin_run(args):
             os.makedirs(results_base)
             idx = 0
         else:
-            results = [int(d) for d in os.listdir(results_base) if os.path.isdir(os.path.join(results_base, d))]
+            def getint(d):
+                try:
+                    return int(d)
+                except ValueError:
+                    return -1
+            results = [getint(d) for d in os.listdir(results_base) if os.path.isdir(os.path.join(results_base, d))]
             if len(results) == 0:
                 idx = 0
             else:
