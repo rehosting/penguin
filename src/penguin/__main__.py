@@ -59,7 +59,7 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None,
     #report_best_results(run_base, output_dir, os.path.dirname(output_dir))
 
     # But do calculate and report scores. Unlike multi-run mode, we'll write scores right into output dir instead of in parent
-    best_scores = calculate_score(output_dir)
+    best_scores = calculate_score(output_dir, have_console=not config['core'].get('show_output', False))
     with open(os.path.join(output_dir, "scores.txt"), "w") as f:
         f.write("score_type,score\n")
         for k, v in best_scores.items():
