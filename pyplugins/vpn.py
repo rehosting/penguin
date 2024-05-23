@@ -125,7 +125,7 @@ class VsockVPN(PyPlugin):
 
         host_port = self.bridge(sock_type, ip, port, procname, ipvn)
         self.ppp_run_cb('on_bind', sock_type, ip, port, host_port, procname)
-    
+
     def map_bound_socket(self, sock_type, ip, guest_port, procname):
         host_port = guest_port
         # procname, listening, port, reason
@@ -135,7 +135,7 @@ class VsockVPN(PyPlugin):
             if not self.is_port_open(host_port):
                 raise RuntimeError(f"User requested to map host port {host_port} but it is not free")
             reason = "via fixed mapping"
-        elif guest_port < 1024 and self.has_perms:
+        elif guest_port < 1024 and not self.has_perms:
             host_port = self.find_free_port()
             reason = f"{guest_port} is privileged and user cannot bind"
         elif guest_port in self.mapped_ports or not self.is_port_open(guest_port):
