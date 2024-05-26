@@ -18,7 +18,7 @@ BASE_CONFIG=Path(f"{SCRIPT_PATH}/base_config.yaml")
 DEFAULT_KERNELS = ["4.10",
                     #"6.7"
                    ]
-DEFAULT_ARCHS = ["armel", "mipsel", "mipseb", "mips64eb"]
+DEFAULT_ARCHS = ["armel", "mipsel", "mipseb", "mips64eb", "aarch64"]
 
 def assert_generic(filepath, patterns):
     '''
@@ -99,9 +99,13 @@ class TestRunner:
     def _make_project(self, test_name, kernel_version, arch, proj_dir):
         # First we need to create a tar archive for the rootfs with "./bin/busybox" of
         # the target arch (note it won't be the real binary), we'll use create_elf_file
-
+        e_machine = 0x08
+        if arch == "armel":
+            e_machine = 0x28
+        elif arch == "aarch64":
+            e_machine = 0xB7
         kwargs = {
-            "e_machine": 0x28 if arch == "armel" else 0x08,
+            "e_machine": e_machine,
             "endian": ">" if arch == "mipseb" else "<" # mipseb is only big endian for now
         }
 
