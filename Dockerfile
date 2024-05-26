@@ -331,6 +331,16 @@ CMD ["/usr/local/bin/banner.sh"]
 #RUN rm -rf /igloo_static/kernels && \
 #    tar xvf /tmp/kernels-latest.tar.gz -C /igloo_static/
 
+#COPY pandare_22.04.deb /tmp
+#RUN dpkg -i /tmp/pandare_22.04.deb
+
 #COPY libnvram-latest.tar.gz /tmp
 #RUN rm -rf /igloo_static/libnvram && \
 #    tar xvf /tmp/libnvram-latest.tar.gz -C /igloo_static/
+
+#COPY busybox-latest.tar.gz /tmp
+#RUN rm /igloo_static/utils.bin/busybox.* && \
+#  tar xzf /tmp/busybox-latest.tar.gz -C /igloo_static/ && \
+#  mv /igloo_static/build/* /igloo_static/utils.bin/ && \
+#  for file in /igloo_static/utils.bin/busybox.*-linux*; do mv "$file" "${file%-linux-*}"; done && \
+#  mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel
