@@ -44,7 +44,7 @@ jobs:
       fail-fast: false
       matrix:
         kernel: ["4.10"]
-        arch: ["armel", "mipsel", "mipseb", "mips64eb"]
+        arch: ["armel", "mipsel", "mipseb", "mips64eb", "aarch64"]
         test: ["env_unset", "env_cmp", "pseudofile_missing", "pseudofile_ioctl",
                "hostfile", "shared_dir", "net_missing"]
     steps:
