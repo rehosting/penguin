@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 import subprocess
-
-def add_lib_inject(config):
-    arch = config['core']['arch']
-
-    target_triple = {
+target_triples = {
         "armel": "armv5-linux-musleabi",
         "aarch64": "aarch64-linux-musl",
         "mipsel": "mipsel-linux-musl",
         "mipseb": "mips-linux-musl",
         "mips64eb": "mips64-linux-musl",
-    }[arch]
+}
 
+def add_lib_inject(config):
+    arch = config['core']['arch']
+
+    target_triple = target_triples[arch]
     lib_inject = config.get('lib_inject', dict())
 
     p = subprocess.run(
@@ -32,11 +32,37 @@ def add_lib_inject(config):
     )
     assert p.returncode == 0
 
-    config['static_files']['/igloo/lib_inject.so'] = {
+    config['static_files']['/igloo/lib64/lib_inject.so'] = {
         'type': 'inline_file',
         'contents': p.stdout,
         'mode': 0o444,
     }
+    if arch == "aarch64":
+        arch = "armel"
+        target_triple = target_triples[arch]
+        p = subprocess.run(
+            [
+                "clang-11",
+                "-fuse-ld=lld", "-Oz", "-shared", "-nostdlib",
+                "-target", target_triple,
+                f"/igloo_static/libnvram/nvram.o.{arch}",
+                "--language", "c", "-",
+                "-o", "-",
+                "-Wl," + ",".join([
+                    f"--defsym={sym}={repl}"
+                    for sym, repl in lib_inject.get('aliases', dict()).items()
+                ])
+            ],
+            input=lib_inject.get('extra', '').encode(),
+            stdout=subprocess.PIPE,
+        )
+        assert p.returncode == 0
+
+        config['static_files']['/igloo/lib32/lib_inject.so'] = {
+            'type': 'inline_file',
+            'contents': p.stdout,
+            'mode': 0o444,
+        }
 
 def prep_config(conf):
     config_files = conf['static_files'] if 'static_files' in conf else {}
