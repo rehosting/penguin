@@ -10,7 +10,7 @@ Core configuration options for this rehosting
 
 |||
 |-|-|
-|__Type__|`"armel"` or `"mipsel"` or `"mipseb"` or `"mips64eb"`|
+|__Type__|`"armel"` or `"mipsel"` or `"mipseb"` or `"mips64eb"` or `"aarch64"`|
 
 
 ```yaml
@@ -28,7 +28,9 @@ mipseb
 ```yaml
 mips64eb
 ```
-
+```yaml
+aarch64
+```
 ### `core.kernel` Path to kernel image
 
 |||
@@ -52,6 +54,9 @@ mips64eb
 /igloo_static/kernels/vmlinux.mips64eb
 ```
 
+```yaml
+/igloo_static/kernels/vmlinux.arm64
+```
 ### `core.fs` Project-relative path to filesystem tarball
 
 |||
