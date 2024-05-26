@@ -10,7 +10,10 @@ import struct
 import os
 from pathlib import Path
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s %(name)s %(levelname)s %(message)s',
+                    datefmt='%H:%M:%S')
+logger = logging.getLogger("penguin.tests")
 
 SCRIPT_PATH=Path(__file__).resolve().parent # Script's directory
 TEST_DIR=Path(f"{SCRIPT_PATH}/configs")
@@ -146,7 +149,7 @@ class TestRunner:
         ], check=True)
 
     def _run_config(self, kernel_version, arch, test_name, proj_dir):
-        logging.info(f"Testing {test_name} on kernel version {kernel_version} with architecture {arch}...")
+        logger.info(f"Testing {test_name} on kernel version {kernel_version} with architecture {arch}...")
         try:
             subprocess.run([
                 os.path.dirname(os.path.dirname(SCRIPT_PATH)) + "/penguin",
@@ -159,7 +162,7 @@ class TestRunner:
             stdout=open(proj_dir / Path("test_log.txt"), "w"),
             stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
-            logging.error("Penguin run failed, showing last 50 lines from log:")
+            logger.error("Penguin run failed, showing last 50 lines from log:")
             subprocess.run(["tail", "-n", "50", proj_dir / Path("test_log.txt")])
             sys.exit(1)
 
@@ -174,16 +177,16 @@ class TestRunner:
         self._run_config(kernel_version, arch, test_name, proj_dir)
 
         if not self._check_results(test_name, proj_dir / Path("output"), assertion):
-            logging.error(f"Test {test_name} failed on kernel version {kernel_version} with architecture {arch}")
+            logger.error(f"Test {test_name} failed on kernel version {kernel_version} with architecture {arch}")
             return False
         return True
 
     def _check_results(self, test_name, outdir, assertion):
         if assertion(outdir):
-            logging.info(f"{test_name}: PASS")
+            logger.info(f"{test_name}: PASS")
             return True
         else:
-            logging.info(f"{test_name}: FAIL: invalid results")
+            logger.info(f"{test_name}: FAIL: invalid results")
             subprocess.run(["tail", "-n30", outdir.parent / Path("test_log.txt")])
             subprocess.run(["tail", "-n30", outdir / Path("console.log")])
         return False
@@ -196,7 +199,7 @@ class TestRunner:
                     if not self.run_test(kernel_version, arch, test_name, self.checks[test_name]):
                         num_fails += 1
         if num_fails:
-            logging.error(f"{num_fails} tests failed")
+            logger.error(f"{num_fails} tests failed")
             sys.exit(1)
 
 def main():
