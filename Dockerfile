@@ -118,6 +118,18 @@ ARG PENGUIN_PLUGINS_VERSION
 RUN /get_release.sh rehosting penguin_plugins ${PENGUIN_PLUGINS_VERSION} ${DOWNLOAD_TOKEN} | \
     tar xzf - -C /panda_plugins
 
+# Build capstone v5 libraries for panda callstack_instr to improve arch support
+FROM $BASE_IMAGE as capstone_builder
+ENV DEBIAN_FRONTEND=noninteractive
+RUN sed -Ei 's/^# deb-src /deb-src /' /etc/apt/sources.list
+RUN apt-get update && apt-get build-dep -y libcapstone-dev && \
+    apt-get install -q -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+RUN cd /tmp && \
+    git clone https://github.com/capstone-engine/capstone/ -b v5 && \
+    cd capstone/ && ./make.sh && make install && \
+    rm -rf /tmp/capstone
+
 #### CROSS BUILDER: Build send_hypercall ###
 FROM ghcr.io/panda-re/embedded-toolchains:latest as cross_builder
 COPY ./utils/send_hypercall.c /
@@ -204,6 +216,7 @@ RUN echo "#!/bin/sh\ntelnet localhost 4321" > /usr/local/bin/rootshell && chmod 
 
 COPY --from=downloader /tmp/pandare.deb /tmp/
 COPY --from=downloader /tmp/glow.deb /tmp/
+COPY --from=capstone_builder /usr/lib/libcapstone* /usr/lib/
 
 # We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
 # we'll fail because we get a distutils distribution of pycparser 2.19 that we can't
@@ -224,7 +237,6 @@ RUN apt-get update && apt-get install -y \
     graphviz \
     graphviz-dev \
     libarchive13 \
-    libcapstone-dev \
     libgcc-s1 \
     liblinear4 \
     liblua5.3-0\
