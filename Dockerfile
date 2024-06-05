@@ -8,7 +8,7 @@ ARG LIBNVRAM_VERSION="0.0.4"
 ARG CONSOLE_VERSION="1.0.3"
 ARG PENGUIN_PLUGINS_VERSION="1.5.6"
 ARG VPN_VERSION="1.0.8"
-ARG HYPERFS_VERSION="0.0.12"
+ARG HYPERFS_VERSION="0.0.15"
 ARG GLOW_VERSION="1.5.1"
 ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
 ARG LTRACE_PROTOTYPES_HASH="9db3bdee7cf3e11c87d8cc7673d4d25b"
@@ -96,8 +96,9 @@ RUN /get_release.sh rehosting vpnguin ${VPN_VERSION} ${DOWNLOAD_TOKEN} | \
 ARG HYPERFS_VERSION
 RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} | \
   tar xzf - -C / && \
-  mv /result/* /igloo_static/utils.bin/ && \
-  rmdir /result
+  mv /result/utils/* /igloo_static/utils.bin/ && \
+  mv /result/dylibs /igloo_static/dylibs && \
+  rm -rf /result
 
 # Download prototype files for ltrace.
 #
