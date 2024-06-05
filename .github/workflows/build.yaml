@@ -11,7 +11,7 @@ on:
 
 jobs:
   build_container:
-    runs-on: self-hosted
+    runs-on: rehosting-arc
 
     steps:
       - name: Log in to Docker Hub
@@ -68,7 +68,7 @@ jobs:
 
   push_docker_and_release:
     needs: build_container
-    runs-on: self-hosted
+    runs-on: rehosting-arc
     if: github.ref == 'refs/heads/main'
     steps:
       - name: Get next version
