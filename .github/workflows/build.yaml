@@ -71,6 +71,10 @@ jobs:
     runs-on: rehosting-arc
     if: github.ref == 'refs/heads/main'
     steps:
+      - name: Setup runner
+        run: |
+              sudo apt-get update;
+              sudo apt-get install -yy curl jq
       - name: Get next version
         uses: reecetech/version-increment@2023.10.1
         id: version
