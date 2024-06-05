@@ -5,6 +5,9 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import yaml
+import copy
+from pathlib import Path
 from collections import Counter
 from os.path import dirname, join
 from pathlib import Path
@@ -104,7 +107,7 @@ def get_kernel_path(arch, end, static_dir):
         return static_dir + f"kernels/{DEFAULT_KERNEL}/" + "vmlinux" + f".{arch}{end}"
 
 
-def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
+def make_config(fs, out, artifacts, settings_path, timeout=None, auto_explore=False):
     logger.info(f"Generating new configuration for {fs}...")
     """
     Given a filesystem as a .tar.gz make a configuration
@@ -120,6 +123,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
 
     Returns the path to the config file.
     """
+
     # If auto_explore we'll turn on zap and nmap to automatically generate coverage
     # Note that there's no way for a user to control that flag yet.
 
@@ -152,6 +156,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     base_dir.mkdir(exist_ok=True, parents=True)
     base_fs = Path(base_dir, "fs.tar.gz")
     shutil.copy(fs, base_fs)
+
     data = {}
     data["core"] = {
         "arch": arch if arch == "aarch64" else arch + end,
@@ -246,6 +251,46 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
 
     data["plugins"] = default_plugins
 
+    # Function to update the global settings variable
+    def _recursive_update(base, new):
+        for k, v in new.items():
+            if isinstance(v, dict):
+                base[k] = _recursive_update(base.get(k, {}), v)
+            else:
+                base[k] = v
+        return base
+
+    # Replace all values in default_settings.yaml with user_settings.yaml (user_settings is the one that was passed in)
+    settings = {}
+    user_settings = {}
+    if settings_path:
+        # TODO: apply all use cases
+        relative_path = "src/penguin/resources/default_settings.yaml"
+        absolute_path = os.path.join(os.getcwd(), relative_path)
+        try:
+            with open(settings_path, "r") as user_f:
+                user_settings = yaml.safe_load(user_f)
+            with open(absolute_path, "r") as default_f:
+                settings = yaml.safe_load(default_f)
+        except Exception as e:
+            logger.error(f"An unexpected error has occurred: {e}")
+
+        if user_settings:
+            for key, value in user_settings.items():
+                if key in settings:
+                    # If the value is a dictionary, update subfields recursively
+                    if isinstance(value, dict):
+                        settings[key] = _recursive_update(settings.get(key, {}), value)
+                    else:
+                        settings[key] = value
+                else:
+                    logger.error(
+                        f"Invalid key in YAML file: '{key}' not found in default settings."
+                    )
+
+    if settings and settings["coverage"]:
+        data["plugins"]["coverage"]["enabled"] = True
+
     # Explicitly placing this at the end
     data["nvram"] = {}
 
@@ -277,7 +322,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     os.umask(0o000)
 
     data = extend_config_with_static(
-        output_dir, data, f"{output_dir}/base/", auto_explore
+        output_dir, data, f"{output_dir}/base/", settings, auto_explore
     )
 
     if not auto_explore:
@@ -385,7 +430,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     return final_out
 
 
-def fakeroot_gen_config(fs, out, artifacts, verbose):
+def fakeroot_gen_config(fs, out, artifacts, verbose, settings_path):
     o = Path(out)
     cmd = [
         "fakeroot",
@@ -399,6 +444,8 @@ def fakeroot_gen_config(fs, out, artifacts, verbose):
     ]
     if verbose:
         cmd.extend(["--verbose"])
+    if settings_path:
+        cmd.extend(["--settings", str(settings_path)])
     p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
     p.wait()
     if o.exists():
@@ -410,11 +457,12 @@ def fakeroot_gen_config(fs, out, artifacts, verbose):
 @click.option("--out", required=True, help="Path to a config to be created")
 @click.option("--artifacts", default=None, help="Path to a directory for artifacts")
 @click.option("-v", "--verbose", count=True)
-def makeConfig(fs, out, artifacts, verbose):
+@click.option("-s", "--settings", type=str, help="Path to the YAML configuration file")
+def makeConfig(fs, out, artifacts, verbose, settings_path):
     if verbose:
         logger.setLevel(logging.DEBUG)
 
-    config = make_config(fs, out, artifacts)
+    config = make_config(fs, out, artifacts, settings_path)
     if not config:
         logger.error(f"Error! Could not generate config for {fs}")
     else:

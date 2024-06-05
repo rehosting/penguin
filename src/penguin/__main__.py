@@ -129,6 +129,9 @@ def add_init_arguments(parser):
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Set log level to debug"
     )
+    parser.add_argument(
+        "-s", "--settings-path", type=str, help="Path to the YAML configuration file"
+    )
 
 
 def penguin_init(args):
@@ -190,9 +193,28 @@ def penguin_init(args):
     if not os.path.exists(os.path.dirname(args.output)):
         os.makedirs(os.path.dirname(args.output))
 
+    # Internal function for error checking
+    def _check_settings(settings_path):
+        path = Path(settings_path)
+        # Ensure path points to existing file
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"The file {settings_path} does not exist.")
+        # Ensure file is a YAML file
+        if not settings_path.endswith(".yaml"):
+            raise ValueError(
+                "FATAL: Passing in a configuration file must end in .yaml."
+            )
+
+    # Check for config file argument
+    if args.settings_path:
+        try:
+            _check_settings(args.settings_path)
+        except Exception as e:
+            logger.error(f"Error: {e}")
+
     out_config_path = Path(args.output, "config.yaml")
     config = fakeroot_gen_config(
-        args.rootfs, out_config_path, args.output, args.verbose
+        args.rootfs, out_config_path, args.output, args.verbose, args.settings_path
     )
 
     if not config:
