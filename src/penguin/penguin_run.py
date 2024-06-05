@@ -369,9 +369,14 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
         # If we have any deatils, pass them along
         if details is not None:
             args.update(details)
+        local_plugin = False
         path = os.path.join(plugin_path, plugin_name+".py")
         if not os.path.isfile(path):
-            raise ValueError(f"Plugin not found: {path} with name={plugin_name} and plugin_path={plugin_path}")
+            path = os.path.join(proj_dir, plugin_name+".py")
+            if not os.path.isfile(path):
+                raise ValueError(f"Plugin not found: {path} with name={plugin_name} and plugin_path={plugin_path}")
+            else:
+                local_plugin = True
         try:
             if len(panda.pyplugins.load_all(path, args)) == 0:
                 with open(os.path.join(out_dir, 'plugin_errors.txt'), 'a') as f:
@@ -380,7 +385,8 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
         except SyntaxError as e:
             logger.error(f"Syntax error loading pyplugin: {e}")
             raise ValueError(f"Failed to load plugin: {plugin_name}") from e
-
+        if local_plugin:
+            shutil.copy2(path,out_dir)
     # XXX HACK: normally panda args are set at the constructor. But we want to load
     # our plugins first and these need a handle to panda. So after we've constructed
     # our panda object, we'll directly insert our args into panda.panda_args in
