@@ -23,6 +23,13 @@ is another file system
 '''
 logger = getColoredLogger("penguin.gen_image")
 
+def get_mount_type(path):
+    try:
+        stat_output = subprocess.check_output(['stat', '-f', '-c', '%T', path])
+        return stat_output.decode('utf-8').strip().lower()
+    except subprocess.CalledProcessError:
+        return None
+
 class LocalGuestFS:
     def __init__(self, base):
         self.base = base
@@ -430,11 +437,21 @@ def make_image(fs, out, artifacts, config_path):
     INODE_SIZE=8192  # For every 8KB of disk space, we'll allocate an inode
     NUMBER_OF_INODES= int(FILESYSTEM_SIZE / INODE_SIZE)
     NUMBER_OF_INODES= NUMBER_OF_INODES + 1000 # Padding for more files getting added later
-    with tempfile.TemporaryDirectory() as WORK_DIR:
-        IMAGE = Path(WORK_DIR,"image.raw")
+
+    def _make_img(work_dir, qcow):
+        IMAGE = Path(work_dir, "image.raw")
         check_output(["truncate", "-s", str(FILESYSTEM_SIZE), IMAGE])
         check_output(["genext2fs", "--faketime",  "-N", str(NUMBER_OF_INODES), "-b", str(REQUIRED_BLOCKS), "-B", str(BLOCK_SIZE), "-a", TARBALL, IMAGE])
-        check_output(["qemu-img", "convert", "-f", "raw", "-O", "qcow2", IMAGE, QCOW])
+        check_output(["qemu-img", "convert", "-f", "raw", "-O", "qcow2", IMAGE, qcow])
+
+    with tempfile.TemporaryDirectory() as WORK_DIR:
+        # if our QCOW path is a lustrefs we need to operate within the workdir and copy the qcow out
+        if get_mount_type(QCOW.parent) == "lustre":
+            # Need to convert to qcow within the workdir
+            _make_img(WORK_DIR, Path(WORK_DIR, "image.qcow"))
+            check_output(["mv", Path(WORK_DIR, "image.qcow"), QCOW])
+        else:
+            _make_img(WORK_DIR, QCOW)
 
 def fakeroot_gen_image(fs, out, artifacts, config):
     o = Path(out)
