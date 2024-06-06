@@ -54,6 +54,7 @@ penguin_run() {
     local cmd=()
     local maps=()
     local build=false
+    local build_singularity=false
     local pydev=false
     local verbose=false
     local subnet=""
@@ -70,6 +71,7 @@ penguin_run() {
                 echo ""
                 echo "Wrapper-specific flags may be passed in *before* the PENGUIN command. If a value is required, it must be specified immediately after the flag with a space."
                 echo "  --build: Build the PENGUIN container before running the specified command. If no command is specifed, just build and exit"
+                echo "  --build-singularity: Build the PENGUIN container and then convert it to singularity. No command will be run"
                 echo "  --pydev: Map local python package and plugin code into container and reinstall before running the specified command."
                 echo "  --subnet: IP subnet to use. For example --subnet 192.168.0.0/24 would produce a network with firmware reachable at 192.168.0.2."
                 echo "            Default: automatically find next free /24 subnet in 192.168.x.x"
@@ -89,6 +91,10 @@ penguin_run() {
                 ;;
             --build)
                 build=true
+                shift
+                ;;
+            --build-singularity)
+                build_singularity=true
                 shift
                 ;;
             --pydev)
@@ -130,6 +136,7 @@ penguin_run() {
     if $verbose; then
         echo "${BOLD}Wrapper args:${RESET}"
         echo "  build: $build"
+        echo "  build_singularity: $build_singularity"
         echo "  pydev: $pydev"
         echo "  subnet: $subnet"
         echo "  name: $container_name"
@@ -332,6 +339,10 @@ penguin_run() {
         docker_cmd+=($extra_docker_args)
     fi
 
+    if $build_singularity; then
+        build=true
+    fi
+
     if $build; then
         echo "Running with container rebuild (--build). Entire container will be rebuilt."
         # Rebuild container
@@ -347,11 +358,25 @@ penguin_run() {
         fi
         DOCKER_BUILDKIT=1 docker build -t $image .
 
-        # If we have no other args, exit 0
-        if [[ ${#new_cmd[@]} -eq 0 ]]; then
+        # If we have no other args, and not build_singularity exit 0
+        if [[ ${#new_cmd[@]} -eq 0 && ! $build_singularity ]]; then
             echo "$image built. Exiting as no command was specified."
             exit 0
         fi
+    fi
+
+    if $build_singularity; then
+        rm -rf .singularity || true
+        mkdir -p .singularity
+        docker run -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $(pwd)/.singularity:/output \
+            --privileged -t \
+            --rm quay.io/singularity/docker2singularity:v3.9.0 \
+            rehosting/penguin
+        mv .singularity/rehosting_penguin*.sif penguin.sif
+        rm -rf .singularity || true
+        echo "penguin.sif built"
+        exit 0
     fi
 
     # Add the command
