@@ -181,17 +181,13 @@ class FileFailures(PyPlugin):
                 if filename.startswith(prefix):
                     targ.append(filename[len(prefix):])
 
-
-            # Make sure each key is one of our 3 allowed values, not a junk value
-            if any(x not in ['read', 'write', 'ioctl', 'name'] for x in details.keys()):
-                raise ValueError("pseudofiles: each file must have a read, write, or ioctl key. No other keys are supported")
+            hf_config[filename]["size"] = details.get("size", 0)
 
             # Check if any details with non /dev/mtd names has a 'name' property
-            for fname in details:
-                if not fname.startswith("/dev/mtd") and 'name' in details[fname]:
-                    raise ValueError("Pseudofiles: name property can only be set for MTD devices")
-                if fname.startswith("/dev/mtd") and not 'name' in details[fname]:
-                    raise ValueError("Pseudofiles: name property must be set for MTD devices")
+            if not filename.startswith("/dev/mtd") and 'name' in details:
+                raise ValueError("Pseudofiles: name property can only be set for MTD devices")
+            if filename.startswith("/dev/mtd") and not 'name' in details:
+                raise ValueError("Pseudofiles: name property must be set for MTD devices")
 
 
             for ftype in "read", "write", "ioctl":
@@ -224,25 +220,6 @@ class FileFailures(PyPlugin):
         self.logger.debug(f"Registered pseudofiles:")
         for filename, details in hf_config.items():
             self.logger.debug(f"  {filename}")
-
-        # We'll update hf_config[dyndev.{devnames,procnames,netdevnames,sysfs}] with the list of devices we're shimming
-        for f in ["devnames", "procnames", "netdevnames", "sysfs"]:
-            hf_config[f"dyndev.{f}"] = {} #XXX: None of these can be empty - we populate all below
-
-        #if len(self.devfs):
-            #self.get_arg("conf")["env"]["dyndev.devnames"] = ",".join(self.devfs)
-            #print(f"Configuring dyndev to shim devices: {self.devfs}")
-        hf_config["dyndev.devnames"][hyper("read")] = make_rwif({'val': ",".join(self.devfs)}, self.read_const_buf)
-
-        #if len(self.procfs):
-        #    #self.get_arg("conf")["env"]["dyndev.procnames"] = ",".join(procfs)
-        #    print(f"Configuring dyndev to shim procfiles: {self.procfs}")
-        hf_config["dyndev.procnames"][hyper("read")] = make_rwif({'val': ",".join(self.procfs)}, self.read_const_buf)
-
-        #if len(self.sysfs):
-        #    #self.get_arg("conf")["env"]["dyndev.sysfs"] = ",".join(sysfs)
-        #    print(f"Configuring dyndev to shim sysfs: {self.sysfs}")
-        hf_config["dyndev.sysfs"][hyper("read")] = make_rwif({'val': ",".join(self.sysfs)}, self.read_const_buf)
 
         # filename -> {read: model, write: model, ioctls: model}
         # Coordinates with hyperfile for modeling behavior!

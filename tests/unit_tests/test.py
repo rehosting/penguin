@@ -240,6 +240,7 @@ def main():
         "netdevs": assert_generic("console.log", "tests pass"),
         "proc_self": assert_generic("console.log", "tests pass"),
         "pseudofile_readdir": assert_generic("console.log", "tests pass"),
+        "pseudofile_mmap_shared": assert_generic("console.log", "tests pass"),
     }
 
     parser = argparse.ArgumentParser(description="Run PENGUIN unit tests.")

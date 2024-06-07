@@ -15,6 +15,7 @@ HYPER_MAGIC = 0x51ec3692
 HYPER_READ = 0
 HYPER_WRITE = 1
 HYPER_IOCTL = 2
+HYPER_GETATTR = 3
 
 def hyper(name):
     if name == "read":
@@ -81,6 +82,7 @@ class HyperFile(PyPlugin):
             header_fmt = f"{endian} i {u_word}"
             read_fmt = write_fmt = f"{endian} {u_word} {u_word} q"
             ioctl_fmt = f"{endian} I {u_word}"
+            getattr_fmt = f"{endian} {u_word}"
             hyperfs_data_size = struct.calcsize(header_fmt) + max(struct.calcsize(fmt) for fmt in (read_fmt, write_fmt, ioctl_fmt))
 
             try:
@@ -112,6 +114,7 @@ class HyperFile(PyPlugin):
                     HYPER_READ: self.read_unhandled,
                     HYPER_WRITE: self.write_unhandled,
                     HYPER_IOCTL: self.ioctl,
+                    "size": 0,
                 }
 
             #print(f"Hyperfile {device_name}: using {model[type_val]}")
@@ -152,6 +155,17 @@ class HyperFile(PyPlugin):
                 retval = model[type_val](device_name, cmd, arg) # hyper_ioctl
                 #print(f"IOCTL of {cmd:x} to {device_name} with arg {arg} returned {retval}")
                 self.handle_result(device_name, "ioctl", retval, cmd, arg)
+
+            elif type_val == HYPER_GETATTR:
+                retval = 0
+                size_ptr, = struct.unpack_from(getattr_fmt, buf, sub_offset)
+                size_bytes = struct.pack(f"{endian} q", model.get("size", 0))
+                try:
+                    panda.virtual_memory_write(cpu, size_ptr, size_bytes)
+                except ValueError:
+                    print("Failed to write hyperfile size into guest")
+                    panda.arch.set_arg(cpu, 0, 1)  # non-zero = error
+                    return True
 
             panda.arch.set_retval(cpu, panda.to_unsigned_guest(retval))
             return True
