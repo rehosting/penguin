@@ -130,9 +130,9 @@ RUN cd /tmp && \
     cd capstone/ && ./make.sh && make install && \
     rm -rf /tmp/capstone
 
-#### CROSS BUILDER: Build send_hypercall ###
+#### CROSS BUILDER: Build send_hypercall, inject_ltrace.o ###
 FROM ghcr.io/panda-re/embedded-toolchains:latest as cross_builder
-COPY ./utils/send_hypercall.c /
+COPY ./utils/send_hypercall.c ./utils/inject_ltrace.c /
 RUN cd / && \
   mkdir out && \
   wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h && \
@@ -140,7 +140,12 @@ RUN cd / && \
   mips64eb-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/send_hypercall.mips64eb  && \
   mipsel-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipsel && \
   arm-linux-musleabi-gcc -s -static send_hypercall.c -o out/send_hypercall.armel && \
-  aarch64-linux-musl-gcc -s -static send_hypercall.c -o out/send_hypercall.aarch64
+  aarch64-linux-musl-gcc -s -static send_hypercall.c -o out/send_hypercall.aarch64 && \
+  mipseb-linux-musl-gcc -mips32r3 -s -c -fPIC inject_ltrace.c -o out/inject_ltrace.o.mipseb && \
+  mips64eb-linux-musl-gcc -mips64r2 -s -c -fPIC inject_ltrace.c -o out/inject_ltrace.o.mips64eb  && \
+  mipsel-linux-musl-gcc -mips32r3 -s -c -fPIC inject_ltrace.c -o out/inject_ltrace.o.mipsel && \
+  arm-linux-musleabi-gcc -s -c -fPIC inject_ltrace.c -o out/inject_ltrace.o.armel && \
+  aarch64-linux-musl-gcc -s -c -fPIC inject_ltrace.c -o out/inject_ltrace.o.aarch64
 
 #### QEMU BUILDER: Build qemu-img ####
 FROM $BASE_IMAGE as qemu_builder
@@ -299,9 +304,12 @@ COPY --from=downloader /tmp/ltrace /igloo_static/ltrace
 
 # Copy utils.source (scripts) and utils.bin (binaries) from host
 # Files are named util.[arch] or util.all
-COPY --from=cross_builder /out/* /igloo_static/utils.bin
+COPY --from=cross_builder /out/send_hypercall.* /igloo_static/utils.bin
 COPY utils/* /igloo_static/utils.source/
 COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
+
+RUN mkdir /igloo_static/inject_ltrace
+COPY --from=cross_builder /out/inject_ltrace.o.* /igloo_static/inject_ltrace
 
 # Copy wrapper script into container so we can copy out - note we don't put it on guest path
 COPY ./penguin /usr/local/src/penguin_wrapper

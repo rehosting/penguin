@@ -69,6 +69,9 @@ class Core(PyPlugin):
         if conf['core'].get('strace', False):
             conf['env']['STRACE'] = "1"
 
+        if conf['core'].get('ltrace', False):
+            conf['env']['IGLOO_LTRACE'] = "1"
+
         if conf['core'].get('force_www', False):
             if conf.get("static_files", {}).get("/igloo/utils/www_cmds", None) is None:
                 self.logger.warning(f"WARNING: Force WWW unavailable - no webservers were statically identified (/igloo/utils/www_cmds is empty)")

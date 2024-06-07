@@ -229,6 +229,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
         'root_shell': True,
         'show_output': False,
         'strace': False,
+        'ltrace': False,
         'version': default_version,
     }
 
