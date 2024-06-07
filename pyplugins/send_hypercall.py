@@ -12,11 +12,18 @@ UBOOT_LOG = "uboot.log"
 class SendHypercall(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
+        print(panda)
         self.outdir = self.get_arg("outdir")
         open(os.path.join(self.outdir, UBOOT_LOG), "w").close()
         self.uboot_log = set()
 
-        self.ppp.Core.ppp_reg_cb("igloo_send_hypercall", self.on_send_hypercall)
+        #self.ppp.Core.ppp_reg_cb('igloo_send_hypercall', self.on_send_hypercall)
+        @panda.hypercall(0xb335a535)
+        def extract_args(cpu):
+            buf_addr = self.panda.arch.get_arg(cpu, 1)
+            buf_num_ptrs = self.panda.arch.get_arg(cpu, 2)
+            self.on_send_hypercall(cpu,buf_addr,buf_num_ptrs)
+
         self.logger = getColoredLogger("plugins.send_hypercall")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
@@ -32,7 +39,7 @@ class SendHypercall(PyPlugin):
         self.bash_cov_csv = open(path, "w")
         csv.writer(self.bash_cov_csv).writerow(["filename", "lineno", "pid", "command"])
         self.bash_cov_csv.flush()
-
+    
     def on_send_hypercall(self, cpu, buf_addr, buf_num_ptrs):
         arch_bytes = self.panda.bits // 8
 

@@ -271,9 +271,10 @@ class Core(PyPlugin):
 
         elif num == 0xB335A535:
             # send_hypercall
+            raise RuntimeError(f"handle_hc called with unknown hypercall: {num}")
             buf_addr = self.panda.arch.get_arg(cpu, 1)
             buf_num_ptrs = self.panda.arch.get_arg(cpu, 2)
-            self.ppp_run_cb("igloo_send_hypercall", cpu, buf_addr, buf_num_ptrs)
+            #self.ppp_run_cb('igloo_send_hypercall', cpu, buf_addr, buf_num_ptrs)
 
         else:
             raise RuntimeError(f"handle_hc called with unknown hypercall: {num}")
