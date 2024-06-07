@@ -401,6 +401,15 @@ class Pseudofile(BaseModel):
             examples=["flash","uboot"],
         ),
     ]
+    size: Annotated[
+        Optional[int],
+        Field(
+            None,
+            title="File size",
+            description="Size of the pseudofile to be reported by stat(). This must be specified for mmap() on the pseudofile to work.",
+            examples=[1, 0x1000],
+        ),
+    ]
     read: Optional[Read] = None
     write: Optional[Write] = None
     ioctl: Optional[Ioctls] = None

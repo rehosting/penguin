@@ -1,0 +1,40 @@
+env:
+  igloo_init: /init
+
+pseudofiles:
+  /proc/aaaa/pf:
+    size: 22
+    read:
+      model: const_buf
+      val: "Hello from pseudofile!"
+
+static_files:
+  /init:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/micropython
+
+      import uos
+      import os
+      import uctypes
+
+      # Check file size
+      assert os.stat("/proc/aaaa/pf")[6] == 22
+
+      # Initialize constants
+      mmap = os.libc.func("p", "mmap", "pLiiiq")
+      NULL = O_RDONLY = 0
+      PROT_READ = MAP_SHARED = 1
+      MAP_PRIVATE = 2
+
+      # Read file with mmap()
+      fd = os.open("/proc/aaaa/pf", O_RDONLY)
+      addr = mmap(NULL, 0x1000, PROT_READ, MAP_SHARED, fd, 0)
+      if addr == -1:
+        raise OSError(uos.errno())
+      assert uctypes.bytes_at(addr, 22) == b"Hello from pseudofile!"
+
+      print("tests pass")
+
+    mode: 73
+
