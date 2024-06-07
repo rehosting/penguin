@@ -112,6 +112,15 @@ class Core(BaseModel):
             examples=[False, True],
         ),
     ]
+    ltrace: Annotated[
+        bool,
+        Field(
+            False,
+            title="Enable ltracing init process",
+            description="Whether to enable ltrace",
+            examples=[False, True],
+        ),
+    ]
     force_www: Annotated[
         bool,
         Field(

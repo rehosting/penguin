@@ -20,6 +20,7 @@ def add_lib_inject(config):
             "-fuse-ld=lld", "-Oz", "-shared", "-nostdlib",
             "-target", target_triple,
             f"/igloo_static/libnvram/nvram.o.{arch}",
+            f"/igloo_static/inject_ltrace/inject_ltrace.o.{arch}",
             "--language", "c", "-",
             "-o", "-",
             "-Wl," + ",".join([
