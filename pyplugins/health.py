@@ -8,7 +8,9 @@ class Health(PyPlugin):
         self.outdir = self.get_arg("outdir")
         self.start_time = time.time()
         self.exiting = False
-        self.logger = getColoredLogger("plugins.health", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
+        self.logger = getColoredLogger("plugins.health")
+        if self.get_arg_bool("verbose"):
+            self.logger.setLevel("DEBUG")
 
         # XXX no longer used to track time
         self.events = { # Class: [(time, score)]

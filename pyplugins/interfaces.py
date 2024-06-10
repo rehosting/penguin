@@ -20,7 +20,9 @@ class Interfaces(PyPlugin):
         self.outdir = self.get_arg("outdir")
         self.conf = self.get_arg("conf")
         self.ppp.Health.ppp_reg_cb('igloo_exec', self.iface_on_exec)
-        self.logger = getColoredLogger("plugins.interfaces", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
+        self.logger = getColoredLogger("plugins.interfaces")
+        if self.get_arg_bool("verbose"):
+            self.logger.setLevel("DEBUG")
 
         open(f'{self.outdir}/{iface_log}', 'w').close()
         open(f'{self.outdir}/{ioctl_log}', 'w').close()

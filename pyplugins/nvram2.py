@@ -9,7 +9,9 @@ class Nvram2(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
         self.panda = panda
-        self.logger = getColoredLogger("plugins.nvram2", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
+        self.logger = getColoredLogger("plugins.nvram2")
+        if self.get_arg_bool("verbose"):
+            self.logger.setLevel("DEBUG")
         # Even at debug level, logging every nvram get/clear can be very verbose.
         # As such, we only debug log nvram sets
 

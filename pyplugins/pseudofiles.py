@@ -141,7 +141,9 @@ class FileFailures(PyPlugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.written_data = {} # filename -> data that was written to it
-        self.logger = getColoredLogger("plugins.pseudofiles", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
+        self.logger = getColoredLogger("plugins.pseudofiles")
+        if self.get_arg_bool("verbose"):
+            self.logger.setLevel(logging.DEBUG)
 
         # XXX: It has seemed like this should be 1 for some architectures, but that can't be right?
         self.ENOENT = 2
@@ -676,7 +678,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
     def __init__(self):
         super().__init__()
-        self.logger = getColoredLogger(f"plugin.{self.ANALYSIS_TYPE}", level='INFO')
+        self.logger = getColoredLogger(f"plugins.{self.ANALYSIS_TYPE}")
         from symex import PathExpIoctl
 
     def is_dev_path(self, path: str) -> bool:

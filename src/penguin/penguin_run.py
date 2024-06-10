@@ -138,7 +138,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
         os.makedirs(out_dir, exist_ok=True)
 
     if logger is None:
-        logger = getColoredLogger('penguin.run', level='INFO')
+        logger = getColoredLogger('penguin.run')
 
     # Image isn't in our config, but the path we use is a property
     # of configs fiiles section - we'll hash it to get a path
@@ -455,12 +455,9 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
             _run()
 
 def main():
+    logger = getColoredLogger('penguin.runner')
     if verbose := any(x == 'verbose' for x in sys.argv):
-        logger = getColoredLogger('penguin.runner', level='DEBUG')
-        logger.warning("Debugging enabled")
-        logger.debug("Debugging enabled")
-    else:
-        logger = getColoredLogger('penguin.runner')
+        logger.setLevel('DEBUG')
 
     if len(sys.argv) >= 2:
         # Given a config, run it. Specify qcow_dir to store qcow if not "dirname(config)""

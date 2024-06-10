@@ -43,7 +43,7 @@ class Core(PyPlugin):
         self.pending_procname = None
         self.pending_sin_addr = None
 
-        self.logger = getColoredLogger("plugins.core", level='INFO')
+        self.logger = getColoredLogger("plugins.core")
 
         plugins = self.get_arg("plugins")
         conf = self.get_arg("conf")

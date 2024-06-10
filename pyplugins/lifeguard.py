@@ -18,7 +18,9 @@ LIFELOG = "lifeguard.csv"
 class Lifeguard(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
-        self.logger = getColoredLogger("plugins.lifeguard", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
+        self.logger = getColoredLogger("plugins.lifeguard")
+        if self.get_arg_bool("verbose"):
+            self.logger.setLevel("DEBUG")
 
         blocked_signals = []
         conf = self.get_arg("conf")
