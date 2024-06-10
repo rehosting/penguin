@@ -153,22 +153,24 @@ class PandaRunner:
         #print(system(full_cmd))
 
         # Python subprocess. No pipe (pipes can get full and deadlock the child!)
-        cmd = timeout_cmd + ["python3", "-m", "penguin.penguin_run", conf_yaml, out_dir, f"{proj_dir}/qcows"]
+        assert(os.path.isfile(conf_yaml)), f"Config file {conf_yaml} not found"
+        cmd = timeout_cmd + ["python3", "-m", "penguin.penguin_run", proj_dir, conf_yaml, out_dir]
 
-        # CLI arg parsing is gross. Sorry
-        init_cmd = init if init else "None"
-        timeout_cmd = str(timeout) if timeout else "None"
+        # CLI arg parsing is gross. Sorry. We add init/None, timeout/None, show/noshow and optionally verbose at the end
+        if init:
+            cmd.append(init)
+        else:
+            cmd.append("None")
+
+        if timeout:
+            cmd.append(str(timeout))
+        else:
+            cmd.append("None")
+
         if show_output:
-            cmd.append(init_cmd)
-            cmd.append(timeout_cmd)
             cmd.append("show")
-
-        elif timeout:
-            cmd.append(init_cmd)
-            cmd.append(timeout_cmd)
-
-        elif init:
-            cmd.append(init_cmd)
+        else:
+            cmd.append("noshow")
 
         if verbose:
             cmd.append("verbose")
@@ -186,7 +188,7 @@ class PandaRunner:
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Error running {conf_yaml}: {e}")
         except KeyboardInterrupt:
-            self.logger.warning(f"Recieved keyboard interrupt while running emulation")
+            self.logger.warning(f"Received keyboard interrupt while running emulation")
             self.logger.info("Please wait up to 30s for graceful shutdown and result reporting")
             self.logger.info("Otherwise, press Ctrl+C again to force kill")
             # Send SIGUSR1 to the process
@@ -214,12 +216,13 @@ class PandaRunner:
         ran_file = os.path.join(out_dir, ".ran")
         if not os.path.isfile(ran_file):
             self.logger.error(f"Missing .ran file with {conf_yaml}")
-            raise RuntimeError(f"ERROR, running {conf_yaml} in {proj_dir} did not produce {out_dir}/.ran file")
+            raise RuntimeError(f"Missing {out_dir}/.ran after run with config={conf_yaml} proj_dir={proj_dir}")
 
 class Worker:
-    def __init__(self, global_state, config_manager, run_base, max_iters, run_index, active_worker_count, thread_id=None, logger=None):
+    def __init__(self, global_state, config_manager, proj_dir, run_base, max_iters, run_index, active_worker_count, thread_id=None, logger=None):
         self.global_state = global_state
         self.config_manager = config_manager
+        self.proj_dir = proj_dir
         self.run_base = run_base
         self.max_iters = max_iters
         self.run_index = run_index
@@ -388,7 +391,8 @@ class Worker:
                 os.makedirs(out_dir, exist_ok=True)
                 try:
                     #self._subprocess_panda_run(conf_yaml, run_dir, out_dir)
-                    PandaRunner().run(conf_yaml, self.run_base, run_dir, out_dir, timeout=timeout)
+                    PandaRunner().run(conf_yaml, self.proj_dir, out_dir, timeout=timeout)
+
                 except RuntimeError as e:
                     # Uh oh, we got an error while running. Warn and continue
                     self.logger.error(f"Could not run {run_dir}: {e}")
@@ -518,7 +522,7 @@ class Worker:
 
 
 class GlobalState:
-    def __init__(self, output_dir, base_config):
+    def __init__(self, proj_dir, output_dir, base_config):
         # show_output is False unless we're told otherwise
         show_output = base_config['core']['show_output'] \
             if 'show_output' in base_config['core'] else False
@@ -531,20 +535,19 @@ class GlobalState:
             'arch': base_config['core']['arch'],
             'fs': base_config['core']['fs'],
             'kernel': base_config['core']['kernel'],
-            'qcow': base_config['core']['qcow'],
             'show_output': show_output,
             'root_shell': root_shell,
             'version': '1.0.0'
         }
         del base_config['core'] # Nobody should use base, ask us instead!
-        if not os.path.isfile(self.info['fs']):
+        if not os.path.isfile(os.path.join(proj_dir, self.info['fs'])):
             raise ValueError(f"Base filesystem archive not found: {self.info['fs']}")
 
         # Static analysis *must* have found some inits, otherwise we can't even start execution!
         # Potential inits will be in our base directory, should be in output_dir, I think?
         self.inits = []
-        # Read from output_dir/base/env.yaml to get inits
-        with open(os.path.join(output_dir, "base", "env.yaml")) as f:
+        # Read from proj_dir/base/env.yaml to get inits
+        with open(os.path.join(proj_dir, "base", "env.yaml")) as f:
             env = yaml.safe_load(f)
             for k, v in env.items():
                 if k == 'igloo_init':
@@ -633,9 +636,7 @@ def report_best_results(best_idx, best_output, output_dir):
         else:
             f.write(f"{len(net_procnames)} unique processes bound to {net_count} network sockets\n")
 
-
-
-def graph_search(initial_config, output_dir, max_iters=1000, nthreads=1, init=None):
+def graph_search(proj_dir, initial_config, output_dir, max_iters=1000, nthreads=1, init=None):
     '''
     Main entrypoint. Given an initial config and directory run our
     graph search.
@@ -647,9 +648,12 @@ def graph_search(initial_config, output_dir, max_iters=1000, nthreads=1, init=No
     run_base = os.path.join(output_dir, "runs")
     os.makedirs(run_base, exist_ok=True)
 
+    with open(os.path.join(output_dir, "base_config.yaml"), "w") as f:
+        yaml.dump(initial_config, f)
+
     base_config = Configuration("baseline", initial_config)
     config_manager = ConfigurationManager(base_config)
-    global_state = GlobalState(output_dir, base_config.info)
+    global_state = GlobalState(proj_dir, output_dir, base_config.info)
 
     # We created a config node with our initial config as .info
     # Let's see if we can find it?
@@ -673,7 +677,7 @@ def graph_search(initial_config, output_dir, max_iters=1000, nthreads=1, init=No
     if nthreads > 1:
         for idx in range(nthreads):
             worker_instance = Worker(global_state, config_manager,
-                                        run_base, max_iters, run_index,
+                                        proj_dir, run_base, max_iters, run_index,
                                         active_worker_count, thread_id=idx)
             t = Thread(target=worker_instance.run)
             #t.daemon = True
@@ -689,7 +693,7 @@ def graph_search(initial_config, output_dir, max_iters=1000, nthreads=1, init=No
                 raise
     else:
         # Single thread mode, try avoiding deadlocks by just running directly
-        Worker(global_state, config_manager, run_base, max_iters,
+        Worker(global_state, config_manager, proj_dir, run_base, max_iters,
             run_index, active_worker_count).run()
 
     # We're all done! In the .finished file we'll write the final run_index
@@ -709,7 +713,7 @@ def main():
         sys.exit(1)
 
     config = load_config(sys.argv[1])
-    graph_search(config, sys.argv[2])
+    graph_search(os.path.dirname(sys.argv[1]), config, sys.argv[2])
 
 if __name__ == '__main__':
     main()

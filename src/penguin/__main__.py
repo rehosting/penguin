@@ -34,7 +34,15 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None,
         raise RuntimeError(f"Base kernel not found: {config['core']['kernel']}")
 
     if niters > 1:
-        return graph_search(config, output_dir, max_iters=niters, nthreads=nthreads)
+        # Change config for auto exploration. Delete init. Set timeout, enable nmap, disable root shell
+        # Note this is a design change from how gen_config works and how we used to do this - we're now starting
+        # from a previously created config, so we'll toggle these settings after loading. Previously we'd generate
+        # the initial config for automated exploration and go from there.
+        config['core']['root_shell'] = False
+        config['plugins']['core']['timeout'] = timeout if timeout else 300
+        config['plugins']['nmap']['enabled'] = True
+
+        return graph_search(proj_dir, config, output_dir, max_iters=niters, nthreads=nthreads)
 
     # You already have a config, let's just run it. This is what happens
     # in each iterative run normally. Here we just do it directly.
@@ -51,11 +59,9 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None,
             else:
                 raise RuntimeError(f"Static analysis failed to identify an init script. Please specify one in {output_dir}/config.yaml and run again with --config.")
 
-    # XXX is this the right run_base? It's now our project dir
-    proj_dir = os.path.dirname(config_path)
     PandaRunner().run(config_path, proj_dir, output_dir, init=init, timeout=timeout, show_output=True, verbose=verbose) # niters is 1
 
-    # Single iteration: there is not best - don't report that
+    # Single iteration: there is no best - don't report that
     #report_best_results(run_base, output_dir, os.path.dirname(output_dir))
 
     # But do calculate and report scores. Unlike multi-run mode, we'll write scores right into output dir instead of in parent
@@ -279,6 +285,48 @@ def penguin_run(args):
 
     run_from_config(args.config, args.output, verbose=args.verbose)
 
+def add_explore_arguments(parser):
+    parser.add_argument('config', type=str, help='Path to a config file within a project directory or a project directory that contains a config.yaml.')
+    parser.add_argument('--niters', type=int, default=100, help='Number of iterations to run. Default is 100.')
+    parser.add_argument('--nworkers', type=int, default=4, help='Number of workers to run in parallel. Default is 4')
+    parser.add_argument('--output', type=str, help='The output directory path. Defaults to results/explore.', default=None)
+    parser.add_argument('--force', action='store_true', default=False, help="Forcefully delete output directory if it exists.")
+    parser.add_argument('-v','--verbose', action='store_true', help='Set log level to debug')
+
+def penguin_explore(args):
+    config = Path(args.config)
+    if not config.exists():
+        raise ValueError(f"Config file does not exist: {args.config}")
+
+    # Allow config to be the project dir (which contains config.yaml)
+    if os.path.isdir(args.config) and os.path.exists(os.path.join(args.config, "config.yaml")):
+        args.config = os.path.join(args.config, "config.yaml")
+
+    # Sanity check, should have a 'base' directory next to the config
+    if not os.path.isdir(os.path.join(os.path.dirname(args.config), "base")):
+        raise ValueError(f"Config directory does not contain a 'base' directory: {os.path.dirname(args.config)}.")
+
+    if args.output is None:
+        # Default to results/explore in the project directory
+        args.output = os.path.dirname(args.config) + "/explore/"
+
+    if args.force and os.path.isdir(args.output):
+        # Delete the output directory if it exists
+        shutil.rmtree(args.output, ignore_errors=True)
+
+    # If output exists error (if force we already deleted it)
+    if os.path.exists(args.output):
+        raise ValueError(f"Output directory exists: {args.output}. Run with --force to delete.")
+
+    os.makedirs(args.output)
+
+    logger.info(f"Exploring from {args.config} and saving results to {args.output}")
+
+    if '/host_' in args.config or '/host_' in args.output:
+        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments")
+
+    run_from_config(args.config, args.output, verbose=args.verbose, niters=args.niters, nthreads=args.nworkers)
+
 def main():
     parser = argparse.ArgumentParser(description=f"""
     {art.text2art("PENGUIN", font='tarty1-large')}
@@ -338,13 +386,11 @@ contains details on the configuration file format and options.
     parser_cmd_docs = subparsers.add_parser('docs', help='Show documentation')
     add_docs_arguments(parser_cmd_docs)
 
-    # NYI
-    #parser_cmd_explore = subparsers.add_parser('explore', help='Explore configuration space')
-    #add_explore_arguments(parser_cmd_explore)
+    parser_cmd_explore = subparsers.add_parser('explore', help='Search for alternative configurations to improve system health')
+    add_explore_arguments(parser_cmd_explore)
 
-    # Add help and --wrapper-help stub
+    # Add --wrapper-help stub
     parser.add_argument('--wrapper-help', action='store_true', help='Show help for host penguin wrapper')
-
 
     args = parser.parse_args()
 
@@ -367,8 +413,7 @@ contains details on the configuration file format and options.
     elif args.cmd == "docs":
         penguin_docs(args)
     elif args.cmd == "explore":
-        raise NotImplementedError("Exploration not yet implemented")
-        #penguin_explore(args)
+        penguin_explore(args)
     else:
         parser.print_help()
 
