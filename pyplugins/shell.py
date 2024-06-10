@@ -25,7 +25,9 @@ class BBCov(PyPlugin):
         self.read_scripts = {} # filename -> contents
         self.last_line = None
 
-        self.logger = getColoredLogger("plugins.shell", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
+        self.logger = getColoredLogger("plugins.shell")
+        if self.get_arg_bool("verbose"):
+            self.logger.setLevel("DEBUG")
 
         # initialize outfiles:
         with open(join(self.outdir, outfile_cov), "w") as f:

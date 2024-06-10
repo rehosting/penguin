@@ -38,7 +38,9 @@ class MountTracker(PyPlugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.mounts = set()
-        self.logger = getColoredLogger("plugins.mount", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
+        self.logger = getColoredLogger("plugins.mount")
+        if self.get_arg_bool("verbose"):
+            self.logger.setLevel("DEBUG")
 
         @self.panda.ppp("syscalls2", "on_sys_mount_return")
         def post_mount(cpu, pc, source, target, fs_type, flags, data):

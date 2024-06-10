@@ -15,7 +15,9 @@ class SendHypercall(PyPlugin):
         self.uboot_log = set()
 
         self.ppp.Core.ppp_reg_cb('igloo_send_hypercall', self.on_send_hypercall)
-        self.logger = getColoredLogger("plugins.send_hypercall", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
+        self.logger = getColoredLogger("plugins.send_hypercall")
+        if self.get_arg_bool("verbose"):
+            self.logger.setLevel("DEBUG")
 
         # Command-specific init
 

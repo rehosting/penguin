@@ -41,7 +41,9 @@ class EnvTracker(PyPlugin):
         self.env_vars = set() # set of env vars that were read through libc getenv
         self.uboot_vars = set() # set of env vars that were read through libc getenv
         self.mtd_vars = set() # set of mtd partitions read out of /proc/mtd
-        self.logger = getColoredLogger("plugins.env_tracker", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
+        self.logger = getColoredLogger("plugins.env_tracker")
+        if self.get_arg_bool("verbose"):
+            self.logger.setLevel("DEBUG")
 
         self.default_env_vars = DEFAULT_ENV_VARS
         self.conf = self.get_arg("conf")
@@ -200,7 +202,9 @@ class TargetCmp(PyPlugin):
         # in targetcmp/callwitharg/callstack_instr.
         panda.disable_tb_chaining()
 
-        self.logger = getColoredLogger("plugins.TargetCmp", level="INFO" if not self.get_arg_bool("verbose") else "DEBUG")
+        self.logger = getColoredLogger("plugins.TargetCmp")
+        if self.get_arg_bool("verbose"):
+            self.logger.setLevel("DEBUG")
 
         self.outdir = self.get_arg("outdir")
         self.logger.info(f"Dynamically searching for {self.target_key}")

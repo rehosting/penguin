@@ -60,9 +60,12 @@ class PathHighlightingFormatter(coloredlogs.ColoredFormatter):
         message = re.sub(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5})', coloredlogs.ansi_wrap(r'\1', color='green', bold=True), message)
         return message
 
-def getColoredLogger(name, level='INFO'):
+def getColoredLogger(name):
+    '''
+    Get or create a coloredlogger at INFO.
+    '''
     logger = logging.getLogger(name)
-    logger.setLevel(level)  # Set the logger level
+    level = logging.INFO
 
     # Set formatter with custom path highlighting
     formatter = PathHighlightingFormatter(fmt='%(asctime)s %(name)s %(levelname)s %(message)s', datefmt='%H:%M:%S')
@@ -74,11 +77,6 @@ def getColoredLogger(name, level='INFO'):
         handler.setLevel(level)  # Set the handler level
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-    else:
-        # Check if requested level is different from the current level
-        if logger.getEffectiveLevel() != level:
-            logger.warning(f"Logger %s already configured with level %s", name, logger.getEffectiveLevel())
-            logger.warning("To change the level of an existing logger, please use the setLevel method instead of getColoredLogger")
 
     # Prevent log messages from propagating to parent loggers (i.e., penguin.manager should not also log for penguin)
     logger.propagate = False
