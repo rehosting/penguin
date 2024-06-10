@@ -117,7 +117,7 @@ def redirect_stdout_stderr(stdout_path, stderr_path):
         os.close(new_stderr)
 
 
-def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, timeout=None, show_output=False, verbose=False):
+def run_config(proj_dir, conf_yaml, out_dir=None, logger=None, init=None, timeout=None, show_output=False, verbose=False):
     '''
     conf_yaml a path to our config within proj_dir
     proj_dir contains config.yaml
@@ -125,15 +125,22 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
     '''
 
     # Ensure config_yaml is directly in proj_dir
-    if os.path.dirname(conf_yaml) != proj_dir:
-        raise ValueError(f"config_yaml must be in proj_dir: config directory {os.path.dirname(conf_yaml)} != {proj_dir}")
+    # XXX did we remove this dependency correctly?
+    #if os.path.dirname(conf_yaml) != proj_dir:
+    #    raise ValueError(f"config_yaml must be in proj_dir: config directory {os.path.dirname(conf_yaml)} != {proj_dir}")
+
+    if not os.path.isdir(proj_dir):
+        raise ValueError(f"Project directory not found: {proj_dir}")
+
+    if not os.path.isfile(conf_yaml):
+        raise ValueError(f"Config file not found: {conf_yaml}")
 
     qcow_dir = os.path.join(proj_dir, 'qcows')
     if not os.path.isdir(qcow_dir):
         os.makedirs(qcow_dir, exist_ok=True)
 
     if out_dir is None:
-        out_dir = os.path.join(os.path.dirname(conf_yaml), 'output')
+        out_dir = os.path.join(proj_dir, 'output')
     if not os.path.isdir(out_dir):
         os.makedirs(out_dir, exist_ok=True)
 
@@ -141,7 +148,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
         logger = getColoredLogger('penguin.run')
 
     # Image isn't in our config, but the path we use is a property
-    # of configs fiiles section - we'll hash it to get a path
+    # of configs files section - we'll hash it to get a path
     # Read input config and validate
     conf = load_config(conf_yaml)
 
@@ -160,7 +167,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
                     inits = yaml.safe_load(f)['igloo_init']
             except FileNotFoundError:
                 inits = []
-            raise RuntimeError(f"No init binary is specified in configuraiton, set one in config's env section as igloo_init. Static analysis identified the following: {inits}")
+            raise RuntimeError(f"No init binary is specified in configuration, set one in config's env section as igloo_init. Static analysis identified the following: {inits}")
 
 
     archend = conf['core']['arch']
@@ -171,7 +178,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
     conf_plugins = conf['plugins'] # {plugin_name: {enabled: False, other... opts}}
 
     if isinstance(conf_plugins, list):
-        logger.info("Warning, execpted dict of plugins, got list")
+        logger.info("Warning, expected dict of plugins, got list")
         conf_plugins = {plugin: {} for plugin in conf_plugins}
 
     if not os.path.isfile(kernel):
@@ -184,7 +191,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
     image_filename = f"image_{h}.qcow2"
     config_image = os.path.join(qcow_dir, image_filename)
 
-    # Make sure we have a clean out_dir everytime. XXX should we raise an error here instead?
+    # Make sure we have a clean out_dir every time. XXX should we raise an error here instead?
     if os.path.isdir(out_dir):
         shutil.rmtree(out_dir)
     os.makedirs(out_dir)
@@ -199,7 +206,6 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
         logger.info("stalling on lock")
         sleep(1)
 
-
     # If image isn't in our out_dir already, generate it
     if not os.path.isfile(config_image):
         open(lock_file, 'a').close() # create lock file
@@ -209,6 +215,7 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
             fakeroot_gen_image(config_fs, config_image, qcow_dir, conf_yaml)
         except Exception as e:
             logger.error(f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}")
+            logger.error(e, exc_info=True)
             if os.path.isfile(os.path.join(qcow_dir, image_filename)):
                 os.remove(os.path.join(qcow_dir, image_filename))
             raise e
@@ -219,7 +226,12 @@ def run_config(conf_yaml, proj_dir=None, out_dir=None, logger=None, init=None, t
 
         # We expect to have the image now
         if not os.path.isfile(config_image):
-            raise ValueError(f"Image file invalid: {config_image}")
+            raise ValueError(f"GenImage failed to produce {config_image}")
+
+        # If the file is empty, something has gone wrong - delete it and abort
+        if os.path.getsize(config_image) == 0:
+            os.remove(config_image)
+            raise ValueError(f"GenImage produced empty image file: {config_image}")
 
     CID=4 # We can use a constant CID with vhost-user-vsock
     # Create a temp dir for our vhost files:
@@ -459,22 +471,27 @@ def main():
     if verbose := any(x == 'verbose' for x in sys.argv):
         logger.setLevel('DEBUG')
 
-    if len(sys.argv) >= 2:
-        # Given a config, run it. Specify qcow_dir to store qcow if not "dirname(config)""
-        # and specify out_dir to store results if not "dirname(config)/output"
-        config = sys.argv[1]
-        out_dir = sys.argv[2] if len(sys.argv) > 2 else None
+    if len(sys.argv) < 4:
+        raise RuntimeError(f"USAGE {sys.argv[0]} [proj_dir] [config.yaml] [out_dir]")
 
-        proj_dir = os.path.dirname(config)
+    proj_dir = sys.argv[1]
+    config = sys.argv[2]
+    out_dir = sys.argv[3]
 
-        # Two optional args: init and timeout
-        init = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] != "None" else None
-        timeout = int(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] != "None" else None
-        show_output = sys.argv[6]=='show' if len(sys.argv) > 6 else False
+    # Two optional args: init and timeout
+    init = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] != "None" else None
+    timeout = int(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] != "None" else None
+    show_output = sys.argv[6]=='show' if len(sys.argv) > 6 else False
 
-        run_config(config, proj_dir, out_dir, logger, init, timeout, show_output, verbose=verbose)
-    else:
-        raise RuntimeError(f"USAGE {sys.argv[0]} [config.yaml] (out_dir: default is dirname(config.yaml)/output) (qcow_dir: dirname(config.yaml)/qcows)")
+    logger.debug(f"penguin_run start:")
+    logger.debug(f"proj_dir={proj_dir}")
+    logger.debug(f"config={config}")
+    logger.debug(f"out_dir={out_dir}")
+    logger.debug(f"init={init}")
+    logger.debug(f"timeout={timeout}")
+    logger.debug(f"show_output={show_output}")
+
+    run_config(proj_dir, config, out_dir, logger, init, timeout, show_output, verbose=verbose)
 
 if __name__ == "__main__":
     main()
