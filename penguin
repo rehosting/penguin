@@ -359,7 +359,7 @@ penguin_run() {
         DOCKER_BUILDKIT=1 docker build -t $image .
 
         # If we have no other args, and not build_singularity exit 0
-        if [[ ${#new_cmd[@]} -eq 0 && ! $build_singularity ]]; then
+        if [[ ${#new_cmd[@]} -eq 0 && $build_singularity == false ]]; then
             echo "$image built. Exiting as no command was specified."
             exit 0
         fi
