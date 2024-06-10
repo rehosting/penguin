@@ -464,8 +464,12 @@ def fakeroot_gen_image(fs, out, artifacts, config):
         cmd.extend(["--verbose"])
     p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
     p.wait()
+
+    if p.returncode != 0:
+        raise Exception(f"Image generation failed with code {p.returncode}")
     if o.exists():
         return str(o)
+    raise Exception("No image generated")
 
 @click.command()
 @click.option('--fs', required=True, help="Path to a filesystem as a tar gz")
@@ -477,7 +481,17 @@ def makeImage(fs, out, artifacts, config, verbose):
     if verbose:
         logger.setLevel(logging.DEBUG)
 
-    make_image(fs, out, artifacts, config)
+    if not os.path.isfile(config):
+        logger.error(f"Config file {config} not found")
+        sys.exit(1)
+
+    try:
+        make_image(fs, out, artifacts, config)
+    except Exception as e:
+        logger.error(f"Failed to generate image")
+        # Show exception
+        logger.error(e, exc_info=True, stack_info=True)
+        sys.exit(1)
 
 if __name__ == "__main__":
     makeImage()
