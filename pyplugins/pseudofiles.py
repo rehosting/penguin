@@ -1012,12 +1012,12 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 elif failure.info['type'] == 'proc':
                     # TODO: If this is a deep directory, we could try making the directory (i.e., by creating dirname of path /foo)
                     # instead of the actual path
-                    return [Mitigation(f"pseudofile_add_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'add_with_models', 'models': ['zero', 'one'], 'weight': 100})]
+                    return [Mitigation(f"pseudofile_add_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'add_with_models', 'models': ['zero'], 'weight': 100})]
 
                 elif failure.info['type'] == 'sys':
                     # TODO: If this is a deep directory, we could try making the directory (i.e., by creating dirname of path /foo)
                     # instead of the actual path
-                    return [Mitigation(f"pseudofile_add_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'add_with_models', 'models': ['zero', 'one'], 'weight': 100})]
+                    return [Mitigation(f"pseudofile_add_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'add_with_models', 'models': ['zero'], 'weight': 100})]
 
                 #elif failure.info['type'] == 'dynamic_mtd':
                 #    # We just did a dynamic search for MTD devices and found some names - let's add them all.
