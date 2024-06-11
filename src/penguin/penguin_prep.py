@@ -32,7 +32,7 @@ def add_lib_inject(config):
     )
     assert p.returncode == 0
 
-    config['static_files']['/igloo/lib64/lib_inject.so'] = {
+    config['static_files']['/igloo/lib_inject.so'] = {
         'type': 'inline_file',
         'contents': p.stdout,
         'mode': 0o444,
