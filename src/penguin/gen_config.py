@@ -126,21 +126,23 @@ def arch_filter(header):
         if (flags & E_FLAGS.EF_MIPS_32BITMODE):
             description += ", 32bitmode"
 
-        if mips_arch.startswith('mips64'):
+        if mips_arch.startswith('mips64') or bits == "ELFCLASS64":
             bits = 64
         else:
             bits = 32
 
         logger.debug(f"Identified MIPS firmware: arch={mips_arch}, bits={bits}, abi={abi}, endian={endianness}, extras={description}")
 
-        if bits == 32:
-            if endianness == "ELFDATA2LSB":
-                return "mipsel"
-            else:
-                return "mipseb"
+        arch = {
+            (32, "ELFDATA2LSB"): "mipsel",
+            (32, "ELFDATA2MSB"): "mipseb",
+            (64, "ELFDATA2LSB"): "mips64el",
+            (64, "ELFDATA2MSB"): "mips64eb",
+        }.get((bits, endianness), "unknown")
 
-        # 64 bits
-        return "mips64eb"
+        if arch == "unknown":
+            logger.error("Unexpected MIPS architecture: bits %d, endianness %s", bits, endianness)
+        return arch
 
     return "unknown"
 
@@ -165,7 +167,9 @@ def find_architecture(infile):
     # Now select the most common architecture
     if len(arch_counts) == 0:
         return None
-    return arch_counts.most_common(1)[0][0]
+    best = arch_counts.most_common(1)[0][0]
+    logger.debug(f"Identified architecture: {best}")
+    return best
 
 def get_kernel_path(arch, end, static_dir):
     if arch == "arm":
