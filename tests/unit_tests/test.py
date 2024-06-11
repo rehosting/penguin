@@ -55,28 +55,39 @@ def assert_yaml(filepath, subkeys_l, assertion=None):
         return True
     return assert_func
 
-def create_elf_file(filename, e_machine, endian=">"):
+def create_elf_file(filename, e_machine, endian=">", word_size=32):
     # ELF Header fields
     # e_ident part: EI_MAG, EI_CLASS, EI_DATA, EI_VERSION, EI_OSABI, EI_ABIVERSION
     ei_mag = b"\x7fELF"  # Magic number
-    ei_class = b"\x01"   # 32-bit architecture
+    ei_class = b"\x01" if word_size == 32 else b"\x02"  # 32-bit or 64-bit
     ei_data = b"\x01" if endian == "<" else b"\x02"  # Little-endian for <, big-endian for >
     ei_version = b"\x01"  # Original version of ELF
     ei_osabi = b"\x00"    # System V
     ei_abiversion = b"\x00"
     ei_pad = b"\x00" * 7
  
+     # Common fields
     e_type = struct.pack(endian + "H", 0x02)  # Executable file
     e_machine = struct.pack(endian + "H", e_machine)  # Architecture type
     e_version = struct.pack(endian + "I", 0x01)  # ELF version
-    e_entry = struct.pack(endian + "I", 0x00)  # Entry point virtual address
-    e_phoff = struct.pack(endian + "I", 0x00)  # Program header table file offset
-    e_shoff = struct.pack(endian + "I", 0x00)  # Section header table file offset
     e_flags = struct.pack(endian + "I", 0x00)  # Processor-specific flags
-    e_ehsize = struct.pack(endian + "H", 0x34)  # ELF header size
-    e_phentsize = struct.pack(endian + "H", 0x00)  # Program header table entry size
+
+    if word_size == 32:
+        e_entry = struct.pack(endian + "I", 0x00)  # Entry point virtual address
+        e_phoff = struct.pack(endian + "I", 0x00)  # Program header table file offset
+        e_shoff = struct.pack(endian + "I", 0x00)  # Section header table file offset
+        e_ehsize = struct.pack(endian + "H", 0x34)  # ELF header size (52 bytes for 32-bit)
+        e_phentsize = struct.pack(endian + "H", 0x20)  # Program header table entry size
+        e_shentsize = struct.pack(endian + "H", 0x28)  # Section header table entry size
+    else:
+        e_entry = struct.pack(endian + "Q", 0x00)  # Entry point virtual address (64-bit)
+        e_phoff = struct.pack(endian + "Q", 0x00)  # Program header table file offset (64-bit)
+        e_shoff = struct.pack(endian + "Q", 0x00)  # Section header table file offset (64-bit)
+        e_ehsize = struct.pack(endian + "H", 0x40)  # ELF header size (64 bytes for 64-bit)
+        e_phentsize = struct.pack(endian + "H", 0x38)  # Program header table entry size (64-bit)
+        e_shentsize = struct.pack(endian + "H", 0x40)  # Section header table entry size (64-bit)
+
     e_phnum = struct.pack(endian + "H", 0x00)  # Program header table entry count
-    e_shentsize = struct.pack(endian + "H", 0x00)  # Section header table entry size
     e_shnum = struct.pack(endian + "H", 0x00)  # Section header table entry count
     e_shstrndx = struct.pack(endian + "H", 0x00)  # Section header string table index
 
@@ -84,7 +95,7 @@ def create_elf_file(filename, e_machine, endian=">"):
     header = (ei_mag + ei_class + ei_data + ei_version + ei_osabi + ei_abiversion + ei_pad +
               e_type + e_machine + e_version + e_entry + e_phoff + e_shoff + e_flags +
               e_ehsize + e_phentsize + e_phnum + e_shentsize + e_shnum + e_shstrndx)
-    
+
     # Write to file
     with open(filename, "wb") as f:
         f.write(header)
@@ -109,8 +120,15 @@ class TestRunner:
             e_machine = 0xB7
         kwargs = {
             "e_machine": e_machine,
-            "endian": ">" if arch == "mipseb" else "<" # mipseb is only big endian for now
+            "endian": ">" if arch in ["mipseb", "mips64eb"] else "<",
+            "word_size": 64 if arch in ["aarch64", "mips64eb"] else 32
         }
+
+        if "64" in arch and kwargs["word_size"] == 32:
+            logger.warning(f"Architecture {arch} looks like 64-bits but word size is 32-bit")
+
+        if "eb" in arch and kwargs["endian"] == "<":
+            logger.warning(f"Architecture {arch} looks like big-endian but little-endian specified")
 
         # Create tar archive with the ELF file at /bin/busybox
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -174,6 +192,14 @@ class TestRunner:
 
         self._make_project(test_name, kernel_version, arch, proj_dir)
         self._patch_config(test_name, proj_dir)
+        # Sanity check. Config arch should match our arch
+        # Read generated config.yaml
+        with open(proj_dir / Path("config.yaml"), "r") as f:
+            config = yaml.safe_load(f)
+            if config['core']['arch'] != arch:
+                logger.error(f"Generated config arch {config['core']['arch']} does not match requested arch {arch}")
+                return False
+
         self._run_config(kernel_version, arch, test_name, proj_dir)
 
         if not self._check_results(test_name, proj_dir / Path("output"), assertion):
