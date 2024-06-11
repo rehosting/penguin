@@ -45,7 +45,7 @@ qemu_configs = {
                     "arch":         "mips64",
                     "kconf_group":  "mips64eb",
                     "mem_gb":          "2",
-                    "cpu": "MIPS63R2-generic",
+                    "cpu": "MIPS64R2-generic",
                 },
 }
 
