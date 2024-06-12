@@ -81,7 +81,7 @@ class HyperFile(PyPlugin):
         # files = {filename: {'read': func, 'write': func, 'ioctl': func}}}
 
         # On hypercall we dispatch to the appropriate handler: read, write, ioctl
-        @panda.cb_guest_hypercall
+        @panda.hypercall(HYPER_MAGIC)
         def before_hypercall(cpu):
             # We pass args in the arch-standard ABI specified in pypanda's arch.py
             # arm: r0, r1, r2

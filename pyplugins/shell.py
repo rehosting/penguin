@@ -41,12 +41,8 @@ class BBCov(PyPlugin):
         with open(join(self.outdir, outfile_env), "w") as f:
             f.write("filename,lineno,pid,envs\n")
 
-        @self.panda.cb_guest_hypercall
+        @self.panda.hypercall(EXPECTED_MAGIC)
         def cb_hypercall(cpu):
-            magic = self.panda.arch.get_arg(cpu, 0, convention="syscall") & 0xFFFFFFFF
-            if magic != EXPECTED_MAGIC:
-                return False
-
             hc_type = self.panda.arch.get_arg(cpu, 1, convention="syscall")
             argptr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
             length = self.panda.arch.get_arg(cpu, 3, convention="syscall")

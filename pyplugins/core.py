@@ -146,48 +146,43 @@ class Core(PyPlugin):
             "igloo_send_hypercall",
         ]:
             self.ppp_cb_boilerplate(cb)
-
-    @PyPlugin.ppp_export
-    def handle_hc(self, cpu, num):
-        try:
-            self._handle_hc(cpu, num & (2**32 - 1))
-        except ValueError:
-            # Argument couldn't be read
-            self.panda.arch.set_arg(cpu, 0, 1)
-        except RuntimeError:
-            # Not one of ours
-            return False
-        except Exception as e:
-            self.logger.warning(f"Error running hypercall {num}")
-            self.logger.exception(e)
-            self.panda.arch.dump_regs(cpu)
-            pass  # Technically we processed it, just badly. Need to ensure we still return bool instead of raising exn
-        return True
-
+        @self.panda.hypercall([100,101,102,103,104,105,106,107,108,109,110,201,202,203,0x6408400B]) 
+        def handle_hc(self, cpu):
+            num = self.panda.arch.get_arg(cpu,0, convention='syscall')
+            try:
+                self._handle_hc(cpu, num)
+            except ValueError:
+                # Argument couldn't be read
+                self.panda.arch.set_arg(cpu, 1, 1)
+            except Exception as e:
+                self.logger.warning(f"Error running hypercall {num}")
+                self.logger.exception(e)
+                self.panda.arch.dump_regs(cpu)
+                pass # Technically we processed it, just badly. Need to ensure we still return bool instead of raising exn
     def _handle_hc(self, cpu, num):
         if num == 100:
             # open/openat (filename*, fd/retval)
-            arg1 = self.panda.arch.get_arg(cpu, 1)
-            fd = self.panda.arch.get_arg(cpu, 2)
+            arg1 = self.panda.arch.get_arg(cpu, 1, convention='syscall')
+            fd = self.panda.arch.get_arg(cpu, 2, convention='syscall')
             fname = self.panda.read_str(cpu, arg1)
             self.ppp_run_cb("igloo_open", cpu, fname, fd)
 
         elif num in [101, 102]:
             # strcmp/strncmp - non-DYNVAL string that's being compared
-            arg1 = self.panda.arch.get_arg(cpu, 1)
+            arg1 = self.panda.arch.get_arg(cpu, 1, convention='syscall')
             value = self.panda.read_str(cpu, arg1)
             self.ppp_run_cb("igloo_string_cmp", cpu, value)
 
         elif num == 103:
             # getenv (name*)
-            arg1 = self.panda.arch.get_arg(cpu, 1)
+            arg1 = self.panda.arch.get_arg(cpu, 1, convention='syscall')
             value = self.panda.read_str(cpu, arg1)
             self.ppp_run_cb("igloo_getenv", cpu, value)
 
         elif num == 104:
             # strstr (haystack*, needle*)
-            arg1 = self.panda.arch.get_arg(cpu, 1)
-            arg2 = self.panda.arch.get_arg(cpu, 2)
+            arg1 = self.panda.arch.get_arg(cpu, 1, convention='syscall')
+            arg2 = self.panda.arch.get_arg(cpu, 2, convention='syscall')
             value1 = self.panda.read_str(cpu, arg1)
             value2 = self.panda.read_str(cpu, arg2)
 
@@ -195,46 +190,52 @@ class Core(PyPlugin):
 
         elif num == 105:
             # ioctl (filename*, cmd)
-            arg1 = self.panda.arch.get_arg(cpu, 1)
+            arg1 = self.panda.arch.get_arg(cpu, 1, convention='syscall')
             value1 = self.panda.read_str(cpu, arg1)
-            arg2 = self.panda.arch.get_arg(cpu, 2)
+            arg2 = self.panda.arch.get_arg(cpu, 2, convention='syscall')
 
             self.ppp_run_cb("igloo_ioctl", cpu, value1, arg2)
 
+        elif num == 106:
+            # read of /proc/mtd -> need to write a string into buffer
+            buffer = self.panda.arch.get_arg(cpu, 1, convention='syscall')
+            buffer_len = self.panda.arch.get_arg(cpu, 2, convention='syscall')
+            self.ppp_run_cb('igloo_proc_mtd', cpu, buffer, buffer_len)
+
         elif num == 107:
             # NVRAM miss
-            buffer = self.panda.arch.get_arg(cpu, 1)
-            buffer_len = self.panda.arch.get_arg(cpu, 2)
+            buffer = self.panda.arch.get_arg(cpu, 1, convention='syscall')
+            buffer_len = self.panda.arch.get_arg(cpu, 2, convention='syscall')
             s = self.panda.read_str(cpu, buffer, max_length=buffer_len)
             self.ppp_run_cb("igloo_nvram_get", cpu, s, False)
 
         elif num == 108:
             # NVRAM hit
-            buffer = self.panda.arch.get_arg(cpu, 1)
-            buffer_len = self.panda.arch.get_arg(cpu, 2)
+            buffer = self.panda.arch.get_arg(cpu, 1, convention='syscall')
+            buffer_len = self.panda.arch.get_arg(cpu, 2, convention='syscall')
             s = self.panda.read_str(cpu, buffer, max_length=buffer_len)
             self.ppp_run_cb("igloo_nvram_get", cpu, s, True)
 
         elif num == 109:
             # NVRAM set
-            buffer = self.panda.arch.get_arg(cpu, 1)
-            val = self.panda.arch.get_arg(cpu, 2)
+            buffer = self.panda.arch.get_arg(cpu, 1, convention='syscall')
+            val = self.panda.arch.get_arg(cpu, 2, convention='syscall')
             s1 = self.panda.read_str(cpu, buffer)
             s2 = self.panda.read_str(cpu, val)
             self.ppp_run_cb("igloo_nvram_set", cpu, s1, s2)
 
         elif num == 110:
             # NVRAM clear
-            buffer = self.panda.arch.get_arg(cpu, 1)
-            buffer_len = self.panda.arch.get_arg(cpu, 2)
+            buffer = self.panda.arch.get_arg(cpu, 1, convention='syscall')
+            buffer_len = self.panda.arch.get_arg(cpu, 2, convention='syscall')
             s = self.panda.read_str(cpu, buffer, max_length=buffer_len)
             self.ppp_run_cb("igloo_nvram_clear", cpu, s)
 
         elif num in [200, 202]:
             # 200: ipv4 setup, 202: ipv6 setup
-            arg1 = self.panda.arch.get_arg(cpu, 1)
+            arg1 = self.panda.arch.get_arg(cpu, 1, convention='syscall')
 
-            arg2 = self.panda.arch.get_arg(cpu, 2)
+            arg2 = self.panda.arch.get_arg(cpu, 2, convention='syscall')
             ipv4 = num == 200
 
             if ipv4:
@@ -250,32 +251,17 @@ class Core(PyPlugin):
         elif num in [201, 203]:
             # 201: ipv4 bind, 203: ipv6 bind
             ipv4 = num == 201
-            port = self.panda.arch.get_arg(cpu, 1)
-            is_stream = self.panda.arch.get_arg(cpu, 2) != 0
-            self.ppp_run_cb(
-                "igloo_bind",
-                cpu,
-                self.pending_procname,
-                ipv4,
-                is_stream,
-                port,
-                self.pending_sin_addr,
-            )
+            port = self.panda.arch.get_arg(cpu, 1, convention='syscall')
+            is_stream = self.panda.arch.get_arg(cpu, 2, convention='syscall') != 0
+            self.ppp_run_cb('igloo_bind', cpu, self.pending_procname, ipv4, is_stream,
+                                            port, self.pending_sin_addr)
             self.pending_procname = None
             self.pending_sin_addr = None
 
         elif num == 0x6408400B:
             # syscall
-            buf_addr = self.panda.arch.get_arg(cpu, 1)
-            self.ppp_run_cb("igloo_syscall", cpu, buf_addr)
-
-        elif num == 0xB335A535:
-            # send_hypercall
-            raise RuntimeError(f"handle_hc called with unknown hypercall: {num}")
-            buf_addr = self.panda.arch.get_arg(cpu, 1)
-            buf_num_ptrs = self.panda.arch.get_arg(cpu, 2)
-            #self.ppp_run_cb('igloo_send_hypercall', cpu, buf_addr, buf_num_ptrs)
-
+            buf_addr = self.panda.arch.get_arg(cpu, 1, convention='syscall')
+            self.ppp_run_cb('igloo_syscall', cpu, buf_addr)
         else:
             raise RuntimeError(f"handle_hc called with unknown hypercall: {num}")
 

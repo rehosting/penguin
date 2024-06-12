@@ -513,16 +513,7 @@ def run_config(
         """
         panda.pyplugins.unload_all()
 
-    @panda.cb_guest_hypercall
-    def before_hc(cpu):
-        # This is a bit of a hack. We want this in core.py, but we were seeing
-        # some panda segfaults at shutdown when the Core pyplugin was uninitialized
-        # but the guest was still running and panda was trying to call into the
-        # freed python cffi callback object. As a workaround we have it here.
-        num = panda.arch.get_arg(cpu, 0)
-        if target := getattr(panda.pyplugins.ppp, "Core", None):
-            return target.handle_hc(cpu, num)  # True IFF that handles num
-        return False
+
 
     logger.info("Launching rehosting")
 
