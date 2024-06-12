@@ -1,0 +1,57 @@
+# Dependency Licenses
+
+This project uses the following components, each of which is licensed as described below.
+
+## Fw2Tar
+
+- **License**: [MIT](https://opensource.org/license/MIT)
+- **Source**: [GitHub Repository]https://github.com/rehosting/fw2tar)
+
+## VPNguin
+
+- **License**: [MIT License](https://opensource.org/licenses/MIT)
+- **Source**: [GitHub Repository](https://github.com/rehosting/vpnguin)
+## HyperFS
+
+- **License**: (LGPL-2.1)[https://opensource.org/license/lgpl-2-1]
+- **Source**: [GitHub Repository](https://github.com/rehosting/hyperfs)
+
+## PenguinPlugins
+
+- **License**: [MIT License](https://opensource.org/licenses/MIT)
+- **Source**: [GitHub Repository](https://github.com/rehosting/penguin_plugins)
+
+## Linux
+
+- **License**: [GPL-2](https://opensource.org/license/gpl-2-0)
+- **Source**: [GitHub Repository]https://github.com/rehosting/linux)
+
+## Busybox
+
+- **License**: [GPL-2](https://opensource.org/license/gpl-2-0)
+- **Source**: [GitHub Repository]https://github.com/rehosting/busybox)
+
+## LibNVRAM
+
+- **License**: [MIT](https://opensource.org/license/MIT)
+- **Source**: [GitHub Repository]https://github.com/rehosting/libnvram)
+
+## Console
+
+- **License**: [MIT](https://opensource.org/license/MIT)
+- **Source**: [GitHub Repository]https://github.com/rehosting/console)
+
+## Unblob
+
+- **License**: [MIT and custom](https://github.com/rehosting/unblob/blob/main/LICENSE)
+- **Source**: [GitHub Repository]https://github.com/rehosting/unblob)
+
+## Binwalk
+
+- **License**: [MIT](https://opensource.org/license/MIT)
+- **Source**: [GitHub Repository]https://github.com/rehosting/binwalk)
+
+## NMAP
+
+- **License**: [Nmap Public Source License Version 0.95](https://github.com/rehosting/nmap/blob/master/LICENSE)
+- **Source**: [GitHub Repository]https://github.com/rehosting/nmap)
