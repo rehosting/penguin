@@ -113,6 +113,9 @@ RUN wget -qO- https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-${LTRACE_PRO
   mv /ltrace-*/etc /tmp/ltrace && \
   rm -rf /ltrace-*
 
+# Add libnvram ltrace prototype file
+COPY ./src/resources/ltrace_nvram.conf /tmp/ltrace/lib_inject.so.conf
+
 # Download custom panda plugins built from CI. Populate /panda_plugins
 ARG PENGUIN_PLUGINS_VERSION
 RUN /get_release.sh rehosting penguin_plugins ${PENGUIN_PLUGINS_VERSION} ${DOWNLOAD_TOKEN} | \
