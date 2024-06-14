@@ -37,6 +37,10 @@ def arch_end(value):
         end = "el"
     elif tmp.endswith("eb"):
         end = "eb"
+
+    if arch is None or end is None:
+        logger.error(f"Unhandled arch_end for {value}. Have arch={arch}, end={end}")
+
     return (arch, end)
 
 def binary_filter(fsbase, name):
@@ -47,104 +51,154 @@ def binary_filter(fsbase, name):
     # might be good to add "*.so" to this list
     return name.endswith("busybox")
 
+def _identify_arm_arch(header):
+    '''
+    Check for hard/soft float
+    '''
+    endian = header.e_ident["EI_DATA"]
+    bits = header.e_ident["EI_CLASS"]
+    flags = header['e_flags']
+
+    endianness = {
+        'ELFDATA2LSB': 'little',
+        'ELFDATA2MSB': 'big'
+    }.get(endian, 'unknown')
+
+    bits = {
+        'ELFCLASS32': 32,
+        'ELFCLASS64': 64
+    }.get(bits, None)
+
+    if bits != 32:
+        logger.warning("Unexpected ARM bit class: %d", bits)
+
+    # ARM-specific flags
+    EF_ARM_ABI_FLOAT_HARD = 0x00000400
+    EF_ARM_ABI_FLOAT_SOFT = 0x00000200
+
+    if flags & EF_ARM_ABI_FLOAT_HARD:
+        # Armhf is always little endian
+        if endianness == 'big':
+            logger.warning("Unexpected ARM HF endian: %s", endianness)
+        arm_type = 'armhf'
+    else:
+        arm_type = 'armel' if endianness == 'little' else 'armeb'
+        if not flags & EF_ARM_ABI_FLOAT_SOFT:  # not EF_ARM_ABI_FLOAT_SOFT - what could it be?
+            logger.warning("Unexpected ARM ABI: %s", hex(flags))
+
+    logger.debug(f"Identified ARM firmware: arch={arm_type}, bits={bits}, endian={endianness}")
+
+    return arm_type
+
+def _identify_mips_arch(header):
+    '''
+    Mips is more complicated. We could have 32 bit binaries that only run on a 64-bit
+    system (i.e., mips64 with the n32 ABI). Other permutations will likely cause issues
+    later so trying to future-proof this a bit. Masks/comparisons based off readelf.py
+    from PyElfTools.
+    '''
+    endianness = header.e_ident["EI_DATA"]
+    bits = header.e_ident["EI_CLASS"]
+    flags = header['e_flags']
+
+    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_1:
+        mips_arch ="mips1"
+    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_2:
+        mips_arch ="mips2"
+    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_3:
+        mips_arch ="mips3"
+    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_4:
+        mips_arch ="mips4"
+    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_5:
+        mips_arch ="mips5"
+    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_32R2:
+        mips_arch ="mips32r2"
+    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_64R2:
+        mips_arch ="mips64r2"
+    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_32:
+        mips_arch ="mips32"
+    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_64:
+        mips_arch ="mips64"
+
+
+    if (flags & E_FLAGS_MASKS.EFM_MIPS_ABI_O32):
+        abi = "o32"
+    elif (flags & E_FLAGS_MASKS.EFM_MIPS_ABI_O64):
+        abi = "o64" # never seen this before - unsupported for now?
+    elif (flags & E_FLAGS_MASKS.EFM_MIPS_ABI_EABI32):
+        abi = "n32"
+    elif (flags & E_FLAGS_MASKS.EFM_MIPS_ABI_EABI64):
+        abi = "n64"
+    else:
+        abi = None
+
+    # Some extra flags that only affect what gets printed
+    description = 'mips'
+    if flags & E_FLAGS.EF_MIPS_NOREORDER:
+        description += ", noreorder"
+    if flags & E_FLAGS.EF_MIPS_PIC:
+        description += ", pic"
+    if flags & E_FLAGS.EF_MIPS_CPIC:
+        description += ", cpic"
+    if (flags & E_FLAGS.EF_MIPS_ABI2):
+        description += ", abi2"
+    if (flags & E_FLAGS.EF_MIPS_32BITMODE):
+        description += ", 32bitmode"
+
+    if mips_arch.startswith('mips64') or bits == "ELFCLASS64":
+        bits = 64
+    else:
+        bits = 32
+
+    logger.debug(f"Identified MIPS firmware: arch={mips_arch}, bits={bits}, abi={abi}, endian={endianness}, extras={description}")
+
+    arch = {
+        (32, "ELFDATA2LSB"): "mipsel",
+        (32, "ELFDATA2MSB"): "mipseb",
+        (64, "ELFDATA2LSB"): "mips64el",
+        (64, "ELFDATA2MSB"): "mips64eb",
+    }.get((bits, endianness), "unknown")
+
+    if arch == "unknown":
+        logger.error("Unexpected MIPS architecture: bits %d, endianness %s", bits, endianness)
+    return arch
+
+
 def arch_filter(header):
-    supported_map = {
+    if not isinstance(header.e_machine, str):
+        # It's an int sometimes? That's no good
+        logger.warning(f"Unexpected e_machine type: {type(header.e_machine)}: {header.e_machine}. Cannot identify architecture.")
+        return "unknown"
+
+    friendly_arch = header.e_machine.replace("EM_", "")
+
+    arch = {
+        # Normal architectures:
         "X86_64": "intel64",
         "386": "intel",
-        "ARM": "armel",
         "AARCH64": "aarch64",
         "PPC": "ppc",
         "PPC64": "ppc64",
-    }
+        # Additional processing required for these:
+        "ARM": "arm",
+        "MIPS": "mips",
+    }.get(friendly_arch, "unknown")
 
-    if not isinstance(header.e_machine, str):
-        # It's an int sometimes? That's no good
-        return "unknown"
+    if arch == "unknown":
+        logger.warning(f"Unsupported architecture: {friendly_arch}")
+        logger.debug(f"ELF Header: {header}")
 
-    arch = header.e_machine.replace("EM_","")
+    # Special processing for ARM and MIPS
+    if arch == "arm":
+        arch = _identify_arm_arch(header)
+    elif arch == "mips":
+        arch = _identify_mips_arch(header)
+    elif arch != "unknown":
+        # Other architectures get eb suffix if big-endian. mips/arm are handled in their helpers
+        if header.e_ident.get("EI_DATA", None) == "ELFDATA2MSB":
+            arch += "eb"
 
-    if "EI_DATA" in header.e_ident:
-        endianness = header.e_ident["EI_DATA"]
-        if endianness == "ELFDATA2MSB":
-            if arch != 'MIPS':
-                # Only mips big endian is supported for now
-                return arch + "EB"
-
-    if arch in supported_map:
-        return supported_map[arch]
-
-    if arch == "MIPS":
-        # Mips is more complicated. We could have 32 bit binaries that only run on a 64-bit
-        # system (i.e., mips64 with the n32 ABI). Other permutations will likely cause issues
-        # later so trying to future-proof this a bit. Masks/comparisons based off readelf.py
-        # from PyElfTools.
-        endianness = header.e_ident["EI_DATA"]
-        bits = header.e_ident["EI_CLASS"]
-        flags = header['e_flags']
-
-        if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_1:
-            mips_arch ="mips1"
-        if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_2:
-            mips_arch ="mips2"
-        if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_3:
-            mips_arch ="mips3"
-        if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_4:
-            mips_arch ="mips4"
-        if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_5:
-            mips_arch ="mips5"
-        if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_32R2:
-            mips_arch ="mips32r2"
-        if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_64R2:
-            mips_arch ="mips64r2"
-        if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_32:
-            mips_arch ="mips32"
-        if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_64:
-            mips_arch ="mips64"
-
-
-        if (flags & E_FLAGS_MASKS.EFM_MIPS_ABI_O32):
-            abi = "o32"
-        elif (flags & E_FLAGS_MASKS.EFM_MIPS_ABI_O64):
-            abi = "o64" # never seen this before - unsupported for now?
-        elif (flags & E_FLAGS_MASKS.EFM_MIPS_ABI_EABI32):
-            abi = "n32"
-        elif (flags & E_FLAGS_MASKS.EFM_MIPS_ABI_EABI64):
-            abi = "n64"
-        else:
-            abi = None
-
-        # Some extra flags that only affect what gets printed
-        description = 'mips'
-        if flags & E_FLAGS.EF_MIPS_NOREORDER:
-            description += ", noreorder"
-        if flags & E_FLAGS.EF_MIPS_PIC:
-            description += ", pic"
-        if flags & E_FLAGS.EF_MIPS_CPIC:
-            description += ", cpic"
-        if (flags & E_FLAGS.EF_MIPS_ABI2):
-            description += ", abi2"
-        if (flags & E_FLAGS.EF_MIPS_32BITMODE):
-            description += ", 32bitmode"
-
-        if mips_arch.startswith('mips64') or bits == "ELFCLASS64":
-            bits = 64
-        else:
-            bits = 32
-
-        logger.debug(f"Identified MIPS firmware: arch={mips_arch}, bits={bits}, abi={abi}, endian={endianness}, extras={description}")
-
-        arch = {
-            (32, "ELFDATA2LSB"): "mipsel",
-            (32, "ELFDATA2MSB"): "mipseb",
-            (64, "ELFDATA2LSB"): "mips64el",
-            (64, "ELFDATA2MSB"): "mips64eb",
-        }.get((bits, endianness), "unknown")
-
-        if arch == "unknown":
-            logger.error("Unexpected MIPS architecture: bits %d, endianness %s", bits, endianness)
-        return arch
-
-    return "unknown"
+    return arch
 
 def find_architecture(infile):
     tf = tarfile.open(infile)
@@ -227,7 +281,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     shutil.copy(fs, base_fs)
     data = {}
     data['core'] = {
-        'arch': arch if arch== "aarch64" else arch+end,
+        'arch': arch if arch == "aarch64" else arch+end,
         'kernel': kernel,
         'fs': "./base/fs.tar.gz",
         'root_shell': True,
