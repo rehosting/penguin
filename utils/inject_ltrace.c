@@ -1,6 +1,7 @@
 #define LTRACE_PATH "/igloo/utils/ltrace"
 #define TTY_PATH "/dev/ttyS0"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,6 +37,25 @@ __attribute__((constructor)) void igloo_start_ltrace(void)
 	// Remove trailing newline
 	if (comm[strlen(comm) - 1] == '\n') {
 		comm[strlen(comm) - 1] = 0;
+	}
+
+	// Don't do anything if the user doesn't want to ltrace this process
+	char *excluded_cmds = getenv("IGLOO_LTRACE_EXCLUDED");
+	if (excluded_cmds) {
+		bool excluded = false;
+		excluded_cmds = strdup(excluded_cmds);
+		char *tok = strtok(excluded_cmds, ",");
+		while (tok) {
+			if (!strcmp(tok, comm)) {
+				excluded = true;
+				break;
+			}
+			tok = strtok(NULL, ",");
+		}
+		free(excluded_cmds);
+		if (excluded) {
+			return;
+		}
 	}
 
 	if (fork()) {
