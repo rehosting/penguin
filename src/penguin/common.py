@@ -81,4 +81,13 @@ def getColoredLogger(name):
     # Prevent log messages from propagating to parent loggers (i.e., penguin.manager should not also log for penguin)
     logger.propagate = False
 
+    def custom_set_level(level):
+        logger._setLevel(level)
+        for handler in logger.handlers:
+            handler.setLevel(level)
+
+    # Monkeypatch so users can change level
+    logger._setLevel = logger.setLevel
+    logger.setLevel = custom_set_level
+
     return logger
