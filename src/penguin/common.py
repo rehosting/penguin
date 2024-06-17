@@ -74,6 +74,7 @@ def getColoredLogger(name):
     if not logger.handlers:
         # Create and configure a stream handler
         handler = logging.StreamHandler()
+        logger.setLevel(level)
         handler.setLevel(level)  # Set the handler level
         handler.setFormatter(formatter)
         logger.addHandler(handler)
