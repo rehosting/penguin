@@ -11,6 +11,8 @@ class Health(PyPlugin):
         self.logger = getColoredLogger("plugins.health")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
+        else:
+            self.logger.setLevel("INFO")
 
         # XXX no longer used to track time
         self.events = { # Class: [(time, score)]

@@ -18,6 +18,8 @@ class SendHypercall(PyPlugin):
         self.logger = getColoredLogger("plugins.send_hypercall")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
+        else:
+            self.logger.setLevel("INFO")
 
         # Command-specific init
 

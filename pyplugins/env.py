@@ -44,6 +44,8 @@ class EnvTracker(PyPlugin):
         self.logger = getColoredLogger("plugins.env_tracker")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
+        else:
+            self.logger.setLevel("INFO")
 
         self.default_env_vars = DEFAULT_ENV_VARS
         self.conf = self.get_arg("conf")
@@ -205,6 +207,8 @@ class TargetCmp(PyPlugin):
         self.logger = getColoredLogger("plugins.TargetCmp")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
+        else:
+            self.logger.setLevel("INFO")
 
         self.outdir = self.get_arg("outdir")
         self.logger.info(f"Dynamically searching for {self.target_key}")

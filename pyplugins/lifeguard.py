@@ -21,6 +21,8 @@ class Lifeguard(PyPlugin):
         self.logger = getColoredLogger("plugins.lifeguard")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
+        else:
+            self.logger.setLevel("INFO")
 
         blocked_signals = []
         conf = self.get_arg("conf")

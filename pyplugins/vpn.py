@@ -46,6 +46,8 @@ class VsockVPN(PyPlugin):
         self.logger = getColoredLogger("plugins.VPN")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
+        else:
+            self.logger.setLevel("INFO")
 
         # Check if we have CONTAINER_{IP,NAME} in env
         self.exposed_ip = env.get("CONTAINER_IP", None)

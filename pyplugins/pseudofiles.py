@@ -144,6 +144,8 @@ class FileFailures(PyPlugin):
         self.logger = getColoredLogger("plugins.pseudofiles")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel(logging.DEBUG)
+        else:
+            self.logger.setLevel(logging.INFO)
 
         # XXX: It has seemed like this should be 1 for some architectures, but that can't be right?
         self.ENOENT = 2

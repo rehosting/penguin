@@ -28,6 +28,8 @@ class BBCov(PyPlugin):
         self.logger = getColoredLogger("plugins.shell")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
+        else:
+            self.logger.setLevel("INFO")
 
         # initialize outfiles:
         with open(join(self.outdir, outfile_cov), "w") as f:

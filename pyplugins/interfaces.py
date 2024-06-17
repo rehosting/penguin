@@ -23,6 +23,8 @@ class Interfaces(PyPlugin):
         self.logger = getColoredLogger("plugins.interfaces")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
+        else:
+            self.logger.setLevel("INFO")
 
         open(f'{self.outdir}/{iface_log}', 'w').close()
         open(f'{self.outdir}/{ioctl_log}', 'w').close()
