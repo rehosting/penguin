@@ -127,6 +127,18 @@ def hash_image_inputs(proj_dir, conf):
             if not data:
                 break
             fs_hash.update(data)
+
+    # Include nvram keys in the hash
+    config_nvram = conf['nvram'] if 'nvram' in conf else {}
+    for k, val in config_nvram.items():
+        if isinstance(val, str):
+            encoded = val.encode()
+        elif isinstance(val, int):
+            encoded = str(val).encode()
+        else:
+            raise ValueError(f"Unknown type for nvram value {k}: {type(val)}")
+        fs_hash.update(encoded)
+
     fs_hash = fs_hash.hexdigest()
 
     # If we ever add other ways to import static files, this assert should
