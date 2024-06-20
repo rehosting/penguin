@@ -626,7 +626,7 @@ class Main(BaseModel):
     pseudofiles: Pseudofiles
     nvram: NVRAM
     netdevs: List[str] = NetDevs
-    #uboot_env: Optional[UBootEnv] = None
+    uboot_env: Optional[UBootEnv] = None
     blocked_signals: List[int] = BlockedSignalsField
     lib_inject: LibInject
     static_files: StaticFiles

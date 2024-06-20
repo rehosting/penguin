@@ -9,7 +9,8 @@ pseudofiles:
   /sys/testdir/foo: {}
   /sys/dir/test:
     read:
-      model: one
+      model: const_buf
+      val: "1"
     write:
       model: discard
 

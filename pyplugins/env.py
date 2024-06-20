@@ -131,8 +131,8 @@ class EnvTracker(PyPlugin):
 
         # Write mtd vars
         with open(pjoin(self.outdir, mtd_output), "w") as f:
-            for f in self.mtd_vars:
-                f.write(f + "\n")
+            for var in self.mtd_vars:
+                f.write(var + "\n")
 
     @staticmethod
     def uboot_var_interesting(var):

@@ -11,30 +11,21 @@ static_files:
   /init:
     type: inline_file
     contents: |
-      #!/igloo/utils/sh
-      set -eux
+      #!/igloo/utils/micropython
 
-      /igloo/utils/busybox cat /proc/mtd
+      import ffi
 
-      # Look for the device named "flash" in /proc/mtd
-      #device_info=$(/igloo/utils/busybox grep '"flash"' /proc/mtd)
-      device_path=""
+      lib_inject = ffi.open("/igloo/lib_inject.so")
 
-      # XXX read line by line
-      while IFS= read -r line; do
-        if [[ "$line" == *\"flash\"* ]]; then
-          device="${line%%:*}"
-          device_path="/dev/${device}"
-          break
-        fi
-      done < /proc/mtd
-      
+      strstr = lib_inject.func("s", "strstr", "ss")
 
-      if [ -n "$device_info" ]; then
-          echo "Error: found an MTD device named flash somehow"
-          exit 1
-      else
-          echo "Correctly found no MTD flash device"
-          exit 0
-      fi
+      device_path = None
+      with open("/proc/mtd") as f:
+        for line in f:
+          if strstr(line, "flash"):
+            device = line.split(":")[0]
+            device_path = f"/dev/{device}"
+            break
+
+      print("flash device path:", device_path)
     mode: 73

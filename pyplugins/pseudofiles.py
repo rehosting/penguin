@@ -217,6 +217,8 @@ class FileFailures(PyPlugin):
                 hyper("read"): make_rwif({'val': " ".join(self.get_arg("conf")["netdevs"])}, self.read_const_buf)
             }
 
+        hf_config["/proc/mtd"] = {HYPER_READ: self.proc_mtd_check}
+
         self.config['env']['IGLOO_HYPERFILE_PATHS'] = ":".join(hf_config.keys())
 
         self.logger.debug(f"Registered pseudofiles:")
@@ -242,8 +244,6 @@ class FileFailures(PyPlugin):
         # did it in the kernel
         self.ppp.Core.ppp_reg_cb('igloo_open', self.fail_detect_opens)
         self.ppp.Core.ppp_reg_cb('igloo_ioctl', self.fail_detect_ioctl)
-
-        self.ppp.Core.ppp_reg_cb('igloo_proc_mtd', self.proc_mtd_check)
 
         # On ioctl return we might want to start symex. We detect failures with a special handler though
         if need_ioctl_hooks:
@@ -353,7 +353,7 @@ class FileFailures(PyPlugin):
                 self.file_failures[path][event]['details'] = []
             self.file_failures[path][event]['details'].append(event_details)
 
-    def proc_mtd_check(self, cpu, buffer, buffer_sz):
+    def proc_mtd_check(self, filename, buffer, length, offset, details=None):
         '''
         The guest is reading /proc/mtd. We should populate this file
         dynamically based on the /dev/mtd* devices we've set up.
@@ -365,6 +365,9 @@ class FileFailures(PyPlugin):
                 model: return_const
                 buf: "foo"
         '''
+
+        assert filename == "/proc/mtd"
+
         # For each device in our config that's /dev/mtdX, we'll add a line to the buffer
         # Buffer size is limited to 512 in kernel for now.
         buf = ""
@@ -386,16 +389,7 @@ class FileFailures(PyPlugin):
 
             buf += "mtd{}: {:08x} {:08x} \"{}\"\n".format(int(idx), 0x1000000, 0x20000, details['name'])
 
-        if len(buf) > buffer_sz:
-            self.logger.warning(f"Truncating mtd buffer from {len(buf)} to {buffer_sz}")
-            buf = buf[:buffer_sz]
-
-        try:
-            self.panda.virtual_memory_write(cpu, buffer, buf.encode())
-            self.panda.arch.set_arg(cpu, 0, 0)  # zero: success
-        except ValueError:
-            print("Proc mtd write failed - retrying")
-            self.panda.arch.set_arg(cpu, 0, 1)  # non-zero = error
+        buf = buf[offset:offset+length].encode()
 
         if len(buf) == 0:
             with open(pjoin(self.outdir, 'pseudofiles_proc_mtd.txt'), "w") as f:
@@ -405,6 +399,7 @@ class FileFailures(PyPlugin):
             # it's looking for a device of a specific name - potential failure we can mitigate
             #self.file_failures['/proc/mtd'] = {'read': {'count': 1, 'details': 'special: no mtd devices in pseudofiles'}}
 
+        return (buf, len(buf))
 
     def fail_detect_ioctl(self, cpu, fname, cmd):
         # A regular (non-dyndev) device was ioctl'd and is returning -ENOTTY so our hypercall triggers

@@ -42,7 +42,7 @@ class SendHypercall(PyPlugin):
 
         # Unpack list of pointers
         word_char = 'I' if arch_bytes == 4 else 'Q' 
-        endianness = '>' if self.panda.arch_name in ["mips", "mips64eb"] else '<'
+        endianness = '>' if self.panda.arch_name in ["mips", "mips64"] else '<'
         ptrs = struct.unpack_from(f"{endianness}{buf_num_ptrs}{word_char}", buf)
         str_ptrs, out_addr = ptrs[:-1], ptrs[-1]
 
