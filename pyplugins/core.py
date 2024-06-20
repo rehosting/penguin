@@ -118,14 +118,14 @@ class Core(PyPlugin):
         # Now define HC callbacks
         # Define callbacks that are triggered from hypercalls
         for cb in ['igloo_open', 'igloo_string_cmp', 'igloo_getenv', 'igloo_strstr',
-                    'igloo_bind', 'igloo_ioctl', 'igloo_proc_mtd', 'igloo_syscall',
+                    'igloo_bind', 'igloo_ioctl', 'igloo_syscall',
                     'igloo_nvram_get', 'igloo_nvram_set', 'igloo_nvram_clear', 'igloo_send_hypercall']:
             self.ppp_cb_boilerplate(cb)
 
     @PyPlugin.ppp_export
     def handle_hc(self, cpu, num):
         try:
-            self._handle_hc(cpu, num)
+            self._handle_hc(cpu, num & (2**32 - 1))
         except ValueError:
             # Argument couldn't be read
             self.panda.arch.set_arg(cpu, 1, 1)
@@ -175,12 +175,6 @@ class Core(PyPlugin):
             arg2 = self.panda.arch.get_arg(cpu, 2)
 
             self.ppp_run_cb('igloo_ioctl', cpu, value1, arg2)
-
-        elif num == 106:
-            # read of /proc/mtd -> need to write a string into buffer
-            buffer = self.panda.arch.get_arg(cpu, 1)
-            buffer_len = self.panda.arch.get_arg(cpu, 2)
-            self.ppp_run_cb('igloo_proc_mtd', cpu, buffer, buffer_len)
 
         elif num == 107:
             # NVRAM miss

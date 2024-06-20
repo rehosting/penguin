@@ -45,9 +45,26 @@ jobs:
       matrix:
         kernel: ["4.10"]
         arch: ["armel", "mipsel", "mipseb", "mips64eb", "aarch64"]
-        test: ["env_unset", "env_cmp", "pseudofile_missing", "pseudofile_ioctl",
-               "pseudofile_readdir", "pseudofile_mmap_shared",
-               "hostfile", "shared_dir", "net_missing"]
+        test:
+          - env_unset
+          - env_cmp
+          - pseudofile_missing
+          - pseudofile_ioctl
+          - hostfile
+          - shared_dir
+          - net_missing
+          - netdevs
+          - proc_self
+          - pseudofile_readdir
+          - pseudofile_mmap_shared
+          - bash
+          - proc_mtd_dynamic
+          - proc_mtd_missing
+          - proc_mtd
+          - pseudofile_devfs
+          - pseudofile_sysfs
+          - uboot_env_cmp
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 import logging
-import re
 import subprocess
 import sys
 import tempfile
@@ -29,7 +28,7 @@ def assert_generic(filepath, patterns):
     '''
     def assert_func(results_dir):
         for pattern in patterns if isinstance(patterns, list) else [patterns]:
-            if not re.search(pattern, (results_dir / Path(filepath)).read_text()):
+            if pattern not in (results_dir / Path(filepath)).read_text():
                 print(f"FAILURE: Pattern {pattern} not found in {filepath}")
                 return False
         return True
@@ -267,7 +266,36 @@ def main():
         "proc_self": assert_generic("console.log", "tests pass"),
         "pseudofile_readdir": assert_generic("console.log", "tests pass"),
         "pseudofile_mmap_shared": assert_generic("console.log", "tests pass"),
+        "bash": assert_generic("bash_cov.csv", [
+            '/init,5,1,"echo ""Hello from $0 $@"""',
+            '/init,6,1,for x in a b c d',
+            '/init,7,1,echo $x',
+        ]),
+        "proc_mtd_dynamic": assert_generic("env_mtd.txt", "flash"),
+        "proc_mtd_missing": assert_generic("pseudofiles_proc_mtd.txt", "read"),
+        "proc_mtd": assert_generic("console.log", "All good"),
+        "pseudofile_devfs": assert_generic("console.log", "[bioset]"),
+        "pseudofile_sysfs": assert_generic("console.log", "[bioset]"),
+        "uboot_env_cmp": assert_generic("env_cmp.txt", "target"),
     }
+
+    # Ensure test configs stay in sync with this script
+    ignored_tests = (
+        set(os.listdir(TEST_DIR))
+        - set(f"{test}.yaml" for test in tests_to_checks.keys())
+    )
+    assert ignored_tests == set(), f"Tests ignored: {ignored_tests}"
+
+    # Ensure this script stays in sync with the CI script
+    with open(TEST_DIR / "../../../.github/workflows/build.yaml") as f:
+        ci_yaml = yaml.safe_load(f)
+    ci_yaml_matrix = ci_yaml["jobs"]["run_tests"]["strategy"]["matrix"]
+    ignored_tests = set(tests_to_checks.keys()) - set(ci_yaml_matrix["test"])
+    assert ignored_tests == set(), f"Tests not run in CI: {ignored_tests}"
+    ignored_archs = set(DEFAULT_ARCHS) - set(ci_yaml_matrix["arch"])
+    assert ignored_archs == set(), f"Archs not tested in CI: {ignored_archs}"
+    ignored_kernels = set(DEFAULT_KERNELS) - set(ci_yaml_matrix["kernel"])
+    assert ignored_kernels == set(), f"Kernels not tested in CI: {ignored_kernels}"
 
     parser = argparse.ArgumentParser(description="Run PENGUIN unit tests.")
     parser.add_argument('--kernel-version', nargs='*', help=f'Kernel version(s) to test. Default: {", ".join(DEFAULT_KERNELS)}', default=DEFAULT_KERNELS)
