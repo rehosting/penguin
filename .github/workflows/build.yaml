@@ -67,7 +67,7 @@ jobs:
         run: |
           mkdir -p artifact_${{ matrix.kernel }}_${{ matrix.arch }}
           cp test_results_${{ matrix.kernel }}_${{ matrix.arch }}.json artifact_${{ matrix.kernel }}_${{ matrix.arch }}/
-          cp -R results/*_${{ matrix.kernel }}_${{ matrix.arch }} artifact_${{ matrix.kernel }}_${{ matrix.arch }}/
+          cp -R $GITHUB_WORKSPACE/tests/unit_tests/results/*_${{ matrix.kernel }}_${{ matrix.arch }} artifact_${{ matrix.kernel }}_${{ matrix.arch }}/
       - name: Upload test results and logs
         uses: actions/upload-artifact@v3
         with:
