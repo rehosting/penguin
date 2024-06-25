@@ -37,8 +37,40 @@ jobs:
           cache-to: type=inline
 
   run_tests:
-    if: github.ref != 'refs/heads/main'
     needs: build_container
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel: ["4.10"]
+        arch: ["armel", "mipsel", "mipseb", "mips64eb", "aarch64"]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Pull the image
+        run: |
+          docker pull rehosting/penguin:${{ github.sha }}
+          docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
+      - name: Run tests for ${{ matrix.arch }}
+        run: |
+          timeout 30m python3 $GITHUB_WORKSPACE/tests/unit_tests/test.py \
+            --kernel-version ${{ matrix.kernel }} \
+            --arch ${{ matrix.arch }} \
+            --output-file test_results_${{ matrix.kernel }}_${{ matrix.arch }}.json
+        continue-on-error: true
+      - name: Prepare test results and logs
+        run: |
+          mkdir -p artifact_${{ matrix.kernel }}_${{ matrix.arch }}
+          cp test_results_${{ matrix.kernel }}_${{ matrix.arch }}.json artifact_${{ matrix.kernel }}_${{ matrix.arch }}/
+          cp -R results/*_${{ matrix.kernel }}_${{ matrix.arch }} artifact_${{ matrix.kernel }}_${{ matrix.arch }}/
+      - name: Upload test results and logs
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results-and-logs-${{ matrix.kernel }}-${{ matrix.arch }}
+          path: artifact_${{ matrix.kernel }}_${{ matrix.arch }}
+
+  process_results:
+    needs: run_tests
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -64,25 +96,27 @@ jobs:
           - pseudofile_devfs
           - pseudofile_sysfs
           - uboot_env_cmp
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Log in to DockerHub
-        uses: docker/login-action@v3
+      - name: Download test results and logs
+        uses: actions/download-artifact@v3
         with:
-          username: rehosting
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # Locally tag as latest, just for testing
-      - name: Pull the image again
+          name: test-results-and-logs-${{ matrix.kernel }}-${{ matrix.arch }}
+          path: test_artifact
+      - name: Process test result
         run: |
-              docker pull rehosting/penguin:${{ github.sha }};
-              docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
-
-      - name: Test ${{ matrix.test }} for ${{ matrix.arch }} kernel v${{ matrix.kernel }}
-        run: timeout 5m python3 $GITHUB_WORKSPACE/tests/unit_tests/test.py --kernel-version ${{ matrix.kernel }} --arch ${{ matrix.arch }} --test ${{ matrix.test }}
+          result=$(jq -r '."${{ matrix.kernel }}"."${{ matrix.arch }}"."${{ matrix.test }}"' test_artifact/test_results_${{ matrix.kernel }}_${{ matrix.arch }}.json)
+          echo "Test result for ${{ matrix.test }} on ${{ matrix.arch }} (kernel ${{ matrix.kernel }}): $result"
+          if [ "$result" != "PASS" ]; then
+            echo "Test failed. Outputting log file:"
+            cat test_artifact/${{ matrix.test }}_${{ matrix.kernel }}_${{ matrix.arch }}/test_log.txt
+            exit 1
+          fi
+      - name: Upload failure details
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: failed-test-details-${{ matrix.kernel }}-${{ matrix.arch }}-${{ matrix.test }}
+          path: test_artifact/${{ matrix.test }}_${{ matrix.kernel }}_${{ matrix.arch }}/test_log.txt
 
   push_docker_and_release:
     needs: build_container
