@@ -13,6 +13,7 @@ class Nmap(PyPlugin):
         self.ppp.VsockVPN.ppp_reg_cb('on_bind', self.nmap_on_bind)
         self.subprocesses = []
         self.lock = Lock()
+        self.custom_nmap = os.path.isfile("/etc/nmap/.custom")
 
     def nmap_on_bind(self, proto, guest_ip, guest_port, host_port, procname):
         '''
@@ -46,7 +47,7 @@ class Nmap(PyPlugin):
                                    # port (i.e., if 80 we scan for http, even if we're going through 4321)
             ]
             + (["--redirect-port", str(guest_port), str(host_port)  # Pretend we're connecting to guest_port, but internally connect to host_port
-              ] if guest_port != host_port else []) # If ports actually match, we skip this
+              ] if (self.custom_nmap and guest_port != host_port) else []) # If unsupported or guest-host ports actually match, we skip this
             + [
                 "-unprivileged", # Don't try anything privileged
                 "-n", # Do not do DNS resolution
