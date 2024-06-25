@@ -25,12 +25,12 @@ FROM $BASE_IMAGE as downloader
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y \
+    bzip2 \
     ca-certificates \
     curl \
     jq \
     less \
     wget \
-    bzip2 \
     xmlstarlet && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /igloo_static \
@@ -172,16 +172,26 @@ RUN mkdir /src/build && cd /src/build && ../configure \
 #### NMAP BUILDER: Build nmap ####
 FROM $BASE_IMAGE as nmap_builder
 ENV DEBIAN_FRONTEND=noninteractive
-# Enable source repos
-RUN sed -Ei 's/^# deb-src /deb-src /' /etc/apt/sources.list
+ARG SSH
+
 RUN apt-get update && apt-get install -q -y \
-      git \
-      python3-setuptools \
-    && apt-get build-dep -y nmap \
-    && rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 https://github.com/rehosting/nmap.git /src
-# We want to install into /build/nmap
-RUN cd /src && ./configure --prefix=/build/nmap && make -j$(nproc) && make install
+    git \
+    openssh-client \
+    python3-setuptools
+
+# OPTIONALLY build and install custom nmap at /build/nmap. Only if SSH keys available and can clone
+# Failure is allowed and non-fatal.
+RUN --mount=type=ssh \
+    mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts && \
+    git clone git@github.com:rehosting/nmap.git /src && \
+    sed -i 's/^# deb-src/deb-src/' /etc/apt/sources.list && \
+    apt-get update && apt-get build-dep -y nmap && \
+    rm -rf /var/lib/apt/lists/* && \
+    cd /src && ./configure --prefix=/build/nmap && make -j$(nproc) && \
+    make install && \
+    mkdir -p /build/nmap/etc/nmap && \
+    touch /build/nmap/etc/nmap/.custom \
+    || mkdir -p /build/nmap
 
 ### Python Builder: Build all wheel files necessary###
 FROM $BASE_IMAGE as python_builder
@@ -255,6 +265,7 @@ RUN apt-get update && apt-get install -y \
     libstdc++6 \
     libxml2 \
     lua-lpeg \
+    nmap \
     python3 \
     python3-lxml \
     python3-venv \

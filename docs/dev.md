@@ -27,6 +27,19 @@ Note that the standard `penguin` wrapper command that we recommend users install
 supports these development options, so you can use these wrapper flags even if
 the `penguin` command is installed for a user or system.
 
+## Private dependencies
+
+Members of penguin development team who wish to use our private nmap fork may build it
+by first launching ssh-agent and then rebuilding their penguin container. This fork is not
+distributed externally (as binaries or source) due to licensing restrictions, but the changes
+are minor.
+
+```sh
+eval $(ssh-agent)
+ssh-agent add ~/.ssh/id_rsa
+penguin --build
+```
+
 ## Dependency Development
 
 If you wish to prototype changes to a Penguin dependency, you can develop the
