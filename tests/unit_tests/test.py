@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import logging
+import os
+import struct
 import subprocess
 import sys
 import tempfile
 import yaml
-import struct
-import os
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO,
@@ -101,11 +102,12 @@ def create_elf_file(filename, e_machine, endian=">", word_size=32):
 
 
 class TestRunner:
-    def __init__(self, kernel_versions, archs, tests, checks):
+    def __init__(self, kernel_versions, archs, tests, checks, output_file=None):
         self.kernel_versions = kernel_versions
         self.archs = archs
         self.tests = tests
         self.checks = checks
+        self.output_file = output_file
         #self.qcows_dir = SCRIPT_PATH / Path("qcows") # TODO: can we cache these across projects?
         #self.qcows_dir.mkdir(exist_ok=True)
 
@@ -217,15 +219,22 @@ class TestRunner:
         return False
 
     def run_all(self):
-        num_fails = 0
+        results = {}
         for kernel_version in self.kernel_versions:
+            results[kernel_version] = {}
             for arch in self.archs:
+                results[kernel_version][arch] = {}
                 for test_name in self.tests:
-                    if not self.run_test(kernel_version, arch, test_name, self.checks[test_name]):
-                        num_fails += 1
-        if num_fails:
-            logger.error(f"{num_fails} tests failed")
-            sys.exit(1)
+                    if self.run_test(kernel_version, arch, test_name, self.checks[test_name]):
+                        results[kernel_version][arch][test_name] = "PASS"
+                    else:
+                        results[kernel_version][arch][test_name] = "FAIL"
+
+        if self.output_file:
+            with open(self.output_file, "w") as f:
+                json.dump(results, f)
+
+        return results
 
 def main():
     tests_to_checks = {
@@ -289,7 +298,7 @@ def main():
     # Ensure this script stays in sync with the CI script
     with open(TEST_DIR / "../../../.github/workflows/build.yaml") as f:
         ci_yaml = yaml.safe_load(f)
-    ci_yaml_matrix = ci_yaml["jobs"]["run_tests"]["strategy"]["matrix"]
+    ci_yaml_matrix = ci_yaml["jobs"]["process_results"]["strategy"]["matrix"]
     ignored_tests = set(tests_to_checks.keys()) - set(ci_yaml_matrix["test"])
     assert ignored_tests == set(), f"Tests not run in CI: {ignored_tests}"
     ignored_archs = set(DEFAULT_ARCHS) - set(ci_yaml_matrix["arch"])
@@ -301,6 +310,7 @@ def main():
     parser.add_argument('--kernel-version', nargs='*', help=f'Kernel version(s) to test. Default: {", ".join(DEFAULT_KERNELS)}', default=DEFAULT_KERNELS)
     parser.add_argument('--arch', nargs='*', help=f'Architecture(s) to test. Default: {", ".join(DEFAULT_ARCHS)}', default=DEFAULT_ARCHS)
     parser.add_argument('--test', nargs='*', help=f'Specific test(s) to run. Default: {", ".join(list(tests_to_checks.keys()))}')
+    parser.add_argument('--output-file', help='Output file', default=None)
     args = parser.parse_args()
 
     kernel_versions = args.kernel_version
@@ -324,8 +334,22 @@ def main():
         tests = list(tests_to_checks.keys())
 
 
-    runner = TestRunner(kernel_versions, archs, tests, {test: tests_to_checks[test] for test in tests})
-    runner.run_all()
+    runner = TestRunner(kernel_versions, archs, tests, {test: tests_to_checks[test] for test in tests}, args.output_file)
+    results = runner.run_all()
+
+    # Check for any failures
+    has_failures = any(
+        result == "FAIL"
+        for kernel in results.values()
+        for arch in kernel.values()
+        for result in arch.values()
+    )
+
+    if has_failures:
+        logger.error("Some tests failed. Check the output file for details.")
+        sys.exit(1)
+    else:
+        logger.info("All tests passed successfully.")
 
 if __name__ == "__main__":
     main()
