@@ -353,31 +353,50 @@ COPY ./pyplugins/ /pandata
 CMD ["/usr/local/bin/banner.sh"]
 
 
-# To install local builds of penguin deps, build and copy
-# into this directory and then uncomment the relevant lines
+# If we have dependencies in ./local_packages, we'll copy these in at build-time
+# and replace the previously-installed version.
 
-#COPY penguin_plugins.tar.gz /tmp
-#RUN mkdir -p /tmp/plug && \
-#    tar xzf /tmp/penguin_plugins.tar.gz -C /tmp/plug && \
-#    mv /tmp/plug/arm/* /usr/local/lib/panda/arm && \
-#    mv /tmp/plug/mips/* /usr/local/lib/panda/mips && \
-#    mv /tmp/plug/mipsel/* /usr/local/lib/panda/mipsel && \
-#    mv /tmp/plug/mips64/* /usr/local/lib/panda/mips64
+# Supported packages filesnames are listed in docs/dev.md
 
-#COPY kernels-latest.tar.gz /tmp
-#RUN rm -rf /igloo_static/kernels && \
-#    tar xvf /tmp/kernels-latest.tar.gz -C /igloo_static/
+# The [s] allows the copy from local_packages to fail if the directory is missing
+COPY ./local_package[s] /tmp/local_packages
 
-#COPY pandare_22.04.deb /tmp
-#RUN dpkg -i /tmp/pandare_22.04.deb
-
-#COPY libnvram-latest.tar.gz /tmp
-#RUN rm -rf /igloo_static/libnvram && \
-#    tar xvf /tmp/libnvram-latest.tar.gz -C /igloo_static/
-
-#COPY busybox-latest.tar.gz /tmp
-#RUN rm /igloo_static/utils.bin/busybox.* && \
-#  tar xzf /tmp/busybox-latest.tar.gz -C /igloo_static/ && \
-#  mv /igloo_static/build/* /igloo_static/utils.bin/ && \
-#  for file in /igloo_static/utils.bin/busybox.*-linux*; do mv "$file" "${file%-linux-*}"; done && \
-#  mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel
+RUN if [ -d /tmp/local_packages ]; then \
+        if [ -f /tmp/local_packages/penguin_plugins.tar.gz ]; then \
+            mkdir -p /tmp/plug && \
+            tar xzf /tmp/local_packages/penguin_plugins.tar.gz -C /tmp/plug && \
+            mv /tmp/plug/arm/* /usr/local/lib/panda/arm && \
+            mv /tmp/plug/mips/* /usr/local/lib/panda/mips && \
+            mv /tmp/plug/mipsel/* /usr/local/lib/panda/mipsel && \
+            mv /tmp/plug/mips64/* /usr/local/lib/panda/mips64; \
+        fi; \
+        if [ -f /tmp/local_packages/kernels-latest.tar.gz ]; then \
+            rm -rf /igloo_static/kernels && \
+            tar xvf /tmp/local_packages/kernels-latest.tar.gz -C /igloo_static/; \
+        fi; \
+        if [ -f /tmp/local_packages/pandare_22.04.deb ]; then \
+            dpkg -i /tmp/local_pckages/pandare_22.04.deb; \
+        fi; \
+        if [ -f /tmp/local_packages/libnvram-latest.tar.gz ]; then \
+            rm -rf /igloo_static/libnvram && \
+            tar xvf /tmp/local_packages/libnvram-latest.tar.gz -C /igloo_static/; \
+        fi; \
+        if [ -f /tmp/local_packages/vpn.tar.gz ]; then \
+            rm -rf /igloo_static/vpn && \
+            tar xzf /tmp/local_packages/vpn.tar.gz -C /igloo_static; \
+        fi; \
+        if [ -f /tmp/local_packages/busybox-latest.tar.gz ]; then \
+            rm -rf /igloo_static/utils.bin/busybox.* && \
+            tar xvf /tmp/local_packages/busybox-latest.tar.gz -C /igloo_static/ \
+            mv /igloo_static/build/* /igloo_static/utils.bin/ && \
+            for file in /igloo_static/utils.bin/busybox.*-linux*; do mv "$file" "${file%-linux-*}"; done && \
+            mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel; \
+        fi; \
+        if [ -f /tmp/local_packages/hyperfs.tar.gz ]; then \
+            tar xzf /tmp/local_packages/hyperfs.tar.gz -C / && \
+            mv /result/utils/* /igloo_static/utils.bin/ && \
+            mv /result/dylibs /igloo_static/dylibs && \
+            rm -rf /result && \
+            for f in  /igloo_static/utils.bin/*.arm64; do mv -- "$f" "${f%.arm64}.aarch64"; done; \
+        fi; \
+    fi
