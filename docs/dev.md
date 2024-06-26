@@ -43,8 +43,19 @@ penguin --build
 ## Dependency Development
 
 If you wish to prototype changes to a Penguin dependency, you can develop the
-dependency locally, build the artifacts, and then modify the Penguin Dockerfile
-to use the local artifacts instead of pulling them from GitHub.
+dependency locally, build the artifacts, and place them into a directory called
+`local_packages`. When build artifacts are present in this directory, they will
+be installed and replace the standard versions at container build.
+
+The following filenames are expected in the `local_packages` directory:
+
+* busybox-latest.tar.gz
+* hyperfs.tar.gz
+* kernels-latest.tar.gz
+* libnvram-latest.tar.gz
+* pandare_22.04.deb
+* penguin_plugins.tar.gz
+* vpn.tar.gz
 
 For example, the following workflow shows how to test modifications to the Penguin
 Linux kernel.
@@ -69,17 +80,8 @@ $ ./build.sh --versions 4.10 --targets armel
 Next, copy the artifacts into your Penguin source directory.
 
 ```sh
-$ cp kernels-latest.tar.gz ../penguin/
-```
-
-Finally, you'll update your Penguin Dockerfile to pull this dependency locally.
-Find the commented code at the end of the Dockerfile that copies the relevant artifact
-from your host and installs it into the container. Uncomment that code.
-
-```Dockerfile
-COPY kernels-latest.tar.gz /tmp
-RUN rm -rf /igloo_static/kernels && \
-    tar xvf /tmp/kernels-latest.tar.gz -C /igloo_static/
+$ mkdir ../penguin/local_packages
+$ cp kernels-latest.tar.gz ../penguin/local_packages/
 ```
 
 Now when you build your container, it will use this local version and allow you to use
@@ -88,3 +90,6 @@ or test your changes without needing to tag a new release of the dependency on G
 ```sh
 ./penguin --build ...
 ```
+
+When you have finished prototyping with your local dependency, you should delete your `local_packages`
+directory so subsequent builds of `penguin` use standard versions of dependencies.
