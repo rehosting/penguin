@@ -1002,7 +1002,7 @@ def add_nvram_meta(proj_dir, config, output_dir):
         with open(output_dir + "/nvram.csv", 'a') as f:
             writer = csv.writer(f)
             for (path, k), v in path_nvrams.items():
-                writer.writerow(['nvram', path, k, v])
+                writer.writerow(['full_config_paths', path, k, v])
 
     wild_nvrams = {}
     # Still haven't found anything. Try widening the search to include these files as basenames, not full paths
