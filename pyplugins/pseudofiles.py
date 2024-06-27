@@ -322,13 +322,15 @@ class FileFailures(PyPlugin):
 
         self.syscall_info_table = make_syscall_info_table()
 
-        self.ppp.Core.ppp_reg_cb("igloo_syscall", self.on_syscall)
+        self.ppp.Events.listen("igloo_syscall", self.on_syscall)
 
         # Open/openat is a special case with hypercalls helping us out
         # because openat requires guest introspection to resolve the dfd, but we just
         # did it in the kernel
-        self.ppp.Core.ppp_reg_cb("igloo_open", self.fail_detect_opens)
-        self.ppp.Core.ppp_reg_cb("igloo_ioctl", self.fail_detect_ioctl)
+        self.ppp.Events.listen("igloo_open", self.fail_detect_opens)
+        self.ppp.Events.listen("igloo_ioctl", self.fail_detect_ioctl)
+
+        self.ppp.Events.listen('igloo_proc_mtd', self.proc_mtd_check)
 
         # On ioctl return we might want to start symex. We detect failures with a special handler though
         if need_ioctl_hooks:

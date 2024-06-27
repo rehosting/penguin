@@ -17,7 +17,6 @@ class SendHypercall(PyPlugin):
         open(os.path.join(self.outdir, UBOOT_LOG), "w").close()
         self.uboot_log = set()
 
-        #self.ppp.Core.ppp_reg_cb('igloo_send_hypercall', self.on_send_hypercall)
         @panda.hypercall(0xb335a535)
         def extract_args(cpu):
             buf_addr = self.panda.arch.get_arg(cpu, 1)

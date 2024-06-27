@@ -24,7 +24,7 @@ class NetBinds(PyPlugin):
         with open(join(self.outdir, BINDS_FILE), "w") as f:
             f.write("procname,ipvn,domain,guest_ip,guest_port,time\n")
 
-        self.ppp.Core.ppp_reg_cb("igloo_bind", self.on_bind)
+        self.ppp.Events.listen('igloo_bind', self.on_bind)
 
     def on_bind(self, cpu, procname, is_ipv4, is_stream, port, sin_addr):
         now = time.time()

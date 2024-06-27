@@ -17,9 +17,9 @@ class Nvram2(PyPlugin):
         # Even at debug level, logging every nvram get/clear can be very verbose.
         # As such, we only debug log nvram sets
 
-        self.ppp.Core.ppp_reg_cb("igloo_nvram_get", self.on_nvram_get)
-        self.ppp.Core.ppp_reg_cb("igloo_nvram_set", self.on_nvram_set)
-        self.ppp.Core.ppp_reg_cb("igloo_nvram_clear", self.on_nvram_clear)
+        self.ppp.Events.listen("igloo_nvram_get", self.on_nvram_get)
+        self.ppp.Events.listen("igloo_nvram_set", self.on_nvram_set)
+        self.ppp.Events.listen("igloo_nvram_clear", self.on_nvram_clear)
 
         with open(f"{self.outdir}/{log}", "w") as f:
             f.write("key,access,value\n")

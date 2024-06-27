@@ -19,13 +19,11 @@ EVENTS = {
     202:        ('ipv6_setup',      (int, int)),
     203:        ('ipv6_bind',       (int, bool)),
     0x6408400B: ('syscall',         (int,)),
-    0xb335a535: ('send_hypercall',  (int, int)),
 }
 
 class Events(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
-        
         # MAGIC -> [fn1, fn2, fn3,...]
         self.callbacks = {}
     
@@ -35,7 +33,7 @@ class Events(PyPlugin):
             # argument parsing
             args = []
             for i,arg in enumerate(arg_types):
-                argval = self.panda.arch.get_arg(cpu, i+1)
+                argval = self.panda.arch.get_arg(cpu, i+1, convention='syscall')
                 if arg is int:
                     args.append(argval)
                 elif arg is str:
@@ -51,7 +49,7 @@ class Events(PyPlugin):
                     raise ValueError(f"Unknown argument type {arg}")
             for fn in self.callbacks[magic]:
                 fn(*args)
-    
+    @PyPlugin.ppp_export
     def listen(self, name, callback):
         """
         Register a callback for an event.
