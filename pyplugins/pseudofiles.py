@@ -231,7 +231,7 @@ class FileFailures(PyPlugin):
         # Need to implement read, write, and IOCTLs
         # IOCTLs with symex gets scary, others are easy though?
 
-        panda.pyplugins.load(HyperFile, {'models': hf_config, 'log_file': pjoin(self.outdir, outfile_models)})
+        panda.pyplugins.load(HyperFile, {'models': hf_config, 'log_file': pjoin(self.outdir, outfile_models), 'logger': self.logger})
         # Clear results file - we'll update it as we go
         self.dump_results()
 
