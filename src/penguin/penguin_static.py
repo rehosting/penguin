@@ -650,7 +650,7 @@ def _is_init_script(tarinfo, fs):
                     link_target = os.path.normpath(link_target)
 
                 if not link_target.startswith('./'):
-                    link_target = './' + link_target
+                    link_target = './' + os.path.normpath(link_target)
 
                 # Does link_target exist in fs?
                 try:
