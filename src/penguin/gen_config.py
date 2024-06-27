@@ -37,6 +37,8 @@ def arch_end(value):
         end = "el"
     elif tmp.endswith("eb"):
         end = "eb"
+    elif tmp == "armhf":
+        end = "el"
 
     if arch is None or end is None:
         logger.error(f"Unhandled arch_end for {value}. Have arch={arch}, end={end}")
