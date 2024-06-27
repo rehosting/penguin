@@ -24,6 +24,8 @@ def hyper(name):
         return HYPER_WRITE
     elif name == "ioctl":
         return HYPER_IOCTL
+    elif name == "getattr":
+        return HYPER_GETATTR
     raise ValueError(f"Unknown hyperfile operation {name}")
 
 def hyper2name(num):
@@ -33,6 +35,8 @@ def hyper2name(num):
         return "write"
     elif num == HYPER_IOCTL:
         return "ioctl"
+    elif num == HYPER_GETATTR:
+        return "getattr"
     raise ValueError(f"Unknown hyperfile operation {num}")
 
 class HyperFile(PyPlugin):
@@ -40,7 +44,7 @@ class HyperFile(PyPlugin):
         self.panda = panda
         self.log_file = self.get_arg("log_file")
         self.files = self.get_arg("models")
-
+        self.logger = self.get_arg("logger")
         if self.files is None:
             # We can be imported without files, but we'll ignore it
             return
@@ -57,6 +61,14 @@ class HyperFile(PyPlugin):
 
 
         assert(isinstance(self.files, dict)), f"Files should be dict, not {self.files}"
+
+        self.default_model = {
+            HYPER_READ: self.read_unhandled,
+            HYPER_WRITE: self.write_unhandled,
+            HYPER_IOCTL: self.ioctl,
+            HYPER_GETATTR: self.getattr,
+            "size": 0,
+        }
 
         # files = {filename: {'read': func, 'write': func, 'ioctl': func}}}
 
@@ -91,7 +103,7 @@ class HyperFile(PyPlugin):
             except ValueError:
                 # Memory read failed - tell guest to retry
                 panda.arch.set_retval(cpu, 1)  # non-zero = error
-                print("Failed to read hyperfile struct from guest - retry")
+                self.logger.debug("Failed to read hyperfile struct from guest - retry")
                 return True
 
             # Unpack request with our dynamic format string
@@ -101,21 +113,23 @@ class HyperFile(PyPlugin):
             except ValueError:
                 # Memory read failed - tell guest to retry
                 panda.arch.set_retval(cpu, 1)  # non-zero = error
-                print("Failed to read hyperfile struct from guest - retry")
+                self.logger.debug("Failed to read hyperfile struct from guest - retry")
                 return True
 
             sub_offset = struct.calcsize(header_fmt)
 
-            if device_name in self.files:
-                model = self.files[device_name]
-            else:
-                print(f"WARN: using default file model for {repr(device_name)}")
-                model = {
-                    HYPER_READ: self.read_unhandled,
-                    HYPER_WRITE: self.write_unhandled,
-                    HYPER_IOCTL: self.ioctl,
-                    "size": 0,
-                }
+            # Ensure we have a model - if we don't, warn and add defult
+            if device_name not in self.files:
+                self.logger.warning(f"Detected {hyper2name(type_val)} event on device {repr(device_name)} but device is not in config. Using defaults.")
+                self.files[device_name] = {k: v for k, v in self.default_model.items()} # XXX can't use deepcopy
+
+            model = self.files[device_name]
+            # Ensure our model specifies the current behavior - if not, warn and add default
+            if type_val not in model:
+                if not (type_val == HYPER_GETATTR and "size" in model):
+                    # If we have a size, we can handle getattr with out default method (return size) and it's fine. Otherwise warn
+                    self.logger.warning(f"Detected {hyper2name(type_val)} event on device {repr(device_name)} but this event is not modeled in config. Using default.")
+                model[type_val] = self.default_model[type_val]
 
             #print(f"Hyperfile {device_name}: using {model[type_val]}")
 
@@ -157,13 +171,15 @@ class HyperFile(PyPlugin):
                 self.handle_result(device_name, "ioctl", retval, cmd, arg)
 
             elif type_val == HYPER_GETATTR:
-                retval = 0
+                retval, size_data = model[type_val](device_name, model)
+                size_bytes = struct.pack(f"{endian} q", size_data)
+                self.handle_result(device_name, "getattr", retval, size_data)
+
                 size_ptr, = struct.unpack_from(getattr_fmt, buf, sub_offset)
-                size_bytes = struct.pack(f"{endian} q", model.get("size", 0))
                 try:
                     panda.virtual_memory_write(cpu, size_ptr, size_bytes)
                 except ValueError:
-                    print("Failed to write hyperfile size into guest")
+                    self.logger.debug("Failed to write hyperfile size into guest - retry(?)")
                     panda.arch.set_arg(cpu, 0, 1)  # non-zero = error
                     return True
 
@@ -203,6 +219,11 @@ class HyperFile(PyPlugin):
                 "arg": arg,
                 "retval": retval,
             }
+        elif event == "getattr":
+            result = {
+                "size": data[0],
+                "retval": retval,
+            }
         else:
             raise ValueError(f"Unknown event {event}")
         self.results[device_name][event].append(result)
@@ -218,24 +239,42 @@ class HyperFile(PyPlugin):
 
 
     # Function to handle read operations
-    def read_zero(self, devname, buffer, length, offset):
+    @staticmethod
+    def read_zero(devname, buffer, length, offset):
         data = b'0'
         final_data = data[offset:offset+length]
         return (final_data, len(final_data)) # data, rv
 
     # Function to handle write operations
-    def write_discard(self, devname, buffer, length, offset, contents):
+    @staticmethod
+    def write_discard(devname, buffer, length, offset, contents):
         return length
 
-    # Function to handle ioctl operations
-    def ioctl(self, devname, cmd, arg):
+    @staticmethod
+    def ioctl(devname, cmd, arg):
         return 0
 
-    def read_unhandled(self, filename, buffer, length, offset):
+    @staticmethod
+    def ioctl_unhandled(devname, cmd, arg):
+        return -25 # -ENOTTY
+
+    @staticmethod
+    def read_unhandled(filename, buffer, length, offset):
         return (b'', -22) # -EINVAL
 
-    def write_unhandled(self, filename, buffer, length, offset, contents):
+    @staticmethod
+    def write_unhandled(filename, buffer, length, offset, contents):
         return -22 # -EINVAL
+
+    @staticmethod
+    def getattr(device_name, model):
+        """
+        Return retval, size to write into buffer.
+        Note we could refactor this to be different and take in the panda object as an arg
+        and handle writing the getattr results into memory. For now we're just returning
+        a retval + size that's getting written into guest memory by the caller.
+        """
+        return 0, model.get("size", 0)
 
     def uninit(self):
         if self.log_file is not None:
