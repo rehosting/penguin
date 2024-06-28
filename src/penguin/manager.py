@@ -1,9 +1,10 @@
-import os
-import shutil
-import subprocess
-import time
 import csv
 import glob
+import os
+import shutil
+import signal
+import subprocess
+import time
 
 from penguin import getColoredLogger
 from copy import deepcopy
@@ -122,6 +123,15 @@ class PandaRunner:
     def __init__(self):
         self.logger = getColoredLogger('penguin.run_manager')
 
+    @staticmethod
+    def _send_sigusr1(pid):
+        try:
+            os.kill(pid, signal.SIGUSR1)
+            return True
+        except ProcessLookupError:
+            self.logger.warning(f"Process {pid} not found when trying to send SIGUSR1")
+            return False
+
     def run(self, conf_yaml, proj_dir, out_dir, init=None, timeout=None, show_output=False, verbose=False):
         '''
         If init or timeout are set they override
@@ -175,39 +185,31 @@ class PandaRunner:
         if verbose:
             cmd.append("verbose")
 
-        #start = time.time()
         try:
-            # This timeout is higher than our SIGUSR1 timeout so the guest can process the signal
-            # Before the kill. We have a lot of timeouts...
             p = subprocess.Popen(cmd)
             p.wait(timeout=timeout_s+180 if timeout_s else None)
         except subprocess.TimeoutExpired:
             self.logger.info(f"Timeout expired for {conf_yaml} after {timeout_s} seconds")
-            if p:  # Ensure p is not None before attempting to kill
+            if p:
                 p.kill()
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Error running {conf_yaml}: {e}")
         except KeyboardInterrupt:
-            self.logger.warning(f"Received keyboard interrupt while running emulation")
+            self.logger.warning("Received keyboard interrupt while running emulation")
             self.logger.info("Please wait up to 30s for graceful shutdown and result reporting")
             self.logger.info("Otherwise, press Ctrl+C again to force kill")
-            # Send SIGUSR1 to the process
-            system(f"kill -USR1 {p.pid}")
-            # Wait a moment, then kill it hard
-            for _ in range(30):
-                time.sleep(1)
-                if p.poll() is None:
-                    # Still running, wait
-                    continue
-                break
-            else:
-                # Didn't break the loop - process is still running
-                self.logger.error(f"Process {p.pid} still running after SIGUSR1 + 30s: killing hard")
-                system(f"kill -9 {p.pid}")
-            # Now we should wait for the process to finish
-            self.logger.debug("Wait for shutdown")
-            p.wait()
-            self.logger.debug("Waited")
+
+            if p and p.poll() is None:  # Check if process is still running
+                if self._send_sigusr1(p.pid):
+                    try:
+                        p.wait(timeout=30)  # Wait up to 30 seconds for the process to finish
+                    except subprocess.TimeoutExpired:
+                        self.logger.error(f"Process {p.pid} still running after SIGUSR1 + 30s: killing hard")
+                        p.kill()  # Use p.kill() instead of system("kill -9")
+
+            if p:
+                p.wait()  # Ensure we wait for the process to finish
+            self.logger.debug("Shutdown complete")
             return
 
         #elapsed = time.time() - start
