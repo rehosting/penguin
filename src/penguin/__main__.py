@@ -94,6 +94,9 @@ def penguin_init(args):
         raise ValueError("FATAL: It looks like you provided a config file (it ends with .yaml)." \
                          "Please provide a firmware file")
 
+    if '/host_' in args.rootfs or '/host_' in args.output:
+        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments")
+
     if args.output is None:
         # Expect filename to end with .tar.gz - drop that extension
         if args.rootfs.endswith(".rootfs.tar.gz"):
@@ -105,18 +108,23 @@ def penguin_init(args):
             basename_stem = os.path.splitext(os.path.basename(args.rootfs))[0]
 
         if not os.path.exists(args.output_base):
+            print("Creating output_base:", args.output_base)
             os.makedirs(args.output_base)
+
         args.output = args.output_base  + "/" + basename_stem
-        logger.info(f"Creating project at generated path: {args.output}")
+        output_type = "generated"
     else:
-        logger.info(f"Creating project at specified path: {args.output}")
+        output_type = "specified"
+    logger.info(f"Creating project at {output_type} path: {args.output}")
 
-    if args.force and os.path.isdir(args.output):
-        logger.info(f"Deleting existing project directory: {args.output}")
-        shutil.rmtree(args.output, ignore_errors=True)
-
-    if '/host_' in args.rootfs or '/host_' in args.output:
-        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments")
+    # Note the penguin wrapper for docker will auto-create output dir, but it will be empty unless previously initialized
+    if os.path.isdir(args.output) and (os.path.exists(os.path.join(args.output, "config.yaml")) or
+                                       os.path.exists(os.path.join(args.output, "base"))):
+        if args.force:
+            logger.info(f"Deleting existing project directory: {args.output}")
+            shutil.rmtree(args.output, ignore_errors=True)
+        else:
+            raise ValueError(f"Project directory already exists: {args.output}. Use --force to delete.")
 
     # Ensure output parent directory exists
     if not os.path.exists(os.path.dirname(args.output)):
