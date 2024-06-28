@@ -275,6 +275,12 @@ def penguin_run(args):
                 idx = 0
             else:
                 idx = max(results) + 1
+
+        # Create symlink in results directory to latest
+        if os.path.islink(results_base + "latest"):
+            os.unlink(results_base + "latest")
+        os.symlink(f"./{idx}", results_base + "latest")
+
         args.output = results_base + str(idx)
 
     logger.info(f"Running config {args.config}")
