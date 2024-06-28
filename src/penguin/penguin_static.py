@@ -473,7 +473,7 @@ def library_analysis(proj_dir ,config, outdir):
             #tar.extractall(tmp_dir)
             # Only extract *.so or .so.* files:
             for member in tar.getmembers():
-                if member.name.endswith('.so') or member.name.endswith('.so.*'):
+                if member.name.endswith('.so') or ".so." in member.name:
                     tar.extract(member, tmp_dir)
 
         # Now let's examine each extracted library
