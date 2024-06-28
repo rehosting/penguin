@@ -153,9 +153,7 @@ class VsockVPN(PyPlugin):
 
         listen_on = f"{sock_type} {ip}:{guest_port}"
 
-        self.logger.info(f"{procname: >16} binds {listen_on: <20} reach it at {connect_to: <20}")
-        if reason:
-            self.logger.info(f"    {reason}")
+        self.logger.info(f"{procname: >16} binds {listen_on: <20} reach it at {connect_to: <20} {reason if reason else ''}")
 
         return host_port
 
