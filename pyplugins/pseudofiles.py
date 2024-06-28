@@ -213,11 +213,20 @@ class FileFailures(PyPlugin):
                     need_ioctl_hooks = True
 
         if len(self.get_arg("conf").get("netdevs", [])):
+            # If we have netdevs in our config, we'll make the /proc/penguin_net pseudofile with the contents of it
+            # Here we'll use our make_rwif closure
+            netdev_val = " ".join(self.get_arg("conf")["netdevs"])
             hf_config['/proc/penguin_net'] = {
-                hyper("read"): make_rwif({'val': " ".join(self.get_arg("conf")["netdevs"])}, self.read_const_buf)
+                HYPER_READ: make_rwif({'val': netdev_val}, self.read_const_buf),
+                "size": len(netdev_val)
             }
 
-        hf_config["/proc/mtd"] = {HYPER_READ: self.proc_mtd_check}
+        hf_config["/proc/mtd"] = {
+            # Note we don't use our make_rwif closure helper here because these are static
+            HYPER_READ: self.proc_mtd_check,
+            HYPER_IOCTL: HyperFile.ioctl_unhandled,
+            "size": 0
+        }
 
         self.config['env']['IGLOO_HYPERFILE_PATHS'] = ":".join(hf_config.keys())
 
