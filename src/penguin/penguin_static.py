@@ -383,17 +383,27 @@ def analyze_library(elf_path, config):
     symbols = {} # Symbol name -> relative(?) address
     nvram_data = {} # key -> value (may be empty string)
 
+    def _is_elf(filename):
+        try:
+            with open(filename, 'rb') as f:
+                magic = f.read(4)
+            return magic == b'\x7fELF'
+        except IOError:
+            return False
+
     with open(elf_path, 'rb') as f:
         try:
             elffile = ELFFile(f)
         except elftools.common.exceptions.ELFError:
-            logger.error(f"Failed to parse {elf_path} as an ELF file")
+            # elftools failed to parse our file. If it's actually an ELF, warn
+            if _is_elf(elf_path):
+                logger.warning(f"Failed to parse {elf_path} as an ELF file when analyzing libraries")
             return nvram_data, symbols
 
         try:
             match = '.dynsym' in [s.name for s in elffile.iter_sections()]
         except elftools.common.exceptions.ELFParseError:
-            logger.error(f"Warning: Failed to parse {elf_path} as an ELF file")
+            logger.warning(f"Failed to find .dynsym section in {elf_path} when analyzing libraries")
             match = False
 
         if match:
@@ -418,7 +428,7 @@ def analyze_library(elf_path, config):
             try:
                 section = elffile.get_section(section_index)
             except TypeError:
-                logger.error(f"Failed to get section {section_index} for symbol {nvram_key} in {elf_path}")
+                logger.warning(f"Failed to get section {section_index} for symbol {nvram_key} in {elf_path} when analyzing libraries")
                 continue
             data = section.data()
             start_addr = section['sh_addr']
