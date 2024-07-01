@@ -362,6 +362,10 @@ CMD ["/usr/local/bin/banner.sh"]
 COPY ./local_package[s] /tmp/local_packages
 
 RUN if [ -d /tmp/local_packages ]; then \
+        if [ -f /tmp/local_packages/console.tar.gz ]; then \
+            rm -rf /igloo_static/console && \
+            tar xvf /tmp/local_packages/console.tar.gz -C /igloo_static/; \
+        fi; \
         if [ -f /tmp/local_packages/penguin_plugins.tar.gz ]; then \
             mkdir -p /tmp/plug && \
             tar xzf /tmp/local_packages/penguin_plugins.tar.gz -C /tmp/plug && \
