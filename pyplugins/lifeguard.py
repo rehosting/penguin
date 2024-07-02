@@ -68,11 +68,11 @@ class SigInt(PenguinAnalysis):
         self.logger.setLevel(logging.DEBUG)
 
     def parse_failures(self, output_dir) -> List[Failure]:
-        blocked_signals = []
-        with open(pjoin(output_dir, "core_config.yaml")) as f:
-            config = yaml.safe_load(f)
-        if "blocked_signals" in config:
-            blocked_signals = [int(x) for x in config["blocked_signals"]]
+        # blocked_signals = []
+        # with open(pjoin(output_dir, "core_config.yaml")) as f:
+        #     config = yaml.safe_load(f)
+        # if "blocked_signals" in config:
+        #     blocked_signals = [int(x) for x in config["blocked_signals"]]
 
         # Look through lifeguard.csv and identify unblocked signals that might be sus
         blockable_singals = Counter()
