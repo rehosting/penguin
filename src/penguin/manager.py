@@ -143,7 +143,8 @@ class PandaRunner:
             os.kill(pid, signal.SIGUSR1)
             return True
         except ProcessLookupError:
-            self.logger.warning(f"Process {pid} not found when trying to send SIGUSR1")
+            logger = getColoredLogger("penguin.run_manager")
+            logger.warning(f"Process {pid} not found when trying to send SIGUSR1")
             return False
 
     def run(
