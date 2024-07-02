@@ -377,7 +377,7 @@ class ConfigurationGraph:
                 and self.graph.nodes[n]["object"] != parent_config
                 and self.get_parent_failure(self.graph.nodes[n]["object"])
                 == parent_fail
-                and self.graph.nodes[n]["object"].run == False
+                and self.graph.nodes[n]["object"].run is False
                 and len(
                     self.graph[parent_fail.gid][
                         self.get_parent_mitigation(self.graph.nodes[n]["object"]).gid
