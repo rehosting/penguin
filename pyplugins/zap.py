@@ -126,7 +126,7 @@ class Zap(PyPlugin):
             try:
                 requests.get(f"http://127.0.0.1:{self.port}")
                 break
-            except Exception as e:
+            except Exception:
                 time.sleep(5)
         else:
             # Failed to start zap
@@ -177,7 +177,7 @@ class Zap(PyPlugin):
             print(zap.urlopen(target), file=self.output_file)
             time.sleep(2)  # Give the sites tree a chance to get updated
             return True
-        except Exception as e:
+        except Exception:
             print(f"Exception updating sites tree: {e}", file=self.output_file)
             return False
 
@@ -191,7 +191,7 @@ class Zap(PyPlugin):
             try:
                 print(f"Opening {target+url}", file=self.output_file)
                 zap.urlopen(target + url)
-            except Exception as e:
+            except Exception:
                 print(f"Failed to open potential URL {url}", file=self.output_file)
                 if self.output_file == stdout:
                     return
