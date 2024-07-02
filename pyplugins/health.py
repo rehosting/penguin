@@ -1,9 +1,5 @@
-import logging
 import time
-
-from pandare import PyPlugin
-
-from penguin import getColoredLogger
+from pandare import PyPlugin, getColoredLogger
 
 
 class Health(PyPlugin):

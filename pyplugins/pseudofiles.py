@@ -1,14 +1,12 @@
 import logging
-import math
 import re
 import struct
-import sys
 from collections import Counter
 from copy import deepcopy
 from os.path import dirname, isfile
 from os.path import join as pjoin
 from sys import path
-from typing import Any, Dict, List
+from typing import List
 
 import pycparser
 from pandare import PyPlugin
@@ -187,7 +185,8 @@ class FileFailures(PyPlugin):
     def __init__(self, panda):
         # XXX We need this import in here, otherwise when we load psueodfiles with panda.load_plugin /path/to/pseudofiles.py
         # it sees both FileFailures AND HyperFile. But we only want hyperfile to be loaded by us here, not by our caller.
-        from hyperfile import (HYPER_IOCTL, HYPER_READ, HYPER_WRITE, HyperFile,
+        # we are not currently using HYPER_WRITE so we do not import it
+        from hyperfile import (HYPER_IOCTL, HYPER_READ, HyperFile,
                                hyper)
 
         self.panda = panda
@@ -784,7 +783,6 @@ class FileFailuresAnalysis(PenguinAnalysis):
     def __init__(self):
         super().__init__()
         self.logger = getColoredLogger(f"plugins.{self.ANALYSIS_TYPE}")
-        from symex import PathExpIoctl
 
     def is_dev_path(self, path: str) -> bool:
         """Check if the path is a device path."""

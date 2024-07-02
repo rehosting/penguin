@@ -1,7 +1,7 @@
 import pickle
 from threading import Lock, RLock
 from time import sleep
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import Callable, List, Optional, Set, Tuple
 from uuid import UUID, uuid4
 
 import networkx as nx

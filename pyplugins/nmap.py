@@ -1,7 +1,6 @@
 import os
 import subprocess
 import threading
-import time
 from threading import Lock
 
 from pandare import PyPlugin

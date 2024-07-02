@@ -1,11 +1,9 @@
 import itertools
 import re
-import sys
-import tarfile
 from copy import deepcopy
-from os.path import dirname, isfile
+from os.path import isfile
 from os.path import join as pjoin
-from typing import List, Optional
+from typing import List
 
 from pandare import PyPlugin
 

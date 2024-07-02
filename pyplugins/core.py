@@ -1,7 +1,5 @@
-import logging
 import os
 import signal
-import sys
 import threading
 import time
 from copy import deepcopy
@@ -13,7 +11,7 @@ from penguin import getColoredLogger
 try:
     from penguin import yaml
     from penguin.analyses import PenguinAnalysis
-    from penguin.graphs import Configuration, Failure, Mitigation
+    from penguin.graphs import Configuration, Mitigation
 except ImportError:
     # We can still run as a PyPlugin, but we can't do post-run analysis
     import yaml

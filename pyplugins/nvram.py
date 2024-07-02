@@ -1,9 +1,7 @@
 import itertools
-import re
 import string
 import tarfile
 from io import BytesIO
-from os.path import join
 
 import yaml
 from elftools.common.exceptions import ELFError

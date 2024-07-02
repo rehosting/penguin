@@ -1,24 +1,7 @@
-import re
-import sys
-import tarfile
-from copy import deepcopy
-from os.path import dirname, isfile
 from os.path import join as pjoin
-from typing import List, Optional
-
-from pandare import PyPlugin
-
-from penguin import getColoredLogger
-
-try:
-    from penguin import yaml
-    from penguin.analyses import PenguinAnalysis
-except ImportError:
-    PenguinAnalysis = object
-    import yaml
+from pandare import PyPlugin, getColoredLogger
 
 mount_log = "mounts.csv"
-
 
 class MountTracker(PyPlugin):
     """

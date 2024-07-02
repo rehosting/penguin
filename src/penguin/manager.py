@@ -6,7 +6,6 @@ import signal
 import subprocess
 import time
 from copy import deepcopy
-from os import system
 from threading import Thread
 from typing import List, Tuple
 

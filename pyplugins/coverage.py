@@ -1,6 +1,4 @@
 # Hypercall based coverage tracking
-import copy
-
 from pandare import PyPlugin
 
 

@@ -1,6 +1,6 @@
 import pickle
 
-from .graphs import Configuration, ConfigurationGraph, Failure, Mitigation
+from .graphs import Configuration, Failure, Mitigation
 
 
 def main(pkl):
