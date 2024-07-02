@@ -277,7 +277,7 @@ class NVRAM(PyPlugin):
 
                 rodata_section = elffile.get_section_by_name(".rodata")
                 if not rodata_section:
-                    print(f"[NVRAM]     no rodata section")
+                    print("[NVRAM]     no rodata section")
                     continue
 
                 raw_data = rodata_section.data()
@@ -299,7 +299,7 @@ class NVRAM(PyPlugin):
 
         if len(all_matches):
             with open(f"{self.outdir}/nvram_potentials_map.yaml", "w") as f:
-                f.write(f"output_file,nvram_source_file\n")
+                f.write("output_file,nvram_source_file\n")
                 for idx, filename in enumerate(all_matches):
                     f.write(f"nvram_potentials_{idx}.yaml,{filename[1:]}\n")
 

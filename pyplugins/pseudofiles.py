@@ -301,7 +301,7 @@ class FileFailures(PyPlugin):
 
         self.config["env"]["IGLOO_HYPERFILE_PATHS"] = ":".join(hf_config.keys())
 
-        self.logger.debug(f"Registered pseudofiles:")
+        self.logger.debug("Registered pseudofiles:")
         for filename, details in hf_config.items():
             self.logger.debug(f"  {filename}")
 
@@ -1044,7 +1044,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         # presumably it might want a device and for it to be a device of a specific name.
                         fails.append(
                             Failure(
-                                f"/proc/mtd",
+                                "/proc/mtd",
                                 self.ANALYSIS_TYPE,
                                 {"type": "mtd_generic"},
                             )
@@ -1146,7 +1146,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
             ]
             return [
                 Mitigation(
-                    f"pseudofile_add_group",
+                    "pseudofile_add_group",
                     self.ANALYSIS_TYPE,
                     {
                         "paths": new_paths,
@@ -1185,7 +1185,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         # Mitigation(f"pseudofile_fake_proc_mtd", self.ANALYSIS_TYPE, {'path': '/dev/mtd0', 'name': 'fakemtd', 'model': 'zero', 'weight': 100}, exclusive=True),
                         # 2) we add a single MTD device with a name and size and hope that's what the guest is looking for
                         Mitigation(
-                            f"pseudofile_fixed_mtd",
+                            "pseudofile_fixed_mtd",
                             self.ANALYSIS_TYPE,
                             {
                                 "path": "/dev/mtd0",
@@ -1200,7 +1200,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     # We saw a failure opening a specific MTD device, let's make it with a fixed name
                     return [
                         Mitigation(
-                            f"pseudofile_fixed_mtd",
+                            "pseudofile_fixed_mtd",
                             self.ANALYSIS_TYPE,
                             {
                                 "path": path,
@@ -1347,7 +1347,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
             else:
                 return [
                     Mitigation(
-                        f"symex",
+                        "symex",
                         self.ANALYSIS_TYPE,
                         {
                             "path": path,
@@ -1435,7 +1435,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
             new_config["pseudofiles"][mitigation.info["path"]] = {
                 "read": {"model": "zero"}
             }
-            return [Configuration(f"read_zero", new_config)]
+            return [Configuration("read_zero", new_config)]
 
         if mitigation.info["action"] == "write_model":
             if mitigation.info["model"] != "discard":
@@ -1444,7 +1444,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
             new_config["pseudofiles"][mitigation.info["path"]] = {
                 "write": {"model": "discard"}
             }
-            return [Configuration(f"write_discard", new_config)]
+            return [Configuration("write_discard", new_config)]
 
         if mitigation.info["action"] == "ioctl_model":
             # Model could be symex or return_const

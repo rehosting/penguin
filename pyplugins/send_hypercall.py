@@ -52,7 +52,7 @@ class SendHypercall(PyPlugin):
         try:
             strs = [self.panda.read_str(cpu, ptr) for ptr in str_ptrs]
         except ValueError:
-            self.logger.error(f"Failed to read guest memory. Skipping")
+            self.logger.error("Failed to read guest memory. Skipping")
             return
         cmd, args = strs[0], strs[1:]
 

@@ -30,7 +30,7 @@ class Lifeguard(PyPlugin):
             blocked_signals = [int(x) for x in conf["blocked_signals"]]
 
         with open(f"{self.outdir}/{LIFELOG}", "w") as f:
-            f.write(f"signal,target_process,blocked\n")
+            f.write("signal,target_process,blocked\n")
 
         if len(blocked_signals) > 0:
             self.logger.info(f"Blocking signals: {blocked_signals}")
