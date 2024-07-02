@@ -6,7 +6,7 @@ from typing import List
 
 from pandare import PyPlugin
 
-from penguin import getColoredLogger, yaml
+from penguin import getColoredLogger
 from penguin.analyses import PenguinAnalysis
 from penguin.graphs import Configuration, Failure, Mitigation
 
