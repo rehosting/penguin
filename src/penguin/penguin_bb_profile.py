@@ -1,9 +1,6 @@
 import os
 import tarfile
 from copy import deepcopy
-
-import yaml
-
 from .common import yaml
 from .penguin_manager import run_config
 from .penguin_prep import prepare_run
