@@ -373,8 +373,8 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                     and file_details["read"].get("model", None) == "const_buf"
                 ):
                     if (
-                        const_buf := file_details["read"].get("buf", None)
-                        and const_buf == ENV_MAGIC_VAL
+                        file_details["read"].get("buf", None)
+                        and file_details["read"].get("buf") == ENV_MAGIC_VAL
                     ):
                         magic_is_set = True
                         break
