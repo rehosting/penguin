@@ -925,7 +925,7 @@ class ConfigurationGraph:
                 for node in potential
                 if isinstance(node, Configuration)
                 and not node.run
-                and not node in (exclude or [])
+                and node not in (exclude or [])
             ]
         return unexplored
 

@@ -248,7 +248,7 @@ class FileFailures(PyPlugin):
                 raise ValueError(
                     "Pseudofiles: name property can only be set for MTD devices"
                 )
-            if filename.startswith("/dev/mtd") and not "name" in details:
+            if filename.startswith("/dev/mtd") and "name" not in details:
                 raise ValueError(
                     "Pseudofiles: name property must be set for MTD devices"
                 )
@@ -440,7 +440,7 @@ class FileFailures(PyPlugin):
         self.file_failures[path][event]["count"] += 1
 
         if event_details is not None:
-            if not "details" in self.file_failures[path][event]:
+            if "details" not in self.file_failures[path][event]:
                 self.file_failures[path][event]["details"] = []
             self.file_failures[path][event]["details"].append(event_details)
 
@@ -476,7 +476,7 @@ class FileFailures(PyPlugin):
                 )
                 continue
 
-            if not "name" in details:
+            if "name" not in details:
                 self.logger.warning(
                     f"Mtd device {filename} has no name. Skipping in /proc/mtd report"
                 )
