@@ -43,7 +43,7 @@ class MountTracker(PyPlugin):
             for k, v in results.items():
                 try:
                     results[k] = self.panda.read_str(cpu, v)
-                except:
+                except ValueError:
                     results[k] = "[unknown]"
 
             # print(f"Mount returns {retval} for: mount -t {results['fs_type']} {results['source']} {results['target']}")
