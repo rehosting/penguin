@@ -164,7 +164,7 @@ def _modify_guestfs(g, file_path, file, project_dir):
     # Check if file_path involves a broken symlink, if so bail
     try:
         g.is_dir(file_path)
-    except RuntimeError as e:
+    except RuntimeError:
         logger.warning(
             f"Skipping file {file_path} as it's a broken symlink (detected on exn)"
         )

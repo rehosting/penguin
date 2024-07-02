@@ -238,7 +238,7 @@ def get_mitigation_providers(config: dict):
             continue
         try:
             analysis = _load_penguin_analysis_from(plugin_name + ".py")
-        except ValueError as e:
+        except ValueError:
             continue
         mitigation_providers[analysis.ANALYSIS_TYPE] = analysis
         if details["version"] != analysis.VERSION:
