@@ -23,10 +23,10 @@ class SendHypercall(PyPlugin):
 
         # Command-specific init
 
-        ## U-Boot
+        # U-Boot
         self.uboot_env = self.get_arg("conf").get("uboot_env", dict())
 
-        ## Bash
+        # Bash
         outdir = self.get_arg("outdir")
         path = os.path.join(outdir, "bash_cov.csv")
         self.bash_cov_csv = open(path, "w")

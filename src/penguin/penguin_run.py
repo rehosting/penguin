@@ -385,7 +385,7 @@ def run_config(
     elif q_config.get("cpu", None):
         args += ["-cpu", q_config["cpu"]]
 
-    ############# Reduce determinism #############
+    # ############ Reduce determinism ##############
 
     # Fixed clock time.
     args = args + ["-rtc", "base=2023-01-01T00:00:00"]
