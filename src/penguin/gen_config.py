@@ -184,7 +184,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     ):
         data["static_files"][f"/igloo/keys/{f}"] = {
             "type": "host_file",
-            #'contents': open(static_dir + f"static_keys/{f}", 'rb').read(),
+            # 'contents': open(static_dir + f"static_keys/{f}", 'rb').read(),
             "host_path": os.path.join(
                 *[dirname(dirname(__file__)), "resources", "static_keys", f]
             ),
