@@ -272,7 +272,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
         # We want to build this configuration for a single-shot rehost.
         # We'll ensure it has an igloo_init set and we'll specify an ioctl model for all our pseudofiles in /dev
         logger.info(
-            f"Tailoring configuration for single-iteration: selecting init and configuring default catch-all ioctl models"
+            "Tailoring configuration for single-iteration: selecting init and configuring default catch-all ioctl models"
         )
 
         with open(f"{output_dir}/base/env.yaml", "r") as f:

@@ -75,7 +75,7 @@ class Health(PyPlugin):
             try:
                 self.ppp_run_cb("igloo_exec", cpu, fname, nullable_argv)
             except Exception as e:
-                self.logger.error(f"Exn in health.igloo_exec")
+                self.logger.error("Exn in health.igloo_exec")
                 self.logger.exception(e)
 
             unique_name = f"{fname} {' '.join(argv)}"

@@ -231,7 +231,7 @@ class TargetCmp(PyPlugin):
 
         self.outdir = self.get_arg("outdir")
         self.logger.info(f"Dynamically searching for {self.target_key}")
-        assert self.outdir is not None, f"NO OUTDIR"
+        assert self.outdir is not None, "NO OUTDIR"
         self.env_var_matches = set()
 
         # Load C plugins to dynamically track potential comparisons

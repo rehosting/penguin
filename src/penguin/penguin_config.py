@@ -755,8 +755,8 @@ def gen_docs_field(path, docs_field, include_type=True):
     out += f"{heading_hashes} {path_prefix}{docs_field.title}\n"
     if include_type or include_docs:
         out += "\n"
-        out += f"|||\n"
-        out += f"|-|-|\n"
+        out += "|||\n"
+        out += "|-|-|\n"
     if include_type:
         out += f"|__Type__|{gen_docs_type_name(docs_field.type_)}|\n"
     if include_docs:
@@ -766,9 +766,9 @@ def gen_docs_field(path, docs_field, include_type=True):
         out += docs_field.description + "\n"
     out += "\n"
     for e in docs_field.examples:
-        out += f"```yaml\n"
+        out += "```yaml\n"
         out += gen_docs_yaml_dump(e) + "\n"
-        out += f"```\n"
+        out += "```\n"
         out += "\n"
     return out
 

@@ -414,7 +414,7 @@ def run_config(
         panda.load_plugin("syscalls2", args={"load-info": True})
 
         if archend == "aarch64":
-            logger.warning(f"No OSI support for aarch64")
+            logger.warning("No OSI support for aarch64")
         else:
             panda.load_plugin("osi", args={"disable-autoload": True})
             panda.load_plugin(
@@ -562,7 +562,7 @@ def main():
     timeout = int(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] != "None" else None
     show_output = sys.argv[6] == "show" if len(sys.argv) > 6 else False
 
-    logger.debug(f"penguin_run start:")
+    logger.debug("penguin_run start:")
     logger.debug(f"proj_dir={proj_dir}")
     logger.debug(f"config={config}")
     logger.debug(f"out_dir={out_dir}")

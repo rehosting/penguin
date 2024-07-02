@@ -141,7 +141,7 @@ def add_lib_inject_all_abis(conf):
     # so do it manually here.
     # Having access to lib_inject from the binaries in /igloo/utils is useful
     # for unit tests.
-    conf["static_files"][f"/igloo/dylibs/lib_inject.so"] = dict(
+    conf["static_files"]["/igloo/dylibs/lib_inject.so"] = dict(
         type="symlink",
         target=f"/igloo/lib_inject_{arch_info['default_abi']}.so",
     )
@@ -151,7 +151,7 @@ def prep_config(conf):
     config_files = conf["static_files"] if "static_files" in conf else {}
     config_nvram = conf["nvram"] if "nvram" in conf else {}
 
-    config_files[f"/igloo/libnvram/"] = {
+    config_files["/igloo/libnvram/"] = {
         "type": "dir",
         "mode": 0o755,
     }

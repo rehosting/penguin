@@ -452,7 +452,7 @@ def fs_make_config_changes(fs_base, config, project_dir):
 
 
 def make_image(fs, out, artifacts, config_path):
-    logger.info(f"Generating new image from config...")
+    logger.info("Generating new image from config...")
     IN_TARBALL = Path(fs)
     ARTIFACTS = Path(artifacts or "/tmp")
     QCOW = Path(out)
@@ -569,7 +569,7 @@ def makeImage(fs, out, artifacts, config, verbose):
     try:
         make_image(fs, out, artifacts, config)
     except Exception as e:
-        logger.error(f"Failed to generate image")
+        logger.error("Failed to generate image")
         # Show exception
         logger.error(e, exc_info=True, stack_info=True)
         sys.exit(1)

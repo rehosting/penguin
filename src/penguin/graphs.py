@@ -1507,7 +1507,7 @@ class ConfigurationManager:
         """
 
         # Ensure self.lock is held
-        assert self.lock.locked(), f"select_best_config called without lock held"
+        assert self.lock.locked(), "select_best_config called without lock held"
 
         # If we have pending configs, we must select from them.
         unexplored = self.graph.find_unexplored_configurations(

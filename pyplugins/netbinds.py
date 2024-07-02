@@ -22,7 +22,7 @@ class NetBinds(PyPlugin):
         self.ppp_cb_boilerplate("on_bind")
 
         with open(join(self.outdir, BINDS_FILE), "w") as f:
-            f.write(f"procname,ipvn,domain,guest_ip,guest_port,time\n")
+            f.write("procname,ipvn,domain,guest_ip,guest_port,time\n")
 
         self.ppp.Core.ppp_reg_cb("igloo_bind", self.on_bind)
 

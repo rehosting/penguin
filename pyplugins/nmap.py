@@ -38,7 +38,7 @@ class Nmap(PyPlugin):
 
         if os.path.isfile(log_file_name):
             # Need a unique name - unlikely that host_port would get reused so this might just stack if it ever happens
-            log_file_name += f".alt"
+            log_file_name += ".alt"
 
         process = subprocess.Popen(
             [

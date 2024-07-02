@@ -418,7 +418,7 @@ class Worker:
                 f.write(f"{parent_mitigation.exclusive}\n")
                 f.write(f"{parent_mitigation.info}\n")
         else:
-            self.logger.debug(f"Root config")
+            self.logger.debug("Root config")
 
         # DEBUG: save graph to disk
         # if len(self.config_manager.graph.graph.nodes) < 50:
@@ -705,7 +705,7 @@ def add_init_options_to_graph(config_manager, global_state, base_config):
     if len(base_config.info["env"].get("igloo_init", [])) == 0:
         if len(global_state.inits) == 0:
             raise RuntimeError(
-                f"No potential init binaries identified and none could be found"
+                "No potential init binaries identified and none could be found"
             )
 
         base = config_manager.graph.get_node(base_config.gid)
