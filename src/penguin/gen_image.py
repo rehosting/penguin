@@ -90,7 +90,7 @@ class LocalGuestFS:
         f = self.adjust_path(file_path)
         check_output(f"mknod -m {oct(mode)[2:]} {f} {t} {major} {minor}", shell=True)
 
-    def mknod_c(self, mode, major, minor, file_path):
+    def mknod_b(self, mode, major, minor, file_path):
         self._mknod("b", mode, major, minor, file_path)
 
     def mknod_c(self, mode, major, minor, file_path):
