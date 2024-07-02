@@ -628,14 +628,14 @@ def shim_configs(proj_dir, config, auto_explore=False):
     # shim_targets maps guest_bin -> path in /igloo/utils/ that we'll symlink to.
     # we'll back up the original binary to /igloo/utils/<guest_bin>.orig
     shim_targets = {
-        #'fw_printenv': 'fw_printenv', # NYI
-        #'fw_getenv': 'fw_printenv',
-        #'fw_setenv': 'fw_printenv',
+        # 'fw_printenv': 'fw_printenv', # NYI
+        # 'fw_getenv': 'fw_printenv',
+        # 'fw_setenv': 'fw_printenv',
         # XXX: We should re-enable these later when they work better
         # For now we could consider trying them in automated analyses, but openssl
         # shim breaks guests sometimes
-        #'ssh-keygen': 'ssh-keygen',
-        #'openssl': 'openssl',
+        # 'ssh-keygen': 'ssh-keygen',
+        # 'openssl': 'openssl',
         "reboot": "exit0.sh",
         "halt": "exit0.sh",
         "insmod": "exit0.sh",
