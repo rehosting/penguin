@@ -177,7 +177,7 @@ class Zap(PyPlugin):
             print(zap.urlopen(target), file=self.output_file)
             time.sleep(2)  # Give the sites tree a chance to get updated
             return True
-        except Exception:
+        except Exception as e:
             print(f"Exception updating sites tree: {e}", file=self.output_file)
             return False
 
