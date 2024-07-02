@@ -804,7 +804,7 @@ class DocsField:
                 default = PydanticUndefined
             try:
                 examples = type_.model_config["json_schema_extra"]["examples"]
-            except KeyError:
+            except (KeyError, TypeError):
                 examples = []
         else:
             # Doesn't inherit BaseModel or RootModel, so make all values empty
