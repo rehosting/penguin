@@ -3,6 +3,7 @@ from pandare import PyPlugin, getColoredLogger
 
 mount_log = "mounts.csv"
 
+
 class MountTracker(PyPlugin):
     """
     Track when the guest tries mounting filesystems.
