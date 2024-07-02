@@ -81,8 +81,7 @@ class LocalGuestFS:
         fp = self.adjust_path(fpath)
         if self.is_symlink(fpath):
             # theoretically this could stack overflow
-            l = self.readlink(fpath)
-            self.chmod(mode, l)
+            self.chmod(mode, self.readlink(fpath))
         else:
             # better to do this with pathlib, but it follows symlinks until v3.10
             os.chmod(fp, mode)
