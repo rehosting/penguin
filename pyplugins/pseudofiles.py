@@ -5,7 +5,7 @@ from collections import Counter
 from copy import deepcopy
 from os.path import dirname, isfile
 from os.path import join as pjoin
-from sys import path
+from sys import path as syspath
 from typing import List
 
 import pycparser
@@ -13,7 +13,7 @@ from pandare import PyPlugin
 
 from penguin import getColoredLogger
 
-path.append(dirname(__file__))
+syspath.append(dirname(__file__))
 
 KNOWN_PATHS = [
     "/dev/",
