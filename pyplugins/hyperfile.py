@@ -260,7 +260,7 @@ class HyperFile(PyPlugin):
     @staticmethod
     def read_zero(devname, buffer, length, offset):
         data = b"0"
-        final_data = data[offset : offset + length]
+        final_data = data[offset: offset + length]
         return (final_data, len(final_data))  # data, rv
 
     # Function to handle write operations
