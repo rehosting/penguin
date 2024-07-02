@@ -1,7 +1,6 @@
 import logging
 import os
 import random
-import re
 import socket
 import subprocess
 import tarfile
@@ -14,7 +13,6 @@ from time import sleep
 import requests
 from pandare import PyPlugin
 from python_hosts import Hosts, HostsEntry
-from requests.exceptions import ProxyError
 from zapv2 import ZAPv2
 
 # Simple wordlist of common usernames and passwords

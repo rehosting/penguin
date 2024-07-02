@@ -1,10 +1,4 @@
 import struct
-import sys
-from copy import deepcopy
-from os.path import dirname
-from os.path import join as pjoin
-from sys import path
-
 from pandare import PyPlugin
 
 try:
