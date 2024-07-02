@@ -1223,7 +1223,7 @@ def add_nvram_meta(proj_dir, config, output_dir):
     with tarfile.open(fs_path, "r") as tar:
         # For each key in static_targets, check if the query is in the file
         for key, (query, _) in static_targets.items():
-            if not key in tar.getnames():
+            if key not in tar.getnames():
                 continue
 
             try:
