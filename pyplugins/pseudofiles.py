@@ -239,7 +239,7 @@ class FileFailures(PyPlugin):
                 (self.sysfs, "/sys/"),
             ]:
                 if filename.startswith(prefix):
-                    targ.append(filename[len(prefix) :])
+                    targ.append(filename[len(prefix):])
 
             hf_config[filename]["size"] = details.get("size", 0)
 
@@ -388,7 +388,7 @@ class FileFailures(PyPlugin):
 
         nr = unpacked[0]
         # args = unpacked[1:1+6]
-        strings = unpacked[1 + 6 : 1 + 6 + 6]
+        strings = unpacked[1 + 6: 1 + 6 + 6]
         # ret = unpacked[1+6+6]
 
         arch, _ = arch_end(self.config["core"]["arch"])
@@ -486,7 +486,7 @@ class FileFailures(PyPlugin):
                 int(idx), 0x1000000, 0x20000, details["name"]
             )
 
-        buf = buf[offset : offset + length].encode()
+        buf = buf[offset: offset + length].encode()
 
         if len(buf) == 0:
             with open(pjoin(self.outdir, "pseudofiles_proc_mtd.txt"), "w") as f:
@@ -543,7 +543,7 @@ class FileFailures(PyPlugin):
         if filename in self.written_data:
             data = self.written_data[filename]
 
-        final_data = data[offset : offset + length]
+        final_data = data[offset: offset + length]
         # XXX if offset > len(data) should we return an error instead of 0?
         return (final_data, len(final_data))  # data, rv
 
@@ -552,7 +552,7 @@ class FileFailures(PyPlugin):
         if filename in self.written_data:
             data = self.written_data[filename]
 
-        final_data = data[offset : offset + length]
+        final_data = data[offset: offset + length]
         # XXX if offset > len(data) should we return an error instead of 0?
         return (final_data, len(final_data))  # data, rv
 
@@ -563,7 +563,7 @@ class FileFailures(PyPlugin):
 
     def read_const_buf(self, filename, buffer, length, offset, details=None):
         data = details["val"].encode() + b"\x00"  # Null terminate?
-        final_data = data[offset : offset + length]
+        final_data = data[offset: offset + length]
         # XXX if offset > len(data) should we return an error instead of 0?
         if offset > len(data):
             return (b"", 0)  # -EINVAL
@@ -634,7 +634,7 @@ class FileFailures(PyPlugin):
 
     def read_const_map(self, filename, buffer, length, offset, details=None):
         data = self._render_file(details)
-        final_data = data[offset : offset + length]
+        final_data = data[offset: offset + length]
         if offset > len(data):
             return (b"", 0)  # No data, no bytes read
 
@@ -699,7 +699,7 @@ class FileFailures(PyPlugin):
             previous
             + contents
             + (
-                self.written_data[filename][offset + length :]
+                self.written_data[filename][offset + length:]
                 if len(self.written_data[filename]) > offset + length
                 else b""
             )

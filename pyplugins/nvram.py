@@ -21,7 +21,7 @@ def extract_buffers_after_keys(binary_data, keys, buffer_size=100):
         if len(start_indices) == 0:
             continue
         buffers[key] = [
-            binary_data[start + len(key_bytes) : start + len(key_bytes) + buffer_size]
+            binary_data[start + len(key_bytes): start + len(key_bytes) + buffer_size]
             for start in start_indices
         ]
     return buffers
@@ -32,7 +32,7 @@ def analyze_buffer_frequencies(buffers, buffer_size=100):
     for buffer_list in buffers.values():
         for buffer in buffer_list:
             for i in range(min(len(buffer), buffer_size)):
-                byte = buffer[i : i + 1]
+                byte = buffer[i: i + 1]
                 frequency_table[i][byte] = frequency_table[i].get(byte, 0) + 1
 
     return frequency_table
