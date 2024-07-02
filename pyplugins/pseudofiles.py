@@ -729,12 +729,12 @@ class FileFailures(PyPlugin):
                      'val': X}
         """
         # Try to use cmd as our key, but '*' is a fallback
-        is_wildcard = False
+        # is_wildcard = False
         if cmd in ioctl_details:
             cmd_details = ioctl_details[cmd]
         elif "*" in ioctl_details:
             cmd_details = ioctl_details["*"]
-            is_wildcard = True
+            # is_wildcard = True
         else:
             self.log_ioctl_failure(filename, cmd)
             return -25  # -ENOTTY
