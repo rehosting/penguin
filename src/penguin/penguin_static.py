@@ -316,7 +316,7 @@ def pre_shim(proj_dir, config, auto_explore=False):
         for f in find_executables(tmp_dir, {"/bin", "/sbin", "/usr/bin", "/usr/sbin"}):
             # For things that look like binaries, find unique strings that look like paths
             for dest in list(
-                set(find_strings_in_file(f, "^(/var|/etc|/tmp)(.+)([^\/]+)$"))
+                set(find_strings_in_file(f, "^(/var|/etc|/tmp)(.+)([^\\/]+)$"))
             ):
                 if any([x in dest for x in ["%s", "%c", "%d", "/tmp/services"]]):
                     # Ignore these paths, printf format strings aren't real directories to create
