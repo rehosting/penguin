@@ -987,6 +987,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     )
 
                 for cmd, data in info["ioctl"].items():
+                    from symex import PathExpIoctl
                     symex = PathExpIoctl(output_dir, None, read_only=True)
                     models = symex.hypothesize_models(
                         target=path, cmd=cmd, verbose=False
