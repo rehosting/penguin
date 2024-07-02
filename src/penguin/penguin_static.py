@@ -1211,18 +1211,20 @@ def add_nvram_meta(proj_dir, config, output_dir):
     # FirmAE provides a list of hardcoded files to check for nvram keys, and default values
     # to add if they're present. Here we add this into our config.
     static_targets = {  # filename -> (query, value to set if key is present)
-        "./sbin/rc": ("ipv6_6to4_lan_ip", "2002:7f00:0001::"),
-        "./lib/libacos_shared.so": ("time_zone_x", "0"),
-        "./usr/sbin/httpd": ("rip_multicast", "0"),
-        "./usr/sbin/httpd": ("bs_trustedip_enable", "0"),
-        "./usr/sbin/httpd": ("filter_rule_tbl", ""),
-        "./sbin/acos_service": ("rip_enable", "0"),
+        "./sbin/rc": [("ipv6_6to4_lan_ip", "2002:7f00:0001::")],
+        "./lib/libacos_shared.so": [("time_zone_x", "0")],
+        "./sbin/acos_service": [("rip_enable", "0")],
+        "./usr/sbin/httpd": [
+            ("rip_multicast", "0"),
+            ("bs_trustedip_enable", "0"),
+            ("filter_rule_tbl", ""),
+        ],
     }
 
     nvram_sources["firmae_file_specific"] = 0
     with tarfile.open(fs_path, "r") as tar:
         # For each key in static_targets, check if the query is in the file
-        for key, (query, _) in static_targets.items():
+        for key, queries in static_targets.items():
             if key not in tar.getnames():
                 continue
 
@@ -1235,10 +1237,11 @@ def add_nvram_meta(proj_dir, config, output_dir):
             if f is None:
                 continue
 
-            # Check if query is in file
-            if query.encode() in f.read():
-                if key not in config["nvram"]:
-                    nvram_sources["firmae_file_specific"] += 1
+            for (query, _) in queries:
+                # Check if query is in file
+                if query.encode() in f.read():
+                    if key not in config["nvram"]:
+                        nvram_sources["firmae_file_specific"] += 1
 
     # Now we need to select which values we'll put in our config. Here's an algorithm:
     # We'd prefer libraries, full_config_paths, basename_config_file, defaults.
