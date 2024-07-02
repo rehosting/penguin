@@ -210,8 +210,8 @@ class TestRunner:
 
     def _patch_config(self, test_name, proj_dir):
         # TODO: consider setting kernel version here if we add multiple kernel versions
-
-        if not (test_path := (TEST_DIR / Path(test_name + ".yaml"))).is_file():
+        test_path = TEST_DIR / Path(test_name + ".yaml")
+        if not test_path.is_file():
             raise ValueError(f"Test {test_name} does not exist")
 
         subprocess.run(
