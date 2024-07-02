@@ -1,11 +1,12 @@
-from pandare import PyPlugin
-from os.path import join
 import tarfile
+from os.path import join
+
+from pandare import PyPlugin
+
 from penguin import getColoredLogger
 
-
 # crc32("busybox")
-EXPECTED_MAGIC = 0x8507fae1
+EXPECTED_MAGIC = 0x8507FAE1
 
 HC_CMD_LOG_LINENO = 0
 HC_CMD_LOG_ENV_ARGS = 1
@@ -13,6 +14,7 @@ HC_CMD_LOG_ENV_ARGS = 1
 outfile_cov = "shell_cov.csv"
 outfile_trace = "shell_cov_trace.csv"
 outfile_env = "shell_env.csv"
+
 
 class BBCov(PyPlugin):
     def __init__(self, panda):
@@ -22,7 +24,7 @@ class BBCov(PyPlugin):
         self.fs_tar = self.get_arg("fs")
         self.fs_missing_files = set()
 
-        self.read_scripts = {} # filename -> contents
+        self.read_scripts = {}  # filename -> contents
         self.last_line = None
 
         self.logger = getColoredLogger("plugins.shell")
@@ -41,19 +43,21 @@ class BBCov(PyPlugin):
 
         @self.panda.cb_guest_hypercall
         def cb_hypercall(cpu):
-            magic = self.panda.arch.get_arg(cpu, 0, convention='syscall') & 0xFFFFFFFF
+            magic = self.panda.arch.get_arg(cpu, 0, convention="syscall") & 0xFFFFFFFF
             if magic != EXPECTED_MAGIC:
                 return False
 
             hc_type = self.panda.arch.get_arg(cpu, 1, convention="syscall")
-            argptr =  self.panda.arch.get_arg(cpu, 2, convention='syscall')
-            length = self.panda.arch.get_arg(cpu, 3, convention='syscall')
+            argptr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
+            length = self.panda.arch.get_arg(cpu, 3, convention="syscall")
 
-            hc_type = hc_type & 0xffffffff
-            length = length & 0xffffffff
+            hc_type = hc_type & 0xFFFFFFFF
+            length = length & 0xFFFFFFFF
 
             try:
-                argv = self.panda.virtual_memory_read(cpu, argptr, self.pointer_size * length, fmt="ptrlist")
+                argv = self.panda.virtual_memory_read(
+                    cpu, argptr, self.pointer_size * length, fmt="ptrlist"
+                )
             except ValueError:
                 argv = []
 
@@ -77,7 +81,7 @@ class BBCov(PyPlugin):
         if filename is None:
             # We failed to read guest virtual memory. Nothing we can do since we haven't setup
             # a good retry mechanism for this yet.
-            filename = f'[error reading guest memory at {file_str_ptr:#x}]'
+            filename = f"[error reading guest memory at {file_str_ptr:#x}]"
         if filename.startswith("/igloo/"):
             return
         lineno = self.try_read_int(cpu, lineno_ptr)
@@ -90,15 +94,17 @@ class BBCov(PyPlugin):
                 try:
                     f = tar.extractfile("." + filename)
                     if f:
-                        self.read_scripts[filename] = f.read().decode("latin-1", errors='replace').splitlines()
+                        self.read_scripts[filename] = (
+                            f.read().decode("latin-1", errors="replace").splitlines()
+                        )
                     else:
                         self.fs_missing_files.add(filename)
                 except KeyError:
                     self.fs_missing_files.add(filename)
-        
+
         # Read the line out of the file, if we can
         try:
-            line = self.read_scripts[filename][lineno-1]
+            line = self.read_scripts[filename][lineno - 1]
         except (KeyError, IndexError):
             line = None
 
@@ -115,7 +121,7 @@ class BBCov(PyPlugin):
             self.last_line = None
 
         # This is too verbose even for debug
-        #self.logger.debug(f"filename: {filename}, lineno = {lineno}, pid = {pid}")
+        # self.logger.debug(f"filename: {filename}, lineno = {lineno}, pid = {pid}")
         with open(join(self.outdir, outfile_cov), "a") as f:
             f.write(f"{filename},{lineno},{pid}\n")
 
@@ -128,7 +134,7 @@ class BBCov(PyPlugin):
         if filename is None:
             # We failed to read guest virtual memory. Nothing we can do since we haven't setup
             # a good retry mechanism for this yet.
-            filename = f'[error reading guest memory at {file_str_ptr:#x}]'
+            filename = f"[error reading guest memory at {file_str_ptr:#x}]"
 
         if filename.startswith("/igloo/"):
             return
@@ -136,7 +142,9 @@ class BBCov(PyPlugin):
         pid = self.try_read_int(cpu, pid_ptr)
 
         try:
-            envs_count = self.panda.virtual_memory_read(cpu, envs_count_ptr, 4, fmt='int')
+            envs_count = self.panda.virtual_memory_read(
+                cpu, envs_count_ptr, 4, fmt="int"
+            )
 
             env_str_ptrs = self.panda.virtual_memory_read(
                 cpu, envs_ptr, self.pointer_size * envs_count, fmt="ptrlist"
@@ -154,11 +162,15 @@ class BBCov(PyPlugin):
 
         if self.last_line is not None:
             # If we just got env info for the last line, let's write it out with data now
-            if self.last_line[2] and self.last_line[0] == filename and self.last_line[1] == lineno:
+            if (
+                self.last_line[2]
+                and self.last_line[0] == filename
+                and self.last_line[1] == lineno
+            ):
                 line = self.last_line[2]
 
                 # We want to replace "$anything" with "$anything(=VALUE)" for each env
-                for (varname, val) in envs:
+                for varname, val in envs:
                     if val is None:
                         val = "UNSET"
                     line = line.replace(f"${varname}", f"$({varname}=>{val})")
@@ -168,7 +180,7 @@ class BBCov(PyPlugin):
                 with open(join(self.outdir, outfile_trace), "a") as f:
                     f.write(f"{filename}:{lineno},{line}\n")
 
-        #print(f"filename: {filename}, lineno = {lineno}, pid = {pid}, envs: {envs}")
+        # print(f"filename: {filename}, lineno = {lineno}, pid = {pid}, envs: {envs}")
         with open(join(self.outdir, outfile_env), "a") as f:
             f.write(f"{filename},{lineno},{pid},{envs}\n")
 
@@ -186,6 +198,6 @@ class BBCov(PyPlugin):
             return None
 
         try:
-            return self.panda.virtual_memory_read(cpu, ptr, 4, fmt='int')
+            return self.panda.virtual_memory_read(cpu, ptr, 4, fmt="int")
         except ValueError:
             return "[virtual mem read fail]"

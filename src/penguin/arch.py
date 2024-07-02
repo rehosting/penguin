@@ -5,6 +5,7 @@ from penguin import getColoredLogger
 
 logger = getColoredLogger("penguin.arch")
 
+
 @dataclasses.dataclass
 class ArchInfo:
     arch: Optional[str] = None
@@ -22,6 +23,7 @@ class ArchInfo:
             return f"{name}={value}"
 
         return ", ".join(map(print_field, dataclasses.fields(self)))
+
 
 def arch_end(value):
     arch = None
@@ -47,19 +49,25 @@ def arch_end(value):
 
     return (arch, end)
 
+
 def _elf_bits(header):
     return 64 if header.e_ident["EI_CLASS"] == "ELFCLASS64" else 32
 
+
 def _identify_arm_arch(elf):
-    '''
+    """
     Check for hard/soft float
-    '''
+    """
     attrs = elf.get_section_by_name(".ARM.attributes")
-    hf = False if attrs is None else any(
-        (attr.tag, attr.value) == ("TAG_ABI_VFP_ARGS", 1)
-        for attrs in attrs.iter_subsections()
-        for attrs in attrs.iter_subsubsections()
-        for attr in attrs.iter_attributes()
+    hf = (
+        False
+        if attrs is None
+        else any(
+            (attr.tag, attr.value) == ("TAG_ABI_VFP_ARGS", 1)
+            for attrs in attrs.iter_subsections()
+            for attrs in attrs.iter_subsubsections()
+            for attr in attrs.iter_attributes()
+        )
     )
     return ArchInfo(
         arch="armel",
@@ -67,37 +75,38 @@ def _identify_arm_arch(elf):
         bits=_elf_bits(elf.header),
     )
 
+
 def _identify_mips_arch(header):
-    '''
+    """
     Mips is more complicated. We could have 32 bit binaries that only run on a 64-bit
     system (i.e., mips64 with the n32 ABI). Other permutations will likely cause issues
     later so trying to future-proof this a bit. Masks/comparisons based off readelf.py
     from PyElfTools.
-    '''
+    """
     endianness = header.e_ident["EI_DATA"]
-    flags = header['e_flags']
+    flags = header["e_flags"]
 
     if flags & E_FLAGS.EF_MIPS_ARCH == E_FLAGS.EF_MIPS_ARCH_1:
-        mips_arch ="mips1"
+        mips_arch = "mips1"
     if flags & E_FLAGS.EF_MIPS_ARCH == E_FLAGS.EF_MIPS_ARCH_2:
-        mips_arch ="mips2"
+        mips_arch = "mips2"
     if flags & E_FLAGS.EF_MIPS_ARCH == E_FLAGS.EF_MIPS_ARCH_3:
-        mips_arch ="mips3"
+        mips_arch = "mips3"
     if flags & E_FLAGS.EF_MIPS_ARCH == E_FLAGS.EF_MIPS_ARCH_4:
-        mips_arch ="mips4"
+        mips_arch = "mips4"
     if flags & E_FLAGS.EF_MIPS_ARCH == E_FLAGS.EF_MIPS_ARCH_5:
-        mips_arch ="mips5"
+        mips_arch = "mips5"
     if flags & E_FLAGS.EF_MIPS_ARCH == E_FLAGS.EF_MIPS_ARCH_32R2:
-        mips_arch ="mips32r2"
+        mips_arch = "mips32r2"
     if flags & E_FLAGS.EF_MIPS_ARCH == E_FLAGS.EF_MIPS_ARCH_64R2:
-        mips_arch ="mips64r2"
+        mips_arch = "mips64r2"
     if flags & E_FLAGS.EF_MIPS_ARCH == E_FLAGS.EF_MIPS_ARCH_32:
-        mips_arch ="mips32"
+        mips_arch = "mips32"
     if flags & E_FLAGS.EF_MIPS_ARCH == E_FLAGS.EF_MIPS_ARCH_64:
-        mips_arch ="mips64"
+        mips_arch = "mips64"
 
     # Some extra flags that only affect what gets printed
-    description = 'mips'
+    description = "mips"
     if flags & E_FLAGS.EF_MIPS_NOREORDER:
         description += ", noreorder"
     if flags & E_FLAGS.EF_MIPS_PIC:
@@ -114,12 +123,14 @@ def _identify_mips_arch(header):
     if flags & E_FLAGS_MASKS.EFM_MIPS_ABI_O32:
         abi = "o32"
     elif flags & E_FLAGS_MASKS.EFM_MIPS_ABI_O64:
-        abi = "o64" # never seen this before - unsupported for now?
+        abi = "o64"  # never seen this before - unsupported for now?
     else:
         abi = f"n{bits}"
-        bits = 64 # Even though n32 is 32-bit, it only runs on 64-bit CPUs
+        bits = 64  # Even though n32 is 32-bit, it only runs on 64-bit CPUs
 
-    logger.debug(f"Identified MIPS firmware: arch={mips_arch}, bits={bits}, abi={abi}, endian={endianness}, extras={description}")
+    logger.debug(
+        f"Identified MIPS firmware: arch={mips_arch}, bits={bits}, abi={abi}, endian={endianness}, extras={description}"
+    )
 
     arch = {
         (32, "ELFDATA2LSB"): "mipsel",
@@ -129,16 +140,23 @@ def _identify_mips_arch(header):
     }.get((bits, endianness))
 
     if arch is None:
-        logger.error("Unexpected MIPS architecture: bits %d, endianness %s", bits, endianness)
+        logger.error(
+            "Unexpected MIPS architecture: bits %d, endianness %s", bits, endianness
+        )
 
-    return ArchInfo(arch=arch, abi=abi, bits=bits, endianness=endianness, description=description)
+    return ArchInfo(
+        arch=arch, abi=abi, bits=bits, endianness=endianness, description=description
+    )
+
 
 def arch_filter(elf):
     header = elf.header
 
     if not isinstance(header.e_machine, str):
         # It's an int sometimes? That's no good
-        logger.warning(f"Unexpected e_machine type: {type(header.e_machine)}: {header.e_machine}. Cannot identify architecture.")
+        logger.warning(
+            f"Unexpected e_machine type: {type(header.e_machine)}: {header.e_machine}. Cannot identify architecture."
+        )
         return ArchInfo()
 
     friendly_arch = header.e_machine.replace("EM_", "")

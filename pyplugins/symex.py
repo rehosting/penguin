@@ -7,21 +7,23 @@ import tempfile
 
 import angr
 import claripy
-from angr_targets import PandaConcreteTarget # pylint: disable=import-error
+from angr_targets import PandaConcreteTarget  # pylint: disable=import-error
 
 # Silence a bunch of angr logging
-logging.getLogger().setLevel('WARNING')
-logging.getLogger('angr').setLevel('WARNING')
-logging.getLogger("angr_targets.panda").setLevel('WARNING')
-logging.getLogger("cle.loader").setLevel('ERROR')
-logging.getLogger("cle.backends.externs").setLevel('ERROR')
-logging.getLogger("angr.simos.linux").setLevel('ERROR')
+logging.getLogger().setLevel("WARNING")
+logging.getLogger("angr").setLevel("WARNING")
+logging.getLogger("angr_targets.panda").setLevel("WARNING")
+logging.getLogger("cle.loader").setLevel("ERROR")
+logging.getLogger("cle.backends.externs").setLevel("ERROR")
+logging.getLogger("angr.simos.linux").setLevel("ERROR")
 
 # Does this actually help? Need happy protobufs instead of sad panda protobufs
-os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"]= "python"
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 # DEBUG callback for logging each BB when doing symex
 DBG_LAST_BB = None
+
+
 def angr_block(state):
     """
     Debug callback - Print before block before we execute it
@@ -33,27 +35,33 @@ def angr_block(state):
         state.block().pp()
         DBG_LAST_BB = state.block().addr
 
+
 class IoctlSimProcedure(angr.SimProcedure):
-    '''
+    """
     SimProcedure to return a unconstrained symbolic value for an IOCTL
-    '''
+    """
+
     def __init__(self, panda, *args, **kwargs):
         self.panda = panda
         super().__init__(*args, **kwargs)
 
     def run(self, *_):
         # Return an unconstrained symbolic value
-        return claripy.BVS('additional_ioctl_ret', self.panda.bits)
+        return claripy.BVS("additional_ioctl_ret", self.panda.bits)
+
 
 class PathExpIoctl:
-    '''
+    """
     Plugin to symbolically execute IOCTLs and track constraints that lead to distinct paths
-    '''
-    def __init__(self, out_dir, fs_archive, read_only = False):
+    """
+
+    def __init__(self, out_dir, fs_archive, read_only=False):
         # Set up log and results paths in out_dir
         self.logger = logging.getLogger(__name__)
         if read_only and not os.path.isfile(os.path.join(out_dir, "symex.pkl")):
-            self.has_data_or_writing = False # either we have results, or we're writing results
+            self.has_data_or_writing = (
+                False  # either we have results, or we're writing results
+            )
         else:
             self.has_data_or_writing = True
         # Store fs_archive
@@ -61,23 +69,28 @@ class PathExpIoctl:
         self.read_only = read_only
 
         # Initialize remaining state
-        self.results = {} # {fname: {ioctl: {'ok': [constraint_set1, constraint_set2, ...],
-                          # 'error': [constraint_set1, constraint_set2, ...]}}}
+        self.results = (
+            {}
+        )  # {fname: {ioctl: {'ok': [constraint_set1, constraint_set2, ...],
+        # 'error': [constraint_set1, constraint_set2, ...]}}}
         self.result_path = os.path.join(out_dir, "symex.pkl")
 
         if self.has_data_or_writing:
-            self.log_file = open(os.path.join(out_dir, "symex.log"), "w" if not read_only else "r",
-                                encoding='utf-8')
+            self.log_file = open(
+                os.path.join(out_dir, "symex.log"),
+                "w" if not read_only else "r",
+                encoding="utf-8",
+            )
 
     def uninit(self):
         if self.has_data_or_writing and not self.log_file.closed:
             self.log_file.close()
 
     def do_symex(self, panda, cpu, targ_addr, name, num):
-        '''
+        """
         Main entrypoint after initial state is set. Given current concrete PANDA state
         at an IOCTL return, run symex in order identify distinct reachable paths
-        '''
+        """
         self.log(f"do_symex for ioctl {num:x} on {name}")
 
         # We're hooking at syscall return. This is often libc's ioctl function or another
@@ -89,29 +102,29 @@ class PathExpIoctl:
         proj, state = self.setup_project_state(panda, targ_addr)
 
         # Hook ioctl to return symbolic values - not sure if it's necessary
-        proj.hook_symbol('ioctl', IoctlSimProcedure(panda))
+        proj.hook_symbol("ioctl", IoctlSimProcedure(panda))
 
         # DEBUG: Trace all blocks
-        #state.inspect.b('statement', action=angr_block, when=angr.BP_BEFORE)
+        # state.inspect.b('statement', action=angr_block, when=angr.BP_BEFORE)
 
         # Write symbolic return value into the state
-        sym_retval = claripy.BVS('target_ioctl_ret', panda.bits, explicit_name=True)
-        state = self.set_retval(state, panda, sym_retval, convention='syscall')
+        sym_retval = claripy.BVS("target_ioctl_ret", panda.bits, explicit_name=True)
+        state = self.set_retval(state, panda, sym_retval, convention="syscall")
 
         # Write symbolic argument buffer into state if the IOCTL number indicates
         # that userspace will be reading from it.
         decoded = self.decode_ioctl(num)
-        if decoded['Direction'] in ['IOR', 'IOWR']:
+        if decoded["Direction"] in ["IOR", "IOWR"]:
             # Userspace is planning to READ from the buffer - we should make this buffer
             # symbolic. Yikes. TODO: we could take the return address here as sym_arg
             # and pass through to collapse_results
-            self.make_symbolic_buffer(state, panda, decoded['Argument Size'])
+            self.make_symbolic_buffer(state, panda, decoded["Argument Size"])
 
         # Create our simulation manager and run it.
         # TODO: which strategy is best for us? Is there a way to use a timeout + limit on BBs?
         simgr = proj.factory.simgr(state)
-        #simgr.use_technique(angr.exploration_techniques.Timeout(60)) # Timeout at 60s
-        simgr.run(n=50) # 50 BBs
+        # simgr.use_technique(angr.exploration_techniques.Timeout(60)) # Timeout at 60s
+        simgr.run(n=50)  # 50 BBs
 
         # Report simgr state to log
         self.log_simgr(simgr)
@@ -120,7 +133,7 @@ class PathExpIoctl:
         return self.collapse_results(simgr, name, num, sym_retval)
 
     def collapse_results(self, simgr, name, num, sym_retval):
-        '''
+        """
         Examine the results from a simulation, collect constraints,
         and return a list of concrete return values
 
@@ -128,16 +141,16 @@ class PathExpIoctl:
 
         TODO: If there's an error stash would we want to pull values out of it to try
               avoiding? Or are these just bugs in our code?
-        '''
+        """
 
         # Setup our results dict
         if name not in self.results:
             self.results[name] = {}
         if num not in self.results[name]:
-            self.results[name][num] = {'ok': [], 'error': []}
+            self.results[name][num] = {"ok": [], "error": []}
 
-        concrete_rvs = set() # Concrete return values
-        these_results = [] # List of lists of constraints with retval
+        concrete_rvs = set()  # Concrete return values
+        these_results = []  # List of lists of constraints with retval
         for s in simgr.active + simgr.deadended:
             # Add the concrete return value to our results set
             s.solver.simplify()
@@ -146,12 +159,13 @@ class PathExpIoctl:
 
             rel_constraints = []
             for constraint in s.solver.constraints:
-                if 'target_ioctl_ret' in str(constraint) or \
-                        'target_ioctl_buffer' in str(constraint):
+                if "target_ioctl_ret" in str(
+                    constraint
+                ) or "target_ioctl_buffer" in str(constraint):
                     rel_constraints.append(constraint)
             these_results.append(rel_constraints)
 
-        self.results[name][num]['ok'].append(these_results)
+        self.results[name][num]["ok"].append(these_results)
 
         result = list(concrete_rvs)
         self.log("Results:")
@@ -161,47 +175,42 @@ class PathExpIoctl:
         return result
 
     @staticmethod
-    def set_retval(state, panda, retval, convention='default'):
-        '''
+    def set_retval(state, panda, retval, convention="default"):
+        """
         Map panda arch name to angr retval register name
         Syscall and regular convention seem to be the same...
-        '''
+        """
         reg_map = {
-            'default':
-                {
-                    'x86_64': 'rax',
-                    'i386': 'eax',
-                    'arm': 'r0',
-                    'mips': 'v0'
-                }
-            }
-        reg_map['default']['mipsel'] = reg_map['default']['mips']
-        reg_map['syscall'] = reg_map['default']
+            "default": {"x86_64": "rax", "i386": "eax", "arm": "r0", "mips": "v0"}
+        }
+        reg_map["default"]["mipsel"] = reg_map["default"]["mips"]
+        reg_map["syscall"] = reg_map["default"]
         # Now set the angr state.regs.<reg> to retval
         setattr(state.regs, reg_map[convention][panda.arch_name], retval)
         return state
 
     @staticmethod
     def make_symbolic_buffer(state, panda, size):
-        '''
+        """
         Set the return value of the concretely-issued ioctl to be symbolic
-        '''
-        retbuf = claripy.BVS('target_ioctl_buffer', size, explicit_name=True)
-        if panda.arch_name == 'x86_64':
+        """
+        retbuf = claripy.BVS("target_ioctl_buffer", size, explicit_name=True)
+        if panda.arch_name == "x86_64":
             state.regs.rdx = retbuf
-        elif panda.arch_name == 'i386':
+        elif panda.arch_name == "i386":
             state.regs.edx = retbuf
-        elif panda.arch_name == 'arm':
+        elif panda.arch_name == "arm":
             state.regs.r2 = retbuf
-        elif panda.arch_name == 'mips':
+        elif panda.arch_name == "mips":
             state.regs.a2 = retbuf
 
         return retbuf
 
-
     def log_simgr(self, simgr):
-        self.log(f"Simgr has {len(simgr.active)} active states, {len(simgr.deadended)} " \
-                 f"deadended states, and {len(simgr.errored)} errored states")
+        self.log(
+            f"Simgr has {len(simgr.active)} active states, {len(simgr.deadended)} "
+            f"deadended states, and {len(simgr.errored)} errored states"
+        )
         # For each errored state, log
         for idx, state in enumerate(simgr.errored):
             self.log(f"Errored state #{idx}: {state.error}")
@@ -217,7 +226,7 @@ class PathExpIoctl:
             self.log_file.flush()
 
     def create_proj(self, panda, targ_addr, scratch):
-        '''
+        """
         Initialize PANDA target, then enumerate memory mappings to find
         in-memory executables. Pull these out of self.fs_tar.
 
@@ -226,7 +235,7 @@ class PathExpIoctl:
            store in our scratch directory
         3. Create a PandaConcreteTarget
         4. Create an angr project
-        '''
+        """
 
         panda_target = PandaConcreteTarget(panda)
         target_binary, target_base = None, None
@@ -240,20 +249,24 @@ class PathExpIoctl:
         # and identify the binary that was loaded at targ_addr
         for mapping in panda_target.get_mappings():
             target_files.add(mapping.name)
-            lib_opts[os.path.basename(mapping.name)] = {'base_addr': mapping.start_address,
-                                                        'offset': mapping.offset
-                                                    }
+            lib_opts[os.path.basename(mapping.name)] = {
+                "base_addr": mapping.start_address,
+                "offset": mapping.offset,
+            }
             if targ_addr >= mapping.start_address < mapping.end_address:
                 # This mapping contains the target address - we'll configure this binary as our
                 # main object
-                target_binary, target_base = os.path.basename(mapping.name), mapping.start_address
+                target_binary, target_base = (
+                    os.path.basename(mapping.name),
+                    mapping.start_address,
+                )
 
         if not target_binary:
             # We must find a target!
             raise ValueError(f"Failed to find anything in memory at {targ_addr:x}")
 
         # Now copy each of the files we care about into our scratch directory
-        with open(self.fs_archive, 'rb') as f:
+        with open(self.fs_archive, "rb") as f:
             with tarfile.open(fileobj=f) as tar:
                 for member in tar.getmembers():
                     # Extract our target files into scratch
@@ -264,13 +277,13 @@ class PathExpIoctl:
                         continue
 
                     # Extract into scratch dir and preserve paths
-                    #tar.extract(member, scratch)
+                    # tar.extract(member, scratch)
 
                     # Extract into ./scratch/ and discard original path
                     file_content = tar.extractfile(member).read()
                     final_path = os.path.basename(fname)
                     output_file_path = os.path.join(*[scratch, final_path])
-                    with open(output_file_path, 'wb') as out_file:
+                    with open(output_file_path, "wb") as out_file:
                         out_file.write(file_content)
 
                     # Remove from pending_files
@@ -282,27 +295,28 @@ class PathExpIoctl:
         self.log(f"Initial PC is {targ_addr:x}")
 
         load_options = {
-            'auto_load_libs': False,
-            'except_missing_libs': True,
-            'ld_path': scratch,
-            'lib_opts': lib_opts,
-            'force_load_libs': list(lib_opts.keys()),
-            'main_opts': {'base_addr': target_base},
+            "auto_load_libs": False,
+            "except_missing_libs": True,
+            "ld_path": scratch,
+            "lib_opts": lib_opts,
+            "force_load_libs": list(lib_opts.keys()),
+            "main_opts": {"base_addr": target_base},
         }
 
-        proj = angr.Project(os.path.join(scratch, target_binary),
-                            concrete_target=panda_target,
-                            use_sim_procedures=False,
-                            load_options=load_options
-                            )
+        proj = angr.Project(
+            os.path.join(scratch, target_binary),
+            concrete_target=panda_target,
+            use_sim_procedures=False,
+            load_options=load_options,
+        )
         return proj
 
     def setup_project_state(self, panda, targ_addr):
-        '''
+        """
         Given a concrete PANDA state and a target address
         create a new angr project and state, and synchronize
         with PANDA concrete state.
-        '''
+        """
         with tempfile.TemporaryDirectory(prefix="penguin_") as tmpdir:
             proj = self.create_proj(panda, targ_addr, tmpdir)
 
@@ -320,9 +334,9 @@ class PathExpIoctl:
         return proj, state
 
     def save_results(self):
-        '''
+        """
         Dump results to a pickle file at symex.pkl
-        '''
+        """
         self.log("\n----\nSaving results:")
         for fname, details in self.results.items():
             self.log(f"\t{fname}")
@@ -330,25 +344,24 @@ class PathExpIoctl:
                 self.log(f"\t\tIOCTL {ioctl:#x}")
                 self.log(f"\t\t\t{results['ok']}")
 
-        with open(self.result_path, 'wb') as f:
+        with open(self.result_path, "wb") as f:
             f.write(pickle.dumps(self.results, -1))
 
     def _load_results(self):
         if os.path.isfile(self.result_path):
-            with open(self.result_path, 'rb') as f:
+            with open(self.result_path, "rb") as f:
                 self.results = pickle.loads(f.read())
 
     def get_known_values(self):
-        '''
+        """
         Return details of all filenames and IOCTLs we've analyzed
         in the format {fname: [ioctl1, ioctl2]}
-        '''
+        """
         if len(self.results) == 0:
             self._load_results()
         return {fname: list(self.results[fname].keys()) for fname in self.results}
 
-
-    '''
+    """
     @staticmethod
     def synthesize_constraints(self, solver, constraint_lists):
         # Flatten and deduplicate the constraints
@@ -373,7 +386,7 @@ class PathExpIoctl:
                 final_constraints.append([~constr1 & ~constr2])
 
         return final_constraints
-    '''
+    """
 
     def find_distinct_paths(self, path, num, nbits):
         if len(self.results) == 0:
@@ -383,28 +396,28 @@ class PathExpIoctl:
             raise ValueError(f"No results for {path} {num}")
 
         # Just need a solver, doesn't matter what project's backed by?
-        proj = angr.Project('/bin/true')
+        proj = angr.Project("/bin/true")
         state = proj.factory.blank_state()
 
         # With explicit_name=True, we can just reconstruct the symbolic variable(?)
-        retval = claripy.BVS('target_ioctl_ret', nbits, explicit_name=True)
+        retval = claripy.BVS("target_ioctl_ret", nbits, explicit_name=True)
 
         constrs = []
-        if len(self.results[path][num]['ok']) == 0:
+        if len(self.results[path][num]["ok"]) == 0:
             return []
 
-        if len(self.results[path][num]['ok']) == 1:
+        if len(self.results[path][num]["ok"]) == 1:
             # No need to combine pairs - we did a single run so
             # data contains [[constraints1_part1, constraints1_part2], [...]]
-            for constr in self.results[path][num]['ok'][0]:
+            for constr in self.results[path][num]["ok"][0]:
                 constrs.append(state.solver.And(*constr))
 
         else:
             # We have multiple runs for this fname and ioctl.
             # Let's combine the constraints between runs
-            combined_constraints = set() # String reprs
+            combined_constraints = set()  # String reprs
             # Iterate through all pairs of runs
-            for run1, run2 in itertools.combinations(self.results[path][num]['ok'], 2):
+            for run1, run2 in itertools.combinations(self.results[path][num]["ok"], 2):
                 # Iterate through all pairs of states within the selected runs
                 for constr1, constr2 in itertools.product(run1, run2):
                     # Combine constraints within each state using AND
@@ -427,6 +440,7 @@ class PathExpIoctl:
             rvs.add(state.solver.min(retval, extra_constraints=[constr]))
 
         rvs = list(rvs)
+
         def custom_sort_key(num):
             # Return a tuple that will guide the sort operation.
             # Positive (small to big), negative (big to small), then 0
@@ -434,11 +448,11 @@ class PathExpIoctl:
             if num == 0:
                 return (3, 0)
 
-            if num >= 2**(nbits-1): # If highest bit is set, it's negative
-                return (2, num - 2**nbits) # Gets us the negative value
+            if num >= 2 ** (nbits - 1):  # If highest bit is set, it's negative
+                return (2, num - 2**nbits)  # Gets us the negative value
 
             # Else it's positive
-            return (1, num) # Gets us the positive value
+            return (1, num)  # Gets us the positive value
 
         return sorted(rvs, key=custom_sort_key)
 
@@ -454,15 +468,15 @@ class PathExpIoctl:
             "Direction": direction_enum[direction],
             "Argument Size": arg_size,
             "Command Number": cmd_num,
-            "Type Number": type_num
+            "Type Number": type_num,
         }
 
     def hypothesize_models(self, target=None, cmd=None, verbose=True):
-        '''
+        """
         Given some results, hypothesize models for each device and ioctl.
         Not sure if we really need this
-        '''
-        models = {} # {"/dev/device": {ioctl: [likeliest value, 2nd likliest value...]}
+        """
+        models = {}  # {"/dev/device": {ioctl: [likeliest value, 2nd likliest value...]}
         try:
             known_values = self.get_known_values()
         except FileNotFoundError:
@@ -489,8 +503,10 @@ class PathExpIoctl:
                 models[fname][num] = paths
         return models
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     from sys import argv
+
     symex = PathExpIoctl(argv[1], None, read_only=True)
     models = symex.hypothesize_models()
     for fname, details in models.items():
