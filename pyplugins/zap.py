@@ -64,7 +64,7 @@ def find_potential_urls(fs_tar_path):
 
                 # Simple heuristic to find URLs
                 urls.update(re.findall(r'https?://[^\\s"]+', file_content))
-                
+
                 # Heuristic to find paths
                 paths = re.findall(r'/(?:[a-zA-Z0-9_-]+/)*[a-zA-Z0-9_-]+', file_content)
                 urls.update(paths)
