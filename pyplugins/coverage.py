@@ -1,6 +1,8 @@
 # Hypercall based coverage tracking
 import copy
+
 from pandare import PyPlugin
+
 
 class Coverage(PyPlugin):
     def __init__(self, panda):
@@ -10,4 +12,4 @@ class Coverage(PyPlugin):
         panda.load_plugin("pandata_cov", {"outfile": self.outdir + "/coverage.csv"})
 
         # Must enable this in kernel boot args, otherwise kernel won't hypercall with memory layout info
-        self.get_arg("conf")['env']['igloo_log_cov'] = "1"
+        self.get_arg("conf")["env"]["igloo_log_cov"] = "1"

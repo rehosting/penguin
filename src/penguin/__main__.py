@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
 
+import argparse
+import logging
 import os
 import shutil
 import subprocess
-import logging
-import art
-import argparse
+from os.path import dirname, join
 from pathlib import Path
-from os.path import join, dirname
-from .common import yaml
-from .manager import graph_search, PandaRunner, calculate_score
-from .gen_config import fakeroot_gen_config
-from .penguin_config import load_config
+
+import art
+
 from penguin import VERSION, getColoredLogger
+
+from .common import yaml
+from .gen_config import fakeroot_gen_config
+from .manager import PandaRunner, calculate_score, graph_search
+from .penguin_config import load_config
 
 logger = getColoredLogger("penguin")
 
-def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None, verbose=False):
+
+def run_from_config(
+    config_path, output_dir, niters=1, nthreads=1, timeout=None, verbose=False
+):
 
     if not os.path.isfile(config_path):
         raise RuntimeError(f"Config file not found: {config_path}")
@@ -26,9 +32,11 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None,
     try:
         config = load_config(config_path)
     except UnicodeDecodeError:
-        raise RuntimeError(f"Config file {config_path} is not a valid unicode YAML file. Is it a firmware file instead of a configuration?")
+        raise RuntimeError(
+            f"Config file {config_path} is not a valid unicode YAML file. Is it a firmware file instead of a configuration?"
+        )
 
-    if not os.path.isfile(config['core']['kernel']):
+    if not os.path.isfile(config["core"]["kernel"]):
         # The config specifies where the kernel shoudl be. Generally this is in
         # /igloo_static/kernels, but it could be elsewhere.
         raise RuntimeError(f"Base kernel not found: {config['core']['kernel']}")
@@ -38,11 +46,13 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None,
         # Note this is a design change from how gen_config works and how we used to do this - we're now starting
         # from a previously created config, so we'll toggle these settings after loading. Previously we'd generate
         # the initial config for automated exploration and go from there.
-        config['core']['root_shell'] = False
-        config['plugins']['core']['timeout'] = timeout if timeout else 300
-        config['plugins']['nmap']['enabled'] = True
+        config["core"]["root_shell"] = False
+        config["plugins"]["core"]["timeout"] = timeout if timeout else 300
+        config["plugins"]["nmap"]["enabled"] = True
 
-        return graph_search(proj_dir, config, output_dir, max_iters=niters, nthreads=nthreads)
+        return graph_search(
+            proj_dir, config, output_dir, max_iters=niters, nthreads=nthreads
+        )
 
     # You already have a config, let's just run it. This is what happens
     # in each iterative run normally. Here we just do it directly.
@@ -50,22 +60,41 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None,
     # We need to select an init - grab the first one from our base/env.yaml file
 
     init = None
-    if config.get('env', {}).get('igloo_init', None) is None:
-        with open(join(dirname(output_dir), "base", "env.yaml"), 'r') as f:
+    if config.get("env", {}).get("igloo_init", None) is None:
+        with open(join(dirname(output_dir), "base", "env.yaml"), "r") as f:
             env = yaml.safe_load(f)
-            if env.get('igloo_init', None) and len(env['igloo_init']) > 0:
-                init = env['igloo_init'][0]
-                logger.info(f"Config does not specify init. Selecting first option: {init}." + ((" Other options are: " + ", ".join(env['igloo_init'][1:])) if len(env['igloo_init']) > 1 else ""))
+            if env.get("igloo_init", None) and len(env["igloo_init"]) > 0:
+                init = env["igloo_init"][0]
+                logger.info(
+                    f"Config does not specify init. Selecting first option: {init}."
+                    + (
+                        (" Other options are: " + ", ".join(env["igloo_init"][1:]))
+                        if len(env["igloo_init"]) > 1
+                        else ""
+                    )
+                )
             else:
-                raise RuntimeError(f"Static analysis failed to identify an init script. Please specify one in {output_dir}/config.yaml and run again with --config.")
+                raise RuntimeError(
+                    f"Static analysis failed to identify an init script. Please specify one in {output_dir}/config.yaml and run again with --config."
+                )
 
-    PandaRunner().run(config_path, proj_dir, output_dir, init=init, timeout=timeout, show_output=True, verbose=verbose) # niters is 1
+    PandaRunner().run(
+        config_path,
+        proj_dir,
+        output_dir,
+        init=init,
+        timeout=timeout,
+        show_output=True,
+        verbose=verbose,
+    )  # niters is 1
 
     # Single iteration: there is no best - don't report that
-    #report_best_results(run_base, output_dir, os.path.dirname(output_dir))
+    # report_best_results(run_base, output_dir, os.path.dirname(output_dir))
 
     # But do calculate and report scores. Unlike multi-run mode, we'll write scores right into output dir instead of in parent
-    best_scores = calculate_score(output_dir, have_console=not config['core'].get('show_output', False))
+    best_scores = calculate_score(
+        output_dir, have_console=not config["core"].get("show_output", False)
+    )
     with open(os.path.join(output_dir, "scores.txt"), "w") as f:
         f.write("score_type,score\n")
         for k, v in best_scores.items():
@@ -74,35 +103,62 @@ def run_from_config(config_path, output_dir, niters=1, nthreads=1, timeout=None,
         total_score = sum(best_scores.values())
         f.write(f"{total_score:.02f}\n")
 
+
 def add_init_arguments(parser):
-    parser.add_argument('rootfs', type=str, help='The rootfs path. (e.g. path/to/fw_rootfs.tar.gz)')
-    parser.add_argument('--output', type=str, help="Optional argument specifying the path where the project will be created. Default is projects/<basename of firmware file>.", default=None)
-    parser.add_argument('--force', action='store_true', default=False, help="Forcefully delete project directory if it exists")
-    parser.add_argument('--output_base', type=str, help="Default project directory base. Default is 'projects'", default="projects")
-    parser.add_argument('-v','--verbose', action='store_true', help='Set log level to debug')
+    parser.add_argument(
+        "rootfs", type=str, help="The rootfs path. (e.g. path/to/fw_rootfs.tar.gz)"
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional argument specifying the path where the project will be created. Default is projects/<basename of firmware file>.",
+        default=None,
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Forcefully delete project directory if it exists",
+    )
+    parser.add_argument(
+        "--output_base",
+        type=str,
+        help="Default project directory base. Default is 'projects'",
+        default="projects",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Set log level to debug"
+    )
+
 
 def penguin_init(args):
-    '''
+    """
     Initialize a project from a firmware rootfs
-    '''
+    """
     firmware = Path(args.rootfs)
 
     if not firmware.exists():
         raise ValueError(f"Firmware file not found: {firmware}")
 
     if args.rootfs.endswith(".yaml"):
-        raise ValueError("FATAL: It looks like you provided a config file (it ends with .yaml)." \
-                         "Please provide a firmware file")
+        raise ValueError(
+            "FATAL: It looks like you provided a config file (it ends with .yaml)."
+            "Please provide a firmware file"
+        )
 
-    if '/host_' in args.rootfs or '/host_' in args.output:
-        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments")
+    if "/host_" in args.rootfs or "/host_" in args.output:
+        logger.info(
+            "Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments"
+        )
 
     if args.output is None:
         # Expect filename to end with .tar.gz - drop that extension
         if args.rootfs.endswith(".rootfs.tar.gz"):
-            basename_stem = os.path.basename(args.rootfs)[0:-14] # Drop the .rootfs.tar.gz
+            basename_stem = os.path.basename(args.rootfs)[
+                0:-14
+            ]  # Drop the .rootfs.tar.gz
         elif args.rootfs.endswith(".tar.gz"):
-            basename_stem = os.path.basename(args.rootfs)[0:-7] # Drop the .tar.gz
+            basename_stem = os.path.basename(args.rootfs)[0:-7]  # Drop the .tar.gz
         else:
             # Drop the extension
             basename_stem = os.path.splitext(os.path.basename(args.rootfs))[0]
@@ -111,43 +167,56 @@ def penguin_init(args):
             print("Creating output_base:", args.output_base)
             os.makedirs(args.output_base)
 
-        args.output = args.output_base  + "/" + basename_stem
+        args.output = args.output_base + "/" + basename_stem
         output_type = "generated"
     else:
         output_type = "specified"
     logger.info(f"Creating project at {output_type} path: {args.output}")
 
     # Note the penguin wrapper for docker will auto-create output dir, but it will be empty unless previously initialized
-    if os.path.isdir(args.output) and (os.path.exists(os.path.join(args.output, "config.yaml")) or
-                                       os.path.exists(os.path.join(args.output, "base"))):
+    if os.path.isdir(args.output) and (
+        os.path.exists(os.path.join(args.output, "config.yaml"))
+        or os.path.exists(os.path.join(args.output, "base"))
+    ):
         if args.force:
             logger.info(f"Deleting existing project directory: {args.output}")
             shutil.rmtree(args.output, ignore_errors=True)
         else:
-            raise ValueError(f"Project directory already exists: {args.output}. Use --force to delete.")
+            raise ValueError(
+                f"Project directory already exists: {args.output}. Use --force to delete."
+            )
 
     # Ensure output parent directory exists
     if not os.path.exists(os.path.dirname(args.output)):
         os.makedirs(os.path.dirname(args.output))
 
     out_config_path = Path(args.output, "config.yaml")
-    config = fakeroot_gen_config(args.rootfs, out_config_path, args.output, args.verbose)
+    config = fakeroot_gen_config(
+        args.rootfs, out_config_path, args.output, args.verbose
+    )
 
     if not config:
         # We failed to generate a config. We'll have written a result file to the output dir
-        logger.error(f"Failed to generate config for {args.rootfs}. See {args.output}/result for details.")
+        logger.error(
+            f"Failed to generate config for {args.rootfs}. See {args.output}/result for details."
+        )
 
 
 def add_patch_arguments(parser):
-    parser.add_argument('config', type=str, help='Path to the full config file to be updated')
-    parser.add_argument('patch', type=str, help='Path to the config patch')
-    parser.add_argument('-v','--verbose', action='store_true', help='Set log level to debug')
+    parser.add_argument(
+        "config", type=str, help="Path to the full config file to be updated"
+    )
+    parser.add_argument("patch", type=str, help="Path to the config patch")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Set log level to debug"
+    )
+
 
 def penguin_patch(args):
-    '''
+    """
     Given a config to be updated and a partial config (the patch), update each
     field in the config with the corresponding field in the patch.
-    '''
+    """
 
     config = Path(args.config)
     patch = Path(args.patch)
@@ -159,10 +228,10 @@ def penguin_patch(args):
         raise ValueError(f"Patch file does not exist: {args.patch}")
 
     # Read both yaml files
-    with open(config, 'r') as f:
+    with open(config, "r") as f:
         base_config = yaml.safe_load(f)
 
-    with open(patch, 'r') as f:
+    with open(patch, "r") as f:
         patch_config = yaml.safe_load(f)
 
     # Merge configs.
@@ -192,20 +261,28 @@ def penguin_patch(args):
             base_config[key] = value
 
     # Replace the original config with the updated one
-    with open(config, 'w') as f:
+    with open(config, "w") as f:
         yaml.dump(base_config, f)
 
+
 def add_docs_arguments(parser):
-    #parser.add_argument('filename', type=str,
+    # parser.add_argument('filename', type=str,
     #    help='Documentation file to render. If unset, filenames are printed.',
     #    default=None)
-    parser.add_argument('--filename', type=str, default=None, nargs='?',
-        help='Documentation file to render. If unset, filenames are printed.')
-    parser.add_argument('-v','--verbose', action='store_true', help='Set log level to debug')
+    parser.add_argument(
+        "--filename",
+        type=str,
+        default=None,
+        nargs="?",
+        help="Documentation file to render. If unset, filenames are printed.",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Set log level to debug"
+    )
 
 
 def penguin_docs(args):
-    #docs_path = join(dirname(dirname(__file__)), "docs")
+    # docs_path = join(dirname(dirname(__file__)), "docs")
     # Only valid in container
     docs_path = "/docs"
 
@@ -214,14 +291,14 @@ def penguin_docs(args):
             args.filename += ".md"
         full_path = join(docs_path, args.filename)
 
-        if '..' in args.filename:
+        if ".." in args.filename:
             raise ValueError("Invalid filename")
 
         if not os.path.isfile(full_path):
             logger.info(f"Documentation file not found: {args.filename}")
         else:
             # How many lines are in the file?
-            with open(full_path, 'r') as f:
+            with open(full_path, "r") as f:
                 lines = len(f.readlines())
 
             # How many lines are in the terminal (if available)
@@ -238,15 +315,33 @@ def penguin_docs(args):
                 # Otherwise print directly
                 subprocess.run(glow_args)
     else:
-        logger.info("Available documentation files. Select one to view by running penguin docs --filename <filename>")
+        logger.info(
+            "Available documentation files. Select one to view by running penguin docs --filename <filename>"
+        )
         for f in os.listdir(docs_path):
             logger.info("  %s", f)
 
+
 def add_run_arguments(parser):
-    parser.add_argument('config', type=str, help='Path to a config file within a project directory.')
-    parser.add_argument('--output', type=str, help='The output directory path. Defaults to results/X in project directory where X auto-increments.', default=None)
-    parser.add_argument('--force', action='store_true', default=False, help="Forcefully delete output directory if it exists.")
-    parser.add_argument('-v','--verbose', action='store_true', help='Set log level to debug')
+    parser.add_argument(
+        "config", type=str, help="Path to a config file within a project directory."
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        help="The output directory path. Defaults to results/X in project directory where X auto-increments.",
+        default=None,
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Forcefully delete output directory if it exists.",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Set log level to debug"
+    )
+
 
 def penguin_run(args):
     if args.force and os.path.isdir(args.output):
@@ -257,12 +352,16 @@ def penguin_run(args):
         raise ValueError(f"Config file does not exist: {args.config}")
 
     # Allow config to be the project dir (which contains config.yaml)
-    if os.path.isdir(args.config) and os.path.exists(os.path.join(args.config, "config.yaml")):
+    if os.path.isdir(args.config) and os.path.exists(
+        os.path.join(args.config, "config.yaml")
+    ):
         args.config = os.path.join(args.config, "config.yaml")
 
     # Sanity check, should have a 'base' directory next to the config
     if not os.path.isdir(os.path.join(os.path.dirname(args.config), "base")):
-        raise ValueError(f"Config directory does not contain a 'base' directory: {os.path.dirname(args.config)}.")
+        raise ValueError(
+            f"Config directory does not contain a 'base' directory: {os.path.dirname(args.config)}."
+        )
 
     if args.output is None:
         # Expect a config like ./project/myfirmware/config.yaml, get myfirmware from there
@@ -273,12 +372,18 @@ def penguin_run(args):
             os.makedirs(results_base)
             idx = 0
         else:
+
             def getint(d):
                 try:
                     return int(d)
                 except ValueError:
                     return -1
-            results = [getint(d) for d in os.listdir(results_base) if os.path.isdir(os.path.join(results_base, d))]
+
+            results = [
+                getint(d)
+                for d in os.listdir(results_base)
+                if os.path.isdir(os.path.join(results_base, d))
+            ]
             if len(results) == 0:
                 idx = 0
             else:
@@ -294,18 +399,48 @@ def penguin_run(args):
     logger.info(f"Running config {args.config}")
     logger.info(f"Saving results to {args.output}")
 
-    if '/host_' in args.config or '/host_' in args.output:
-        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments")
+    if "/host_" in args.config or "/host_" in args.output:
+        logger.info(
+            "Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments"
+        )
 
     run_from_config(args.config, args.output, verbose=args.verbose)
 
+
 def add_explore_arguments(parser):
-    parser.add_argument('config', type=str, help='Path to a config file within a project directory or a project directory that contains a config.yaml.')
-    parser.add_argument('--niters', type=int, default=100, help='Number of iterations to run. Default is 100.')
-    parser.add_argument('--nworkers', type=int, default=4, help='Number of workers to run in parallel. Default is 4')
-    parser.add_argument('--output', type=str, help='The output directory path. Defaults to results/explore.', default=None)
-    parser.add_argument('--force', action='store_true', default=False, help="Forcefully delete output directory if it exists.")
-    parser.add_argument('-v','--verbose', action='store_true', help='Set log level to debug')
+    parser.add_argument(
+        "config",
+        type=str,
+        help="Path to a config file within a project directory or a project directory that contains a config.yaml.",
+    )
+    parser.add_argument(
+        "--niters",
+        type=int,
+        default=100,
+        help="Number of iterations to run. Default is 100.",
+    )
+    parser.add_argument(
+        "--nworkers",
+        type=int,
+        default=4,
+        help="Number of workers to run in parallel. Default is 4",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        help="The output directory path. Defaults to results/explore.",
+        default=None,
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Forcefully delete output directory if it exists.",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Set log level to debug"
+    )
+
 
 def penguin_explore(args):
     config = Path(args.config)
@@ -313,12 +448,16 @@ def penguin_explore(args):
         raise ValueError(f"Config file does not exist: {args.config}")
 
     # Allow config to be the project dir (which contains config.yaml)
-    if os.path.isdir(args.config) and os.path.exists(os.path.join(args.config, "config.yaml")):
+    if os.path.isdir(args.config) and os.path.exists(
+        os.path.join(args.config, "config.yaml")
+    ):
         args.config = os.path.join(args.config, "config.yaml")
 
     # Sanity check, should have a 'base' directory next to the config
     if not os.path.isdir(os.path.join(os.path.dirname(args.config), "base")):
-        raise ValueError(f"Config directory does not contain a 'base' directory: {os.path.dirname(args.config)}.")
+        raise ValueError(
+            f"Config directory does not contain a 'base' directory: {os.path.dirname(args.config)}."
+        )
 
     if args.output is None:
         # Default to results/explore in the project directory
@@ -330,19 +469,31 @@ def penguin_explore(args):
 
     # If output exists error (if force we already deleted it)
     if os.path.exists(args.output):
-        raise ValueError(f"Output directory exists: {args.output}. Run with --force to delete.")
+        raise ValueError(
+            f"Output directory exists: {args.output}. Run with --force to delete."
+        )
 
     os.makedirs(args.output)
 
     logger.info(f"Exploring from {args.config} and saving results to {args.output}")
 
-    if '/host_' in args.config or '/host_' in args.output:
-        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments")
+    if "/host_" in args.config or "/host_" in args.output:
+        logger.info(
+            "Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments"
+        )
 
-    run_from_config(args.config, args.output, verbose=args.verbose, niters=args.niters, nthreads=args.nworkers)
+    run_from_config(
+        args.config,
+        args.output,
+        verbose=args.verbose,
+        niters=args.niters,
+        nthreads=args.nworkers,
+    )
+
 
 def main():
-    parser = argparse.ArgumentParser(description=f"""
+    parser = argparse.ArgumentParser(
+        description=f"""
     {art.text2art("PENGUIN", font='tarty1-large')}
 \t\t\t\tversion {VERSION}
 
@@ -384,27 +535,34 @@ contains details on the configuration file format and options.
 
     penguin docs --filename schema_doc.md
     """,
-    formatter_class=argparse.RawTextHelpFormatter)
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
 
-    subparsers = parser.add_subparsers(help='subcommand', dest='cmd', required=False)
+    subparsers = parser.add_subparsers(help="subcommand", dest="cmd", required=False)
 
-    parser_cmd_init = subparsers.add_parser('init', help='Create project from firmware root filesystem archive')
+    parser_cmd_init = subparsers.add_parser(
+        "init", help="Create project from firmware root filesystem archive"
+    )
     add_init_arguments(parser_cmd_init)
 
-    parser_cmd_patch = subparsers.add_parser('patch', help='Patch a config file')
+    parser_cmd_patch = subparsers.add_parser("patch", help="Patch a config file")
     add_patch_arguments(parser_cmd_patch)
 
-    parser_cmd_run = subparsers.add_parser('run', help='Run from a config')
+    parser_cmd_run = subparsers.add_parser("run", help="Run from a config")
     add_run_arguments(parser_cmd_run)
 
-    parser_cmd_docs = subparsers.add_parser('docs', help='Show documentation')
+    parser_cmd_docs = subparsers.add_parser("docs", help="Show documentation")
     add_docs_arguments(parser_cmd_docs)
 
-    parser_cmd_explore = subparsers.add_parser('explore', help='Search for alternative configurations to improve system health')
+    parser_cmd_explore = subparsers.add_parser(
+        "explore", help="Search for alternative configurations to improve system health"
+    )
     add_explore_arguments(parser_cmd_explore)
 
     # Add --wrapper-help stub
-    parser.add_argument('--wrapper-help', action='store_true', help='Show help for host penguin wrapper')
+    parser.add_argument(
+        "--wrapper-help", action="store_true", help="Show help for host penguin wrapper"
+    )
 
     args = parser.parse_args()
 
@@ -430,6 +588,7 @@ contains details on the configuration file format and options.
         penguin_explore(args)
     else:
         parser.print_help()
+
 
 if __name__ == "__main__":
     main()
