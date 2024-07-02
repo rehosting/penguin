@@ -88,7 +88,7 @@ class Health(PyPlugin):
             return
         ipvn = 4 if is_ipv4 else 6
 
-        if (ipvn, port not in self.binds):
+        if (ipvn, port) not in self.binds:
             self.binds.add((ipvn, port))
             self.increment_event("nbound_sockets")
 
