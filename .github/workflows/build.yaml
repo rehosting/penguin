@@ -8,6 +8,12 @@ on:
 jobs:
   build_container:
     runs-on: ubuntu-latest
+    
+    # Sets the permissions granted to the `GITHUB_TOKEN` for the actions in this job.
+    # (required)
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       
@@ -20,13 +26,16 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v4
+      
+      - name: Pull latest Docker image for cache
+        run: docker pull ghcr.io/rehosting/penguin:latest || true
 
       - name: Build Docker image and push to GHCR
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: rehosting/penguin:${{ github.sha }}
+          tags: ghcr.io/rehosting/penguin:${{ github.sha }}
           cache-from: type=registry,ref=rehosting/penguin:latest
           cache-to: type=inline
 
