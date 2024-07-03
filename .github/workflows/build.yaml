@@ -15,19 +15,35 @@ jobs:
 
     steps:
       - name: Log in to Docker Hub
+        if: github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           username: rehosting
           password: ${{secrets.DOCKERHUB_TOKEN}}
-
-      - name: Pull latest Docker image for cache
-        run: docker pull rehosting/penguin:latest || true
+      
+      - name: Log in to GitHub Container Registry
+        if: github.ref != 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Docker image
-        id: docker_build
+      - name: Build Docker image and push to Dockerhub
+        if: github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: rehosting/penguin:${{ github.sha }}
+          cache-from: type=registry,ref=rehosting/penguin:latest
+          cache-to: type=inline
+      
+      - name: Build Docker image and push to GHCR
+        if: github.ref != 'refs/heads/main'
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -68,21 +84,41 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Log in to DockerHub
+      
+      - name: Log in to GitHub Container Registry
+        if: github.ref != 'refs/heads/main'
         uses: docker/login-action@v3
         with:
-          username: rehosting
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
       # Locally tag as latest, just for testing
-      - name: Pull the image again
+      - name: Pull the image from Dockerhub
         run: |
-              docker pull rehosting/penguin:${{ github.sha }};
-              docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
+              docker pull ghcr.io/rehosting/penguin:${{ github.sha }};
+              docker tag ghcr.io/rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
 
       - name: Test ${{ matrix.test }} for ${{ matrix.arch }} kernel v${{ matrix.kernel }}
         run: timeout 5m python3 $GITHUB_WORKSPACE/tests/unit_tests/test.py --kernel-version ${{ matrix.kernel }} --arch ${{ matrix.arch }} --test ${{ matrix.test }}
+
+  remove-docker-tag:
+    runs-on: ubuntu-latest
+    if: github.ref != 'refs/heads/main' && always()
+    needs: run_tests
+
+    # Sets the permissions granted to the `GITHUB_TOKEN` for the actions in this job.
+    # (required)
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Remove Docker Tag
+      uses: rafalkk/remove-dockertag-action@v1
+      with:
+        tag_name: github.sha
+        github_token: ${{ secrets.GITHUB_TOKEN }}
 
   push_docker_and_release:
     needs: build_container
