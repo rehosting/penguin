@@ -12,7 +12,7 @@ jobs:
     # Sets the permissions granted to the `GITHUB_TOKEN` for the actions in this job.
     # (required)
     permissions:
-      contents: write 
+      contents: write
       packages: write
 
     steps:
@@ -27,8 +27,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Pull latest Docker image for cache
-        run: docker pull ghcr.io/rehosting/penguin:latest || true
+      # - name: Pull latest Docker image for cache
+        # run: docker pull ghcr.io/rehosting/penguin:most_recent_build || true
 
       - name: Build Docker image and push to GHCR
         uses: docker/build-push-action@v5
