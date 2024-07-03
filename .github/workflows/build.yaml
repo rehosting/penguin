@@ -1,28 +1,17 @@
 name: Test and Release Container
 
 on:
-  push:
-    branches:
-      - main
-
   pull_request:
     branches:
       - main
 
 jobs:
   build_container:
-    runs-on: rehosting-arc
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Log in to Docker Hub
-        if: github.ref == 'refs/heads/main'
-        uses: docker/login-action@v3
-        with:
-          username: rehosting
-          password: ${{secrets.DOCKERHUB_TOKEN}}
       
       - name: Log in to GitHub Container Registry
-        if: github.ref != 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -32,18 +21,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Docker image and push to Dockerhub
-        if: github.ref == 'refs/heads/main'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: rehosting/penguin:${{ github.sha }}
-          cache-from: type=registry,ref=rehosting/penguin:latest
-          cache-to: type=inline
-      
       - name: Build Docker image and push to GHCR
-        if: github.ref != 'refs/heads/main'
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -53,7 +31,6 @@ jobs:
           cache-to: type=inline
 
   run_tests:
-    if: github.ref != 'refs/heads/main'
     needs: build_container
     runs-on: ubuntu-latest
     strategy:
@@ -86,7 +63,6 @@ jobs:
         uses: actions/checkout@v4
       
       - name: Log in to GitHub Container Registry
-        if: github.ref != 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -104,7 +80,7 @@ jobs:
 
   remove-docker-tag:
     runs-on: ubuntu-latest
-    if: github.ref != 'refs/heads/main' && always()
+    if:  always()
     needs: run_tests
 
     # Sets the permissions granted to the `GITHUB_TOKEN` for the actions in this job.
@@ -117,46 +93,5 @@ jobs:
     - name: Remove Docker Tag
       uses: rafalkk/remove-dockertag-action@v1
       with:
-        tag_name: github.sha
+        tag_name: ${{ github.sha }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
-
-  push_docker_and_release:
-    needs: build_container
-    runs-on: rehosting-arc
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: Setup runner
-        run: |
-              sudo apt-get update;
-              sudo apt-get install -yy curl jq
-      - name: Get next version
-        uses: reecetech/version-increment@2023.10.1
-        id: version
-        with:
-          use_api: true
-      
-      - name: Create release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.version.outputs.v-version }}
-          release_name: Release ${{ steps.version.outputs.v-version }} ${{ github.ref }}
-          body: |
-            Release ${{ steps.version.outputs.v-version }} @${{ github.ref }}
-          draft: false
-          prerelease: false
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: rehosting
-          password: ${{secrets.DOCKERHUB_TOKEN}}
-
-      - name: Bump latest tag
-        run: |
-              docker pull rehosting/penguin:${{ github.sha }};
-              docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:latest;
-              docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:${{ steps.version.outputs.v-version }};
-              docker push -a rehosting/penguin

@@ -1,0 +1,51 @@
+name: Release Container
+
+on:
+  push:
+    branches:
+      - main
+jobs:
+    build_container:
+        runs-on: rehosting-arc
+
+        steps:
+          - name: Setup runner
+            run: |
+                  sudo apt-get update;
+                  sudo apt-get install -yy curl jq
+
+          - name: Get next version
+            uses: reecetech/version-increment@2023.10.1
+            id: version
+            with:
+              use_api: true
+          - name: Log in to Docker Hub
+            uses: docker/login-action@v3
+            with:
+              username: rehosting
+              password: ${{secrets.DOCKERHUB_TOKEN}}
+            
+          - name: Checkout code
+            uses: actions/checkout@v4
+
+          - name: Build Docker image and push to Dockerhub
+            uses: docker/build-push-action@v6.3.0
+            with:
+              context: .
+              push: true
+              cache-from: type=registry,ref=rehosting/penguin:latest
+              cache-to: type=inline
+              tags: rehosting/penguin:${{ github.sha }},rehosting/penguin:${{ steps.version.outputs.v-version }},rehosting/penguin:latest
+
+          - name: Create release
+            id: create_release
+            uses: actions/create-release@v1
+            env:
+              GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            with:
+              tag_name: ${{ steps.version.outputs.v-version }}
+              release_name: Release ${{ steps.version.outputs.v-version }} ${{ github.ref }}
+              body: |
+                Release ${{ steps.version.outputs.v-version }} @${{ github.ref }}
+              draft: false
+              prerelease: false
