@@ -5,8 +5,25 @@ on:
     branches:
       - main
 jobs:
+    remove-docker-tag:
+      runs-on: ubuntu-latest
+      if:  always()
+
+      # Sets the permissions granted to the `GITHUB_TOKEN` for the actions in this job.
+      # (required)
+      permissions:
+        contents: read
+        packages: write
+
+      steps:
+      - name: Remove Docker Tag
+        uses: rafalkk/remove-dockertag-action@v1
+        with:
+          tag_name: most_recent_build
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
     build_container:
-        runs-on: rehosting-arc
+        runs-on: ubuntu-latest
 
         steps:
           - name: Setup runner
@@ -36,6 +53,16 @@ jobs:
               cache-from: type=registry,ref=rehosting/penguin:latest
               cache-to: type=inline
               tags: rehosting/penguin:${{ github.sha }},rehosting/penguin:${{ steps.version.outputs.v-version }},rehosting/penguin:latest
+          
+          - name: Log in to GitHub Container Registry
+            uses: docker/login-action@v3
+            with:
+              registry: ghcr.io
+              username: ${{ github.actor }}
+              password: ${{ secrets.GITHUB_TOKEN }}
+
+          - name: Push most recent release to GHCR
+            run: docker tag rehosting/penguin:latest ghcr.io/rehosting/penguin:most_recent_build && docker push ghcr.io/rehosting/penguin:${{ github.sha }}
 
           - name: Create release
             id: create_release
