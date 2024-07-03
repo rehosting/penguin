@@ -1,5 +1,6 @@
 from os.path import join as pjoin
-from pandare import PyPlugin, getColoredLogger
+from pandare import PyPlugin
+from penguin import getColoredLogger
 
 mount_log = "mounts.csv"
 
