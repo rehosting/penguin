@@ -12,7 +12,7 @@ jobs:
     # Sets the permissions granted to the `GITHUB_TOKEN` for the actions in this job.
     # (required)
     permissions:
-      contents: read
+      contents: write 
       packages: write
 
     steps:
