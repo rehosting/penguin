@@ -713,33 +713,23 @@ def gen_docs_type_name(t):
 
     og = typing.get_origin(t)
     args = typing.get_args(t)
-    ret = (
-        " or ".join(map(gen_docs_type_name, args))
-        if og is Union
-        else (
-            " or ".join([f'`"{gen_docs_yaml_dump(a)}"`' for a in args])
-            if og is Literal
-            else (
-                "list of " + gen_docs_type_name(args[0])
-                if og in (list, tuple)
-                else (
-                    "integer"
-                    if t is int
-                    else (
-                        "string"
-                        if t is str
-                        else (
-                            "boolean"
-                            if t is bool
-                            else "null" if t is type(None) else None
-                        )
-                    )
-                )
-            )
-        )
-    )
-    assert ret is not None, f"unknown type {t}"
-    return ret
+
+    if og is Union:
+        return " or ".join(map(gen_docs_type_name, args))
+    elif og is Literal:
+        return " or ".join([f'`"{gen_docs_yaml_dump(a)}"`' for a in args])
+    elif og in (list, tuple):
+        return "list of " + gen_docs_type_name(args[0])
+    elif t is int:
+        return "integer"
+    elif t is str:
+        return "string"
+    elif t is bool:
+        return "boolean"
+    elif t is type(None):
+        return "null"
+    else:
+        raise ValueError(f"unknown type {t}")
 
 
 def gen_docs_field(path, docs_field, include_type=True):
