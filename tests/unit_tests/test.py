@@ -280,6 +280,7 @@ def main():
         "pseudofile_devfs": assert_generic("console.log", "[bioset]"),
         "pseudofile_sysfs": assert_generic("console.log", "[bioset]"),
         "uboot_env_cmp": assert_generic("env_cmp.txt", "target"),
+        "pseudofile_symbolic_ioctl": assert_generic("symex.log", "1234"),
     }
 
     # Ensure test configs stay in sync with this script

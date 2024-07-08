@@ -3,7 +3,6 @@ env:
 
 pseudofiles:
   /proc/aaaa/pf:
-    size: 22
     read:
       model: const_buf
       val: "Hello from pseudofile!"

@@ -1,0 +1,28 @@
+core:
+  root_shell: false
+
+env:
+  igloo_init: /init
+
+pseudofiles:
+  /dev/missing:
+    ioctl:
+      '*':
+        model: symex
+
+static_files:
+  /init:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/micropython
+      import fcntl
+      
+      with open('/dev/missing', 'r+b', buffering=0) as dev_missing:
+          ret = fcntl.ioctl(dev_missing.fileno(), 1337)
+      
+      if ret == 1234:
+          print("found the return value")
+      else:
+          print("bad ioctl return value error")
+
+    mode: 73
