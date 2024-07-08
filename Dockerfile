@@ -344,6 +344,11 @@ RUN echo '[ ! -z "$TERM" ] && [ -z "$NOBANNER" ] && /usr/local/bin/banner.sh' >>
 COPY ./docs /docs
 COPY ./README.md /docs/README.md
 
+# Install unifyroot
+COPY ./unifyroot /unifyroot
+RUN --mount=type=cache,target=/root/.cache/pip \
+      pip install -e /unifyroot
+
 # Now copy in our module and install it
 # penguin is editable so we can mount local copy for dev
 # setuptools is workaround for igloo #131
