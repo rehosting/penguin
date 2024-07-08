@@ -54,7 +54,7 @@ def assert_yaml(filepath, subkeys_l, assertion=None):
         return True
     return assert_func
 
-def create_elf_file(filename, e_machine, endian=">", word_size=32):
+def create_elf_file(filename, e_machine, e_flags, endian=">", word_size=32):
     # ELF Header fields
     # e_ident part: EI_MAG, EI_CLASS, EI_DATA, EI_VERSION, EI_OSABI, EI_ABIVERSION
     ei_mag = b"\x7fELF"  # Magic number
@@ -69,7 +69,7 @@ def create_elf_file(filename, e_machine, endian=">", word_size=32):
     e_type = struct.pack(endian + "H", 0x02)  # Executable file
     e_machine = struct.pack(endian + "H", e_machine)  # Architecture type
     e_version = struct.pack(endian + "I", 0x01)  # ELF version
-    e_flags = struct.pack(endian + "I", 0x00)  # Processor-specific flags
+    e_flags = struct.pack(endian + "I", e_flags)  # Processor-specific flags
 
     if word_size == 32:
         e_entry = struct.pack(endian + "I", 0x00)  # Entry point virtual address
@@ -120,7 +120,10 @@ class TestRunner:
         kwargs = {
             "e_machine": e_machine,
             "endian": ">" if arch in ["mipseb", "mips64eb"] else "<",
-            "word_size": 64 if arch in ["aarch64", "mips64eb"] else 32
+            "word_size": 64 if arch in ["aarch64", "mips64eb"] else 32,
+
+            # Use o32 ABI to prevent detecting as 64-bit
+            "e_flags": 0x00001000 if arch in ("mipsel", "mipseb") else 0,
         }
 
         if "64" in arch and kwargs["word_size"] == 32:

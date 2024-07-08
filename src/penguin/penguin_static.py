@@ -11,8 +11,10 @@ from pathlib import Path
 from copy import deepcopy
 import elftools
 from elftools.elf.elffile import ELFFile
+from elftools.common.exceptions import ELFError
 
 from .common import yaml
+from .arch import arch_filter
 IGLOO_KERNEL_VERSION = '4.10.0'
 
 '''
@@ -1196,6 +1198,32 @@ def add_firmae_hacks(proj_dir, config, output_dir):
         }
         config['core']['force_www'] = False
 
+
+def add_lib_inject_symlinks(proj_dir, conf):
+    """
+    Detect the ABI of all libc.so files and place a symlink in the same
+    directory to lib_inject of the same ABI
+    """
+
+    tf = tarfile.open(proj_dir / conf['core']['fs'])
+    libc_paths = [
+        m.name
+        for m in tf.getmembers()
+        if os.path.basename(m.name).startswith("libc.so")
+    ]
+    for p in libc_paths:
+        try:
+            e = ELFFile(tf.extractfile(p))
+        except ELFError:
+            # Not an ELF. It could be for example a GNU ld script.
+            continue
+        abi = arch_filter(e).abi
+        conf['static_files'][f"{os.path.dirname(p)}/lib_inject.so"] = dict(
+            type='symlink',
+            target=f'/igloo/lib_inject_{abi}.so',
+        )
+
+
 def extend_config_with_static(proj_dir, base_config, outdir, auto_explore=False):
 
     if 'meta' not in base_config:
@@ -1220,6 +1248,7 @@ def extend_config_with_static(proj_dir, base_config, outdir, auto_explore=False)
     add_nvram_meta(proj_dir, base_config, outdir) # Sets more nvram values
 
     add_firmae_hacks(proj_dir, base_config, outdir)
+    add_lib_inject_symlinks(proj_dir, base_config)
 
     # TODO: Additional static analysis of shell scripts to find more environment variables?
     # We could do some LLM-based shell script analysis
