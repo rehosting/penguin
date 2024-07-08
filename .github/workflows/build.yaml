@@ -16,6 +16,17 @@ jobs:
       packages: write
 
     steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: rehosting
+          password: ${{secrets.DOCKERHUB_TOKEN}}
+      
+      - name: Pull latest Docker image for cache
+        run: docker pull rehosting/penguin:latest || true
+      
+      - name: Logout
+        run: docker logout
       
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -26,9 +37,6 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v4
-      
-      # - name: Pull latest Docker image for cache
-        # run: docker pull ghcr.io/rehosting/penguin:most_recent_build || true
 
       - name: Build Docker image and push to GHCR
         uses: docker/build-push-action@v5
