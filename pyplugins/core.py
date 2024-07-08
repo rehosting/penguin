@@ -128,7 +128,7 @@ class Core(PyPlugin):
             self._handle_hc(cpu, num & (2**32 - 1))
         except ValueError:
             # Argument couldn't be read
-            self.panda.arch.set_arg(cpu, 1, 1)
+            self.panda.arch.set_arg(cpu, 0, 1)
         except RuntimeError:
             # Not one of ours
             return False
