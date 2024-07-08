@@ -15,7 +15,7 @@ static_files:
 
       import ffi
 
-      lib_inject = ffi.open("/igloo/lib_inject.so")
+      lib_inject = ffi.open("lib_inject.so")
 
       strstr = lib_inject.func("s", "strstr", "ss")
 

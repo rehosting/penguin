@@ -12,6 +12,7 @@ ARG HYPERFS_VERSION="0.0.24"
 ARG GLOW_VERSION="1.5.1"
 ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
 ARG LTRACE_PROTOTYPES_HASH="9db3bdee7cf3e11c87d8cc7673d4d25b"
+ARG MUSL_VERSION="1.2.5"
 
 FROM rust as vhost_builder
 RUN git clone -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
@@ -31,6 +32,7 @@ RUN apt-get update && \
     jq \
     less \
     wget \
+    make \
     xmlstarlet && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /igloo_static \
@@ -83,10 +85,24 @@ RUN /get_release.sh rehosting console ${CONSOLE_VERSION} ${DOWNLOAD_TOKEN} | \
     tar xzf - -C /igloo_static
 
 
-# Download libnvram from CI. Populate /igloo_static/libnvram
+# Download libnvram. Populate /igloo_static/libnvram.
 ARG LIBNVRAM_VERSION
-RUN /get_release.sh rehosting libnvram ${LIBNVRAM_VERSION} ${DOWNLOAD_TOKEN} | \
-    tar xzf - -C /igloo_static --exclude 'libnvram.so.*'
+RUN wget -qO- https://github.com/rehosting/libnvram/archive/refs/tags/v${LIBNVRAM_VERSION}.tar.gz | \
+    tar xzf - -C /igloo_static && \
+    mv /igloo_static/libnvram-${LIBNVRAM_VERSION} /igloo_static/libnvram
+
+# Build musl headers for each arch
+ARG MUSL_VERSION
+RUN wget -qO- https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz | \
+    tar xzf - && \
+    for arch in arm aarch64 mips mips64 mipsn32; do \
+        make -C musl-* \
+            ARCH=$arch \
+            DESTDIR=/ \
+            prefix=/igloo_static/musl-headers/$arch \
+            install-headers; \
+    done && \
+    rm -rf musl-*
 
 # Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
 ARG VPN_VERSION
@@ -133,9 +149,9 @@ RUN cd /tmp && \
     cd capstone/ && ./make.sh && make install && \
     rm -rf /tmp/capstone
 
-#### CROSS BUILDER: Build send_hypercall, inject_ltrace.o ###
+#### CROSS BUILDER: Build send_hypercall ###
 FROM ghcr.io/panda-re/embedded-toolchains:latest as cross_builder
-COPY ./utils/send_hypercall.c ./utils/inject_ltrace.c /
+COPY ./utils/send_hypercall.c /
 RUN cd / && \
   mkdir out && \
   wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h && \
@@ -143,12 +159,7 @@ RUN cd / && \
   mips64eb-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/send_hypercall.mips64eb  && \
   mipsel-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipsel && \
   arm-linux-musleabi-gcc -s -static send_hypercall.c -o out/send_hypercall.armel && \
-  aarch64-linux-musl-gcc -s -static send_hypercall.c -o out/send_hypercall.aarch64 && \
-  mipseb-linux-musl-gcc -mips32r3 -s -c -fPIC inject_ltrace.c -o out/inject_ltrace.o.mipseb && \
-  mips64eb-linux-musl-gcc -mips64r2 -s -c -fPIC inject_ltrace.c -o out/inject_ltrace.o.mips64eb  && \
-  mipsel-linux-musl-gcc -mips32r3 -s -c -fPIC inject_ltrace.c -o out/inject_ltrace.o.mipsel && \
-  arm-linux-musleabi-gcc -s -c -fPIC inject_ltrace.c -o out/inject_ltrace.o.armel && \
-  aarch64-linux-musl-gcc -s -c -fPIC inject_ltrace.c -o out/inject_ltrace.o.aarch64
+  aarch64-linux-musl-gcc -s -static send_hypercall.c -o out/send_hypercall.aarch64
 
 #### QEMU BUILDER: Build qemu-img ####
 FROM $BASE_IMAGE as qemu_builder
@@ -322,9 +333,6 @@ COPY --from=cross_builder /out/send_hypercall.* /igloo_static/utils.bin
 COPY utils/* /igloo_static/utils.source/
 COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
 
-RUN mkdir /igloo_static/inject_ltrace
-COPY --from=cross_builder /out/inject_ltrace.o.* /igloo_static/inject_ltrace
-
 # Copy wrapper script into container so we can copy out - note we don't put it on guest path
 COPY ./penguin /usr/local/src/penguin_wrapper
 # And add install helpers which generate shell commands to install it on host
@@ -380,10 +388,6 @@ RUN if [ -d /tmp/local_packages ]; then \
         fi; \
         if [ -f /tmp/local_packages/pandare_22.04.deb ]; then \
             dpkg -i /tmp/local_pckages/pandare_22.04.deb; \
-        fi; \
-        if [ -f /tmp/local_packages/libnvram-latest.tar.gz ]; then \
-            rm -rf /igloo_static/libnvram && \
-            tar xvf /tmp/local_packages/libnvram-latest.tar.gz -C /igloo_static/; \
         fi; \
         if [ -f /tmp/local_packages/vpn.tar.gz ]; then \
             rm -rf /igloo_static/vpn && \

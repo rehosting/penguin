@@ -11,37 +11,13 @@ from pathlib import Path
 from collections import Counter
 from os.path import join, dirname
 from elftools.elf.elffile import ELFFile
-from elftools.elf.constants import E_FLAGS, E_FLAGS_MASKS
 from penguin import getColoredLogger
 from .penguin_static import extend_config_with_static
 from .penguin_config import dump_config
 from .defaults import default_init_script, default_plugins, default_version, default_netdevs, default_pseudofiles, default_lib_aliases, static_dir, DEFAULT_KERNEL
+from .arch import arch_filter, arch_end
 
 logger = getColoredLogger("penguin.gen_confg")
-
-def arch_end(value):
-    arch = None
-    end = None
-
-    tmp = value.lower()
-    if tmp.startswith("mips64"):
-        arch = "mips64"
-    elif tmp.startswith("mips"):
-        arch = "mips"
-    elif tmp.startswith("aarch64"):
-        arch = "aarch64"
-        end = "el"
-    elif tmp.startswith("arm"):
-        arch = "arm"
-    if tmp.endswith("el"):
-        end = "el"
-    elif tmp.endswith("eb"):
-        end = "eb"
-
-    if arch is None or end is None:
-        logger.error(f"Unhandled arch_end for {value}. Have arch={arch}, end={end}")
-
-    return (arch, end)
 
 def binary_filter(fsbase, name):
     base_directories = ["sbin","bin","usr/sbin","usr/bin"]
@@ -51,177 +27,44 @@ def binary_filter(fsbase, name):
     # might be good to add "*.so" to this list
     return name.endswith("busybox")
 
-def _identify_arm_arch(header):
-    '''
-    Check for hard/soft float
-    '''
-    endian = header.e_ident["EI_DATA"]
-    bits = header.e_ident["EI_CLASS"]
-    flags = header['e_flags']
-
-    endianness = {
-        'ELFDATA2LSB': 'little',
-        'ELFDATA2MSB': 'big'
-    }.get(endian, 'unknown')
-
-    bits = {
-        'ELFCLASS32': 32,
-        'ELFCLASS64': 64
-    }.get(bits, None)
-
-    if bits != 32:
-        logger.warning("Unexpected ARM bit class: %d", bits)
-
-    # ARM-specific flags
-    EF_ARM_ABI_FLOAT_HARD = 0x00000400
-    EF_ARM_ABI_FLOAT_SOFT = 0x00000200
-
-    if flags & EF_ARM_ABI_FLOAT_HARD:
-        # Armhf is always little endian
-        if endianness == 'big':
-            logger.warning("Unexpected ARM HF endian: %s", endianness)
-        arm_type = 'armhf'
-    else:
-        arm_type = 'armel' if endianness == 'little' else 'armeb'
-        if not flags & EF_ARM_ABI_FLOAT_SOFT:  # not EF_ARM_ABI_FLOAT_SOFT - what could it be?
-            logger.warning("Unexpected ARM ABI: %s", hex(flags))
-
-    logger.debug(f"Identified ARM firmware: arch={arm_type}, bits={bits}, endian={endianness}")
-
-    return arm_type
-
-def _identify_mips_arch(header):
-    '''
-    Mips is more complicated. We could have 32 bit binaries that only run on a 64-bit
-    system (i.e., mips64 with the n32 ABI). Other permutations will likely cause issues
-    later so trying to future-proof this a bit. Masks/comparisons based off readelf.py
-    from PyElfTools.
-    '''
-    endianness = header.e_ident["EI_DATA"]
-    bits = header.e_ident["EI_CLASS"]
-    flags = header['e_flags']
-
-    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_1:
-        mips_arch ="mips1"
-    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_2:
-        mips_arch ="mips2"
-    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_3:
-        mips_arch ="mips3"
-    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_4:
-        mips_arch ="mips4"
-    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_5:
-        mips_arch ="mips5"
-    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_32R2:
-        mips_arch ="mips32r2"
-    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_64R2:
-        mips_arch ="mips64r2"
-    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_32:
-        mips_arch ="mips32"
-    if (flags & E_FLAGS.EF_MIPS_ARCH) == E_FLAGS.EF_MIPS_ARCH_64:
-        mips_arch ="mips64"
-
-
-    if (flags & E_FLAGS_MASKS.EFM_MIPS_ABI_O32):
-        abi = "o32"
-    elif (flags & E_FLAGS_MASKS.EFM_MIPS_ABI_O64):
-        abi = "o64" # never seen this before - unsupported for now?
-    elif (flags & E_FLAGS_MASKS.EFM_MIPS_ABI_EABI32):
-        abi = "n32"
-    elif (flags & E_FLAGS_MASKS.EFM_MIPS_ABI_EABI64):
-        abi = "n64"
-    else:
-        abi = None
-
-    # Some extra flags that only affect what gets printed
-    description = 'mips'
-    if flags & E_FLAGS.EF_MIPS_NOREORDER:
-        description += ", noreorder"
-    if flags & E_FLAGS.EF_MIPS_PIC:
-        description += ", pic"
-    if flags & E_FLAGS.EF_MIPS_CPIC:
-        description += ", cpic"
-    if (flags & E_FLAGS.EF_MIPS_ABI2):
-        description += ", abi2"
-    if (flags & E_FLAGS.EF_MIPS_32BITMODE):
-        description += ", 32bitmode"
-
-    if mips_arch.startswith('mips64') or bits == "ELFCLASS64":
-        bits = 64
-    else:
-        bits = 32
-
-    logger.debug(f"Identified MIPS firmware: arch={mips_arch}, bits={bits}, abi={abi}, endian={endianness}, extras={description}")
-
-    arch = {
-        (32, "ELFDATA2LSB"): "mipsel",
-        (32, "ELFDATA2MSB"): "mipseb",
-        (64, "ELFDATA2LSB"): "mips64el",
-        (64, "ELFDATA2MSB"): "mips64eb",
-    }.get((bits, endianness), "unknown")
-
-    if arch == "unknown":
-        logger.error("Unexpected MIPS architecture: bits %d, endianness %s", bits, endianness)
-    return arch
-
-
-def arch_filter(header):
-    if not isinstance(header.e_machine, str):
-        # It's an int sometimes? That's no good
-        logger.warning(f"Unexpected e_machine type: {type(header.e_machine)}: {header.e_machine}. Cannot identify architecture.")
-        return "unknown"
-
-    friendly_arch = header.e_machine.replace("EM_", "")
-
-    arch = {
-        # Normal architectures:
-        "X86_64": "intel64",
-        "386": "intel",
-        "AARCH64": "aarch64",
-        "PPC": "ppc",
-        "PPC64": "ppc64",
-        # Additional processing required for these:
-        "ARM": "arm",
-        "MIPS": "mips",
-    }.get(friendly_arch, "unknown")
-
-    if arch == "unknown":
-        logger.warning(f"Unsupported architecture: {friendly_arch}")
-        logger.debug(f"ELF Header: {header}")
-
-    # Special processing for ARM and MIPS
-    if arch == "arm":
-        arch = _identify_arm_arch(header)
-    elif arch == "mips":
-        arch = _identify_mips_arch(header)
-    elif arch != "unknown":
-        # Other architectures get eb suffix if big-endian. mips/arm are handled in their helpers
-        if header.e_ident.get("EI_DATA", None) == "ELFDATA2MSB":
-            arch += "eb"
-
-    return arch
-
 def find_architecture(infile):
-    tf = tarfile.open(infile)
-    fsbase = tf.firstmember.path
-    arch_counts = Counter()
-    for member in tf.getmembers():
-        if member.isfile() and binary_filter(fsbase, member.name):
-            logger.debug(f"Checking architecture in {member.name}")
-            member_file = tf.extractfile(member.name)
-            if member_file.read(4) != b'\x7fELF':
-                continue
-            member_file.seek(0)
-            ef = ELFFile(member_file)
-            arch_counts[arch_filter(ef.header)] += 1
+    with tempfile.TemporaryDirectory() as tmp:
+        with tarfile.open(infile) as tf:
+            # Extracting to a temporary directory is much faster than processing
+            # directly with tarfile
+            tf.extractall(tmp)
+        arch_counts = { 32: Counter(), 64: Counter() }
+        for root, _, files in os.walk(tmp):
+            for file_name in files:
+                path = join(root, file_name)
 
-            # If we have a sum of >= 10 in our counter, we can stop, we've seen enough
-            if sum(arch_counts.values()) >= 10:
-                break
+                if (
+                        os.path.isfile(path)
+                        and not os.path.islink(path)
+                        and binary_filter(tmp, path)
+                ):
+                    logger.debug(f"Checking architecture in {path}")
+                    with open(path, "rb") as f:
+                        if f.read(4) != b'\x7fELF':
+                            continue
+                        f.seek(0)
+                        ef = ELFFile(f)
+                        info = arch_filter(ef)
+                    assert info.bits is not None
+                    arch_counts[info.bits][info.arch] += 1
 
-    # Now select the most common architecture
-    if len(arch_counts) == 0:
+    # Now select the most common architecture.
+    # First try the most common 64-bit architecture.
+    # Then try the most common 32-bit one.
+    best_64 = arch_counts[64].most_common(1)
+    best_32 = arch_counts[32].most_common(1)
+    if len(best_64) != 0:
+        best = best_64[0][0]
+    elif len(best_32) != 0:
+        best = best_32[0][0]
+    else:
         return None
-    best = arch_counts.most_common(1)[0][0]
+
     logger.debug(f"Identified architecture: {best}")
     return best
 
