@@ -5,9 +5,15 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-from penguin import getColoredLogger
+
 from pathlib import Path
 from subprocess import check_output
+from typing import Union
+
+from penguin import getColoredLogger
+from .penguin_prep import prep_config
+from unifyroot import build_filesystem_from_map
+
 
 '''
 gen_image can be run as a separate script if this is loaded at the module
@@ -221,6 +227,7 @@ def _modify_guestfs(g, file_path, file, project_dir):
             linkpath = file_path # This is what we create
             # Delete linkpath AND CONTENTS if it already exists
             if g.exists(linkpath):
+                logger.warning(f"{linkpath} already exists - deleting it to add a link to {file['target']}")
                 try:
                     g.rm_rf(linkpath)
                 except RuntimeError as e:
@@ -231,6 +238,17 @@ def _modify_guestfs(g, file_path, file, project_dir):
             # If target doesn't exist, we can't symlink
             if not g.exists(file['target']):
                 raise ValueError(f"Can't add symlink to {file['target']} as it doesn't exist in requested symlink from {linkpath}")
+
+            # If the linkpath directory doesn't exist, we can't create the symlink.
+            # XXX what if the linkpath dir is a symlink to a dir?
+            if not g.is_dir(os.path.dirname(linkpath)):
+                # Should we raise an error or a warning? With libinject symlinks potentially getting affected by
+                # changing partitions, I'm going to vote for a warning for now. We lack the ability to do a static
+                # analysis after we change partition maps and that causes some issues with libinject symlinks that
+                # lead to this warning.
+                #raise ValueError(f"Cannot create symlink at {linkpath} as parent directory does not exist")
+                logger.warning(f"Cannot create symlink at {linkpath} as parent directory does not exist")
+                return
 
             g.ln_s(file['target'], linkpath)
             # Chmod the symlink to be 777 always
@@ -307,7 +325,7 @@ def _modify_guestfs(g, file_path, file, project_dir):
         raise e
 
 
-def fs_make_config_changes(fs_base,config,project_dir):
+def add_static_files(fs_base, files, project_dir):
     g = LocalGuestFS(fs_base)
 
     bin_sh_exists_before_mods = g.exists("/bin/sh")
@@ -354,7 +372,6 @@ def fs_make_config_changes(fs_base,config,project_dir):
     # Sort files by the length of their path to ensure directories are created first
     # But we'll handle 'move_from' types first - we need to move these out *before* we
     # replace them (i.e., /bin/sh goes into /igloo/utils/sh.orig and then we replace /bin/sh)
-    files = config['static_files'] if 'static_files' in config else {}
 
     # First we'll make any requested directories (which rm -rf anything that exists)
     mkdirs = {k: v for k, v in files.items() if v['type'] == 'dir'}
@@ -396,70 +413,111 @@ def fs_make_config_changes(fs_base,config,project_dir):
     if not g.is_dir("/igloo"):
         raise RuntimeError("Guest filesystem does not contain /igloo after modifications")
 
-def make_image(fs, out, artifacts, config_path):
-    logger.info(f"Generating new image from config...")
-    IN_TARBALL = Path(fs)
-    ARTIFACTS = Path(artifacts or "/tmp")
-    QCOW = Path(out)
-    ARTIFACTS.mkdir(exist_ok=True)
+def apply_static_fs_changes(initial_tarball: Path, config: dict, proj_dir: Path, tmp_path: Path) -> Path:
+    '''
+    Extract tarball to a scratch directory, apply any static filesystem changes, and repackage.
+    '''
+    tmp_extract = tmp_path / "scratch"
+    tmp_extract.mkdir()
 
-    # Decompress the archive and store in artifacts/fs.tar
-    ORIGINAL_DECOMP_FS = Path(ARTIFACTS, "fs_orig.tar")
+    check_output(["tar", "xpsvf", str(initial_tarball), "-C", str(tmp_extract)])
 
-    check_output(f'gunzip -c "{IN_TARBALL}" > "{ORIGINAL_DECOMP_FS}"', shell=True)
-    project_dir = os.path.dirname(os.path.realpath(config_path))
+    add_static_files(tmp_extract, config.get("static_files", {}), proj_dir)
 
-    MODIFIED_TARBALL = Path(ARTIFACTS, "fs_out.tar")
-    if config_path:
-        config = load_config(config_path)
-        with tempfile.TemporaryDirectory() as TMP_DIR:
-            check_output(["tar", "xpsvf", IN_TARBALL, "-C", TMP_DIR])
-            from .penguin_prep import prep_config
-            prep_config(config)
-            fs_make_config_changes(TMP_DIR, config, project_dir)
-            check_output(["tar", "czpvf", MODIFIED_TARBALL, "-C", TMP_DIR, "."])
-        TARBALL = MODIFIED_TARBALL
-    else:
-        TARBALL = IN_TARBALL
+    updated_tarball = tmp_path / "updated.tar"
+    check_output(["tar", "czpvf", updated_tarball, "-C", tmp_extract, "."])
+    return updated_tarball
 
-    # 1GB of padding. XXX is this a good amount - does it slow things down if it's too much?
-    # Our disk images are sparse, so this doesn't actually take up any space?
-    PADDING_MB=1024
-    BLOCK_SIZE=4096
+def create_qcow_image(tarball: Path, qcow_path: Path):
+    '''
+    Convert a tarball to a qcow2 image.
+    '''
+    PADDING_MB = 1024
+    BLOCK_SIZE = 4096
+    INODE_SIZE = 8192
 
-    # Calculate image and filesystem size
-    UNPACKED_SIZE = int(check_output(f'zcat "{TARBALL}" | wc -c', shell=True))
-    UNPACKED_SIZE = UNPACKED_SIZE + 1024 * 1024 * PADDING_MB
-    REQUIRED_BLOCKS=int((UNPACKED_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE + 1024)
-    FILESYSTEM_SIZE=int(REQUIRED_BLOCKS * BLOCK_SIZE)
+    unpacked_size = int(check_output(f'zcat "{tarball}" | wc -c', shell=True))
+    unpacked_size += 1024 * 1024 * PADDING_MB
+    required_blocks = int((unpacked_size + BLOCK_SIZE - 1) / BLOCK_SIZE + 1024)
+    filesystem_size = required_blocks * BLOCK_SIZE
+    number_of_inodes = int(filesystem_size / INODE_SIZE) + 1000
 
-    # Calculate the number of inodes - err on the side of too big since we'll add more to the FS later
-    INODE_SIZE=8192  # For every 8KB of disk space, we'll allocate an inode
-    NUMBER_OF_INODES= int(FILESYSTEM_SIZE / INODE_SIZE)
-    NUMBER_OF_INODES= NUMBER_OF_INODES + 1000 # Padding for more files getting added later
+    def _make_img(work_dir: Path, qcow: Path):
+        '''
+        Helper to convert a raw image to a qcow2 image within work_dir
+        '''
+        image = work_dir / "image.raw"
+        check_output(["truncate", "-s", str(filesystem_size), image])
+        check_output([
+            "genext2fs", "--faketime", "-N", str(number_of_inodes),
+            "-b", str(required_blocks), "-B", str(BLOCK_SIZE),
+            "-a", tarball, image
+        ])
+        check_output(["qemu-img", "convert", "-f", "raw", "-O", "qcow2", image, qcow])
 
-    def _make_img(work_dir, qcow):
-        IMAGE = Path(work_dir, "image.raw")
-        check_output(["truncate", "-s", str(FILESYSTEM_SIZE), IMAGE])
-        check_output(["genext2fs", "--faketime",  "-N", str(NUMBER_OF_INODES), "-b", str(REQUIRED_BLOCKS), "-B", str(BLOCK_SIZE), "-a", TARBALL, IMAGE])
-        check_output(["qemu-img", "convert", "-f", "raw", "-O", "qcow2", IMAGE, qcow])
-
-    with tempfile.TemporaryDirectory() as WORK_DIR:
-        # if our QCOW path is a lustrefs we need to operate within the workdir and copy the qcow out
-        if get_mount_type(QCOW.parent) == "lustre":
-            # Need to convert to qcow within the workdir
-            _make_img(WORK_DIR, Path(WORK_DIR, "image.qcow"))
-            check_output(["mv", Path(WORK_DIR, "image.qcow"), QCOW])
+    with tempfile.TemporaryDirectory() as work_dir:
+        work_dir_path = Path(work_dir)
+        if get_mount_type(qcow_path.parent) == "lustre":
+            temp_qcow = work_dir_path / "image.qcow"
+            _make_img(work_dir_path, temp_qcow)
+            check_output(["mv", temp_qcow, qcow_path])
         else:
-            _make_img(WORK_DIR, QCOW)
+            _make_img(work_dir_path, qcow_path)
 
-def fakeroot_gen_image(fs, out, artifacts, config):
+def create_initial_tarball(proj_dir: Path, config: dict, tmp_path: Path) -> Path:
+    '''
+    Get or create an initial tarball either by selecting core.fs from the config
+    or by combining partitions as specified in core.mounts.
+    '''
+    if config['core'].get('mounts'):
+        logger.info("Building filesystem from mount points: %s", config['core']['mounts'])
+        initial_tarball = tmp_path / "fs.tar"
+        full_mounts = {"." + k: v + ".tar.gz" for k, v in config['core']['mounts'].items()}
+        build_filesystem_from_map(
+            str(proj_dir / "base/partitions"),
+            str(initial_tarball),
+            full_mounts
+        )
+    else:
+        logger.info("Building filesystem from initial tarball %s", config['core']['fs'])
+        initial_tarball = proj_dir / config['core']['fs']
+    return initial_tarball
+
+def make_image(proj_dir: Union[str, Path], config_path: str, out: str):
+    """
+    Given a project directory, a configuration, and a path for an output qcow,
+    build the output according to the config.
+
+    If the config specifies <core.mounts> we'll combine partitions within
+    proj_dir/base/partitions/<partition_name>.tar.gz as specified. Otherwise we'll
+    begin with the single tarball specified in <core.fs> (which is also relative to
+    proj_dir). After we have our initial filesystem, we'll apply any static filesystem
+    changes specified in the config. Finally, we'll convert it into a qcow image at
+    the output path.
+    """
+
+    logger.info("Generating new image from config...")
+    proj_dir = Path(proj_dir)
+    config = load_config(config_path)
+    prep_config(config) # Add libinject into config.static_files
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        initial_tarball = create_initial_tarball(proj_dir, config, tmp_path)
+        updated_tarball = apply_static_fs_changes(initial_tarball, config, proj_dir, tmp_path)
+
+        # Copy updated tarball to /tmp/debug.tar.gz
+        #debug_tarball = Path("/tmp/debug.tar.gz")
+        #check_output(["cp", updated_tarball, debug_tarball])
+
+        create_qcow_image(updated_tarball, Path(out))
+
+def fakeroot_gen_image(proj, config, out):
     o = Path(out)
     cmd = ["fakeroot", "gen_image",
-           "--fs", str(fs),
-           "--out", str(o),
-           "--artifacts", str(artifacts),
-           "--config", str(config)]
+           "--proj", str(proj),
+           "--config", str(config),
+           "--out", str(o)]
     if logger.level == logging.DEBUG:
         cmd.extend(["--verbose"])
     p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
@@ -472,12 +530,11 @@ def fakeroot_gen_image(fs, out, artifacts, config):
     raise Exception("No image generated")
 
 @click.command()
-@click.option('--fs', required=True, help="Path to a filesystem as a tar gz")
-@click.option('--out', required=True, help="Path to a qcow to be created")
-@click.option('--artifacts', default=None, help="Path to a directory for artifacts")
+@click.option('--proj', default=None, help="Path to project directory")
 @click.option('--config', default=None, help="Path to config file")
+@click.option('--out', required=True, help="Path to a qcow to be created")
 @click.option('-v', '--verbose', count=True)
-def makeImage(fs, out, artifacts, config, verbose):
+def makeImage(proj, config, out, verbose):
     if verbose:
         logger.setLevel(logging.DEBUG)
 
@@ -485,8 +542,12 @@ def makeImage(fs, out, artifacts, config, verbose):
         logger.error(f"Config file {config} not found")
         sys.exit(1)
 
+    if not os.path.isdir(proj):
+        logger.error(f"Project directory {proj} not found")
+        sys.exit(1)
+
     try:
-        make_image(fs, out, artifacts, config)
+        make_image(proj, config, out)
     except Exception as e:
         logger.error(f"Failed to generate image")
         # Show exception

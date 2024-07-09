@@ -212,7 +212,7 @@ def run_config(proj_dir, conf_yaml, out_dir=None, logger=None, init=None, timeou
 
         try:
             from .gen_image import fakeroot_gen_image
-            fakeroot_gen_image(config_fs, config_image, qcow_dir, conf_yaml)
+            fakeroot_gen_image(proj_dir, conf_yaml, config_image)
         except Exception as e:
             logger.error(f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}")
             logger.error(e, exc_info=True)

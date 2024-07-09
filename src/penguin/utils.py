@@ -139,6 +139,11 @@ def hash_image_inputs(proj_dir, conf):
             raise ValueError(f"Unknown type for nvram value {k}: {type(val)}")
         fs_hash.update(encoded)
 
+    # Add mapping in core.mounts (dictionary of host paths to mount points) into hash
+    for host_path, mount_point in conf['core']['mounts'].items():
+        fs_hash.update(host_path.encode())
+        fs_hash.update(mount_point.encode())
+
     fs_hash = fs_hash.hexdigest()
 
     # If we ever add other ways to import static files, this assert should
