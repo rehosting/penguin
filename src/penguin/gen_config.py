@@ -7,10 +7,14 @@ import sys
 import tarfile
 import tempfile
 import yaml
+
 from pathlib import Path
 from collections import Counter
 from os.path import join, dirname
 from elftools.elf.elffile import ELFFile
+
+from unifyroot import find_best_map, build_filesystem_from_map
+
 from penguin import getColoredLogger
 from .penguin_static import extend_config_with_static
 from .penguin_config import dump_config
@@ -79,7 +83,8 @@ def get_kernel_path(arch, end, static_dir):
 def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     logger.info(f"Generating new configuration for {fs}...")
     '''
-    Given a filesystem as a .tar.gz make a configuration
+    Given a filesystem as a .tar.gz or a directory of partitions (each a .tar.gz),
+    make a configuration
 
     When called as a function return the path to the configuration.
 
@@ -95,11 +100,32 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     # If auto_explore we'll turn on zap and nmap to automatically generate coverage
     # Note that there's no way for a user to control that flag yet.
 
-    if not os.path.isfile(fs):
-        raise RuntimeError(f"FATAL: Firmware file not found: {fs}")
+    if os.path.isfile(fs):
+        if not fs.endswith(".tar.gz"):
+            raise ValueError(f"Penguin should begin post extraction and be given a .tar.gz archive of a root fs, not {fs}")
+        mount_points = None
 
-    if not fs.endswith(".tar.gz"):
-        raise ValueError(f"Penguin should begin post extraction and be given a .tar.gz archive of a root fs, not {fs}")
+    elif os.path.isdir(fs):
+        fw_dir = fs
+
+        # Check if it's a partition directory
+        # Must have at least 1 .tar.gz file
+        if not any([f.endswith(".tar.gz") for f in os.listdir(fw_dir)]):
+            raise ValueError(f"Directory {fw_dir} does not contain any .tar.gz files")
+
+        # Unify it into a temp file at fs.
+        # Then we'll add mount info into config
+        fs = tempfile.mktemp()
+        mount_points = find_best_map(fw_dir)
+        build_filesystem_from_map(fw_dir, fs, mount_points)
+        # In our configs we don't want "./: fs.tar.gz", we want "/: fs". So drop the leading . and trailing .tar.gz
+        mount_points = { (k[1:] if k.startswith("./") else k):
+                         (v[:-7] if v.endswith(".tar.gz") else v)
+                        for k,v in mount_points.items() }
+
+        logger.info(f"Multi-partition filesystem initialized with default mounts: %s", mount_points)
+    else:
+        raise RuntimeError(f"FATAL: Firmware file not found: {fs}")
 
     tmpdir = None
     if artifacts is None:
@@ -122,6 +148,16 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     base_dir.mkdir(exist_ok=True, parents=True)
     base_fs = Path(base_dir, "fs.tar.gz")
     shutil.copy(fs, base_fs)
+
+    if fw_dir:
+        # Copy all partitions into base/partitions
+        partitions_dir = Path(base_dir, "partitions")
+        partitions_dir.mkdir(exist_ok=True)
+        # For each .tar.gz in fw_dir, copy it to partitions_dir
+        for f in os.listdir(fw_dir):
+            if f.endswith(".tar.gz"):
+                shutil.copy(join(fw_dir, f), str(partitions_dir))
+
     data = {}
     data['core'] = {
         'arch': arch if arch == "aarch64" else arch+end,
@@ -132,6 +168,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
         'strace': False,
         'ltrace': False,
         'version': default_version,
+        'mounts': {k: v.replace(".tar.gz","") for k,v in mount_points.items()}
     }
 
     data['blocked_signals'] = []

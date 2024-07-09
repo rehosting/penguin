@@ -174,6 +174,15 @@ class Core(BaseModel):
             examples=["my_shared_directory"],
         ),
     ]
+
+    mounts: Annotated[
+        dict[str, str],
+        Field(title="Mount points for extracted partition in base/partitions",
+                description="Mapping of partition number to mount point in the guest",
+                examples=[{"abcdef.tar.gz": "/", "ffffff.tar.gz": "/usr"}]
+        )
+    ]
+
     version: Annotated[
         Literal["1.0.0"],
         Field(
