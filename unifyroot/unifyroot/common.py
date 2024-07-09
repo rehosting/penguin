@@ -166,12 +166,14 @@ class FilesystemLoader:
                 if member.isfile():
                     self.repository.add_path_to_filesystem(fs_name, member.name)
                     self._extract_references(fs_name, tar, member)
-                if member.islnk():
+                elif member.issym():
                     # Add path of symlink to filesystem
                     # Add reference to target of symlink
                     self.repository.add_path_to_filesystem(fs_name, member.name)
-                    self.repository.add_reference_to_filesystem(fs_name, tar.gettarinfo(member).linkname)
-                    #print(f"Symlink: {member.name} -> {tar.gettarinfo(member).linkname}")
+
+                    relative_linkname = self._resolve_symlink(member.name, member.linkname)
+                    #assert(relative_linkname.startswith("./")), f"Resolved symlink path {relative_linkname} does not start with './'"
+                    self.repository.add_reference_to_filesystem(fs_name, relative_linkname)
 
                 if member.isdir():
                     self.repository.add_path_to_filesystem(fs_name, member.name)
@@ -197,6 +199,24 @@ class FilesystemLoader:
                     self.repository.add_reference_to_filesystem(fs_name, decoded_path)
             except UnicodeDecodeError:
                 pass
+
+
+    @staticmethod
+    def _resolve_symlink(symlink_path: str, linkname: str) -> str:
+        # Get the directory containing the symlink
+        symlink_dir = os.path.dirname(symlink_path)
+
+        # Join the symlink's directory with the linkname
+        full_path = os.path.join(symlink_dir, linkname)
+
+        # Normalize the path to resolve any '..' or '.'
+        normalized_path = os.path.normpath(full_path)
+
+        # Ensure the path starts with './'
+        if not normalized_path.startswith('./'):
+            normalized_path = './' + normalized_path.lstrip('/')
+
+        return normalized_path
 
     @staticmethod
     def _is_valid_reference(path: str) -> bool:
