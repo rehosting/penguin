@@ -69,6 +69,17 @@ class LocalGuestFS:
 
     def mkdir_p(self, d):
         p = self.adjust_path(d)
+        # Is it a symlink? If so, we can't mkdir it
+        if self.is_symlink(d):
+            # Does target exist, and is it a directory?
+            target = p.resolve()
+            if target.exists() and target.is_dir():
+                # We normally mkdir with exist_ok, so here we have symlink with an existing
+                # directory. We'll just return.
+                return
+            # It either is dangling or not a directory - error
+            raise RuntimeError(f"Cannot mkdir {d} as it is a symlink to {target} (missing or non-directory)")
+
         p.mkdir(exist_ok=True)
 
     def readlink(self, path):
