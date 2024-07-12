@@ -53,8 +53,7 @@ COPY ./utils/get_release.sh /get_release.sh
 # 2) Get PANDA resources
 # Get panda .deb
 ARG PANDA_VERSION
-ARG BASE_IMAGE
-RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(echo "$BASE_IMAGE" | awk -F':' '{print $2}').deb
+RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
 
 # Get syscall list from PANDA
 RUN for arch in arm arm64 mips mips64; do \
