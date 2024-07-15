@@ -299,8 +299,6 @@ class FileFailures(PyPlugin):
             "size": 0,
         }
 
-        self.config["env"]["IGLOO_HYPERFILE_PATHS"] = ":".join(hf_config.keys())
-
         self.logger.debug("Registered pseudofiles:")
         for filename, details in hf_config.items():
             self.logger.debug(f"  {filename}")
