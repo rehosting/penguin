@@ -533,34 +533,34 @@ How to handle ioctl() calls
   model: return_const
 ```
 
-##### `pseudofiles.<string>.ioctl.<integer or string>` Ioctl
+##### `pseudofiles.<string>.ioctl.<integer or "*">` Ioctl
 
 |||
 |-|-|
 |__Default__|`null`|
 
 
-###### `pseudofiles.<string>.ioctl.<integer or string>.<model=return_const>` Return a constant
+###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=return_const>` Return a constant
 
 
-####### `pseudofiles.<string>.ioctl.<integer or string>.<model=return_const>.model` ioctl modelling method (return a constant)
+####### `pseudofiles.<string>.ioctl.<integer or "*">.<model=return_const>.model` ioctl modelling method (return a constant)
 
 |||
 |-|-|
 |__Type__|`"return_const"`|
 
 
-####### `pseudofiles.<string>.ioctl.<integer or string>.<model=return_const>.val` Constant to return
+####### `pseudofiles.<string>.ioctl.<integer or "*">.<model=return_const>.val` Constant to return
 
 |||
 |-|-|
 |__Type__|integer|
 
 
-###### `pseudofiles.<string>.ioctl.<integer or string>.<model=symex>` Symbolic execution
+###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=symex>` Symbolic execution
 
 
-####### `pseudofiles.<string>.ioctl.<integer or string>.<model=symex>.model` ioctl modelling method (symbolic execution)
+####### `pseudofiles.<string>.ioctl.<integer or "*">.<model=symex>.model` ioctl modelling method (symbolic execution)
 
 |||
 |-|-|
