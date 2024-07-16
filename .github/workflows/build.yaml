@@ -27,6 +27,7 @@ jobs:
 
   build_container:
     runs-on: ubuntu-latest
+    if: always()
     
     # Sets the permissions granted to the `GITHUB_TOKEN` for the actions in this job.
     # (required)
