@@ -67,6 +67,18 @@ def find_architecture(infile):
                     assert info.bits is not None
                     arch_counts[info.bits][info.arch] += 1
 
+    # If there is at least one intel and non-intel arch,
+    # filter out all the intel ones.
+    # Some firmwares include x86_64 binaries left-over from the build process that aren't run in the guest.
+    intel_archs = ("intel", "intel64")
+    archs_list = list(arch_counts[32].values()) + list(arch_counts[64].values())
+    if (
+        any(arch in intel_archs for arch in archs_list)
+        and any(arch not in intel_archs for arch in archs_list)
+    ):
+        del arch_counts[32]["intel"]
+        del arch_counts[64]["intel64"]
+
     # Now select the most common architecture.
     # First try the most common 64-bit architecture.
     # Then try the most common 32-bit one.
