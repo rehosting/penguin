@@ -362,11 +362,14 @@ IoctlCommand = _union(
 )
 
 
+Star = Literal["*"]
+
+
 Ioctls = _newtype(
     class_name="Ioctls",
     type_=Dict[
-        Union[int, str], IoctlCommand
-    ],  # TODO: str should only allow for "*" but we need a custom validator for that
+        Union[int, Star], IoctlCommand
+    ],
     title="ioctl",
     description="How to handle ioctl() calls",
     default=dict(),
@@ -714,7 +717,9 @@ def gen_docs_type_name(t):
     og = typing.get_origin(t)
     args = typing.get_args(t)
 
-    if og is Union:
+    if t == Star:
+        return '"*"'
+    elif og is Union:
         return " or ".join(map(gen_docs_type_name, args))
     elif og is Literal:
         return " or ".join([f'`"{gen_docs_yaml_dump(a)}"`' for a in args])
