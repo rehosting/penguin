@@ -83,15 +83,10 @@ class HyperFile(PyPlugin):
         # On hypercall we dispatch to the appropriate handler: read, write, ioctl
         @panda.hypercall(HYPER_MAGIC)
         def before_hypercall(cpu):
-            # We pass args in the arch-standard ABI specified in pypanda's arch.py
-            # arm: r0, r1, r2
-            # mips: a0, a1, a2
-            num = panda.arch.get_arg(cpu, 0, convention="syscall")
-            if num != HYPER_MAGIC:
-                return False  # Not a hypercall for us!
-
+            # We pass args in the arch-syscall ABI specified in pypanda's arch.py
+            # arm: x8/r7 r0, r1, r2
+            # mips: v0, a0, a1, a2
             hc_type = panda.arch.get_arg(cpu, 1, convention="syscall")
-
             if hc_type == HYPER_FILE_OP:
                 self.handle_file_op(cpu)
             elif hc_type == HYPER_GET_NUM_HYPERFILES:

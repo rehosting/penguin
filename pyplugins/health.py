@@ -37,7 +37,8 @@ class Health(PyPlugin):
 
         # panda.load_plugin("coverage", {"filename": self.outdir+"/cov.csv", "mode": "osi-block",
         #                               "summary": 'true'})
-        self.ppp.Events.listen('igloo_bind', self.health_on_bind)
+        self.ppp.Events.listen('igloo_ipv4_bind', self.health_on_bind)
+        self.ppp.Events.listen('igloo_ipv6_bind', self.health_on_bind)
         self.ppp.Events.listen('igloo_open', self.health_detect_opens)
 
         # TODO: replace with hypercall mechanism

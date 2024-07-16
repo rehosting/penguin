@@ -17,13 +17,18 @@ class Nvram2(PyPlugin):
         # Even at debug level, logging every nvram get/clear can be very verbose.
         # As such, we only debug log nvram sets
 
-        self.ppp.Events.listen("igloo_nvram_get", self.on_nvram_get)
-        self.ppp.Events.listen("igloo_nvram_set", self.on_nvram_set)
-        self.ppp.Events.listen("igloo_nvram_clear", self.on_nvram_clear)
+        self.ppp.Events.listen('igloo_nvram_get_hit', self.on_nvram_get_hit)
+        self.ppp.Events.listen('igloo_nvram_get_miss', self.on_nvram_get_miss)
+        self.ppp.Events.listen('igloo_nvram_set', self.on_nvram_set)
+        self.ppp.Events.listen('igloo_nvram_clear', self.on_nvram_clear)
 
         with open(f"{self.outdir}/{log}", "w") as f:
             f.write("key,access,value\n")
 
+    def on_nvram_get_hit(self, cpu, key):
+        self.on_nvram_get(cpu, key, True)
+    def on_nvram_get_miss(self, cpu, key):
+        self.on_nvram_get(cpu, key, False)
     def on_nvram_get(self, cpu, key, hit):
         if "/" not in key:
             return

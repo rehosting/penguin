@@ -12,7 +12,6 @@ UBOOT_LOG = "uboot.log"
 class SendHypercall(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
-        print(panda)
         self.outdir = self.get_arg("outdir")
         open(os.path.join(self.outdir, UBOOT_LOG), "w").close()
         self.uboot_log = set()
