@@ -1,5 +1,6 @@
 import dataclasses
 import hashlib
+import sys
 import typing
 from copy import deepcopy
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
@@ -659,13 +660,30 @@ def _jsonify_dict(d):
     }
 
 
-def _validate_config(config):
+def _validate_config_schema(config):
     """Validate config with Pydantic"""
     Main(**config).model_dump()
     jsonschema.validate(
         instance=_jsonify_dict(config),
         schema=Main.model_json_schema(),
     )
+
+
+def _validate_config_options(config):
+    """Do custom checks for config option compatibility"""
+
+    import penguin
+
+    logger = penguin.getColoredLogger("config")
+
+    if config["core"].get("ltrace", False) and config["core"]["arch"].startswith("mips64"):
+        logger.error("ltrace does not support mips64")
+        sys.exit(1)
+
+
+def _validate_config(config):
+    _validate_config_schema(config)
+    _validate_config_options(config)
 
 
 def load_config(path):
