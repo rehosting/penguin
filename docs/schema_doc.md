@@ -10,11 +10,15 @@ Core configuration options for this rehosting
 
 |||
 |-|-|
-|__Type__|`"armel"` or `"mipsel"` or `"mipseb"` or `"mips64eb"` or `"aarch64"`|
+|__Type__|`"armel"` or `"aarch64"` or `"mipsel"` or `"mipseb"` or `"mips64eb"`|
 
 
 ```yaml
 armel
+```
+
+```yaml
+aarch64
 ```
 
 ```yaml
@@ -28,9 +32,7 @@ mipseb
 ```yaml
 mips64eb
 ```
-```yaml
-aarch64
-```
+
 ### `core.kernel` Path to kernel image
 
 |||
@@ -40,6 +42,10 @@ aarch64
 
 ```yaml
 /igloo_static/kernels/zImage.armel
+```
+
+```yaml
+/igloo_static/kernels/zImage.arm64
 ```
 
 ```yaml
@@ -54,9 +60,6 @@ aarch64
 /igloo_static/kernels/vmlinux.mips64eb
 ```
 
-```yaml
-/igloo_static/kernels/vmlinux.arm64
-```
 ### `core.fs` Project-relative path to filesystem tarball
 
 |||
@@ -105,6 +108,23 @@ true
 |__Default__|`false`|
 
 Whether to enable strace
+
+```yaml
+false
+```
+
+```yaml
+true
+```
+
+### `core.ltrace` Enable ltracing init process
+
+|||
+|-|-|
+|__Type__|boolean|
+|__Default__|`false`|
+
+Whether to enable ltrace
 
 ```yaml
 false
@@ -271,6 +291,23 @@ flash
 
 ```yaml
 uboot
+```
+
+#### `pseudofiles.<string>.size` File size
+
+|||
+|-|-|
+|__Type__|integer or null|
+|__Default__|`null`|
+
+Size of the pseudofile to be reported by stat(). This must be specified for mmap() on the pseudofile to work.
+
+```yaml
+1
+```
+
+```yaml
+4096
 ```
 
 #### `pseudofiles.<string>.read` Read
@@ -564,6 +601,23 @@ Names for guest network interfaces
 - ens33
 - wlp3s0
 ```
+
+## `uboot_env` U-Boot environment
+
+|||
+|-|-|
+|__Default__|`{}`|
+
+U-Boot environment variables to set in the guest
+
+### `uboot_env.<string>` Value
+
+|||
+|-|-|
+|__Type__|string|
+|__Default__|`null`|
+
+Value of the U-Boot environment variable
 
 ## `blocked_signals` List of blocked signals
 
