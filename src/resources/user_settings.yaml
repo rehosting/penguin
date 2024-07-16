@@ -4,7 +4,7 @@
 # Allows a user to define the directories added.
 default_directories:
   enabled: true
-  user_directories: 
+  user_directories: []
 
 # Adds directories that are referenced in binaries but are not in the filesystem.
 add_binary_directories: true
@@ -57,12 +57,12 @@ coverage: false
 # Allows a user to override the defaults with alternative values.
 default_nvram_values:
   enabled: true
-  user_nvram_values: 
+  user_nvram_values: {}
 
 # Configures the paths used when searching for device-specific nvram values.
 nvram_config:
   default_paths: true
-  user_paths:
+  user_paths: []
 
 # Enables FirmAE hack to set NVRAM values based on the presence of specific files.
 enable_firmae_hack: true

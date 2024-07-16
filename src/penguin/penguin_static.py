@@ -1177,7 +1177,7 @@ def default_nvram_values(settings):
     # Default values are enabled and user is adding to NVRAM dictionary.
     if settings:
         user_nvram_values = settings["default_nvram_values"]["user_nvram_values"]
-        if user_nvram_values is not None: 
+        if user_nvram_values is not None:
             nvram.update(user_nvram_values)
 
     # Add some FirmAE specific values with loops
