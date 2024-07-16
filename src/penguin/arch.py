@@ -120,13 +120,20 @@ def _identify_mips_arch(header):
 
     bits = _elf_bits(header)
 
+    # GDB's source code is a good resource for MIPS ABI identification:
+    # https://github.com/bminor/binutils-gdb/blob/master/gdb/mips-tdep.c
     if flags & E_FLAGS_MASKS.EFM_MIPS_ABI_O32:
         abi = "o32"
     elif flags & E_FLAGS_MASKS.EFM_MIPS_ABI_O64:
         abi = "o64"  # never seen this before - unsupported for now?
-    else:
-        abi = f"n{bits}"
+    elif flags & 0x20:
+        abi = "n32"
         bits = 64  # Even though n32 is 32-bit, it only runs on 64-bit CPUs
+    elif bits == 32:
+        abi = "o32"  # Default 32-bit ABI
+    else:
+        assert bits == 64
+        abi = "n64"  # Default 64-bit ABI
 
     logger.debug(
         f"Identified MIPS firmware: arch={mips_arch}, bits={bits}, abi={abi}, endian={endianness}, extras={description}"
