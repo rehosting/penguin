@@ -260,9 +260,7 @@ def make_config(fs, out, artifacts, settings_path, timeout=None, auto_explore=Fa
     settings = {}
     user_settings = {}
     if settings_path:
-        # TODO: apply all use cases
-        relative_path = "src/penguin/resources/default_settings.yaml"
-        absolute_path = os.path.join(os.getcwd(), relative_path)
+        absolute_path = os.path.join(*[dirname(dirname(__file__)), "resources", "default_settings.yaml"])
         try:
             with open(settings_path, "r") as user_f:
                 user_settings = yaml.safe_load(user_f)
