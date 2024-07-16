@@ -1298,7 +1298,6 @@ def add_nvram_meta(proj_dir, config, output_dir, settings):
         for k, v in default_nvram.items():
             writer.writerow(["defaults", "", k, v])
 
-    # TODO: FirmAE toggle
     # FirmAE provides a list of hardcoded files to check for nvram keys, and default values
     # to add if they're present. Here we add this into our config.
     static_targets = {  # filename -> (query, value to set if key is present)
