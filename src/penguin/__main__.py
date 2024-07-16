@@ -200,7 +200,7 @@ def penguin_init(args):
         if not os.path.exists(path):
             raise FileNotFoundError(f"The file {settings_path} does not exist.")
         # Ensure file is a YAML file
-        if not settings_path.endswith(".yaml"):
+        if not path.suffix == ".yaml":
             raise ValueError(
                 "FATAL: Passing in a configuration file must end in .yaml."
             )
