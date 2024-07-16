@@ -25,6 +25,24 @@ jobs:
       env:
         LINTLY_API_KEY: ${{ secrets.GITHUB_TOKEN }}
 
+  check_linear_history:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Check for merge commits
+        run: |
+          if git log --merges origin/${{ github.base_ref }}..origin/${{ github.head_ref }}; then
+            echo "Error: Merge commits found in the pull request."
+            echo "Please rebase your branch to maintain a linear history."
+            exit 1
+          else
+            echo "No merge commits found. Linear history maintained."
+          fi
+
   build_container:
     runs-on: ubuntu-latest
     
