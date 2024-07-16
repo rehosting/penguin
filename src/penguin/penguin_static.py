@@ -327,7 +327,7 @@ def pre_shim(proj_dir, config, settings, auto_explore=False):
             ):
                 # For things that look like binaries, find unique strings that look like paths
                 for dest in list(
-                    set(find_strings_in_file(f, "^(/var|/etc|/tmp)(.+)([^\/]+)$"))
+                    set(find_strings_in_file(f, "^(/var|/etc|/tmp)(.+)([^\\/]+)$"))
                 ):
                     if any([x in dest for x in ["%s", "%c", "%d", "/tmp/services"]]):
                         # Ignore these paths, printf format strings aren't real directories to create
@@ -540,7 +540,7 @@ def analyze_library(elf_path, config):
                     struct.unpack(
                         unpack_format,
                         data[
-                            offset + i * pointer_size : offset + (i + 1) * pointer_size
+                            offset + i * pointer_size: offset + (i + 1) * pointer_size
                         ],
                     )[0]
                     for i in range(3)

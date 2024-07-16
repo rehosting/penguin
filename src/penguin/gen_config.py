@@ -6,14 +6,10 @@ import sys
 import tarfile
 import tempfile
 import yaml
-import copy
 from pathlib import Path
 from collections import Counter
 from os.path import dirname, join
-from pathlib import Path
-
 import click
-import yaml
 from elftools.elf.elffile import ELFFile
 
 from penguin import getColoredLogger
@@ -445,7 +441,7 @@ def fakeroot_gen_config(fs, out, artifacts, verbose, settings_path):
     if verbose:
         cmd.extend(["--verbose"])
     if settings_path:
-        cmd.extend(["--settings", str(settings_path)])
+        cmd.extend(["--settings-path", str(settings_path)])
     p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
     p.wait()
     if o.exists():
@@ -457,7 +453,7 @@ def fakeroot_gen_config(fs, out, artifacts, verbose, settings_path):
 @click.option("--out", required=True, help="Path to a config to be created")
 @click.option("--artifacts", default=None, help="Path to a directory for artifacts")
 @click.option("-v", "--verbose", count=True)
-@click.option("-s", "--settings", type=str, help="Path to the YAML configuration file")
+@click.option("-s", "--settings-path", type=str, help="Path to the YAML configuration file")
 def makeConfig(fs, out, artifacts, verbose, settings_path):
     if verbose:
         logger.setLevel(logging.DEBUG)
