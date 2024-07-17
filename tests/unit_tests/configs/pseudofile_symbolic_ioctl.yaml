@@ -1,6 +1,5 @@
 core:
   root_shell: false
-  strace: true
 
 env:
   igloo_init: /init
