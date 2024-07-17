@@ -5,68 +5,77 @@ import subprocess
 import sys
 import tempfile
 from contextlib import contextmanager
-from pandare import Panda
 from pathlib import Path
 from time import sleep
+
+from pandare import Panda
+
 from penguin import getColoredLogger
+
+from .common import yaml
+from .defaults import default_plugin_path
 from .penguin_config import load_config
 from .utils import hash_image_inputs
-from .defaults import default_plugin_path
-from .common import yaml
 
 # Note armel is just panda-system-arm and mipseb is just panda-system-mips
-ROOTFS="/dev/vda" # Common to all
+ROOTFS = "/dev/vda"  # Common to all
 qemu_configs = {
-        "armel": { "qemu_machine": "virt",
-                    "arch":         "arm",
-                    "kconf_group":  "armel",
-                    "mem_gb":          "2",
-                },
-
-        "aarch64": { "qemu_machine": "virt",
-                    "arch":         "aarch64",
-                    "kconf_group":  "arm64",
-                    "mem_gb":          "2",
-                    "cpu": "cortex-a57",
-                },
-
-        "mipsel": {"qemu_machine": "malta",
-                    "arch":         "mipsel",
-                    "kconf_group":  "mipsel",
-                    "mem_gb":          "2",
-                },
-
-        "mipseb": {"qemu_machine": "malta",
-                    "arch":         "mips",
-                    "kconf_group":  "mipseb",
-                    "mem_gb":          "2",
-                },
-        "mips64eb": {"qemu_machine": "malta",
-                    "arch":         "mips64",
-                    "kconf_group":  "mips64eb",
-                    "mem_gb":          "2",
-                    "cpu": "MIPS64R2-generic",
-                },
+    "armel": {
+        "qemu_machine": "virt",
+        "arch": "arm",
+        "kconf_group": "armel",
+        "mem_gb": "2",
+    },
+    "aarch64": {
+        "qemu_machine": "virt",
+        "arch": "aarch64",
+        "kconf_group": "arm64",
+        "mem_gb": "2",
+        "cpu": "cortex-a57",
+    },
+    "mipsel": {
+        "qemu_machine": "malta",
+        "arch": "mipsel",
+        "kconf_group": "mipsel",
+        "mem_gb": "2",
+    },
+    "mipseb": {
+        "qemu_machine": "malta",
+        "arch": "mips",
+        "kconf_group": "mipseb",
+        "mem_gb": "2",
+    },
+    "mips64eb": {
+        "qemu_machine": "malta",
+        "arch": "mips64",
+        "kconf_group": "mips64eb",
+        "mem_gb": "2",
+        "cpu": "MIPS64R2-generic",
+    },
 }
+
 
 def _sort_plugins_by_dependency(conf_plugins):
     """
     Sorts the plugins based on their dependencies.
     """
+
     def dfs(plugin_name, visited, stack):
         """
         Depth-First Search to sort plugins.
         """
         visited.add(plugin_name)
         details = conf_plugins.get(plugin_name, {})
-        deps = details.get('depends_on', [])
+        deps = details.get("depends_on", [])
         # Allow depends_on to be a single string or a list of strings
         if isinstance(deps, str):
             deps = [deps]
         for dep in deps:
             if dep not in visited:
                 if dep not in conf_plugins:
-                    raise ValueError(f"Plugin {plugin_name} depends on {dep}, which is missing.")
+                    raise ValueError(
+                        f"Plugin {plugin_name} depends on {dep}, which is missing."
+                    )
                 dfs(dep, visited, stack)
         stack.append(plugin_name)
 
@@ -79,17 +88,18 @@ def _sort_plugins_by_dependency(conf_plugins):
 
     return sorted_plugins
 
+
 @contextmanager
 def print_to_log(out, err):
     original_stdout = sys.stdout  # Save the original stdout
     original_stderr = sys.stderr  # Save the original stderr
-    sys.stdout = open(out, 'w')  # Redirect stdout to devnull
-    sys.stderr = open(err, 'w')  # Redirect stderr to devnull
+    sys.stdout = open(out, "w")  # Redirect stdout to devnull
+    sys.stderr = open(err, "w")  # Redirect stderr to devnull
     try:
         yield
     finally:
-        sys.stdout.close() # close the file
-        sys.stderr.close() # close the file
+        sys.stdout.close()  # close the file
+        sys.stderr.close()  # close the file
         sys.stdout = original_stdout  # Restore stdout
         sys.stderr = original_stderr  # Restore stderr
 
@@ -117,16 +127,25 @@ def redirect_stdout_stderr(stdout_path, stderr_path):
         os.close(new_stderr)
 
 
-def run_config(proj_dir, conf_yaml, out_dir=None, logger=None, init=None, timeout=None, show_output=False, verbose=False):
-    '''
+def run_config(
+    proj_dir,
+    conf_yaml,
+    out_dir=None,
+    logger=None,
+    init=None,
+    timeout=None,
+    show_output=False,
+    verbose=False,
+):
+    """
     conf_yaml a path to our config within proj_dir
     proj_dir contains config.yaml
     out_dir stores results and a copy of config.yaml
-    '''
+    """
 
     # Ensure config_yaml is directly in proj_dir
     # XXX did we remove this dependency correctly?
-    #if os.path.dirname(conf_yaml) != proj_dir:
+    # if os.path.dirname(conf_yaml) != proj_dir:
     #    raise ValueError(f"config_yaml must be in proj_dir: config directory {os.path.dirname(conf_yaml)} != {proj_dir}")
 
     if not os.path.isdir(proj_dir):
@@ -135,47 +154,53 @@ def run_config(proj_dir, conf_yaml, out_dir=None, logger=None, init=None, timeou
     if not os.path.isfile(conf_yaml):
         raise ValueError(f"Config file not found: {conf_yaml}")
 
-    qcow_dir = os.path.join(proj_dir, 'qcows')
+    qcow_dir = os.path.join(proj_dir, "qcows")
     if not os.path.isdir(qcow_dir):
         os.makedirs(qcow_dir, exist_ok=True)
 
     if out_dir is None:
-        out_dir = os.path.join(proj_dir, 'output')
+        out_dir = os.path.join(proj_dir, "output")
     if not os.path.isdir(out_dir):
         os.makedirs(out_dir, exist_ok=True)
 
     if logger is None:
-        logger = getColoredLogger('penguin.run')
+        logger = getColoredLogger("penguin.run")
 
     # Image isn't in our config, but the path we use is a property
     # of configs files section - we'll hash it to get a path
     # Read input config and validate
     conf = load_config(conf_yaml)
 
-    if timeout is not None and conf.get('plugins', {}).get('core', None) is not None:
+    if timeout is not None and conf.get("plugins", {}).get("core", None) is not None:
         # An arugument setting a timeout overrides the config's timeout
-        conf['plugins']['core']['timeout'] = timeout
+        conf["plugins"]["core"]["timeout"] = timeout
 
-
-    if 'igloo_init' not in conf['env']:
+    if "igloo_init" not in conf["env"]:
         if init:
-            conf['env']['igloo_init'] = init
+            conf["env"]["igloo_init"] = init
         else:
             try:
-                with open(os.path.join(*[os.path.dirname(conf_yaml), 'base', 'env.yaml']), 'r') as f:
+                with open(
+                    os.path.join(*[os.path.dirname(conf_yaml), "base", "env.yaml"]), "r"
+                ) as f:
                     # Read yaml file, get 'igloo_init' key
-                    inits = yaml.safe_load(f)['igloo_init']
+                    inits = yaml.safe_load(f)["igloo_init"]
             except FileNotFoundError:
                 inits = []
-            raise RuntimeError(f"No init binary is specified in configuration, set one in config's env section as igloo_init. Static analysis identified the following: {inits}")
+            raise RuntimeError(
+                f"No init binary is specified in configuration, set one in config's env section as igloo_init. Static analysis identified the following: {inits}"
+            )
 
-
-    archend = conf['core']['arch']
-    kernel = conf['core']['kernel']
-    config_fs = os.path.join(proj_dir, conf['core']['fs']) # Path to tar filesystem
-    plugin_path = conf['core']['plugin_path'] if 'plugin_path' in conf['core'] else default_plugin_path
-    #static_files = conf['static_files'] if 'static_files' in conf else {} # FS shims
-    conf_plugins = conf['plugins'] # {plugin_name: {enabled: False, other... opts}}
+    archend = conf["core"]["arch"]
+    kernel = conf["core"]["kernel"]
+    config_fs = os.path.join(proj_dir, conf["core"]["fs"])  # Path to tar filesystem
+    plugin_path = (
+        conf["core"]["plugin_path"]
+        if "plugin_path" in conf["core"]
+        else default_plugin_path
+    )
+    # static_files = conf['static_files'] if 'static_files' in conf else {} # FS shims
+    conf_plugins = conf["plugins"]  # {plugin_name: {enabled: False, other... opts}}
 
     if isinstance(conf_plugins, list):
         logger.info("Warning, expected dict of plugins, got list")
@@ -208,13 +233,16 @@ def run_config(proj_dir, conf_yaml, out_dir=None, logger=None, init=None, timeou
 
     # If image isn't in our out_dir already, generate it
     if not os.path.isfile(config_image):
-        open(lock_file, 'a').close() # create lock file
+        open(lock_file, "a").close()  # create lock file
 
         try:
             from .gen_image import fakeroot_gen_image
+
             fakeroot_gen_image(config_fs, config_image, qcow_dir, conf_yaml)
         except Exception as e:
-            logger.error(f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}")
+            logger.error(
+                f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}"
+            )
             logger.error(e, exc_info=True)
             if os.path.isfile(os.path.join(qcow_dir, image_filename)):
                 os.remove(os.path.join(qcow_dir, image_filename))
@@ -233,17 +261,27 @@ def run_config(proj_dir, conf_yaml, out_dir=None, logger=None, init=None, timeou
             os.remove(config_image)
             raise ValueError(f"GenImage produced empty image file: {config_image}")
 
-    CID=4 # We can use a constant CID with vhost-user-vsock
+    CID = 4  # We can use a constant CID with vhost-user-vsock
     # Create a temp dir for our vhost files:
     tmpdir = tempfile.TemporaryDirectory()
     path = Path(tmpdir.name)
     socket_path = path / "socket"
-    uds_path =    path / "vsocket"
-    mem_path =    path / "mem_path"
+    uds_path = path / "vsocket"
+    mem_path = path / "mem_path"
 
     # Launch a process that listens on the file socket and forwards to the uds
     # which QEMU connects to. TODO: move to vpn plugin?
-    host_vsock_bridge = subprocess.Popen(["vhost-device-vsock", "--guest-cid", str(CID), "--socket", socket_path, "--uds-path" , uds_path])
+    host_vsock_bridge = subprocess.Popen(
+        [
+            "vhost-device-vsock",
+            "--guest-cid",
+            str(CID),
+            "--socket",
+            socket_path,
+            "--uds-path",
+            uds_path,
+        ]
+    )
 
     try:
         q_config = qemu_configs[archend]
@@ -251,64 +289,89 @@ def run_config(proj_dir, conf_yaml, out_dir=None, logger=None, init=None, timeou
         raise ValueError(f"Unknown architecture: {archend}")
 
     vsock_args = [
-        '-object', f'memory-backend-file,id=mem0,mem-path={mem_path},size={q_config["mem_gb"]}G,share=on',
-        '-numa', 'node,memdev=mem0',
-        '-chardev', f'socket,id=char0,reconnect=0,path={socket_path}',
-        '-device', 'vhost-user-vsock-pci,chardev=char0'
-        ]
+        "-object",
+        f'memory-backend-file,id=mem0,mem-path={mem_path},size={q_config["mem_gb"]}G,share=on',
+        "-numa",
+        "node,memdev=mem0",
+        "-chardev",
+        f"socket,id=char0,reconnect=0,path={socket_path}",
+        "-device",
+        "vhost-user-vsock-pci,chardev=char0",
+    ]
 
-    append = f"root={ROOTFS} init=/igloo/init console=ttyS0  CID={CID} rw panic=1" # Required
-    append += " rootfstype=ext2 norandmaps nokaslr" # Nice to have
-    append += " clocksource=jiffies nohz_full nohz=off no_timer_check" # Improve determinism?
-    append += " idle=poll acpi=off nosoftlockup " # Improve determinism?
+    append = f"root={ROOTFS} init=/igloo/init console=ttyS0  CID={CID} rw panic=1"  # Required
+    append += " rootfstype=ext2 norandmaps nokaslr"  # Nice to have
+    append += (
+        " clocksource=jiffies nohz_full nohz=off no_timer_check"  # Improve determinism?
+    )
+    append += " idle=poll acpi=off nosoftlockup "  # Improve determinism?
 
     if archend in ["armel", "aarch64"]:
         append = append.replace("console=ttyS0", "console=ttyAMA0")
 
     root_shell = []
-    if conf['core'].get('root_shell', False):
-        root_shell  = ['-serial', 'telnet:0.0.0.0:4321,server,nowait'] # ttyS1: root shell
+    if conf["core"].get("root_shell", False):
+        root_shell = [
+            "-serial",
+            "telnet:0.0.0.0:4321,server,nowait",
+        ]  # ttyS1: root shell
 
     # If core config specifes immutable: False we'll run without snapshot
     no_snapshot_drive = f"file={config_image},if=virtio"
     snapshot_drive = no_snapshot_drive + ",cache=unsafe,snapshot=on"
-    drive = snapshot_drive if conf['core'].get('immutable', True) else no_snapshot_drive
+    drive = snapshot_drive if conf["core"].get("immutable", True) else no_snapshot_drive
 
-    args = [ '-M',     q_config['qemu_machine'],
-            '-kernel', kernel,
-            '-append', append,
-            '-display', 'none',
-            "-drive", drive]
+    args = [
+        "-M",
+        q_config["qemu_machine"],
+        "-kernel",
+        kernel,
+        "-append",
+        append,
+        "-display",
+        "none",
+        "-drive",
+        drive,
+    ]
 
-    args += ['-no-reboot']
+    args += ["-no-reboot"]
 
-    if conf['core'].get('network', False):
+    if conf["core"].get("network", False):
         # Connect guest to network if specified
         if archend == "armel":
             logger.warning("UNTESTED network flags for arm")
-        args.extend(['-netdev', 'user,id=user.0', '-device', 'virtio-net,netdev=user.0'])
+        args.extend(
+            ["-netdev", "user,id=user.0", "-device", "virtio-net,netdev=user.0"]
+        )
 
-    if 'show_output' in conf['core'] and conf['core']['show_output']:
+    if "show_output" in conf["core"] and conf["core"]["show_output"]:
         logger.info("Logging console output to stdout")
-        console_out = ['-serial', 'mon:stdio']
+        console_out = ["-serial", "mon:stdio"]
     else:
         logger.info(f"Logging console output to {out_dir}/console.log")
-        console_out = ['-serial', f'file:{out_dir}/console.log', '-monitor', 'null'] # ttyS0: guest console output
+        console_out = [
+            "-serial",
+            f"file:{out_dir}/console.log",
+            "-monitor",
+            "null",
+        ]  # ttyS0: guest console output
 
-    if 'shared_dir' in conf['core']:
-        shared_dir = conf['core']['shared_dir']
-        if shared_dir[0] == '/':
-            shared_dir = shared_dir[1:] # Ensure it's relative path to proj_dir
+    if "shared_dir" in conf["core"]:
+        shared_dir = conf["core"]["shared_dir"]
+        if shared_dir[0] == "/":
+            shared_dir = shared_dir[1:]  # Ensure it's relative path to proj_dir
         shared_dir = os.path.join(proj_dir, shared_dir)
-        os.makedirs(shared_dir,exist_ok=True)
+        os.makedirs(shared_dir, exist_ok=True)
         args += [
-            '-virtfs',
-            ','.join((
-                'local',
-                f'path={shared_dir}',
-                'mount_tag=igloo_shared_dir',
-                'security_model=mapped-xattr',
-            )),
+            "-virtfs",
+            ",".join(
+                (
+                    "local",
+                    f"path={shared_dir}",
+                    "mount_tag=igloo_shared_dir",
+                    "security_model=mapped-xattr",
+                )
+            ),
         ]
 
     # ARM maps ttyS1 to the first listed device while MIPS maps ttyS0 to the first devie
@@ -317,46 +380,51 @@ def run_config(proj_dir, conf_yaml, out_dir=None, logger=None, init=None, timeou
     else:
         args = args + root_shell + console_out
 
-    if conf['core'].get('cpu', None):
-        args += ['-cpu', conf['core']['cpu']]
-    elif q_config.get('cpu', None):
-        args += ['-cpu', q_config['cpu']]
+    if conf["core"].get("cpu", None):
+        args += ["-cpu", conf["core"]["cpu"]]
+    elif q_config.get("cpu", None):
+        args += ["-cpu", q_config["cpu"]]
 
-    ############# Reduce determinism #############
+    # ############ Reduce determinism ##############
 
     # Fixed clock time.
-    args = args + ['-rtc', 'base=2023-01-01T00:00:00']
+    args = args + ["-rtc", "base=2023-01-01T00:00:00"]
 
     # Add vsock args
     args += vsock_args
 
     # Disable audio (allegedly speeds up emulation by avoiding running another thread)
-    os.environ['QEMU_AUDIO_DRV'] = 'none'
+    os.environ["QEMU_AUDIO_DRV"] = "none"
 
     # Setup PANDA. Do not let it print
     parent_outdir = os.path.dirname(out_dir)
-    stdout_path = os.path.join(parent_outdir, 'qemu_stdout.txt')
-    stderr_path = os.path.join(parent_outdir, 'qemu_stderr.txt')
+    stdout_path = os.path.join(parent_outdir, "qemu_stdout.txt")
+    stderr_path = os.path.join(parent_outdir, "qemu_stderr.txt")
 
     with print_to_log(stdout_path, stderr_path):
         logger.debug(f"Preparing PANDA args: {args}")
         logger.debug(f"Architecture: {q_config['arch']} Mem: {q_config['mem_gb']+'G'}")
-        panda = Panda(q_config['arch'], mem=q_config['mem_gb']+"G", extra_args=args)
+        panda = Panda(q_config["arch"], mem=q_config["mem_gb"] + "G", extra_args=args)
 
-        if '64' in archend:
+        if "64" in archend:
             panda.set_os_name("linux-64-generic")
         else:
             panda.set_os_name("linux-32-generic")
 
-        panda.load_plugin("syscalls2", args = {"load-info": True})
+        panda.load_plugin("syscalls2", args={"load-info": True})
 
         if archend == "aarch64":
-            logger.warning(f"No OSI support for aarch64")
+            logger.warning("No OSI support for aarch64")
         else:
-            panda.load_plugin("osi", args = {"disable-autoload":True})
-            panda.load_plugin("osi_linux", args = {"kconf_file":os.path.join(os.path.dirname(kernel), "osi.config"),
-                                                    "pagewalk": True,
-                                                    "kconf_group": q_config['kconf_group']})
+            panda.load_plugin("osi", args={"disable-autoload": True})
+            panda.load_plugin(
+                "osi_linux",
+                args={
+                    "kconf_file": os.path.join(os.path.dirname(kernel), "osi.config"),
+                    "pagewalk": True,
+                    "kconf_group": q_config["kconf_group"],
+                },
+            )
 
     # Plugins names are given out of order (by nature of yaml and sorting),
     # but plugins may have dependencies. We sort by dependencies
@@ -374,42 +442,44 @@ def run_config(proj_dir, conf_yaml, out_dir=None, logger=None, init=None, timeou
     logger.info("Loading plugins")
     for plugin_name in _sort_plugins_by_dependency(conf_plugins):
         details = conf_plugins[plugin_name]
-        if 'enabled' in details and not details['enabled']:
-            continue # Special arg "enabled" - if false we skip
+        if "enabled" in details and not details["enabled"]:
+            continue  # Special arg "enabled" - if false we skip
         logger.debug(f"Loading plugin: {plugin_name}")
 
-        args ={
-            'plugins': conf_plugins,
-            'CID': CID,
-            'vhost_socket': uds_path,
-            'conf': conf,
-            'proj_name': os.path.basename(proj_dir).replace("host_",""),
-            'fs': config_fs,
-            'fw': config_image,
-            'outdir': out_dir,
-            'verbose': verbose,
+        args = {
+            "plugins": conf_plugins,
+            "CID": CID,
+            "vhost_socket": uds_path,
+            "conf": conf,
+            "proj_name": os.path.basename(proj_dir).replace("host_", ""),
+            "fs": config_fs,
+            "fw": config_image,
+            "outdir": out_dir,
+            "verbose": verbose,
         }
         # If we have any deatils, pass them along
         if details is not None:
             args.update(details)
         local_plugin = False
-        path = os.path.join(plugin_path, plugin_name+".py")
+        path = os.path.join(plugin_path, plugin_name + ".py")
         if not os.path.isfile(path):
-            path = os.path.join(proj_dir, plugin_name+".py")
+            path = os.path.join(proj_dir, plugin_name + ".py")
             if not os.path.isfile(path):
-                raise ValueError(f"Plugin not found: {path} with name={plugin_name} and plugin_path={plugin_path}")
+                raise ValueError(
+                    f"Plugin not found: {path} with name={plugin_name} and plugin_path={plugin_path}"
+                )
             else:
                 local_plugin = True
         try:
             if len(panda.pyplugins.load_all(path, args)) == 0:
-                with open(os.path.join(out_dir, 'plugin_errors.txt'), 'a') as f:
+                with open(os.path.join(out_dir, "plugin_errors.txt"), "a") as f:
                     f.write(f"Failed to load plugin: {plugin_name}")
                 raise ValueError(f"Failed to load plugin: {plugin_name}")
         except SyntaxError as e:
             logger.error(f"Syntax error loading pyplugin: {e}")
             raise ValueError(f"Failed to load plugin: {plugin_name}") from e
         if local_plugin:
-            shutil.copy2(path,out_dir)
+            shutil.copy2(path, out_dir)
     # XXX HACK: normally panda args are set at the constructor. But we want to load
     # our plugins first and these need a handle to panda. So after we've constructed
     # our panda object, we'll directly insert our args into panda.panda_args in
@@ -419,7 +489,9 @@ def run_config(proj_dir, conf_yaml, out_dir=None, logger=None, init=None, timeou
     # Find the argument after '-append' in the list and re-render it based on updated env
     append_idx = panda.panda_args.index("-append") + 1
 
-    config_args = [f"{k}" + (f"={v}" if v is not None else '') for k, v in conf['env'].items()]
+    config_args = [
+        f"{k}" + (f"={v}" if v is not None else "") for k, v in conf["env"].items()
+    ]
 
     # We had some args originally (e.g., rootfs), not from our config, so
     # we need to keep those.
@@ -427,13 +499,18 @@ def run_config(proj_dir, conf_yaml, out_dir=None, logger=None, init=None, timeou
     # args first, but we need to know the start of the string too. So let's say a user can't change
     # the root=/dev/vda argument and put that first. Then config args. Then the rest of the args
     root_str = f"root={ROOTFS}"
-    panda.panda_args[append_idx] = root_str + " " + " ".join(config_args) + panda.panda_args[append_idx].replace(root_str, "")
+    panda.panda_args[append_idx] = (
+        root_str
+        + " "
+        + " ".join(config_args)
+        + panda.panda_args[append_idx].replace(root_str, "")
+    )
 
     @panda.cb_pre_shutdown
     def pre_shutdown():
-        '''
+        """
         Ensure pyplugins nicely clean up. Working around some panda bug
-        '''
+        """
         panda.pyplugins.unload_all()
 
     @panda.cb_guest_hypercall
@@ -443,11 +520,12 @@ def run_config(proj_dir, conf_yaml, out_dir=None, logger=None, init=None, timeou
         # but the guest was still running and panda was trying to call into the
         # freed python cffi callback object. As a workaround we have it here.
         num = panda.arch.get_arg(cpu, 0)
-        if target := getattr(panda.pyplugins.ppp, 'Core', None):
-            return target.handle_hc(cpu, num) # True IFF that handles num
+        if target := getattr(panda.pyplugins.ppp, "Core", None):
+            return target.handle_hc(cpu, num)  # True IFF that handles num
         return False
 
     logger.info("Launching rehosting")
+
     def _run():
         try:
             panda.run()
@@ -466,10 +544,11 @@ def run_config(proj_dir, conf_yaml, out_dir=None, logger=None, init=None, timeou
         with redirect_stdout_stderr(stdout_path, stderr_path):
             _run()
 
+
 def main():
-    logger = getColoredLogger('penguin.runner')
-    if verbose := any(x == 'verbose' for x in sys.argv):
-        logger.setLevel('DEBUG')
+    logger = getColoredLogger("penguin.runner")
+    if verbose := any(x == "verbose" for x in sys.argv):
+        logger.setLevel("DEBUG")
 
     if len(sys.argv) < 4:
         raise RuntimeError(f"USAGE {sys.argv[0]} [proj_dir] [config.yaml] [out_dir]")
@@ -481,9 +560,9 @@ def main():
     # Two optional args: init and timeout
     init = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] != "None" else None
     timeout = int(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] != "None" else None
-    show_output = sys.argv[6]=='show' if len(sys.argv) > 6 else False
+    show_output = sys.argv[6] == "show" if len(sys.argv) > 6 else False
 
-    logger.debug(f"penguin_run start:")
+    logger.debug("penguin_run start:")
     logger.debug(f"proj_dir={proj_dir}")
     logger.debug(f"config={config}")
     logger.debug(f"out_dir={out_dir}")
@@ -491,7 +570,10 @@ def main():
     logger.debug(f"timeout={timeout}")
     logger.debug(f"show_output={show_output}")
 
-    run_config(proj_dir, config, out_dir, logger, init, timeout, show_output, verbose=verbose)
+    run_config(
+        proj_dir, config, out_dir, logger, init, timeout, show_output, verbose=verbose
+    )
+
 
 if __name__ == "__main__":
     main()

@@ -16,6 +16,10 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - run: pip install pydantic pyyaml
-    - run: python3 src/penguin/penguin_config.py docs > config_schema.md
-    # Ensure generated config_schma matches the one in the repo at docs/config_schema.md
-    - run: if [ -e docs/config_schema.md ]; then diff config_schema.md docs/config_schema.md || (echo "Config schema is out of date. Please run 'python3 src/penguin/penguin_config.py docs > docs/config_schema.md && git add docs/config_schema.md' and push a commit with the updated schema." && exit 1) fi;
+    - run: python3 src/penguin/penguin_config.py docs > schema_doc.md
+    # Ensure generated schema_doc.md matches the one in the repo at docs/schema_doc.md
+    - run: |
+        if ! diff schema_doc.md docs/schema_doc.md; then
+          echo "Config schema is out of date. Please run 'python3 src/penguin/penguin_config.py docs > docs/schema_doc.md && git add docs/schema_doc.md' and push a commit with the updated schema."
+          exit 1
+        fi

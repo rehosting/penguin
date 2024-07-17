@@ -1,22 +1,12 @@
-import sys
-import tarfile
-import re
-from os.path import dirname, join as pjoin, isfile
+from os.path import join as pjoin
 from pandare import PyPlugin
-from copy import deepcopy
-from typing import List, Optional
 from penguin import getColoredLogger
-try:
-    from penguin import yaml
-    from penguin.analyses import PenguinAnalysis
-except ImportError:
-    PenguinAnalysis = object
-    import yaml
 
 mount_log = "mounts.csv"
 
+
 class MountTracker(PyPlugin):
-    '''
+    """
     Track when the guest tries mounting filesystems.
 
     If it's an unsupported type (i.e., mount returns EINVAL), we record
@@ -33,7 +23,8 @@ class MountTracker(PyPlugin):
     I.e., we'd see a mount, report failure, propose mitigation of shimming, then we'd run
     with the mount faked, see what files get opened within the mount path, then try
     finding a good way to make those files appear
-    '''
+    """
+
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
@@ -44,8 +35,8 @@ class MountTracker(PyPlugin):
 
         @self.panda.ppp("syscalls2", "on_sys_mount_return")
         def post_mount(cpu, pc, source, target, fs_type, flags, data):
-            retval = panda.arch.get_retval(cpu, convention='syscall')
-            results  = {
+            retval = panda.arch.get_retval(cpu, convention="syscall")
+            results = {
                 "source": source,
                 "target": target,
                 "fs_type": fs_type,
@@ -54,25 +45,24 @@ class MountTracker(PyPlugin):
             for k, v in results.items():
                 try:
                     results[k] = self.panda.read_str(cpu, v)
-                except:
+                except ValueError:
                     results[k] = "[unknown]"
 
-
-            #print(f"Mount returns {retval} for: mount -t {results['fs_type']} {results['source']} {results['target']}")
+            # print(f"Mount returns {retval} for: mount -t {results['fs_type']} {results['source']} {results['target']}")
             self.log_mount(retval, results)
 
-            if retval == -16: # EBUSY
+            if retval == -16:  # EBUSY
                 # Already mounted - we could perhaps use this info to drop the mount from our init script?
                 # Just pretend it was a success
-                panda.arch.set_retval(cpu, 0, failure=False, convention='syscall')
+                panda.arch.set_retval(cpu, 0, failure=False, convention="syscall")
 
             # Always pretend it was a success?
-            #panda.arch.set_retval(cpu, 0, failure=False, convention='syscall')
+            # panda.arch.set_retval(cpu, 0, failure=False, convention='syscall')
 
     def log_mount(self, retval, results):
-        src = results['source']
-        tgt = results['target']
-        fs = results['fs_type']
+        src = results["source"]
+        tgt = results["target"]
+        fs = results["fs_type"]
 
         if (src, tgt, fs) not in self.mounts:
             self.mounts.add((src, tgt, fs))

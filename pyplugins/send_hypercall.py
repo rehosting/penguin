@@ -1,11 +1,13 @@
-import os
 import csv
-import struct
 import os
-from penguin import getColoredLogger
+import struct
+
 from pandare import PyPlugin
 
-UBOOT_LOG="uboot.log"
+from penguin import getColoredLogger
+
+UBOOT_LOG = "uboot.log"
+
 
 class SendHypercall(PyPlugin):
     def __init__(self, panda):
@@ -14,17 +16,17 @@ class SendHypercall(PyPlugin):
         open(os.path.join(self.outdir, UBOOT_LOG), "w").close()
         self.uboot_log = set()
 
-        self.ppp.Core.ppp_reg_cb('igloo_send_hypercall', self.on_send_hypercall)
+        self.ppp.Core.ppp_reg_cb("igloo_send_hypercall", self.on_send_hypercall)
         self.logger = getColoredLogger("plugins.send_hypercall")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
 
         # Command-specific init
 
-        ## U-Boot
+        # U-Boot
         self.uboot_env = self.get_arg("conf").get("uboot_env", dict())
 
-        ## Bash
+        # Bash
         outdir = self.get_arg("outdir")
         path = os.path.join(outdir, "bash_cov.csv")
         self.bash_cov_csv = open(path, "w")
@@ -41,8 +43,8 @@ class SendHypercall(PyPlugin):
         buf = self.panda.virtual_memory_read(cpu, buf_addr, buf_size, fmt="bytearray")
 
         # Unpack list of pointers
-        word_char = 'I' if arch_bytes == 4 else 'Q' 
-        endianness = '>' if self.panda.arch_name in ["mips", "mips64"] else '<'
+        word_char = "I" if arch_bytes == 4 else "Q"
+        endianness = ">" if self.panda.arch_name in ["mips", "mips64"] else "<"
         ptrs = struct.unpack_from(f"{endianness}{buf_num_ptrs}{word_char}", buf)
         str_ptrs, out_addr = ptrs[:-1], ptrs[-1]
 
@@ -50,7 +52,7 @@ class SendHypercall(PyPlugin):
         try:
             strs = [self.panda.read_str(cpu, ptr) for ptr in str_ptrs]
         except ValueError:
-            self.logger.error(f"Failed to read guest memory. Skipping")
+            self.logger.error("Failed to read guest memory. Skipping")
             return
         cmd, args = strs[0], strs[1:]
 
@@ -66,7 +68,7 @@ class SendHypercall(PyPlugin):
             return
 
         # Send output to guest
-        #assert len(out_str) < 0x1000
+        # assert len(out_str) < 0x1000
         self.panda.virtual_memory_write(cpu, out_addr, out_str.encode())
         self.panda.arch.set_retval(cpu, ret_val)
 

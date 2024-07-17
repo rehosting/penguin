@@ -1,14 +1,14 @@
-import jsonschema
+import dataclasses
 import hashlib
 import typing
-import dataclasses
-from typing import Optional, Union, Literal, Annotated, Dict, List, Any
-from pydantic import BaseModel, RootModel, Field
+from copy import deepcopy
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
+
+import jsonschema
+import yaml
+from pydantic import BaseModel, Field, RootModel
 from pydantic.config import ConfigDict
 from pydantic_core import PydanticUndefined, PydanticUndefinedType
-from copy import deepcopy
-import yaml
-
 
 ENV_MAGIC_VAL = "DYNVALDYNVALDYNVAL"
 
@@ -22,10 +22,10 @@ def _newtype(class_name, type_, title, description=None, default=None, examples=
             model_config=ConfigDict(
                 title=title,
                 default=default,
-                json_schema_extra=examples and dict(examples=examples)
+                json_schema_extra=examples and dict(examples=examples),
             ),
             __annotations__=dict(root=type_),
-        )
+        ),
     )
 
 
@@ -39,9 +39,10 @@ def _variant(discrim_val, title, description, discrim_key, discrim_title, fields
             __annotations__={
                 discrim_key: Annotated[
                     Literal[discrim_val],
-                    Field(title=f"{discrim_title} ({title.lower()})")
+                    Field(title=f"{discrim_title} ({title.lower()})"),
                 ],
-            } | { key: Annotated[type, field] for key, type, field in fields },
+            }
+            | {key: Annotated[type, field] for key, type, field in fields},
         ),
     )
 
@@ -61,6 +62,7 @@ def _union(class_name, title, description, discrim_key, discrim_title, variants)
 
 class Core(BaseModel):
     """Core configuration options for this rehosting"""
+
     model_config = ConfigDict(title="Core configuration options", extra="forbid")
 
     arch: Annotated[
@@ -213,19 +215,14 @@ NetDevs = Field(
     default=None,
     title="Network devices",
     description="Names for guest network interfaces",
-    examples=[
-        ["eth0",
-         "eth1"],
-        ["ens33",
-         "wlp3s0"]
-    ],
+    examples=[["eth0", "eth1"], ["ens33", "wlp3s0"]],
 )
 
 BlockedSignalsField = Field(
     default=None,
     title="List of blocked signals",
     description="Signals numbers to block within the guest. Supported values are 6 (SIGABRT), 9 (SIGKILL), 15 (SIGTERM), and 17 (SIGCHLD).",
-    example=[[9], [9, 15]]
+    example=[[9], [9, 15]],
 )
 
 
@@ -268,10 +265,14 @@ Read = _union(
             title="Read a constant buffer",
             description=None,
             fields=(
-                ("val", str, Field(
-                    title="Constant buffer",
-                    description="The string with the contents of the pseudofile"
-                )),
+                (
+                    "val",
+                    str,
+                    Field(
+                        title="Constant buffer",
+                        description="The string with the contents of the pseudofile",
+                    ),
+                ),
             ),
         ),
         dict(
@@ -285,16 +286,19 @@ Read = _union(
             title="Read a constant map with host file",
             description=None,
             fields=(
-                ("filename", str, Field(title="Path to host file to store constant map")),
-            ) + _const_map_fields,
+                (
+                    "filename",
+                    str,
+                    Field(title="Path to host file to store constant map"),
+                ),
+            )
+            + _const_map_fields,
         ),
         dict(
             discrim_val="from_file",
             title="Read from a host file",
             description=None,
-            fields=(
-                ("filename", str, Field(title="Path to host file")),
-            ),
+            fields=(("filename", str, Field(title="Path to host file")),),
         ),
         dict(
             discrim_val="default",
@@ -317,9 +321,7 @@ Write = _union(
             discrim_val="to_file",
             title="Write to host file",
             description=None,
-            fields=(
-                ("filename", str, Field(title="Path to host file")),
-            ),
+            fields=(("filename", str, Field(title="Path to host file")),),
         ),
         dict(
             discrim_val="discard",
@@ -348,9 +350,7 @@ IoctlCommand = _union(
             discrim_val="return_const",
             title="Return a constant",
             description=None,
-            fields=(
-                ("val", int, Field(title="Constant to return")),
-            ),
+            fields=(("val", int, Field(title="Constant to return")),),
         ),
         dict(
             discrim_val="symex",
@@ -364,7 +364,9 @@ IoctlCommand = _union(
 
 Ioctls = _newtype(
     class_name="Ioctls",
-    type_=Dict[Union[int, str], IoctlCommand], # TODO: str should only allow for "*" but we need a custom validator for that
+    type_=Dict[
+        Union[int, str], IoctlCommand
+    ],  # TODO: str should only allow for "*" but we need a custom validator for that
     title="ioctl",
     description="How to handle ioctl() calls",
     default=dict(),
@@ -390,6 +392,7 @@ Ioctls = _newtype(
 
 class Pseudofile(BaseModel):
     """How to emulate a device file"""
+
     model_config = ConfigDict(title="File emulation spec", extra="forbid")
 
     name: Annotated[
@@ -398,7 +401,7 @@ class Pseudofile(BaseModel):
             None,
             title="MTD name",
             description="Name of an MTD device (ignored for non-mtd)",
-            examples=["flash","uboot"],
+            examples=["flash", "uboot"],
         ),
     ]
     size: Annotated[
@@ -427,11 +430,7 @@ NVRAM = _newtype(
     class_name="NVRAM",
     type_=dict[
         str,
-        _newtype(
-            class_name="NVRAMVal",
-            type_=Union[str, int],
-            title="NVRAM value"
-        ),
+        _newtype(class_name="NVRAMVal", type_=Union[str, int], title="NVRAM value"),
     ],
     title="NVRAM",
     description="NVRAM values to add to the guest",
@@ -474,8 +473,10 @@ LibInjectAliases = _newtype(
     ],
 )
 
+
 class LibInject(BaseModel):
     """Library functions to be intercepted"""
+
     model_config = ConfigDict(title="Injected library configuration", extra="forbid")
 
     aliases: Annotated[
@@ -483,8 +484,8 @@ class LibInject(BaseModel):
         Field(
             None,
             title="Function names to alias to existing library function shims",
-            descriptions="Mapping between new names (e.g., my_nvram_get) and existing library function shims (e.g., nvram_get)"
-        )
+            descriptions="Mapping between new names (e.g., my_nvram_get) and existing library function shims (e.g., nvram_get)",
+        ),
     ]
 
     extra: Annotated[
@@ -495,6 +496,7 @@ class LibInject(BaseModel):
             description="Custom source code for library functions to intercept and model",
         ),
     ]
+
 
 StaticFileAction = _union(
     class_name="StaticFileAction",
@@ -525,27 +527,31 @@ StaticFileAction = _union(
             discrim_val="dir",
             title="Add directory",
             description=None,
-            fields=(
-                ("mode", int, Field(title="Permissions of directory")),
-            ),
+            fields=(("mode", int, Field(title="Permissions of directory")),),
         ),
         dict(
             discrim_val="symlink",
             title="Add symbolic link",
             description=None,
-            fields=(
-                ("target", str, Field(title="Target linked path")),
-            ),
+            fields=(("target", str, Field(title="Target linked path")),),
         ),
         dict(
             discrim_val="dev",
             title="Add device file",
             description=None,
             fields=(
-                ("devtype", Literal["char", "block"], Field(title="Type of device file")),
+                (
+                    "devtype",
+                    Literal["char", "block"],
+                    Field(title="Type of device file"),
+                ),
                 ("major", int, Field(title="Major device number")),
                 ("minor", int, Field(title="Minor device number")),
-                ("mode", int, Field(title="Permissions of device file", examples=[0o666])),
+                (
+                    "mode",
+                    int,
+                    Field(title="Permissions of device file", examples=[0o666]),
+                ),
             ),
         ),
         dict(
@@ -559,7 +565,11 @@ StaticFileAction = _union(
             title="Move file",
             description=None,
             fields=(
-                ("from", str, Field(title="File to be moved to the specified location")),
+                (
+                    "from",
+                    str,
+                    Field(title="File to be moved to the specified location"),
+                ),
             ),
         ),
     ),
@@ -619,6 +629,7 @@ class Plugin(BaseModel):
 
 class Main(BaseModel):
     """Configuration file for config-file-based rehosting with IGLOO"""
+
     model_config = ConfigDict(title="Penguin Configuration", extra="forbid")
 
     core: Core
@@ -634,20 +645,19 @@ class Main(BaseModel):
 
 
 def _jsonify_dict(d):
-    '''
+    """
     Recursively walk a nested dict and stringify all the keys
 
     This is required for jsonschema.validate() to succeed,
     since JSON requires keys to be strings.
-    '''
+    """
     return {
-        str(k): _jsonify_dict(v) if isinstance(v, dict) else v
-        for k, v in d.items()
+        str(k): _jsonify_dict(v) if isinstance(v, dict) else v for k, v in d.items()
     }
 
 
 def _validate_config(config):
-    '''Validate config with Pydantic'''
+    """Validate config with Pydantic"""
     Main(**config).model_dump()
     jsonschema.validate(
         instance=_jsonify_dict(config),
@@ -656,7 +666,7 @@ def _validate_config(config):
 
 
 def load_config(path):
-    '''Load penguin config from path'''
+    """Load penguin config from path"""
     with open(path, "r") as f:
         config = yaml.safe_load(f)
     _validate_config(config)
@@ -664,22 +674,24 @@ def load_config(path):
 
 
 def dump_config(config, path):
-    '''Write penguin config to path'''
+    """Write penguin config to path"""
     _validate_config(config)
     with open(path, "w") as f:
-        f.write("# yaml-language-server: $schema=https://rehosti.ng/igloo/config_schema.yaml\n")
+        f.write(
+            "# yaml-language-server: $schema=https://rehosti.ng/igloo/config_schema.yaml\n"
+        )
         yaml.dump(config, f, sort_keys=False, default_flow_style=False, width=None)
 
 
-def hash_yaml_config(config : dict):
-    '''
+def hash_yaml_config(config: dict):
+    """
     Given a config dict, generate a hash
-    '''
+    """
     target = config
-    if 'meta' in config:
+    if "meta" in config:
         # We want to ignore the 'meta' field because it's an internal detail
         config2 = deepcopy(config)
-        del config2['meta']
+        del config2["meta"]
         target = config2
     return hashlib.md5(str(target).encode()).hexdigest()
 
@@ -692,7 +704,7 @@ def gen_docs_yaml_dump(x):
 
     s = yaml.dump(x)
     term = "\n...\n"
-    s = s[:-len(term)] if s.endswith(term) else s
+    s = s[: -len(term)] if s.endswith(term) else s
     return s.strip()
 
 
@@ -701,24 +713,31 @@ def gen_docs_type_name(t):
 
     og = typing.get_origin(t)
     args = typing.get_args(t)
-    ret = (
-        " or ".join(map(gen_docs_type_name, args)) if og is Union
-        else " or ".join([f'`"{gen_docs_yaml_dump(a)}"`' for a in args]) if og is Literal
-        else "list of " + gen_docs_type_name(args[0]) if og in (list, tuple)
-        else "integer" if t is int
-        else "string" if t is str
-        else "boolean" if t is bool
-        else "null" if t is type(None)
-        else None
-    )
-    assert ret is not None, f"unknown type {t}"
-    return ret
+
+    if og is Union:
+        return " or ".join(map(gen_docs_type_name, args))
+    elif og is Literal:
+        return " or ".join([f'`"{gen_docs_yaml_dump(a)}"`' for a in args])
+    elif og in (list, tuple):
+        return "list of " + gen_docs_type_name(args[0])
+    elif t is int:
+        return "integer"
+    elif t is str:
+        return "string"
+    elif t is bool:
+        return "boolean"
+    elif t is type(None):
+        return "null"
+    else:
+        raise ValueError(f"unknown type {t}")
 
 
 def gen_docs_field(path, docs_field, include_type=True):
     """Generate docs for a single field of the config"""
 
-    assert docs_field.title is not None, f"config option {path} has no title: {docs_field}"
+    assert (
+        docs_field.title is not None
+    ), f"config option {path} has no title: {docs_field}"
     heading_hashes = "#" * (len(path) + 1)
     include_docs = docs_field.default is not PydanticUndefined
     path_prefix = f"`{'.'.join(path)}` " if path else ""
@@ -726,8 +745,8 @@ def gen_docs_field(path, docs_field, include_type=True):
     out += f"{heading_hashes} {path_prefix}{docs_field.title}\n"
     if include_type or include_docs:
         out += "\n"
-        out += f"|||\n"
-        out += f"|-|-|\n"
+        out += "|||\n"
+        out += "|-|-|\n"
     if include_type:
         out += f"|__Type__|{gen_docs_type_name(docs_field.type_)}|\n"
     if include_docs:
@@ -737,9 +756,9 @@ def gen_docs_field(path, docs_field, include_type=True):
         out += docs_field.description + "\n"
     out += "\n"
     for e in docs_field.examples:
-        out += f"```yaml\n"
+        out += "```yaml\n"
         out += gen_docs_yaml_dump(e) + "\n"
-        out += f"```\n"
+        out += "```\n"
         out += "\n"
     return out
 
@@ -759,9 +778,9 @@ class DocsField:
 
         # Change Optional[Optional[... Optional[T] ...]] to T
         while (
-                typing.get_origin(type_) is Union
-                and len(typing.get_args(type_)) == 2
-                and typing.get_args(type_)[1] is type(None)
+            typing.get_origin(type_) is Union
+            and len(typing.get_args(type_)) == 2
+            and typing.get_args(type_)[1] is type(None)
         ):
             type_ = typing.get_args(type_)[0]
 
@@ -775,7 +794,7 @@ class DocsField:
                 default = PydanticUndefined
             try:
                 examples = type_.model_config["json_schema_extra"]["examples"]
-            except:
+            except (KeyError, TypeError):
                 examples = []
         else:
             # Doesn't inherit BaseModel or RootModel, so make all values empty
@@ -820,8 +839,10 @@ def gen_docs(path=[], docs_field=DocsField.from_type(Main)):
         None,
     )
 
-    is_model = hasattr(type_, "model_fields") # Type inherits `BaseModel`
-    is_root_model = is_model and "root" in type_.model_fields # Type inherits `RootModel`
+    is_model = hasattr(type_, "model_fields")  # Type inherits `BaseModel`
+    is_root_model = (
+        is_model and "root" in type_.model_fields
+    )  # Type inherits `RootModel`
     out = ""
 
     if is_root_model:
@@ -842,7 +863,9 @@ def gen_docs(path=[], docs_field=DocsField.from_type(Main)):
 
             # Generate docs for each variant
             for variant in args:
-                [discrim_val] = typing.get_args(variant.model_fields[discrim_key].annotation)
+                [discrim_val] = typing.get_args(
+                    variant.model_fields[discrim_key].annotation
+                )
                 out += gen_docs(
                     path=path + [f"<{discrim_key}={discrim_val}>"],
                     docs_field=DocsField.from_type(variant),
@@ -900,15 +923,11 @@ if __name__ == "__main__":
     sp.add_parser(
         "schema",
         help="Write JSON schema for config to stdout",
-    ).set_defaults(
-        func=lambda: print(yaml.dump(Main.model_json_schema(), indent=2))
-    )
+    ).set_defaults(func=lambda: print(yaml.dump(Main.model_json_schema(), indent=2)))
 
     sp.add_parser(
         "docs",
         help="Write generated config docs to stdout",
-    ).set_defaults(
-        func=lambda: print(gen_docs())
-    )
+    ).set_defaults(func=lambda: print(gen_docs()))
 
     p.parse_args().func()

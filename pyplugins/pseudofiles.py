@@ -1,29 +1,43 @@
-import sys
-import re
-import math
 import logging
+import re
 import struct
-from penguin import getColoredLogger
-from os.path import dirname, join as pjoin, isfile
-from pandare import PyPlugin
-from copy import deepcopy
-from typing import Dict, Any, List
 from collections import Counter
+from copy import deepcopy
+from os.path import dirname, isfile
+from os.path import join as pjoin
+from sys import path as syspath
+from typing import List
+
 import pycparser
+from pandare import PyPlugin
 
-from sys import path
-path.append(dirname(__file__))
+from penguin import getColoredLogger
 
-KNOWN_PATHS = ["/dev/", "/dev/pts", "/sys", "/proc", "/run", "/tmp",  # Directories not in static FS that are added by igloo_init (mostly irrelevant with wrong prefixes)
-               "/dev/ttyS0", "/dev/console", "/dev/root", "/dev/ram", "/dev/ram0" # We set these up in our init script, common device types
-               "/dev/null", "/dev/zero", "/dev/random", "/dev/urandom", # Standard devices we should see in devtmpfs
-               ]
+syspath.append(dirname(__file__))
+
+KNOWN_PATHS = [
+    "/dev/",
+    "/dev/pts",
+    "/sys",
+    "/proc",
+    "/run",
+    "/tmp",  # Directories not in static FS that are added by igloo_init (mostly irrelevant with wrong prefixes)
+    "/dev/ttyS0",
+    "/dev/console",
+    "/dev/root",
+    "/dev/ram",
+    "/dev/ram0"  # We set these up in our init script, common device types
+    "/dev/null",
+    "/dev/zero",
+    "/dev/random",
+    "/dev/urandom",  # Standard devices we should see in devtmpfs
+]
 
 try:
     from penguin import yaml
     from penguin.analyses import PenguinAnalysis
-    from penguin.graphs import Failure, Mitigation, Configuration
     from penguin.gen_config import arch_end
+    from penguin.graphs import Configuration, Failure, Mitigation
 except ImportError:
     # We can still run as a PyPlugin, but we can't do post-run analysis
     PenguinAnalysis = object
@@ -35,8 +49,9 @@ outfile_missing = "pseudofiles_failures.yaml"
 outfile_models = "pseudofiles_modeled.yaml"
 MAGIC_SYMEX_RETVAL = 999
 
+
 def path_interesting(path):
-    if '/pipe:[' in path:
+    if "/pipe:[" in path:
         return False
 
     if "\\" in path:
@@ -55,6 +70,7 @@ def path_interesting(path):
 
     return False
 
+
 def proc_interesting(path):
     # Avoid standard procfs files
     # Transformed PID references
@@ -67,13 +83,15 @@ def proc_interesting(path):
 
     return path.startswith("/proc/")
 
+
 def ignore_cmd(ioctl):
-    '''
+    """
     Ignore TTY ioctls, see ioctls.h for T*, TC*, and TIO* ioctls
-    '''
+    """
     if ioctl >= 0x5400 and ioctl <= 0x54FF:
         return True
     return False
+
 
 def ignore_ioctl_path(path):
     # Paths we don't care about:
@@ -91,6 +109,7 @@ def ignore_ioctl_path(path):
         return True
     return False
 
+
 def make_syscall_info_table():
     """
     Table format: arch -> nr -> (name, arg_names).
@@ -101,12 +120,38 @@ def make_syscall_info_table():
         input = re.sub(r"\b__user\b", "", input)
         # We don't care about the types. Just replace them with int so parsing succeeds.
         types = [
-            'size_t', 'umode_t', 'time_t', 'old_uid_t', 'old_gid_t', 'off_t',
-            'pid_t', 'old_sigset_t', 'qid_t', 'loff_t', 'fd_set', 'sigset_t',
-            'siginfo_t', 'cap_user_header_t', 'cap_user_data_t', 'uid_t',
-            'gid_t', 'timer_t', 'u64', 'u32', 'aio_context_t', 'clockid_t',
-            'mqd_t', 'key_t', 'key_serial_t', '__s32', 'old_time32_t',
-            '__sighandler_t', 'caddr_t', '__u32', 'rwf_t', 'uint32_t',
+            "size_t",
+            "umode_t",
+            "time_t",
+            "old_uid_t",
+            "old_gid_t",
+            "off_t",
+            "pid_t",
+            "old_sigset_t",
+            "qid_t",
+            "loff_t",
+            "fd_set",
+            "sigset_t",
+            "siginfo_t",
+            "cap_user_header_t",
+            "cap_user_data_t",
+            "uid_t",
+            "gid_t",
+            "timer_t",
+            "u64",
+            "u32",
+            "aio_context_t",
+            "clockid_t",
+            "mqd_t",
+            "key_t",
+            "key_serial_t",
+            "__s32",
+            "old_time32_t",
+            "__sighandler_t",
+            "caddr_t",
+            "__u32",
+            "rwf_t",
+            "uint32_t",
         ]
         input = re.sub(rf"\b({'|'.join(types)})\b", "int", input)
         return pycparser.c_parser.CParser().parse(input)
@@ -114,18 +159,22 @@ def make_syscall_info_table():
     def parse_protos_file(arch):
         with open(f"/igloo_static/syscalls/linux_{arch}_prototypes.txt") as f:
             lines = [
-                line.split(maxsplit=1) for line in f.readlines()
+                line.split(maxsplit=1)
+                for line in f.readlines()
                 if not line.startswith("//")
             ]
 
         return [(int(nr), parse_c(sig)) for nr, sig in lines]
-    vals =  {
+
+    vals = {
         arch: {
             nr: (
                 ast.ext[0].name.replace("sys_", ""),
                 tuple(p.name for p in ast.ext[0].type.args.params),
-            ) for nr, ast in parse_protos_file(arch)
-        } for arch in ("arm", "arm64", "mips", "mips64")
+            )
+            for nr, ast in parse_protos_file(arch)
+        }
+        for arch in ("arm", "arm64", "mips", "mips64")
     }
 
     vals["aarch64"] = vals["arm64"]
@@ -136,21 +185,25 @@ class FileFailures(PyPlugin):
     def __init__(self, panda):
         # XXX We need this import in here, otherwise when we load psueodfiles with panda.load_plugin /path/to/pseudofiles.py
         # it sees both FileFailures AND HyperFile. But we only want hyperfile to be loaded by us here, not by our caller.
-        from hyperfile import HyperFile, HYPER_READ, HYPER_WRITE, HYPER_IOCTL, hyper
+        # we are not currently using HYPER_WRITE so we do not import it
+        from hyperfile import (HYPER_IOCTL, HYPER_READ, HyperFile,
+                               hyper)
 
         self.panda = panda
         self.outdir = self.get_arg("outdir")
-        self.written_data = {} # filename -> data that was written to it
+        self.written_data = {}  # filename -> data that was written to it
         self.logger = getColoredLogger("plugins.pseudofiles")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel(logging.DEBUG)
 
         # XXX: It has seemed like this should be 1 for some architectures, but that can't be right?
         self.ENOENT = 2
-        self.warned = set() # Syscalls we don't know about that we've seen
+        self.warned = set()  # Syscalls we don't know about that we've seen
 
         # We track when processes try accessing or IOCTLing on missing files here:
-        self.file_failures = {} # path: {event: {count: X}}. Event is like open/read/ioctl/stat/lstat.
+        self.file_failures = (
+            {}
+        )  # path: {event: {count: X}}. Event is like open/read/ioctl/stat/lstat.
 
         if self.get_arg("conf") is None or "pseudofiles" not in self.get_arg("conf"):
             raise ValueError("No 'pseudofiles' in config: {self.get_arg('conf')}")
@@ -165,7 +218,7 @@ class FileFailures(PyPlugin):
         self.devfs = []
         self.procfs = []
         self.sysfs = []
-        #self.last_symex = None
+        # self.last_symex = None
         self.warned = set()
         need_ioctl_hooks = False
 
@@ -173,42 +226,60 @@ class FileFailures(PyPlugin):
         def make_rwif(details, fn_ref):
             def rwif(*args):
                 return fn_ref(*args, details)
+
             return rwif
 
         hf_config = {}
         for filename, details in self.config["pseudofiles"].items():
             hf_config[filename] = {}
 
-            for (targ, prefix) in [(self.devfs, "/dev/"), (self.procfs, "/proc/"), (self.sysfs, "/sys/")]:
+            for targ, prefix in [
+                (self.devfs, "/dev/"),
+                (self.procfs, "/proc/"),
+                (self.sysfs, "/sys/"),
+            ]:
                 if filename.startswith(prefix):
                     targ.append(filename[len(prefix):])
 
             hf_config[filename]["size"] = details.get("size", 0)
 
             # Check if any details with non /dev/mtd names has a 'name' property
-            if not filename.startswith("/dev/mtd") and 'name' in details:
-                raise ValueError("Pseudofiles: name property can only be set for MTD devices")
-            if filename.startswith("/dev/mtd") and not 'name' in details:
-                raise ValueError("Pseudofiles: name property must be set for MTD devices")
-
+            if not filename.startswith("/dev/mtd") and "name" in details:
+                raise ValueError(
+                    "Pseudofiles: name property can only be set for MTD devices"
+                )
+            if filename.startswith("/dev/mtd") and "name" not in details:
+                raise ValueError(
+                    "Pseudofiles: name property must be set for MTD devices"
+                )
 
             for ftype in "read", "write", "ioctl":
                 if ftype not in details or "model" not in details[ftype]:
-                    model = "default" # default is default
+                    model = "default"  # default is default
                 else:
                     model = details[ftype]["model"]
 
                 if not hasattr(self, f"{ftype}_{model}"):
-                    if ftype == 'ioctl':
+                    if ftype == "ioctl":
                         guess = {"pseudofiles": {filename: {"*": details}}}
-                        raise ValueError(f"Invalid ioctl settings. Must specify ioctl number (or '*') within ioctl dictionary, then map each to a model. Did you mean: {guess}")
-                    raise ValueError(f"Unsupported hyperfile {ftype}_{model} for {filename}: {details[ftype] if ftype in details else None}")
+                        raise ValueError(
+                            f"Invalid ioctl settings. Must specify ioctl number (or '*') within ioctl dictionary, then map each to a model. Did you mean: {guess}"
+                        )
+                    raise ValueError(
+                        f"Unsupported hyperfile {ftype}_{model} for {filename}: {details[ftype] if ftype in details else None}"
+                    )
                 # Have a model specified
                 fn = getattr(self, f"{ftype}_{model}")
 
-                hf_config[filename][hyper(ftype)] = make_rwif(details[ftype] if ftype in details else {}, fn)
+                hf_config[filename][hyper(ftype)] = make_rwif(
+                    details[ftype] if ftype in details else {}, fn
+                )
 
-                if ftype == "ioctl" and ftype in details and any([x["model"] == 'symex' for x in details[ftype].values()]):
+                if (
+                    ftype == "ioctl"
+                    and ftype in details
+                    and any([x["model"] == "symex" for x in details[ftype].values()])
+                ):
                     # If we have a symex model we'll need to enable some extra introspection
                     need_ioctl_hooks = True
 
@@ -216,21 +287,19 @@ class FileFailures(PyPlugin):
             # If we have netdevs in our config, we'll make the /proc/penguin_net pseudofile with the contents of it
             # Here we'll use our make_rwif closure
             netdev_val = " ".join(self.get_arg("conf")["netdevs"])
-            hf_config['/proc/penguin_net'] = {
-                HYPER_READ: make_rwif({'val': netdev_val}, self.read_const_buf),
-                "size": len(netdev_val)
+            hf_config["/proc/penguin_net"] = {
+                HYPER_READ: make_rwif({"val": netdev_val}, self.read_const_buf),
+                "size": len(netdev_val),
             }
 
         hf_config["/proc/mtd"] = {
             # Note we don't use our make_rwif closure helper here because these are static
             HYPER_READ: self.proc_mtd_check,
             HYPER_IOCTL: HyperFile.ioctl_unhandled,
-            "size": 0
+            "size": 0,
         }
 
-        self.config['env']['IGLOO_HYPERFILE_PATHS'] = ":".join(hf_config.keys())
-
-        self.logger.debug(f"Registered pseudofiles:")
+        self.logger.debug("Registered pseudofiles:")
         for filename, details in hf_config.items():
             self.logger.debug(f"  {filename}")
 
@@ -240,49 +309,60 @@ class FileFailures(PyPlugin):
         # Need to implement read, write, and IOCTLs
         # IOCTLs with symex gets scary, others are easy though?
 
-        panda.pyplugins.load(HyperFile, {'models': hf_config, 'log_file': pjoin(self.outdir, outfile_models), 'logger': self.logger})
+        panda.pyplugins.load(
+            HyperFile,
+            {
+                "models": hf_config,
+                "log_file": pjoin(self.outdir, outfile_models),
+                "logger": self.logger,
+            },
+        )
         # Clear results file - we'll update it as we go
         self.dump_results()
 
         self.syscall_info_table = make_syscall_info_table()
 
-        self.ppp.Core.ppp_reg_cb('igloo_syscall', self.on_syscall)
+        self.ppp.Core.ppp_reg_cb("igloo_syscall", self.on_syscall)
 
         # Open/openat is a special case with hypercalls helping us out
         # because openat requires guest introspection to resolve the dfd, but we just
         # did it in the kernel
-        self.ppp.Core.ppp_reg_cb('igloo_open', self.fail_detect_opens)
-        self.ppp.Core.ppp_reg_cb('igloo_ioctl', self.fail_detect_ioctl)
+        self.ppp.Core.ppp_reg_cb("igloo_open", self.fail_detect_opens)
+        self.ppp.Core.ppp_reg_cb("igloo_ioctl", self.fail_detect_ioctl)
 
         # On ioctl return we might want to start symex. We detect failures with a special handler though
         if need_ioctl_hooks:
+
             @panda.ppp("syscalls2", "on_sys_ioctl_return")
             def symex_ioctl_return(cpu, pc, fd, cmd, arg):
                 # We'll return -999 as a magic placeholder value that indicates we should
                 # Start symex. Is this a terrible hack. You betcha!
                 rv = panda.arch.get_retval(cpu, convention="syscall")
-                rv = panda.from_unsigned_guest(rv) # Unnecessary?
+                rv = panda.from_unsigned_guest(rv)  # Unnecessary?
 
                 if rv != MAGIC_SYMEX_RETVAL:
                     return
 
-                if not hasattr(self, 'symex'):
+                if not hasattr(self, "symex"):
                     # Initialize symex on first use
                     from symex import PathExpIoctl
-                    self.symex = PathExpIoctl(self.outdir, self.config['core']['fs'])
+
+                    self.symex = PathExpIoctl(self.outdir, self.config["core"]["fs"])
 
                 # Look through our config and find the filename with a symex model
                 # XXX: This is a bit of a hack - we're assuming we only have one symex model
                 filename = None
-                for fname, file_model in self.config['pseudofiles'].items():
-                    if 'ioctl' in file_model:
-                        for _, model in file_model['ioctl'].items():
-                            if model['model'] == 'symex':
+                for fname, file_model in self.config["pseudofiles"].items():
+                    if "ioctl" in file_model:
+                        for _, model in file_model["ioctl"].items():
+                            if model["model"] == "symex":
                                 filename = fname
                                 break
 
                 if filename is None:
-                    raise ValueError("No filename with symex model found in config, but we got a symex ioctl. Unexpected")
+                    raise ValueError(
+                        "No filename with symex model found in config, but we got a symex ioctl. Unexpected"
+                    )
 
                 # It's time to launch symex!
                 self.symex.do_symex(self.panda, cpu, pc, filename, cmd)
@@ -305,12 +385,12 @@ class FileFailures(PyPlugin):
         unpacked = struct.unpack_from(format_str, buf)
 
         nr = unpacked[0]
-        #args = unpacked[1:1+6]
-        strings = unpacked[1+6:1+6+6]
-        #ret = unpacked[1+6+6]
+        # args = unpacked[1:1+6]
+        strings = unpacked[1 + 6: 1 + 6 + 6]
+        # ret = unpacked[1+6+6]
 
         arch, _ = arch_end(self.config["core"]["arch"])
-        name, arg_names = self.syscall_info_table[arch].get(nr,(None,None))
+        name, arg_names = self.syscall_info_table[arch].get(nr, (None, None))
         if name is None:
             if "aarch64" in arch:
                 name, arg_names = self.syscall_info_table["arm"].get(nr, (None, None))
@@ -319,11 +399,11 @@ class FileFailures(PyPlugin):
 
             if name is None:
                 return
-        #assert(ret == -2), f"Unexpected return value {ret} from igloo_syscall"
-        #assert name not in ('open', 'openat', 'ioctl', 'close'), f"Unexpected syscall {name} in igloo_syscall"
+        # assert(ret == -2), f"Unexpected return value {ret} from igloo_syscall"
+        # assert name not in ('open', 'openat', 'ioctl', 'close'), f"Unexpected syscall {name} in igloo_syscall"
 
         # Use null terminator and interpret as UTF-8
-        strings = [s.split(b'\0', 1)[0].decode() for s in strings]
+        strings = [s.split(b"\0", 1)[0].decode() for s in strings]
 
         fnames = (
             strings[i]
@@ -335,7 +415,7 @@ class FileFailures(PyPlugin):
             self.centralized_log(name, "syscall")
 
     #######################################
-    def centralized_log(self, path, event, event_details = None):
+    def centralized_log(self, path, event, event_details=None):
         # Log a failure to open a given path if it's interesting
         # We just track count
         if not path_interesting(path):
@@ -343,27 +423,27 @@ class FileFailures(PyPlugin):
 
         if path.startswith("/proc/"):
             # replace /proc/<pid> with /proc/<PID> to avoid a ton of different paths
-            path = re.sub(r'/proc/\d+', '/proc/PID', path)
+            path = re.sub(r"/proc/\d+", "/proc/PID", path)
 
         if path not in self.file_failures:
             self.file_failures[path] = {}
 
         if event not in self.file_failures[path]:
-            self.file_failures[path][event] = {'count': 0}
+            self.file_failures[path][event] = {"count": 0}
 
-        if 'count' not in self.file_failures[path][event]:
+        if "count" not in self.file_failures[path][event]:
             # If we ioctl'd before opening, we'll have a count-free entry
-            self.file_failures[path][event]['count'] = 0
+            self.file_failures[path][event]["count"] = 0
 
-        self.file_failures[path][event]['count'] += 1
+        self.file_failures[path][event]["count"] += 1
 
         if event_details is not None:
-            if not "details" in self.file_failures[path][event]:
-                self.file_failures[path][event]['details'] = []
-            self.file_failures[path][event]['details'].append(event_details)
+            if "details" not in self.file_failures[path][event]:
+                self.file_failures[path][event]["details"] = []
+            self.file_failures[path][event]["details"].append(event_details)
 
     def proc_mtd_check(self, filename, buffer, length, offset, details=None):
-        '''
+        """
         The guest is reading /proc/mtd. We should populate this file
         dynamically based on the /dev/mtd* devices we've set up.
 
@@ -373,7 +453,7 @@ class FileFailures(PyPlugin):
             read:
                 model: return_const
                 buf: "foo"
-        '''
+        """
 
         assert filename == "/proc/mtd"
 
@@ -385,28 +465,34 @@ class FileFailures(PyPlugin):
                 continue
 
             idx = filename.split("/dev/mtd")[1]
-            if idx.startswith("/"): # i.e., /dev/mtd/0 -> 0
+            if idx.startswith("/"):  # i.e., /dev/mtd/0 -> 0
                 idx = idx[1:]
 
             if not idx.isdigit():
-                self.logger.warning(f"Mtd device {filename} is non-numeric. Skipping in /proc/mtd report")
+                self.logger.warning(
+                    f"Mtd device {filename} is non-numeric. Skipping in /proc/mtd report"
+                )
                 continue
 
-            if not 'name' in details:
-                self.logger.warning(f"Mtd device {filename} has no name. Skipping in /proc/mtd report")
+            if "name" not in details:
+                self.logger.warning(
+                    f"Mtd device {filename} has no name. Skipping in /proc/mtd report"
+                )
                 continue
 
-            buf += "mtd{}: {:08x} {:08x} \"{}\"\n".format(int(idx), 0x1000000, 0x20000, details['name'])
+            buf += 'mtd{}: {:08x} {:08x} "{}"\n'.format(
+                int(idx), 0x1000000, 0x20000, details["name"]
+            )
 
-        buf = buf[offset:offset+length].encode()
+        buf = buf[offset: offset + length].encode()
 
         if len(buf) == 0:
-            with open(pjoin(self.outdir, 'pseudofiles_proc_mtd.txt'), "w") as f:
+            with open(pjoin(self.outdir, "pseudofiles_proc_mtd.txt"), "w") as f:
                 f.write("/proc/mtd was read with no devices in config")
 
             # The guest read /proc/mtd, but we didn't have anything set up in it! Perhaps
             # it's looking for a device of a specific name - potential failure we can mitigate
-            #self.file_failures['/proc/mtd'] = {'read': {'count': 1, 'details': 'special: no mtd devices in pseudofiles'}}
+            # self.file_failures['/proc/mtd'] = {'read': {'count': 1, 'details': 'special: no mtd devices in pseudofiles'}}
 
         return (buf, len(buf))
 
@@ -419,7 +505,7 @@ class FileFailures(PyPlugin):
 
         if fd == -self.ENOENT:
             # enoent let's gooooo
-            self.centralized_log(fname, 'open')
+            self.centralized_log(fname, "open")
 
     def log_ioctl_failure(self, path, cmd):
         # This might trigger twice, depending on the -ENOTTY path
@@ -432,15 +518,15 @@ class FileFailures(PyPlugin):
         if path not in self.file_failures:
             self.file_failures[path] = {}
 
-        if 'ioctl' not in self.file_failures[path]:
-            self.file_failures[path]['ioctl'] = {}
+        if "ioctl" not in self.file_failures[path]:
+            self.file_failures[path]["ioctl"] = {}
 
         first = False
-        if cmd not in self.file_failures[path]['ioctl']:
-            self.file_failures[path]['ioctl'][cmd] = {'count': 0}
+        if cmd not in self.file_failures[path]["ioctl"]:
+            self.file_failures[path]["ioctl"][cmd] = {"count": 0}
             first = True
 
-        self.file_failures[path]['ioctl'][cmd]['count'] += 1
+        self.file_failures[path]["ioctl"][cmd]["count"] += 1
         if first:
             # The first time we see an IOCTL update our results on disk
             # This is just relevant if someone's watching the output during a run
@@ -451,58 +537,58 @@ class FileFailures(PyPlugin):
     def read_zero(self, filename, buffer, length, offset, details=None):
         # Simple peripheral model inspired by firmadyne/firmae. Just return 0.
         # If we've seen a write to this device, mix that data in with 0s padding around it
-        data = b'0'
+        data = b"0"
         if filename in self.written_data:
             data = self.written_data[filename]
 
-        final_data = data[offset:offset+length]
+        final_data = data[offset: offset + length]
         # XXX if offset > len(data) should we return an error instead of 0?
-        return (final_data, len(final_data)) # data, rv
+        return (final_data, len(final_data))  # data, rv
 
     def read_one(self, filename, buffer, length, offset, details=None):
-        data = b'1'
+        data = b"1"
         if filename in self.written_data:
             data = self.written_data[filename]
 
-        final_data = data[offset:offset+length]
+        final_data = data[offset: offset + length]
         # XXX if offset > len(data) should we return an error instead of 0?
-        return (final_data, len(final_data)) # data, rv
+        return (final_data, len(final_data))  # data, rv
 
     def read_empty(self, filename, buffer, length, offset, details=None):
-        data = b''
+        data = b""
         # XXX if offset > len(data) should we return an error instead of 0?
-        return (data, 0) # data, rv
+        return (data, 0)  # data, rv
 
     def read_const_buf(self, filename, buffer, length, offset, details=None):
-        data = details['val'].encode() + b"\x00" # Null terminate?
-        final_data = data[offset:offset+length]
+        data = details["val"].encode() + b"\x00"  # Null terminate?
+        final_data = data[offset: offset + length]
         # XXX if offset > len(data) should we return an error instead of 0?
         if offset > len(data):
-            return (b'', 0) # -EINVAL
+            return (b"", 0)  # -EINVAL
 
-        return (final_data, len(final_data)) # data, rv
+        return (final_data, len(final_data))  # data, rv
 
     def _render_file(self, details):
         # Given offset: data mapping plus a pad, we
         # combine to return a buffer
-        pad  = b'\x00'
-        if 'pad' in details:
-            if isinstance(details['pad'], str):
-                pad = details['pad'].encode()
-            elif isinstance(details['pad'], int):
-                pad = bytes([details['pad']])
+        pad = b"\x00"
+        if "pad" in details:
+            if isinstance(details["pad"], str):
+                pad = details["pad"].encode()
+            elif isinstance(details["pad"], int):
+                pad = bytes([details["pad"]])
             else:
                 raise ValueError("const_map: pad value must be string or int")
 
-        size = details['size'] if 'size' in details else 0x10000
-        vals = details['vals']
+        size = details["size"] if "size" in details else 0x10000
+        vals = details["vals"]
 
         # sort vals dict by key, lowest to highest
         vals = {k: v for k, v in sorted(vals.items(), key=lambda item: item[0])}
 
         # now we flatten. For each offset, val pair
         # Need to grab first offset, then pad to that
-        data = b'' #pad * (list(vals.keys())[0] if len(vals.keys()) else 0)
+        data = b""  # pad * (list(vals.keys())[0] if len(vals.keys()) else 0)
 
         for off, val in vals.items():
             # We have offset: value where value
@@ -514,13 +600,15 @@ class FileFailures(PyPlugin):
 
             elif isinstance(val, list):
                 if not len(val):
-                    continue # Wat?
+                    continue  # Wat?
 
                 # All shoudl be same type. Could support a list of lists e.g., ["key=val", [0x41, 0x00, 0x42], ...]?
                 first_val = val[0]
                 for this_val in val[1:]:
                     if not isinstance(this_val, type(first_val)):
-                        raise ValueError(f"Need matching vals but we have {this_val} and {first_val}")
+                        raise ValueError(
+                            f"Need matching vals but we have {this_val} and {first_val}"
+                        )
 
                 if isinstance(first_val, int):
                     # We have a list of ints - these are non-printable chars
@@ -528,9 +616,11 @@ class FileFailures(PyPlugin):
 
                 elif isinstance(first_val, str):
                     # Join this list with null bytes
-                    val = b'\x00'.join([x.encode() for x in val])
+                    val = b"\x00".join([x.encode() for x in val])
             else:
-                raise ValueError("_render_file: vals must be strings lists of ints/strings")
+                raise ValueError(
+                    "_render_file: vals must be strings lists of ints/strings"
+                )
 
             # Pad before this value, then add the value
             data += pad * (off - len(data)) + val
@@ -542,16 +632,16 @@ class FileFailures(PyPlugin):
 
     def read_const_map(self, filename, buffer, length, offset, details=None):
         data = self._render_file(details)
-        final_data = data[offset:offset+length]
+        final_data = data[offset: offset + length]
         if offset > len(data):
-            return (b'', 0) # No data, no bytes read
+            return (b"", 0)  # No data, no bytes read
 
-        return (final_data, len(final_data)) # data, length
+        return (final_data, len(final_data))  # data, length
 
     def read_const_map_file(self, filename, buffer, length, offset, details=None):
         # Create a file on the host using the specified pad, size, vals
         # When we read from the guest, we read from the host file.
-        hostfile = details['filename']
+        hostfile = details["filename"]
 
         # Create initial host file
         if not isfile(hostfile):
@@ -565,11 +655,11 @@ class FileFailures(PyPlugin):
             f.seek(offset)
             final_data = f.read(length)
 
-        return (final_data, len(final_data)) # data, length
+        return (final_data, len(final_data))  # data, length
 
     def read_from_file(self, filename, buffer, length, offset, details=None):
         self.logger.debug(f"Reading {filename} with {length} bytes at {offset}:")
-        fname = details['filename'] # Host file
+        fname = details["filename"]  # Host file
 
         with open(fname, "rb") as f:
             f.seek(offset)
@@ -578,8 +668,10 @@ class FileFailures(PyPlugin):
         return (data, len(data))
 
     def write_to_file(self, filename, buffer, length, offset, contents, details=None):
-        fname = details['filename'] # Host file
-        self.logger.debug(f"Writing {fname} with {length} bytes at {offset}: {contents[:100]}")
+        fname = details["filename"]  # Host file
+        self.logger.debug(
+            f"Writing {fname} with {length} bytes at {offset}: {contents[:100]}"
+        )
 
         with open(fname, "r+b") as f:
             f.seek(offset)
@@ -593,7 +685,7 @@ class FileFailures(PyPlugin):
 
     def write_default(self, filename, buffer, length, offset, contents, details=None):
         # Store the contents for this file
-        #print(f"{filename} writes {length} bytes at {offset}: {contents[:100]}")
+        # print(f"{filename} writes {length} bytes at {offset}: {contents[:100]}")
         if filename not in self.written_data:
             self.written_data[filename] = b""
         # Seek to offset and write contents
@@ -601,80 +693,86 @@ class FileFailures(PyPlugin):
         if len(previous) < offset:
             # Pad with null bytes
             previous += b"\x00" * (offset - len(previous))
-        self.written_data[filename] = previous + contents + (self.written_data[filename][offset+length:] if len(self.written_data[filename]) > offset+length else b"")
+        self.written_data[filename] = (
+            previous
+            + contents
+            + (
+                self.written_data[filename][offset + length:]
+                if len(self.written_data[filename]) > offset + length
+                else b""
+            )
+        )
         return length
 
-
     # XXX on write we can allow and store by default. Or should we explicitly error and require a model?
-    #def write_default(self, filename, buffer, length, offset, contents, details=None):
+    # def write_default(self, filename, buffer, length, offset, contents, details=None):
     #    self.centralized_log(filename, 'write')
     #    return -22 # -EINVAL - we don't support writes
 
-
     # default models - log failures
     def read_default(self, filename, buffer, length, offset, details=None):
-        self.centralized_log(filename, 'read')
-        return (b'', -22) # -EINVAL - we don't support reads
-
+        self.centralized_log(filename, "read")
+        return (b"", -22)  # -EINVAL - we don't support reads
 
     # IOCTL is more complicated than read/write.
     # default is a bit of a misnomer, it's our default ioctl handler which
     # implements default behavior (i.e., error) on issue of unspecified ioctls,
     # but implements what it's told for others
     def ioctl_default(self, filename, cmd, arg, ioctl_details):
-        '''
+        """
         Given a cmd and arg, return a value
         filename is device path
         ioctl_details is a dict of:
             cmd -> {'model': 'return_const'|'symex',
                      'val': X}
-        '''
+        """
         # Try to use cmd as our key, but '*' is a fallback
-        is_wildcard = False
+        # is_wildcard = False
         if cmd in ioctl_details:
             cmd_details = ioctl_details[cmd]
-        elif '*' in ioctl_details:
-            cmd_details = ioctl_details['*']
-            is_wildcard = True
+        elif "*" in ioctl_details:
+            cmd_details = ioctl_details["*"]
+            # is_wildcard = True
         else:
             self.log_ioctl_failure(filename, cmd)
-            return -25 # -ENOTTY
+            return -25  # -ENOTTY
 
-        model = cmd_details['model']
+        model = cmd_details["model"]
 
-        if model == 'return_const':
-            rv = cmd_details['val']
+        if model == "return_const":
+            rv = cmd_details["val"]
             return rv
 
-        elif model == 'symex':
+        elif model == "symex":
             # Symex is tricky and different from normal models.
             # First off, these models need to specify a 'val' just like any other
             # for us to use after (and, to be honest, during) symex.
             # JK: we're gonna always use 0 when doing symex!
 
-            #if self.last_symex:
-                # We could be smart and encode info in our retval
-                # or do something else. I don't think we want to fully
-                # ignore? But we probably could?
-                #raise NotImplementedError("Uhhhh nested symex")
-            #self.last_symex = filename
-            return MAGIC_SYMEX_RETVAL # We'll detect this on the return and know what to do. I think?
+            # if self.last_symex:
+            # We could be smart and encode info in our retval
+            # or do something else. I don't think we want to fully
+            # ignore? But we probably could?
+            # raise NotImplementedError("Uhhhh nested symex")
+            # self.last_symex = filename
+            return MAGIC_SYMEX_RETVAL  # We'll detect this on the return and know what to do. I think?
         else:
             # This is an actual error - config is malformed. Bail
             raise ValueError(f"Unsupported ioctl model {model} for cmd {cmd}")
-            #return -25 # -ENOTTY
+            # return -25 # -ENOTTY
 
     def dump_results(self):
         # Dump all file failures to disk as yaml
         with open(pjoin(self.outdir, outfile_missing), "w") as f:
             yaml.dump(self.file_failures, f)
 
-        if hasattr(self, 'symex'):
+        if hasattr(self, "symex"):
             # Need to tell symex to export results as well
             self.symex.save_results()
 
     def uninit(self):
         self.dump_results()
+
 
 class FileFailuresAnalysis(PenguinAnalysis):
     ANALYSIS_TYPE = "pseudofiles"
@@ -683,14 +781,13 @@ class FileFailuresAnalysis(PenguinAnalysis):
     def __init__(self):
         super().__init__()
         self.logger = getColoredLogger(f"plugins.{self.ANALYSIS_TYPE}")
-        from symex import PathExpIoctl
 
     def is_dev_path(self, path: str) -> bool:
         """Check if the path is a device path."""
         return path.startswith("/dev")
 
     def parse_failures(self, output_dir) -> List[Failure]:
-        '''
+        """
         Failures is a list of filename->info.
         Types are any syscall name (e.g., open, ioctl, read, lstat64, etc.)
         Open/stat/access style might be blocking ioctls and other interesting behavior
@@ -722,25 +819,27 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         If any prior ioctls were modeled with symex, we'll ignore everything else to focus on those
         (this is like how in env we only focus on DYNVAL failures when present
-        '''
+        """
 
-        with open(pjoin(output_dir, 'core_config.yaml')) as f:
+        with open(pjoin(output_dir, "core_config.yaml")) as f:
             config = yaml.safe_load(f)
 
-            do_symex = False # Should this be per device? I'm gonna say no. At least for now
+            do_symex = (
+                False  # Should this be per device? I'm gonna say no. At least for now
+            )
             symex_path = None
             symex_cmd = None
-            for devpath, file_model in config['pseudofiles'].items():
-                if 'ioctl' in file_model:
-                    for cmd, model in file_model['ioctl'].items():
-                        if model['model'] == 'symex':
+            for devpath, file_model in config["pseudofiles"].items():
+                if "ioctl" in file_model:
+                    for cmd, model in file_model["ioctl"].items():
+                        if model["model"] == "symex":
                             do_symex = True
                             symex_path = devpath
                             symex_cmd = cmd
                             break
 
-            #dynamic_mtd = False
-            #for devpath, file_model in config['pseudofiles'].items():
+            # dynamic_mtd = False
+            # for devpath, file_model in config['pseudofiles'].items():
             #    if devpath.startswith("/dev/mtd") and 'name' in file_model:
             #        if file_model['name'] == 'fakemtd':
             #            dynamic_mtd = True
@@ -755,39 +854,49 @@ class FileFailuresAnalysis(PenguinAnalysis):
             # things not specified in our config. We'll add to file_failures
             # Start with ioctls. Look at each device and see if we have a default
             for dev, details in modeled.items():
-                if 'ioctl' not in details:
+                if "ioctl" not in details:
                     continue
 
-                ioctls = {} # cmd -> {'retval': retval, 'count'}
+                ioctls = {}  # cmd -> {'retval': retval, 'count'}
 
-                for result in details['ioctl']:
-                    if result['cmd'] not in ioctls:
-                        ioctls[result['cmd']] = {'retval': result['retval'], 'count': 0}
+                for result in details["ioctl"]:
+                    if result["cmd"] not in ioctls:
+                        ioctls[result["cmd"]] = {"retval": result["retval"], "count": 0}
 
                     # Retval must be const
-                    if ioctls[result['cmd']]['retval'] != result['retval']:
-                        print(f"WARNING modeled ioctl {result['cmd']} on {dev} had different return values {ioctls[result['cmd']]['retval']} and {result['retval']}")
-                    ioctls[result['cmd']]['count'] += 1
+                    if ioctls[result["cmd"]]["retval"] != result["retval"]:
+                        print(
+                            f"WARNING modeled ioctl {result['cmd']} on {dev} had different return values {ioctls[result['cmd']]['retval']} and {result['retval']}"
+                        )
+                    ioctls[result["cmd"]]["count"] += 1
 
                 # did any ioctls return -ENOTTY and have that not be specified in our config?
                 for cmd, data in ioctls.items():
-                    retval = data['retval']
+                    retval = data["retval"]
                     if retval != -25:
                         # Check config
-                        if config.get('pseudofiles', {}).get(dev, {}).get('ioctl', {}).get(cmd, {}).get('model', None):
+                        if (
+                            config.get("pseudofiles", {})
+                            .get(dev, {})
+                            .get("ioctl", {})
+                            .get(cmd, {})
+                            .get("model", None)
+                        ):
                             # It was set
                             continue
                         # Must have been a failure - Add into file_failures
                         if dev not in file_failures:
                             file_failures[dev] = {}
-                            if 'ioctl' not in file_failures[dev]:
-                                file_failures[dev]['ioctl'] = {}
-                            if cmd not in file_failures[dev]['ioctl']:
-                                file_failures[dev]['ioctl'][cmd] = {'count': data['count']}
+                            if "ioctl" not in file_failures[dev]:
+                                file_failures[dev]["ioctl"] = {}
+                            if cmd not in file_failures[dev]["ioctl"]:
+                                file_failures[dev]["ioctl"][cmd] = {
+                                    "count": data["count"]
+                                }
                             else:
-                                file_failures[dev]['ioctl'][cmd]['count'] += data['count']
-
-
+                                file_failures[dev]["ioctl"][cmd]["count"] += data[
+                                    "count"
+                                ]
 
         # Let's look at all file_failures with paths that end with numbers to decide if they're excessive (> 5) or not
         # If they're excessive, we'll ignore them
@@ -802,7 +911,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         ignored_prefixes = {k for k, v in _prefix_counter.items() if v > 5}
 
-        #if dynamic_mtd:
+        # if dynamic_mtd:
         #    # We're running in an exclusive mode where we made up an MTD device name and we're looking for it.
         #    # We should check env_mtd.txt for our names and just use that as our mitigation
         #    if not isfile(pjoin(output_dir, 'env_mtd.txt')):
@@ -817,9 +926,9 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
         def _unify_sc_names(sc):
             # SCs are only going to be read/write/ioctl or open. Open being the catch-all
-            if sc in ['read', 'write', 'ioctl']:
+            if sc in ["read", "write", "ioctl"]:
                 return sc
-            return 'open'
+            return "open"
 
         fails = []
         for path, info in file_failures.items():
@@ -828,7 +937,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
             # If there are a lot of devices with numeric suffixes, we'll ignore them
             if path[-1].isdigit() and any(path.startswith(x) for x in ignored_prefixes):
-                #self.logger.debug(f"Ignoring /dev path with numeric suffix because there are lots like it {path}")
+                # self.logger.debug(f"Ignoring /dev path with numeric suffix because there are lots like it {path}")
                 continue
 
             if do_symex:
@@ -846,32 +955,59 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     continue
 
                 # Drop anything except 'ioctl' info
-                info = {k: v for k, v in info.items() if k == 'ioctl'}
+                info = {k: v for k, v in info.items() if k == "ioctl"}
 
-                if not len(info): # There wasn't anything else. Skip this
+                if not len(info):  # There wasn't anything else. Skip this
                     continue
 
                 # Within IOCTL drop anything except our target cmd
-                info['ioctl'] = {k: v for k, v in info['ioctl'].items() if k == symex_cmd}
+                info["ioctl"] = {
+                    k: v for k, v in info["ioctl"].items() if k == symex_cmd
+                }
 
-                if not len(info['ioctl']): # There wasn't anything else. Skip this
+                if not len(info["ioctl"]):  # There wasn't anything else. Skip this
                     continue
 
                 # We have a failure for each command we symex'd (probably just one?)
-                if not len(info['ioctl']):
+                if not len(info["ioctl"]):
                     # If we got no symex results, just report that we could return 0 since it will often help.
-                    fails.append(Failure(f"{path}_ioctl_{int(symex_cmd):x}_from_symex", self.ANALYSIS_TYPE, {'cmd': symex_cmd, 'sc': 'ioctl', 'path': path, 'symex_results': [0]}))
+                    fails.append(
+                        Failure(
+                            f"{path}_ioctl_{int(symex_cmd):x}_from_symex",
+                            self.ANALYSIS_TYPE,
+                            {
+                                "cmd": symex_cmd,
+                                "sc": "ioctl",
+                                "path": path,
+                                "symex_results": [0],
+                            },
+                        )
+                    )
 
-                for cmd, data in info['ioctl'].items():
+                for cmd, data in info["ioctl"].items():
+                    from symex import PathExpIoctl
                     symex = PathExpIoctl(output_dir, None, read_only=True)
-                    models = symex.hypothesize_models(target=path, cmd=cmd, verbose=False)
+                    models = symex.hypothesize_models(
+                        target=path, cmd=cmd, verbose=False
+                    )
                     if path not in models or cmd not in models[path]:
                         continue
                     results = sorted([rv for rv in models[path][cmd]])
                     # We want to have symex_results
-                    #print(f"Dropping symex data because it's junk, right?: {data}") # data is like {count: '1'}
-                    fail_data = {'cmd': cmd, 'sc': 'ioctl', 'path': path, 'symex_results': results}
-                    fails.append(Failure(f"{path}_ioctl_{int(cmd):x}_fromsymex", self.ANALYSIS_TYPE, fail_data))
+                    # print(f"Dropping symex data because it's junk, right?: {data}") # data is like {count: '1'}
+                    fail_data = {
+                        "cmd": cmd,
+                        "sc": "ioctl",
+                        "path": path,
+                        "symex_results": results,
+                    }
+                    fails.append(
+                        Failure(
+                            f"{path}_ioctl_{int(cmd):x}_fromsymex",
+                            self.ANALYSIS_TYPE,
+                            fail_data,
+                        )
+                    )
 
             else:
                 if path.startswith("/sys/"):
@@ -885,7 +1021,15 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         # XXX our kernel modules only supports /sys/something/file, not just /sys/something
                         # Make sure we have at least 3 slashes
                         if path.count("/") >= 3:
-                            this_fail = Failure(path, self.ANALYSIS_TYPE, {'type': "sys", "path": path, 'sc': _unify_sc_names(sc)})
+                            this_fail = Failure(
+                                path,
+                                self.ANALYSIS_TYPE,
+                                {
+                                    "type": "sys",
+                                    "path": path,
+                                    "sc": _unify_sc_names(sc),
+                                },
+                            )
                             if this_fail not in fails:
                                 fails.append(this_fail)
 
@@ -897,7 +1041,13 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     elif path == "/proc/mtd":
                         # This is a special case - the guest is reading /proc/mtd and we don't have any devices
                         # presumably it might want a device and for it to be a device of a specific name.
-                        fails.append(Failure(f"/proc/mtd", self.ANALYSIS_TYPE, {'type': "mtd_generic"}))
+                        fails.append(
+                            Failure(
+                                "/proc/mtd",
+                                self.ANALYSIS_TYPE,
+                                {"type": "mtd_generic"},
+                            )
+                        )
                         continue
 
                     if not proc_interesting(path):
@@ -906,47 +1056,61 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     for sc, raw_data in info.items():
                         # XXX We generate distinct failures if we have > 1 SC but there's only a single mitigation!
                         # That's probably the source of our duplicate configs later
-                        this_fail = Failure(path, self.ANALYSIS_TYPE, {'type': "proc", "path": path, 'sc': _unify_sc_names(sc)})
+                        this_fail = Failure(
+                            path,
+                            self.ANALYSIS_TYPE,
+                            {"type": "proc", "path": path, "sc": _unify_sc_names(sc)},
+                        )
                         if this_fail not in fails:
                             fails.append(this_fail)
                     continue
 
                 elif path.startswith("/dev/"):
                     if path.startswith("/dev/mtd"):
-                        fails.append(Failure(path, self.ANALYSIS_TYPE, {'type': "mtd"}))
+                        fails.append(Failure(path, self.ANALYSIS_TYPE, {"type": "mtd"}))
                         continue
                     # Normal case: we saw a syscall fail on a given path and we want to report it
                     for sc, raw_data in info.items():
                         data = raw_data
-                        if 'details' in data:
+                        if "details" in data:
                             # This is some extra info we log to disk, but we shouldn't use it when disambiguating
                             # failures. We'll drop it here.
                             data = deepcopy(raw_data)
-                            del data['details']
+                            del data["details"]
 
-                        if 'count' in data:
+                        if "count" in data:
                             data = deepcopy(raw_data)
-                            del data['count']
+                            del data["count"]
 
                         # Data will be like {path: /whatever, count: #}
-                        if sc != 'ioctl':
+                        if sc != "ioctl":
                             # Non-IOCTL. Just record the path and syscall
-                            data['path'] = path
-                            data['sc'] = _unify_sc_names(sc)
-                            this_fail = Failure(f"pseudofile_{path}_{_unify_sc_names(sc)}", self.ANALYSIS_TYPE, data)
+                            data["path"] = path
+                            data["sc"] = _unify_sc_names(sc)
+                            this_fail = Failure(
+                                f"pseudofile_{path}_{_unify_sc_names(sc)}",
+                                self.ANALYSIS_TYPE,
+                                data,
+                            )
                             if this_fail not in fails:
                                 fails.append(this_fail)
                         else:
                             # IOCTL: record path, syscall, and ioctl cmd for each ioctl cmd. Don't update data, just add entries into the failure
                             for cmd in data.keys():
-                                assert(cmd != 'pickle'), f'Malformed pseudofile failure: {info}: {sc}: {data}'
+                                assert (
+                                    cmd != "pickle"
+                                ), f"Malformed pseudofile failure: {info}: {sc}: {data}"
                                 # data[cmd] just has count - let's *not* use that when building our failure
                                 # otherwise we de-duplicate identical failures which completely ruins our search
-                                this_fail = Failure(f"{path}_ioctl_{int(cmd):x}", self.ANALYSIS_TYPE, {'cmd': cmd, 'sc': 'ioctl', 'path': path})
+                                this_fail = Failure(
+                                    f"{path}_ioctl_{int(cmd):x}",
+                                    self.ANALYSIS_TYPE,
+                                    {"cmd": cmd, "sc": "ioctl", "path": path},
+                                )
                                 if this_fail not in fails:
                                     fails.append(this_fail)
 
-        '''
+        """
         # Disabled for now - we end up with various permutations of the list (i.e., slightly different sets of missing files) and it pollutes our search
         if not do_symex:
             # After our loop - if we have a much of failed accesses, we can propose adding ~all~ of them
@@ -960,24 +1124,36 @@ class FileFailuresAnalysis(PenguinAnalysis):
             if len(missing_files) > 1:
                 file_group = Failure(f"pseudofile_add_group_{len(missing_files)}", self.ANALYSIS_TYPE, {'paths': sorted(list(missing_files)), 'sc': 'open', 'type': 'multifile'})
                 fails.append(file_group)
-        '''
+        """
 
         return fails
 
-    def get_potential_mitigations(self, config, failure : Failure) -> List[Mitigation]:
-        '''
+    def get_potential_mitigations(self, config, failure: Failure) -> List[Mitigation]:
+        """
         Called by mgr to get mitigations for a given path with details we returned previously from parse_failures
-        '''
+        """
 
-        path = failure.info['path'] if 'path' in failure.info else ""
+        path = failure.info["path"] if "path" in failure.info else ""
 
         if path in KNOWN_PATHS:
             return []
 
-        if failure.info.get('type', '') == 'multifile':
+        if failure.info.get("type", "") == "multifile":
             # Before we check if path is invalid, we check if it's a multifile mitigation
-            new_paths = [x for x in failure.info['paths'] if x not in config['pseudofiles']]
-            return [Mitigation(f"pseudofile_add_group", self.ANALYSIS_TYPE, {'paths': new_paths, 'action': 'add_group', 'weight': 100 + len(new_paths)})]
+            new_paths = [
+                x for x in failure.info["paths"] if x not in config["pseudofiles"]
+            ]
+            return [
+                Mitigation(
+                    "pseudofile_add_group",
+                    self.ANALYSIS_TYPE,
+                    {
+                        "paths": new_paths,
+                        "action": "add_group",
+                        "weight": 100 + len(new_paths),
+                    },
+                )
+            ]
 
         if not any(path.startswith(x) for x in ["/dev/", "/proc", "/sys"]):
             return []
@@ -985,8 +1161,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
         if path.startswith("/proc/") and not proc_interesting(path):
             return []
 
-        if path not in config['pseudofiles']:
-            '''
+        if path not in config["pseudofiles"]:
+            """
             If the file doesn't exist of course we'll see -EBADF on accesses
             to it. First order of business is adding the device. That's all we do here.
             Caller maps failing path -> this mitigation so we don't need to specify
@@ -997,33 +1173,77 @@ class FileFailuresAnalysis(PenguinAnalysis):
             Syscalls that take in an FD would be different (ignoring for now) - the guest could only get a FD if the file
             already existed - so if we see that case and we're here, that's a non-pseudofile with a regular error
             that we shouldn't change (i.e., we cann't add the file since it already exists)
-            '''
+            """
 
-            if 'type' in failure.info:
+            if "type" in failure.info:
                 # MTD failures have a 'type' property
-                if failure.info['type'] == 'mtd_generic':
+                if failure.info["type"] == "mtd_generic":
                     # We have a /proc/mtd read failure. Two options
                     return [
                         # 1) we mitigate with exclusive and "fakemtd" which we'll find dynamic comparisons against
-                        #Mitigation(f"pseudofile_fake_proc_mtd", self.ANALYSIS_TYPE, {'path': '/dev/mtd0', 'name': 'fakemtd', 'model': 'zero', 'weight': 100}, exclusive=True),
+                        # Mitigation(f"pseudofile_fake_proc_mtd", self.ANALYSIS_TYPE, {'path': '/dev/mtd0', 'name': 'fakemtd', 'model': 'zero', 'weight': 100}, exclusive=True),
                         # 2) we add a single MTD device with a name and size and hope that's what the guest is looking for
-                        Mitigation(f"pseudofile_fixed_mtd", self.ANALYSIS_TYPE, {'path': '/dev/mtd0', 'action': 'add_with_modes', 'name': 'uboot', 'models': ['zero'], 'weight': 100})
+                        Mitigation(
+                            "pseudofile_fixed_mtd",
+                            self.ANALYSIS_TYPE,
+                            {
+                                "path": "/dev/mtd0",
+                                "action": "add_with_modes",
+                                "name": "uboot",
+                                "models": ["zero"],
+                                "weight": 100,
+                            },
+                        )
                     ]
-                elif failure.info['type'] == 'mtd':
+                elif failure.info["type"] == "mtd":
                     # We saw a failure opening a specific MTD device, let's make it with a fixed name
-                    return [Mitigation(f"pseudofile_fixed_mtd", self.ANALYSIS_TYPE, {'path': path, 'name': 'uboot', 'action': 'add_with_models', 'models': ['zero'], 'weight': 100})]
+                    return [
+                        Mitigation(
+                            "pseudofile_fixed_mtd",
+                            self.ANALYSIS_TYPE,
+                            {
+                                "path": path,
+                                "name": "uboot",
+                                "action": "add_with_models",
+                                "models": ["zero"],
+                                "weight": 100,
+                            },
+                        )
+                    ]
 
-                elif failure.info['type'] == 'proc':
+                elif failure.info["type"] == "proc":
                     # TODO: If this is a deep directory, we could try making the directory (i.e., by creating dirname of path /foo)
                     # instead of the actual path
-                    return [Mitigation(f"pseudofile_add_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'add_with_models', 'models': ['zero'], 'weight': 100})]
+                    return [
+                        Mitigation(
+                            f"pseudofile_add_{path}",
+                            self.ANALYSIS_TYPE,
+                            {
+                                "path": path,
+                                "action": "add_with_models",
+                                "models": ["zero"],
+                                "weight": 100,
+                            },
+                        )
+                    ]
 
-                elif failure.info['type'] == 'sys':
+                elif failure.info["type"] == "sys":
                     # TODO: If this is a deep directory, we could try making the directory (i.e., by creating dirname of path /foo)
                     # instead of the actual path
-                    return [Mitigation(f"pseudofile_add_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'add_with_models', 'models': ['zero'], 'weight': 100})]
+                    return [
+                        Mitigation(
+                            f"pseudofile_add_{path}",
+                            self.ANALYSIS_TYPE,
+                            {
+                                "path": path,
+                                "action": "add_with_models",
+                                "models": ["zero"],
+                                "weight": 100,
+                            },
+                        )
+                    ]
 
-                #elif failure.info['type'] == 'dynamic_mtd':
+                # elif failure.info['type'] == 'dynamic_mtd':
                 #    # We just did a dynamic search for MTD devices and found some names - let's add them all.
                 #    # We'll name them /dev/mtdX where X is the index in the list
                 #    results = []
@@ -1031,59 +1251,112 @@ class FileFailuresAnalysis(PenguinAnalysis):
                 #        results.append(Mitigation(f"pseudofile_dynamic_mtd_{val}", self.ANALYSIS_TYPE, {'path': f"/dev/mtd{idx}", 'name': val, 'model': 'zero', 'weight': 100}))
                 #    return results
 
-            return [Mitigation(f"pseudofile_add_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'add', 'weight': 100})]
+            return [
+                Mitigation(
+                    f"pseudofile_add_{path}",
+                    self.ANALYSIS_TYPE,
+                    {"path": path, "action": "add", "weight": 100},
+                )
+            ]
 
         # This path *is* a pseudofile we added. Errors we see are things we might want
         # to handle
 
-        if 'sc' not in failure.info:
+        if "sc" not in failure.info:
             print(f"Missing sc type in failure: {failure.info}. Ignoring")
             return []
 
-        if failure.info['sc'] == 'open':
-            #raise ValueError(f"We saw an open failure for {path} but it's added by pseudofiles. This shouldn't happen")
-            #print(f"Warning: pseudofiles reported an access failure for {path} but we've (allegedly) added the file already. Ignoring")
+        if failure.info["sc"] == "open":
+            # raise ValueError(f"We saw an open failure for {path} but it's added by pseudofiles. This shouldn't happen")
+            # print(f"Warning: pseudofiles reported an access failure for {path} but we've (allegedly) added the file already. Ignoring")
             return []
 
-        elif failure.info['sc'] == 'read':
+        elif failure.info["sc"] == "read":
             # Check if there's already a read model for this file
-            if 'read' in config['pseudofiles'][path]:
+            if "read" in config["pseudofiles"][path]:
                 # TODO: if we had a different read model, we could still propose read_zero, but for now I don't think we'd ever encounter that
                 return []
             # We saw a read failure. Let's propose some mitigations. Just one for now: read zero
-            return [Mitigation(f"pseudofile_read_zero_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'read_model', 'model': 'zero', 'weight': 5})]
+            return [
+                Mitigation(
+                    f"pseudofile_read_zero_{path}",
+                    self.ANALYSIS_TYPE,
+                    {
+                        "path": path,
+                        "action": "read_model",
+                        "model": "zero",
+                        "weight": 5,
+                    },
+                )
+            ]
 
-        elif failure.info['sc'] == 'write':
-            if 'write' in config['pseudofiles'][path]:
+        elif failure.info["sc"] == "write":
+            if "write" in config["pseudofiles"][path]:
                 # TODO: if we had a different write model, we could still propose read_zero, but for now I don't think we'd ever encounter that
                 return []
             # Saw a write failure. Only thing to do (for now) is discard.
-            return [Mitigation(f"pseudofile_write_discard_{path}", self.ANALYSIS_TYPE, {'path': path, 'action': 'write_model', 'model': 'discard', 'weight': 5})]
+            return [
+                Mitigation(
+                    f"pseudofile_write_discard_{path}",
+                    self.ANALYSIS_TYPE,
+                    {
+                        "path": path,
+                        "action": "write_model",
+                        "model": "discard",
+                        "weight": 5,
+                    },
+                )
+            ]
 
-        elif failure.info['sc'] == 'ioctl':
+        elif failure.info["sc"] == "ioctl":
             # Two options. A) We saw an IOCTL fail and we want to make it try symex. B) We have symex results
             # IOCTL modeling is only a good idea (and will only work) if it's a pseudofiles/dyndev-provided device.
             # Otherwise we won't hit dyndev ioctl handling!
-            cmd = failure.info['cmd']
+            cmd = failure.info["cmd"]
 
-            if 'symex_results' in failure.info:
-                if not len(failure.info['symex_results']):
-                    self.logger.warning(f"No results from symex for ioctl {cmd:x} on {path}")
+            if "symex_results" in failure.info:
+                if not len(failure.info["symex_results"]):
+                    self.logger.warning(
+                        f"No results from symex for ioctl {cmd:x} on {path}"
+                    )
                     # TODO: do we want to try adding a default of 0?
                     return []
 
                 # Return a const model for each result
-                return [Mitigation(f"{val}", self.ANALYSIS_TYPE, {'path': path, 'cmd': cmd,
-                                                                            'action': 'ioctl_model',
-                                                                            'model': 'return_const',
-                                                                            'weight': 100 + (1 if val== 0 else 0), # We want to use these symex results! Zero more likely to be correct?
-                                                                            'val': val}) \
-                        for val in failure.info['symex_results']]
+                return [
+                    Mitigation(
+                        f"{val}",
+                        self.ANALYSIS_TYPE,
+                        {
+                            "path": path,
+                            "cmd": cmd,
+                            "action": "ioctl_model",
+                            "model": "return_const",
+                            "weight": 100
+                            + (
+                                1 if val == 0 else 0
+                            ),  # We want to use these symex results! Zero more likely to be correct?
+                            "val": val,
+                        },
+                    )
+                    for val in failure.info["symex_results"]
+                ]
 
             # We'll mitigate this ioctl by modeling it as symex
             else:
-                return [Mitigation(f"symex", self.ANALYSIS_TYPE, {'path': path, 'cmd': cmd, 'weight': 5,
-                                                                'action': 'ioctl_model', 'model': 'symex'})]
+                return [
+                    Mitigation(
+                        "symex",
+                        self.ANALYSIS_TYPE,
+                        {
+                            "path": path,
+                            "cmd": cmd,
+                            "weight": 5,
+                            "action": "ioctl_model",
+                            "model": "symex",
+                        },
+                    )
+                ]
 
         # Not sure how to handle other failures. In parse failures we're looking for -EBADF for accesses
         # then failing reads/writes (??) and -ENOTTY ioctls
@@ -1095,107 +1368,120 @@ class FileFailuresAnalysis(PenguinAnalysis):
         print(f"Unexpected failure recorded for {path}: {failure}")
         return []
 
-    def implement_mitigation(self, config : Configuration, failure : Failure, mitigation : Mitigation) -> List[Configuration]:
+    def implement_mitigation(
+        self, config: Configuration, failure: Failure, mitigation: Mitigation
+    ) -> List[Configuration]:
         # Given a mitigation update config to make it happen
 
         new_config = deepcopy(config.info)
-        if 'pseudofiles' not in new_config:
-            new_config['pseudofiles'] = {}
+        if "pseudofiles" not in new_config:
+            new_config["pseudofiles"] = {}
 
         # XXX: When multiple pseudofiles have similar models (i.e., defaults), the yaml loader may use IDs
         # to store a single object that gets referenced multiple times. But when we go to modify this,
         # we **must** make sure we're modifying a unique object. We'll deepcopy the specific pseudofile
         # we're modifying to ensure this.
 
-        path = mitigation.info.get('path')
-        if path and path in new_config['pseudofiles']:
-            new_config['pseudofiles'][path] = deepcopy(new_config['pseudofiles'][path])
+        path = mitigation.info.get("path")
+        if path and path in new_config["pseudofiles"]:
+            new_config["pseudofiles"][path] = deepcopy(new_config["pseudofiles"][path])
 
-        if 'action' not in mitigation.info:
+        if "action" not in mitigation.info:
             raise ValueError(f"Mitigation {mitigation.info} has no action")
 
         # Would applying this mitigation to the config be a no-op?
-        if mitigation.info['action'] == 'add' and mitigation.info['path'] in new_config['pseudofiles']:
-            print(f"Mitigation {mitigation.info['path']} already exists in config - can't add")
+        if (
+            mitigation.info["action"] == "add"
+            and mitigation.info["path"] in new_config["pseudofiles"]
+        ):
+            print(
+                f"Mitigation {mitigation.info['path']} already exists in config - can't add"
+            )
             return []
 
-        if mitigation.info['action'] == 'add_with_models':
+        if mitigation.info["action"] == "add_with_models":
             results = []
-            for model in mitigation.info['models']:
-                new_config['pseudofiles'][mitigation.info['path']] = {
-                    'read': {
-                        'model': model
-                    }
+            for model in mitigation.info["models"]:
+                new_config["pseudofiles"][mitigation.info["path"]] = {
+                    "read": {"model": model}
                 }
 
-                if hasattr(mitigation.info, 'name'):
+                if hasattr(mitigation.info, "name"):
                     # MTD devices always hit this path when adding, so we'll check for a name and set it if necessary
-                    new_config['pseudofiles'][mitigation.info['path']]['name'] = mitigation.info['name']
+                    new_config["pseudofiles"][mitigation.info["path"]]["name"] = (
+                        mitigation.info["name"]
+                    )
 
-                results.append(Configuration(mitigation.info['path'], new_config))
+                results.append(Configuration(mitigation.info["path"], new_config))
             return results
 
-        if mitigation.info['action'] == 'add_group':
-            for path in mitigation.info['paths']:
-                new_config['pseudofiles'][path] = {}
+        if mitigation.info["action"] == "add_group":
+            for path in mitigation.info["paths"]:
+                new_config["pseudofiles"][path] = {}
             return [Configuration(path, new_config)]
 
         # If this is an add mitigation, we update to pseudofiles[filename]
-        if mitigation.info['action'] == 'add':
+        if mitigation.info["action"] == "add":
             # Add file to config. Make sure we have pseudofiles section
-            new_config['pseudofiles'][mitigation.info['path']] = {}
-            return [Configuration(mitigation.info['path'], new_config)]
+            new_config["pseudofiles"][mitigation.info["path"]] = {}
+            return [Configuration(mitigation.info["path"], new_config)]
 
-        if mitigation.info['action'] == 'read_model':
+        if mitigation.info["action"] == "read_model":
             # If model is zero we know what to do. Otherwise we don't
-            if mitigation.info['model'] != 'zero':
+            if mitigation.info["model"] != "zero":
                 raise ValueError(f"Unknown read model {mitigation.info['model']}")
 
-            new_config['pseudofiles'][mitigation.info['path']] = {
-                'read': {
-                    'model': 'zero'
-                }
+            new_config["pseudofiles"][mitigation.info["path"]] = {
+                "read": {"model": "zero"}
             }
-            return [Configuration(f"read_zero", new_config)]
+            return [Configuration("read_zero", new_config)]
 
-        if mitigation.info['action'] == 'write_model':
-            if mitigation.info['model'] != 'discard':
+        if mitigation.info["action"] == "write_model":
+            if mitigation.info["model"] != "discard":
                 raise ValueError(f"Unknown write model {mitigation.info['model']}")
 
-            new_config['pseudofiles'][mitigation.info['path']] = {
-                'write': {
-                    'model': 'discard'
-                }
+            new_config["pseudofiles"][mitigation.info["path"]] = {
+                "write": {"model": "discard"}
             }
-            return [Configuration(f"write_discard", new_config)]
+            return [Configuration("write_discard", new_config)]
 
-        if mitigation.info['action'] == 'ioctl_model':
+        if mitigation.info["action"] == "ioctl_model":
             # Model could be symex or return_const
-            if mitigation.info['model'] not in ['symex', 'return_const']:
+            if mitigation.info["model"] not in ["symex", "return_const"]:
                 raise ValueError(f"Unknown ioctl model {mitigation.info['model']}")
 
             # Make sure we have a pseudofiles section
-            if mitigation.info['path'] not in new_config['pseudofiles']:
-                new_config['pseudofiles'][mitigation.info['path']] = {}
-            if 'ioctl' not in new_config['pseudofiles'][mitigation.info['path']]:
-                new_config['pseudofiles'][mitigation.info['path']]['ioctl'] = {}
-            if mitigation.info['cmd'] not in new_config['pseudofiles'][mitigation.info['path']]['ioctl']:
-                new_config['pseudofiles'][mitigation.info['path']]['ioctl'][mitigation.info['cmd']] = {}
+            if mitigation.info["path"] not in new_config["pseudofiles"]:
+                new_config["pseudofiles"][mitigation.info["path"]] = {}
+            if "ioctl" not in new_config["pseudofiles"][mitigation.info["path"]]:
+                new_config["pseudofiles"][mitigation.info["path"]]["ioctl"] = {}
+            if (
+                mitigation.info["cmd"]
+                not in new_config["pseudofiles"][mitigation.info["path"]]["ioctl"]
+            ):
+                new_config["pseudofiles"][mitigation.info["path"]]["ioctl"][
+                    mitigation.info["cmd"]
+                ] = {}
 
-            if mitigation.info['model'] == 'symex':
+            if mitigation.info["model"] == "symex":
                 # We want to add a symex model for this ioctl
-                new_config['pseudofiles'][mitigation.info['path']]['ioctl'][mitigation.info['cmd']] = {
-                    'model': 'symex'
-                }
+                new_config["pseudofiles"][mitigation.info["path"]]["ioctl"][
+                    mitigation.info["cmd"]
+                ] = {"model": "symex"}
 
                 # The symex model is just for us - don't let anyone else try to fix failures
-                return [Configuration(f"symex_{mitigation.info['cmd']:x}", new_config, exclusive=self.ANALYSIS_TYPE)]
+                return [
+                    Configuration(
+                        f"symex_{mitigation.info['cmd']:x}",
+                        new_config,
+                        exclusive=self.ANALYSIS_TYPE,
+                    )
+                ]
 
             # non-symex:
-            new_config['pseudofiles'][mitigation.info['path']]['ioctl'][mitigation.info['cmd']] = {
-                'model': 'return_const',
-                'val': mitigation.info['val']
-            }
+            new_config["pseudofiles"][mitigation.info["path"]]["ioctl"][
+                mitigation.info["cmd"]
+            ] = {"model": "return_const", "val": mitigation.info["val"]}
             return [Configuration(f"const_{mitigation.info['cmd']:x}", new_config)]
 
         raise ValueError(f"Unknown mitigation action {mitigation.info['action']}")
@@ -1217,13 +1503,16 @@ def main():
 
     idx = 0
     for fail_cause, fail_info in failures.items():
-        mitigations = analysis.get_potential_mitigations(config, fail_cause, fail_info) or []
+        mitigations = (
+            analysis.get_potential_mitigations(config, fail_cause, fail_info) or []
+        )
         for m in mitigations or []:
             new_config = analysis.implement_mitigation(config, fail_cause, m)
-            #print(f"\t\t[{analysis.ANALYSIS_TYPE}] =", new_config[analysis.ANALYSIS_TYPE])
+            # print(f"\t\t[{analysis.ANALYSIS_TYPE}] =", new_config[analysis.ANALYSIS_TYPE])
             with open(f"{output_dir}/config{idx}.yaml", "w") as f:
                 yaml.dump(new_config, f)
             idx += 1
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
