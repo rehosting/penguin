@@ -194,6 +194,7 @@ class TestRunner:
 
         self._make_project(test_name, kernel_version, arch, proj_dir)
         self._patch_config(test_name, proj_dir)
+
         # Sanity check. Config arch should match our arch
         # Read generated config.yaml
         with open(proj_dir / Path("config.yaml"), "r") as f:

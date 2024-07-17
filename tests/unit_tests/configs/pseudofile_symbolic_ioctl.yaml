@@ -1,5 +1,6 @@
 core:
   root_shell: false
+  strace: true
 
 env:
   igloo_init: /init
@@ -10,19 +11,58 @@ pseudofiles:
       '*':
         model: symex
 
+lib_inject:
+  extra: |
+    #include <fcntl.h>
+    #include <sys/ioctl.h>
+    #include <stdio.h>
+    
+    void check_dev_missing() {
+        printf("check_dev_missing\n");
+
+        int fd = open("/dev/missing", O_RDWR);
+
+        printf("opened /dev/missing\n");
+    
+        if(fd == -1) {
+            printf("/dev/missing could not be opened!\n");
+            return;
+        }
+
+        printf("running ioctl...\n");
+    
+        int ret = ioctl(fd, 0x1337);
+
+        printf("returned from ioctl\n");
+    
+        if(ret == 1234) {
+            printf("found the return value\n");
+        } else {
+            printf("bad ioctl return value error %i\n", ret);
+        }
+    }
+
 static_files:
   /init:
     type: inline_file
     contents: |
       #!/igloo/utils/micropython
-      import fcntl
-      
-      with open('/dev/missing', 'r+b', buffering=0) as dev_missing:
-          ret = fcntl.ioctl(dev_missing.fileno(), 1337)
-      
-      if ret == 1234:
-          print("found the return value")
-      else:
-          print("bad ioctl return value error")
+      print("starting test")
+
+      import ffi
+
+      print("imported ffi")
+
+      lib_inject = ffi.open("lib_inject.so")
+
+      print("lib_inject: " + repr(lib_inject))
+
+      check_dev_missing = lib_inject.func("v", "check_dev_missing", "")
+
+      print("check_dev_missing: " + repr(check_dev_missing))
+
+      check_dev_missing()
+
+      print("test complete")
 
     mode: 73
