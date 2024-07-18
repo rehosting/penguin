@@ -745,9 +745,8 @@ def _is_init_script(tarinfo, fs):
             if tarinfo.issym():
                 link_target = tarinfo.name
 
-                sym_walk = 1
                 subpath = ""
-                while sym_walk:
+                while subpath != link_target:
                     components = link_target.split(os.sep)
                     for component in components:
                         if component:
@@ -770,8 +769,8 @@ def _is_init_script(tarinfo, fs):
                                 )
                             else:
                                 link_target = os.path.normpath(
-                                    subpath
-                                    + "/../"
+                                    os.path.dirname(subpath)
+                                    + "/"
                                     + newlink
                                     + link_target[len(subpath):]
                                 )
@@ -783,9 +782,6 @@ def _is_init_script(tarinfo, fs):
                                     link_target = "./" + os.path.normpath(link_target)
                             subpath = ""
                             break
-
-                    if subpath == link_target:
-                        sym_walk = 0
 
             # If we have init in the name, make sure it's not named .init (e.g., rc.d startup names)
             if "init" in name and name.endswith(".init"):
