@@ -516,7 +516,7 @@ def analyze_library(elf_path, config):
                     struct.unpack(
                         unpack_format,
                         data[
-                            offset + i * pointer_size : offset + (i + 1) * pointer_size
+                            offset + i * pointer_size: offset + (i + 1) * pointer_size
                         ],
                     )[0]
                     for i in range(3)
@@ -766,14 +766,14 @@ def _is_init_script(tarinfo, fs):
 
                             if newlink.startswith("/"):
                                 link_target = os.path.normpath(
-                                    newlink + link_target[len(subpath) :]
+                                    newlink + link_target[len(subpath):]
                                 )
                             else:
                                 link_target = os.path.normpath(
                                     subpath
                                     + "/../"
                                     + newlink
-                                    + link_target[len(subpath) :]
+                                    + link_target[len(subpath):]
                                 )
 
                             if not link_target.startswith("./"):
