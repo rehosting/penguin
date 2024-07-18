@@ -743,26 +743,42 @@ def _is_init_script(tarinfo, fs):
 
             # If it's a symlink, make sure the link target exists
             if tarinfo.issym():
-                link_target = tarinfo.linkname
+                link_target = tarinfo.name
+                
+                sym_walk = 1                 
+                subpath = ''
+                while sym_walk:
+                    components = link_target.split(os.sep)
+                    for component in components:
+                        if component:
+                            subpath = os.path.join(subpath, component)
+                    
+                        try:
+                            filename = fs.getmember(subpath)
+                        except KeyError:
+                            logger.warning(
+                            f"Potential init '{tarinfo.name}' is a symlink to '{link_target}' which does not exist in the filesystem'"
+                            )
+                            return False
 
-                # Now we need to make the symlink absolute
-                if not link_target.startswith("/"):
-                    # If it's not absolute, it's relative to the directory the symlink is in
-                    link_target = os.path.dirname(tarinfo.name) + "/" + link_target
-                    # Now simplify the path
-                    link_target = os.path.normpath(link_target)
+                        if filename.issym():
+                            newlink = filename.linkname
+                            
+                            if newlink.startswith("/"):
+                                link_target = os.path.normpath(newlink + link_target[len(subpath):])
+                            else:
+                                link_target = os.path.normpath(subpath + "/../" + newlink + link_target[len(subpath):])
 
-                if not link_target.startswith("./"):
-                    link_target = "./" + os.path.normpath(link_target)
-
-                # Does link_target exist in fs?
-                try:
-                    fs.getmember(link_target)
-                except KeyError:
-                    logger.warning(
-                        f"Potential init '{tarinfo.name}' is a symlink to '{link_target}' which does not exist in the filesystem"
-                    )
-                    return False
+                            if not link_target.startswith("./"):
+                                if link_target.startswith("/"):
+                                    link_target = "." + os.path.normpath(link_target)
+                                else:
+                                    link_target = "./" + os.path.normpath(link_target)
+                            subpath = ''
+                            break
+                    
+                    if subpath == link_target:
+                        sym_walk = 0                    
 
             # If we have init in the name, make sure it's not named .init (e.g., rc.d startup names)
             if "init" in name and name.endswith(".init"):
@@ -777,7 +793,6 @@ def _is_init_script(tarinfo, fs):
                 return True
 
     return False
-
 
 def add_init_meta(proj_dir, base_config, output_dir):
     # Examine the filesystem and find any binaries that might be an init binary
