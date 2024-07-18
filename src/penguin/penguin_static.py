@@ -516,7 +516,7 @@ def analyze_library(elf_path, config):
                     struct.unpack(
                         unpack_format,
                         data[
-                            offset + i * pointer_size: offset + (i + 1) * pointer_size
+                            offset + i * pointer_size : offset + (i + 1) * pointer_size
                         ],
                     )[0]
                     for i in range(3)
@@ -744,41 +744,48 @@ def _is_init_script(tarinfo, fs):
             # If it's a symlink, make sure the link target exists
             if tarinfo.issym():
                 link_target = tarinfo.name
-                
-                sym_walk = 1                 
-                subpath = ''
+
+                sym_walk = 1
+                subpath = ""
                 while sym_walk:
                     components = link_target.split(os.sep)
                     for component in components:
                         if component:
                             subpath = os.path.join(subpath, component)
-                    
+
                         try:
                             filename = fs.getmember(subpath)
                         except KeyError:
                             logger.warning(
-                            f"Potential init '{tarinfo.name}' is a symlink to '{link_target}' which does not exist in the filesystem'"
+                                f"Potential init '{tarinfo.name}' is a symlink to '{link_target}' which does not exist in the filesystem'"
                             )
                             return False
 
                         if filename.issym():
                             newlink = filename.linkname
-                            
+
                             if newlink.startswith("/"):
-                                link_target = os.path.normpath(newlink + link_target[len(subpath):])
+                                link_target = os.path.normpath(
+                                    newlink + link_target[len(subpath) :]
+                                )
                             else:
-                                link_target = os.path.normpath(subpath + "/../" + newlink + link_target[len(subpath):])
+                                link_target = os.path.normpath(
+                                    subpath
+                                    + "/../"
+                                    + newlink
+                                    + link_target[len(subpath) :]
+                                )
 
                             if not link_target.startswith("./"):
                                 if link_target.startswith("/"):
                                     link_target = "." + os.path.normpath(link_target)
                                 else:
                                     link_target = "./" + os.path.normpath(link_target)
-                            subpath = ''
+                            subpath = ""
                             break
-                    
+
                     if subpath == link_target:
-                        sym_walk = 0                    
+                        sym_walk = 0
 
             # If we have init in the name, make sure it's not named .init (e.g., rc.d startup names)
             if "init" in name and name.endswith(".init"):
@@ -793,6 +800,7 @@ def _is_init_script(tarinfo, fs):
                 return True
 
     return False
+
 
 def add_init_meta(proj_dir, base_config, output_dir):
     # Examine the filesystem and find any binaries that might be an init binary
@@ -1252,7 +1260,7 @@ def add_nvram_meta(proj_dir, config, output_dir):
             if f is None:
                 continue
 
-            for (query, _) in queries:
+            for query, _ in queries:
                 # Check if query is in file
                 if query.encode() in f.read():
                     if key not in config["nvram"]:
