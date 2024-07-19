@@ -745,6 +745,7 @@ def _is_init_script(tarinfo, fs):
             if tarinfo.issym():
                 link_target = tarinfo.name
 
+                sym_loop_ctr = 0
                 subpath = ""
                 while subpath != link_target:
                     components = link_target.split(os.sep)
@@ -782,6 +783,14 @@ def _is_init_script(tarinfo, fs):
                                     link_target = "./" + os.path.normpath(link_target)
                             subpath = ""
                             break
+                            
+                    sym_loop_ctr += 1
+                    if sym_loop_ctr == 100:
+                        logger.warning(
+                            f"Potential init '{tarinfo.name}' is a symlink loop'"
+                        )
+                        return False
+                        
 
             # If we have init in the name, make sure it's not named .init (e.g., rc.d startup names)
             if "init" in name and name.endswith(".init"):
