@@ -5,12 +5,11 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import yaml
+from pathlib import Path
 from collections import Counter
 from os.path import dirname, join
-from pathlib import Path
-
 import click
-import yaml
 from elftools.elf.elffile import ELFFile
 
 from penguin import getColoredLogger
@@ -72,9 +71,8 @@ def find_architecture(infile):
     # Some firmwares include x86_64 binaries left-over from the build process that aren't run in the guest.
     intel_archs = ("intel", "intel64")
     archs_list = list(arch_counts[32].values()) + list(arch_counts[64].values())
-    if (
-        any(arch in intel_archs for arch in archs_list)
-        and any(arch not in intel_archs for arch in archs_list)
+    if any(arch in intel_archs for arch in archs_list) and any(
+        arch not in intel_archs for arch in archs_list
     ):
         del arch_counts[32]["intel"]
         del arch_counts[64]["intel64"]
@@ -104,7 +102,7 @@ def get_kernel_path(arch, end, static_dir):
         return static_dir + f"kernels/{DEFAULT_KERNEL}/" + "vmlinux" + f".{arch}{end}"
 
 
-def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
+def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
     logger.info(f"Generating new configuration for {fs}...")
     """
     Given a filesystem as a .tar.gz make a configuration
@@ -120,6 +118,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
 
     Returns the path to the config file.
     """
+
     # If auto_explore we'll turn on zap and nmap to automatically generate coverage
     # Note that there's no way for a user to control that flag yet.
 
@@ -152,6 +151,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     base_dir.mkdir(exist_ok=True, parents=True)
     base_fs = Path(base_dir, "fs.tar.gz")
     shutil.copy(fs, base_fs)
+
     data = {}
     data["core"] = {
         "arch": arch if arch == "aarch64" else arch + end,
@@ -246,6 +246,9 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
 
     data["plugins"] = default_plugins
 
+    if settings.get("coverage"):
+        data["plugins"]["coverage"]["enabled"] = True
+
     # Explicitly placing this at the end
     data["nvram"] = {}
 
@@ -277,7 +280,10 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     os.umask(0o000)
 
     data = extend_config_with_static(
-        output_dir, data, f"{output_dir}/base/", auto_explore
+        output_dir,
+        data,
+        f"{output_dir}/base/",
+        settings,
     )
 
     if not auto_explore:
@@ -385,7 +391,7 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     return final_out
 
 
-def fakeroot_gen_config(fs, out, artifacts, verbose):
+def fakeroot_gen_config(fs, out, artifacts, verbose, settings_path):
     o = Path(out)
     cmd = [
         "fakeroot",
@@ -399,6 +405,8 @@ def fakeroot_gen_config(fs, out, artifacts, verbose):
     ]
     if verbose:
         cmd.extend(["--verbose"])
+    if settings_path:
+        cmd.extend(["--settings-path", str(settings_path)])
     p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
     p.wait()
     if o.exists():
@@ -410,11 +418,26 @@ def fakeroot_gen_config(fs, out, artifacts, verbose):
 @click.option("--out", required=True, help="Path to a config to be created")
 @click.option("--artifacts", default=None, help="Path to a directory for artifacts")
 @click.option("-v", "--verbose", count=True)
-def makeConfig(fs, out, artifacts, verbose):
+@click.option(
+    "-s", "--settings-path", type=str, help="Path to the YAML configuration file"
+)
+def makeConfig(fs, out, artifacts, verbose, settings_path):
     if verbose:
         logger.setLevel(logging.DEBUG)
 
-    config = make_config(fs, out, artifacts)
+    default_settings_path = os.path.join(
+        *[dirname(dirname(__file__)), "resources", "default_settings.yaml"]
+    )
+    with open(default_settings_path, "r") as f:
+        settings = yaml.safe_load(f)
+
+    # If a settings file is provided, update the default settings with the user settings
+    if settings_path:
+        with open(settings_path, "r") as f:
+            user_settings = yaml.safe_load(f)
+        settings.update(user_settings)
+
+    config = make_config(fs, out, artifacts, settings)
     if not config:
         logger.error(f"Error! Could not generate config for {fs}")
     else:
