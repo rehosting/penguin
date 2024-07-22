@@ -632,6 +632,23 @@ Signals numbers to block within the guest. Supported values are 6 (SIGABRT), 9 (
 
 Library functions to be intercepted
 
+### `lib_inject.enabled` Enables LD_PRELOAD in init script
+
+|||
+|-|-|
+|__Type__|boolean|
+|__Default__|`true`|
+
+Whether to enable LD_PRELOAD variable in init script
+
+```yaml
+false
+```
+
+```yaml
+true
+```
+
 ### `lib_inject.aliases` Injected library aliases
 
 |||
