@@ -88,7 +88,7 @@ class Core(PyPlugin):
                 )
             else:
                 conf["env"]["WWW"] = "1"
-                
+
         # Check if preload lib_inject for root shell and init process is disabled
         if conf["lib_inject"].get("enabled", True):
             conf["env"]["ENABLE_PRELOAD"] = 1
