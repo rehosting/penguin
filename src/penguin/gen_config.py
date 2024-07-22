@@ -246,17 +246,7 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
 
     data["plugins"] = default_plugins
 
-    # Function to update the global settings variable
-    def _recursive_update(base, new):
-        for k, v in new.items():
-            if isinstance(v, dict):
-                base[k] = _recursive_update(base.get(k, {}), v)
-            else:
-                base[k] = v
-        return base
-
-    # Replace all values in default_settings.yaml with user_settings.yaml (user_settings is the one that was passed in)
-    if settings and settings["coverage"]:
+    if settings.get("coverage"):
         data["plugins"]["coverage"]["enabled"] = True
 
     # Explicitly placing this at the end
