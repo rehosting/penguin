@@ -169,7 +169,9 @@ def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
 
     data["env"] = {}
     data["pseudofiles"] = default_pseudofiles
-    data["lib_inject"] = {"aliases": default_lib_aliases}
+    data["lib_inject"] = {
+        "enabled": True,
+        "aliases": default_lib_aliases}
 
     data["static_files"] = {
         "/igloo/init": {
