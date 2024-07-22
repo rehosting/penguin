@@ -1,4 +1,4 @@
-# User settings for penguin: DEFAULT SETTINGS
+# Default settings to use when generating new configurations.
 
 # Toggles the automatic adding of directories into the filesystem if they're missing. 
 # Allows a user to define the directories added.
@@ -73,5 +73,4 @@ set_core_force_www: true
 # Allows users to customize mapping from webserver binary to command to run
 webserver_mapping:
   defaults: true
-  user_mapping: 
-    example: "example"
+  user_mapping:  {}
