@@ -534,7 +534,7 @@ def analyze_library(elf_path, config):
                     struct.unpack(
                         unpack_format,
                         data[
-                            offset + i * pointer_size: offset + (i + 1) * pointer_size
+                            offset + i * pointer_size : offset + (i + 1) * pointer_size
                         ],
                     )[0]
                     for i in range(3)
