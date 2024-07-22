@@ -146,7 +146,7 @@ def penguin_init(args):
             "Please provide a firmware file"
         )
 
-    if "/host_" in args.rootfs or "/host_" in args.output:
+    if "/host_" in args.rootfs or (args.output and "/host_" in args.output):
         logger.info(
             "Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments"
         )
