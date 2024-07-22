@@ -207,10 +207,7 @@ def penguin_init(args):
 
     # Check for config file argument
     if args.settings_path:
-        try:
-            _check_settings(args.settings_path)
-        except Exception as e:
-            logger.error(f"Error: {e}")
+        _check_settings(args.settings_path)
 
     out_config_path = Path(args.output, "config.yaml")
     config = fakeroot_gen_config(
