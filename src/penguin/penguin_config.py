@@ -41,7 +41,7 @@ def _variant(discrim_val, title, description, discrim_key, discrim_title, fields
                 discrim_key: Annotated[
                     Literal[discrim_val],
                     Field(title=f"{discrim_title} ({title.lower()})"),
-                ],
+                ]
             }
             | {key: Annotated[type, field] for key, type, field in fields},
         ),
@@ -136,9 +136,7 @@ class Core(BaseModel):
     cpu: Annotated[
         Optional[str],
         Field(
-            None,
-            title="CPU model",
-            description="Specify non-default QEMU CPU model",
+            None, title="CPU model", description="Specify non-default QEMU CPU model"
         ),
     ]
     show_output: Annotated[
@@ -201,15 +199,8 @@ Env = _newtype(
     title="Environment",
     description="Environment variables to set in the guest",
     examples=[
-        dict(
-            VAR1="VAL1",
-            VAR2="VAL2",
-        ),
-        dict(
-            PATH="/bin:/sbin",
-            TMPDIR="/tmp",
-            FOO=ENV_MAGIC_VAL,
-        ),
+        dict(VAR1="VAL1", VAR2="VAL2"),
+        dict(PATH="/bin:/sbin", TMPDIR="/tmp", FOO=ENV_MAGIC_VAL),
     ],
 )
 NetDevs = Field(
@@ -249,18 +240,8 @@ Read = _union(
     discrim_key="model",
     discrim_title="Read modelling method",
     variants=(
-        dict(
-            discrim_val="zero",
-            title="Read a zero",
-            description=None,
-            fields=(),
-        ),
-        dict(
-            discrim_val="empty",
-            title="Read empty file",
-            description=None,
-            fields=(),
-        ),
+        dict(discrim_val="zero", title="Read a zero", description=None, fields=()),
+        dict(discrim_val="empty", title="Read empty file", description=None, fields=()),
         dict(
             discrim_val="const_buf",
             title="Read a constant buffer",
@@ -301,12 +282,7 @@ Read = _union(
             description=None,
             fields=(("filename", str, Field(title="Path to host file")),),
         ),
-        dict(
-            discrim_val="default",
-            title="Default",
-            description=None,
-            fields=(),
-        ),
+        dict(discrim_val="default", title="Default", description=None, fields=()),
     ),
 )
 
@@ -324,18 +300,8 @@ Write = _union(
             description=None,
             fields=(("filename", str, Field(title="Path to host file")),),
         ),
-        dict(
-            discrim_val="discard",
-            title="Discard write",
-            description=None,
-            fields=(),
-        ),
-        dict(
-            discrim_val="default",
-            title="Default",
-            description=None,
-            fields=(),
-        ),
+        dict(discrim_val="discard", title="Discard write", description=None, fields=()),
+        dict(discrim_val="default", title="Default", description=None, fields=()),
     ),
 )
 
@@ -354,10 +320,7 @@ IoctlCommand = _union(
             fields=(("val", int, Field(title="Constant to return")),),
         ),
         dict(
-            discrim_val="symex",
-            title="Symbolic execution",
-            description=None,
-            fields=(),
+            discrim_val="symex", title="Symbolic execution", description=None, fields=()
         ),
     ),
 )
@@ -368,28 +331,16 @@ Star = Literal["*"]
 
 Ioctls = _newtype(
     class_name="Ioctls",
-    type_=Dict[
-        Union[int, Star], IoctlCommand
-    ],
+    type_=Dict[Union[int, Star], IoctlCommand],
     title="ioctl",
     description="How to handle ioctl() calls",
     default=dict(),
     examples=[
         {
-            "*": dict(
-                model="return_const",
-                val=0,
-            ),
-            "1000": dict(
-                model="return_const",
-                val=5,
-            ),
+            "*": dict(model="return_const", val=0),
+            "1000": dict(model="return_const", val=5),
         },
-        {
-            "*": dict(
-                model="return_const",
-            ),
-        },
+        {"*": dict(model="return_const")},
     ],
 )
 
@@ -433,8 +384,7 @@ Pseudofiles = _newtype(
 NVRAM = _newtype(
     class_name="NVRAM",
     type_=dict[
-        str,
-        _newtype(class_name="NVRAMVal", type_=Union[str, int], title="NVRAM value"),
+        str, _newtype(class_name="NVRAMVal", type_=Union[str, int], title="NVRAM value")
     ],
     title="NVRAM",
     description="NVRAM values to add to the guest",
@@ -472,9 +422,7 @@ LibInjectAliases = _newtype(
     title="Injected library aliases",
     description="Mapping between names of external library functions and names of functions defined in the injected library. This allows replacing arbitrary library functions with your own code.",
     default=dict(),
-    examples=[
-        dict(fputs="false", nvram_load="nvram_init"),
-    ],
+    examples=[dict(fputs="false", nvram_load="nvram_init")],
 )
 
 
@@ -482,7 +430,7 @@ class LibInject(BaseModel):
     """Library functions to be intercepted"""
 
     model_config = ConfigDict(title="Injected library configuration", extra="forbid")
-    
+
     enabled: Annotated[
         bool,
         Field(
@@ -568,12 +516,7 @@ StaticFileAction = _union(
                 ),
             ),
         ),
-        dict(
-            discrim_val="delete",
-            title="Delete file",
-            description=None,
-            fields=(),
-        ),
+        dict(discrim_val="delete", title="Delete file", description=None, fields=()),
         dict(
             discrim_val="move",
             title="Move file",
@@ -599,25 +542,15 @@ class StaticFiles(RootModel):
         json_schema_extra=dict(
             examples=[
                 {},
-                {
-                    "/path/to/file": dict(
-                        type="file",
-                        contents="Hello world!",
-                    )
-                },
+                {"/path/to/file": dict(type="file", contents="Hello world!")},
                 {
                     "/path/to/symlink/source": dict(
-                        type="symlink",
-                        target="/path/to/symlink/target",
+                        type="symlink", target="/path/to/symlink/target"
                     )
                 },
                 {
                     "/dev/some_device": dict(
-                        type="dev",
-                        devtype="char",
-                        major=1,
-                        minor=2,
-                        mode=0o666,
+                        type="dev", devtype="char", major=1, minor=2, mode=0o666
                     )
                 },
             ]
@@ -673,10 +606,7 @@ def _jsonify_dict(d):
 def _validate_config_schema(config):
     """Validate config with Pydantic"""
     Main(**config).model_dump()
-    jsonschema.validate(
-        instance=_jsonify_dict(config),
-        schema=Main.model_json_schema(),
-    )
+    jsonschema.validate(instance=_jsonify_dict(config), schema=Main.model_json_schema())
 
 
 def _validate_config_options(config):
@@ -686,7 +616,9 @@ def _validate_config_options(config):
 
     logger = penguin.getColoredLogger("config")
 
-    if config["core"].get("ltrace", False) and config["core"]["arch"].startswith("mips64"):
+    if config["core"].get("ltrace", False) and config["core"]["arch"].startswith(
+        "mips64"
+    ):
         logger.error("ltrace does not support mips64")
         sys.exit(1)
 
@@ -867,10 +799,7 @@ def gen_docs(path=[], docs_field=DocsField.from_type(Main)):
 
     # The first type argument that inherits `BaseModel`.
     # For example, if the type is `Optional[Env]`, this is `Env`
-    first_model_arg = next(
-        (a for a in type_args if hasattr(a, "model_fields")),
-        None,
-    )
+    first_model_arg = next((a for a in type_args if hasattr(a, "model_fields")), None)
 
     is_model = hasattr(type_, "model_fields")  # Type inherits `BaseModel`
     is_root_model = (
@@ -907,18 +836,14 @@ def gen_docs(path=[], docs_field=DocsField.from_type(Main)):
             # The type is a newtype.
             # Collect its metadata and try again with the underlying type.
             out += gen_docs(
-                path=path,
-                docs_field=DocsField.from_field(info).merge(docs_field),
+                path=path, docs_field=DocsField.from_field(info).merge(docs_field)
             )
     elif is_model:
         # The type inherits `BaseModel` but not `RootModel`
 
         out += gen_docs_field(path=path, docs_field=docs_field, include_type=False)
         for name, info in type_.model_fields.items():
-            out += gen_docs(
-                path=path + [name],
-                docs_field=DocsField.from_field(info),
-            )
+            out += gen_docs(path=path + [name], docs_field=DocsField.from_field(info))
     elif type_origin is dict:
         # The type is `dict[T, U]`.
 
@@ -929,15 +854,11 @@ def gen_docs(path=[], docs_field=DocsField.from_type(Main)):
         key_type, val_type = typing.get_args(type_)
         key_type_str = gen_docs_type_name(key_type)
         out += gen_docs(
-            path=path + [f"<{key_type_str}>"],
-            docs_field=DocsField.from_type(val_type),
+            path=path + [f"<{key_type_str}>"], docs_field=DocsField.from_type(val_type)
         )
     elif type_origin is Union and first_model_arg is not None:
         # The type is `Optional[T]`. Try again with just `T`.
-        out += gen_docs(
-            path=path,
-            docs_field=DocsField.from_type(first_model_arg),
-        )
+        out += gen_docs(path=path, docs_field=DocsField.from_type(first_model_arg))
     else:
         # The type does not inherit from `BaseModel` and it doesn't have an argument that does.
         # It is probably a primative type, like `str` or `bool`.
@@ -953,14 +874,12 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     sp = p.add_subparsers(required=True)
 
-    sp.add_parser(
-        "schema",
-        help="Write JSON schema for config to stdout",
-    ).set_defaults(func=lambda: print(yaml.dump(Main.model_json_schema(), indent=2)))
+    sp.add_parser("schema", help="Write JSON schema for config to stdout").set_defaults(
+        func=lambda: print(yaml.dump(Main.model_json_schema(), indent=2))
+    )
 
-    sp.add_parser(
-        "docs",
-        help="Write generated config docs to stdout",
-    ).set_defaults(func=lambda: print(gen_docs()))
+    sp.add_parser("docs", help="Write generated config docs to stdout").set_defaults(
+        func=lambda: print(gen_docs())
+    )
 
     p.parse_args().func()
