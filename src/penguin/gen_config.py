@@ -316,7 +316,7 @@ def make_config(fs, out, artifacts, settings_path, timeout=None, auto_explore=Fa
     os.umask(0o000)
 
     data = extend_config_with_static(
-        output_dir, data, f"{output_dir}/base/", settings, auto_explore
+        output_dir, data, f"{output_dir}/base/", settings,
     )
 
     if not auto_explore:

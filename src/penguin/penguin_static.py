@@ -182,7 +182,7 @@ def find_shell_scripts(tmp_dir):
                 yield file_path
 
 
-def pre_shim(proj_dir, config, settings, auto_explore=False):
+def pre_shim(proj_dir, config, settings):
     """
     General static analysis for configuration updates. Make directories we think are missing, add standard files.
     """
@@ -638,7 +638,7 @@ def _kernel_version_to_int(potential_name):
     return comps[0] * 10000 + comps[1] * 100 + comps[2]
 
 
-def shim_configs(proj_dir, config, settings, auto_explore=False):
+def shim_configs(proj_dir, config, settings):
     """
     Identify binaries in the guest FS that we want to shim
     and add symlinks to go from guest bin -> igloo bin
@@ -1500,7 +1500,7 @@ def add_lib_inject_symlinks(proj_dir, conf):
 
 
 def extend_config_with_static(
-    proj_dir, base_config, outdir, settings, auto_explore=False
+    proj_dir, base_config, outdir, settings
 ):
 
     if "meta" not in base_config:
@@ -1510,7 +1510,7 @@ def extend_config_with_static(
 
     # Search the filesystem for filenames that we want to shim with igloo-utils
     # We shim them all, every time
-    shim_configs(proj_dir, base_config, settings, auto_explore)
+    shim_configs(proj_dir, base_config, settings)
 
     # Next we want to identify potential device files and environment variables
     # These are stored in our metadata: [meta][potential_dev] and [meta][potential_env]
