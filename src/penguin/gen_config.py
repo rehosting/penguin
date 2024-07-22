@@ -71,9 +71,8 @@ def find_architecture(infile):
     # Some firmwares include x86_64 binaries left-over from the build process that aren't run in the guest.
     intel_archs = ("intel", "intel64")
     archs_list = list(arch_counts[32].values()) + list(arch_counts[64].values())
-    if (
-        any(arch in intel_archs for arch in archs_list)
-        and any(arch not in intel_archs for arch in archs_list)
+    if any(arch in intel_archs for arch in archs_list) and any(
+        arch not in intel_archs for arch in archs_list
     ):
         del arch_counts[32]["intel"]
         del arch_counts[64]["intel64"]
@@ -103,7 +102,7 @@ def get_kernel_path(arch, end, static_dir):
         return static_dir + f"kernels/{DEFAULT_KERNEL}/" + "vmlinux" + f".{arch}{end}"
 
 
-def make_config(fs, out, artifacts, settings_path, timeout=None, auto_explore=False):
+def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
     logger.info(f"Generating new configuration for {fs}...")
     """
     Given a filesystem as a .tar.gz make a configuration
@@ -257,31 +256,6 @@ def make_config(fs, out, artifacts, settings_path, timeout=None, auto_explore=Fa
         return base
 
     # Replace all values in default_settings.yaml with user_settings.yaml (user_settings is the one that was passed in)
-    settings = {}
-    user_settings = {}
-    if settings_path:
-        absolute_path = os.path.join(*[dirname(dirname(__file__)), "resources", "default_settings.yaml"])
-        try:
-            with open(settings_path, "r") as user_f:
-                user_settings = yaml.safe_load(user_f)
-            with open(absolute_path, "r") as default_f:
-                settings = yaml.safe_load(default_f)
-        except Exception as e:
-            logger.error(f"An unexpected error has occurred: {e}")
-
-        if user_settings:
-            for key, value in user_settings.items():
-                if key in settings:
-                    # If the value is a dictionary, update subfields recursively
-                    if isinstance(value, dict):
-                        settings[key] = _recursive_update(settings.get(key, {}), value)
-                    else:
-                        settings[key] = value
-                else:
-                    logger.error(
-                        f"Invalid key in YAML file: '{key}' not found in default settings."
-                    )
-
     if settings and settings["coverage"]:
         data["plugins"]["coverage"]["enabled"] = True
 
@@ -451,12 +425,26 @@ def fakeroot_gen_config(fs, out, artifacts, verbose, settings_path):
 @click.option("--out", required=True, help="Path to a config to be created")
 @click.option("--artifacts", default=None, help="Path to a directory for artifacts")
 @click.option("-v", "--verbose", count=True)
-@click.option("-s", "--settings-path", type=str, help="Path to the YAML configuration file")
+@click.option(
+    "-s", "--settings-path", type=str, help="Path to the YAML configuration file"
+)
 def makeConfig(fs, out, artifacts, verbose, settings_path):
     if verbose:
         logger.setLevel(logging.DEBUG)
 
-    config = make_config(fs, out, artifacts, settings_path)
+    default_settings_path = os.path.join(
+        *[dirname(dirname(__file__)), "resources", "default_settings.yaml"]
+    )
+    with open(default_settings_path, "r") as f:
+        settings = yaml.safe_load(f)
+
+    # If a settings file is provided, update the default settings with the user settings
+    if settings_path:
+        with open(settings_path, "r") as f:
+            user_settings = yaml.safe_load(f)
+        settings.update(user_settings)
+
+    config = make_config(fs, out, artifacts, settings)
     if not config:
         logger.error(f"Error! Could not generate config for {fs}")
     else:
