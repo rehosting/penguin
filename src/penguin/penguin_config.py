@@ -482,6 +482,16 @@ class LibInject(BaseModel):
     """Library functions to be intercepted"""
 
     model_config = ConfigDict(title="Injected library configuration", extra="forbid")
+    
+    enabled: Annotated[
+        bool,
+        Field(
+            True,
+            title="Enables LD_PRELOAD in init script",
+            description="Whether to enable LD_PRELOAD variable in init script",
+            examples=[False, True],
+        ),
+    ]
 
     aliases: Annotated[
         Optional[LibInjectAliases],
