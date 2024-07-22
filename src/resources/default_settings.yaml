@@ -19,8 +19,8 @@ add_default_linksys_devices: true
 localhost_in_hosts: true
 
 always_add:
-  # Adds /etc/tz, a standard Linux file.
-  - "/etc/tz"
+  # Adds /etc/TZ, a standard Linux file.
+  - "/etc/TZ"
   # Adds /bin/sh, which is added as a symlink to the busybox shell if it is missing from the filesystem.
   - "/bin/sh"
   # Adds /var/run/libnvram.pid. Specific to some firmware vendors and was done by prior work.

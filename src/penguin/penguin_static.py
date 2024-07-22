@@ -345,7 +345,7 @@ def pre_shim(proj_dir, config, settings, auto_explore=False):
                     config["static_files"][dest] = {"type": "dir", "mode": 0o755}
 
         # If /etc/tz is missing, add it
-        if settings and "/etc/tz" in settings["always_add"]:
+        if settings and "/etc/TZ" in settings["always_add"]:
             if os.path.isdir(tmp_dir + "/etc") and not os.path.isfile(
                 tmp_dir + "/etc/TZ"
             ):
