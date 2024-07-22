@@ -352,6 +352,7 @@ def main():
         "pseudofile_devfs": assert_generic("console.log", "[bioset]"),
         "pseudofile_sysfs": assert_generic("console.log", "[bioset]"),
         "uboot_env_cmp": assert_generic("env_cmp.txt", "target"),
+        "ioctl": assert_generic("console.log", "tests pass"),
     }
 
     # Ensure test configs stay in sync with this script

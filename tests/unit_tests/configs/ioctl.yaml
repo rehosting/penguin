@@ -1,0 +1,64 @@
+core:
+  root_shell: false
+  strace: true
+
+env:
+  igloo_init: /init
+
+pseudofiles:
+  /dev/missing:
+    size: 12
+    read:
+      model: const_buf
+      val: Hello world
+    write:
+      model: default
+    ioctl:
+      # _IOC_WRITE
+      0x50004502:
+        model: return_const
+        val: 0
+      # _IOC_READ
+      0x90004502:
+        model: return_const
+        val: 0
+
+lib_inject:
+  extra: |
+    #include <fcntl.h>
+    #include <sys/ioctl.h>
+    #include <stdio.h>
+
+    #define CMD_TYPE 0x45
+    #define READ_CMD _IOR(CMD_TYPE, 2, char[4096]) // read *FROM* device into user buffer
+    #define WRITE_CMD _IOW(CMD_TYPE, 2, char[4096]) // write *TO* device from user buffer
+    
+    void check_dev_missing() {
+        char buffer[4096] = {0};
+        int fd = open("/dev/missing", O_RDWR);
+        if(fd == -1) {
+            printf("/dev/missing could not be opened!\n");
+            return;
+        }
+
+        // WRITE TO DEVICE
+        char buffer2[4096] = "Userspace message";
+        int ret = ioctl(fd, WRITE_CMD, buffer2);
+        printf("Ioctl return value is %i\n", ret);
+
+        // READ FROM DEVICE
+        ret = ioctl(fd, READ_CMD, buffer);
+        printf("Ioctl return value is %i with value %s\n", ret, buffer);
+
+        //printf("tests pass\n");
+    }
+static_files:
+  /init:
+    type: inline_file
+    mode: 73
+    contents: |
+      #!/igloo/utils/micropython
+      import ffi
+      lib_inject = ffi.open("lib_inject.so")
+      check_dev_missing = lib_inject.func("v", "check_dev_missing", "")
+      check_dev_missing()
