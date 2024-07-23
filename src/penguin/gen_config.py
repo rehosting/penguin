@@ -70,7 +70,7 @@ def find_architecture(infile):
     # filter out all the intel ones.
     # Some firmwares include x86_64 binaries left-over from the build process that aren't run in the guest.
     intel_archs = ("intel", "intel64")
-    archs_list = list(arch_counts[32].values()) + list(arch_counts[64].values())
+    archs_list = list(arch_counts[32].keys()) + list(arch_counts[64].keys())
     if any(arch in intel_archs for arch in archs_list) and any(
         arch not in intel_archs for arch in archs_list
     ):
