@@ -1,0 +1,53 @@
+from sqlalchemy import func, create_engine
+import click
+from db import Event, Write
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from rich import print
+from time import sleep
+from os.path import join
+
+@click.command()
+@click.option('--results', default="results", help="Path to results folder (default is ./results/)")
+@click.option('--procname', default=None, help="Process name to filter for (looks for substring)")
+@click.option('--follow', default=False, help="Show latest results as they appear", is_flag=True)
+@click.option('--output', default="/dev/stdout", help="Output to file instead of stdout")
+def query_reads(results, procname, follow, fd, output):
+    db_path = join(results, "plugins.db")
+    engine = create_engine(f"sqlite:///{db_path}")
+    with open(output,"w") as f:
+        with Session(engine) as sess:
+            highest_id = -1
+        
+            # in some cases we want to print the procname
+            print_procname = True
+
+            # in follow mode we print the last 4 events and then continue from there
+            if follow:
+                if id_num := sess.execute(func.max(Event.id)).first():
+                    highest_id = id_num[0] - 4
+            while True:
+                query = sess.query(Write)
+                if procname:
+                    query = query.filter(Write.procname.contains(procname))
+                    print_procname = False
+            
+                if highest_id != -1:
+                    query = query.filter(Write.id > highest_id)
+                
+                if fd:
+                    query = query.filter(Write.fd == fd)
+            
+                for event in query.all():
+                    if print_procname:
+                        print(f"({event.procname}) {event}", file=f)
+                    else:
+                        print(event, file=f)
+                    highest_id = max(highest_id, event.id)
+                
+                if not follow:
+                    break
+                else:
+                    sleep(1)
+if __name__ == "__main__":
+    query_reads()

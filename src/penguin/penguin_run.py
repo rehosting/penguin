@@ -16,6 +16,7 @@ from .common import yaml
 from .defaults import default_plugin_path
 from .penguin_config import load_config
 from .utils import hash_image_inputs
+from .db import DBConnector
 
 # Note armel is just panda-system-arm and mipseb is just panda-system-mips
 ROOTFS = "/dev/vda"  # Common to all
@@ -439,6 +440,8 @@ def run_config(
     os.umask(0o001)
     os.makedirs(out_dir, exist_ok=True)
 
+    db = DBConnector(out_dir, panda)
+
     logger.info("Loading plugins")
     for plugin_name in _sort_plugins_by_dependency(conf_plugins):
         details = conf_plugins[plugin_name]
@@ -456,6 +459,7 @@ def run_config(
             "fw": config_image,
             "outdir": out_dir,
             "verbose": verbose,
+            "db": db,
         }
         # If we have any deatils, pass them along
         if details is not None:
@@ -537,7 +541,6 @@ def run_config(
             panda.panda_finish()
             host_vsock_bridge.kill()
             shutil.rmtree(tmpdir.name)
-
     if show_output:
         _run()
     else:
