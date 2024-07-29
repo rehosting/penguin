@@ -56,19 +56,19 @@ class Core(PyPlugin):
             # Print port info
             if container_ip := os.environ.get("CONTAINER_IP", None):
                 self.logger.info(
-                    f"Root shell will be available at: {container_ip}:4321"
+                    f"Root shell will be available at: {container_ip}:23"
                 )
-                self.logger.info(f"Connect with: telnet {container_ip} 4321")
+                self.logger.info(f"Connect with: telnet {container_ip}")
             elif container_name := os.environ.get("CONTAINER_NAME", None):
                 self.logger.info(
-                    f"Root shell will be available in container {container_name} on port 4321"
+                    f"Root shell will be available in container {container_name} on port 23"
                 )
                 self.logger.info(
-                    f"Connect with: docker exec -it {container_name} telnet 4321"
+                    f"Connect with: docker exec -it {container_name} telnet 127.0.0.1"
                 )
             else:
                 self.logger.info(
-                    "Root shell enabled. Connect with docker exec -it [your_container_name] telnet 4321"
+                    "Root shell enabled. Connect with docker exec -it [your_container_name] telnet 127.0.0.1"
                 )
 
         # Same thing, but for a shared directory

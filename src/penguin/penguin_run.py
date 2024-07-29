@@ -313,7 +313,7 @@ def run_config(
     if conf["core"].get("root_shell", False):
         root_shell = [
             "-serial",
-            "telnet:0.0.0.0:4321,server,nowait",
+            "telnet:0.0.0.0:23,server,nowait",
         ]  # ttyS1: root shell
 
     # If core config specifes immutable: False we'll run without snapshot

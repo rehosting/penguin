@@ -115,8 +115,8 @@ PANDA[syscalls2]:using profile for linux arm
 PANDA[osi_linux]:W> failed to read task.switch_task_hook_addr
 PANDA[osi_linux]:W> kernelinfo bytes [20-23] not read
 20:25:42 penguin.runner INFO Loading plugins
-20:25:42 plugins.core INFO Root shell will be available at: 192.168.0.2:4321
-20:25:42 plugins.core INFO Connect with: telnet 192.168.0.2 4321
+20:25:42 plugins.core INFO Root shell will be available at: 192.168.0.2:23
+20:25:42 plugins.core INFO Connect with: telnet 192.168.0.2
 20:25:50 penguin.runner INFO Launching rehosting
 20:27:49 plugins.VPN INFO            inetd binds tcp 0.0.0.0:7        reach it at 192.168.0.2:7
 20:27:49 plugins.VPN INFO            inetd binds udp 0.0.0.0:7        reach it at 192.168.0.2:54933
@@ -146,7 +146,7 @@ After examining these files, use your second terminal to connect to the root she
 command. After launching `telnet` you may need to push enter to see a prompt
 
 ```sh
-$ telnet 192.168.1.2 4321
+$ telnet 192.168.1.2
 Trying 192.168.1.2...
 Connected to 192.168.1.2.
 Escape character is '^]'.
