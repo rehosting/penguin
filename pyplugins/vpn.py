@@ -165,10 +165,10 @@ class VsockVPN(PyPlugin):
                 )
             reason = "via fixed mapping"
         elif guest_port < 1024 and not self.has_perms:
-            host_port = self.find_free_port()
+            host_port = self.find_free_port(guest_port)
             reason = f"{guest_port} is privileged and user cannot bind"
         elif guest_port in self.mapped_ports or not self.is_port_open(guest_port):
-            host_port = self.find_free_port()
+            host_port = self.find_free_port(guest_port)
             reason = f"{guest_port} is already in use"
 
         if self.exposed_ip:
@@ -198,8 +198,18 @@ class VsockVPN(PyPlugin):
         return host_port
 
     @staticmethod
-    def find_free_port():
+    def find_free_port(port):
+        '''
+        Try to give nice port numbers to the user (also more deterministic)
+
+        e.g. 80 -> 1080, 443 -> 2443, 8080 -> 18080, 65535 -> 1000
+        '''
+        for offset in range(1000, 65535, 1000):
+            if VsockVPN.is_port_open(offset + port):
+                return offset + port
+
         """
+        Fail back to any free port
         https://stackoverflow.com/a/45690594
         """
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
