@@ -256,6 +256,7 @@ class TestRunner:
 
         self._make_project(test_name, kernel_version, arch, proj_dir)
         self._patch_config(test_name, proj_dir)
+
         # Sanity check. Config arch should match our arch
         # Read generated config.yaml
         with open(proj_dir / Path("config.yaml"), "r") as f:
@@ -352,6 +353,7 @@ def main():
         "pseudofile_devfs": assert_generic("console.log", "[bioset]"),
         "pseudofile_sysfs": assert_generic("console.log", "[bioset]"),
         "uboot_env_cmp": assert_generic("env_cmp.txt", "target"),
+        "pseudofile_symbolic_ioctl": assert_generic("symex.log", "1234"),
     }
 
     # Ensure test configs stay in sync with this script

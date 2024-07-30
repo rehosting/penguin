@@ -94,6 +94,7 @@ jobs:
           - pseudofile_devfs
           - pseudofile_sysfs
           - uboot_env_cmp
+          - pseudofile_symbolic_ioctl
 
     steps:
       - name: Checkout code
