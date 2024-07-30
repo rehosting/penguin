@@ -147,7 +147,7 @@ penguin_run() {
     fi
 
     # Handle special case for "init" command by ensuring ./projects is mapped if no output directory is specified
-    if [[ ${#cmd[@]} -gt 1 && "${cmd[0]}" == "init" && ! " ${cmd[@]} " =~ " --output " ]]; then
+    if [[ ${#cmd[@]} -gt 1 && "${cmd[0]}" == "init" && ! "${cmd[1]}" == "--help" && ! " ${cmd[@]} " =~ " --output " ]]; then
         if [ ! -d "projects" ]; then
             mkdir "projects"
         fi
