@@ -27,7 +27,6 @@ class NetBinds(PyPlugin):
         self.ppp.Events.listen('igloo_ipv4_bind', self.on_bind)
         self.ppp.Events.listen('igloo_ipv6_bind', self.on_bind)
 
-
     def on_bind(self, cpu, procname, is_ipv4, is_stream, port, sin_addr):
         now = time.time()
         ipvn = 4 if is_ipv4 else 6

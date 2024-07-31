@@ -20,7 +20,7 @@ class SendHypercall(PyPlugin):
         def extract_args(cpu):
             buf_addr = self.panda.arch.get_arg(cpu, 1)
             buf_num_ptrs = self.panda.arch.get_arg(cpu, 2)
-            self.on_send_hypercall(cpu,buf_addr,buf_num_ptrs)
+            self.on_send_hypercall(cpu, buf_addr, buf_num_ptrs)
 
         self.logger = getColoredLogger("plugins.send_hypercall")
         if self.get_arg_bool("verbose"):
@@ -37,7 +37,7 @@ class SendHypercall(PyPlugin):
         self.bash_cov_csv = open(path, "w")
         csv.writer(self.bash_cov_csv).writerow(["filename", "lineno", "pid", "command"])
         self.bash_cov_csv.flush()
-    
+
     def on_send_hypercall(self, cpu, buf_addr, buf_num_ptrs):
         arch_bytes = self.panda.bits // 8
 

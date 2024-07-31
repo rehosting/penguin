@@ -513,8 +513,6 @@ def run_config(
         """
         panda.pyplugins.unload_all()
 
-
-
     logger.info("Launching rehosting")
 
     def _run():

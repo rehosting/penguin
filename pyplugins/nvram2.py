@@ -27,8 +27,10 @@ class Nvram2(PyPlugin):
 
     def on_nvram_get_hit(self, cpu, key):
         self.on_nvram_get(cpu, key, True)
+
     def on_nvram_get_miss(self, cpu, key):
         self.on_nvram_get(cpu, key, False)
+
     def on_nvram_get(self, cpu, key, hit):
         if "/" not in key:
             return

@@ -130,7 +130,6 @@ class Core(PyPlugin):
             )
             self.shutdown_thread.start()
 
-
     def shutdown_after_timeout(self, panda, timeout, shutdown_event):
         wait_time = 0
         while wait_time < timeout:
@@ -227,6 +226,7 @@ class CoreAnalysis(PenguinAnalysis):
         ] = how_truncated  # This doesn't actually make sense, but it will be unique
         return [Configuration("extended_{how_truncated}", new_config)]
 
+
 EVENTS = {
     # MAGIC ->  (NAME,              (ARG1,...,ARGN))
     100:        ('igloo_open',            (str, int)),
@@ -247,19 +247,19 @@ EVENTS = {
     0x6408400B: ('igloo_syscall',         (int,)),
 }
 
+
 class Events(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         # MAGIC -> [fn1, fn2, fn3,...]
         self.callbacks = {}
-    
+
     def _setup_hypercall_handler(self, magic, arg_types):
         @self.panda.hypercall(magic)
         def generic_hypercall(cpu):
             # argument parsing
             args = [cpu]
-            print("called: " + str(magic))
-            for i,arg in enumerate(arg_types):
+            for i, arg in enumerate(arg_types):
                 argval = self.panda.arch.get_arg(cpu, i+1, convention='syscall')
                 if arg is int:
                     args.append(argval)
@@ -278,6 +278,7 @@ class Events(PyPlugin):
                     raise ValueError(f"Unknown argument type {arg}")
             for fn in self.callbacks[magic]:
                 fn(*args)
+
     @PyPlugin.ppp_export
     def listen(self, name, callback):
         """

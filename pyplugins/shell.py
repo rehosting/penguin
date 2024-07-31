@@ -44,11 +44,11 @@ class BBCov(PyPlugin):
         @self.panda.hypercall(EXPECTED_MAGIC)
         def cb_hypercall(cpu):
             hc_type = self.panda.arch.get_arg(cpu, 1, convention="syscall")
-            argptr =  self.panda.arch.get_arg(cpu, 2, convention='syscall')
+            argptr = self.panda.arch.get_arg(cpu, 2, convention='syscall')
             length = self.panda.arch.get_arg(cpu, 3, convention='syscall')
             hc_type = hc_type & 0xffffffff
             length = length & 0xffffffff
-            
+
             try:
                 argv = self.panda.virtual_memory_read(
                     cpu, argptr, self.pointer_size * length, fmt="ptrlist"
@@ -59,11 +59,8 @@ class BBCov(PyPlugin):
             if hc_type == HC_CMD_LOG_LINENO:
                 self.log_line_no(cpu, argv)
 
-
             elif hc_type == HC_CMD_LOG_ENV_ARGS:
                 self.log_env_args(cpu, argv)
-
-
 
     def log_line_no(self, cpu, argv):
         if len(argv) != 3:
