@@ -370,6 +370,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # this from the host during development. In the long term we'll
 # merge these into the main penguin module
 COPY ./pyplugins/ /pandata
+RUN python3 /pandata/build_syscall_info_table.py
 
 # Default command: echo install instructions
 CMD ["/usr/local/bin/banner.sh"]
