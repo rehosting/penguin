@@ -7,6 +7,7 @@ from pandare import PyPlugin
 from penguin import getColoredLogger
 
 UBOOT_LOG = "uboot.log"
+SEND_HYPERCALL = 0xB335A535
 
 
 class SendHypercall(PyPlugin):
@@ -16,10 +17,10 @@ class SendHypercall(PyPlugin):
         open(os.path.join(self.outdir, UBOOT_LOG), "w").close()
         self.uboot_log = set()
 
-        @panda.hypercall(0xb335a535)
+        @panda.hypercall(SEND_HYPERCALL)
         def extract_args(cpu):
-            buf_addr = self.panda.arch.get_arg(cpu, 1)
-            buf_num_ptrs = self.panda.arch.get_arg(cpu, 2)
+            buf_addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
+            buf_num_ptrs = self.panda.arch.get_arg(cpu, 3, convention="syscall")
             self.on_send_hypercall(cpu, buf_addr, buf_num_ptrs)
 
         self.logger = getColoredLogger("plugins.send_hypercall")
@@ -42,8 +43,6 @@ class SendHypercall(PyPlugin):
         arch_bytes = self.panda.bits // 8
 
         # Read list of pointers
-        buf_addr = self.panda.arch.get_arg(cpu, 1)
-        buf_num_ptrs = self.panda.arch.get_arg(cpu, 2)
         buf_size = buf_num_ptrs * arch_bytes
         buf = self.panda.virtual_memory_read(cpu, buf_addr, buf_size, fmt="bytearray")
 

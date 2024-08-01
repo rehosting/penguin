@@ -68,8 +68,8 @@ class EnvTracker(PyPlugin):
             # Track the set env variables so we know they're set
             self.default_env_vars += list(self.conf["env"].keys())
 
-        self.ppp.Events.listen('igloo_getenv', self.on_getenv)
-        self.ppp.Events.listen('igloo_strstr', self.on_strstr)
+        self.ppp.Events.listen("igloo_getenv", self.on_getenv)
+        self.ppp.Events.listen("igloo_strstr", self.on_strstr)
 
     def on_strstr(self, cpu, s1, s2):
         # /proc/cmdline check. If we see match in one, target is the other
@@ -253,7 +253,7 @@ class TargetCmp(PyPlugin):
             },
         )
 
-        self.ppp.Events.listen('igloo_string_cmp', self.on_string_compare)
+        self.ppp.Events.listen("igloo_string_cmp", self.on_string_compare)
 
     def on_string_compare(self, cpu, s):
         """

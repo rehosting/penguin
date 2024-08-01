@@ -253,6 +253,7 @@ class Events(PyPlugin):
         self.panda = panda
         # MAGIC -> [fn1, fn2, fn3,...]
         self.callbacks = {}
+        self.logger = getColoredLogger("plugins.events")
 
     def _setup_hypercall_handler(self, magic, arg_types):
         @self.panda.hypercall(magic)
@@ -267,7 +268,7 @@ class Events(PyPlugin):
                     try:
                         s = self.panda.read_str(cpu, argval)
                     except ValueError:
-                        print(f"arg read fail: {magic} {argval:x} {i} {arg}")
+                        self.logger.debug(f"arg read fail: {magic} {argval:x} {i} {arg}")
                         self.panda.arch.dump_regs(cpu)
                         self.panda.arch.set_retval(cpu, 1)
                         return
@@ -290,6 +291,5 @@ class Events(PyPlugin):
                     self._setup_hypercall_handler(magic, arg_types)
                     self.callbacks[magic] = []
                 self.callbacks[magic].append(callback)
-                print("loaded: " + name)
                 return
         raise ValueError(f"Events has no event {name}")
