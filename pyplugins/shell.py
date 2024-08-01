@@ -41,16 +41,11 @@ class BBCov(PyPlugin):
         with open(join(self.outdir, outfile_env), "w") as f:
             f.write("filename,lineno,pid,envs\n")
 
-        @self.panda.cb_guest_hypercall
+        @self.panda.hypercall(EXPECTED_MAGIC)
         def cb_hypercall(cpu):
-            magic = self.panda.arch.get_arg(cpu, 0, convention="syscall") & 0xFFFFFFFF
-            if magic != EXPECTED_MAGIC:
-                return False
-
             hc_type = self.panda.arch.get_arg(cpu, 1, convention="syscall")
             argptr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
             length = self.panda.arch.get_arg(cpu, 3, convention="syscall")
-
             hc_type = hc_type & 0xFFFFFFFF
             length = length & 0xFFFFFFFF
 
@@ -63,13 +58,11 @@ class BBCov(PyPlugin):
 
             if hc_type == HC_CMD_LOG_LINENO:
                 self.log_line_no(cpu, argv)
-                return True
-
+                return
             elif hc_type == HC_CMD_LOG_ENV_ARGS:
                 self.log_env_args(cpu, argv)
-                return True
-
-            return False
+                return
+            self.logger.debug(f"Shell: unknown hc_type : {hc_type:x}")
 
     def log_line_no(self, cpu, argv):
         if len(argv) != 3:

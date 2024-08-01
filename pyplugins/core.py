@@ -130,154 +130,6 @@ class Core(PyPlugin):
             )
             self.shutdown_thread.start()
 
-        # Now define HC callbacks
-        # Define callbacks that are triggered from hypercalls
-        for cb in [
-            "igloo_open",
-            "igloo_string_cmp",
-            "igloo_getenv",
-            "igloo_strstr",
-            "igloo_bind",
-            "igloo_ioctl",
-            "igloo_syscall",
-            "igloo_nvram_get",
-            "igloo_nvram_set",
-            "igloo_nvram_clear",
-            "igloo_send_hypercall",
-        ]:
-            self.ppp_cb_boilerplate(cb)
-
-    @PyPlugin.ppp_export
-    def handle_hc(self, cpu, num):
-        try:
-            self._handle_hc(cpu, num & (2**32 - 1))
-        except ValueError:
-            # Argument couldn't be read
-            self.panda.arch.set_arg(cpu, 0, 1)
-        except RuntimeError:
-            # Not one of ours
-            return False
-        except Exception as e:
-            self.logger.warning(f"Error running hypercall {num}")
-            self.logger.exception(e)
-            self.panda.arch.dump_regs(cpu)
-            pass  # Technically we processed it, just badly. Need to ensure we still return bool instead of raising exn
-        return True
-
-    def _handle_hc(self, cpu, num):
-        if num == 100:
-            # open/openat (filename*, fd/retval)
-            arg1 = self.panda.arch.get_arg(cpu, 1)
-            fd = self.panda.arch.get_arg(cpu, 2)
-            fname = self.panda.read_str(cpu, arg1)
-            self.ppp_run_cb("igloo_open", cpu, fname, fd)
-
-        elif num in [101, 102]:
-            # strcmp/strncmp - non-DYNVAL string that's being compared
-            arg1 = self.panda.arch.get_arg(cpu, 1)
-            value = self.panda.read_str(cpu, arg1)
-            self.ppp_run_cb("igloo_string_cmp", cpu, value)
-
-        elif num == 103:
-            # getenv (name*)
-            arg1 = self.panda.arch.get_arg(cpu, 1)
-            value = self.panda.read_str(cpu, arg1)
-            self.ppp_run_cb("igloo_getenv", cpu, value)
-
-        elif num == 104:
-            # strstr (haystack*, needle*)
-            arg1 = self.panda.arch.get_arg(cpu, 1)
-            arg2 = self.panda.arch.get_arg(cpu, 2)
-            value1 = self.panda.read_str(cpu, arg1)
-            value2 = self.panda.read_str(cpu, arg2)
-
-            self.ppp_run_cb("igloo_strstr", cpu, value1, value2)
-
-        elif num == 105:
-            # ioctl (filename*, cmd)
-            arg1 = self.panda.arch.get_arg(cpu, 1)
-            value1 = self.panda.read_str(cpu, arg1)
-            arg2 = self.panda.arch.get_arg(cpu, 2)
-
-            self.ppp_run_cb("igloo_ioctl", cpu, value1, arg2)
-
-        elif num == 107:
-            # NVRAM miss
-            buffer = self.panda.arch.get_arg(cpu, 1)
-            buffer_len = self.panda.arch.get_arg(cpu, 2)
-            s = self.panda.read_str(cpu, buffer, max_length=buffer_len)
-            self.ppp_run_cb("igloo_nvram_get", cpu, s, False)
-
-        elif num == 108:
-            # NVRAM hit
-            buffer = self.panda.arch.get_arg(cpu, 1)
-            buffer_len = self.panda.arch.get_arg(cpu, 2)
-            s = self.panda.read_str(cpu, buffer, max_length=buffer_len)
-            self.ppp_run_cb("igloo_nvram_get", cpu, s, True)
-
-        elif num == 109:
-            # NVRAM set
-            buffer = self.panda.arch.get_arg(cpu, 1)
-            val = self.panda.arch.get_arg(cpu, 2)
-            s1 = self.panda.read_str(cpu, buffer)
-            s2 = self.panda.read_str(cpu, val)
-            self.ppp_run_cb("igloo_nvram_set", cpu, s1, s2)
-
-        elif num == 110:
-            # NVRAM clear
-            buffer = self.panda.arch.get_arg(cpu, 1)
-            buffer_len = self.panda.arch.get_arg(cpu, 2)
-            s = self.panda.read_str(cpu, buffer, max_length=buffer_len)
-            self.ppp_run_cb("igloo_nvram_clear", cpu, s)
-
-        elif num in [200, 202]:
-            # 200: ipv4 setup, 202: ipv6 setup
-            arg1 = self.panda.arch.get_arg(cpu, 1)
-
-            arg2 = self.panda.arch.get_arg(cpu, 2)
-            ipv4 = num == 200
-
-            if ipv4:
-                # Passed by value as it fits in a 32-bit register
-                sin_addr = int.to_bytes(arg2, 4, "little")
-            else:
-                # Passed as a pointer since it's 16 bytes
-                sin_addr = self.panda.virtual_memory_read(cpu, arg2, 16)
-
-            self.pending_procname = self.panda.read_str(cpu, arg1)
-            self.pending_sin_addr = sin_addr
-
-        elif num in [201, 203]:
-            # 201: ipv4 bind, 203: ipv6 bind
-            ipv4 = num == 201
-            port = self.panda.arch.get_arg(cpu, 1)
-            is_stream = self.panda.arch.get_arg(cpu, 2) != 0
-            self.ppp_run_cb(
-                "igloo_bind",
-                cpu,
-                self.pending_procname,
-                ipv4,
-                is_stream,
-                port,
-                self.pending_sin_addr,
-            )
-            self.pending_procname = None
-            self.pending_sin_addr = None
-
-        elif num == 0x6408400B:
-            # syscall
-            buf_addr = self.panda.arch.get_arg(cpu, 1)
-            self.ppp_run_cb("igloo_syscall", cpu, buf_addr)
-
-        elif num == 0xB335A535:
-            # send_hypercall
-            buf_addr = self.panda.arch.get_arg(cpu, 1)
-            buf_num_ptrs = self.panda.arch.get_arg(cpu, 2)
-            self.ppp_run_cb("igloo_send_hypercall", cpu, buf_addr, buf_num_ptrs)
-
-        else:
-            raise RuntimeError(f"handle_hc called with unknown hypercall: {num}")
-
     def shutdown_after_timeout(self, panda, timeout, shutdown_event):
         wait_time = 0
         while wait_time < timeout:
@@ -373,3 +225,71 @@ class CoreAnalysis(PenguinAnalysis):
             "extend"
         ] = how_truncated  # This doesn't actually make sense, but it will be unique
         return [Configuration("extended_{how_truncated}", new_config)]
+
+
+EVENTS = {
+    # MAGIC ->  (NAME,              (ARG1,...,ARGN))
+    100:        ('igloo_open',            (str, int)),
+    101:        ('igloo_string_cmp',      (str,)),
+    102:        ('igloo_string_cmp',      (str,)),
+    103:        ('igloo_getenv',          (str,)),
+    104:        ('igloo_strstr',          (str, str)),
+    105:        ('igloo_ioctl',           (str, int)),
+    106:        ('igloo_proc_mtd',        (int, int)),
+    107:        ('igloo_nvram_get_miss',  (int, int)),
+    108:        ('igloo_nvram_get_hit',   (int, int)),
+    109:        ('igloo_nvram_set',       (str, str)),
+    110:        ('igloo_nvram_clear',     (int, int)),
+    200:        ('igloo_ipv4_setup',      (int, int)),
+    201:        ('igloo_ipv4_bind',       (int, bool)),
+    202:        ('igloo_ipv6_setup',      (int, int)),
+    203:        ('igloo_ipv6_bind',       (int, bool)),
+    0x6408400B: ('igloo_syscall',         (int,)),
+}
+
+
+class Events(PyPlugin):
+    def __init__(self, panda):
+        self.panda = panda
+        # MAGIC -> [fn1, fn2, fn3,...]
+        self.callbacks = {}
+        self.logger = getColoredLogger("plugins.events")
+
+    def _setup_hypercall_handler(self, magic, arg_types):
+        @self.panda.hypercall(magic)
+        def generic_hypercall(cpu):
+            # argument parsing
+            args = [cpu]
+            for i, arg in enumerate(arg_types):
+                argval = self.panda.arch.get_arg(cpu, i+1, convention='syscall')
+                if arg is int:
+                    args.append(argval)
+                elif arg is str:
+                    try:
+                        s = self.panda.read_str(cpu, argval)
+                    except ValueError:
+                        self.logger.debug(f"arg read fail: {magic} {argval:x} {i} {arg}")
+                        self.panda.arch.dump_regs(cpu)
+                        self.panda.arch.set_retval(cpu, 1)
+                        return
+                    args.append(s)
+                elif arg is bool:
+                    args.append(argval != 0)
+                else:
+                    raise ValueError(f"Unknown argument type {arg}")
+            for fn in self.callbacks[magic]:
+                fn(*args)
+
+    @PyPlugin.ppp_export
+    def listen(self, name, callback):
+        """
+        Register a callback for an event.
+        """
+        for magic, (ename, arg_types) in EVENTS.items():
+            if ename == name:
+                if self.callbacks.get(magic, None) is None:
+                    self._setup_hypercall_handler(magic, arg_types)
+                    self.callbacks[magic] = []
+                self.callbacks[magic].append(callback)
+                return
+        raise ValueError(f"Events has no event {name}")
