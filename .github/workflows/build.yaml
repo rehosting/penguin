@@ -83,6 +83,7 @@ jobs:
           - hostfile
           - shared_dir
           - net_missing
+          - netbinds
           - netdevs
           - proc_self
           - pseudofile_readdir

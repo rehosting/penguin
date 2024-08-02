@@ -334,6 +334,7 @@ def main():
             "../host_shared/from_guest.txt", "Hello from guest"
         ),
         "net_missing": assert_generic("iface.log", ["eth0", "ens3"]),
+        "netbinds": assert_generic("netbinds.csv", "busybox,6,tcp,[::],8000,"),
         "netdevs": assert_generic("console.log", "tests pass"),
         "proc_self": assert_generic("console.log", "tests pass"),
         "pseudofile_readdir": assert_generic("console.log", "tests pass"),
