@@ -40,11 +40,7 @@ class Health(PyPlugin):
         #                               "summary": 'true'})
         self.ppp.Events.listen("igloo_ipv4_bind", self.on_ipv4_bind)
         self.ppp.Events.listen("igloo_ipv6_bind", self.on_ipv6_bind)
-        self.ppp.Events.listen("igloo_ipv4_setup", self.on_ipv4_setup)
-        self.ppp.Events.listen("igloo_ipv6_setup", self.on_ipv6_setup)
         self.ppp.Events.listen("igloo_open", self.health_detect_opens)
-        self.pending_procname = None
-        self.pending_sinaddr = None
 
         # TODO: replace with hypercall mechanism
         @panda.ppp("syscalls2", "on_sys_execve_enter")
@@ -90,29 +86,13 @@ class Health(PyPlugin):
                 self.procs_args.add(unique_name)
                 self.increment_event("nexecs_args")
 
-    def on_ipv4_setup(self, cpu, procname, sin_addr):
-        self.pending_procname = procname
-        self.pending_sinaddr = int.to_bytes(sin_addr, 4, "little")
-
-    def on_ipv6_setup(self, cpu, procname, sinaddr_addr):
-        self.pending_procname = procname
-        self.pending_sinaddr = self.panda.virtual_memory_read(cpu, sinaddr_addr, 16)
-
     def on_ipv4_bind(self, cpu, port, is_steam):
-        self.health_on_bind(
-            cpu, self.pending_procname, True, is_steam, port, self.pending_sinaddr
-        )
-        self.pending_procname = None
-        self.pending_sinaddr = None
+        self.health_on_bind(cpu, True, port)
 
     def on_ipv6_bind(self, cpu, port, is_steam):
-        self.health_on_bind(
-            cpu, self.pending_procname, False, is_steam, port, self.pending_sinaddr
-        )
-        self.pending_procname = None
-        self.pending_sinaddr = None
+        self.health_on_bind(cpu, False, port)
 
-    def health_on_bind(self, cpu, procname, is_ipv4, is_stream, port, sin_addr):
+    def health_on_bind(self, cpu, is_ipv4, port):
         if self.exiting:
             return
         ipvn = 4 if is_ipv4 else 6
