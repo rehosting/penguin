@@ -173,7 +173,10 @@ def hash_image_inputs(proj_dir, conf):
             with open(f["host_path"], "rb") as f:
                 f["contents"] = f.read()
 
-    return hash_yaml([static_files, fs_hash, conf.get("lib_inject")])
+    with open("/igloo_static/container_timestamp.txt") as f:
+        container_timestamp = f.read()
+
+    return hash_yaml([container_timestamp, static_files, fs_hash, conf.get("lib_inject")])
 
 
 def _load_penguin_analysis_from(plugin_file):

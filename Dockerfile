@@ -407,3 +407,5 @@ RUN if [ -d /tmp/local_packages ]; then \
             for f in  /igloo_static/utils.bin/*.arm64; do mv -- "$f" "${f%.arm64}.aarch64"; done; \
         fi; \
     fi
+
+RUN date +%s%N > /igloo_static/container_timestamp.txt
