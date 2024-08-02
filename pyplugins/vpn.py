@@ -199,11 +199,11 @@ class VsockVPN(PyPlugin):
 
     @staticmethod
     def find_free_port(port):
-        '''
+        """
         Try to give nice port numbers to the user (also more deterministic)
 
         e.g. 80 -> 1080, 443 -> 2443, 8080 -> 18080, 65535 -> 1000
-        '''
+        """
         for offset in range(1000, 65535, 1000):
             if VsockVPN.is_port_open(offset + port):
                 return offset + port

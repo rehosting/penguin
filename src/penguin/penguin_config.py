@@ -368,9 +368,7 @@ Star = Literal["*"]
 
 Ioctls = _newtype(
     class_name="Ioctls",
-    type_=Dict[
-        Union[int, Star], IoctlCommand
-    ],
+    type_=Dict[Union[int, Star], IoctlCommand],
     title="ioctl",
     description="How to handle ioctl() calls",
     default=dict(),
@@ -676,7 +674,9 @@ def _validate_config_options(config):
 
     logger = penguin.getColoredLogger("config")
 
-    if config["core"].get("ltrace", False) and config["core"]["arch"].startswith("mips64"):
+    if config["core"].get("ltrace", False) and config["core"]["arch"].startswith(
+        "mips64"
+    ):
         logger.error("ltrace does not support mips64")
         sys.exit(1)
 

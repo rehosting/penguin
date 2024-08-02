@@ -229,22 +229,22 @@ class CoreAnalysis(PenguinAnalysis):
 
 EVENTS = {
     # MAGIC ->  (NAME,              (ARG1,...,ARGN))
-    100:        ('igloo_open',            (str, int)),
-    101:        ('igloo_string_cmp',      (str,)),
-    102:        ('igloo_string_cmp',      (str,)),
-    103:        ('igloo_getenv',          (str,)),
-    104:        ('igloo_strstr',          (str, str)),
-    105:        ('igloo_ioctl',           (str, int)),
-    106:        ('igloo_proc_mtd',        (int, int)),
-    107:        ('igloo_nvram_get_miss',  (str,)),
-    108:        ('igloo_nvram_get_hit',   (str,)),
-    109:        ('igloo_nvram_set',       (str, str)),
-    110:        ('igloo_nvram_clear',     (str,)),
-    200:        ('igloo_ipv4_setup',      (str, int)),
-    201:        ('igloo_ipv4_bind',       (int, bool)),
-    202:        ('igloo_ipv6_setup',      (str, int)),
-    203:        ('igloo_ipv6_bind',       (int, bool)),
-    0x6408400B: ('igloo_syscall',         (int,)),
+    100: ("igloo_open", (str, int)),
+    101: ("igloo_string_cmp", (str,)),
+    102: ("igloo_string_cmp", (str,)),
+    103: ("igloo_getenv", (str,)),
+    104: ("igloo_strstr", (str, str)),
+    105: ("igloo_ioctl", (str, int)),
+    106: ("igloo_proc_mtd", (int, int)),
+    107: ("igloo_nvram_get_miss", (str,)),
+    108: ("igloo_nvram_get_hit", (str,)),
+    109: ("igloo_nvram_set", (str, str)),
+    110: ("igloo_nvram_clear", (str,)),
+    200: ("igloo_ipv4_setup", (str, int)),
+    201: ("igloo_ipv4_bind", (int, bool)),
+    202: ("igloo_ipv6_setup", (str, int)),
+    203: ("igloo_ipv6_bind", (int, bool)),
+    0x6408400B: ("igloo_syscall", (int,)),
 }
 
 
@@ -261,14 +261,16 @@ class Events(PyPlugin):
             # argument parsing
             args = [cpu]
             for i, arg in enumerate(arg_types):
-                argval = self.panda.arch.get_arg(cpu, i+1, convention='syscall')
+                argval = self.panda.arch.get_arg(cpu, i + 1, convention="syscall")
                 if arg is int:
                     args.append(argval)
                 elif arg is str:
                     try:
                         s = self.panda.read_str(cpu, argval)
                     except ValueError:
-                        self.logger.debug(f"arg read fail: {magic} {argval:x} {i} {arg}")
+                        self.logger.debug(
+                            f"arg read fail: {magic} {argval:x} {i} {arg}"
+                        )
                         self.panda.arch.set_retval(cpu, 1)
                         return
                     args.append(s)

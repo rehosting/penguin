@@ -51,8 +51,8 @@ class HyperFile(PyPlugin):
         self.logger = self.get_arg("logger")
 
         # Struct format strings for endianness and word size
-        self.endian = '<' if panda.endianness == 'little' else '>'
-        self.s_word, self.u_word = 'iI' if panda.bits == 32 else 'qQ'
+        self.endian = "<" if panda.endianness == "little" else ">"
+        self.s_word, self.u_word = "iI" if panda.bits == 32 else "qQ"
 
         if self.files is None:
             # We can be imported without files, but we'll ignore it
@@ -99,7 +99,9 @@ class HyperFile(PyPlugin):
         num_ptrs = self.panda.arch.get_arg(cpu, 3, convention="syscall")
         assert num_ptrs == 1
         try:
-            num_hyperfiles_addr = self.panda.virtual_memory_read(cpu, num_hyperfiles_addr_addr, self.arch_bytes, fmt="int")
+            num_hyperfiles_addr = self.panda.virtual_memory_read(
+                cpu, num_hyperfiles_addr_addr, self.arch_bytes, fmt="int"
+            )
             self.panda.virtual_memory_write(
                 cpu,
                 num_hyperfiles_addr,
@@ -108,10 +110,14 @@ class HyperFile(PyPlugin):
         except ValueError:
             # Memory r/w failed - tell guest to retry
             self.panda.arch.set_retval(cpu, RETRY)
-            self.logger.debug("Failed to read/write number of hyperfiles from guest - retry")
+            self.logger.debug(
+                "Failed to read/write number of hyperfiles from guest - retry"
+            )
 
     def handle_get_hyperfile_paths(self, cpu):
-        hyperfile_paths_array_ptr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
+        hyperfile_paths_array_ptr = self.panda.arch.get_arg(
+            cpu, 2, convention="syscall"
+        )
         n = len(self.files)
         assert n == self.panda.arch.get_arg(cpu, 3, convention="syscall")
         hyperfile_paths_ptrs = [None] * n
@@ -125,7 +131,9 @@ class HyperFile(PyPlugin):
                 )
             except ValueError:
                 self.panda.arch.set_retval(cpu, RETRY)
-                self.logger.debug("Failed to read hyperfile path ptr from guest - retry")
+                self.logger.debug(
+                    "Failed to read hyperfile path ptr from guest - retry"
+                )
                 return
         for path, buf in zip(self.files.keys(), hyperfile_paths_ptrs):
             try:
@@ -144,11 +152,17 @@ class HyperFile(PyPlugin):
         read_fmt = write_fmt = f"{self.endian} {self.u_word} {self.u_word} q"
         ioctl_fmt = f"{self.endian} I {self.u_word}"
         getattr_fmt = f"{self.endian} {self.u_word}"
-        hyperfs_data_size = struct.calcsize(header_fmt) + max(struct.calcsize(fmt) for fmt in (read_fmt, write_fmt, ioctl_fmt))
+        hyperfs_data_size = struct.calcsize(header_fmt) + max(
+            struct.calcsize(fmt) for fmt in (read_fmt, write_fmt, ioctl_fmt)
+        )
 
         try:
-            buf_addr = self.panda.virtual_memory_read(cpu, buf_addr_addr, self.arch_bytes, fmt="int")
-            buf = self.panda.virtual_memory_read(cpu, buf_addr, hyperfs_data_size, fmt="bytearray")
+            buf_addr = self.panda.virtual_memory_read(
+                cpu, buf_addr_addr, self.arch_bytes, fmt="int"
+            )
+            buf = self.panda.virtual_memory_read(
+                cpu, buf_addr, hyperfs_data_size, fmt="bytearray"
+            )
         except ValueError:
             # Memory read failed - tell guest to retry
             self.panda.arch.set_retval(cpu, RETRY)
@@ -169,15 +183,21 @@ class HyperFile(PyPlugin):
 
         # Ensure we have a model - if we don't, warn and add defult
         if device_name not in self.files:
-            self.logger.warning(f"Detected {hyper2name(type_val)} event on device {repr(device_name)} but device is not in config. Using defaults.")
-            self.files[device_name] = {k: v for k, v in self.default_model.items()}  # XXX can't use deepcopy
+            self.logger.warning(
+                f"Detected {hyper2name(type_val)} event on device {repr(device_name)} but device is not in config. Using defaults."
+            )
+            self.files[device_name] = {
+                k: v for k, v in self.default_model.items()
+            }  # XXX can't use deepcopy
 
         model = self.files[device_name]
         # Ensure our model specifies the current behavior - if not, warn and add default
         if type_val not in model:
             if not (type_val == HYPER_GETATTR and "size" in model):
                 # If we have a size, we can handle getattr with out default method (return size) and it's fine. Otherwise warn
-                self.logger.warning(f"Detected {hyper2name(type_val)} event on device {repr(device_name)} but this event is not modeled in config. Using default.")
+                self.logger.warning(
+                    f"Detected {hyper2name(type_val)} event on device {repr(device_name)} but this event is not modeled in config. Using default."
+                )
             model[type_val] = self.default_model[type_val]
 
         # Dispatch based on the type of operation
@@ -201,7 +221,7 @@ class HyperFile(PyPlugin):
         elif type_val == HYPER_WRITE:
             buffer, length, offset = struct.unpack_from(write_fmt, buf, sub_offset)
             try:
-                contents = self.panda.virtual_memory_read(cpu, buffer+offset, length)
+                contents = self.panda.virtual_memory_read(cpu, buffer + offset, length)
             except ValueError:
                 self.panda.arch.set_retval(cpu, RETRY)
                 return
@@ -219,11 +239,13 @@ class HyperFile(PyPlugin):
             size_bytes = struct.pack(f"{self.endian} q", size_data)
             self.handle_result(device_name, "getattr", retval, size_data)
 
-            size_ptr, = struct.unpack_from(getattr_fmt, buf, sub_offset)
+            (size_ptr,) = struct.unpack_from(getattr_fmt, buf, sub_offset)
             try:
                 self.panda.virtual_memory_write(cpu, size_ptr, size_bytes)
             except ValueError:
-                self.logger.debug("Failed to write hyperfile size into guest - retry(?)")
+                self.logger.debug(
+                    "Failed to write hyperfile size into guest - retry(?)"
+                )
                 self.panda.arch.set_retval(cpu, RETRY)
                 return
 
@@ -283,7 +305,7 @@ class HyperFile(PyPlugin):
     @staticmethod
     def read_zero(devname, buffer, length, offset):
         data = b"0"
-        final_data = data[offset: offset + length]
+        final_data = data[offset : offset + length]
         return (final_data, len(final_data))  # data, rv
 
     # Function to handle write operations

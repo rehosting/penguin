@@ -436,7 +436,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                     # Recover the env list from the line.
                     # This storage format is kinda gross
                     idx = line.index(",[")
-                    envs = line[idx + 1:].strip()
+                    envs = line[idx + 1 :].strip()
                     if not len(envs):
                         continue
                     env_tuples = eval(envs)  # XXX sad eval
