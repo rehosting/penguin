@@ -269,7 +269,6 @@ class Events(PyPlugin):
                         s = self.panda.read_str(cpu, argval)
                     except ValueError:
                         self.logger.debug(f"arg read fail: {magic} {argval:x} {i} {arg}")
-                        self.panda.arch.dump_regs(cpu)
                         self.panda.arch.set_retval(cpu, 1)
                         return
                     args.append(s)
