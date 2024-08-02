@@ -94,8 +94,6 @@ class HyperFile(PyPlugin):
             elif hc_type == HYPER_GET_HYPERFILE_PATHS:
                 self.handle_get_hyperfile_paths(cpu)
 
-            return True
-
     def handle_get_num_hyperfiles(self, cpu):
         num_hyperfiles_addr_addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
         num_ptrs = self.panda.arch.get_arg(cpu, 3, convention="syscall")

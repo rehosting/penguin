@@ -240,9 +240,9 @@ EVENTS = {
     108:        ('igloo_nvram_get_hit',   (int, int)),
     109:        ('igloo_nvram_set',       (str, str)),
     110:        ('igloo_nvram_clear',     (int, int)),
-    200:        ('igloo_ipv4_setup',      (int, int)),
+    200:        ('igloo_ipv4_setup',      (str, int)),
     201:        ('igloo_ipv4_bind',       (int, bool)),
-    202:        ('igloo_ipv6_setup',      (int, int)),
+    202:        ('igloo_ipv6_setup',      (str, int)),
     203:        ('igloo_ipv6_bind',       (int, bool)),
     0x6408400B: ('igloo_syscall',         (int,)),
 }
