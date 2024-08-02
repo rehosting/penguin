@@ -19,9 +19,9 @@ jobs:
     - name: Install dependencies
       if: github.event_name == 'pull_request'
       run: pip install flake8 lintly markupsafe==2.0.1
-    - name: Lint with flake8
+    - name: Lint with black
       if: github.event_name == 'pull_request'
-      run: flake8 | lintly
+      run: black 2>&1 >/dev/null | lintly --format=black
       env:
         LINTLY_API_KEY: ${{ secrets.GITHUB_TOKEN }}
 
