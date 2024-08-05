@@ -230,6 +230,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       click \
       art \
       setuptools \
+      sqlalchemy \
       junit-xml
 
 
@@ -365,6 +366,9 @@ COPY ./src /pkg
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip install -e /pkg && \
       pip install setuptools==67.7.2
+
+COPY ./db /db
+RUN pip install -e /db
 
 # Copy pyplugins into our the pandata directory. We might mount
 # this from the host during development. In the long term we'll
