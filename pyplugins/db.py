@@ -19,7 +19,6 @@ class DB(PyPlugin):
         if not hasattr(self, "first"):
             self.first = True
             Base.metadata.create_all(self.engine)
-        print(f"flushing queue with {len(self.queued_events)} events")
         with Session(self.engine) as session:
             session.add_all(self.queued_events)
             session.commit()
@@ -42,7 +41,7 @@ class DB(PyPlugin):
         if len(self.queued_events) >= self.buffer_size:
             self._flush_queue()
 
-    def close(self):
+    def uninit(self):
         if self.queued_events:
             self._flush_queue()
         self.engine.dispose()

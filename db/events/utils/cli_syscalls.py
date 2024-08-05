@@ -21,7 +21,7 @@ def syscall_filter(sess, procname, syscall, errors):
 @click.command()
 @click.option(
     "--results",
-    default="results",
+    default="./results/latest",
     help="Path to results folder (default is ./results/)",
 )
 @click.option(
