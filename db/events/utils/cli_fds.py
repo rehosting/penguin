@@ -2,7 +2,6 @@ from sqlalchemy import func, create_engine
 import click
 from events import Event, Write
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 from rich import print
 from time import sleep
 from os.path import join, exists
@@ -11,7 +10,7 @@ from os.path import join, exists
 @click.command()
 @click.option(
     "--results",
-    default="results",
+    default="./results/latest",
     help="Path to results folder (default is ./results/)",
 )
 @click.option(
