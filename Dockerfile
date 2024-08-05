@@ -149,7 +149,7 @@ RUN cd /tmp && \
     rm -rf /tmp/capstone
 
 #### CROSS BUILDER: Build send_hypercall ###
-FROM ghcr.io/panda-re/embedded-toolchains:latest as cross_builder
+FROM ghcr.io/rehosting/embedded-toolchains:latest as cross_builder
 COPY ./utils/send_hypercall.c /
 RUN cd / && \
   mkdir out && \

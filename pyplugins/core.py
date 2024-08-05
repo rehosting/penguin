@@ -236,10 +236,10 @@ EVENTS = {
     104:        ('igloo_strstr',          (str, str)),
     105:        ('igloo_ioctl',           (str, int)),
     106:        ('igloo_proc_mtd',        (int, int)),
-    107:        ('igloo_nvram_get_miss',  (int, int)),
-    108:        ('igloo_nvram_get_hit',   (int, int)),
+    107:        ('igloo_nvram_get_miss',  (str,)),
+    108:        ('igloo_nvram_get_hit',   (str,)),
     109:        ('igloo_nvram_set',       (str, str)),
-    110:        ('igloo_nvram_clear',     (int, int)),
+    110:        ('igloo_nvram_clear',     (str,)),
     200:        ('igloo_ipv4_setup',      (str, int)),
     201:        ('igloo_ipv4_bind',       (int, bool)),
     202:        ('igloo_ipv6_setup',      (str, int)),
@@ -269,7 +269,6 @@ class Events(PyPlugin):
                         s = self.panda.read_str(cpu, argval)
                     except ValueError:
                         self.logger.debug(f"arg read fail: {magic} {argval:x} {i} {arg}")
-                        self.panda.arch.dump_regs(cpu)
                         self.panda.arch.set_retval(cpu, 1)
                         return
                     args.append(s)

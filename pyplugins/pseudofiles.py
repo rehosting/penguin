@@ -330,8 +330,6 @@ class FileFailures(PyPlugin):
         self.ppp.Events.listen("igloo_open", self.fail_detect_opens)
         self.ppp.Events.listen("igloo_ioctl", self.fail_detect_ioctl)
 
-        self.ppp.Events.listen('igloo_proc_mtd', self.proc_mtd_check)
-
         # On ioctl return we might want to start symex. We detect failures with a special handler though
         if need_ioctl_hooks:
 
