@@ -4,4 +4,6 @@ import coloredlogs
 
 from .common import getColoredLogger, yaml
 
-VERSION = "1.0.0"
+from os.path import join, dirname
+
+VERSION = open(join(dirname(__file__), "version.txt")).read()
