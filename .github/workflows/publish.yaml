@@ -36,6 +36,8 @@ jobs:
               cache-from: type=registry,ref=rehosting/penguin:latest
               cache-to: type=inline
               tags: rehosting/penguin:${{ github.sha }},rehosting/penguin:${{ steps.version.outputs.v-version }},rehosting/penguin:latest
+              build-args: |
+                OVERRIDE_VERSION=${{ steps.version.outputs.v-version }}
           
           - name: Create release
             id: create_release
