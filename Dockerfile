@@ -233,6 +233,19 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       junit-xml
 
 
+FROM python_builder as version_generator
+ARG OVERRIDE_VERSION=""
+COPY .git /app/.git
+RUN if [ ! -z "${OVERRIDE_VERSION}" ]; then \
+        echo ${OVERRIDE_VERSION} > /app/version.txt; \
+        echo "Pretending version is ${OVERRIDE_VERSION}"; \
+    else \
+        python3 -m pip install setuptools_scm; \
+        python3 -m setuptools_scm -r /app/ > /app/version.txt; \
+        echo "Generating version from git"; \
+    fi;
+
+
 ### MAIN CONTAINER ###
 FROM $BASE_IMAGE as penguin
 # Environment setup
@@ -347,6 +360,7 @@ COPY ./README.md /docs/README.md
 # Now copy in our module and install it
 # penguin is editable so we can mount local copy for dev
 # setuptools is workaround for igloo #131
+COPY --from=version_generator /app/version.txt /pkg/penguin/version.txt
 COPY ./src /pkg
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip install -e /pkg && \

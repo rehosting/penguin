@@ -559,6 +559,10 @@ contains details on the configuration file format and options.
         "--wrapper-help", action="store_true", help="Show help for host penguin wrapper"
     )
 
+    parser.add_argument(
+        "--version", action="version", help="Show version information", version=VERSION
+    )
+
     args = parser.parse_args()
 
     # If cmd is unset show help
@@ -571,6 +575,7 @@ contains details on the configuration file format and options.
         logger.setLevel(logging.DEBUG)
         logger.debug("Verbose logging enabled")
 
+    logger.info("penguin version: %s", VERSION)
     if args.cmd == "init":
         penguin_init(args)
     elif args.cmd == "run":
