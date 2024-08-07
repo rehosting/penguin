@@ -1,7 +1,7 @@
 import hashlib
 import logging
 import re
-
+from pathlib import Path
 import coloredlogs
 import yaml
 
@@ -54,6 +54,38 @@ def hash_yaml(section_to_hash):
     hash_object.update(section_bytes)
     hash_digest = hash_object.hexdigest()
     return hash_digest
+
+def patch_config(base_config, patch):
+        # Merge configs.
+    def _recursive_update(base, new):
+        for k, v in new.items():
+            if isinstance(v, dict):
+                base[k] = _recursive_update(base.get(k, {}), v)
+            else:
+                base[k] = v
+        return base
+    
+    if issubclass(type(patch), Path):
+        with open(patch, "r") as f:
+            patch = yaml.safe_load(f)
+    for key, value in patch.items():
+        # Check if the key already exists in the base_config
+        if key in base_config:
+            # If the value is a dictionary, update subfields
+            if isinstance(value, dict):
+                # Recursive update to handle nested dictionaries
+                base_config[key] = _recursive_update(base_config.get(key, {}), value)
+            elif isinstance(value, list):
+                # Replace the list with the incoming list
+                base_config[key] = value
+            else:
+                # Replace the base value with the incoming value
+                base_config[key] = value
+        else:
+            # New key, add all data directly
+            base_config[key] = value
+    return base_config
+
 
 
 class PathHighlightingFormatter(coloredlogs.ColoredFormatter):
