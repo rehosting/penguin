@@ -41,9 +41,20 @@ class LocalGuestFS:
     def adjust_path(self, fname):
         fn = Path(fname)
         return Path(self.base, "./" + str(fn), follow_symlinks=False)
-
-    def write(self, path, content):
+    
+    # given a path, ensure that all containing folders exist
+    def ensure_containing_folders_exists(self, path):
         p = self.adjust_path(path)
+        for i in p.parents:
+            if not i.exists():
+                i.mkdir(exist_ok=True)
+            else:
+                # stop once we hit a directory that exists
+                break
+    
+    def write(self, path, content):
+        self.ensure_containing_folders_exists(path)
+        p = self.adjust_path(path)        
         with open(p, "w" if type(content) is str else "wb") as f:
             f.write(content)
 
@@ -66,6 +77,7 @@ class LocalGuestFS:
         return p.is_symlink()
 
     def mkdir_p(self, d):
+        self.ensure_containing_folders_exists(d)
         p = self.adjust_path(d)
         p.mkdir(exist_ok=True)
 
@@ -74,8 +86,10 @@ class LocalGuestFS:
         return str(p.readlink())
 
     def ln_s(self, target, path):
-        path = self.adjust_path(path)
-        path.symlink_to(target)
+        self.ensure_containing_folders_exists(Path(target))
+        self.ensure_containing_folders_exists(Path(path))
+        p = self.adjust_path(path)
+        p.symlink_to(target)
 
     def chmod(self, mode, fpath):
         fp = self.adjust_path(fpath)
@@ -87,6 +101,7 @@ class LocalGuestFS:
             os.chmod(fp, mode)
 
     def _mknod(self, t, mode, major, minor, file_path):
+        self.ensure_containing_folders_exists(file_path)
         f = self.adjust_path(file_path)
         check_output(f"mknod -m {oct(mode)[2:]} {f} {t} {major} {minor}", shell=True)
 
@@ -97,6 +112,8 @@ class LocalGuestFS:
         self._mknod("c", mode, major, minor, file_path)
 
     def mv(self, fr, to):
+        self.ensure_containing_folders_exists(to)
+        self.ensure_containing_folders_exists(fr)
         from_ = self.adjust_path(fr)
         to_ = self.adjust_path(to)
         check_output(f"mv {from_} {to_}", shell=True)
