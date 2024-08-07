@@ -12,7 +12,7 @@ import art
 
 from penguin import VERSION, getColoredLogger
 
-from .common import yaml
+from .common import yaml, patch_config
 from .gen_config import fakeroot_gen_config
 from .manager import PandaRunner, calculate_score, graph_search
 from .penguin_config import load_config
@@ -251,37 +251,13 @@ def penguin_patch(args):
         base_config = yaml.safe_load(f)
 
     with open(patch, "r") as f:
-        patch_config = yaml.safe_load(f)
+        p_config = yaml.safe_load(f)
 
-    # Merge configs.
-    def _recursive_update(base, new):
-        for k, v in new.items():
-            if isinstance(v, dict):
-                base[k] = _recursive_update(base.get(k, {}), v)
-            else:
-                base[k] = v
-        return base
-
-    for key, value in patch_config.items():
-        # Check if the key already exists in the base_config
-        if key in base_config:
-            # If the value is a dictionary, update subfields
-            if isinstance(value, dict):
-                # Recursive update to handle nested dictionaries
-                base_config[key] = _recursive_update(base_config.get(key, {}), value)
-            elif isinstance(value, list):
-                # Replace the list with the incoming list
-                base_config[key] = value
-            else:
-                # Replace the base value with the incoming value
-                base_config[key] = value
-        else:
-            # New key, add all data directly
-            base_config[key] = value
+    base_config = patch_config(base_config, p_config)
 
     # Replace the original config with the updated one
     with open(config, "w") as f:
-        yaml.dump(base_config, f)
+        yaml.dump(base_config, f, sort_keys=False)
 
 
 def add_docs_arguments(parser):

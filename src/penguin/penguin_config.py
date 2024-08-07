@@ -11,6 +11,12 @@ from pydantic import BaseModel, Field, RootModel
 from pydantic.config import ConfigDict
 from pydantic_core import PydanticUndefined, PydanticUndefinedType
 
+try:
+    from penguin.common import patch_config
+except ImportError:
+    pass
+from pathlib import Path
+
 ENV_MAGIC_VAL = "DYNVALDYNVALDYNVAL"
 
 
@@ -368,9 +374,7 @@ Star = Literal["*"]
 
 Ioctls = _newtype(
     class_name="Ioctls",
-    type_=Dict[
-        Union[int, Star], IoctlCommand
-    ],
+    type_=Dict[Union[int, Star], IoctlCommand],
     title="ioctl",
     description="How to handle ioctl() calls",
     default=dict(),
@@ -427,6 +431,13 @@ Pseudofiles = _newtype(
     type_=dict[str, Pseudofile],
     title="Pseudo-files",
     description="Device files to emulate in the guest",
+)
+
+Patches = _newtype(
+    class_name="Patches",
+    type_=list[str],
+    title="Patches",
+    description="List of paths to patch files",
 )
 
 
@@ -637,6 +648,7 @@ class Main(BaseModel):
     model_config = ConfigDict(title="Penguin Configuration", extra="forbid")
 
     core: Core
+    patches: Optional[Patches] = None
     env: Env
     pseudofiles: Pseudofiles
     nvram: NVRAM
@@ -676,7 +688,9 @@ def _validate_config_options(config):
 
     logger = penguin.getColoredLogger("config")
 
-    if config["core"].get("ltrace", False) and config["core"]["arch"].startswith("mips64"):
+    if config["core"].get("ltrace", False) and config["core"]["arch"].startswith(
+        "mips64"
+    ):
         logger.error("ltrace does not support mips64")
         sys.exit(1)
 
@@ -690,6 +704,12 @@ def load_config(path):
     """Load penguin config from path"""
     with open(path, "r") as f:
         config = yaml.safe_load(f)
+    if config.get("patches", None) is not None:
+        patch_list = config["patches"]
+        for patch in patch_list:
+            # patches are loaded relative to the main config file
+            patch_relocated = Path(Path(path).parent, patch)
+            config = patch_config(config, patch_relocated)
     _validate_config(config)
     return config
 
