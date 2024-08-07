@@ -55,8 +55,9 @@ def hash_yaml(section_to_hash):
     hash_digest = hash_object.hexdigest()
     return hash_digest
 
+
 def patch_config(base_config, patch):
-        # Merge configs.
+    # Merge configs.
     def _recursive_update(base, new):
         for k, v in new.items():
             if isinstance(v, dict):
@@ -64,7 +65,7 @@ def patch_config(base_config, patch):
             else:
                 base[k] = v
         return base
-    
+
     if issubclass(type(patch), Path):
         with open(patch, "r") as f:
             patch = yaml.safe_load(f)
@@ -85,7 +86,6 @@ def patch_config(base_config, patch):
             # New key, add all data directly
             base_config[key] = value
     return base_config
-
 
 
 class PathHighlightingFormatter(coloredlogs.ColoredFormatter):

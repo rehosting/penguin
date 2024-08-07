@@ -41,7 +41,7 @@ class LocalGuestFS:
     def adjust_path(self, fname):
         fn = Path(fname)
         return Path(self.base, "./" + str(fn), follow_symlinks=False)
-    
+
     # given a path, ensure that all containing folders exist
     def ensure_containing_folders_exists(self, path):
         p = self.adjust_path(path)
@@ -51,10 +51,10 @@ class LocalGuestFS:
             else:
                 # stop once we hit a directory that exists
                 break
-    
+
     def write(self, path, content):
         self.ensure_containing_folders_exists(path)
-        p = self.adjust_path(path)        
+        p = self.adjust_path(path)
         with open(p, "w" if type(content) is str else "wb") as f:
             f.write(content)
 
@@ -204,9 +204,10 @@ def _modify_guestfs(g, file_path, file, project_dir):
                     hp = file["host_path"]
                 else:
                     hp = os.path.join(project_dir, file["host_path"])
-                
+
                 if "*" in hp:
                     from glob import glob
+
                     matches = glob(hp)
                     if len(matches) > 1:
                         # only handling * case for now
@@ -217,7 +218,7 @@ def _modify_guestfs(g, file_path, file, project_dir):
                             new_file_path = str(Path(folder, Path(m).name))
                             _modify_guestfs(g, new_file_path, new_file, project_dir)
                         return
-                    
+
                 try:
                     contents = open(hp, "rb").read()
                 except FileNotFoundError:
