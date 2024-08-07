@@ -1,0 +1,33 @@
+core:
+  arch: aarch64
+  kernel: /igloo_static/kernels/4.10/zImage.arm64
+
+static_files:
+  /igloo/utils/busybox:
+    type: host_file
+    host_path: /igloo_static/utils.bin/busybox.aarch64
+    mode: 493
+  /igloo/utils/strace:
+    type: host_file
+    host_path: /igloo_static/utils.bin/strace.aarch64
+    mode: 493
+  /igloo/utils/micropython:
+    type: host_file
+    host_path: /igloo_static/utils.bin/micropython.aarch64
+    mode: 493
+  /igloo/utils/hyperfs:
+    type: host_file
+    host_path: /igloo_static/utils.bin/hyperfs.aarch64
+    mode: 493
+  /igloo/utils/send_hypercall:
+    type: host_file
+    host_path: /igloo_static/utils.bin/send_hypercall.aarch64
+    mode: 493
+  /igloo/utils/vpn:
+    type: host_file
+    host_path: /igloo_static/vpn/vpn.aarch64
+    mode: 493
+  /igloo/dylibs/*:
+    host_path: /igloo_static/dylibs/arm64/*
+    mode: 493
+    type: host_file

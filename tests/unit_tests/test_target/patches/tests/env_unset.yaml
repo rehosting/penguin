@@ -1,8 +1,12 @@
-core:
-  root_shell: false
+plugins:
+  verifier:
+    conditions:
+      env_unset:
+        type: file_contains
+        file: console.log
+        string: "/tests/env_unset.sh PASS"
 
 env:
-  igloo_init: /init
   # These are *not* the variables we're looking for below
   #envvar_: "trailing_underscore"
   #_envvar: "prefix_underscore" # Grep below would actually match this. Skip
@@ -12,7 +16,7 @@ env:
   _anothervar: "prefix_underscore"
 
 static_files:
-  /init:
+  /tests/env_unset.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/sh
@@ -39,6 +43,6 @@ static_files:
         exit 1
       fi
 
-      echo "tests pass"
+      # echo "tests pass"
       exit 0
     mode: 73

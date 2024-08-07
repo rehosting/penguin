@@ -1,0 +1,42 @@
+plugins:
+  verifier:
+    conditions:
+      uboot_env_cmp+console:
+        type: file_contains
+        file: console.log
+        string: "/tests/uboot_env_cmp.sh PASS"
+      uboot_env_cmp+cmp:
+        type: file_contains
+        file: env_cmp.txt
+        string: target
+  send_hypercall:
+    depends_on: core
+    description: 'Analysis: Consume hypercall output from the guest (for nvram accesses)'
+    version: 1.0.0
+
+uboot_env:
+  envvar: DYNVALDYNVALDYNVAL
+    
+static_files:
+  /tests/uboot_env_cmp.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+      # Env test
+      v=`/igloo/utils/send_hypercall fw_getenv envvar`
+
+      if [ "$v" != "DYNVALDYNVALDYNVAL" ]; then
+        echo "Bad envvar $v"
+        exit 1
+      fi
+      if [ "$v" == "target" ]; then
+        echo "Bad envvar $v"
+        exit 1
+      fi
+
+
+      echo "Everything is good"
+      echo "Passed all init checks"
+      exit 0
+    mode: 73

@@ -1,8 +1,10 @@
-core:
-  root_shell: false
-
-env:
-  igloo_init: /init
+plugins:
+  verifier:
+    conditions:
+      proc_mtd:
+        type: file_contains
+        file: console.log
+        string: "/tests/proc_mtd.sh PASS"
 
 pseudofiles:
   /dev/mtd0:
@@ -12,7 +14,7 @@ pseudofiles:
       val: "hello world"
 
 static_files:
-  /init:
+  /tests/proc_mtd.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/sh

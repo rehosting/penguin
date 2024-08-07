@@ -1,0 +1,20 @@
+plugins:
+  verifier:
+    conditions:
+      bash:
+        type: file_contains
+        file: console.log
+        string: "/tests/bash.sh PASS"
+
+static_files:
+  /tests/bash.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+
+      echo "Hello from $0 $@"
+      for x in a b c d; do
+        echo $x
+      done
+      exit 0
+    mode: 73

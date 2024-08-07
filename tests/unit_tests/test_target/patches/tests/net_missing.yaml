@@ -1,10 +1,12 @@
-core:
-  root_shell: false
-
-env:
-  igloo_init: /init
-
 # Netdev names do not match what we check for below, but they're similar
+plugins:
+  verifier:
+    conditions:
+      net_missing:
+        type: file_contains
+        file: console.log
+        string: "/tests/net_missing.sh PASS"
+
 netdevs:
   - _eth0
   - eth0_
@@ -14,7 +16,7 @@ netdevs:
   - ens4
 
 static_files:
-  /init:
+  /tests/net_missing.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/sh
@@ -36,6 +38,6 @@ static_files:
           exit 1
       fi
 
-      echo "tests pass"
+      # echo "tests pass"
       exit 0
     mode: 73

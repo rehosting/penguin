@@ -1,9 +1,11 @@
 # Ensure that readdir() lists both pseudofiles and real files, and that it filters duplicates
-core:
-  root_shell: false
-
-env:
-  igloo_init: /init
+plugins:
+  verifier:
+    conditions:
+      pseudofile_readdir:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_readdir.sh PASS"
 
 
 pseudofiles:
@@ -12,7 +14,7 @@ pseudofiles:
   /dev/a/b: {}
 
 static_files:
-  /init:
+  /tests/pseudofile_readdir.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/sh
