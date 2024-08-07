@@ -6,7 +6,7 @@ on:
       - main
 jobs:
     build_container:
-        runs-on: ubuntu-latest
+        runs-on: rehosting-arc
 
         steps:
           - name: Setup runner
@@ -37,13 +37,6 @@ jobs:
               cache-to: type=inline
               tags: rehosting/penguin:${{ github.sha }},rehosting/penguin:${{ steps.version.outputs.v-version }},rehosting/penguin:latest
           
-          - name: Log in to GitHub Container Registry
-            uses: docker/login-action@v3
-            with:
-              registry: ghcr.io
-              username: ${{ github.actor }}
-              password: ${{ secrets.GITHUB_TOKEN }}
-
           - name: Create release
             id: create_release
             uses: actions/create-release@v1
