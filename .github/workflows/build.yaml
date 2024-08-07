@@ -113,8 +113,16 @@ jobs:
               docker pull ghcr.io/rehosting/penguin:${{ github.sha }};
               docker tag ghcr.io/rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
 
-      - name: Test ${{ matrix.test }} for ${{ matrix.arch }} kernel v${{ matrix.kernel }}
-        run: timeout 5m python3 $GITHUB_WORKSPACE/tests/unit_tests/test.py --kernel-version ${{ matrix.kernel }} --arch ${{ matrix.arch }} --test ${{ matrix.test }}
+      - name: Test for ${{ matrix.arch }} kernel v${{ matrix.kernel }}
+        run: timeout 5m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py --kernel ${{ matrix.kernel }} --arch ${{ matrix.arch }}
+      
+      - name: Test Report
+        uses: dorny/test-reporter@v1.9.1
+        if: success() || failure()
+        with: 
+          name: test-results
+          path: $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/0/verifier.xml
+          reporter: java-junit
 
   remove-docker-tag:
     runs-on: ubuntu-latest

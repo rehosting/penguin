@@ -229,7 +229,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       jsonschema \
       click \
       art \
-      setuptools
+      setuptools \
+      junit-xml
 
 
 ### MAIN CONTAINER ###
