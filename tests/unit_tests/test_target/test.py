@@ -32,8 +32,8 @@ def penguin_patch(base, patch, image):
                 patch,
             ],
             check=True,
-            stdout=open(proj_dir / Path("test_log.txt"), "w"),
-            stderr=subprocess.STDOUT,
+            # stdout=open(proj_dir / Path("test_log.txt"), "w"),
+            # stderr=subprocess.STDOUT,
         )
     except subprocess.CalledProcessError:
         logger.error("Penguin patch failed, showing last 50 lines from log:")
@@ -52,8 +52,8 @@ def penguin_run(config, image):
                 config,
             ],
             check=True,
-            stdout=open(proj_dir / Path("test_log.txt"), "w"),
-            stderr=subprocess.STDOUT,
+            # stdout=open(proj_dir / Path("test_log.txt"), "w"),
+            # stderr=subprocess.STDOUT,
         )
     except subprocess.CalledProcessError:
         logger.error("Penguin run failed, showing last 50 lines from log:")
