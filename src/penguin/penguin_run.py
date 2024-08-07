@@ -360,7 +360,7 @@ def run_config(
         shared_dir = conf["core"]["shared_dir"]
         if shared_dir[0] == "/":
             shared_dir = shared_dir[1:]  # Ensure it's relative path to proj_dir
-        shared_dir = os.path.join(proj_dir, shared_dir)
+        shared_dir = os.path.join(out_dir, shared_dir)
         os.makedirs(shared_dir, exist_ok=True)
         args += [
             "-virtfs",
