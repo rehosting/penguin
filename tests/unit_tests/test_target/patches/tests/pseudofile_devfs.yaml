@@ -1,8 +1,14 @@
-core:
-  root_shell: false
-
-env:
-  igloo_init: /init
+plugins:
+  verifier:
+    conditions:
+      pseudofile_devfs+console:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_devfs.sh PASS"
+      pseudofile_devfs+log:
+        type: file_contains
+        file: shared/tests/pseudofile_devfs.sh/stdout
+        string: "[bioset]"
 
 pseudofiles:
   /dev/test1: {}
@@ -11,8 +17,9 @@ pseudofiles:
    read:
      model: const_buf
      val: "1"
+
 static_files:
-  /init:
+  /tests/pseudofile_devfs.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/sh
@@ -36,4 +43,5 @@ static_files:
       echo "Everything is good"
       echo "Passed all init checks"
       /igloo/utils/busybox ps aux
+      exit 0
     mode: 73

@@ -1,0 +1,40 @@
+plugins:
+  verifier:
+    conditions:
+      pseudofile_missing+console:
+        type: file_contains
+        file: console.log 
+        string: "/tests/pseudofile_missing.sh PASS"
+      pseudofile_missing+failures:
+        type: file_contains
+        file: pseudofiles_failures.yaml
+        strings:
+          -  /dev/missing
+          -  /dev/net/missing
+          -  /dev/foo/missing
+          -  /proc/missing
+          -  /proc/fs/missing
+          -  /proc/foo/missing
+          -  /sys/missing
+          -  /sys/fs/missing
+          -  /sys/foo/missing
+
+static_files:
+  /tests/pseudofile_missing.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      paths="/dev/missing /dev/net/missing /dev/foo/missing /proc/missing /proc/fs/missing /proc/foo/missing /sys/missing /sys/fs/missing /sys/foo/missing"
+
+      for path in $paths; do
+          if [ -e "$path" ]; then
+              echo "Unexpected: $path present when we didn't expect it to be"
+              exit 1
+          fi
+      done
+
+      echo "tests pass"
+      exit 0
+    mode: 73

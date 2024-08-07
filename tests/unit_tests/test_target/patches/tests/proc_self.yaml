@@ -1,13 +1,15 @@
 # The /proc/self symlink location depends on the accessing PID, which has the potential for issues with hyperfs, so we test it here
+plugins:
+  verifier:
+    conditions:
+      proc_self:
+        type: file_contains
+        file: console.log
+        string: "/tests/proc_self.sh PASS"
 
-core:
-  root_shell: false
-
-env:
-  igloo_init: /init
 
 static_files:
-  /init:
+  /tests/proc_self.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/sh
@@ -24,6 +26,5 @@ static_files:
         exit 1
       fi
 
-      echo "tests pass"
       exit 0
     mode: 73

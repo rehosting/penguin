@@ -1,14 +1,17 @@
-core:
-  root_shell: false
-
-env:
-  igloo_init: /init
+plugins:
+  verifier:
+    conditions:
+      proc_mtd_dynamic:
+        type: file_contains
+        file: console.log
+        string: "/tests/proc_mtd_dynamic.sh PASS"
 
 pseudofiles:
   /dev/mtd100:
     name: fakemtd
+
 static_files:
-  /init:
+  /tests/proc_mtd_dynamic.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/micropython

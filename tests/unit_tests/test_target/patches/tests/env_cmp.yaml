@@ -1,18 +1,22 @@
-core:
-  root_shell: false
+plugins:
+  verifier:
+    conditions:
+      env_cmp:
+        type: file_contains
+        file: console.log
+        string: "/tests/env_cmp.sh PASS"
 
 env:
-  igloo_init: /init
-  envvar: DYNVALDYNVALDYNVAL
+  somevar: someval
 
 static_files:
-  /init:
+  /tests/env_cmp.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/sh
       set -eux
       # Env test
-      v=`/igloo/utils/busybox cat /proc/cmdline | /igloo/utils/busybox awk '{for (i=1; i<=NF; i++) if ($i ~ /^envvar=/) print substr($i, 8)}'`
+      v=`/igloo/utils/busybox cat /proc/cmdline | /igloo/utils/busybox awk '{for (i=1; i<=NF; i++) if ($i ~ /^somevar=/) print substr($i, 8)}'`
 
       if [ "$v" == "firsttarget" ]; then
         echo "Unexpected, envvar is set to first target"

@@ -1,5 +1,10 @@
-env:
-  igloo_init: /init
+plugins:
+  verifier:
+    conditions:
+      pseudofile_mmap_shared:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_mmap_shared.sh PASS"
 
 pseudofiles:
   /proc/aaaa/pf:
@@ -9,7 +14,7 @@ pseudofiles:
       val: "Hello from pseudofile!"
 
 static_files:
-  /init:
+  /tests/pseudofile_mmap_shared.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/micropython

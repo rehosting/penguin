@@ -1,0 +1,22 @@
+plugins:
+  verifier:
+    conditions:
+      shared_dir:
+        type: file_contains
+        file: shared/from_guest.txt
+        string: "Hello from guest!"
+
+# core:
+#  shared_dir: /host_shared
+
+static_files:
+  /tests/shared_dir.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+      echo 'Hello from guest!' > /igloo/shared/from_guest.txt
+
+      echo "tests pass"
+      exit 0
+    mode: 73

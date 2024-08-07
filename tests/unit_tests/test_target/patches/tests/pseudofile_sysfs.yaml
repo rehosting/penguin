@@ -1,8 +1,14 @@
-core:
-  root_shell: false
-
-env:
-  igloo_init: /init
+plugins:
+  verifier:
+    conditions:
+      pseudofile_sysfs+console:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_sysfs.sh PASS"
+      pseudofile_sysfs+stdout:
+        type: file_contains
+        file: shared/tests/pseudofile_sysfs.sh/stdout
+        string: "[bioset]"
 
 pseudofiles:
   /sys/foo/mytest: {}
@@ -15,7 +21,7 @@ pseudofiles:
       model: discard
 
 static_files:
-  /init:
+  /tests/pseudofile_sysfs.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/sh

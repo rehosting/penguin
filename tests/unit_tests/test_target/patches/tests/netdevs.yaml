@@ -1,17 +1,19 @@
-core:
-  root_shell: false
-
-env:
-  igloo_init: /init
+plugins:
+  verifier:
+    conditions:
+      netdevs:
+        type: file_contains
+        file: console.log
+        string: "/tests/netdevs.sh PASS"
 
 netdevs:
-  - eth0
-  - eth1
-  - ens4
+  - nd0 
+  - nd1
+  - end4
   - wlan0
 
 static_files:
-  /init:
+  /tests/netdevs.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/sh
@@ -20,13 +22,12 @@ static_files:
       /igloo/utils/busybox ip a
 
       # Check for each interfaces
-      for dev in eth0 eth1 ens4 wlan0; do
+      for dev in nd0 nd1 end4 wlan0; do
           if ! /igloo/utils/busybox ip link show dev $dev; then
               echo "Expected interface $dev not found"
               exit 1
           fi
       done
 
-      echo "tests pass"
       exit 0
     mode: 73

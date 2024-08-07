@@ -1,0 +1,53 @@
+plugins:
+  verifier:
+    conditions:
+      pseudofile_ioctl+console:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_ioctl.sh PASS"
+      pseudofile_ioctl+failures:
+        type: yaml_contains 
+        file: pseudofiles_failures.yaml
+        subkeys: 
+          /dev/foo/present:
+            ioctl:
+              799:
+                count: 4
+          /dev/fs/present:
+            ioctl:
+              799:
+                count: 4
+          /dev/present:
+            ioctl:
+              799:
+                count: 4
+
+pseudofiles:
+  /dev/present: {}
+  /dev/fs/present: {}
+  /dev/foo/present: {}
+
+static_files:
+  /tests/pseudofile_ioctl.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -ux
+      
+      # First check existance of device explicitly to make sure that it's present
+      paths="/dev/present /dev/fs/present /dev/foo/present"
+      for path in $paths; do
+          if [ ! -e "$path" ]; then
+              echo "Missing $path (unexpected)"
+              exit 1
+          fi
+      done
+
+      # Run hdparam on each device which issues ioctl HDIO_DRIVE_CMD twice
+      /igloo/utils/busybox hdparm -I /dev/present
+      /igloo/utils/busybox hdparm -I /dev/fs/present
+      /igloo/utils/busybox hdparm -I /dev/foo/present
+
+      echo "tests pass"
+      exit 0
+    mode: 73

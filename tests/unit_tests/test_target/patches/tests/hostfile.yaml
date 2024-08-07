@@ -1,11 +1,13 @@
-core:
-  root_shell: false
-
-env:
-  igloo_init: /init
+plugins:
+  verifier:
+    conditions:
+      hostfile:
+        type: file_contains
+        file: console.log
+        string: "/tests/hostfile.sh PASS"
 
 static_files:
-  /init:
+  /tests/hostfile.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/sh
@@ -38,7 +40,7 @@ static_files:
         exit 1
       fi
 
-      echo "tests pass"
+      # echo "tests pass"
       exit 0
     mode: 00555
 

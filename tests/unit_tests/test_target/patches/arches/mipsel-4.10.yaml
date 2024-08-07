@@ -1,0 +1,33 @@
+core:
+  arch: mipsel
+  kernel: /igloo_static/kernels/4.10/vmlinux.mipsel
+
+static_files:
+  /igloo/utils/busybox:
+    type: host_file
+    host_path: /igloo_static/utils.bin/busybox.mipsel
+    mode: 493
+  /igloo/utils/strace:
+    type: host_file
+    host_path: /igloo_static/utils.bin/strace.mipsel
+    mode: 493
+  /igloo/utils/micropython:
+    type: host_file
+    host_path: /igloo_static/utils.bin/micropython.mipsel
+    mode: 493
+  /igloo/utils/hyperfs:
+    type: host_file
+    host_path: /igloo_static/utils.bin/hyperfs.mipsel
+    mode: 493
+  /igloo/utils/send_hypercall:
+    type: host_file
+    host_path: /igloo_static/utils.bin/send_hypercall.mipsel
+    mode: 493
+  /igloo/utils/vpn:
+    type: host_file
+    host_path: /igloo_static/vpn/vpn.mipsel
+    mode: 493
+  /igloo/dylibs/*:
+    host_path: /igloo_static/dylibs/mipsel/*
+    mode: 493
+    type: host_file
