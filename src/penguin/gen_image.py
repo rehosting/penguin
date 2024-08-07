@@ -204,6 +204,20 @@ def _modify_guestfs(g, file_path, file, project_dir):
                     hp = file["host_path"]
                 else:
                     hp = os.path.join(project_dir, file["host_path"])
+                
+                if "*" in hp:
+                    from glob import glob
+                    matches = glob(hp)
+                    if len(matches) > 1:
+                        # only handling * case for now
+                        folder = Path(file_path).parent
+                        for m in matches:
+                            new_file = file
+                            new_file["host_path"] = m
+                            new_file_path = str(Path(folder, Path(m).name))
+                            _modify_guestfs(g, new_file_path, new_file, project_dir)
+                        return
+                    
                 try:
                     contents = open(hp, "rb").read()
                 except FileNotFoundError:
