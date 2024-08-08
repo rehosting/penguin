@@ -52,6 +52,12 @@ qemu_configs = {
         "mem_gb": "2",
         "cpu": "MIPS64R2-generic",
     },
+    "intel64": {
+        "qemu_machine": "pc",
+        "arch": "x86_64",
+        "kconf_group": "x86_64",
+        "mem_gb": "2"
+    }
 }
 
 
