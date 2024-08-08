@@ -147,7 +147,7 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
         return
     arch, end = arch_end(arch_identified)
 
-    if arch == None:
+    if arch is None:
         logger.error(f"Architecture {arch_identified} not supported ({arch}, {end})")
         return
 
