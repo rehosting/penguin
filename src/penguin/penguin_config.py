@@ -75,10 +75,10 @@ class Core(BaseModel):
     model_config = ConfigDict(title="Core configuration options", extra="forbid")
 
     arch: Annotated[
-        Literal["armel", "aarch64", "mipsel", "mipseb", "mips64eb"],
+        Literal["armel", "aarch64", "mipsel", "mipseb", "mips64eb", "intel64"],
         Field(
             title="Architecture of guest",
-            examples=["armel", "aarch64", "mipsel", "mipseb", "mips64eb"],
+            examples=["armel", "aarch64", "mipsel", "mipseb", "mips64eb", "intel64"],
         ),
     ]
     kernel: Annotated[

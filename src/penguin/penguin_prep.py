@@ -74,6 +74,17 @@ ARCH_ABI_INFO = dict(
             ),
         ),
     ),
+    intel64=dict(
+        target_triple="x86_64-unknown-linux-musl",
+        libnvram_arch_name="x86_64",
+        default_abi="default",
+        abis=dict(
+            default=dict(
+                musl_arch_name="x86_64",
+                m_flags=dict()
+            )
+        )
+    )
 )
 
 

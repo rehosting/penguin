@@ -147,6 +147,10 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
         return
     arch, end = arch_end(arch_identified)
 
+    if arch == None:
+        logger.error(f"Architecture {arch_identified} not supported ({arch}, {end})")
+        return
+
     kernel = get_kernel_path(arch, end, static_dir)
 
     base_dir = Path(output_dir, "base")
@@ -226,6 +230,9 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
         # TODO: We should use a consistent name here. Perhaps aarch64eb?
         arch_suffix = ".aarch64"
         dylib_dir = join(static_dir, "dylibs", "arm64")
+    elif arch == "intel64":
+        arch_suffix = ".x86_64"
+        dylib_dir = join(static_dir, "dylibs", "x86_64")
 
     # Add executable binaries
     for util_dir in ["console", "libnvram", "utils.bin", "utils.source", "vpn"]:

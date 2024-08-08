@@ -4,7 +4,7 @@ ARG DOWNLOAD_TOKEN="github_pat_11AACH7QA0tuVodqXUxSAy_Wq5btZcV0nnuFbRv2XDZRAci4A
 ARG PANDA_VERSION="1.8.31"
 ARG BUSYBOX_VERSION="0.0.5"
 ARG LINUX_VERSION="2.3.3"
-ARG LIBNVRAM_VERSION="0.0.12"
+ARG LIBNVRAM_VERSION="0.0.13"
 ARG CONSOLE_VERSION="1.0.4"
 ARG PENGUIN_PLUGINS_VERSION="1.5.8"
 ARG VPN_VERSION="1.0.10"
@@ -94,7 +94,7 @@ RUN wget -qO- https://github.com/rehosting/libnvram/archive/refs/tags/v${LIBNVRA
 ARG MUSL_VERSION
 RUN wget -qO- https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz | \
     tar xzf - && \
-    for arch in arm aarch64 mips mips64 mipsn32; do \
+    for arch in arm aarch64 mips mips64 mipsn32 x86_64; do \
         make -C musl-* \
             ARCH=$arch \
             DESTDIR=/ \
