@@ -232,6 +232,15 @@ my_shared_directory
 
 Version of the config file format
 
+## `patches` Patches
+
+|||
+|-|-|
+|__Type__|list of string|
+|__Default__|`null`|
+
+List of paths to patch files
+
 ## `env` Environment
 
 |||
