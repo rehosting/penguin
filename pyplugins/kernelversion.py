@@ -4,6 +4,7 @@ from os.path import join as pjoin
 err_output = "kerver_err.txt"
 FIELD_SIZE = 65
 
+
 class KernelVersion(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
