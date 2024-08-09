@@ -4,7 +4,7 @@ The following penguin plugins are currently supported. Each is documented below.
 * [Env](#env): Track usage of boot arguments, environment variable accesses, and environment variable comparisons.
 * [Health](#health): Track system health metrics including processes run.
 * [Interfaces](#interfaces): Track network interfaces referenced
-* [Kernel\_Version](#kernel_version): Change output of uname syscall
+* [KernelVersion](#kernelversion): Change output of uname syscall
 * [Lifeguard](#lifeguard): Track and block signals
 * [Mounts](#mounts): Track attempts to mount file systems
 * [NVRAM2](#nvram2): Tracks accesses to NVRAM
@@ -47,7 +47,7 @@ The plugin also creates `health_procs.txt` as a sorted list of processes run and
 Track network interfaces referenced in executed commands. Results are
 reported in `iface.log`.
 
-## Kernel\_Version
+## KernelVersion
 Change output of uname syscall.
 Config Options:
 - `sysname`: changes operating system name
