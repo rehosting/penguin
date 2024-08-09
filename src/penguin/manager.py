@@ -9,7 +9,7 @@ from copy import deepcopy
 from threading import Thread
 from typing import List, Tuple
 
-from penguin import getColoredLogger
+from penguin import getColoredLogger, VERSION
 
 from .common import yaml
 from .graphs import Configuration, ConfigurationManager, Failure, Mitigation
@@ -661,7 +661,7 @@ class GlobalState:
             "kernel": base_config["core"]["kernel"],
             "show_output": show_output,
             "root_shell": root_shell,
-            "version": "1.0.0",
+            "version": VERSION,
         }
         del base_config["core"]  # Nobody should use base, ask us instead!
         if not os.path.isfile(os.path.join(proj_dir, self.info["fs"])):
