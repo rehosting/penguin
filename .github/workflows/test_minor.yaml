@@ -1,0 +1,22 @@
+name: Ensure penguin init and test init are equivalent
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - src/resources/init.sh
+      - tests/unit_tests/test_target/scripts/init.sh
+
+jobs:
+  ensure_init_equivalence:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - run: |
+        if ! diff src/resources/init.sh tests/unit_tests/test_target/scripts/init.sh; then
+          echo "You have changed init. You must also change our test init"
+          echo "WARNING: This may be a breaking change. Consider updating version!"
+          exit 1
+        fi
