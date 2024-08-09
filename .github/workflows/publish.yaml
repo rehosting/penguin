@@ -24,9 +24,17 @@ jobs:
             with:
               username: rehosting
               password: ${{secrets.DOCKERHUB_TOKEN}}
+         
+          - name: Install dependencies and label git workspace safe
+            run: |
+              sudo apt-get update
+              sudo apt-get -y install git curl jq gzip tmux
+              git config --global --add safe.directory "$GITHUB_WORKSPACE"
             
           - name: Checkout code
             uses: actions/checkout@v4
+            with:
+              fetch-depth: 0
 
           - name: Build Docker image and push to Dockerhub
             uses: docker/build-push-action@v6.3.0
