@@ -2,7 +2,7 @@ from pandare import PyPlugin
 from os.path import join as pjoin
 
 err_output = "kerver_err.txt"
-
+FIELD_SIZE = 65
 
 class KernelVersion(PyPlugin):
     def __init__(self, panda):
@@ -29,35 +29,35 @@ class KernelVersion(PyPlugin):
             if self.nodename:
                 try:
                     self.panda.virtual_memory_write(
-                        cpu, buf_ptr + 65 * 1, (self.nodename.encode("utf-8") + b"\0")
+                        cpu, buf_ptr + FIELD_SIZE * 1, (self.nodename.encode("utf-8") + b"\0")
                     )
                 except ValueError as err:
                     self.write_error(err)
             if self.release:
                 try:
                     self.panda.virtual_memory_write(
-                        cpu, buf_ptr + 65 * 2, (self.release.encode("utf-8") + b"\0")
+                        cpu, buf_ptr + FIELD_SIZE * 2, (self.release.encode("utf-8") + b"\0")
                     )
                 except ValueError as err:
                     self.write_error(err)
             if self.version:
                 try:
                     self.panda.virtual_memory_write(
-                        cpu, buf_ptr + 65 * 3, (self.version.encode("utf-8") + b"\0")
+                        cpu, buf_ptr + FIELD_SIZE * 3, (self.version.encode("utf-8") + b"\0")
                     )
                 except ValueError as err:
                     self.write_error(err)
             if self.machine:
                 try:
                     self.panda.virtual_memory_write(
-                        cpu, buf_ptr + 65 * 4, (self.machine.encode("utf-8") + b"\0")
+                        cpu, buf_ptr + FIELD_SIZE * 4, (self.machine.encode("utf-8") + b"\0")
                     )
                 except ValueError as err:
                     self.write_error(err)
             if self.domainname:
                 try:
                     self.panda.virtual_memory_write(
-                        cpu, buf_ptr + 65 * 5, (self.domainname.encode("utf-8") + b"\0")
+                        cpu, buf_ptr + FIELD_SIZE * 5, (self.domainname.encode("utf-8") + b"\0")
                     )
                 except ValueError as err:
                     self.write_error(err)
