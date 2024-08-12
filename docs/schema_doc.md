@@ -64,7 +64,7 @@ mips64eb
 
 |||
 |-|-|
-|__Type__|string|
+|__Type__|string or null|
 
 
 ```yaml
