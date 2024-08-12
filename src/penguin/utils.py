@@ -226,6 +226,10 @@ def get_mount_type(path):
         return None
 
 
+def construct_empty_fs(path):
+    subprocess.check_output(f"tar -czvf {path} -T /dev/null", shell=True)
+
+
 def get_mitigation_providers(config: dict):
     """
     Given a config, pull out all the enabled mitigation providers,

@@ -1,6 +1,7 @@
 import dataclasses
 import hashlib
 import sys
+import os
 import typing
 from copy import deepcopy
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
@@ -13,6 +14,7 @@ from pydantic_core import PydanticUndefined, PydanticUndefinedType
 
 try:
     from penguin.common import patch_config
+    from penguin.utils import construct_empty_fs
 except ImportError:
     pass
 from pathlib import Path
@@ -93,7 +95,7 @@ class Core(BaseModel):
         ),
     ]
     fs: Annotated[
-        str,
+        Union[str, None],
         Field(
             title="Project-relative path to filesystem tarball",
             examples=["base/fs.tar"],
@@ -704,13 +706,18 @@ def load_config(path):
     """Load penguin config from path"""
     with open(path, "r") as f:
         config = yaml.safe_load(f)
+    config_folder = Path(path).parent
     if config.get("patches", None) is not None:
         patch_list = config["patches"]
         for patch in patch_list:
             # patches are loaded relative to the main config file
-            patch_relocated = Path(Path(path).parent, patch)
+            patch_relocated = Path(config_folder, patch)
             config = patch_config(config, patch_relocated)
     _validate_config(config)
+    if config["core"]["fs"] is None:
+        config["core"]["fs"] = os.path.join(config_folder, "./base/empty_fs.tar.gz")
+        if not os.path.exists(config["core"]["fs"]):
+            construct_empty_fs(config["core"]["fs"])
     return config
 
 
