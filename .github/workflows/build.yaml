@@ -61,7 +61,7 @@ jobs:
         id: check-tag # used by other steps.
         run: |
           TOKEN=$( curl -sSLd "username=rehosting&password=${{secrets.DOCKERHUB_TOKEN}}" https://hub.docker.com/v2/users/login | jq -r ".token" )
-          if $( curl -sH "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/rehosting/penguin/tags/cache-PR-${{github.event.number}}/" | jq . | grep 'not found' ); then
+          if $( curl -sH "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/rehosting/penguin/tags/cache-PR-${{github.event.number}}/" 2>&1 | jq . | grep 'not found' ); then
             echo "Image tag does not exist using latest for cache"
             echo "tag=latest" >> "$GITHUB_OUTPUT"
           else
