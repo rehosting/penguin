@@ -575,7 +575,7 @@ contains details on the configuration file format and options.
         logger.setLevel(logging.DEBUG)
         logger.debug("Verbose logging enabled")
 
-    logger.info("penguin version: %s", VERSION)
+    logger.info("penguin v%s", VERSION)
     if args.cmd == "init":
         penguin_init(args)
     elif args.cmd == "run":
