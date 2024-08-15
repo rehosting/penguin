@@ -67,10 +67,11 @@ def make_syscall_info_table():
             )
             for nr, ast in parse_protos_file(arch)
         }
-        for arch in ("arm", "arm64", "mips", "mips64")
+        for arch in ("arm", "arm64", "mips", "mips64", "x64")
     }
 
     vals["aarch64"] = vals["arm64"]
+    vals["intel64"] = vals["x64"]
     return vals
 
 
