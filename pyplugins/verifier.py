@@ -23,12 +23,12 @@ class Verifier(PyPlugin):
 
         if "strings" in test_case:
             test_strs = test_case["strings"]
-            with open(f, "r") as f:
+            with open(f, "r", encoding="latin-1") as f:
                 f_text = f.read()
                 return all([test_str in f_text for test_str in test_strs])
         elif "string" in test_case:
             test_str = test_case["string"]
-            with open(f, "r") as f:
+            with open(f, "r", encoding="latin-1") as f:
                 f_text = f.read()
                 return test_str in f_text
         else:
