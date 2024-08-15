@@ -158,7 +158,8 @@ RUN cd / && \
   mips64eb-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/send_hypercall.mips64eb  && \
   mipsel-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipsel && \
   arm-linux-musleabi-gcc -s -static send_hypercall.c -o out/send_hypercall.armel && \
-  aarch64-linux-musl-gcc -s -static send_hypercall.c -o out/send_hypercall.aarch64
+  aarch64-linux-musl-gcc -s -static send_hypercall.c -o out/send_hypercall.aarch64 && \
+  x86_64-linux-musl-gcc -s -static send_hypercall.c -o out/send_hypercall.x86_64
 
 #### QEMU BUILDER: Build qemu-img ####
 FROM $BASE_IMAGE as qemu_builder
