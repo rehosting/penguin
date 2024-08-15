@@ -28,7 +28,7 @@ from .defaults import (
 from .penguin_config import dump_config
 from .penguin_static import extend_config_with_static
 
-logger = getColoredLogger("penguin.gen_confg")
+logger = getColoredLogger("penguin.gen_config")
 
 
 def binary_filter(fsbase, name):
