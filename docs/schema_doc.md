@@ -10,7 +10,7 @@ Core configuration options for this rehosting
 
 |||
 |-|-|
-|__Type__|`"armel"` or `"aarch64"` or `"mipsel"` or `"mipseb"` or `"mips64eb"`|
+|__Type__|`"armel"` or `"aarch64"` or `"mipsel"` or `"mipseb"` or `"mips64eb"` or `"intel64"`|
 
 
 ```yaml
@@ -31,6 +31,10 @@ mipseb
 
 ```yaml
 mips64eb
+```
+
+```yaml
+intel64
 ```
 
 ### `core.kernel` Path to kernel image
