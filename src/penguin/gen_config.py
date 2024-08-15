@@ -100,6 +100,8 @@ def get_kernel_path(arch, end, static_dir):
         return static_dir + f"kernels/{DEFAULT_KERNEL}/zImage.arm{end}"
     elif arch == "aarch64":
         return static_dir + f"kernels/{DEFAULT_KERNEL}/zImage.arm64"
+    elif arch == "intel64":
+        return static_dir + f"kernels/{DEFAULT_KERNEL}/bzImage.x86_64"
     else:
         return static_dir + f"kernels/{DEFAULT_KERNEL}/" + "vmlinux" + f".{arch}{end}"
 
