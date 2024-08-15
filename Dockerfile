@@ -56,7 +56,7 @@ ARG PANDA_VERSION
 RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
 
 # Get syscall list from PANDA
-RUN for arch in arm arm64 mips mips64; do \
+RUN for arch in arm arm64 mips mips64 x64; do \
     wget -q https://raw.githubusercontent.com/panda-re/panda/dev/panda/plugins/syscalls2/generated-in/linux_${arch}_prototypes.txt -O /igloo_static/syscalls/linux_${arch}_prototypes.txt; \
   done
 
