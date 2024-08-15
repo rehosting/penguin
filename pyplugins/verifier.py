@@ -82,7 +82,14 @@ class Verifier(PyPlugin):
                 print(f"Verifier does not have test_{test_type}")
                 continue
             test_passed = test(name, self.conditions[name])
-            self.logger.info(f"Test {name} {'passed' if test_passed else 'failed'}")
+
+            GREEN="\x1b[32m"
+            RED="\x1b[31m"
+            END="\x1b[0m"
+            PASSED=f"{GREEN}passed{END}"
+            FAILED=f"{RED}failed{END}"
+
+            self.logger.info(f"Test {name} {PASSED if test_passed else FAILED}")
             self.results[name] = test_passed
             tc = TestCase(
                 name=name,
