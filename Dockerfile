@@ -242,7 +242,8 @@ RUN if [ ! -z "${OVERRIDE_VERSION}" ]; then \
         echo "Pretending version is ${OVERRIDE_VERSION}"; \
     else \
         python3 -m pip install setuptools_scm; \
-        python3 -m setuptools_scm -r /app/ > /app/version.txt; \
+        echo -n "v" >> /app/version.txt; \
+        python3 -m setuptools_scm -r /app/ >> /app/version.txt; \
         echo "Generating version from git"; \
     fi;
 
