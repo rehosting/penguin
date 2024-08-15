@@ -74,7 +74,7 @@ def run_test(kernel, arch, image):
 
 
 DEFAULT_KERNELS = ['4.10']
-DEFAULT_ARCHES = ['armel', 'aarch64', 'mipsel', 'mipseb', 'mips64eb']
+DEFAULT_ARCHES = ['armel', 'aarch64', 'mipsel', 'mipseb', 'mips64eb', 'x86_64']
 
 
 @click.command()
