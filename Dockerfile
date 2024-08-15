@@ -426,6 +426,10 @@ RUN if [ -d /tmp/local_packages ]; then \
             rm -rf /result && \
             for f in  /igloo_static/utils.bin/*.arm64; do mv -- "$f" "${f%.arm64}.aarch64"; done; \
         fi; \
+        if [ -f /tmp/local_packages/pandare-*.whl ]; then \
+            echo "Installing local pandare wheel"; \
+            pip install /tmp/local_packages/pandare-*.whl; \
+        fi; \
     fi
 
 RUN date +%s%N > /igloo_static/container_timestamp.txt
