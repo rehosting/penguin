@@ -452,6 +452,7 @@ def run_config(
             "vhost_socket": uds_path,
             "conf": conf,
             "proj_name": os.path.basename(proj_dir).replace("host_", ""),
+            "proj_dir": proj_dir,
             "fs": config_fs,
             "fw": config_image,
             "outdir": out_dir,
