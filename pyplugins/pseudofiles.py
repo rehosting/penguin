@@ -4,7 +4,7 @@ import re
 import struct
 from collections import Counter
 from copy import deepcopy
-from os.path import dirname, isfile
+from os.path import dirname, isfile, isabs
 from os.path import join as pjoin
 from sys import path as syspath
 from typing import List
@@ -118,6 +118,7 @@ class FileFailures(PyPlugin):
 
         self.panda = panda
         self.outdir = self.get_arg("outdir")
+        self.proj_dir = self.get_arg("proj_dir")
         self.written_data = {}  # filename -> data that was written to it
         self.logger = getColoredLogger("plugins.pseudofiles")
         if self.get_arg_bool("verbose"):
@@ -573,6 +574,10 @@ class FileFailures(PyPlugin):
         # When we read from the guest, we read from the host file.
         hostfile = details["filename"]
 
+        if not isabs(hostfile):
+            # Paths are relative to the project directory, unless absolute
+            hostfile = pjoin(self.proj_dir, hostfile)
+
         # Create initial host file
         if not isfile(hostfile):
             data = self._render_file(details)
@@ -591,6 +596,10 @@ class FileFailures(PyPlugin):
         self.logger.debug(f"Reading {filename} with {length} bytes at {offset}:")
         fname = details["filename"]  # Host file
 
+        if not isabs(fname):
+            # Paths are relative to the project directory, unless absolute
+            fname = pjoin(self.proj_dir, fname)
+
         with open(fname, "rb") as f:
             f.seek(offset)
             data = f.read(length)
@@ -599,6 +608,9 @@ class FileFailures(PyPlugin):
 
     def write_to_file(self, filename, buffer, length, offset, contents, details=None):
         fname = details["filename"]  # Host file
+        if not isabs(fname):
+            # Paths are relative to the project directory, unless absolute
+            fname = pjoin(self.proj_dir, fname)
         self.logger.debug(
             f"Writing {fname} with {length} bytes at {offset}: {contents[:100]}"
         )
