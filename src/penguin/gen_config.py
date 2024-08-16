@@ -36,8 +36,10 @@ def binary_filter(fsbase, name):
     for base in base_directories:
         if name.startswith(join(fsbase, base)):
             return True
-    # might be good to add "*.so" to this list
-    return name.endswith("busybox")
+    # Shared libraries, kernel modules, or busybox
+    return name.endswith((".so", ".ko")) or \
+        ".so." in name or \
+        name.endswith("busybox")
 
 
 def find_architecture(infile):
