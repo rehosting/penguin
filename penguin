@@ -2,16 +2,25 @@
 
 set -eu
 
+# Function to check if a command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
 BOLD=""
 RESET=""
 RED=""
 GREEN=""
-if [ -t 0 ]; then
-    # Can only use colors if we're in a terminal
-    BOLD=$(tput bold)
-    RESET=$(tput sgr0)
-    RED=$(tput setaf 1)
-    GREEN=$(tput setaf 2)
+# Check if we're in a terminal and if it supports colors
+if [ -t 1 ] && [ -n "$TERM" ] && command_exists tput && tput setaf 1 >/dev/null 2>&1; then
+    ncolors=$(tput colors)
+    if [ -n "$ncolors" ] && [ $ncolors -ge 8 ]; then
+        # Terminal supports at least 8 colors
+        BOLD=$(tput bold)
+        RESET=$(tput sgr0)
+        RED=$(tput setaf 1)
+        GREEN=$(tput setaf 2)
+    fi
 fi
 
 is_subnet_in_use() {
