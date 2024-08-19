@@ -27,7 +27,7 @@ class ArchInfo:
 
 def arch_end(value):
     arch = None
-    end = ""
+    end = None
 
     tmp = value.lower()
     if tmp.startswith("mips64"):
@@ -41,6 +41,7 @@ def arch_end(value):
         arch = "arm"
     elif tmp.startswith("intel64"):
         arch = "intel64"
+        end = "el"
 
     if tmp.endswith("el"):
         end = "el"
