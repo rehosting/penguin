@@ -349,6 +349,10 @@ COPY --from=cross_builder /out/send_hypercall.* /igloo_static/utils.bin
 COPY utils/* /igloo_static/utils.source/
 COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
 
+# Generate syscall table
+COPY ./pyplugins/build_syscall_info_table.py /pandata/build_syscall_info_table.py
+RUN python3 /pandata/build_syscall_info_table.py
+
 # Copy wrapper script into container so we can copy out - note we don't put it on guest path
 COPY ./penguin /usr/local/src/penguin_wrapper
 # And add install helpers which generate shell commands to install it on host
@@ -366,17 +370,16 @@ COPY ./README.md /docs/README.md
 COPY --from=version_generator /app/version.txt /pkg/penguin/version.txt
 COPY ./src /pkg
 RUN --mount=type=cache,target=/root/.cache/pip \
-      pip install -e /pkg && \
-      pip install setuptools==67.7.2
+    pip install -e /pkg
 
 COPY ./db /db
-RUN pip install -e /db
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -e /db
 
 # Copy pyplugins into our the pandata directory. We might mount
 # this from the host during development. In the long term we'll
 # merge these into the main penguin module
 COPY ./pyplugins/ /pandata
-RUN python3 /pandata/build_syscall_info_table.py
 
 # Default command: echo install instructions
 CMD ["/usr/local/bin/banner.sh"]
