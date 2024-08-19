@@ -53,7 +53,7 @@ Config Options:
 - `sysname`: changes operating system name
 - `nodename`: changtes network node hostname
 - `release`: changes the kernel release
-- `version`: changes the kernel version
+- `kversion`: changes the kernel version
 - `machine`: changes the machine hardware name
 - `domainname`: changes NIS or YP domain name
 

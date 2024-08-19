@@ -244,6 +244,7 @@ EVENTS = {
     201:        ('igloo_ipv4_bind',       (int, bool)),
     202:        ('igloo_ipv6_setup',      (str, int)),
     203:        ('igloo_ipv6_bind',       (int, bool)),
+    300:        ('igloo_uname',           (int,)),
     0x6408400B: ('igloo_syscall',         (int,)),
 }
 

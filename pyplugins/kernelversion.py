@@ -2,7 +2,6 @@ from pandare import PyPlugin
 from os.path import join as pjoin
 
 err_output = "kerver_err.txt"
-FIELD_SIZE = 65
 
 
 class KernelVersion(PyPlugin):
@@ -13,55 +12,32 @@ class KernelVersion(PyPlugin):
         self.sysname = self.get_arg("sysname")
         self.nodename = self.get_arg("nodename")
         self.release = self.get_arg("release")
-        self.version = self.get_arg("version")
+        self.version = self.get_arg("kversion")
         self.machine = self.get_arg("machine")
         self.domainname = self.get_arg("domainname")
 
-        @self.panda.ppp("syscalls2", "on_sys_newuname_return")
-        def post_uname(cpu, pc, buf_ptr):
-            # Check if variable has been set in config and if so call virtual_memory_write
-            if self.sysname:
-                try:
-                    self.panda.virtual_memory_write(
-                        cpu, buf_ptr, (self.sysname.encode("utf-8") + b"\0")
-                    )
-                except ValueError as err:
-                    self.write_error(err)
-            if self.nodename:
-                try:
-                    self.panda.virtual_memory_write(
-                        cpu, buf_ptr + FIELD_SIZE * 1, (self.nodename.encode("utf-8") + b"\0")
-                    )
-                except ValueError as err:
-                    self.write_error(err)
-            if self.release:
-                try:
-                    self.panda.virtual_memory_write(
-                        cpu, buf_ptr + FIELD_SIZE * 2, (self.release.encode("utf-8") + b"\0")
-                    )
-                except ValueError as err:
-                    self.write_error(err)
-            if self.version:
-                try:
-                    self.panda.virtual_memory_write(
-                        cpu, buf_ptr + FIELD_SIZE * 3, (self.version.encode("utf-8") + b"\0")
-                    )
-                except ValueError as err:
-                    self.write_error(err)
-            if self.machine:
-                try:
-                    self.panda.virtual_memory_write(
-                        cpu, buf_ptr + FIELD_SIZE * 4, (self.machine.encode("utf-8") + b"\0")
-                    )
-                except ValueError as err:
-                    self.write_error(err)
-            if self.domainname:
-                try:
-                    self.panda.virtual_memory_write(
-                        cpu, buf_ptr + FIELD_SIZE * 5, (self.domainname.encode("utf-8") + b"\0")
-                    )
-                except ValueError as err:
-                    self.write_error(err)
+        self.ppp.Events.listen("igloo_uname", self.change_uname)
+
+    def create_string(self):
+        uname_str = ""
+        
+        uname_str += self.sysname + "," if self.sysname else "none,"
+        uname_str += self.nodename + "," if self.nodename else "none,"
+        uname_str += self.release + "," if self.release else "none,"
+        uname_str += self.version + "," if self.version else "none,"
+        uname_str += self.machine + "," if self.machine else "none,"
+        uname_str += self.domainname + "," if self.domainname else "none,"
+
+        return uname_str
+
+    def change_uname(self, cpu, buf_ptr):
+        new_uname = self.create_string()
+        try:
+            self.panda.virtual_memory_write(
+                cpu, buf_ptr, (new_uname.encode("utf-8") + b"\0")
+            )
+        except ValueError as err:
+            self.write_error(err)
 
     def write_error(self, error):
         with open(pjoin(self.outdir, err_output), "a") as file:
