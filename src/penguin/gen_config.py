@@ -162,7 +162,7 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
 
     data = {}
     data["core"] = {
-        "arch": arch if arch == "aarch64" else arch + end,
+        "arch": arch if arch in ["aarch64", "intel64"] else arch + end,
         "kernel": kernel,
         "fs": "./base/fs.tar.gz",
         "root_shell": True,
