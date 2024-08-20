@@ -82,6 +82,13 @@ ARCH_ABI_INFO = dict(
             default=dict(
                 musl_arch_name="x86_64",
                 m_flags=dict()
+            ),
+            i386=dict(
+                target_triple="i386-unknown-linux-musl",
+                libnvram_arch_name="i386",
+                musl_arch_name="i386",
+                m_flags=dict(),
+                extra_flags=["-fPIC"]
             )
         )
     )
@@ -97,6 +104,7 @@ def add_lib_inject_for_abi(config, abi):
     arch_info = ARCH_ABI_INFO[arch]
     abi_info = arch_info["abis"][abi]
     headers_dir = f"/igloo_static/musl-headers/{abi_info['musl_arch_name']}/include"
+    libnvram_arch_name = abi_info.get('libnvram_arch_name', None) or arch_info['libnvram_arch_name']
 
     args = (
         ["clang-11", "-fuse-ld=lld", "-Oz", "-shared", "-nostdlib", "-nostdinc"]
@@ -106,10 +114,10 @@ def add_lib_inject_for_abi(config, abi):
         ]
         + [
             "-target",
-            arch_info["target_triple"],
+            abi_info.get("target_triple", None) or arch_info["target_triple"],
             "-isystem",
             headers_dir,
-            f"-DCONFIG_{arch_info['libnvram_arch_name'].upper()}=1",
+            f"-DCONFIG_{libnvram_arch_name.upper()}=1",
             "/igloo_static/libnvram/nvram.c",
             "/igloo_static/utils.source/inject_ltrace.c",
             "--language",
@@ -124,7 +132,7 @@ def add_lib_inject_for_abi(config, abi):
                     for sym, repl in lib_inject.get("aliases", dict()).items()
                 ]
             ),
-        ]
+        ] + abi_info.get("extra_flags", [])
     )
     p = subprocess.run(
         args,
