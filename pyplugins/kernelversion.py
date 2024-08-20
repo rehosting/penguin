@@ -2,6 +2,8 @@ from pandare import PyPlugin
 from os.path import join as pjoin
 
 err_output = "kerver_err.txt"
+SUCCESS = 0xAAAAAAAA
+RETRY = 0xDEADBEEF
 
 
 class KernelVersion(PyPlugin):
@@ -20,7 +22,7 @@ class KernelVersion(PyPlugin):
 
     def create_string(self):
         uname_str = ""
-        
+
         uname_str += self.sysname + "," if self.sysname else "none,"
         uname_str += self.nodename + "," if self.nodename else "none,"
         uname_str += self.release + "," if self.release else "none,"
@@ -30,14 +32,15 @@ class KernelVersion(PyPlugin):
 
         return uname_str
 
-    def change_uname(self, cpu, buf_ptr):
+    def change_uname(self, cpu, buf_ptr, filler):
         new_uname = self.create_string()
         try:
             self.panda.virtual_memory_write(
                 cpu, buf_ptr, (new_uname.encode("utf-8") + b"\0")
             )
+            self.panda.arch.set_retval(cpu, 0x0)
         except ValueError as err:
-            self.write_error(err)
+            self.panda.arch.set_retval(cpu, RETRY)
 
     def write_error(self, error):
         with open(pjoin(self.outdir, err_output), "a") as file:
