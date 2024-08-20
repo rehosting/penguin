@@ -39,7 +39,7 @@ def arch_end(value):
         end = "el"
     elif tmp.startswith("arm"):
         arch = "arm"
-    elif tmp.startswith("intel64"):
+    elif tmp.startswith("intel"):
         arch = "intel64"
         end = "el"
 
