@@ -1,5 +1,4 @@
 from pandare import PyPlugin
-from os.path import join as pjoin
 
 err_output = "kerver_err.txt"
 RETRY = 0xDEADBEEF
