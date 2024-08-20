@@ -2,7 +2,6 @@ from pandare import PyPlugin
 from os.path import join as pjoin
 
 err_output = "kerver_err.txt"
-SUCCESS = 0xAAAAAAAA
 RETRY = 0xDEADBEEF
 
 
@@ -39,9 +38,5 @@ class KernelVersion(PyPlugin):
                 cpu, buf_ptr, (new_uname.encode("utf-8") + b"\0")
             )
             self.panda.arch.set_retval(cpu, 0x0)
-        except ValueError as err:
+        except ValueError:
             self.panda.arch.set_retval(cpu, RETRY)
-
-    def write_error(self, error):
-        with open(pjoin(self.outdir, err_output), "a") as file:
-            file.write(f"An error occurred overwriting the utsname struct: {error}\n")
