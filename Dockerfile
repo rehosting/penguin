@@ -411,7 +411,7 @@ RUN if [ -d /tmp/local_packages ]; then \
             tar xvf /tmp/local_packages/kernels-latest.tar.gz -C /igloo_static/; \
         fi; \
         if [ -f /tmp/local_packages/pandare_22.04.deb ]; then \
-            dpkg -i /tmp/local_pckages/pandare_22.04.deb; \
+            dpkg -i /tmp/local_packages/pandare_22.04.deb; \
         fi; \
         if [ -f /tmp/local_packages/vpn.tar.gz ]; then \
             rm -rf /igloo_static/vpn && \
