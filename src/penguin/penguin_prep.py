@@ -19,7 +19,10 @@ ARCH_ABI_INFO = dict(
                 musl_arch_name="arm",
                 m_flags=dict(),
             ),
-            hard_float=dict(musl_arch_name="arm", m_flags=dict(float_abi="hard")),
+            hard_float=dict(
+                musl_arch_name="arm",
+                m_flags=dict(float_abi="hard")
+            ),
         ),
     ),
     aarch64=dict(
@@ -30,7 +33,19 @@ ARCH_ABI_INFO = dict(
             default=dict(
                 musl_arch_name="aarch64",
                 m_flags=dict(),
-            )
+            ),
+            soft_float=dict(
+                libnvram_arch_name="arm",
+                target_triple="armv5-linux-musleabi",
+                musl_arch_name="arm",
+                m_flags=dict(),
+            ),
+            hard_float=dict(
+                libnvram_arch_name="arm",
+                target_triple="armv5-linux-musleabi",
+                musl_arch_name="arm",
+                m_flags=dict(float_abi="hard")
+            ),
         ),
     ),
     mipsel=dict(
