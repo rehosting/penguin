@@ -59,8 +59,8 @@ qemu_configs = {
         "qemu_machine": "pc",
         "arch": "x86_64",
         "kconf_group": "x86_64",
-        "mem_gb": "2"
-    }
+        "mem_gb": "2",
+    },
 }
 
 
@@ -323,7 +323,7 @@ def run_config(
     while telnet_port < 65535:
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
             try:
-                sock.bind(('127.0.0.1', telnet_port))
+                sock.bind(("127.0.0.1", telnet_port))
                 break
             except OSError:
                 telnet_port += 1000
@@ -560,10 +560,12 @@ def run_config(
         with redirect_stdout_stderr(stdout_path, stderr_path):
             _run()
 
+
 def get_telnet_port():
     global telnet_port
     print("WEHAT IS IT: ", telnet_port)
     return telnet_port
+
 
 def main():
     logger = getColoredLogger("penguin.runner")
