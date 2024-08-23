@@ -4,7 +4,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from contextlib import contextmanager
+import socket
+from contextlib import contextmanager, closing
 from pathlib import Path
 from time import sleep
 
@@ -16,6 +17,8 @@ from .common import yaml
 from .defaults import default_plugin_path
 from .penguin_config import load_config
 from .utils import hash_image_inputs
+
+telnet_port = 23
 
 # Note armel is just panda-system-arm and mipseb is just panda-system-mips
 ROOTFS = "/dev/vda"  # Common to all
@@ -315,11 +318,27 @@ def run_config(
     if archend in ["armel", "aarch64"]:
         append = append.replace("console=ttyS0", "console=ttyAMA0")
 
+    global telnet_port
+
+    while telnet_port < 65535:
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+            try:
+                sock.bind(('127.0.0.1', telnet_port))
+                break
+            except OSError:
+                telnet_port += 1000
+
+    if telnet_port > 65535:
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+            s.bind(("localhost", 0))
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            telnet_port = s.getsockname()[1]
+
     root_shell = []
     if conf["core"].get("root_shell", False):
         root_shell = [
             "-serial",
-            "telnet:0.0.0.0:4321,server,nowait",
+            "telnet:0.0.0.0:" + str(telnet_port) + ",server,nowait",
         ]  # ttyS1: root shell
 
     # If core config specifes immutable: False we'll run without snapshot
@@ -463,6 +482,7 @@ def run_config(
             "fw": config_image,
             "outdir": out_dir,
             "verbose": verbose,
+            "telnet_port": telnet_port,
         }
         # If we have any deatils, pass them along
         if details is not None:
@@ -540,6 +560,10 @@ def run_config(
         with redirect_stdout_stderr(stdout_path, stderr_path):
             _run()
 
+def get_telnet_port():
+    global telnet_port
+    print("WEHAT IS IT: ", telnet_port)
+    return telnet_port
 
 def main():
     logger = getColoredLogger("penguin.runner")
