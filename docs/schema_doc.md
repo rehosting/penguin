@@ -888,6 +888,7 @@ Copy a file from the host into the guest
 |||
 |-|-|
 |__Type__|string|
+|__Default__|`null`|
 
 
 #### `plugins.<string>.depends_on` Plugin dependency
@@ -912,6 +913,7 @@ Whether to enable this plugin (default depends on plugin)
 |||
 |-|-|
 |__Type__|string|
+|__Default__|`null`|
 
 
 
