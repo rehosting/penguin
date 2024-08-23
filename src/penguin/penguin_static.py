@@ -20,8 +20,6 @@ from .common import yaml
 
 IGLOO_KERNEL_VERSION = "4.10.0"
 
-IGLOO_KERNEL_VERSION = "4.10.0"
-
 """
 Given a config with a filesystem .tar, analyze
 the filesystem and populate metadata fields
@@ -1472,7 +1470,8 @@ def add_lib_inject_symlinks(proj_dir, conf):
             # Not an ELF. It could be for example a GNU ld script.
             continue
         abi = arch_filter(e).abi
-        conf["static_files"][f"{os.path.dirname(p)}/lib_inject.so"] = dict(
+        resolved_path = str(Path("/", os.path.dirname(p), "lib_inject.so"))
+        conf["static_files"][resolved_path] = dict(
             type="symlink",
             target=f"/igloo/lib_inject_{abi}.so",
         )
