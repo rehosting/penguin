@@ -631,7 +631,7 @@ class StaticFiles(RootModel):
 class Plugin(BaseModel):
     model_config = ConfigDict(title="Plugin", extra="allow")
 
-    description: Annotated[str, Field(title="Plugin description")]
+    description: Annotated[str, Field(None, title="Plugin description")]
     depends_on: Annotated[str, Field(None, title="Plugin dependency")]
     enabled: Annotated[
         bool,
@@ -641,7 +641,7 @@ class Plugin(BaseModel):
             description="Whether to enable this plugin (default depends on plugin)",
         ),
     ]
-    version: Annotated[str, Field(title="Plugin version")]
+    version: Annotated[str, Field(None, title="Plugin version")]
 
 
 class Main(BaseModel):

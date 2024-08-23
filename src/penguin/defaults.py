@@ -24,81 +24,44 @@ default_netdevs = (
 default_init_script = open(f"{dirname(dirname(__file__))}/resources/init.sh").read()
 
 default_plugins = {
-    "core": {
-        "description": "Utility: sanity tests and timeout",
-        "version": "1.0.0",
-    },
+    "core": {},
     "netbinds": {
-        "description": "Analysis: Track network binds",
-        "version": "1.0.0",
         "depends_on": "core",
     },
     "vpn": {
-        "description": "Utility: network bridging",
-        "version": "1.0.0",
         "depends_on": "netbinds",
     },
-    "shell": {
-        "description": "Analysis: track shell script coverage and variable accesses",
-        "version": "1.0.0",
-    },
+    "shell": {},
     "coverage": {
-        "description": "Analysis: Track coverage of binaries",
-        "version": "1.0.0",
         "enabled": False,
     },
     "env": {
-        "description": "Analysis: Track accesses to kernel and uboot environment",
-        "version": "1.0.0",
         "depends_on": "core",
     },
     "pseudofiles": {
-        "description": "Analysis & Intervention: Track failed /dev and /proc files. Hide these failures using models specifed in config",
-        "version": "1.0.0",
         "depends_on": "core",
     },
     "health": {
-        "description": "Analysis: Track health of the system",
-        "version": "1.0.0",
         "depends_on": "core",
     },
     "nmap": {
-        "description": "Analysis: run nmap scans on guest network services",
         "depends_on": "vpn",
         "enabled": False,
-        "version": "1.0.0",
     },
     "zap": {
-        "description": "Analysis: Run ZAP web crawler on guest web servers",
         "depends_on": "vpn",
         "enabled": False,
-        "version": "1.0.0",
     },
-    "mount": {
-        "description": "Analysis: Track when filesystems cannot be mounted",
-        "enabled": True,
-        "version": "1.0.0",
-    },
+    "mount": {},
     "nvram2": {
-        "description": "Analysis: Track nvram accesses",
-        "enabled": True,
-        "version": "1.0.0",
         "depends_on": "core",
     },
     "lifeguard": {
-        "description": "Intervention: Block violent signals",
-        "enabled": True,
-        "version": "1.0.0",
     },
     "interfaces": {
-        "description": "Analysis & Intervention: Track network interfaces accessed and add missing ones",
-        "enabled": True,
-        "version": "1.0.0",
         "depends_on": "health",
     },
     "send_hypercall": {
-        "description": "Analysis: Consume hypercall output from the guest (for nvram accesses)",
-        "version": "1.0.0",
         "depends_on": "core",
     },
 }

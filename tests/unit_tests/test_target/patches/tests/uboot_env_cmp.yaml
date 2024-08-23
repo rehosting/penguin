@@ -11,8 +11,6 @@ plugins:
         string: target
   send_hypercall:
     depends_on: core
-    description: 'Analysis: Consume hypercall output from the guest (for nvram accesses)'
-    version: 1.0.0
 
 uboot_env:
   envvar: DYNVALDYNVALDYNVAL

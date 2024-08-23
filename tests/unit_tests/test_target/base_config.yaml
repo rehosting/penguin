@@ -38,36 +38,19 @@ nvram: {}
 lib_inject: {}
 
 plugins: 
-  verifier:
-    description: 'Analysis: Verify system state'
-    version: 1.0.0
-  core:
-    description: 'Utility: sanity tests and timeout'
-    version: 1.0.0
+  verifier: {}
+  core: {}
   netbinds:
-    description: 'Analysis: Track network binds'
-    version: 1.0.0
     depends_on: core
   health:
-    description: 'Analysis: Track network binds'
-    version: 1.0.0
     depends_on: core
   shell:
-    description: 'Analysis: Track network binds'
-    version: 1.0.0
     depends_on: core
   env:
-    description: 'Analysis: Track accesses to kernel and uboot environment'
-    version: 1.0.0
     depends_on: core
   vpn:
-    description: 'Utility: network bridging'
-    version: 1.0.0
     depends_on: netbinds
   pseudofiles:
-    description: 'Analysis & Intervention: Track failed /dev and /proc files. Hide
-      these failures using models specifed in config'
-    version: 1.0.0
     depends_on: core
 
 static_files:
