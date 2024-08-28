@@ -412,6 +412,10 @@ penguin_run() {
         docker run --rm "$image" /bin/bash -c "cat /etc/group" > $d/group_user
         echo "g:x:$(id -g):" >> $d/group_user
 
+        # Add bogus version file when running in pydev mode
+        echo "0.0.1.dev0+pydev" > $d/version.txt
+
+        docker_cmd+=("-v" "$d/version.txt:/pkg/penguin/version.txt")
         docker_cmd+=("-v" "$d/passwd_user:/etc/passwd")
         docker_cmd+=("-v" "$d/group_user:/etc/group")
         docker_cmd+=("--cap-add=NET_BIND_SERVICE")
