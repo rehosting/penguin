@@ -61,6 +61,9 @@ def patch_config(base_config, patch):
     if issubclass(type(patch), Path):
         with open(patch, "r") as f:
             patch = yaml.load(f, Loader=CoreLoader)
+    if not patch:
+        # Empty patch, possibly an empty file or one with all comments
+        return base_config
     for key, value in patch.items():
         # Check if the key already exists in the base_config
         if key in base_config:

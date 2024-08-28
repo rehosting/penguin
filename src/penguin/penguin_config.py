@@ -708,6 +708,13 @@ def load_config(path, validate=True):
     with open(path, "r") as f:
         config = yaml.load(f, Loader=CoreLoader)
     config_folder = Path(path).parent
+    # look for files called patch_*.yaml in the same directory as the config file
+    patch_files = list(config_folder.glob("patch_*.yaml"))
+    if patch_files:
+        if config.get("patches", None) is None:
+            config["patches"] = []
+        for patch_file in patch_files:
+            config["patches"].append(str(patch_file))
     if config.get("patches", None) is not None:
         patch_list = config["patches"]
         for patch in patch_list:
