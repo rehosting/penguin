@@ -421,7 +421,7 @@ penguin_run() {
         docker_cmd+=("--cap-add=NET_BIND_SERVICE")
         docker_cmd+=("$image")
 
-        docker_cmd+=("/bin/bash" "-c" "pip install -e /pkg &>/tmp/log.txt || { cat /tmp/log.txt; exit 1; }; sudo -E -su \"$(id -un)\" -g g penguin ${new_cmd[*]}")
+        docker_cmd+=("/bin/bash" "-c" "pip install -e /pkg &>/tmp/log.txt || { cat /tmp/log.txt; exit 1; }; sudo -E -su \"$(id -un)\" -g g penguin ${new_cmd[*]@Q}")
     else
         d=""
         # Ensure we maintain the same user in the container
