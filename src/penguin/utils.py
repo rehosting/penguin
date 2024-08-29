@@ -2,6 +2,7 @@ import hashlib
 import heapq
 import importlib
 import os
+import glob
 import subprocess
 from threading import Lock
 from typing import List, Tuple
@@ -156,8 +157,6 @@ def hash_image_inputs(proj_dir, conf):
             raise ValueError(f"Unknown type for nvram value {k}: {type(val)}")
         fs_hash.update(encoded)
 
-    fs_hash = fs_hash.hexdigest()
-
     # If we ever add other ways to import static files, this assert should
     # remind us that the file contents need to be hashed
     assert all(
@@ -170,8 +169,12 @@ def hash_image_inputs(proj_dir, conf):
     # dict of data. This seems safer than doing hashing ourselves and merging.
     for f in static_files.values():
         if f["type"] == "host_file":
-            with open(f["host_path"], "rb") as f:
-                f["contents"] = f.read()
+            host_path =  os.path.join(proj_dir,f["host_path"])
+            for file_path in glob.glob(host_path):
+                with open(file_path,"rb") as f:
+                    fs_hash.update(f.read())
+
+    fs_hash = fs_hash.hexdigest()
 
     with open("/igloo_static/container_timestamp.txt") as f:
         container_timestamp = f.read()
