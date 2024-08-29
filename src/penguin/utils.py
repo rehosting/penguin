@@ -169,7 +169,7 @@ def hash_image_inputs(proj_dir, conf):
     # We'll include the files in our hash by reading them into our temporary
     # dict of data. This seems safer than doing hashing ourselves and merging.
     for f in static_files.values():
-        if f["type"] == "host_path":
+        if f["type"] == "host_file":
             with open(f["host_path"], "rb") as f:
                 f["contents"] = f.read()
 
