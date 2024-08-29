@@ -171,7 +171,7 @@ def hash_image_inputs(proj_dir, conf):
         if f["type"] == "host_file":
             host_path =  os.path.join(proj_dir,f["host_path"])
             for file_path in glob.glob(host_path):
-                with open(file_path,"rb") as f:
+                with open(file_path, "rb") as f:
                     fs_hash.update(f.read())
 
     fs_hash = fs_hash.hexdigest()
