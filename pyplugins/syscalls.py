@@ -156,8 +156,8 @@ class PyPandaSysLog(PyPlugin):
                 sysinfo, self.panda.arch.get_retval(cpu, convention="syscall")
             )
 
-    def uninit(self):
-        print("Called uninit...")
+    # def uninit(self):
+        # print("Called uninit...")
         # while self.saved_syscall_info:
         #     sysinfo = self.saved_syscall_info.popitem()
         #     self.return_syscall(sysinfo, None)
