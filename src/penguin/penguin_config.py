@@ -715,9 +715,10 @@ def load_config(path):
             config = patch_config(config, patch_relocated)
     _validate_config(config)
     if config["core"]["fs"] is None:
-        config["core"]["fs"] = os.path.join(config_folder, "./base/empty_fs.tar.gz")
-        if not os.path.exists(config["core"]["fs"]):
-            construct_empty_fs(config["core"]["fs"])
+        config["core"]["fs"] = "./base/empty_fs.tar.gz"
+        empty_fs_path = os.path.join(config_folder, "./base/empty_fs.tar.gz")
+        if not os.path.exists(empty_fs_path):
+            construct_empty_fs(empty_fs_path)
     return config
 
 
