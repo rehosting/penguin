@@ -109,7 +109,7 @@ class PyPandaSysLog(PyPlugin):
             if argtype.endswith("_PTR"):
                 try:
                     if "STR" in argtype:
-                        buf = panda.read_str(cpu, argval).decode(errors="ignore")
+                        buf = panda.read_str(cpu, argval) if argval != 0 else '[NULL]'
                     else:
                         buf = panda.virtual_memory_read(cpu, argval, 20)
                 except Exception:
@@ -193,7 +193,7 @@ class PyPandaSysLog(PyPlugin):
             panda, cpu = self.panda, self.panda.get_cpu()
             with contextlib.suppress(ValueError):
                 buf = (
-                    panda.read_str(cpu, argval)
+                    panda.read_str(cpu, argval) if argval != 0 else "[NULL]"
                     if "STR" in ctype
                     else (
                         panda.arch.get_arg(cpu, i + 1, convention="syscall")
