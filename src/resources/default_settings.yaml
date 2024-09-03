@@ -67,8 +67,8 @@ nvram_config:
 # Enables FirmAE hack to set NVRAM values based on the presence of specific files.
 enable_firmae_hack: true
 
-# Enables setting core.force_www by default.
-set_core_force_www: true
+# By default core.force_www should be false
+set_core_force_www: false
 
 # Allows users to customize mapping from webserver binary to command to run
 webserver_mapping:
