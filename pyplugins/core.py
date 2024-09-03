@@ -72,15 +72,15 @@ class Core(PyPlugin):
                 )
                 if telnet_port == 23:
                     self.logger.info(
-                        f"Connect with: docker exec -it {container_name} telnet 127.0.0.1"
+                        f"Connect with: docker exec -it {container_name} telnet localhost"
                     )
                 else:
                     self.logger.info(
-                        f"Connect with: docker exec -it {container_name} telnet {telnet_port}"
+                        f"Connect with: docker exec -it {container_name} telnet localhost {telnet_port}"
                     )
             else:
                 self.logger.info(
-                    "Root shell enabled. Connect with docker exec -it [your_container_name] telnet {telnet_port}"
+                    "Root shell enabled. Connect with docker exec -it [your_container_name] telnet localhost {telnet_port}"
                 )
 
         # Same thing, but for a shared directory
@@ -241,22 +241,22 @@ class CoreAnalysis(PenguinAnalysis):
 
 EVENTS = {
     # MAGIC ->  (NAME,              (ARG1,...,ARGN))
-    100: ("igloo_open", (str, int)),
-    101: ("igloo_string_cmp", (str,)),
-    102: ("igloo_string_cmp", (str,)),
-    103: ("igloo_getenv", (str,)),
-    104: ("igloo_strstr", (str, str)),
-    105: ("igloo_ioctl", (str, int)),
-    106: ("igloo_proc_mtd", (int, int)),
-    107: ("igloo_nvram_get_miss", (str,)),
-    108: ("igloo_nvram_get_hit", (str,)),
-    109: ("igloo_nvram_set", (str, str)),
-    110: ("igloo_nvram_clear", (str,)),
-    200: ("igloo_ipv4_setup", (str, int)),
-    201: ("igloo_ipv4_bind", (int, bool)),
-    202: ("igloo_ipv6_setup", (str, int)),
-    203: ("igloo_ipv6_bind", (int, bool)),
-    0x6408400B: ("igloo_syscall", (int,)),
+    100:        ('igloo_open',            (str, int)),
+    101:        ('igloo_string_cmp',      (str,)),
+    102:        ('igloo_string_cmp',      (str,)),
+    103:        ('igloo_getenv',          (str,)),
+    104:        ('igloo_strstr',          (str, str)),
+    105:        ('igloo_ioctl',           (str, int)),
+    106:        ('igloo_proc_mtd',        (int, int)),
+    107:        ('igloo_nvram_get_miss',  (str,)),
+    108:        ('igloo_nvram_get_hit',   (str,)),
+    109:        ('igloo_nvram_set',       (str, str)),
+    110:        ('igloo_nvram_clear',     (str,)),
+    200:        ('igloo_ipv4_setup',      (str, int)),
+    201:        ('igloo_ipv4_bind',       (int, bool)),
+    202:        ('igloo_ipv6_setup',      (str, int)),
+    203:        ('igloo_ipv6_bind',       (int, bool)),
+    0x6408400B: ('igloo_syscall',         (int,)),
 }
 
 

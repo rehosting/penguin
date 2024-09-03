@@ -18,7 +18,6 @@ from .defaults import default_plugin_path
 from .penguin_config import load_config
 from .utils import hash_image_inputs
 
-telnet_port = 23
 
 # Note armel is just panda-system-arm and mipseb is just panda-system-mips
 ROOTFS = "/dev/vda"  # Common to all
@@ -318,21 +317,9 @@ def run_config(
     if archend in ["armel", "aarch64"]:
         append = append.replace("console=ttyS0", "console=ttyAMA0")
 
-    global telnet_port
-
-    while telnet_port < 65535:
-        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
-            try:
-                sock.bind(("127.0.0.1", telnet_port))
-                break
-            except OSError:
-                telnet_port += 1000
-
-    if telnet_port > 65535:
-        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-            s.bind(("localhost", 0))
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            telnet_port = s.getsockname()[1]
+    telnet_port = find_free_port()
+    if telnet_port is None:
+        raise OSError("No available port found in the specified range")
 
     root_shell = []
     if conf["core"].get("root_shell", False):
@@ -561,11 +548,23 @@ def run_config(
             _run()
 
 
-def get_telnet_port():
-    global telnet_port
-    print("WEHAT IS IT: ", telnet_port)
-    return telnet_port
+def find_free_port():
+    telnet_port = 23
+    while telnet_port < 65535:
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+            try:
+                sock.bind(("127.0.0.1", telnet_port))
+                break
+            except OSError:
+                telnet_port += 1000
 
+    if telnet_port > 65535:
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+            s.bind(("localhost", 0))
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            telnet_port = s.getsockname()[1]
+
+    return telnet_port
 
 def main():
     logger = getColoredLogger("penguin.runner")
