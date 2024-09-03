@@ -17,7 +17,6 @@ def int_to_hex_representer(dumper, data):
 def hex_to_int_constructor(loader, node):
     if node.value.startswith("0x"):
         return int(loader.construct_scalar(node), 16)
-    
     # YAML treats 127:0:0:23:59 as an integer, but it cannot/should not be parsed as int
     try:
         return int(loader.construct_scalar(node))
