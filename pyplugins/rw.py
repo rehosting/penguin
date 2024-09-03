@@ -12,7 +12,7 @@ class RWLog(PyPlugin):
 
     def write(self, cpu, pc, fd, buf, count):
         try:
-            s = self.panda.read_str(cpu, buf, count)
+            s = self.panda.read_str(cpu, buf, max_length=count)
         except ValueError:
             s = "error"
 
@@ -28,7 +28,7 @@ class RWLog(PyPlugin):
 
     def read(self, cpu, pc, fd, buf, count):
         try:
-            s = self.panda.read_str(cpu, buf, count)
+            s = self.panda.read_str(cpu, buf, max_length=count)
         except ValueError:
             s = "error"
         fname = self.panda.get_file_name(cpu, fd) or b"?"
