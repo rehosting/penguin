@@ -566,6 +566,7 @@ def find_free_port():
 
     return telnet_port
 
+
 def main():
     logger = getColoredLogger("penguin.runner")
     if verbose := any(x == "verbose" for x in sys.argv):
