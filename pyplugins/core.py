@@ -49,6 +49,8 @@ class Core(PyPlugin):
         plugins = self.get_arg("plugins")
         conf = self.get_arg("conf")
 
+        telnet_port = self.get_arg("telnet_port")
+
         # If we have an option of root_shell we need to add ROOT_SHELL=1 into env
         # so that the init script knows to start a root shell
         if conf["core"].get("root_shell", False):
@@ -56,19 +58,29 @@ class Core(PyPlugin):
             # Print port info
             if container_ip := os.environ.get("CONTAINER_IP", None):
                 self.logger.info(
-                    f"Root shell will be available at: {container_ip}:4321"
+                    f"Root shell will be available at: {container_ip}:{telnet_port}"
                 )
-                self.logger.info(f"Connect with: telnet {container_ip} 4321")
+                if telnet_port == 23:
+                    self.logger.info(f"Connect with: telnet {container_ip}")
+                else:
+                    self.logger.info(
+                        f"Connect with: telnet {container_ip} {telnet_port}"
+                    )
             elif container_name := os.environ.get("CONTAINER_NAME", None):
                 self.logger.info(
-                    f"Root shell will be available in container {container_name} on port 4321"
+                    f"Root shell will be available in container {container_name} on port {telnet_port}"
                 )
-                self.logger.info(
-                    f"Connect with: docker exec -it {container_name} telnet 4321"
-                )
+                if telnet_port == 23:
+                    self.logger.info(
+                        f"Connect with: docker exec -it {container_name} telnet localhost"
+                    )
+                else:
+                    self.logger.info(
+                        f"Connect with: docker exec -it {container_name} telnet localhost {telnet_port}"
+                    )
             else:
                 self.logger.info(
-                    "Root shell enabled. Connect with docker exec -it [your_container_name] telnet 4321"
+                    "Root shell enabled. Connect with docker exec -it [your_container_name] telnet localhost {telnet_port}"
                 )
 
         # Same thing, but for a shared directory
@@ -261,14 +273,16 @@ class Events(PyPlugin):
             # argument parsing
             args = [cpu]
             for i, arg in enumerate(arg_types):
-                argval = self.panda.arch.get_arg(cpu, i+1, convention='syscall')
+                argval = self.panda.arch.get_arg(cpu, i + 1, convention="syscall")
                 if arg is int:
                     args.append(argval)
                 elif arg is str:
                     try:
                         s = self.panda.read_str(cpu, argval)
                     except ValueError:
-                        self.logger.debug(f"arg read fail: {magic} {argval:x} {i} {arg}")
+                        self.logger.debug(
+                            f"arg read fail: {magic} {argval:x} {i} {arg}"
+                        )
                         self.panda.arch.set_retval(cpu, 1)
                         return
                     args.append(s)
