@@ -8,6 +8,7 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 import jsonschema
 import yaml
+from yamlcore import CoreLoader
 from pydantic import BaseModel, Field, RootModel
 from pydantic.config import ConfigDict
 from pydantic_core import PydanticUndefined, PydanticUndefinedType
@@ -702,10 +703,10 @@ def _validate_config(config):
     _validate_config_options(config)
 
 
-def load_config(path):
+def load_config(path, validate=True):
     """Load penguin config from path"""
     with open(path, "r") as f:
-        config = yaml.safe_load(f)
+        config = yaml.load(f, Loader=CoreLoader)
     config_folder = Path(path).parent
     if config.get("patches", None) is not None:
         patch_list = config["patches"]
@@ -713,12 +714,14 @@ def load_config(path):
             # patches are loaded relative to the main config file
             patch_relocated = Path(config_folder, patch)
             config = patch_config(config, patch_relocated)
-    _validate_config(config)
-    if config["core"]["fs"] is None:
-        config["core"]["fs"] = "./base/empty_fs.tar.gz"
-        empty_fs_path = os.path.join(config_folder, "./base/empty_fs.tar.gz")
-        if not os.path.exists(empty_fs_path):
-            construct_empty_fs(empty_fs_path)
+    # when loading a patch we don't need a completely valid config
+    if validate:
+        _validate_config(config)
+        if config["core"].get("fs", None) is None:
+            config["core"]["fs"] = "./base/empty_fs.tar.gz"
+            empty_fs_path = os.path.join(config_folder, "./base/empty_fs.tar.gz")
+            if not os.path.exists(empty_fs_path):
+                construct_empty_fs(empty_fs_path)
     return config
 
 
