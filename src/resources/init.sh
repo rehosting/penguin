@@ -98,7 +98,7 @@ fi
 # Pretend we have some network interfaces. Note these aren't
 # connected to anything. Pseudofile penguin_net is populated
 # from config's netdevs list.
-for iface in $(/igloo/utils/busybox cat /proc/penguin_net); do
+for iface in $(/igloo/utils/busybox cat /proc/penguin_net 2>/dev/null || echo ""); do
   /igloo/utils/busybox ip link add $iface type dummy
   /igloo/utils/busybox ip link set $iface up
 done
