@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 import coloredlogs
 import yaml
-
+from yamlcore import CoreLoader, CoreDumper
 
 # Hex integers
 def int_to_hex_representer(dumper, data):
@@ -44,7 +44,8 @@ yaml.SafeDumper.add_representer(tuple, int_to_hex_representer)
 
 
 def hash_yaml(section_to_hash):
-    section_string = yaml.dump(section_to_hash, sort_keys=True)
+    section_string = yaml.dump(section_to_hash, sort_keys=False,
+                               Dumper=CoreDumper)
 
     # Encode the string to bytes.
     section_bytes = section_string.encode("utf-8")
@@ -68,7 +69,7 @@ def patch_config(base_config, patch):
 
     if issubclass(type(patch), Path):
         with open(patch, "r") as f:
-            patch = yaml.safe_load(f)
+            patch = yaml.load(f, Loader=CoreLoader)
     for key, value in patch.items():
         # Check if the key already exists in the base_config
         if key in base_config:
