@@ -223,6 +223,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       lief  \
       lxml \
       lz4 \
+      openai \
       pydantic \
       pyelftools \
       pyyaml \
@@ -381,6 +382,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # this from the host during development. In the long term we'll
 # merge these into the main penguin module
 COPY ./pyplugins/ /pandata
+
+# Copy schema doc into LLM docs as is
+COPY ./docs/schema_doc.md /docs/llm_knowledge_base
 
 # Default command: echo install instructions
 CMD ["/usr/local/bin/banner.sh"]
