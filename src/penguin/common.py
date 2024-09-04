@@ -6,18 +6,13 @@ import coloredlogs
 import yaml
 from yamlcore import CoreLoader, CoreDumper
 
+
 # Hex integers
 def int_to_hex_representer(dumper, data):
     if data > 10:
         # Values < 10 can be base 10
         return dumper.represent_scalar("tag:yaml.org,2002:int", data)
     return dumper.represent_scalar("tag:yaml.org,2002:int", hex(data))
-
-
-def hex_to_int_constructor(loader, node):
-    if node.value.startswith("0x"):
-        return int(loader.construct_scalar(node), 16)
-    return int(loader.construct_scalar(node))
 
 
 # Multi-line strings
@@ -29,10 +24,6 @@ def literal_presenter(dumper, data):
         return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
     return dumper.represent_scalar("tag:yaml.org,2002:str", data)
 
-
-# Constructor. Just need special handling for loading tuples
-# yaml.SafeLoader.add_constructor('tag:yaml.org,2002:python/tuple', tuple_constructor)
-yaml.SafeLoader.add_constructor("tag:yaml.org,2002:int", hex_to_int_constructor)
 
 # Representer. Need special handling for dumping literals and tuples. Support base dumper or safe
 yaml.Dumper.add_representer(str, literal_presenter)
