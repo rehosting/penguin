@@ -167,7 +167,7 @@ class PandaRunner:
         # which is a wrapper to call that script with: run_config(config=argv[1], out=argv[2], qcows=argv[3])
 
         # Let's call via system instead of subprocess
-        data = yaml.safe_load(open(conf_yaml))
+        data = load_config(conf_yaml)
         timeout_s = None
         timeout_cmd = []
 
@@ -785,8 +785,7 @@ def graph_search(
     run_base = os.path.join(output_dir, "runs")
     os.makedirs(run_base, exist_ok=True)
 
-    with open(os.path.join(output_dir, "base_config.yaml"), "w") as f:
-        yaml.dump(initial_config, f)
+    dump_config(initial_config, os.path.join(output_dir, "base_config.yaml"))
 
     base_config = Configuration("baseline", initial_config)
     config_manager = ConfigurationManager(base_config)
