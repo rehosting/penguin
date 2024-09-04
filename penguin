@@ -388,7 +388,7 @@ penguin_run() {
             --privileged -t \
             --rm quay.io/singularity/docker2singularity:v3.9.0 \
             rehosting/penguin
-        mv .singularity/rehosting_penguin*.sif penguin.sif
+        mv -f .singularity/rehosting_penguin*.sif penguin.sif
         rm -rf .singularity || true
         echo "penguin.sif built"
         exit 0
