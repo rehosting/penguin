@@ -7,6 +7,8 @@ from uuid import UUID, uuid4
 import networkx as nx
 from pyvis.network import Network
 
+from . import llm
+
 
 def get_global_mitigation_weight(mitigation_type: str) -> float:
     """
@@ -1044,7 +1046,7 @@ class ConfigurationGraph:
         elif node in pending_runs:
             s = f"{pad}running: estimated score = {self.calculate_expected_config_health(node):_}. delta = {oneline_delta}"
         else:
-            s = f"{pad}unexplored: estimated score = {self.calculate_expected_config_health(node):_}. delta = {oneline_delta}"
+            s = f"{pad}unexplored: estimated score = {self.calculate_expected_config_health(node):_}. delta = {oneline_delta}. UID = {str(node.gid)}"
         output.append(pad + s)
 
         # Now we recurse to children, but we must sort them by score!
@@ -1364,6 +1366,14 @@ class ConfigurationManager:
 
         with self.lock:
             config_to_run, weight = self.select_best_config()
+            # XXX: work in progress to improve this selection
+            # uncomment below for llm-based selection
+            # config2, weight2 = self.select_best_config_llm()
+            # if config_to_run != config2:
+            #     print(f'=== DIFFERENCE ===')
+            #     print(f'config1: {config_to_run}, score: {weight}')
+            #     print(f'config2: {config2}, score: {weight2}')
+
             if config_to_run:
                 self.pending_runs.add(config_to_run)
 
@@ -1384,6 +1394,46 @@ class ConfigurationManager:
         with self.lock:
             self.pending_runs.remove(config_to_run)
         return config_to_run
+
+    def select_best_config_llm(self) -> Tuple[Optional[Configuration], float]:
+        """
+        TODO
+        """
+        print('===== LLM Finding Best Config to Run =====')
+        target_configs = []
+        unexplored_configs = self.graph.find_unexplored_configurations()
+
+        # TODO: for each config, create llm assistant, upload files, and ask to summarize failures
+        # store this inside the configuration object (so we dont reduntantly do this)
+        for config in unexplored_configs:
+            if config not in self.pending_runs:
+                target_configs.append((config, self.graph.calculate_expected_config_health(config)))
+
+        # if not len(target_configs):
+        #     # Nothing to do. Other threads are working or we're all out of work
+        #     return None, 0
+
+        # # Now we have a list of (health, config) tuples. Sort by health
+        # results = sorted(target_configs, key=lambda x: x[0], reverse=True)
+
+        # TODO: for each unexplored config, get its summary and provide to the final LLM: select_best_config
+
+        graph = self.stringify_state()
+        if "unexplored" not in graph:
+            return (None, 0)
+
+        uid = llm.select_best_config(graph, llm.PROMPTS["config_graph"])
+        if uid == 'None':
+            return (None, 0)
+
+        uid_obj = UUID(uid)
+        try:
+            best_config = self.graph.get_node(uid_obj)
+        except ValueError as e:
+            print(e)
+            return (None, 0)
+
+        return (best_config, self.graph.calculate_expected_config_health(best_config))
 
     def select_best_config(self) -> Tuple[Optional[Configuration], float]:
         """
@@ -1485,6 +1535,8 @@ class ConfigurationManager:
 
     def select_best_config_orig(self) -> Tuple[Optional[Configuration], float]:
         """
+        --- DEPRECATED ---
+
         Select the best configuration to run next. Node can't have been run before
 
         Just return the first unexplored config for now
