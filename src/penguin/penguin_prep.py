@@ -119,7 +119,9 @@ def add_lib_inject_for_abi(config, abi):
     arch_info = ARCH_ABI_INFO[arch]
     abi_info = arch_info["abis"][abi]
     headers_dir = f"/igloo_static/musl-headers/{abi_info['musl_arch_name']}/include"
-    libnvram_arch_name = abi_info.get('libnvram_arch_name', None) or arch_info['libnvram_arch_name']
+    libnvram_arch_name = abi_info.get(
+        'libnvram_arch_name', None) or arch_info['libnvram_arch_name']
+    aliases = lib_inject.get("aliases", dict())
 
     args = (
         ["clang-11", "-fuse-ld=lld", "-Oz", "-shared", "-nostdlib", "-nostdinc"]
@@ -140,14 +142,16 @@ def add_lib_inject_for_abi(config, abi):
             "-",
             "-o",
             "-",
-            "-Wl,"
-            + ",".join(
-                [
-                    f"--defsym={sym}={repl}"
-                    for sym, repl in lib_inject.get("aliases", dict()).items()
-                ]
-            ),
-        ] + abi_info.get("extra_flags", [])
+        ]
+        +
+        ([] if len(aliases) == 0 else ["-Wl," +
+         ",".join(
+             [
+                 f"--defsym={sym}={repl}"
+                 for sym, repl in aliases.items()
+             ]
+         )])
+        + abi_info.get("extra_flags", [])
     )
     p = subprocess.run(
         args,
