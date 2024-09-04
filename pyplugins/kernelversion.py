@@ -1,6 +1,5 @@
 from pandare import PyPlugin
 
-err_output = "kerver_err.txt"
 RETRY = 0xDEADBEEF
 
 
