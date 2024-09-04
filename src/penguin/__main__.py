@@ -15,13 +15,13 @@ from penguin import VERSION, getColoredLogger
 from .common import yaml, patch_config
 from .gen_config import fakeroot_gen_config
 from .manager import PandaRunner, calculate_score, graph_search
-from .penguin_config import load_config
+from .penguin_config import load_config, dump_config
 
 logger = getColoredLogger("penguin")
 
 
 def run_from_config(
-    config_path, output_dir, niters=1, nthreads=1, timeout=None, verbose=False
+    config_path, output_dir, niters=1, nthreads=1, timeout=None, verbose=False, auto=False
 ):
 
     if not os.path.isfile(config_path):
@@ -41,7 +41,7 @@ def run_from_config(
         # /igloo_static/kernels, but it could be elsewhere.
         raise RuntimeError(f"Base kernel not found: {config['core']['kernel']}")
 
-    if niters > 1:
+    if niters > 1 or auto:
         # Change config for auto exploration. Delete init. Set timeout, enable nmap, disable root shell
         # Note this is a design change from how gen_config works and how we used to do this - we're now starting
         # from a previously created config, so we'll toggle these settings after loading. Previously we'd generate
@@ -50,6 +50,11 @@ def run_from_config(
         config["plugins"]["core"]["timeout"] = timeout if timeout else 300
         config["plugins"]["nmap"]["enabled"] = True
 
+        dump_config(config, config_path)
+
+    if niters > 1:
+        # Only trigger graph_search if 'penguin explore'. We might be running in auto mode
+        # for 'single_shot' rehosting tests in which case timeout != None and niters = 1.
         return graph_search(
             proj_dir, config, output_dir, max_iters=niters, nthreads=nthreads
         )
@@ -334,8 +339,15 @@ def add_run_arguments(parser):
         help="Forcefully delete output directory if it exists.",
     )
     parser.add_argument(
+        "--timeout",
+        type=int,
+        default=None,
+        help="Number of seconds that run/iteration should last. Default is None (must manually kill)"
+    )
+    parser.add_argument(
         "-v", "--verbose", action="store_true", help="Set log level to debug"
     )
+    parser.add_argument("-a", "--auto", action="store_true", help="Run in auto mode (don't start telnet shell).")
 
 
 def penguin_run(args):
@@ -399,7 +411,7 @@ def penguin_run(args):
             "Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments"
         )
 
-    run_from_config(args.config, args.output, verbose=args.verbose)
+    run_from_config(args.config, args.output, timeout=args.timeout, verbose=args.verbose, auto=args.auto)
 
 
 def add_explore_arguments(parser):
@@ -419,6 +431,12 @@ def add_explore_arguments(parser):
         type=int,
         default=4,
         help="Number of workers to run in parallel. Default is 4",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=300,
+        help="Number of seconds that automated runs will execute for. Default is 300."
     )
     parser.add_argument(
         "--output",
@@ -483,6 +501,7 @@ def penguin_explore(args):
         verbose=args.verbose,
         niters=args.niters,
         nthreads=args.nworkers,
+        timeout=args.timeout,
     )
 
 
