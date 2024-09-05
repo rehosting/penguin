@@ -28,40 +28,48 @@ if [[ "$1" == "req" ]]; then
     # Parse arguments
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            -config)
-                config_file="$2"
-                shift 2
-                ;;
-            -keyout)
-                keyfile="$2"
-                shift 2
-                ;;
-            -out)
-                certfile="$2"
+            -config|-keyout|-out|-newkey|-days)
+                if [ -z "$2" ] || [ "${2:0:1}" = "-" ]; then
+                    echo "req: Option $1 needs a value" >&2
+                    echo "req: Use -help for summary." >&2
+                    exit 1
+                fi
+                case "$1" in
+                    -config)
+                        config_file="$2"
+                        ;;
+                    -keyout)
+                        keyfile="$2"
+                        ;;
+                    -out)
+                        certfile="$2"
+                        ;;
+                    -newkey)
+                        keytype="$2"
+                        case "$keytype" in
+                            rsa:*)
+                                keysize="${keytype#rsa:}"
+                                ;;
+                        esac
+                        ;;
+                    -days)
+                        days="$2"
+                        ;;
+                esac
                 shift 2
                 ;;
             -new)
                 new_req=1
                 shift
                 ;;
-            -newkey)
-                keytype="$2"
-                case "$keytype" in
-                    rsa:*)
-                        keysize="${keytype#rsa:}"
-                        ;;
-                esac
-                shift 2
-                ;;
             -x509)
                 x509=1
                 shift
                 ;;
-            -days)
-                shift 2
-                ;;
             *)
-                shift
+                echo "req: Unknown option or message digest: $1" >&2
+                echo "req: Use -help for summary." >&2
+                exit 1
                 ;;
         esac
     done
