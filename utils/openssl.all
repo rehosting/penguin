@@ -1,17 +1,18 @@
 #!/igloo/utils/sh
-
 KEYS_DIR=/igloo/keys/
-
 ARGS="$@"
-
-LOGGER=/firmadyne/ttyS1
+LOGGER=/dev/ttyS1
 
 function finish {
   # If exit code was non-zero, print an error message
   if [ $? -ne 0 ]; then
-    echo "openssl.shim: Error generating keys for openssl. Bailing on shim and running" > $LOGGER
-    echo "openssl.shim: original with args $ARGS" > $LOGGER
-    exec /igloo/utils/openssl.orig $ARGS
+    if [ -x /igloo/utils/openssl.orig ]; then
+        echo "openssl.shim: Error generating keys for openssl. Bailing on shim and running" > $LOGGER
+        echo "openssl.shim: original with args $ARGS" > $LOGGER
+        exec /igloo/utils/openssl.orig $ARGS
+    else
+        echo "openssl.shim: Error generating keys for openssl. Original openssl not available" > $LOGGER
+    fi
   fi
 }
 trap finish EXIT
@@ -110,12 +111,22 @@ if [[ "$1" == "req" ]]; then
             cp "${certpath}" "${certfile}"
         fi
     else
-        echo "openssl.shim: Pre-computed key or certificate not found for size ${keysize} at ${keypath} or ${certpath}" > $LOGGER
-        exec /igloo/utils/openssl.orig "$@"
+        if [ -x /igloo/utils/openssl.orig ]; then
+            echo "openssl.shim: Pre-computed key or certificate not found for size ${keysize} at ${keypath} or ${certpath}" > $LOGGER
+            exec /igloo/utils/openssl.orig $ARGS
+        else
+            echo "openssl.shim: Pre-computed key or certificate not found for size ${keysize} at ${keypath} or ${certpath}. Original openssl not available" > $LOGGER
+            exit 1
+        fi
     fi
 
 else
     # No need to log this in general, we expect to see it quite often
     #echo "openssl:shim Unsupported openssl command $@" > $LOGGER
-    exec /igloo/utils/openssl.orig $@
+    if [ -x /igloo/utils/openssl.orig ]; then
+        exec /igloo/utils/openssl.orig $ARGS
+    else
+        echo "Unsupported openssl arg with no original openssl available" > $LOGGER
+        exit 1
+    fi
 fi
