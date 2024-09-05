@@ -341,6 +341,8 @@ def pre_shim(proj_dir, config, settings):
                 for dest in list(
                     set(find_strings_in_file(f, "^/mnt/[a-zA-Z0-9._/]+$"))
                 ):
+                    if dest in existing:
+                        continue
                     config["static_files"][dest] = {"type": "dir", "mode": 0o755}
 
         for fname in settings.get("always_add", []):
