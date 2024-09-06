@@ -232,7 +232,6 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       art \
       setuptools \
       sqlalchemy \
-      yamlcore \
       junit-xml
 
 
