@@ -344,6 +344,10 @@ def penguin_run(args):
     if not config.exists():
         raise ValueError(f"Config file does not exist: {args.config}")
 
+    if args.config == "config.yaml":
+        current_dir = os.getcwd()
+        args.config = current_dir + "/config.yaml"
+
     # Allow config to be the project dir (which contains config.yaml)
     if os.path.isdir(args.config) and os.path.exists(
         os.path.join(args.config, "config.yaml")
