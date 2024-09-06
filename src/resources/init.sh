@@ -22,8 +22,14 @@ for f in sys proc dev; do
 done
 
 for p in /run /tmp /igloo/libnvram_tmpfs; do
-  /igloo/utils/busybox mkdir $p
-  /igloo/utils/busybox mount -t tmpfs tmpfs $p
+  if [ ! -d $p ]; then
+    # If directory doesn't exist, create it
+    /igloo/utils/busybox mkdir $p
+  fi
+  if [ ! -n "$(/igloo/utils/busybox ls -A "$p" 2>/dev/null)" ]; then
+    # If directory isn't empty, mount it as tmpfs - otherwise don't mount to ensure we don't shadow files
+    /igloo/utils/busybox mount -t tmpfs tmpfs $p
+  fi
 done
 
 /igloo/utils/busybox mkdir -p /dev/pts
