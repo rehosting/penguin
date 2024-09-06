@@ -247,10 +247,12 @@ def penguin_patch(args):
         raise ValueError(f"Patch file does not exist: {args.patch}")
 
     # Read both yaml files
-    base_config = load_config(config, validate=False)
-    p_config = load_config(patch, validate=False)
+    with open(config, "r") as f:
+        base_config = yaml.safe_load(f)
 
-    # Update the base config with the patch
+    with open(patch, "r") as f:
+        p_config = yaml.safe_load(f)
+
     base_config = patch_config(base_config, p_config)
 
     # Replace the original config with the updated one
