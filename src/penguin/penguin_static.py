@@ -243,7 +243,7 @@ def pre_shim(proj_dir, config, settings):
     existing = get_all_from_tar(fs_path)
     symlinks = get_symlinks_from_tar(fs_path)
 
-    def resolve_path(d, symlinks):
+    def resolve_path(d, symlinks, depth=0):
         parts = d.split("/")
         for i in range(len(parts), 1, -1):
             sub_path = "/".join(parts[:i])
@@ -253,11 +253,22 @@ def pre_shim(proj_dir, config, settings):
                 )
         if not d.startswith("/"):
             d = "/" + d
+
+        if d in symlinks:
+            # We resolved a symlink to another symlink, need to recurse
+            # XXX: What if our resolved path contains a symlink earlier in the path TODO
+            if depth > 10 or d == symlinks[d]:
+                logger.warning(f"Symlink loop detected for {d}")
+                return d
+            else:
+                # Recurse
+                return resolve_path(symlinks[d], symlinks, depth=depth+1)
+
         return d
 
     for d in directories:
         # It's not already in there, add it as a world-readable directory
-        # Handle symlinks. If we have a direcotry like /tmp/var and /tmp is a symlink to /asdf, we want to make /asdf/var
+        # Handle symlinks. If we have a directory like /tmp/var and /tmp is a symlink to /asdf, we want to make /asdf/var
 
         resolved_path = resolve_path(d, symlinks)
         # Try handling ../s by resolving the path
