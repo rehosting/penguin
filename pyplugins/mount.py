@@ -70,7 +70,6 @@ class MountTracker(PyPlugin):
             }
             self.log_mount(-1, results)
 
-
     def log_mount(self, retval, results):
         src = results["source"]
         tgt = results["target"]
