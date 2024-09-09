@@ -28,6 +28,7 @@ class MountTracker(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
+        self.ppp.Health.ppp_reg_cb("igloo_exec", self.find_mount)
         self.mounts = set()
         self.logger = getColoredLogger("plugins.mount")
         if self.get_arg_bool("verbose"):
@@ -58,6 +59,15 @@ class MountTracker(PyPlugin):
 
             # Always pretend it was a success?
             # panda.arch.set_retval(cpu, 0, failure=False, convention='syscall')
+
+    def find_mount(self, cpu, fname, argv):
+        if fname == "/bin/mount":
+            results = {
+                "source": argv[3],
+                "target": argv[4],
+                "fs_type": argv[2],
+            }
+            self.log_mount(-1, results)
 
     def log_mount(self, retval, results):
         src = results["source"]
