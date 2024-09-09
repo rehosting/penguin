@@ -46,7 +46,6 @@ class MountTracker(PyPlugin):
             for k, v in results.items():
                 try:
                     results[k] = self.panda.read_str(cpu, v)
-                    print(results[k])
                 except ValueError:
                     results[k] = "[unknown]"
 
