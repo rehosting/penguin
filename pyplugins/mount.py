@@ -62,12 +62,22 @@ class MountTracker(PyPlugin):
 
     def find_mount(self, cpu, fname, argv):
         if fname == "/bin/mount":
-            results = {
-                "source": argv[3],
-                "target": argv[4],
-                "fs_type": argv[2],
-            }
-            self.log_mount(-1, results)
+            argc = len(argv)
+            if argc == 2 and argv[1] == "--help":
+                results = {
+                    "source": argv[1],
+                    "target": "",
+                    "fs_type": "",
+                }
+                self.log_mount(-1, results)
+            
+            if argc == 5:
+                results = {
+                    "source": argv[3],
+                    "target": argv[4],
+                    "fs_type": argv[2],
+                }
+                self.log_mount(-1, results)
 
     def log_mount(self, retval, results):
         src = results["source"]
