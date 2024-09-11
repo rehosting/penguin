@@ -251,7 +251,8 @@ def get_mitigation_providers(config: dict):
         except ValueError:
             continue
         mitigation_providers[analysis.ANALYSIS_TYPE] = analysis
-        if details["version"] != analysis.VERSION:
+        # plugin versions are now optional
+        if "version" in details and details["version"] != analysis.VERSION:
             raise ValueError(
                 f"Config specifies plugin {plugin_name} at version {details['version']} but we got {analysis.VERSION}"
             )
