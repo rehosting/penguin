@@ -1,6 +1,7 @@
 from pandare import PyPlugin
 
 RETRY = 0xDEADBEEF
+NO_CHANGE = 0xABCDABCD
 
 
 class KernelVersion(PyPlugin):
@@ -31,6 +32,11 @@ class KernelVersion(PyPlugin):
 
     def change_uname(self, cpu, buf_ptr, filler):
         new_uname = self.create_string()
+
+        if new_uname == "none,none,none,none,none,none,":
+            self.panda.arch.set_retval(cpu, NO_CHANGE)
+            return
+
         try:
             self.panda.virtual_memory_write(
                 cpu, buf_ptr, (new_uname.encode("utf-8") + b"\0")
