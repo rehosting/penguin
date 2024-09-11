@@ -337,6 +337,7 @@ COPY --from=downloader /panda_plugins/aarch64/ /usr/local/lib/panda/aarch64/
 COPY --from=downloader /panda_plugins/mips/ /usr/local/lib/panda/mips/
 COPY --from=downloader /panda_plugins/mipsel/ /usr/local/lib/panda/mipsel/
 COPY --from=downloader /panda_plugins/mips64/ /usr/local/lib/panda/mips64/
+COPY --from=downloader /panda_plugins/x86_64/ /usr/local/lib/panda/x86_64/
 
 # Copy nmap build into /usr/local/bin
 COPY --from=nmap_builder /build/nmap /usr/local/
