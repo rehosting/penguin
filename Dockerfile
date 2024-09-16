@@ -408,9 +408,11 @@ RUN if [ -d /tmp/local_packages ]; then \
             mkdir -p /tmp/plug && \
             tar xzf /tmp/local_packages/penguin_plugins.tar.gz -C /tmp/plug && \
             mv /tmp/plug/arm/* /usr/local/lib/panda/arm && \
+            mv /tmp/plug/aarch64/* /usr/local/lib/panda/aarch64 && \
             mv /tmp/plug/mips/* /usr/local/lib/panda/mips && \
             mv /tmp/plug/mipsel/* /usr/local/lib/panda/mipsel && \
-            mv /tmp/plug/mips64/* /usr/local/lib/panda/mips64; \
+            mv /tmp/plug/mips64/* /usr/local/lib/panda/mips64 && \
+            mv /tmp/plug/x86_64/* /usr/local/lib/panda/x86_64; \
         fi; \
         if [ -f /tmp/local_packages/kernels-latest.tar.gz ]; then \
             rm -rf /igloo_static/kernels && \
