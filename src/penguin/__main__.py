@@ -18,12 +18,13 @@ from .common import yaml
 from .gen_config import fakeroot_gen_config
 from .manager import PandaRunner, calculate_score, graph_search
 from .penguin_config import load_config, dump_config
+from .genetic import ga_search
 
 logger = getColoredLogger("penguin")
 
 
 def run_from_config(
-    proj_dir, config_path, output_dir, niters=1, nthreads=1, timeout=None, verbose=False, auto=False
+    proj_dir, config_path, output_dir, niters=1, nthreads=1, timeout=None, verbose=False, auto=False, ga_explore=False
 ):
 
     if not os.path.isdir(proj_dir):
@@ -48,11 +49,19 @@ def run_from_config(
     #dump_config(config, config_path+".realized")
 
     if niters > 1:
-        # Only trigger graph_search if 'penguin explore'. We might be running in auto mode
-        # for 'single_shot' rehosting tests in which case timeout != None and niters = 1.
-        return graph_search(
-            proj_dir, config, output_dir, max_iters=niters, nthreads=nthreads
-        )
+        if not ga_explore:
+            # Only trigger graph_search if 'penguin explore'. We might be running in auto mode
+            # for 'single_shot' rehosting tests in which case timeout != None and niters = 1.
+            logger.info(f"Exploring using graph search for {niters} iterations.")
+            return graph_search(
+                proj_dir, config, output_dir, max_iters=niters, nthreads=nthreads
+            )
+        else:
+            # We're running a genetic algorithm exploration
+            logger.info(f"Exploring using genetic algorithm for {niters} iterations.")
+            return ga_search(
+                proj_dir, config, output_dir, max_iters=niters, nthreads=nthreads
+            )
 
     # You already have a config, let's just run it. This is what happens
     # in each iterative run normally. Here we just do it directly.
@@ -456,8 +465,12 @@ def penguin_explore(args):
         )
 
     if args.output is None:
-        # Default to results/explore in the project directory
-        args.output = os.path.dirname(args.config) + "/explore/"
+        # Default to results/explore in the project directory for graph and ga_explore for genetic algorithm
+        # Allows to more easily compare them side-by-side
+        if args.cmd == "ga_explore":
+            args.output = os.path.dirname(args.config) + "/ga_explore/"
+        else:
+            args.output = os.path.dirname(args.config) + "/explore/"
 
     if args.force and os.path.isdir(args.output):
         # Delete the output directory if it exists
@@ -486,6 +499,7 @@ def penguin_explore(args):
         niters=args.niters,
         nthreads=args.nworkers,
         timeout=args.timeout,
+        ga_explore=args.cmd == "ga_explore",
     )
 
 
@@ -552,7 +566,7 @@ contains details on the configuration file format and options.
     add_docs_arguments(parser_cmd_docs)
 
     parser_cmd_explore = subparsers.add_parser(
-        "explore", help="Search for alternative configurations to improve system health"
+        "explore", help="Search for alternative configurations to improve system health by walking a configuration graph."
     )
     add_explore_arguments(parser_cmd_explore)
 
@@ -560,6 +574,10 @@ contains details on the configuration file format and options.
         "guest_cmd", help="Execute a command inside a guest and capture stdout/stderr"
     )
     parser_cmd_guest_cmd.add_argument('args', nargs=argparse.REMAINDER, help='Pass remaining arguments as a command to the guest')
+    parser_cmd_ga_explore = subparsers.add_parser(
+        "ga_explore", help="Search for alternative configurations to improve system health by using a genetic algorithm."
+    )
+    add_explore_arguments(parser_cmd_ga_explore)
 
     # Add --wrapper-help stub
     parser.add_argument(
@@ -593,6 +611,8 @@ contains details on the configuration file format and options.
         penguin_explore(args)
     elif args.cmd == "guest_cmd":
         guest_cmd(args)
+    elif args.cmd == "ga_explore":
+        penguin_explore(args)
     else:
         parser.print_help()
 

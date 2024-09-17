@@ -451,7 +451,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
             # Add these to our env_accesses list if they're not already there
             for k, v in seen_envs.items():
                 # TODO: should we add the seen value to the failure?
-                if len(k) == 0 or not k[0].isalpha():
+                if not k or not k[0].isalpha():
                     # We only want sane variable names. Exclude anything that starts with a symbol or non-alpha
                     continue
                 if None in v and k not in env_accesses:
