@@ -632,6 +632,7 @@ class Worker:
 
 class GlobalState:
     def __init__(self, proj_dir, output_dir, base_config):
+        self.proj_dir = proj_dir
         # show_output is False unless we're told otherwise
         show_output = (
             base_config["core"]["show_output"]
