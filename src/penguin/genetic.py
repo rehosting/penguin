@@ -1,3 +1,5 @@
+import os
+import csv
 from penguin import getColoredLogger
 from threading import Lock, RLock
 
@@ -9,6 +11,8 @@ from .manager import GlobalState
 
 from penguin.analyses import PenguinAnalysis
 
+from dataclasses import dataclass
+from typing import Optional
 
 """
 Genetic Algorithm Configuration Search
@@ -22,7 +26,7 @@ Overall idea:
 """
 
 def ga_search(
-    proj_dir, initial_config, output_dir, max_iters=1000, nthreads=1, init=None
+    proj_dir, base_config, output_dir, max_iters=1000, nthreads=1, init=None
 ):
     """
     Main entrypoint. Given an initial config and directory run our
@@ -35,25 +39,14 @@ def ga_search(
     run_base = os.path.join(output_dir, "runs")
     os.makedirs(run_base, exist_ok=True)
 
-    dump_config(initial_config, os.path.join(output_dir, "base_config.yaml"))
+    dump_config(base_config, os.path.join(output_dir, "base_config.yaml"))
 
-    global_state = GlobalState(proj_dir, output_dir, base_config.info)
+    global_state = GlobalState(proj_dir, output_dir, base_config)
 
     #Our first gene are the init options
-    population = ConfigPopulation(initial_config)
+    population = ConfigPopulation(base_config)
     init_gene = create_init_gene(global_state, base_config)
-    population.extend_chromosome(population.chromosomes[0], init_gene)
-
-    if CACHE_SUPPORT:
-        # Find all configs in cache_dir and hash them. Store hashes in
-        # caches dict. Whenever we try running a config, check if it's
-        # in caches. If so, copy that directory to our run_base and
-        # skip running it.
-        for f in glob.glob(f"{cache_dir}/*/config.yaml"):
-            # Load yaml file from f
-            data = yaml.safe_load(open(f))
-            config_hash = hash_yaml_config(data)
-            caches[config_hash] = os.path.dirname(f)
+    population.extend_chromosome(list(population.chromosomes)[0], init_gene)
 
     worker_threads = []
     if nthreads > 1:
@@ -128,44 +121,78 @@ def create_init_gene(global_state, base_config):
     # Hack igloo_inits as a gene
     # But only if we don't have igloo_init set and have multiple
     # potential values
-    if len(base_config.info["env"].get("igloo_init", [])) == 0:
+
+    # Add a fake failure
+    init_fail = Failure("init", "init", {"inits": global_state.inits})
+    init_mitigations = set()
+
+    if len(base_config["env"].get("igloo_init", [])) == 0:
         if len(global_state.inits) == 0:
             raise RuntimeError(
                 "No potential init binaries identified and none could be found"
             )
 
-        # Add a fake failure
-        init_fail = Failure("init", "init", {"inits": global_state.inits})
-
-        # Now for each, add mitigations and new config
-        mitigations = set()
         for init in global_state.inits:
             # First add mitigation:
             this_init_mit = Mitigation(f"init_{init}", "init", {"env": {"igloo_init": init}})
-            mitigations.add(this_init_mit)
-
-        return MitiagationGene(init_fail, mitigations)
+            init_mitigations.add(dict_to_frozenset(this_init_mit))
     else:
-        return None
+        #If we already have an init defined, we'll just use that
+        init_mitigations.add(dict_to_frozenset({'env': { 'igloo_init': base_config["env"]["igloo_init"]}}))
+    return MitigationGene(init_fail, frozenset(init_mitigations))
 
-@dataclass
+#TODO: should these move to common?
+def dict_to_frozenset(d):
+    # Recursively convert dictionaries and lists to frozensets and tuples
+    if isinstance(d, dict):
+        return frozenset((k, dict_to_frozenset(v)) for k, v in d.items())
+    elif isinstance(d, list):
+        return tuple(dict_to_frozenset(item) for item in d)
+    else:
+        return d
+
+#TODO: should these move to common?
+def frozenset_to_dict(fs):
+    # Recursively convert frozensets and tuples back to dictionaries and lists
+    if isinstance(fs, frozenset):
+        return {k: frozenset_to_dict(v) for k, v in fs}
+    elif isinstance(fs, tuple):
+        return [frozenset_to_dict(item) for item in fs]
+    else:
+        return fs
+
+
+@dataclass(frozen=True, eq=True)
 class Failure:
     name: str
     type: str
-    info: dict
+    info: frozenset
 
-@dataclass
+    def __init__(self, name, type, info: dict):
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "type", type)
+        if info is None:
+            object.__setattr__(self, "info", frozenset())
+        else:
+            object.__setattr__(self, "info", frozenset(dict_to_frozenset(info)))
+
+@dataclass(frozen=True, eq=True)
 class Mitigation:
     name: str
     type: str
-    config_opts: dict
+    config_opts: frozenset
 
-@dataclass
+    def __init__(self, name, type, config_opts: dict):
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "type", type)
+        object.__setattr__(self, "config_opts", frozenset(dict_to_frozenset(config_opts)))
+
+@dataclass(frozen=True, eq=True)
 class MitigationGene:
     #might make more sense to have these live in a different data structure, not just in their chromosomes
     #grow them globally (list or something per failure)
     failure: Failure
-    mitigations: set #probably not frozen or do we do a new set?
+    mitigations: frozenset #probably not frozen or do we do a new set?
 
 class GenePool:
     #The Gene Pool is the set of all possible mitigations for a given failure
@@ -181,35 +208,36 @@ class GenePool:
                 self.genes[gene.failure.name] = set()
             self.genes[gene.failure.name].add(gene)
 
-@dataclass
 class ConfigChromosome:
     #At the end of the day, each "chromosome" is going to be a configuration. Which is set of mitigations
 	#We are using a frozenset since each chromosome will be unique
+    #Should we have a base configuration or a set of mitigations?
     genes: frozenset[MitigationGene]
-    def __init__(self, base_config, new_gene: MitigationGene = None):
+    def __init__(self, base_config: dict, old_chromosome: 'ConfigChromosome' = None, new_gene: MitigationGene = None):
         self.lock = RLock()
-        #TODO: create a mitigation set out of the base_config
-        base_mitigation = MitigationGene(failure=None)
-        if new_mitigation is None:
-            self.genes = frozenset(base_config)
-        else:
-            self.genes = frozenset(base_config, {new_mitigation})
+        if old_chromosome is None:
+            base_failure = Failure("base", "base", None) #create a "failure" for the base config
+            base_mitigation = MitigationGene(base_failure, mitigations=dict_to_frozenset(base_config))
+            self.genes = frozenset({base_mitigation})
+            old_chrmosome = self
+        if new_gene is not None:
+            self.genes = frozenset(old_chromosome.genes.union([new_gene]))
 
 class ConfigPopulation:
     def __init__(self, base_config):
         self.lock = RLock()
-        self.chromosomes = set()
         self.base_config = base_config #store the base configuration, assumes it is immutable
-        self.population.add(ConfigChromosome(base_config, None))
+        self.chromosomes = set({ConfigChromosome(base_config, None, None)})
         self.nelites = 1 #number of elites to keep 
-        self.attempted_configs = set() #store the configurations we've already tried
+        self.attempted_configs = set() #store the configurations we've already tried - do we need this with the cache?
         self.pool = GenePool() #store the pool of all possible mitigations
+
 
 	#This is where the biology breaks down a bit. We'll add a new chromosome to the population based on an observed failure
     def extend_chromosome(self, parent: ConfigChromosome, new_mitigation: MitigationGene):
         self.pool.add(new_mitigation)
         with self.lock:
-            self.population.add(ConfigChromosome(parent, new_mitigation))
+            self.chromosomes.add(ConfigChromosome(self.base_config, parent, new_mitigation))
 
         #for selection, do we want to still bias towards newly discovered failures?
 
@@ -235,7 +263,7 @@ class Worker:
         self.active_worker_count = active_worker_count
         self.thread_id = thread_id
         self.logger = logger or getColoredLogger(
-            f"mgr{self.thread_id if self.thread_id is not None else ''}.run.{self.run_index.get()}"
+            f"mgr_ga{self.thread_id if self.thread_id is not None else ''}.run.{self.run_index.get()}"
         )
 
     def run(self):
