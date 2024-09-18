@@ -64,7 +64,6 @@ default_plugins = {
     "send_hypercall": {
         "depends_on": "core",
     },
-    "kernelversion": {},
 }
 
 # We add ioctl wildcard -> 0 in single-iteration mode
