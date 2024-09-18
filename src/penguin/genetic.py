@@ -2,6 +2,8 @@ import os
 import csv
 from penguin import getColoredLogger
 from threading import Lock, RLock
+from concurrent.futures import ThreadPoolExecutor
+from queue import Queue
 
 from .common import yaml
 from .graphs import Configuration, ConfigurationManager
@@ -12,7 +14,7 @@ from .manager import GlobalState
 from penguin.analyses import PenguinAnalysis
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Callable
 
 """
 Genetic Algorithm Configuration Search
@@ -33,8 +35,7 @@ def ga_search(
     genetic algorithm search.
     """
 
-    run_index = AtomicCounter(0)
-    active_worker_count = AtomicCounter(0)
+    logger = getColoredLogger("penguin.ga_explore")
 
     run_base = os.path.join(output_dir, "runs")
     os.makedirs(run_base, exist_ok=True)
@@ -48,57 +49,41 @@ def ga_search(
     init_gene = create_init_gene(global_state, base_config)
     population.extend_chromosome(list(population.chromosomes)[0], init_gene)
 
-    worker_threads = []
-    if nthreads > 1:
-        for idx in range(nthreads):
-            worker_instance = Worker(
-                global_state,
-                population,
-                proj_dir,
-                run_base,
-                max_iters,
-                run_index,
-                active_worker_count,
-                thread_id=idx,
-            )
-            t = Thread(target=worker_instance.run)
-            # t.daemon = True
-            t.start()
-            worker_threads.append(t)
+    for iter in range(max_iters):
+        logger.info(f"Starting iteration {iter}")
 
-        # Wait for all threads to finish
-        for t in worker_threads:
-            try:
-                t.join()  # This isn't working well for multi-threaded shutdowns
-            except KeyboardInterrupt:
-                print(
-                    "Keyboard interrupt while waiting for threads to finish - killing"
-                )
-                raise
-    else:
-        # Single thread mode, try avoiding deadlocks by just running directly
-        Worker(
-            global_state,
-            population,
-            proj_dir,
-            run_base,
-            max_iters,
-            run_index,
-            active_worker_count,
-        ).run()
+        # Use a dynamic thread pool to run all configurations
+        with ThreadPoolExecutor(max_workers=nthreads) as executor:
+            for tid in range(nthreads):
+                try:
+                    executor.submit(population.run_generation,
+                            logger=logger,
+                            id=tid,
+                    )
+                except Exception as e:
+                    logger.error(f"Error in run_generation: {e}")
+                    raise e
 
+            population.create_work_queue()
+            population.join_workers(ntreads)
+
+        #TODO: implement selection, crossover, mutation now that we've run the generation
+
+    """
     # We're all done! In the .finished file we'll write the final run_index
     # This way we can tell if a run is done early vs still in progress
     with open(os.path.join(output_dir, "finished.txt"), "w") as f:
         f.write(str(run_index.get()))
 
     # Let's also write a best.txt file with run index of the best run
+    # TODO: implement this
     if best := config_manager.graph.get_best_run_configuration():
         report_best_results(
             best.run_idx,
             os.path.join(*[run_base, str(best.run_idx), "output"]),
             output_dir,
         )
+    """
 
 def create_init_gene(global_state, base_config):
     """
@@ -198,15 +183,13 @@ class GenePool:
     #The Gene Pool is the set of all possible mitigations for a given failure
     #We would need to swap out a gene for each failure
     def __init__(self):
-        self.lock = RLock()
         self.genes = dict()
         #TODO look into the data structure for indexing failures here
 
     def add(self, gene: MitigationGene):
-        with self.lock:
-            if gene.failure.name not in self.genes:
-                self.genes[gene.failure.name] = set()
-            self.genes[gene.failure.name].add(gene)
+        if gene.failure.name not in self.genes:
+            self.genes[gene.failure.name] = set()
+        self.genes[gene.failure.name].add(gene)
 
 class ConfigChromosome:
     #At the end of the day, each "chromosome" is going to be a configuration. Which is set of mitigations
@@ -214,7 +197,6 @@ class ConfigChromosome:
     #Should we have a base configuration or a set of mitigations?
     genes: frozenset[MitigationGene]
     def __init__(self, base_config: dict, old_chromosome: 'ConfigChromosome' = None, new_gene: MitigationGene = None):
-        self.lock = RLock()
         if old_chromosome is None:
             base_failure = Failure("base", "base", None) #create a "failure" for the base config
             base_mitigation = MitigationGene(base_failure, mitigations=dict_to_frozenset(base_config))
@@ -225,69 +207,48 @@ class ConfigChromosome:
 
 class ConfigPopulation:
     def __init__(self, base_config):
-        self.lock = RLock()
         self.base_config = base_config #store the base configuration, assumes it is immutable
         self.chromosomes = set({ConfigChromosome(base_config, None, None)})
         self.nelites = 1 #number of elites to keep 
         self.attempted_configs = set() #store the configurations we've already tried - do we need this with the cache?
         self.pool = GenePool() #store the pool of all possible mitigations
+        self.work_queue = Queue() #store the work queue of configurations to run
 
 
 	#This is where the biology breaks down a bit. We'll add a new chromosome to the population based on an observed failure
     def extend_chromosome(self, parent: ConfigChromosome, new_mitigation: MitigationGene):
         self.pool.add(new_mitigation)
-        with self.lock:
-            self.chromosomes.add(ConfigChromosome(self.base_config, parent, new_mitigation))
+        self.chromosomes.add(ConfigChromosome(self.base_config, parent, new_mitigation))
 
-        #for selection, do we want to still bias towards newly discovered failures?
-
-class Worker:
-    def __init__(
-        self,
-        global_state,
-        population,
-        proj_dir,
-        run_base,
-        max_iters,
-        run_index,
-        active_worker_count,
-        thread_id=None,
-        logger=None,
+    def run_generation(self,
+        logger: Optional[Callable[[str], None]] = None,
+        id: Optional[int] = 0,
     ):
-        self.global_state = global_state
-        self.config_manager = config_manager
-        self.proj_dir = proj_dir
-        self.run_base = run_base
-        self.max_iters = max_iters
-        self.run_index = run_index
-        self.active_worker_count = active_worker_count
-        self.thread_id = thread_id
-        self.logger = logger or getColoredLogger(
-            f"mgr_ga{self.thread_id if self.thread_id is not None else ''}.run.{self.run_index.get()}"
-        )
-
-    def run(self):
-        while self.max_iters == -1 or self.run_index.get() < self.max_iters:
-            self.active_worker_count.increment()
-            try:
-                config = self.config_manager.run_exploration_cycle(
-                    self.run_config_f,
-                    self.find_mitigations_f,
-                    self.find_new_configs_f,
-                    logger=self.logger,
-                )
-            except Exception as e:
-                self.logger.error(f"Error in run_exploration_cycle: {e}")
-                raise e
-            finally:
-                self.active_worker_count.decrement()
+        while True:
+            config = self.work_queue.get()
 
             if config is None:
-                time.sleep(1)
-                # If all workers are waiting, that means we're done
-                if self.active_worker_count.get() == 0:
-                    self.logger.info("All workers waiting, exiting")
-                    return
+                #FIXME: not getting sentinel here
+                self.work_queue.task_done()
+                break
+
+            if logger is not None:
+                logger.info(f"[thread {id}]: Running config {config}")
+            #failures, health_score, run_idx = run_config_f(config)
+
+            self.work_queue.task_done()
+            logger.info(f"[thread {id}]: Finished config {config}")
+
+    def create_work_queue(self):
+        for chromosome in self.chromosomes:
+            self.work_queue.put(chromosome)
+
+    def join_workers(self,nworkers=1):
+        logger.info(f"Joining workers...")
+        self.work_queue.join()
+        logger.info(f"Joined workers")
+        for _ in range(nworkers):
+            self.work_queue.put(None)
 
 def main():
     import sys
