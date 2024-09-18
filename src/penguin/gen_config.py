@@ -196,6 +196,19 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
         },
     }
 
+    # Copy over the scripts that /igloo/init sources so that users can modify them
+    source_d = Path(os.path.join(*[dirname(dirname(__file__)), "resources", "source.d"]))
+    base_source_d = Path(output_dir, "base", "source.d")
+    base_source_d.mkdir(exist_ok=True, parents=True)
+    for f in os.listdir(source_d):
+        shutil.copy(os.path.join(source_d, f), base_source_d)
+        dest = f"/igloo/source.d/{f}"
+        data["static_files"][dest] = {
+            "type": "host_file",
+            "host_path": f"{base_source_d}/{f}",
+            "mode": 0o755,
+        }
+
     data["static_files"]["/igloo/keys/"] = {
         "type": "dir",
         "mode": 0o755,
@@ -212,7 +225,7 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
             "mode": 0o444,
         }
 
-    for dir in ("/igloo", "/igloo/utils", "/igloo/dylibs", "/igloo/ltrace"):
+    for dir in ("/igloo", "/igloo/utils", "/igloo/dylibs", "/igloo/ltrace", "/igloo/init.d", "/igloo/source.d"):
         data["static_files"][dir] = dict(type="dir", mode=0o755)
 
     # Add ltrace prototype files.
