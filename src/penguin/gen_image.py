@@ -33,7 +33,6 @@ def get_mount_type(path):
     except subprocess.CalledProcessError:
         return None
 
-
 class LocalGuestFS:
     def __init__(self, base):
         self.base = base
@@ -44,9 +43,12 @@ class LocalGuestFS:
 
     # given a path, ensure that all containing folders exist
     def ensure_containing_folders_exists(self, path):
+        path = self.resolve_symlink(str(path))
         p = self.adjust_path(path)
+
         for i in p.parents:
             if not i.exists():
+                # Can't be a symlink, because we already resolved (recursively)
                 i.mkdir(exist_ok=True)
             else:
                 # stop once we hit a directory that exists
@@ -76,7 +78,21 @@ class LocalGuestFS:
         p = self.adjust_path(d)
         return p.is_symlink()
 
+    def resolve_symlink(self, d):
+        base = ""
+        for part in d.split("/"):
+            if self.is_symlink(base):
+                target = self.readlink(base)
+                logger.debug(f"Found (and resolved) symlink {base}->{target}")
+                new_d = d.replace(base, target + "/")
+                return self.resolve_symlink(new_d)
+            base += part + "/"
+
+        return base[:-1] if len(base) else base
+
     def mkdir_p(self, d):
+        # Create all parent directories (and resolve symlinks) as necessary
+        # Then make the child directory requested
         self.ensure_containing_folders_exists(d)
         p = self.adjust_path(d)
         p.mkdir(exist_ok=True)
@@ -241,6 +257,8 @@ def _modify_guestfs(g, file_path, file, project_dir):
             # Check if this directory exists, if not we'll need to create it
             # XXX: Might ignore permissions set elsewhere in config - how
             # does order of operations work with these config fiiles?
+            file_path = g.resolve_symlink(file_path)
+
             if not g.is_dir(os.path.dirname(file_path)):
                 g.mkdir_p(os.path.dirname(file_path))
             g.write(file_path, contents)
@@ -272,7 +290,7 @@ def _modify_guestfs(g, file_path, file, project_dir):
                 except RuntimeError as e:
                     # If directory is like /asdf/. guestfs gets mad. Just warn.
                     logger.warning(
-                        f"could not delete exixsting {linkpath} to recreate it: {e}"
+                        f"could not delete existing symlink {linkpath} to recreate it: {e}"
                     )
                     return
 
