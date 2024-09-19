@@ -1,7 +1,7 @@
 import socket
 import struct
 import time
-from os.path import join
+from os.path import join, dirname
 
 from pandare import PyPlugin
 
@@ -90,3 +90,21 @@ class NetBinds(PyPlugin):
 
         # Trigger our callback
         self.ppp_run_cb("on_bind", sock_type, ipvn, ip, port, procname)
+
+    def uninit(self):
+        # Report firmware name (redundant with path,  yes, but it's easier to parse),
+        # number of unique processes, total number of binds, and whether port 80 was bound
+        n_sockets = 0
+        procs = set()
+        bound_www = False
+
+        # Look through self.seen_binds, count unique procnames, total binds, and bound_www
+        for procname, ipvn, sock_type, ip, port in self.seen_binds:
+            procs.add(procname)
+            n_sockets += 1
+            if port == 80:
+                bound_www = True
+        n_procs = len(procs)
+
+        with open(join(self.outdir, "netbinds_final.csv"), "w") as f:
+            f.write(f"{n_procs},{n_sockets},{bound_www}\n")
