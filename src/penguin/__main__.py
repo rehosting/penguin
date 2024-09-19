@@ -50,6 +50,7 @@ def run_from_config(
         config["core"]["root_shell"] = False
         config["plugins"]["core"]["timeout"] = timeout if timeout else 300
         config["plugins"]["nmap"]["enabled"] = True
+        config["plugins"]["coverage"]["enabled"] = True
 
         dump_config(config, config_path)
 
