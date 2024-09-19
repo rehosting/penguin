@@ -40,15 +40,14 @@ def ga_search(
 
     run_base = os.path.join(output_dir, "runs")
     os.makedirs(run_base, exist_ok=True)
-
     dump_config(base_config, os.path.join(output_dir, "base_config.yaml"))
 
     global_state = GlobalState(proj_dir, output_dir, base_config)
 
     #Our first gene are the init options
-    population = ConfigPopulation(base_config,logger)
-    init_gene = create_init_gene(global_state, base_config)
-    population.extend_chromosome(list(population.chromosomes)[0], init_gene)
+    population = ConfigPopulation(global_state, base_config, run_base, logger)
+    init_gene = create_init_gene(base_config, global_state)
+    population.extend_genome(init_gene)
 
     for iter in range(1,max_iters+1,1):
         logger.info(f"Starting iteration {iter}/{max_iters} with {len(population.chromosomes)} configurations, {len(population.pool.genes)} genes, and {nthreads} workers")
@@ -83,7 +82,7 @@ def ga_search(
         )
     """
 
-def create_init_gene(global_state, base_config):
+def create_init_gene(base_config, global_state):
     """
     Based on add_init_options_to_graph in manager.py
 
@@ -109,6 +108,7 @@ def create_init_gene(global_state, base_config):
     init_fail = Failure("init", "init", {"inits": global_state.inits})
     init_mitigations = set()
 
+    # FIXME: fix this - we are not properly getting both inits in my simple test case
     if len(base_config["env"].get("igloo_init", [])) == 0:
         if len(global_state.inits) == 0:
             raise RuntimeError(
@@ -172,34 +172,37 @@ class Mitigation:
 
 @dataclass(frozen=True, eq=True)
 class MitigationGene:
-    #might make more sense to have these live in a different data structure, not just in their chromosomes
-    #grow them globally (list or something per failure)
+    """
+    A gene is a set of possible mitigations for a given failure, these should get replaced if we discover
+    new mitigations for a given failure
+    """
     failure: Failure
     mitigations: frozenset #probably not frozen or do we do a new set?
 
 class GenePool:
-    #The Gene Pool is the set of all possible mitigations for a given failure
-    #We would need to swap out a gene for each failure
+    """
+    The gene pool tracks the set of possible mitigations for a given failure
+    """
     def __init__(self):
         self.genes = dict()
         #TODO look into the data structure for indexing failures here
 
-    def add(self, gene: MitigationGene):
+    def update(self, gene: MitigationGene):
         if gene.failure.name not in self.genes:
-            self.genes[gene.failure.name] = set()
-        self.genes[gene.failure.name].add(gene)
+            self.genes[gene.failure.name] = gene.mitigations
+        else:
+            current_mitigations = self.genes[gene.failure.name]
+            self.genes[gene.failure.name] = frozenset(current_mitigations.union(gene.mitigations))
 
 class ConfigChromosome:
     #At the end of the day, each "chromosome" is going to be a configuration. Which is set of mitigations
 	#We are using a frozenset since each chromosome will be unique
-    #Should we have a base configuration or a set of mitigations?
-    genes: frozenset[MitigationGene]
+    #We do not keep the immutable base config in here since that is held in GlobalState
+    genes: frozenset[Mitigation]
     hash: int
-    def __init__(self, base_config: dict, old_chromosome: 'ConfigChromosome' = None, new_gene: MitigationGene = None):
+    def __init__(self, old_chromosome: 'ConfigChromosome' = None, new_gene: Mitigation = None):
+        self.genes = frozenset()
         if old_chromosome is None:
-            base_failure = Failure("base", "base", None) #create a "failure" for the base config
-            base_mitigation = MitigationGene(base_failure, mitigations=dict_to_frozenset(base_config))
-            self.genes = frozenset({base_mitigation})
             old_chrmosome = self
         if new_gene is not None:
             self.genes = frozenset(old_chromosome.genes.union([new_gene]))
@@ -208,24 +211,29 @@ class ConfigChromosome:
         self.hash = hash(self.genes) & (1 << sys.hash_info.width) - 1
 
     def __str__(self):
-        return f"{self.hash:08x}"
+        return f"{self.hash:016x}"
+
+    def to_dict(self):
+        #FIXME: this is not enough, we need to splice out the failure information
+        return frozenset_to_dict(self.genes)
 
 class ConfigPopulation:
-    def __init__(self, base_config, logger):
+    def __init__(self, global_state, base_config, run_base, logger):
+        self.global_state = global_state
         self.base_config = base_config #store the base configuration, assumes it is immutable
-        self.chromosomes = set({ConfigChromosome(base_config, None, None)})
-        self.nelites = 1 #number of elites to keep 
+        self.chromosomes = set({ConfigChromosome(None, None)})
+        self.nelites = 1 #number of elites to keep
         self.attempted_configs = set() #store the configurations we've already tried - do we need this with the cache?
         self.pool = GenePool() #store the pool of all possible mitigations
         self.work_queue = Queue() #store the work queue of configurations to run
         self.run_index = AtomicCounter(-1) #store the run index, start at -1 since we increment before using
         self.logger = logger
+        self.run_base = run_base
 
 
 	#This is where the biology breaks down a bit. We'll add a new chromosome to the population based on an observed failure
-    def extend_chromosome(self, parent: ConfigChromosome, new_mitigation: MitigationGene):
-        self.pool.add(new_mitigation)
-        self.chromosomes.add(ConfigChromosome(self.base_config, parent, new_mitigation))
+    def extend_genome(self, new_mitigation: MitigationGene):
+        self.pool.update(new_mitigation)
 
     def run_generation(self,
         id: Optional[int] = 0,
@@ -265,10 +273,24 @@ class ConfigPopulation:
         self.logger.info(f"Joined workers")
 
     def run_config(self, config: ConfigChromosome, run_index: int) -> Tuple[List[Failure], float]:
-        #Track a global run index with an atomic counter. This is for the run directory
-        #This will be independent of generation
+        """
+        Careful! This function is run in parallel and should not modify any shared state.
+        """
         failures = []
         score = 0.0
+        run_dir = os.path.join(self.run_base, str(run_index))
+        if os.path.isdir(run_dir):
+            # Remove it
+            shutil.rmtree(run_dir)
+        os.makedirs(run_dir)
+
+        # Write config to disk
+        combined_config = config.to_dict()
+        combined_config["core"] = self.global_state.info
+        print(combined_config)
+        raise Exception("Not implemented")
+        dump_config(combined_config, os.path.join(run_dir, "config.yaml"))
+
         return failures, score
 
 def main():
