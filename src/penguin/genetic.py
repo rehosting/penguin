@@ -1,5 +1,6 @@
 import os
 import csv
+import sys
 from penguin import getColoredLogger
 from threading import Lock, RLock
 from concurrent.futures import ThreadPoolExecutor
@@ -14,7 +15,7 @@ from .manager import GlobalState
 from penguin.analyses import PenguinAnalysis
 
 from dataclasses import dataclass
-from typing import Optional, Callable
+from typing import Optional, Callable, Tuple, List
 
 """
 Genetic Algorithm Configuration Search
@@ -45,29 +46,26 @@ def ga_search(
     global_state = GlobalState(proj_dir, output_dir, base_config)
 
     #Our first gene are the init options
-    population = ConfigPopulation(base_config)
+    population = ConfigPopulation(base_config,logger)
     init_gene = create_init_gene(global_state, base_config)
     population.extend_chromosome(list(population.chromosomes)[0], init_gene)
 
-    for iter in range(max_iters):
-        logger.info(f"Starting iteration {iter}")
+    for iter in range(1,max_iters+1,1):
+        logger.info(f"Starting iteration {iter}/{max_iters} with {len(population.chromosomes)} configurations, {len(population.pool.genes)} genes, and {nthreads} workers")
 
         # Use a dynamic thread pool to run all configurations
         with ThreadPoolExecutor(max_workers=nthreads) as executor:
             for tid in range(nthreads):
                 try:
-                    executor.submit(population.run_generation,
-                            logger=logger,
-                            id=tid,
-                    )
+                    executor.submit(population.run_generation, id=tid)
                 except Exception as e:
                     logger.error(f"Error in run_generation: {e}")
                     raise e
 
-            population.create_work_queue()
-            population.join_workers(ntreads)
+            population.create_work_queue(nthreads)
+            population.join_workers(nthreads)
 
-        #TODO: implement selection, crossover, mutation now that we've run the generation
+        #TODO: implement selection, crossover, mutation now that we've run the config files from this generation
 
     """
     # We're all done! In the .finished file we'll write the final run_index
@@ -196,6 +194,7 @@ class ConfigChromosome:
 	#We are using a frozenset since each chromosome will be unique
     #Should we have a base configuration or a set of mitigations?
     genes: frozenset[MitigationGene]
+    hash: int
     def __init__(self, base_config: dict, old_chromosome: 'ConfigChromosome' = None, new_gene: MitigationGene = None):
         if old_chromosome is None:
             base_failure = Failure("base", "base", None) #create a "failure" for the base config
@@ -204,15 +203,23 @@ class ConfigChromosome:
             old_chrmosome = self
         if new_gene is not None:
             self.genes = frozenset(old_chromosome.genes.union([new_gene]))
+        #cache the unsigned hash, not sure how much this actually buys us
+        #this does assume a one-to-one mapping between configurations and chromosomes
+        self.hash = hash(self.genes) & (1 << sys.hash_info.width) - 1
+
+    def __str__(self):
+        return f"{self.hash:08x}"
 
 class ConfigPopulation:
-    def __init__(self, base_config):
+    def __init__(self, base_config, logger):
         self.base_config = base_config #store the base configuration, assumes it is immutable
         self.chromosomes = set({ConfigChromosome(base_config, None, None)})
         self.nelites = 1 #number of elites to keep 
         self.attempted_configs = set() #store the configurations we've already tried - do we need this with the cache?
         self.pool = GenePool() #store the pool of all possible mitigations
         self.work_queue = Queue() #store the work queue of configurations to run
+        self.run_index = AtomicCounter(-1) #store the run index, start at -1 since we increment before using
+        self.logger = logger
 
 
 	#This is where the biology breaks down a bit. We'll add a new chromosome to the population based on an observed failure
@@ -221,44 +228,82 @@ class ConfigPopulation:
         self.chromosomes.add(ConfigChromosome(self.base_config, parent, new_mitigation))
 
     def run_generation(self,
-        logger: Optional[Callable[[str], None]] = None,
         id: Optional[int] = 0,
     ):
         while True:
-            config = self.work_queue.get()
+            #A unit of work is a configuration to run along with the run index
+            self.logger.info(f"[thread {id}]: Getting work from queue")
 
-            if config is None:
-                #FIXME: not getting sentinel here
+            task = self.work_queue.get()
+
+            if task is None:
+                self.logger.info(f"[thread {id}]: Got None from queue, exiting")
                 self.work_queue.task_done()
                 break
 
-            if logger is not None:
-                logger.info(f"[thread {id}]: Running config {config}")
-            #failures, health_score, run_idx = run_config_f(config)
+            try:
+                config, run_index = task
+                self.logger.info(f"[thread {id}]: Running config {config} with run index {run_index}")
+                failures, health_score = self.run_config(config, run_index)
+            except Exception as e:
+                self.logger.error(f"[thread {id}]: Error running config {config} with run index {run_index}: {e}")
+                self.work_queue.task_done()
+                raise e
 
             self.work_queue.task_done()
-            logger.info(f"[thread {id}]: Finished config {config}")
+            self.logger.info(f"[thread {id}]: Finished config {config} with run index {run_index}")
 
-    def create_work_queue(self):
+    def create_work_queue(self,nworkers=1):
         for chromosome in self.chromosomes:
-            self.work_queue.put(chromosome)
-
-    def join_workers(self,nworkers=1):
-        logger.info(f"Joining workers...")
-        self.work_queue.join()
-        logger.info(f"Joined workers")
+            self.work_queue.put((chromosome, self.run_index.increment()))
         for _ in range(nworkers):
             self.work_queue.put(None)
 
+    def join_workers(self,nworkers=1):
+        self.logger.info(f"Joining workers...")
+        self.work_queue.join()
+        self.logger.info(f"Joined workers")
+
+    def run_config(self, config: ConfigChromosome, run_index: int) -> Tuple[List[Failure], float]:
+        #Track a global run index with an atomic counter. This is for the run directory
+        #This will be independent of generation
+        failures = []
+        score = 0.0
+        return failures, score
+
 def main():
-    import sys
+    import argparse
 
     if len(sys.argv) < 3:
         print(f"Usage: {sys.argv[0]} <config> <outdir>")
         sys.exit(1)
 
-    config = load_config(sys.argv[1])
-    ga_search(os.path.dirname(sys.argv[1]), config, sys.argv[2])
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "config",
+        type=str,
+        help="Path to the configuration file",
+    )
+    parser.add_argument(
+        "outdir",
+        type=str,
+        help="Path to the output directory",
+    )
+    parser.add_argument(
+        "--niters",
+        type=int,
+        default=100,
+        help="Number of iterations to run. Default is 100.",
+    )
+    parser.add_argument(
+        "--nworkers",
+        type=int,
+        default=4,
+        help="Number of workers to run in parallel. Default is 4",
+    )
+    args = parser.parse_args()
+    config = load_config(args.config)
+    ga_search(os.path.dirname(args.config), config, args.outdir, args.niters, args.nworkers)
 
 
 if __name__ == "__main__":
