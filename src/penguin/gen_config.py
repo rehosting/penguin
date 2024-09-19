@@ -120,7 +120,7 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
     If niters is 1 we'll select a default init and set the /dev/gpio ioctl model to return 0
     (Otherwise we'll learn both of these dynamically)
 
-    Returns the path to the config file.
+    Returns the path to the config file. Raises an exception with a user-friendly message if it fails.
     """
 
     # If auto_explore we'll turn on zap and nmap to automatically generate coverage
@@ -145,13 +145,11 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
     # extract into output_dir/base/{image.qcow,fs.tar}
     arch_identified = find_architecture(fs)
     if arch_identified is None:
-        logger.error(f"Failed to determine architecture for {fs}")
-        return
+        raise ValueError(f"Failed to determine architecture for {fs}")
     arch, end = arch_end(arch_identified)
 
     if arch is None:
-        logger.error(f"Architecture {arch_identified} not supported ({arch}, {end})")
-        return
+        raise ValueError(f"Architecture {arch_identified} not supported ({arch}, {end})")
 
     kernel = get_kernel_path(arch, end, static_dir)
 
@@ -449,11 +447,21 @@ def makeConfig(fs, out, artifacts, verbose, settings_path):
             user_settings = yaml.safe_load(f)
         settings.update(user_settings)
 
-    config = make_config(fs, out, artifacts, settings)
-    if not config:
+    try:
+        # Return a path to a config if we generate one
+        return make_config(fs, out, artifacts, settings)
+    except Exception as e:
+        # Otherwise log error to results directory and with logger
+        # Then return None
+        # Ensure we have a directory to write result into
+        result_dir = os.path.dirname(out)
+        if not os.path.isdir(result_dir):
+            os.makedirs(result_dir)
+        with open(os.path.join(result_dir, "result"), "w") as f:
+            f.write(str(e)+"\n")
         logger.error(f"Error! Could not generate config for {fs}")
-    else:
-        logger.info(f"Generated config at {config}")
+        logger.error(e)
+        return None
 
 
 if __name__ == "__main__":

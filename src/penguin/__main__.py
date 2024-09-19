@@ -220,8 +220,9 @@ def penguin_init(args):
     config = fakeroot_gen_config(
         args.rootfs, out_config_path, args.output, args.verbose, args.settings_path
     )
-
-    if not config:
+    if config:
+        logger.info(f"Generated config at {config}")
+    else:
         # We failed to generate a config. We'll have written a result file to the output dir
         logger.error(
             f"Failed to generate config for {args.rootfs}. See {args.output}/result for details."
