@@ -2,6 +2,7 @@ import logging
 from copy import deepcopy
 from os.path import join as pjoin
 from typing import List
+import re
 
 from pandare import PyPlugin
 
@@ -9,10 +10,14 @@ from penguin import getColoredLogger, yaml
 from penguin.analyses import PenguinAnalysis
 from penguin.graphs import Configuration, Failure, Mitigation
 
-# XXX this needs some testing
-
 iface_log = "iface.log"
 ioctl_log = "iface_ioctl.log"
+
+# Regex pattern for a valid Linux interface name
+intf_pattern = r'^[a-zA-Z][a-zA-Z0-9._/-]{0,15}$'
+ENODEV = 19
+
+ignored_interfaces = ["lo"]
 
 
 class Interfaces(PyPlugin):
@@ -20,44 +25,72 @@ class Interfaces(PyPlugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.conf = self.get_arg("conf")
-        self.ppp.Health.ppp_reg_cb("igloo_exec", self.iface_on_exec)
         self.logger = getColoredLogger("plugins.interfaces")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
 
         open(f"{self.outdir}/{iface_log}", "w").close()
         open(f"{self.outdir}/{ioctl_log}", "w").close()
+
         self.added_ifaces = self.conf.get("netdevs", [])
 
-        self.seen_ifaces = set()
-        self.seen_ioctls = (
-            set()
-        )  # Only failing network ioctls between 0x8000 and 0x9000
-        conf = self.get_arg("conf")
+        self.missing_ifaces = set()
+        self.failed_ioctls = set()
 
-        net_ioctl_block = conf.get("net_ioctl_block", None)
+        self.panda.ppp("syscalls2", "on_sys_ioctl_return")(self.after_ioctl)
+        self.ppp.Health.ppp_reg_cb("igloo_exec", self.iface_on_exec)
 
-        if not net_ioctl_block:
+    def handle_interface(self, iface):
+        if iface is None:
             return
 
-        @panda.ppp("syscalls2", "on_sys_ioctl_return")
-        def after_ioctl(cpu, pc, fd, request, arg):
-            # This seems to never happen, even though we'll see errors about SIOCSIFHWADDR
-            # if ifconfig tries to interact with a misisng device. It's trying to issue that ioctl
-            # but fails to get a handle to the device - an ioctl is never actually issued!
-            if 0x8000 < request < 0x9000:
-                rv = panda.arch.get_retval(cpu, convention="syscall")
-                if rv < 0:
-                    if request not in self.seen_ioctls:
-                        self.seen_icotls.add(request)
-                        with open(f"{self.outdir}/{ioctl_log}", "a") as f:
-                            f.write(f"{request}\n")
-                        self.logger.debug(
-                            f"Failed net ioctl {request} with return {rv}"
-                        )
+        if iface in self.added_ifaces or iface in self.missing_ifaces \
+                or iface in ignored_interfaces:
+            return
 
-                    if rv in net_ioctl_block:
-                        panda.arch.set_retval(cpu, 0, convention="syscall")
+        if not re.match(intf_pattern, iface):
+            self.logger.debug(f"Invalid interface name {iface}")
+            return
+
+        self.missing_ifaces.add(iface)
+        with open(f"{self.outdir}/{iface_log}", "a") as f:
+            f.write(f"{iface}\n")
+        self.logger.debug(f"Detected new missing interface {iface}")
+
+    def failing_ioctl(self, ioctl, iface, rv):
+        if iface and not re.match(intf_pattern, iface):
+            self.logger.debug(f"Invalid interface name {iface}")
+            iface = None
+
+        if (ioctl, iface) in self.failed_ioctls:
+            return
+
+        self.failed_ioctls.add((ioctl, iface))
+        self.logger.debug(
+            f"Detected new failing ioctl {hex(ioctl)} for {iface or '[?]'}")
+
+        with open(f"{self.outdir}/{ioctl_log}", "a") as f:
+            f.write(f"{hex(ioctl)},{iface or '[?]'},{rv}\n")
+
+    def get_iface_from_ioctl(self, arg):
+        try:
+            cpu = self.panda.get_cpu()
+            return self.panda.read_str(cpu, arg, max_length=16)
+        except ValueError:
+            return None
+
+    def after_ioctl(self, cpu, pc, fd, request, arg):
+        if 0x8000 < request < 0x9000:
+            rv = self.panda.arch.get_retval(cpu, convention="syscall")
+            iface = self.get_iface_from_ioctl(arg)
+
+            # try to catch missing interfaces
+            if rv == -ENODEV:
+                self.handle_interface(iface)
+
+            if rv < 0:
+                # try to catch failing ioctls
+                self.failing_ioctl(request, iface, rv)
 
     def iface_on_exec(self, cpu, fname, argv):
         # note argv[0] is the binary name, similar to fname
@@ -81,28 +114,7 @@ class Interfaces(PyPlugin):
             # device is the first argument
             if len(argv) > 1:
                 iface = argv[1]
-
-        if iface is None:
-            return
-
-        if iface in self.added_ifaces:
-            return
-
-        # First character must be alphabetical
-        if not iface[0].isalpha():
-            return
-
-        # Is this a valid interface name? It can be alphanumeric and contain dots and dashes
-        if not iface.replace(".", "").replace("-", "").isalnum():
-            return
-
-        if iface in self.seen_ifaces or iface in ["lo"]:
-            return
-
-        self.seen_ifaces.add(iface)
-        with open(f"{self.outdir}/{iface_log}", "a") as f:
-            f.write(f"{iface}\n")
-        self.logger.debug(f"Detected new interface reference {iface}")
+        self.handle_interface(iface)
 
 
 class InterfaceAnalysis(PenguinAnalysis):
