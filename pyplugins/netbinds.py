@@ -6,7 +6,7 @@ from os.path import join, dirname
 from pandare import PyPlugin
 
 BINDS_FILE = "netbinds.csv"
-
+SUMMARY_BINDS_FILE = "netbinds_summary.csv"
 
 class NetBinds(PyPlugin):
     def __init__(self, panda):
@@ -23,6 +23,9 @@ class NetBinds(PyPlugin):
 
         with open(join(self.outdir, BINDS_FILE), "w") as f:
             f.write("procname,ipvn,domain,guest_ip,guest_port,time\n")
+
+        with open(join(self.outdir, SUMMARY_BINDS_FILE), "w") as f:
+            f.write("n_procs,n_sockets,bound_www,time\n")
 
         self.ppp.Events.listen("igloo_ipv4_bind", self.on_ipv4_bind)
         self.ppp.Events.listen("igloo_ipv6_bind", self.on_ipv6_bind)
@@ -84,16 +87,14 @@ class NetBinds(PyPlugin):
             return
         self.seen_binds.add((procname, ipvn, sock_type, ip, port))
 
-        # Report the bind's info
-        with open(join(self.outdir, BINDS_FILE), "a") as f:
-            f.write(f"{procname},{ipvn},{sock_type},{ip},{port},{time_delta:.3f}\n")
+		# Log details to disk
+        self.report_bind_info(time_delta)
 
         # Trigger our callback
         self.ppp_run_cb("on_bind", sock_type, ipvn, ip, port, procname)
 
-    def uninit(self):
-        # Report firmware name (redundant with path,  yes, but it's easier to parse),
-        # number of unique processes, total number of binds, and whether port 80 was bound
+    def report_bind_info(self, time_delta):
+		# Collect summary stats at this time (unique processes, total binds, bound_www, time)
         n_sockets = 0
         procs = set()
         bound_www = False
@@ -106,5 +107,10 @@ class NetBinds(PyPlugin):
                 bound_www = True
         n_procs = len(procs)
 
-        with open(join(self.outdir, "netbinds_final.csv"), "w") as f:
-            f.write(f"{n_procs},{n_sockets},{bound_www}\n")
+		# Report summary stats
+        with open(join(self.outdir, SUMMARY_BINDS_FILE), "a") as f:
+            f.write(f"{n_procs},{n_sockets},{bound_www},{time_delta:.3f}\n")
+
+        # Report this specific bind
+        with open(join(self.outdir, BINDS_FILE), "a") as f:
+            f.write(f"{procname},{ipvn},{sock_type},{ip},{port},{time_delta:.3f}\n")
