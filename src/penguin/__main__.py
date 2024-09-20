@@ -49,6 +49,7 @@ def run_from_config(
         # from a previously created config, so we'll toggle these settings after loading. Previously we'd generate
         # the initial config for automated exploration and go from there.
         config["core"]["root_shell"] = False
+        config["core"]["force_www"] = True
         config["plugins"]["core"]["timeout"] = timeout if timeout else 300
         config["plugins"]["nmap"]["enabled"] = True
         config["plugins"]["coverage"]["enabled"] = True
