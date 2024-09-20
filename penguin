@@ -66,6 +66,7 @@ penguin_run() {
     local build_singularity=false
     local pydev=false
     local verbose=false
+    local reproduce=false
     local subnet=""
     local container_name="" # Name of the instance
     local image="rehosting/penguin" # Container to run
@@ -163,6 +164,21 @@ penguin_run() {
         maps+=("$(pwd)/projects:/host_projects")
         cmd+=("--output_base")
         cmd+=("/host_projects")
+    fi
+
+    if [[ ${#cmd[@]} -gt 1 && ("${cmd[0]}" == "reproduce" || "${cmd[0]}" == "repro" )]]; then
+        if [[ ${#cmd[@]} -lt 2 ]]; then
+            echo "Reproduce command requires a specific image to be passed as the first argument. Please set --image to the image you want to use."
+            exit 1
+        fi
+
+        if $pydev; then
+            echo "Reproduce command does not support --pydev flag. Please remove it."
+            exit 1
+        fi
+
+        image="${cmd[1]}"
+        reproduce=true
     fi
 
 
@@ -429,8 +445,12 @@ penguin_run() {
         docker_cmd+=("--cap-add=NET_BIND_SERVICE")
 
         docker_cmd+=("$image")
-        docker_cmd+=("penguin")
-        docker_cmd+=("${new_cmd[@]}")
+
+        # reproduce runs the default commmand
+        if ! $reproduce; then
+            docker_cmd+=("penguin")
+            docker_cmd+=("${new_cmd[@]}")
+        fi
     fi
 
     if $verbose; then
