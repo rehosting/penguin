@@ -44,10 +44,10 @@ def ga_search(
 
     global_state = GlobalState(proj_dir, output_dir, base_config)
 
-    #Our first gene are the init options
+    #Our first gene are the init options, do this outside of the population class
     population = ConfigPopulation(global_state, base_config, run_base, logger)
     init_gene = create_init_gene(base_config, global_state)
-    population.extend_genome(init_gene)
+    population.extend_genome(None, init_gene)
 
     for iter in range(1,max_iters+1,1):
         logger.info(f"Starting iteration {iter}/{max_iters} with {len(population.chromosomes)} configurations, {len(population.pool.genes)} genes, and {nthreads} workers")
@@ -122,7 +122,7 @@ def create_init_gene(base_config, global_state):
     else:
         #If we already have an init defined, we'll just use that
         init_mitigations.add(dict_to_frozenset({'env': { 'igloo_init': base_config["env"]["igloo_init"]}}))
-    return MitigationGene(init_fail, frozenset(init_mitigations))
+    return MitigationAlleleSet(init_fail, frozenset(init_mitigations))
 
 #TODO: should these move to common?
 def dict_to_frozenset(d):
@@ -161,6 +161,10 @@ class Failure:
 
 @dataclass(frozen=True, eq=True)
 class Mitigation:
+    """
+    This class represents a specific mitigation for a given failure
+    A configuration is a set of these
+    """
     name: str
     type: str
     config_opts: frozenset
@@ -171,10 +175,10 @@ class Mitigation:
         object.__setattr__(self, "config_opts", frozenset(dict_to_frozenset(config_opts)))
 
 @dataclass(frozen=True, eq=True)
-class MitigationGene:
+class MitigationAlleleSet:
     """
-    A gene is a set of possible mitigations for a given failure, these should get replaced if we discover
-    new mitigations for a given failure
+    This class contains the set of mitigations we know about for a given failure
+    In the biology analogy, each mitigation would be an allele
     """
     failure: Failure
     mitigations: frozenset #probably not frozen or do we do a new set?
@@ -187,12 +191,15 @@ class GenePool:
         self.genes = dict()
         #TODO look into the data structure for indexing failures here
 
-    def update(self, gene: MitigationGene):
+    def update(self, gene: MitigationAlleleSet):
         if gene.failure.name not in self.genes:
             self.genes[gene.failure.name] = gene.mitigations
         else:
             current_mitigations = self.genes[gene.failure.name]
             self.genes[gene.failure.name] = frozenset(current_mitigations.union(gene.mitigations))
+
+    def get_mitigations(self, failure: Failure):
+        return self.genes.get(failure.name, frozenset())
 
 class ConfigChromosome:
     #At the end of the day, each "chromosome" is going to be a configuration. Which is set of mitigations
@@ -200,28 +207,30 @@ class ConfigChromosome:
     #We do not keep the immutable base config in here since that is held in GlobalState
     genes: frozenset[Mitigation]
     hash: int
-    def __init__(self, old_chromosome: 'ConfigChromosome' = None, new_gene: Mitigation = None):
+    def __init__(self, parent: 'ConfigChromosome' = None, new_gene: Mitigation = None):
         self.genes = frozenset()
-        if old_chromosome is None:
-            old_chrmosome = self
+        if parent is None:
+            parent = self #weird
         if new_gene is not None:
-            self.genes = frozenset(old_chromosome.genes.union([new_gene]))
-        #cache the unsigned hash, not sure how much this actually buys us
-        #this does assume a one-to-one mapping between configurations and chromosomes
+            self.genes = frozenset(parent.genes.union([new_gene]))
+        #cache the unsigned hash of genes, not sure how much this actually buys us
         self.hash = hash(self.genes) & (1 << sys.hash_info.width) - 1
 
     def __str__(self):
         return f"{self.hash:016x}"
 
     def to_dict(self):
-        #FIXME: this is not enough, we need to splice out the failure information
-        return frozenset_to_dict(self.genes)
+        config_dict = {}
+        #TODO: should we do some validation to make sure our config doesn't have conflicting options?
+        for m in self.genes:
+            config_dict.update(frozenset_to_dict(m))
+        return config_dict
 
 class ConfigPopulation:
     def __init__(self, global_state, base_config, run_base, logger):
         self.global_state = global_state
         self.base_config = base_config #store the base configuration, assumes it is immutable
-        self.chromosomes = set({ConfigChromosome(None, None)})
+        self.chromosomes = set()
         self.nelites = 1 #number of elites to keep
         self.attempted_configs = set() #store the configurations we've already tried - do we need this with the cache?
         self.pool = GenePool() #store the pool of all possible mitigations
@@ -232,8 +241,14 @@ class ConfigPopulation:
 
 
 	#This is where the biology breaks down a bit. We'll add a new chromosome to the population based on an observed failure
-    def extend_genome(self, new_mitigation: MitigationGene):
-        self.pool.update(new_mitigation)
+    def extend_genome(self, parent: ConfigChromosome, new_gene: MitigationAlleleSet):
+        #First, check to see if we have existing mitigations for this failure
+        old_mitigations = self.pool.get_mitigations(new_gene.failure)
+        self.pool.update(new_gene) #our pool contains all possible mitigations for a given failure
+        #If we have new mitigations, add them as children to this config
+        #In the biology analogy, these things would be alleles
+        for m in new_gene.mitigations.difference(old_mitigations):
+            self.chromosomes.add(ConfigChromosome(parent, m))
 
     def run_generation(self,
         id: Optional[int] = 0,
