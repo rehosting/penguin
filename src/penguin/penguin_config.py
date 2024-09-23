@@ -710,6 +710,9 @@ def load_config(path, validate=True):
     config_folder = Path(path).parent
     # look for files called patch_*.yaml in the same directory as the config file
     patch_files = list(config_folder.glob("patch_*.yaml"))
+    patches_dir = Path(config_folder, "patches")
+    if patches_dir.exists():
+        patch_files += list(patches_dir.glob("*.yaml"))
     if patch_files:
         if config.get("patches", None) is None:
             config["patches"] = []
