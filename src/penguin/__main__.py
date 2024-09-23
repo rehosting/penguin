@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 import subprocess
+import glob
 from os.path import dirname, join
 from pathlib import Path
 
@@ -285,39 +286,42 @@ def penguin_docs(args):
     docs_path = "/docs"
 
     if args.filename:
-        if not args.filename.endswith(".md"):
-            args.filename += ".md"
-        full_path = join(docs_path, args.filename)
-
-        if ".." in args.filename:
-            raise ValueError("Invalid filename")
-
-        if not os.path.isfile(full_path):
-            logger.info(f"Documentation file not found: {args.filename}")
-        else:
-            # How many lines are in the file?
-            with open(full_path, "r") as f:
-                lines = len(f.readlines())
-
-            # How many lines are in the terminal (if available)
-            try:
-                rows, _ = os.get_terminal_size()
-            except OSError:
-                rows = None
-
-            glow_args = ["glow", full_path]
-            if rows and lines > rows:
-                # We'll render with a pager
-                subprocess.run(glow_args + ["--pager"])
-            else:
-                # Otherwise print directly
-                subprocess.run(glow_args)
+        filename = args.filename
     else:
-        logger.info(
-            "Available documentation files. Select one to view by running penguin docs --filename <filename>"
-        )
-        for f in os.listdir(docs_path):
-            logger.info("  %s", f)
+        doc_files = glob.glob("**/*.md", root_dir=docs_path, recursive=True)
+        gum_args = ["gum", "choose"] + doc_files
+        try:
+            filename = subprocess.check_output(gum_args, text=True).strip()
+        except subprocess.CalledProcessError:
+            return
+
+    if not filename.endswith(".md"):
+        filename += ".md"
+
+    full_path = join(docs_path, filename)
+    if ".." in filename:
+        raise ValueError("Invalid filename")
+
+    if not os.path.isfile(full_path):
+        logger.info(f"Documentation file not found: {filename}")
+    else:
+        # How many lines are in the file?
+        with open(full_path, "r") as f:
+            lines = len(f.readlines())
+
+        # How many lines are in the terminal (if available)
+        try:
+            rows, _ = os.get_terminal_size()
+        except OSError:
+            rows = None
+
+        glow_args = ["glow", full_path]
+        if rows and lines > rows:
+            # We'll render with a pager
+            subprocess.run(glow_args + ["--pager"])
+        else:
+            # Otherwise print directly
+            subprocess.run(glow_args)
 
 
 def add_run_arguments(parser):
