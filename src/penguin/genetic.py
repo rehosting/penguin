@@ -1,16 +1,18 @@
 import os
 import csv
 import sys
+from types import SimpleNamespace
 from penguin import getColoredLogger
 from threading import Lock, RLock
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
+from copy import deepcopy
 
 from .common import yaml
 from .graphs import Configuration, ConfigurationManager
 from .penguin_config import dump_config, hash_yaml_config, load_config
 from .utils import AtomicCounter, get_mitigation_providers
-from .manager import GlobalState
+from .manager import GlobalState, PandaRunner, calculate_score, Worker
 
 from penguin.analyses import PenguinAnalysis
 
@@ -42,7 +44,8 @@ def ga_search(
     os.makedirs(run_base, exist_ok=True)
     dump_config(base_config, os.path.join(output_dir, "base_config.yaml"))
 
-    global_state = GlobalState(proj_dir, output_dir, base_config)
+    #pass a copy of the base config to the global state so it doesn't slice out things we want to keep
+    global_state = GlobalState(proj_dir, output_dir, deepcopy(base_config))
 
     #Our first gene are the init options, do this outside of the population class
     population = ConfigPopulation(global_state, base_config, run_base, logger)
@@ -147,6 +150,7 @@ def frozenset_to_dict(fs):
 
 @dataclass(frozen=True, eq=True)
 class Failure:
+    #TODO: there's a gid (UUID) associated with failures in the graph version, should be tracking that?
     name: str
     type: str
     info: frozenset
@@ -203,12 +207,14 @@ class GenePool:
 
 class ConfigChromosome:
     #At the end of the day, each "chromosome" is going to be a configuration. Which is set of mitigations
-	#We are using a frozenset since each chromosome will be unique
+    #We are using a frozenset since each chromosome will be unique
     #We do not keep the immutable base config in here since that is held in GlobalState
     genes: frozenset[Mitigation]
     hash: int
+    health: float
     def __init__(self, parent: 'ConfigChromosome' = None, new_gene: Mitigation = None):
         self.genes = frozenset()
+        health = -1.0 #we haven't run this yet
         if parent is None:
             parent = self #weird
         if new_gene is not None:
@@ -229,7 +235,7 @@ class ConfigChromosome:
 class ConfigPopulation:
     def __init__(self, global_state, base_config, run_base, logger):
         self.global_state = global_state
-        self.base_config = base_config #store the base configuration, assumes it is immutable
+        self.base_config = deepcopy(base_config) #store the base configuration, assumes it is immutable
         self.chromosomes = set()
         self.nelites = 1 #number of elites to keep
         self.attempted_configs = set() #store the configurations we've already tried - do we need this with the cache?
@@ -238,9 +244,10 @@ class ConfigPopulation:
         self.run_index = AtomicCounter(-1) #store the run index, start at -1 since we increment before using
         self.logger = logger
         self.run_base = run_base
+        self.configs_tried = set() #TODO: what should we track? Just hashes? Full configs?
 
 
-	#This is where the biology breaks down a bit. We'll add a new chromosome to the population based on an observed failure
+    #This is where the biology breaks down a bit. We'll add a new chromosome to the population based on an observed failure
     def extend_genome(self, parent: ConfigChromosome, new_gene: MitigationAlleleSet):
         #First, check to see if we have existing mitigations for this failure
         old_mitigations = self.pool.get_mitigations(new_gene.failure)
@@ -268,6 +275,7 @@ class ConfigPopulation:
                 config, run_index = task
                 self.logger.info(f"[thread {id}]: Running config {config} with run index {run_index}")
                 failures, health_score = self.run_config(config, run_index)
+                raise NotImplementedError("Need to implement mitigations... possibly a level up?")
             except Exception as e:
                 self.logger.error(f"[thread {id}]: Error running config {config} with run index {run_index}: {e}")
                 self.work_queue.task_done()
@@ -291,22 +299,63 @@ class ConfigPopulation:
         """
         Careful! This function is run in parallel and should not modify any shared state.
         """
-        failures = []
+        failures = [] #TODO: should we track only new failures?
         score = 0.0
+
+        if config.hash in self.configs_tried:
+            self.logger.info(f"Skipping config {config} since it has already been tried")
+            return failures, score
+
         run_dir = os.path.join(self.run_base, str(run_index))
         if os.path.isdir(run_dir):
             # Remove it
             shutil.rmtree(run_dir)
         os.makedirs(run_dir)
+        self.logger.info(f"Running config {config} in {run_dir}")
 
         # Write config to disk
-        combined_config = config.to_dict()
-        combined_config["core"] = self.global_state.info
-        print(combined_config)
-        raise Exception("Not implemented")
+        combined_config = deepcopy(self.base_config)
+        combined_config.update(config.to_dict())
         dump_config(combined_config, os.path.join(run_dir, "config.yaml"))
 
-        return failures, score
+        # Run the configuration
+        conf_yaml = os.path.join(run_dir, "config.yaml")
+
+        #FIXME: if this config has been run before, just return the results
+
+        timeout = combined_config.get("plugins", {}).get("core", {}).get("timeout", None)
+        out_dir = os.path.join(run_dir, "output")
+        os.makedirs(out_dir, exist_ok=True)
+        try:
+            PandaRunner().run(conf_yaml, self.global_state.proj_dir, out_dir, timeout=timeout)
+
+        except RuntimeError as e:
+            # Uh oh, we got an error while running. Warn and continue
+            self.logger.error(f"Could not run {run_dir}: {e}")
+            return [], 0, None
+
+        #Now, get the score and failures
+        score = calculate_score(out_dir)
+        #HACK: fake out config into the format that graph stuff expects by creating "Worker"
+        worker = Worker(
+            self.global_state, #global_state
+            None, #config_manager
+            self.global_state.proj_dir, #proj_dir,
+            run_dir, #run_base,
+            1, #max_iters,
+            run_index,
+            1, #active_worker_count,
+            thread_id=id,
+            logger=self.logger,
+            )
+        fake_graph_node = SimpleNamespace(info=combined_config,exclusive=None)
+        failures = worker.analyze_failures(run_dir, fake_graph_node, 1)
+        #end HACK
+
+        #now, convert the graph-type failures to our own type
+        fails=[Failure(f.friendly_name, f.type, dict_to_frozenset(f.info)) for f in failures]
+
+        return fails, score
 
 def main():
     import argparse
