@@ -10,6 +10,7 @@ ARG PENGUIN_PLUGINS_VERSION="1.5.10"
 ARG VPN_VERSION="1.0.13"
 ARG HYPERFS_VERSION="0.0.28"
 ARG GLOW_VERSION="1.5.1"
+ARG GUM_VERSION="0.14.5"
 ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
 ARG LTRACE_PROTOTYPES_HASH="9db3bdee7cf3e11c87d8cc7673d4d25b"
 ARG MUSL_VERSION="1.2.5"
@@ -62,6 +63,9 @@ RUN for arch in arm arm64 mips mips64 x64; do \
 
 ARG GLOW_VERSION
 RUN wget -qO /tmp/glow.deb https://github.com/charmbracelet/glow/releases/download/v${GLOW_VERSION}/glow_${GLOW_VERSION}_amd64.deb
+
+ARG GUM_VERSION
+RUN wget -qO /tmp/gum.deb https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/gum_${GUM_VERSION}_amd64.deb
 
 # 3) Get penguin resources
 # Download kernels from CI. Populate /igloo_static/kernels
@@ -263,6 +267,7 @@ RUN echo "#!/bin/sh\ntelnet localhost 4321" > /usr/local/bin/rootshell && chmod 
 
 COPY --from=downloader /tmp/pandare.deb /tmp/
 COPY --from=downloader /tmp/glow.deb /tmp/
+COPY --from=downloader /tmp/gum.deb /tmp/
 COPY --from=capstone_builder /usr/lib/libcapstone* /usr/lib/
 
 # We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
@@ -305,7 +310,7 @@ RUN apt-get update && apt-get install -y \
     clang-11 \
     lld-11 \
     zlib1g && \
-    apt install -yy -f /tmp/pandare.deb -f /tmp/glow.deb && \
+    apt install -yy -f /tmp/pandare.deb -f /tmp/glow.deb -f /tmp/gum.deb && \
     rm -rf /var/lib/apt/lists/* /tmp/*.deb
 
 # If we want to run in a venv, we can use this. System site packages means
