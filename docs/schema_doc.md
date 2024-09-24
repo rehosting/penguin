@@ -236,6 +236,23 @@ my_shared_directory
 
 Version of the config file format
 
+### `core.auto_patching` Enable automatic patching
+
+|||
+|-|-|
+|__Type__|boolean|
+|__Default__|`true`|
+
+Whether to automatically apply patches named patch_*.yaml or from patches/*.yaml in the project directory
+
+```yaml
+false
+```
+
+```yaml
+true
+```
+
 ## `patches` Patches
 
 |||
