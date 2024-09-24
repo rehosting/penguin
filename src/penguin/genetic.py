@@ -56,10 +56,11 @@ def ga_search(
         logger.info(f"Starting iteration {iter}/{max_iters} with {len(population.chromosomes)} configurations, {len(population.pool.genes)} genes, and {nthreads} workers")
 
         # Use a dynamic thread pool to run all configurations
+        results = {} #we'll store a dict of {chromosome: {failures: [], scores: dict, fitness: float}}
         with ThreadPoolExecutor(max_workers=nthreads) as executor:
             for tid in range(nthreads):
                 try:
-                    executor.submit(population.run_generation, id=tid)
+                    executor.submit(population.run_generation, id=tid, results=results)
                 except Exception as e:
                     logger.error(f"Error in run_generation: {e}")
                     raise e
@@ -67,6 +68,23 @@ def ga_search(
             population.create_work_queue(nthreads)
             population.join_workers(nthreads)
 
+
+        #at this point, results contains the fitness and failures for each chromosome
+        #now, go through and record the fitnesses, and update mitigations based on failures
+        for config in population.chromosomes:
+            result = results[config.hash]
+            population.record_fitness(config.hash, result["fitness"])
+            providers = get_mitigation_providers(population.get_full_config(config))
+            for f in result["failures"]:
+                dummy_config = SimpleNamespace(info=dict(),exclusive=None)
+                for m in (
+                    providers[failure.type].implement_mitigation(dummy_config, f, m)
+                ):
+                    print(m)
+                    #Left off here
+                    import IPython; IPython.embed()
+
+        raise RuntimeError("Not implemented, do selection, crossover, mutation")
         #TODO: implement selection, crossover, mutation now that we've run the config files from this generation
 
     """
@@ -147,7 +165,6 @@ def frozenset_to_dict(fs):
     else:
         return fs
 
-
 @dataclass(frozen=True, eq=True)
 class Failure:
     #TODO: there's a gid (UUID) associated with failures in the graph version, should be tracking that?
@@ -211,10 +228,8 @@ class ConfigChromosome:
     #We do not keep the immutable base config in here since that is held in GlobalState
     genes: frozenset[Mitigation]
     hash: int
-    health: float
     def __init__(self, parent: 'ConfigChromosome' = None, new_gene: Mitigation = None):
         self.genes = frozenset()
-        health = -1.0 #we haven't run this yet
         if parent is None:
             parent = self #weird
         if new_gene is not None:
@@ -245,6 +260,8 @@ class ConfigPopulation:
         self.logger = logger
         self.run_base = run_base
         self.configs_tried = set() #TODO: what should we track? Just hashes? Full configs?
+        self.lock = RLock() #lock for shared state
+        self.fitnesses = dict() #cache the fitnesses of each configuration
 
 
     #This is where the biology breaks down a bit. We'll add a new chromosome to the population based on an observed failure
@@ -258,7 +275,8 @@ class ConfigPopulation:
             self.chromosomes.add(ConfigChromosome(parent, m))
 
     def run_generation(self,
-        id: Optional[int] = 0,
+        id: int,
+        results: dict
     ):
         while True:
             #A unit of work is a configuration to run along with the run index
@@ -274,8 +292,10 @@ class ConfigPopulation:
             try:
                 config, run_index = task
                 self.logger.info(f"[thread {id}]: Running config {config} with run index {run_index}")
-                failures, health_score = self.run_config(config, run_index)
-                raise NotImplementedError("Need to implement mitigations... possibly a level up?")
+                failures, scores = self.run_config(config, run_index)
+                with self.lock:
+                    results[config.hash] = {"failures": failures, "scores": scores,
+                                            "fitness":  float(sum(scores.values()))}
             except Exception as e:
                 self.logger.error(f"[thread {id}]: Error running config {config} with run index {run_index}: {e}")
                 self.work_queue.task_done()
@@ -294,6 +314,14 @@ class ConfigPopulation:
         self.logger.info(f"Joining workers...")
         self.work_queue.join()
         self.logger.info(f"Joined workers")
+
+    def get_full_config(self, config: ConfigChromosome):
+        """
+        Given a configuration, return the full configuration (base_config+config)
+        """
+        combined_config = deepcopy(self.base_config)
+        combined_config.update(config.to_dict())
+        return combined_config
 
     def run_config(self, config: ConfigChromosome, run_index: int) -> Tuple[List[Failure], float]:
         """
@@ -314,16 +342,15 @@ class ConfigPopulation:
         self.logger.info(f"Running config {config} in {run_dir}")
 
         # Write config to disk
-        combined_config = deepcopy(self.base_config)
-        combined_config.update(config.to_dict())
-        dump_config(combined_config, os.path.join(run_dir, "config.yaml"))
+        full_config = self.get_full_config(config)
+        dump_config(full_config, os.path.join(run_dir, "config.yaml"))
 
         # Run the configuration
         conf_yaml = os.path.join(run_dir, "config.yaml")
 
         #FIXME: if this config has been run before, just return the results
 
-        timeout = combined_config.get("plugins", {}).get("core", {}).get("timeout", None)
+        timeout = full_config.get("plugins", {}).get("core", {}).get("timeout", None)
         out_dir = os.path.join(run_dir, "output")
         os.makedirs(out_dir, exist_ok=True)
         try:
@@ -348,7 +375,7 @@ class ConfigPopulation:
             thread_id=id,
             logger=self.logger,
             )
-        fake_graph_node = SimpleNamespace(info=combined_config,exclusive=None)
+        fake_graph_node = SimpleNamespace(info=full_config,exclusive=None)
         failures = worker.analyze_failures(run_dir, fake_graph_node, 1)
         #end HACK
 
@@ -356,6 +383,9 @@ class ConfigPopulation:
         fails=[Failure(f.friendly_name, f.type, dict_to_frozenset(f.info)) for f in failures]
 
         return fails, score
+
+    def record_fitness(self, config_hash, fitness):
+        self.fitnesses[config_hash] = fitness
 
 def main():
     import argparse
