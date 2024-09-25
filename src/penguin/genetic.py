@@ -60,6 +60,7 @@ def ga_search(
 
         #at this point, results contains the fitness and failures for each chromosome
         #now, go through and record the fitnesses, and update mitigations based on failures
+        mitigations = set()
         for config in population.chromosomes:
             result = results[config.hash]
             population.record_fitness(config.hash, result["fitness"])
@@ -67,9 +68,7 @@ def ga_search(
             dummy_config = SimpleNamespace(info=full_config,exclusive=None)
             providers = get_mitigation_providers(full_config)
             learning_configs=set() #mitigations we'll use to learn more (exclusive in the graph paralence)
-            mitigations = []
             for f in result["failures"]:
-                failure = Failure(f.friendly_name, f.type, dict_to_frozenset(f.info))
                 for pm in providers[f.type].get_potential_mitigations(full_config, f):
                     #pm in this case in a Mitigation(GraphNode)
                     for m in providers[f.type].implement_mitigation(dummy_config, f, pm):
@@ -80,16 +79,40 @@ def ga_search(
                             #we'll add a new config based on this config with the exclusive mitigation
                             learning_configs.add(ConfigChromosome(config, new_mit))
                         else:
-                            mitigations.append(new_mit)
+                            mitigations.add(new_mit)
 
-            #at this point do we run all the learning configs
+            #at this point we run all the learning configs, and process results again - FIXME refactor
             learning_results=population.run_configs(nthreads, learning_configs)
-            #and we need to now process those mitigations
+
+            #and we need to now process those mitigations, almost the same as above but we won't track
+            #score since these were theoretically no different than before - just with learning stuff
+            #(might want to account into some aggregate score later)
+            for l in learning_configs:
+                full_config = population.get_full_config(l)
+                dummy_config = SimpleNamespace(info=full_config,exclusive=None)
+                providers = get_mitigation_providers(full_config)
+                result = learning_results[l.hash]
+                for f in result["failures"]:
+                    #TypeError: unhashable type: 'set' from below line:
+                    for pm in providers[f.type].get_potential_mitigations(full_config, f):
+                        #pm in this case in a Mitigation(GraphNode)
+                        for m in providers[f.type].implement_mitigation(dummy_config, f, pm):
+                            #m in this case in a Configuration(GraphNode), which is a full configuration
+                            diff = diff_configs(m.info, full_config)
+                            new_mit = Mitigation(pm.friendly_name, pm.type, dict_to_frozenset(diff))
+                            if m.exclusive:
+                                #we'll add a new config based on this config with the exclusive mitigation
+                                raise("Exclusive mitigations not supported in learning step")
+                            else:
+                                mitigations.add(new_mit)
+
+
             import IPython; IPython.embed()
             #create a new configuration to run based on the learning mitigations and run those now
             #converts the graph failures to our Failure class
             #fails=[Failure(f.friendly_name, f.type, dict_to_frozenset(f.info)) for f in failures]
 
+        #at this point, we've processed all configs and ran a learning step. we now have a set of mitigations
         raise RuntimeError("Not implemented, do selection, crossover, mutation")
         #TODO: implement selection, crossover, mutation now that we've run the config files from this generation
 
