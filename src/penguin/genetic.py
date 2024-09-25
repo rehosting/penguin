@@ -17,7 +17,7 @@ from .manager import GlobalState, PandaRunner, calculate_score, Worker
 from penguin.analyses import PenguinAnalysis
 
 from dataclasses import dataclass
-from typing import Optional, Callable, Tuple, List
+from typing import Optional, Callable, Tuple, List, Set
 
 """
 Genetic Algorithm Configuration Search
@@ -55,34 +55,40 @@ def ga_search(
     for iter in range(1,max_iters+1,1):
         logger.info(f"Starting iteration {iter}/{max_iters} with {len(population.chromosomes)} configurations, {len(population.pool.genes)} genes, and {nthreads} workers")
 
-        # Use a dynamic thread pool to run all configurations
-        results = {} #we'll store a dict of {chromosome: {failures: [], scores: dict, fitness: float}}
-        with ThreadPoolExecutor(max_workers=nthreads) as executor:
-            for tid in range(nthreads):
-                try:
-                    executor.submit(population.run_generation, id=tid, results=results)
-                except Exception as e:
-                    logger.error(f"Error in run_generation: {e}")
-                    raise e
-
-            population.create_work_queue(nthreads)
-            population.join_workers(nthreads)
-
+        #we'll store a dict of {chromosome: {failures: [], scores: dict, fitness: float}}
+        results = population.run_configs(nthreads, population.chromosomes)
 
         #at this point, results contains the fitness and failures for each chromosome
         #now, go through and record the fitnesses, and update mitigations based on failures
         for config in population.chromosomes:
             result = results[config.hash]
             population.record_fitness(config.hash, result["fitness"])
-            providers = get_mitigation_providers(population.get_full_config(config))
+            full_config = population.get_full_config(config)
+            dummy_config = SimpleNamespace(info=full_config,exclusive=None)
+            providers = get_mitigation_providers(full_config)
+            learning_configs=set() #mitigations we'll use to learn more (exclusive in the graph paralence)
+            mitigations = []
             for f in result["failures"]:
-                dummy_config = SimpleNamespace(info=dict(),exclusive=None)
-                for m in (
-                    providers[failure.type].implement_mitigation(dummy_config, f, m)
-                ):
-                    print(m)
-                    #Left off here
-                    import IPython; IPython.embed()
+                failure = Failure(f.friendly_name, f.type, dict_to_frozenset(f.info))
+                for pm in providers[f.type].get_potential_mitigations(full_config, f):
+                    #pm in this case in a Mitigation(GraphNode)
+                    for m in providers[f.type].implement_mitigation(dummy_config, f, pm):
+                        #m in this case in a Configuration(GraphNode), which is a full configuration
+                        diff = diff_configs(m.info, full_config)
+                        new_mit = Mitigation(pm.friendly_name, pm.type, dict_to_frozenset(diff))
+                        if m.exclusive:
+                            #we'll add a new config based on this config with the exclusive mitigation
+                            learning_configs.add(ConfigChromosome(config, new_mit))
+                        else:
+                            mitigations.append(new_mit)
+
+            #at this point do we run all the learning configs
+            learning_results=population.run_configs(nthreads, learning_configs)
+            #and we need to now process those mitigations
+            import IPython; IPython.embed()
+            #create a new configuration to run based on the learning mitigations and run those now
+            #converts the graph failures to our Failure class
+            #fails=[Failure(f.friendly_name, f.type, dict_to_frozenset(f.info)) for f in failures]
 
         raise RuntimeError("Not implemented, do selection, crossover, mutation")
         #TODO: implement selection, crossover, mutation now that we've run the config files from this generation
@@ -129,7 +135,6 @@ def create_init_gene(base_config, global_state):
     init_fail = Failure("init", "init", {"inits": global_state.inits})
     init_mitigations = set()
 
-    # FIXME: fix this - we are not properly getting both inits in my simple test case
     if len(base_config["env"].get("igloo_init", [])) == 0:
         if len(global_state.inits) == 0:
             raise RuntimeError(
@@ -139,10 +144,11 @@ def create_init_gene(base_config, global_state):
         for init in global_state.inits:
             # First add mitigation:
             this_init_mit = Mitigation(f"init_{init}", "init", {"env": {"igloo_init": init}})
-            init_mitigations.add(dict_to_frozenset(this_init_mit))
+            init_mitigations.add(this_init_mit)
     else:
         #If we already have an init defined, we'll just use that
-        init_mitigations.add(dict_to_frozenset({'env': { 'igloo_init': base_config["env"]["igloo_init"]}}))
+        mit =  Mitigation(f"init", "init", {'env': { 'igloo_init': base_config["env"]["igloo_init"]}})
+        init_mitigations.add(mit)
     return MitigationAlleleSet(init_fail, frozenset(init_mitigations))
 
 #TODO: should these move to common?
@@ -164,6 +170,23 @@ def frozenset_to_dict(fs):
         return [frozenset_to_dict(item) for item in fs]
     else:
         return fs
+
+#This is absolutely horrible, but thing we need it for the bolt on approach to testing out this new search
+#Note: this does not support keys that were *removed)
+def diff_configs(new, old):
+    diff = {}
+
+    for k in new:
+        if k not in old:
+            diff[k] = new[k]
+        elif isinstance(new[k], dict) and isinstance(old[k], dict):
+            nested_diff = diff_configs(new[k], old[k])
+            if nested_diff:  # Only include if there's a difference
+                diff[k] = nested_diff
+        elif new[k] != old[k]:
+            diff[k] = new[k]
+
+    return diff
 
 @dataclass(frozen=True, eq=True)
 class Failure:
@@ -244,7 +267,17 @@ class ConfigChromosome:
         config_dict = {}
         #TODO: should we do some validation to make sure our config doesn't have conflicting options?
         for m in self.genes:
-            config_dict.update(frozenset_to_dict(m))
+            sub_dict = frozenset_to_dict(m.config_opts)
+            for k, v in sub_dict.items():
+                if k in config_dict:
+                    if isinstance(config_dict[k], list):
+                        config_dict[k].extend(v)
+                    elif isinstance(config_dict[k], dict):
+                        config_dict[k].update(v)
+                    else:
+                        raise(RuntimeError(f"Unexpected type for config key {k}: {type(config_dict[k])}"))
+                else:
+                    config_dict[k] = v
         return config_dict
 
 class ConfigPopulation:
@@ -274,7 +307,21 @@ class ConfigPopulation:
         for m in new_gene.mitigations.difference(old_mitigations):
             self.chromosomes.add(ConfigChromosome(parent, m))
 
-    def run_generation(self,
+    def run_configs(self, nthreads: int, chromosomes: Set[ConfigChromosome]):
+        results = {}
+        with ThreadPoolExecutor(max_workers=nthreads) as executor:
+            for tid in range(nthreads):
+                try:
+                    executor.submit(self.run_worker, id=tid, results=results)
+                except Exception as e:
+                    self.logger.error(f"Error in run_worker: {e}")
+                    raise e
+
+            self.create_work_queue(nthreads,chromosomes)
+            self.join_workers(nthreads)
+        return results
+
+    def run_worker(self,
         id: int,
         results: dict
     ):
@@ -304,8 +351,8 @@ class ConfigPopulation:
             self.work_queue.task_done()
             self.logger.info(f"[thread {id}]: Finished config {config} with run index {run_index}")
 
-    def create_work_queue(self,nworkers=1):
-        for chromosome in self.chromosomes:
+    def create_work_queue(self, nworkers: int, chromosomes: Set[ConfigChromosome]):
+        for chromosome in chromosomes:
             self.work_queue.put((chromosome, self.run_index.increment()))
         for _ in range(nworkers):
             self.work_queue.put(None)
@@ -326,6 +373,10 @@ class ConfigPopulation:
     def run_config(self, config: ConfigChromosome, run_index: int) -> Tuple[List[Failure], float]:
         """
         Careful! This function is run in parallel and should not modify any shared state.
+
+        This is very dirty - we return the failure type from graph.py, not our own Failure class
+
+        We also tack on the base config, so watch out for that.
         """
         failures = [] #TODO: should we track only new failures?
         score = 0.0
@@ -379,10 +430,7 @@ class ConfigPopulation:
         failures = worker.analyze_failures(run_dir, fake_graph_node, 1)
         #end HACK
 
-        #now, convert the graph-type failures to our own type
-        fails=[Failure(f.friendly_name, f.type, dict_to_frozenset(f.info)) for f in failures]
-
-        return fails, score
+        return failures, score
 
     def record_fitness(self, config_hash, fitness):
         self.fitnesses[config_hash] = fitness
