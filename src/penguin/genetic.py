@@ -13,6 +13,7 @@ from .graphs import Configuration, ConfigurationManager
 from .penguin_config import dump_config, hash_yaml_config, load_config
 from .utils import AtomicCounter, get_mitigation_providers
 from .manager import GlobalState, PandaRunner, calculate_score, Worker
+from .graphs import Failure
 
 from penguin.analyses import PenguinAnalysis
 
@@ -63,7 +64,7 @@ def ga_search(
         mitigations = set()
         for config in population.chromosomes:
             result = results[config.hash]
-            population.record_fitness(config.hash, result["fitness"])
+            population.record_fitness(config, result["fitness"])
             full_config = population.get_full_config(config)
             dummy_config = SimpleNamespace(info=full_config,exclusive=None)
             providers = get_mitigation_providers(full_config)
@@ -74,7 +75,7 @@ def ga_search(
                     for m in providers[f.type].implement_mitigation(dummy_config, f, pm):
                         #m in this case in a Configuration(GraphNode), which is a full configuration
                         diff = diff_configs(m.info, full_config)
-                        new_mit = Mitigation(pm.friendly_name, pm.type, dict_to_frozenset(diff))
+                        new_mit = Mitigation(f, f.type, dict_to_frozenset(diff))
                         if m.exclusive:
                             #we'll add a new config based on this config with the exclusive mitigation
                             learning_configs.add(ConfigChromosome(config, new_mit))
@@ -99,7 +100,7 @@ def ga_search(
                         for m in providers[f.type].implement_mitigation(dummy_config, f, pm):
                             #m in this case in a Configuration(GraphNode), which is a full configuration
                             diff = diff_configs(m.info, full_config)
-                            new_mit = Mitigation(pm.friendly_name, pm.type, dict_to_frozenset(diff))
+                            new_mit = Mitigation(f, f.type, dict_to_frozenset(diff))
                             if m.exclusive:
                                 #we'll add a new config based on this config with the exclusive mitigation
                                 raise("Exclusive mitigations not supported in learning step")
@@ -107,12 +108,15 @@ def ga_search(
                                 mitigations.add(new_mit)
 
 
-            import IPython; IPython.embed()
-            #create a new configuration to run based on the learning mitigations and run those now
-            #converts the graph failures to our Failure class
-            #fails=[Failure(f.friendly_name, f.type, dict_to_frozenset(f.info)) for f in failures]
 
-        #at this point, we've processed all configs and ran a learning step. we now have a set of mitigations
+        #at this point, we've processed all configs and ran a learning step. we now have
+        #  * a set of mitigations from our population
+        #  * fitnesses for each configuration in our population
+
+        #We update the gene pool
+        for m in mitigations:
+            population.pool.update(m)
+
         raise RuntimeError("Not implemented, do selection, crossover, mutation")
         #TODO: implement selection, crossover, mutation now that we've run the config files from this generation
 
@@ -155,7 +159,6 @@ def create_init_gene(base_config, global_state):
     # potential values
 
     # Add a fake failure
-    init_fail = Failure("init", "init", {"inits": global_state.inits})
     init_mitigations = set()
 
     if len(base_config["env"].get("igloo_init", [])) == 0:
@@ -172,7 +175,7 @@ def create_init_gene(base_config, global_state):
         #If we already have an init defined, we'll just use that
         mit =  Mitigation(f"init", "init", {'env': { 'igloo_init': base_config["env"]["igloo_init"]}})
         init_mitigations.add(mit)
-    return MitigationAlleleSet(init_fail, frozenset(init_mitigations))
+    return MitigationAlleleSet("init_init", frozenset(init_mitigations))
 
 #TODO: should these move to common?
 def dict_to_frozenset(d):
@@ -212,21 +215,6 @@ def diff_configs(new, old):
     return diff
 
 @dataclass(frozen=True, eq=True)
-class Failure:
-    #TODO: there's a gid (UUID) associated with failures in the graph version, should be tracking that?
-    name: str
-    type: str
-    info: frozenset
-
-    def __init__(self, name, type, info: dict):
-        object.__setattr__(self, "name", name)
-        object.__setattr__(self, "type", type)
-        if info is None:
-            object.__setattr__(self, "info", frozenset())
-        else:
-            object.__setattr__(self, "info", frozenset(dict_to_frozenset(info)))
-
-@dataclass(frozen=True, eq=True)
 class Mitigation:
     """
     This class represents a specific mitigation for a given failure
@@ -237,7 +225,12 @@ class Mitigation:
     config_opts: frozenset
 
     def __init__(self, name, type, config_opts: dict):
-        object.__setattr__(self, "name", name)
+        if isinstance(name, Failure):
+            object.__setattr__(self, "name", GenePool.failure_to_genename(name))
+        elif isinstance(name, str):
+            object.__setattr__(self, "name", name)
+        else:
+            raise(RuntimeError(f"Unexpected type for Mitigation name {name}: {type(name)}"))
         object.__setattr__(self, "type", type)
         object.__setattr__(self, "config_opts", frozenset(dict_to_frozenset(config_opts)))
 
@@ -247,7 +240,7 @@ class MitigationAlleleSet:
     This class contains the set of mitigations we know about for a given failure
     In the biology analogy, each mitigation would be an allele
     """
-    failure: Failure
+    failure_name: str
     mitigations: frozenset #probably not frozen or do we do a new set?
 
 class GenePool:
@@ -258,15 +251,32 @@ class GenePool:
         self.genes = dict()
         #TODO look into the data structure for indexing failures here
 
-    def update(self, gene: MitigationAlleleSet):
-        if gene.failure.name not in self.genes:
-            self.genes[gene.failure.name] = gene.mitigations
-        else:
-            current_mitigations = self.genes[gene.failure.name]
-            self.genes[gene.failure.name] = frozenset(current_mitigations.union(gene.mitigations))
+    def update(self, new_gene):
+        if isinstance(new_gene, MitigationAlleleSet):
+            failure_name = new_gene.failure_name
+            new_mits = new_gene.mitigations
+        elif isinstance(new_gene, Mitigation):
+            failure_name = new_gene.name
+            new_mits = frozenset([new_gene])
 
-    def get_mitigations(self, failure: Failure):
-        return self.genes.get(failure.name, frozenset())
+        if failure_name not in self.genes:
+            self.genes[gene.failure_name] = gene.mitigations
+        else:
+            current_mitigations = self.genes[gene.failure_name]
+            self.genes[gene.failure_name] = frozenset(current_mitigations.union(new_mits))
+
+    def get_mitigations(self, failure):
+        if isinstance(failure, Failure):
+            failure_name = failure_to_genename(failure)
+        elif isinstance(failure, str):
+            failure_name = failure
+        return self.genes.get(failure_name, frozenset())
+
+    def failure_to_genename(failure: Failure):
+        return f"{failure.type}_{failure.friendly_name}"
+
+    def get_names(self):
+        return self.genes.keys()
 
 class ConfigChromosome:
     #At the end of the day, each "chromosome" is going to be a configuration. Which is set of mitigations
@@ -317,13 +327,12 @@ class ConfigPopulation:
         self.run_base = run_base
         self.configs_tried = set() #TODO: what should we track? Just hashes? Full configs?
         self.lock = RLock() #lock for shared state
-        self.fitnesses = dict() #cache the fitnesses of each configuration
-
+        self.fitnesses = dict() #cache the fitness of each configuration
 
     #This is where the biology breaks down a bit. We'll add a new chromosome to the population based on an observed failure
     def extend_genome(self, parent: ConfigChromosome, new_gene: MitigationAlleleSet):
         #First, check to see if we have existing mitigations for this failure
-        old_mitigations = self.pool.get_mitigations(new_gene.failure)
+        old_mitigations = self.pool.get_mitigations(new_gene.failure_name)
         self.pool.update(new_gene) #our pool contains all possible mitigations for a given failure
         #If we have new mitigations, add them as children to this config
         #In the biology analogy, these things would be alleles
@@ -455,8 +464,12 @@ class ConfigPopulation:
 
         return failures, score
 
-    def record_fitness(self, config_hash, fitness):
-        self.fitnesses[config_hash] = fitness
+    def record_fitness(self, config: ConfigChromosome, fitness):
+        assert config.hash not in self.fitnesses, f"Double run! Fitness for {config.hash} already recorded"
+        self.fitnesses[config.hash] = fitness
+
+    def get_fitness(self, config: ConfigChromosome, fitness):
+        self.fitnesses.get(config.hash, None)
 
 def main():
     import argparse
