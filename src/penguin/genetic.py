@@ -55,7 +55,7 @@ def ga_search(
     population.extend_genome(None, init_gene)
 
     for iter in range(1,max_iters+1,1):
-        logger.info(f"Starting iteration {iter}/{max_iters} with {len(population.chromosomes)} configurations, {len(population.pool.genes)} genes, and {nthreads} workers")
+        logger.info(f"Starting generation {iter}/{max_iters} with {len(population.chromosomes)} configurations, {len(population.pool.genes)} genes, and {nthreads} workers")
 
         #we'll store a dict of {chromosome: {failures: [], scores: dict, fitness: float}}
         results = population.run_configs(nthreads, population.chromosomes)
@@ -65,7 +65,12 @@ def ga_search(
         mitigations = set()
         for config in population.chromosomes:
             result = results[config.hash]
-            population.record_fitness(config, result["fitness"])
+            try:
+                population.record_fitness(config, result["fitness"])
+            except Exception as e:
+                logger.error(f"Error recording fitness for {config}: {e}")
+                import IPython; IPython.embed()
+                raise e
             full_config = population.get_full_config(config)
             dummy_config = SimpleNamespace(info=full_config,exclusive=None)
             providers = get_mitigation_providers(full_config)
@@ -336,6 +341,12 @@ class ConfigChromosome:
                 return m
         return None
 
+    def mitigations_to_str(self):
+        output="fConfig: {self.hash}"
+        for m in self.genes:
+            output+=f"\n{m.name}: {m.config_opts}"
+        return output
+
 class ConfigPopulation:
     def __init__(self, global_state, base_config, run_base, logger, pop_size, nelites=1):
         self.global_state = global_state
@@ -373,7 +384,7 @@ class ConfigPopulation:
                     self.logger.error(f"Error in run_worker: {e}")
                     raise e
 
-            self.create_work_queue(nthreads,chromosomes)
+            self.create_work_queue(nthreads, chromosomes)
             self.join_workers(nthreads)
         return results
 
@@ -388,7 +399,7 @@ class ConfigPopulation:
             task = self.work_queue.get()
 
             if task is None:
-                self.logger.info(f"[thread {id}]: Got None from queue, exiting")
+                self.logger.info(f"[thread {id}]: Got task None from queue, exiting")
                 self.work_queue.task_done()
                 break
 
@@ -460,6 +471,9 @@ class ConfigPopulation:
         timeout = full_config.get("plugins", {}).get("core", {}).get("timeout", None)
         out_dir = os.path.join(run_dir, "output")
         os.makedirs(out_dir, exist_ok=True)
+        #Stash genes in the run directory
+        with open(os.path.join(run_dir, "genes.txt"), "w") as f:
+            f.write(config.mitigations_to_str())
         try:
             PandaRunner().run(conf_yaml, self.global_state.proj_dir, out_dir, timeout=timeout)
 
@@ -489,8 +503,12 @@ class ConfigPopulation:
         return failures, score
 
     def record_fitness(self, config: ConfigChromosome, fitness):
-        assert config.hash not in self.fitnesses, f"Double run! Fitness for {config.hash} already recorded"
-        self.fitnesses[config.hash] = fitness
+        if config.hash not in self.fitnesses:
+            self.fitnesses[config.hash] = fitness
+        else:
+            #If we decide to really hold on to an elite, could wind up here
+            #But with the large number of possibilities we shouldn't end up here
+            self.logger.info(f"Double record! Fitness for {config.hash} already recorded")
 
     def get_fitness(self, config: ConfigChromosome):
         self.fitnesses.get(config.hash, None)
@@ -527,6 +545,9 @@ class ConfigPopulation:
                     if sorted_configs[i] not in self.parents or n < nparents:
                         self.parents.append(sorted_configs[i])
                     break
+        self.logger.info(f"Selected {len(self.parents)} parents from {n} configs")
+        self.logger.debug(f"parents: {self.print_chromosomes(self.parents)}")
+
 
     def crossover(self, p1_prob=0.5):
         """
@@ -534,7 +555,7 @@ class ConfigPopulation:
         """
 
         #Pass elites through unscathed
-        self.population = set(self.parents[:self.nelites])
+        self.chromosomes = set(self.parents[:self.nelites])
         self.parents = self.parents[self.nelites:]
 
         #cross over neighbors in the parent list
@@ -561,7 +582,10 @@ class ConfigPopulation:
             #Only add this child if it is unique and has not been tried before
             #Since the population is a set, we don't have to check for duplicates
             if not self.get_fitness(child) and len(child.genes) > 0:
-                self.population.add(child)
+                self.chromosomes.add(child)
+
+        self.logger.info(f"Population size after crossover is: {len(self.chromosomes)}")
+        self.logger.debug(f"population: {self.print_chromosomes(self.chromosomes)}")
 
     def mutation(self, nmuts=1):
         """
@@ -570,7 +594,7 @@ class ConfigPopulation:
         Our mutation here is essentially "try a different mitigation". Elites will get modified here
         """
         #At this point, we have parents and a starter population with children from crossover, make new configs until are population is full
-        while len(self.population) < self.pop_size:
+        while len(self.chromosomes) < self.pop_size:
             #should we fill up mitigations for new failures first?
             #i.e., we have failures in the pool that aren't addressed by any config, do we just pick the first mitigation for all of them?
             child = random.choice(self.parents)
@@ -580,7 +604,13 @@ class ConfigPopulation:
                 child = ConfigChromosome(child, m)
 
             if not self.get_fitness(child) and len(child.genes) > 0:
-                self.population.add(child)
+                self.chromosomes.add(child)
+
+        self.logger.info(f"Population size after mutation is: {len(self.chromosomes)}")
+        self.logger.debug(f"population: {self.print_chromosomes(self.chromosomes)}")
+
+    def print_chromosomes(self, chromosomes):
+        return "\n".join([c.mitigations_to_str() for c in chromosomes])
 
 
 def main():
