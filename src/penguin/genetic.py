@@ -511,7 +511,7 @@ class ConfigPopulation:
             self.logger.info(f"Double record! Fitness for {config.hash} already recorded")
 
     def get_fitness(self, config: ConfigChromosome):
-        self.fitnesses.get(config.hash, None)
+        self.fitnesses.get(config.hash, False)
 
     def selection(self, nparents):
         """
