@@ -255,8 +255,8 @@ penguin_run() {
      # Build Docker command
     docker_cmd=("docker" "run" "--rm")
 
-    # If we have a name set, ensure it's available. We only really care about this for the run (and maybe explore) action
-    if [[ ${#cmd[@]} -gt 1 && "${cmd[0]}" == "run" ]]; then
+    # If we have a name set, ensure it's available. We only really care about this for run/guest_cmd (and maybe explore) action
+    if [[ ${#cmd[@]} -gt 1 && ( "${cmd[0]}" == "run" || "${cmd[0]}" == "guest_cmd" ) ]]; then
         if [ -z "$container_name" ]; then
             # No name set - try to grab it - find last argument with host path and use that
             for ((i=${#cmd[@]}-1; i>0; i--)); do
@@ -297,7 +297,7 @@ penguin_run() {
             fi
         fi
 
-        if [ -n "$container_name" ]; then
+        if [[ -n "$container_name" && "${cmd[0]}" != "guest_cmd" ]]; then
             if docker ps --all --format '{{.Names}}' | grep -q "^$container_name$"; then
                 echo "${BOLD}ERROR: Container name ${RED}$container_name${RESET}${BOLD} is already in use!${RESET}"
                 echo "  Please specify a different name with ${BOLD}--name${RESET}"
@@ -306,6 +306,14 @@ penguin_run() {
             # Unique name - add it to command
             docker_cmd+=("--name" "$container_name")
         fi
+    fi
+
+    # If we are running a command in the guest, we want to docker exec then bail
+    if [ "${cmd[0]}" == "guest_cmd" ]; then
+        # Kludgy, but lets us reuse the $container_name mechanism above
+        docker_cmd=("docker" "exec" "-it" "${container_name}" "python3" "/igloo_static/guesthopper/guest_cmd.py" "${cmd[@]:2}")
+        "${docker_cmd[@]}"
+        exit $?
     fi
 
     # Check if we're in an interactive terminal, if so add -it

@@ -253,6 +253,23 @@ false
 true
 ```
 
+### `core.guest_cmd` Enable running commands in the guest
+
+|||
+|-|-|
+|__Type__|boolean|
+|__Default__|`false`|
+
+When enabled, starts the guesthopper daemon in the guest that the host can use to run commands over vsock
+
+```yaml
+false
+```
+
+```yaml
+true
+```
+
 ## `patches` Patches
 
 |||

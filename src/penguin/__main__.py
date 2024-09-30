@@ -579,6 +579,10 @@ contains details on the configuration file format and options.
     )
     add_explore_arguments(parser_cmd_explore)
 
+    subparsers.add_parser(
+        "guest_cmd", help="Execute a command inside a guest and capture stdout/stderr"
+    )
+
     # Add --wrapper-help stub
     parser.add_argument(
         "--wrapper-help", action="store_true", help="Show help for host penguin wrapper"
@@ -611,6 +615,8 @@ contains details on the configuration file format and options.
         penguin_docs(args)
     elif args.cmd == "explore":
         penguin_explore(args)
+    elif args.cmd == "guest_cmd":
+        pass
     else:
         parser.print_help()
 

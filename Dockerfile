@@ -9,6 +9,7 @@ ARG CONSOLE_VERSION="1.0.4"
 ARG PENGUIN_PLUGINS_VERSION="1.5.10"
 ARG VPN_VERSION="1.0.13"
 ARG HYPERFS_VERSION="0.0.31"
+ARG GUESTHOPPER_VERSION="1.0.3"
 ARG GLOW_VERSION="1.5.1"
 ARG GUM_VERSION="0.14.5"
 ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
@@ -119,6 +120,11 @@ RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} | \
   mv /result/dylibs /igloo_static/dylibs && \
   rm -rf /result && \
   for f in  /igloo_static/utils.bin/*.arm64; do mv -- "$f" "${f%.arm64}.aarch64"; done
+
+# Download guesthopper from CI pushed to panda.re. Populate /igloo_static/guesthopper
+ARG GUESTHOPPER_VERSION
+RUN /get_release.sh rehosting guesthopper ${GUESTHOPPER_VERSION} ${DOWNLOAD_TOKEN} | \
+    tar xzf - -C /igloo_static
 
 # Download prototype files for ltrace.
 #
