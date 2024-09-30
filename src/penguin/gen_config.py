@@ -181,6 +181,10 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
     data["lib_inject"] = {"aliases": default_lib_aliases}
 
     data["static_files"] = {
+        "/igloo": {
+            "type": "dir",
+            "mode": 0o755,
+        },
         "/igloo/init": {
             "type": "inline_file",
             "contents": default_init_script,
@@ -206,36 +210,21 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
         "mode": 0o755,
     }
 
-    data["static_files"]["/igloo/keys/"] = {
-        "type": "dir",
-        "mode": 0o755,
+    data["static_files"]["/igloo/keys/*"] = {
+        "type": "host_file",
+        "mode": 0o444,
+        "host_path": join(*[dirname(dirname(__file__)), "resources", "static_keys", "*"])
     }
-    for f in os.listdir(
-        os.path.join(*[dirname(dirname(__file__)), "resources", "static_keys"])
-    ):
-        data["static_files"][f"/igloo/keys/{f}"] = {
-            "type": "host_file",
-            # 'contents': open(static_dir + f"static_keys/{f}", 'rb').read(),
-            "host_path": os.path.join(
-                *[dirname(dirname(__file__)), "resources", "static_keys", f]
-            ),
-            "mode": 0o444,
-        }
-
-    for dir in ("/igloo", "/igloo/utils", "/igloo/dylibs", "/igloo/ltrace", "/igloo/init.d", "/igloo/source.d"):
-        data["static_files"][dir] = dict(type="dir", mode=0o755)
 
     # Add ltrace prototype files.
     #
     # They to go in `/igloo/ltrace`, because `/igloo` is treated as ltrace's
     # `/usr/share`, and the files are normally in `/usr/share/ltrace`.
-    ltrace_prots_dir = join(static_dir, "ltrace")
-    for f in os.listdir(ltrace_prots_dir):
-        data["static_files"][f"/igloo/ltrace/{f}"] = dict(
-            type="host_file",
-            host_path=join(ltrace_prots_dir, f),
-            mode=0o444,
-        )
+    data["static_files"]["/igloo/ltrace/*"] = {
+        "type": "host_file",
+        "mode": 0o444,
+        "host_path": join(*[static_dir, "ltrace", "*"]),
+    }
 
     arch_suffix = f".{arch}{end}"
     dylib_dir = join(static_dir, "dylibs", arch + end)
@@ -247,7 +236,19 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
         arch_suffix = ".x86_64"
         dylib_dir = join(static_dir, "dylibs", "x86_64")
 
-    # Add executable binaries
+    # Add dynamic libraries
+    data["static_files"]["/igloo/dylibs/*"] = {
+        "type": "host_file",
+        "mode": 0o755,
+        "host_path": join(dylib_dir, "*"),
+    }
+
+    data["static_files"]["/igloo/utils"] = {
+        "type": "dir",
+        "mode": 0o755,
+    }
+
+    # Add executable binaries, can't use a full directory copy here because we rename things
     for util_dir in ["console", "libnvram", "utils.bin", "utils.source", "vpn"]:
         for f in os.listdir(join(static_dir, util_dir)):
             if f.endswith(arch_suffix) or f.endswith(".all"):
@@ -257,14 +258,6 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
                     "host_path": f"/igloo_static/{util_dir}/{f}",
                     "mode": 0o755,
                 }
-
-    # Add dynamically-linked libraries
-    for f in os.listdir(dylib_dir):
-        data["static_files"][f"/igloo/dylibs/{f}"] = dict(
-            type="host_file",
-            host_path=join(dylib_dir, f),
-            mode=0o755,
-        )
 
     data["plugins"] = default_plugins
 
