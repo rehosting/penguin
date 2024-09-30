@@ -171,6 +171,7 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
         "ltrace": False,
         "version": default_version,
         "auto_patching": True,
+        "guest_cmd": False,
     }
 
     data["blocked_signals"] = []

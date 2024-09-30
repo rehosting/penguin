@@ -202,6 +202,15 @@ class Core(BaseModel):
             examples=[False, True],
         ),
     ]
+    guest_cmd: Annotated[
+        bool,
+        Field(
+            False,
+            title="Enable guesthopper command runner",
+            description="Whether to start the daemon for running guest commands over vsock",
+            examples=[False, True],
+        ),
+    ]
 
 
 EnvVal = _newtype(
@@ -746,6 +755,18 @@ def load_config(path, validate=True):
             # patches are loaded relative to the main config file
             patch_relocated = Path(config_folder, patch)
             config = patch_config(config, patch_relocated)
+    if config["core"].get("guest_cmd", False) is True:
+        config["static_files"]["/igloo/utils/guesthopper"] = dict(
+            type="host_file",
+            host_path="/igloo_static/guesthopper/guesthopper."+config["core"]["arch"],
+            mode=0o755,
+        )
+        config["static_files"]["/igloo/init.d/guesthopper"] = dict(
+            type="inline_file",
+            contents="RUST_LOG=info /igloo/utils/guesthopper &",
+            mode=0o755,
+        )
+
     # when loading a patch we don't need a completely valid config
     if validate:
         _validate_config(config)
