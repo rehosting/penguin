@@ -8,6 +8,7 @@ import tarfile
 import tempfile
 from copy import deepcopy
 from pathlib import Path
+from collections import defaultdict
 
 import elftools
 from elftools.common.exceptions import ELFError
@@ -19,16 +20,6 @@ from .arch import arch_filter
 from .common import yaml
 
 IGLOO_KERNEL_VERSION = "4.10.0"
-
-"""
-Given a config with a filesystem .tar, analyze
-the filesystem and populate metadata fields
-    - potential_init: list of potential init scripts
-    - potential_dev: list of potential device files
-    - potential_env: dict of potential environment variables (keys = None or list of values)
-    - potential_proc: list of potential /proc/ files
-"""
-
 logger = getColoredLogger("penguin.static")
 
 
@@ -179,98 +170,59 @@ def find_shell_scripts(tmp_dir):
             ):
                 yield file_path
 
+def _resolve_path(d, symlinks, depth=0):
+    parts = d.split("/")
+    for i in range(len(parts), 1, -1):
+        sub_path = "/".join(parts[:i])
+        if sub_path in symlinks:
+            return _resolve_path(
+                d.replace(sub_path, symlinks[sub_path], 1), symlinks
+            )
+    if not d.startswith("/"):
+        d = "/" + d
 
-def pre_shim(proj_dir, config, settings):
-    """
-    General static analysis for configuration updates. Make directories we think are missing, add standard files.
-    """
-    fs_path = os.path.join(proj_dir, config["core"]["fs"])  # tar archive
+    if d in symlinks:
+        # We resolved a symlink to another symlink, need to recurse
+        # XXX: What if our resolved path contains a symlink earlier in the path TODO
+        if depth > 10 or d == symlinks[d]:
+            logger.warning(f"Symlink loop detected for {d}")
+            return d
+        else:
+            # Recurse
+            return _resolve_path(symlinks[d], symlinks, depth=depth+1)
 
-    # Add /firmadyne/ttyS1 for console - we could pick a different major/minor number later to ensure the guest
-    # can't stomp on us. Or we could patch console to use a different path (i.e., something sane in /dev)
+    return d
 
-    # XXX: For mips we use major 4, minor 65. For arm we use major 204, minor 65.
-    # This is because arm uses ttyAMA (major 204) and mips uses ttyS (major 4).
-    # so calling it ttyS1 is a bit of a misnomer, but we don't want to go patch the console
-    # binary to use a different path.
-    config["static_files"]["/igloo/serial"] = {
-        "type": "dev",
-        "devtype": "char",
-        "major": 4 if "mips" in config["core"]["arch"] else 204,
-        "minor": 65,
-        "mode": 0o666,
-    }
+def generate_missing_dirs_patch(config, existing, symlinks, static_files):
+    # Target directories we always want to have in our filesystem
+    target_directories = [
+        "/proc",
+        "/etc_ro",
+        "/tmp",
+        "/var",
+        "/run",
+        "/sys",
+        "/root",
+        "/tmp/var",
+        "/tmp/media",
+        "/tmp/etc",
+        "/tmp/var/run",
+        "/tmp/home",
+        "/tmp/home/root",
+        "/tmp/mnt",
+        "/tmp/opt",
+        "/tmp/www",
+        "/var/run",
+        "/var/lock",
+        "/usr/bin",
+        "/usr/sbin",
+    ]
 
-    # XXX: We don't want this - if we add it it will rm -rf igloo directory to create it, which is bad
-    # config['static_files']['igloo'] = {
-    #    'type': 'dir',
-    #    'mode': 0o755,
-    # }
-
-    # Directories we want to make sure exist in the FS. This list is based on firmadyne and firmae. Added /dev explicitly because we need
-    # it for devtmpfs (e.g., devtmpfs could try mounting before /igloo/init runs and makes the directory)
-    if settings.get("default_directories", {"enabled": True}).get("enabled", True):
-        # Unless configured otherwise, we want to add these directories
-        directories = [
-            "/proc",
-            "/etc_ro",
-            "/tmp",
-            "/var",
-            "/run",
-            "/sys",
-            "/root",
-            "/tmp/var",
-            "/tmp/media",
-            "/tmp/etc",
-            "/tmp/var/run",
-            "/tmp/home",
-            "/tmp/home/root",
-            "/tmp/mnt",
-            "/tmp/opt",
-            "/tmp/www",
-            "/var/run",
-            "/var/lock",
-            "/usr/bin",
-            "/usr/sbin",
-        ]
-    else:
-        directories = []
-
-    # If user wants to add other directories, include them.
-    if settings.get("default_directories", {}).get("user_directories"):
-        directories.extend(settings["default_directories"]["user_directories"])
-
-    existing = get_all_from_tar(fs_path)
-    symlinks = get_symlinks_from_tar(fs_path)
-
-    def resolve_path(d, symlinks, depth=0):
-        parts = d.split("/")
-        for i in range(len(parts), 1, -1):
-            sub_path = "/".join(parts[:i])
-            if sub_path in symlinks:
-                return resolve_path(
-                    d.replace(sub_path, symlinks[sub_path], 1), symlinks
-                )
-        if not d.startswith("/"):
-            d = "/" + d
-
-        if d in symlinks:
-            # We resolved a symlink to another symlink, need to recurse
-            # XXX: What if our resolved path contains a symlink earlier in the path TODO
-            if depth > 10 or d == symlinks[d]:
-                logger.warning(f"Symlink loop detected for {d}")
-                return d
-            else:
-                # Recurse
-                return resolve_path(symlinks[d], symlinks, depth=depth+1)
-
-        return d
-
-    for d in directories:
+    for d in target_directories:
         # It's not already in there, add it as a world-readable directory
         # Handle symlinks. If we have a directory like /tmp/var and /tmp is a symlink to /asdf, we want to make /asdf/var
 
-        resolved_path = resolve_path(d, symlinks)
+        resolved_path = _resolve_path(d, symlinks)
         # Try handling ../s by resolving the path
         if ".." in resolved_path.split("/"):
             resolved_path = os.path.normpath(resolved_path)
@@ -309,10 +261,133 @@ def pre_shim(proj_dir, config, settings):
         for i in range(1, len(path_parts) + 1):
             subdir = "/".join(path_parts[:i])
             if subdir not in existing:
-                config["static_files"][subdir] = {
+                static_files['static.missing_dirs'][subdir] = {
                     "type": "dir",
                     "mode": 0o755,
                 }
+
+def generate_referenced_directories_patch(tmp_dir, static_files):
+    # FIRMAE_BOOT mitigation: find path strings in binaries, make their directories if they don't already exist
+    for f in find_executables(
+        tmp_dir, {"/bin", "/sbin", "/usr/bin", "/usr/sbin"}
+    ):
+        # For things that look like binaries, find unique strings that look like paths
+        for dest in list(
+            set(find_strings_in_file(f, "^(/var|/etc|/tmp)(.+)([^\\/]+)$"))
+        ):
+            if any([x in dest for x in ["%s", "%c", "%d", "/tmp/services"]]):
+                # Ignore these paths, printf format strings aren't real directories to create
+                # Not sure what /tmp/services is or where we got that from?
+                continue
+            static_files["static.binary_paths"][dest] = {
+                "type": "dir",
+                "mode": 0o755,
+            }
+
+
+def generate_shell_script_mounts_patch(tmp_dir, existing, static_files):
+    """
+    Ensure we have /mnt/* directories referenced by shell scripts
+    """
+    for f in find_shell_scripts(tmp_dir):
+        for dest in list(
+            set(find_strings_in_file(f, "^/mnt/[a-zA-Z0-9._/]+$"))
+        ):
+            if dest in existing or dest in static_files["static.binary_paths"]:
+                continue
+            static_files["static.shell_script_mounts"][dest] = {
+                "type": "dir",
+                "mode": 0o755,
+            }
+
+def generate_missing_files_patch(tmp_dir, files_to_add):
+    # Firmadyne/FirmAE mitigation, ensure these 3 files always exist
+    # Note including /bin/sh here means we'll add it if it's missing and as a symlink to /igloo/utils/busybox
+    # this is similar to how we can shim an (existing) /bin/sh to point to /igloo/utils/busybox but here we
+    # only add it if it's missing
+    model = {
+        "/bin/sh": {"type": "symlink",
+                    "target": "/igloo/utils/busybox"
+        },
+        "/etc/TZ": {
+            "type": "inline_file",
+            "contents": "EST5EDT",
+            "mode": 0o755,
+        },
+        "/var/run/libnvram.pid": {
+            "type": "inline_file",
+            "contents": "",
+            "mode": 0o644,
+        },
+    }
+
+    files_to_add["static.missing_files"] = {}
+    for fname, data in model.items():
+        if not os.path.isfile(os.path.join(tmp_dir, fname[1:])):
+            files_to_add["static.missing_files"][fname] = data
+
+    # Ensure we have an entry for localhost in /etc/hosts. So long as we have an /etc/ directory
+    hosts = ""
+    if os.path.isdir(tmp_dir + "/etc"):
+        if os.path.isfile(tmp_dir + "/etc/hosts"):
+            with open(tmp_dir + "/etc/hosts", "r") as f:
+                hosts = f.read()
+
+    # if '127.0.0.1 localhost' not in hosts:
+    # Regex with whitespace and newlines
+    if not re.search(r"^127\.0\.0\.1\s+localhost\s*$", hosts, re.MULTILINE):
+        if len(hosts) and not hosts.endswith("\n"):
+            hosts += "\n"
+        hosts += "127.0.0.1 localhost\n"
+
+        files_to_add["static.missing_files"]["/etc/hosts"] = {
+            "type": "inline_file",
+            "contents": hosts,
+            "mode": 0o755,
+        }
+
+def generate_delete_files_patch(tmp_dir, files_to_add):
+    # Delete some files that we don't want. securetty is general, limits shell access. Sys_resetbutton is some FW-specific hack?
+    # TODO: in manual mode, delete securetty, in automated mode leave it.
+    for f in ["/etc/securetty", "/etc/scripts/sys_resetbutton"]:
+        if os.path.isfile(tmp_dir + f):
+            files_to_add["static.delete_files"][f] = {
+                "type": "delete",
+            }
+
+def generate_linksys_hack_patch(tmp_dir, files_to_add):
+    # TODO: The following changes from FirmAE should likely be disabled by default
+    # as we can't consider this information as part of our search if it's in the initial config
+    # Linksys specific hack from firmae
+    if all(
+        os.path.isfile(tmp_dir + x)
+        for x in ["/bin/gpio", "/usr/lib/libcm.so", "/usr/lib/libshared.so"]
+    ):
+        files_to_add["pseudofiles.linksys"]["/dev/gpio/in"] = {
+            "read": {
+                "model": "return_const",
+                "value": 0xFFFFFFFF,
+            }
+        }
+
+def create_patches(proj_dir, config, output_dir, patch_dir):
+    """
+    Generate a patch that ensures we have all directories in a fixed list.
+    """
+    fs_path = os.path.join(proj_dir, config["core"]["fs"])  # tar archive
+
+    static_files = defaultdict(dict) # -> patchfile_name -> {'filename': {...}}
+    nvram_to_add = defaultdict(dict) # -> patchfile_name -> {'key' 'value':
+
+    # Analyze filesystem to get existing files and symlinks
+    existing = get_all_from_tar(fs_path)
+    symlinks = get_symlinks_from_tar(fs_path)
+
+    # Create a patch for /igloo/utils/force_www script
+    generate_force_www_patch(fs_path, static_files)
+
+    # Create a patch to ensure we have all the directories we want to always have
+    generate_missing_dirs_patch(config, existing, symlinks, static_files)
 
     # Temporary directory for tar file extraction
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -329,101 +404,52 @@ def pre_shim(proj_dir, config, settings):
                         # XXX We can't look at this file. Whelp. Don't die
                         continue
 
-        # Disable adding directories that are referenced in binaries if applicable.
-        if settings.get("add_binary_directories"):
-            # FIRMAE_BOOT mitigation: find path strings in binaries, make their directories if they don't already exist
-            for f in find_executables(
-                tmp_dir, {"/bin", "/sbin", "/usr/bin", "/usr/sbin"}
-            ):
-                # For things that look like binaries, find unique strings that look like paths
-                for dest in list(
-                    set(find_strings_in_file(f, "^(/var|/etc|/tmp)(.+)([^\\/]+)$"))
-                ):
-                    if any([x in dest for x in ["%s", "%c", "%d", "/tmp/services"]]):
-                        # Ignore these paths, printf format strings aren't real directories to create
-                        # Not sure what /tmp/services is or where we got that from?
-                        continue
+        # Ensure directories referenced by binaries exist
+        generate_referenced_directories_patch(tmp_dir, static_files)
 
-                    config["static_files"][dest] = {"type": "dir", "mode": 0o755}
+        # Ensure /mnt paths referenced by shell scripts exist
+        generate_shell_script_mounts_patch(tmp_dir, existing, static_files)
 
-        # CUSTOM mitigation: Try adding referenced mount points
-        if settings.get("add_mnt_paths"):
-            for f in find_shell_scripts(tmp_dir):
-                for dest in list(
-                    set(find_strings_in_file(f, "^/mnt/[a-zA-Z0-9._/]+$"))
-                ):
-                    if dest in existing:
-                        continue
-                    config["static_files"][dest] = {"type": "dir", "mode": 0o755}
+        # Ensure we have /bin/sh, /etc/TZ, /etc/hosts, and /var/run/libnvram.pid
+        generate_missing_files_patch(tmp_dir, static_files)
 
-        for fname in settings.get("always_add", []):
-            # Three special files we can add - /etc/TZ, /bin/sh, and /var/run/libnvram.pid.
-            # Note including /bin/sh here means we'll add it if it's missing and as a symlink to /igloo/utils/busybox
-            # this is similar to how we can shim an (existing) /bin/sh to point to /igloo/utils/busybox but here we
-            # only add it if it's missing
-            model = {
-                "/etc/TZ": {
-                    "type": "inline_file",
-                    "contents": "EST5EDT",
-                    "mode": 0o755,
-                },
-                "/bin/sh": {"type": "symlink", "target": "/igloo/utils/busybox"},
-                "/var/run/libnvram.pid": {
-                    "type": "inline_file",
-                    "contents": "",
-                    "mode": 0o644,
-                },
-            }
+        # Delete some files we don't want
+        generate_delete_files_patch(tmp_dir, static_files)
 
-            if not os.path.isfile(os.path.join(tmp_dir, fname[1:])):
-                # File is missing - add it
-                config["static_files"][fname] = model[fname]
+        # Linksys specific hack from firmae with pseudofile model
+        generate_linksys_hack_patch(tmp_dir, static_files)
 
-        # Ensure we have an entry for localhost in /etc/hosts. So long as we have an /etc/ directory
-        if settings.get("localhost_in_hosts"):
-            hosts = ""
-            if os.path.isdir(tmp_dir + "/etc"):
-                if os.path.isfile(tmp_dir + "/etc/hosts"):
-                    with open(tmp_dir + "/etc/hosts", "r") as f:
-                        hosts = f.read()
+        generate_shim_patch(fs_path, static_files)
 
-            # if '127.0.0.1 localhost' not in hosts:
-            # Regex with whitespace and newlines
-            if not re.search(r"^127\.0\.0\.1\s+localhost\s*$", hosts, re.MULTILINE):
-                if len(hosts) and not hosts.endswith("\n"):
-                    hosts += "\n"
-                hosts += "127.0.0.1 localhost\n"
-                config["static_files"]["/etc/hosts"] = {
-                    "type": "inline_file",
-                    "contents": hosts,
-                    "mode": 0o755,
-                }
+        generate_kernel_modules_patch(fs_path, static_files)
 
-        # Delete some files that we don't want. securetty is general, limits shell access. Sys_resetbutton is some FW-specific hack?
-        # TODO: in manual mode, delete securetty, in automated mode leave it.
-        for f in settings.get("always_delete", []):
-            if os.path.isfile(tmp_dir + f):
-                config["static_files"][f] = {
-                    "type": "delete",
-                }
+        # Analyze libraries and generate nvram patches
+        add_nvram_patches(output_dir, tmp_dir, fs_path, config["core"]["arch"], nvram_to_add)
 
-        # TODO: The following changes from FirmAE should likely be disabled by default
-        # as we can't consider this information as part of our search if it's in the initial config
-        # Linksys specific hack from firmae
-        if settings.get("add_default_linksys_devices"):
-            if all(
-                os.path.isfile(tmp_dir + x)
-                for x in ["/bin/gpio", "/usr/lib/libcm.so", "/usr/lib/libshared.so"]
-            ):
-                config["pseudofiles"]["/dev/gpio/in"] = {
-                    "read": {
-                        "model": "return_const",
-                        "value": 0xFFFFFFFF,
-                    }
-                }
+    # Ensure patch_dir exists
+    if not os.path.exists(patch_dir):
+        os.makedirs(patch_dir)
+
+    for name in static_files:
+        if not len(static_files[name]):
+            continue
+        patch_file = {'static_files': {}}
+        for f, data in static_files[name].items():
+            patch_file["static_files"][f] = data
+        with open(os.path.join(patch_dir, f"{name}.yaml"), "w") as f:
+            yaml.dump(patch_file, f)
+
+    for name in nvram_to_add:
+        if not len(nvram_to_add[name]):
+            continue
+        patch_file = {'nvram': {}}
+        for k, v in nvram_to_add[name].items():
+            patch_file["nvram"][k] = v
+        with open(os.path.join(patch_dir, f"{name}.yaml"), "w") as f:
+            yaml.dump(patch_file, f)
 
 
-def find_symbol_address(elffile, symbol_name):
+def _find_symbol_address(elffile, symbol_name):
     try:
         symbol_tables = [
             s
@@ -443,7 +469,7 @@ def find_symbol_address(elffile, symbol_name):
     return None, None
 
 
-def get_string_from_address(elffile, address, is_64=False, is_eb=False):
+def _get_string_from_address(elffile, address, is_64=False, is_eb=False):
     for section in elffile.iter_sections():
         start_addr = section["sh_addr"]
         end_addr = start_addr + section.data_size
@@ -460,7 +486,7 @@ def get_string_from_address(elffile, address, is_64=False, is_eb=False):
     return None
 
 
-def analyze_library(elf_path, config):
+def _analyze_library(elf_path, archend):
     """
     Examine a single library. Is there anything we care about in here?
 
@@ -468,7 +494,6 @@ def analyze_library(elf_path, config):
     2) report all exported function names
     """
 
-    archend = config["core"]["arch"]
     is_eb = "eb" in archend
     is_64 = "64" in archend
 
@@ -512,7 +537,7 @@ def analyze_library(elf_path, config):
 
         # Check for nvram keys
         for nvram_key in ["Nvrams", "router_defaults"]:
-            address, section_index = find_symbol_address(elffile, nvram_key)
+            address, section_index = _find_symbol_address(elffile, nvram_key)
             if address is None:
                 continue
 
@@ -551,8 +576,8 @@ def analyze_library(elf_path, config):
                     for i in range(3)
                 ]
                 if ptrs[0] != 0:
-                    key = get_string_from_address(elffile, ptrs[0], is_64, is_eb)
-                    val = get_string_from_address(elffile, ptrs[1], is_64, is_eb)
+                    key = _get_string_from_address(elffile, ptrs[0], is_64, is_eb)
+                    val = _get_string_from_address(elffile, ptrs[1], is_64, is_eb)
 
                     if (
                         key
@@ -579,57 +604,52 @@ def analyze_library(elf_path, config):
     return nvram_data, symbols
 
 
-def library_analysis(proj_dir, config, outdir):
+def nvram_library_analysis(tmp_dir, archend):
     """
     Examine all the libraries (.so, .so.* files) in the filesystem. Use pyelftools to parse
     and analyze symbols
+
+    Creates output file nvram.csv
     """
 
     symbols = {}
     nvram = {}
 
-    # Temporary directory for tar file extraction
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        with tarfile.open(os.path.join(proj_dir, config["core"]["fs"]), "r") as tar:
-            # tar.extractall(tmp_dir)
-            # Only extract *.so or .so.* files:
-            for member in tar.getmembers():
-                if member.name.endswith(".so") or ".so." in member.name:
-                    tar.extract(member, tmp_dir)
-
-        # Now let's examine each extracted library
-        for root, _, files in os.walk(tmp_dir):
-            for file in files:
-                file_path = Path(root) / file
-                if file_path.is_file():
-                    try:
-                        found_nvram, found_syms = analyze_library(file_path, config)
-                    except Exception as e:
-                        logger.error(
-                            f"Unhandled exception in analyze_library for {file_path}: {e}"
-                        )
-                        continue
-                    tmpless_path = str(file_path).replace(tmp_dir, "")
-                    for symname, offset in found_syms.items():
-                        symbols[(tmpless_path, symname)] = offset
-                    for key, value in found_nvram.items():
-                        nvram[(tmpless_path, key)] = value
+    # Now let's examine each extracted library
+    for root, _, files in os.walk(tmp_dir):
+        for file in files:
+            file_path = Path(root) / file
+            if file_path.is_file() and \
+                    (str(file_path).endswith(".so") or ".so." in str(file_path)):
+                try:
+                    found_nvram, found_syms = _analyze_library(file_path, archend)
+                except Exception as e:
+                    logger.error(
+                        f"Unhandled exception in _analyze_library for {file_path}: {e}"
+                    )
+                    continue
+                tmpless_path = str(file_path).replace(tmp_dir, "")
+                for symname, offset in found_syms.items():
+                    symbols[(tmpless_path, symname)] = offset
+                for key, value in found_nvram.items():
+                    nvram[(tmpless_path, key)] = value
 
     # Let's use the csv format for now
-    with open(os.path.join(outdir, "library_symbols.csv"), "w") as f:
-        writer = csv.writer(f)
-        writer.writerow(["path", "symbol", "offset"])
-        for (path, symname), offset in symbols.items():
-            writer.writerow([path, symname, offset])
+    #with open(os.path.join(outdir, "library_symbols.csv"), "w") as f:
+    #    writer = csv.writer(f)
+    #    writer.writerow(["path", "symbol", "offset"])
+    #    for (path, symname), offset in symbols.items():
+    #        writer.writerow([path, symname, offset])
 
-    with open(os.path.join(outdir, "nvram.csv"), "w") as f:
-        writer = csv.writer(f)
-        writer.writerow(["source", "path", "key", "value"])
-        for (path, key), value in nvram.items():
-            if key is not None and len(key):
-                writer.writerow(
-                    ["libraries", path, key, value if value is not None else ""]
-                )
+    #with open(os.path.join(outdir, "nvram.csv"), "w") as f:
+    #    writer = csv.writer(f)
+    #    writer.writerow(["source", "path", "key", "value"])
+    #    for (path, key), value in nvram.items():
+    #        if key is not None and len(key):
+    #            writer.writerow(
+    #                ["libraries", path, key, value if value is not None else ""]
+    #            )
+    return nvram
 
 
 def _kernel_version_to_int(potential_name):
@@ -643,79 +663,70 @@ def _kernel_version_to_int(potential_name):
     return comps[0] * 10000 + comps[1] * 100 + comps[2]
 
 
-def shim_configs(proj_dir, config, settings):
+def generate_shim_patch(fs_path, static_files):
     """
     Identify binaries in the guest FS that we want to shim
     and add symlinks to go from guest bin -> igloo bin
     into our config.
     """
-    fs_path = os.path.join(proj_dir, config["core"]["fs"])  # tar archive
 
-    # XXX: For now we'll only shim executables - if we later want to shim other things we need to
-    # Update some of the later checks
+    def _make_shims(shim_targets, result):
+        with tarfile.open(fs_path) as fs:
+            for fname in fs.getmembers():  # getmembers for full path
+                path = fname.path[1:]  # Trim leading .
+                basename = os.path.basename(path)
 
-    # shim_targets maps guest_bin -> path in /igloo/utils/ that we'll symlink to.
-    # we'll back up the original binary to /igloo/utils/<guest_bin>.orig
-    shim_targets = {
-        # 'fw_printenv': 'fw_printenv', # NYI
-        # 'fw_getenv': 'fw_printenv',
-        # 'fw_setenv': 'fw_printenv',
-        # XXX: We should re-enable these later when they work better
-        # For now we could consider trying them in automated analyses, but openssl
-        # shim breaks guests sometimes
-        # OpenSSL is disabled by default
-        # Bash/Ash is enabled by default
+                if path.startswith("/igloo/utils/"):
+                    raise ValueError(
+                        "Unexpected /igloo/utils present in input filesystem archive"
+                    )
+
+                # It's a guest file/symlink. If it's one of our targets and executable, we want to shim!
+                if not (fname.isfile() or fname.issym()) or not fname.mode & (
+                    stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+                ):
+                    # Skip if it's not a file or non-executable
+                    continue
+
+                # Is the current file one we want to shim?
+                if basename in shim_targets:
+                    # Backup the original binary
+                    result[f"/igloo/utils/{basename}.orig"] = {
+                        "type": "move",
+                        "from": path,
+                    }
+                    # Add a symlink from the guest path to the shim path
+                    result[path] = {
+                        "type": "symlink",
+                        "target": f"/igloo/utils/{shim_targets[basename]}",
+                    }
+
+    _make_shims({
         "reboot": "exit0.sh",
-        "halt": "exit0.sh",
+        "halt": "exit0.sh"}, static_files["static.shims.no_stop"])
+
+    _make_shims({
         "insmod": "exit0.sh",
-        "modprobe": "exit0.sh",
-        "mount": "exit0.sh",
-        "umount": "exit0.sh",
+        "modprobe": "exit0.sh"}, static_files["static.shims.no_modules"])
+
+    _make_shims({
         "ash": "busybox",
         "sh": "busybox",
-        "bash": "bash",
-    }
+        "bash": "bash"}, static_files["static.shims.busybox"])
 
-    # Loop through settings and pop shim targets that are set to False
-    default_targets = settings.get("shim_targets", {}).get("default_targets", {})
-    for target in list(default_targets.keys()):
-        if not default_targets[target]:
-            shim_targets.pop(target, None)
+    # fw_env = { # NYI
+    #    'fw_printenv': 'fw_printenv',
+    #    fw_getenv': 'fw_printenv',
+    #    fw_setenv': 'fw_printenv'
+    # }
+    #static_files['static.shims.openssl'] = {} #NYI
 
-        # Add user defined targets to the shim dictionary
-        user_targets = settings.get("shim_targets", {}).get("user_targets")
-        for target, command in user_targets.items():
-            shim_targets[target] = command
 
-    with tarfile.open(fs_path) as fs:
-        for fname in fs.getmembers():  # getmembers for full path
-            path = fname.path[1:]  # Trim leading .
-            basename = os.path.basename(path)
 
-            if path.startswith("/igloo/utils/"):
-                raise ValueError(
-                    "Unexpected /igloo/utils present in input filesystem archive"
-                )
-
-            # It's a guest file/symlink. If it's one of our targets and executable, we want to shim!
-            if not (fname.isfile() or fname.issym()) or not fname.mode & (
-                stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
-            ):
-                # Skip if it's not a file or non-executable
-                continue
-
-            # Is the current file one we want to shim?
-            if basename in shim_targets:
-                # Backup the original binary
-                config["static_files"][f"/igloo/utils/{basename}.orig"] = {
-                    "type": "move",
-                    "from": path,
-                }
-                # Add a symlink from the guest path to the shim path
-                config["static_files"][path] = {
-                    "type": "symlink",
-                    "target": f"/igloo/utils/{shim_targets[basename]}",
-                }
+def generate_kernel_modules_patch(fs_path, static_files):
+    """
+    Create a symlink from the guest kernel module path to our kernel's module path (ie.., /lib/modules/1.2.0-custom -> /lib/modules/4.10.0)
+    """
 
     # Identify original kernel version and shim /lib/modules/4.10.0 to it's /lib/modules path
     kernel_version = None
@@ -757,11 +768,10 @@ def shim_configs(proj_dir, config, settings):
 
     if kernel_version:
         # We have a kernel version, add it to our config
-        config["static_files"][f"/lib/modules/{IGLOO_KERNEL_VERSION}"] = {
+        static_files["static.kernel_modules"][f"/lib/modules/{IGLOO_KERNEL_VERSION}"] = {
             "type": "symlink",
             "target": f"/lib/modules/{kernel_version}",
         }
-
 
 def _is_init_script(tarinfo, fs):
     if tarinfo.name.startswith("./igloo"):
@@ -846,7 +856,7 @@ def _is_init_script(tarinfo, fs):
     return False
 
 
-def add_init_meta(proj_dir, base_config, output_dir):
+def _find_inits(proj_dir, base_config, output_dir):
     # Examine the filesystem and find any binaries that might be an init binary
     fs_path = os.path.join(proj_dir, base_config["core"]["fs"])  # tar archive
     inits = []
@@ -909,10 +919,10 @@ def add_init_meta(proj_dir, base_config, output_dir):
             if not member.mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
                 inits.remove(i)
 
-    base_config["meta"]["potential_init"] = inits
+    return inits
 
 
-def add_dev_proc_meta(proj_dir, base_config, output_dir):
+def log_potential_pseudofiles(proj_dir, base_config, output_dir):
     pattern = re.compile(r"\/dev\/([A-Za-z0-9_/]+)", re.MULTILINE)
 
     tar_path = os.path.join(
@@ -920,58 +930,15 @@ def add_dev_proc_meta(proj_dir, base_config, output_dir):
     )  # Should all be the same
     potential_devfiles = ["/dev/" + x for x in _find_in_fs(pattern, tar_path).keys()]
 
-    # Drop anything already in the FS or in our list of known device files
-    # this list comes from igloo's utils/devtable.txt
-    igloo_added_devices = [
-        "/dev/mem",
-        "/dev/kmem",
-        "/dev/null",
-        "/dev/zero",
-        "/dev/random",
-        "/dev/urandom",
-        "/dev/armem",
-        "/dev/tt",
-        "/dev/console",
-        "/dev/ptmx",
-        "/dev/tty0",
-        "/dev/ttyS",
-        "/dev/adsl0",
-        "/dev/ppp",
-        "/dev/hidraw0",
-        "/dev/mtd",
-        "/dev/mtd/0",
-        "/dev/mtd/1",
-        "/dev/mtd/2",
-        "/dev/mtd/3",
-        "/dev/mtd/4",
-        "/dev/mtd/5",
-        "/dev/mtd/6",
-        "/dev/mtd/7",
-        "/dev/mtd/8",
-        "/dev/mtd/9",
-        "/dev/mtd/10",
-        "/dev/mtd",
-        "/dev/mtdr",
-        "/dev/tts/0",
-        "/dev/tts/1",
-        "/dev/tts/2",
-        "/dev/tts/3",
-        "/dev/mtdblock/0",
-        "/dev/mtdblock/1",
-        "/dev/mtdblock/2",
-        "/dev/mtdblock/3",
-        "/dev/mtdblock/4",
-        "/dev/mtdblock/5",
-        "/dev/mtdblock/6",
-        "/dev/mtdblock/7",
-        "/dev/mtdblock/8",
-        "/dev/mtdblock/9",
-        "/dev/mtdblock/10",
-    ] + [
-        "/dev/mtdblock",
-        "/dev/tts",
-        "/dev/mtd",
-    ]  # Directories created by IGLOO as part of adding subfiles. Can't make as files now
+	# List of devices from igloo kernel's /dev with no pseudofiles
+    igloo_added_devices = ["/dev/" + x for x in
+        ("autofs btrfs-control cfs0 cfs1 cfs2 cfs3 cfs4 console cpu_dma_latency full fuse kmsg loop-control loop0 loop1 loop2 loop3 loop4 loop5 loop6 loop7 " + \
+        "mem memory_bandwidth network_latency network_throughput null port ppp psaux ptmx ptyp0 ptyp1 ptyp2 ptyp3 ptyp4 ptyp5 ptyp6 ptyp7 ptyp8 ptyp9 ptypa " + \
+        "ptypb ptypc ptypd ptype ptypf ram0 ram1 ram10 ram11 ram12 ram13 ram14 ram15 ram2 ram3 ram4 ram5 ram6 ram7 ram8 ram9 random tty tty0 tty1 tty10 tty11 " + \
+        "tty12 tty13 tty14 tty15 tty16 tty17 tty18 tty19 tty2 tty20 tty21 tty22 tty23 tty24 tty25 tty26 tty27 tty28 tty29 tty3 tty30 tty31 tty32 tty33 tty34 " + \
+        "tty35 tty36 tty37 tty38 tty39 tty4 tty40 tty41 tty42 tty43 tty44 tty45 tty46 tty47 tty48 tty49 tty5 tty50 tty51 tty52 tty53 tty54 tty55 tty56 tty57 " + \
+        "tty58 tty59 tty6 tty60 tty61 tty62 tty63 tty7 tty8 tty9 ttyS0 ttyS1 ttyS2 ttyS3 ttyp0 ttyp1 ttyp2 ttyp3 ttyp4 ttyp5 ttyp6 ttyp7 ttyp8 ttyp9 ttypa " + \
+        "ttypb ttypc ttypd ttype ttypf urandom vcs vcs1 vcsa vcsa1 vda vsock zero vga_arbiter").split()]
 
     for k in list(_get_devfiles_in_fs(tar_path)) + igloo_added_devices:
         if k in potential_devfiles:
@@ -997,34 +964,39 @@ def add_dev_proc_meta(proj_dir, base_config, output_dir):
     proc_files = ["/proc/" + x for x in _find_in_fs(pattern, tar_path).keys()]
     # Drop any that we expect to already have. TODO
 
-    # Add all these to our meta field
     potential_files = filtered_devfiles + proc_files
 
     with open(output_dir + "/pseudofiles.yaml", "w") as f:
         yaml.dump(potential_files, f)
 
-    base_config["meta"]["potential_files"] = potential_files
+def find_env_options_and_init(proj_dir, base_config, output_dir):
+    """
+    Create output_dir/env.yaml with a list of potential environment variables
+    and potential values we find them compared to.
 
+    We'll also prioritize the potential init binaries (which we store in that file
+    as igloo_init) and return the best one.
 
-def add_env_meta(proj_dir, base_config, output_dir):
-    # We want to search the filesystem for shell scripts accessing /proc/cmdline
-    # and try to guess at what environment variables we might want to set
-    # based on that. Store in meta ['potential_env'] field - we'll set them later
-    tar_path = os.path.join(
-        proj_dir, base_config["core"]["fs"]
-    )  # Should all have the same FS
-    pattern = re.compile(r"\/proc\/cmdline.*?([A-Za-z0-9_]+)=", re.MULTILINE)
-    potential_keys = _find_in_fs(pattern, tar_path).keys()
+    Note this isn't used by our main method, gen_config imports it directly.
+    """
 
+    # To start, we know there's `igloo_task_size` (a knob we created to configure), and
+    # igloo_init (another knob we created) to specify the init program. We'll find
+    # values for both
     # Three magic values for igloo_task_size
     task_options = [0xBF000000, 0x7F000000, 0x3F000000]
+    init_options = _find_inits(proj_dir, base_config, output_dir)
 
-    # We should have called add_init_meta before this, so we should have
-    # a list of potential init scripts in meta['potential_init']
     potential_env = {
         "igloo_task_size": task_options,
-        "igloo_init": base_config["meta"]["potential_init"],
+        "igloo_init": init_options
     }
+
+
+    # Now search the filesystem for shell scripts accessing /proc/cmdline
+    tar_path = os.path.join( proj_dir, base_config["core"]["fs"])
+    pattern = re.compile(r"\/proc\/cmdline.*?([A-Za-z0-9_]+)=", re.MULTILINE)
+    potential_keys = _find_in_fs(pattern, tar_path).keys()
 
     # Drop any keys from potential_keys if the key is in boring_vars
     boring_vars = ["TERM"]
@@ -1032,12 +1004,7 @@ def add_env_meta(proj_dir, base_config, output_dir):
         if k in potential_keys:
             potential_keys.remove(k)
 
-    # Add all these to our meta field
-    # if 'potential_env' not in base_config['meta']:
-    #    base_config['meta']['potential_env'] = {}
-
-    # We've been finding keys, not values they'd get set to
-    # We could update our static analysis to search for those too if we'd like
+    # For each key, try pulling out potential values from the filesystem
     for k in potential_keys:
         known_vals = None
         pattern = re.compile(k + r"=([A-Za-z0-9_]+)", re.MULTILINE)
@@ -1046,43 +1013,28 @@ def add_env_meta(proj_dir, base_config, output_dir):
         if len(potential_vals):
             known_vals = list(potential_vals)
 
-        # base_config['meta']['potential_env'][k] = known_vals
         potential_env[k] = known_vals
 
-    base_config["meta"]["potential_env"] = potential_env
-    # We're going to sort this as done by firmadyne/firmae - prioritize these:
-    target_inits = ["/preinit", "/init", "/rcS"]
-    init_list = deepcopy(potential_env["igloo_init"])
-    sorted_env = []
-    for target in target_inits:
-        for hit in [x for x in init_list if target in x]:
-            sorted_env.append(hit)
-            init_list.remove(hit)
+    # Now rank our init options, using the same ranking as Firmadyne/Firmae where
+    # a few specific inits are prioritized, then fallback to others
 
-    # Now append any remaining inits
-    sorted_env += init_list
-    base_config["meta"]["potential_env"]["igloo_init"] = sorted_env
+    target_inits = ["preinit", "init", "rcS"]
+    # If any of these are in our init list, move them to the front
+    # but maintain this order (i.e., preinit goes before /init so loop backwards)
+    for potential in target_inits[::-1]:
+        try:
+            idx = [x.split("/")[-1] for x in init_options].index(potential)
+        except ValueError:
+            # No match
+            continue
+        # Move to front
+        match = init_options.pop(idx)
+        init_options.insert(0, match)
 
     with open(output_dir + "/env.yaml", "w") as f:
         yaml.dump(potential_env, f)
 
-    # We moved potential_init into potential_env
-    if "potential_init" in base_config["meta"]:
-        del base_config["meta"]["potential_init"]
-
-    # We need to pick an init binary, or we'll kernel panic! Let's grab the first
-    if len(base_config["meta"]["potential_env"]["igloo_init"]):
-        base_config["env"]["igloo_init"] = base_config["meta"]["potential_env"][
-            "igloo_init"
-        ][0]
-    else:
-        base_config["env"]["igloo_init"] = "TODO_MANUALLY_SET_ME"
-        logger.warning(
-            "no init binaries identified. Manually set one in config['env']['igloo_init']"
-        )
-
-    return base_config
-
+    return potential_env["igloo_init"][0] if len(init_options) else None
 
 def parse_nvram_file(path, f):
     """
@@ -1127,7 +1079,7 @@ def parse_nvram_file(path, f):
         return {}
 
 
-def default_nvram_values(settings):
+def get_default_nvram_values():
     """
     Default nvram values from Firmadyne and FirmAE
     """
@@ -1181,38 +1133,14 @@ def default_nvram_values(settings):
     _add_firmae_for_entries(nvram, "%d:macaddr", "01:23:45:67:89:ab", 0, 3)
     _add_firmae_for_entries(nvram, "lan%d_ifnames", "", 1, 10)
 
-    if not settings.get("default_nvram_values", {"enabled": True}).get("enabled"):
-        # Default values are diabled, clear
-        nvram = {}
-
-    if settings.get("default_nvram_values", {}).get("user_nvram_values"):
-        nvram.update(settings.get("default_nvram_values").get("user_nvram_values"))
-
     return nvram
 
-
-def add_nvram_meta(proj_dir, config, output_dir, settings):
-    fs_path = os.path.join(proj_dir, config["core"]["fs"])
-    nvram_sources = {}  # source -> count
-
-    # Open our output dir's library.csv and parse (from library_analysis)
-    if os.path.isfile(output_dir + "/nvram.csv"):
-        # Nvram source 1: library exported tables
-        with open(output_dir + "/nvram.csv", "r") as f:
-            nvram_sources["libraries"] = 0
-            reader = csv.DictReader(f)
-            for row in reader:
-                nvram_sources["libraries"] += 1
-    else:
-        # Create with header, we'll append later
-        with open(output_dir + "/nvram.csv", "w") as f:
-            writer = csv.writer(f)
-            writer.writerow(["source", "path", "key", "value"])
-
+def nvram_config_analysis(tmp_dir, fs_path, full_path=True):
     # Nvram source 2: standard nvram paths with plaintext data
     # If we have a hit, we combine with any existing values
     # These are notionally sorted - if an earlier path provides a value, we won't clobber
     # but we will consume keys from all paths that we can find and parse
+    # If full_path, we check the whole path, otherwise just the basename
     nvram_paths = [
         "./var/etc/nvram.default",
         "./etc/nvram.default",
@@ -1229,65 +1157,36 @@ def add_nvram_meta(proj_dir, config, output_dir, settings):
         "./image/mnt/nvram_rpt.default",
         "./image/mnt/nvram.default",
     ]
-
-    # Configure the paths used when searching for device-specific NVRAM values
-    if settings and not settings["nvram_config"]["default_paths"]:
-        nvram_paths = []
-    if settings and settings["nvram_config"]["user_paths"]:
-        nvram_paths.extend(settings["nvram_config"]["user_paths"])
+    nvram_basenames = set([os.path.basename(x) for x in nvram_paths])
 
     path_nvrams = {}
     with tarfile.open(fs_path, "r") as tar:
-        for path in nvram_paths:
-            if path in tar.getnames():
-                # Found a default nvram file, parse it
-                f = tar.extractfile(path)
-                if f is not None:
-                    result = parse_nvram_file(path, f)
-                    # result is key-> value. We want to store path as well
-                    for k, v in result.items():
-                        path_nvrams[(path[1:], k.decode())] = v.decode()
+        if full_path:
+            # Check the exact paths
+            for path in nvram_paths:
+                if path in tar.getnames():
+                    # Found a default nvram file, parse it
+                    f = tar.extractfile(path)
+                    if f is not None:
+                        result = parse_nvram_file(path, f)
+                        # result is key-> value. We want to store path as well
+                        for k, v in result.items():
+                            path_nvrams[(path[1:], k.decode())] = v.decode()
+        else:
+            # Check every file to see if has a matching basename
+            for member in tar.getmembers():
+                if member.path in nvram_paths:
+                    # Exact match - we already checked this
+                    continue
+                if any(member.name.endswith("/" + fname) for fname in nvram_basenames):
+                    if f := tar.extractfile(member.name):
+                        result = parse_nvram_file(path, f)
+                        for k, v in result.items():
+                            path_nvrams[(member.path[1:], k.decode())] = v.decode()
 
-    if len(path_nvrams):
-        nvram_sources["full_config_paths"] = len(path_nvrams)
-        with open(output_dir + "/nvram.csv", "a") as f:
-            writer = csv.writer(f)
-            for (path, k), v in path_nvrams.items():
-                writer.writerow(["full_config_paths", path, k, v])
+    return path_nvrams
 
-    wild_nvrams = {}
-    # Still haven't found anything. Try widening the search to include these files as basenames, not full paths
-    nvram_filenames = set([os.path.basename(x) for x in nvram_paths])
-    # Do any of these files exist in the filesystem?
-    # If so we'll parse nvram keys from them and update config['nvram']
-    with tarfile.open(fs_path, "r") as tar:
-        # Check again, just for filenames, without the path
-        for member in tar.getmembers():
-            if member.path in nvram_paths:
-                # Exact match - we already checked this
-                continue
-            if any(member.name.endswith("/" + fname) for fname in nvram_filenames):
-                if f := tar.extractfile(member.name):
-                    result = parse_nvram_file(path, f)
-                    for k, v in result.items():
-                        wild_nvrams[(member.path[1:], k.decode())] = v.decode()
-
-    if len(wild_nvrams):
-        with open(output_dir + "/nvram.csv", "a") as f:
-            writer = csv.writer(f)
-            nvram_sources["basename_config_file"] = len(wild_nvrams)
-            for (path, k), v in wild_nvrams.items():
-                writer.writerow(["basename_config_file", path, k, v])
-
-    # Time to add default values
-    default_nvram = default_nvram_values(settings)
-
-    with open(output_dir + "/nvram.csv", "a") as f:
-        writer = csv.writer(f)
-        nvram_sources["defaults"] = len(default_nvram)
-        for k, v in default_nvram.items():
-            writer.writerow(["defaults", "", k, v])
-
+def nvram_firmae_analysis(fs_path):
     # FirmAE provides a list of hardcoded files to check for nvram keys, and default values
     # to add if they're present. Here we add this into our config.
     static_targets = {  # filename -> (query, value to set if key is present)
@@ -1300,8 +1199,8 @@ def add_nvram_meta(proj_dir, config, output_dir, settings):
             ("filter_rule_tbl", ""),
         ],
     }
+    result = {}
 
-    nvram_sources["firmae_file_specific"] = 0
     with tarfile.open(fs_path, "r") as tar:
         # For each key in static_targets, check if the query is in the file
         for key, queries in static_targets.items():
@@ -1320,13 +1219,27 @@ def add_nvram_meta(proj_dir, config, output_dir, settings):
             for query, _ in queries:
                 # Check if query is in file
                 if query.encode() in f.read():
-                    if key not in config["nvram"]:
-                        nvram_sources["firmae_file_specific"] += 1
+                    result[key] = query
+    return result
+
+def add_nvram_patches(output_dir, tmp_dir, fs_path, archend, nvram_patches):
+
+    # Nvram source 1: Look for exported symbols in libraries
+    nvram_patches["nvram.01_library_analysis"] = nvram_library_analysis(tmp_dir, archend)
+
+    nvram_patches["nvram.02_config_paths"] = nvram_config_analysis(tmp_dir, fs_path, True)
+    nvram_patches["nvram.03_config_path_basename"] = nvram_config_analysis(tmp_dir, fs_path, False)
+
+    nvram_patches["nvram.04_defaults"] = get_default_nvram_values()
+
+    nvram_patches["nvram.05_firmae_file_specific"] = nvram_firmae_analysis(fs_path)
+
 
     # Now we need to select which values we'll put in our config. Here's an algorithm:
     # We'd prefer libraries, full_config_paths, basename_config_file, defaults.
     # We'll always add firmae_file_specific, so long as those values aren't already in the config
     # We have a minimum of 10 values for us to select from a source
+    """
     for src in ["libraries", "full_config_paths", "basename_config_file", "defaults"]:
         with open(output_dir + "/nvram.csv", "r") as f:
             nvram_data = csv.DictReader(f)
@@ -1391,15 +1304,15 @@ def add_nvram_meta(proj_dir, config, output_dir, settings):
             [f"{source} ({count})" for source, count in nvram_sources.items() if count]
         )
     )
+    """
 
 
-def add_firmae_hacks(proj_dir, config, output_dir, settings):
+def generate_force_www_patch(fs_path, files_to_add):
     # This is a hacky FirmAE approach to identify webservers and just start
     # them. Unsurprisingly, it increases the rate of web servers starting.
     # We'll export this into our static files section so we could later decide
     # to try it. We'll enable this by default here.
 
-    fs_path = os.path.join(proj_dir, config["core"]["fs"])  # tar archive
     # Map between filename and command
     file2cmd = {
         "./etc/init.d/uhttpd": "/etc/init.d/uhttpd start",
@@ -1410,12 +1323,6 @@ def add_firmae_hacks(proj_dir, config, output_dir, settings):
         "./bin/boa": "/bin/boa",
         "./usr/sbin/lighttpd": "/usr/sbin/lighttpd -f /etc/lighttpd/lighttpd.conf",
     }
-
-    # Allow users to customize mapping from webserver binary to command
-    if settings and not settings["webserver_mapping"]["defaults"]:
-        file2cmd = {}
-    if settings and settings["webserver_mapping"]["user_mapping"]:
-        file2cmd.update(settings["webserver_mapping"]["user_mapping"])
 
     www_cmds = []
     www_paths = []
@@ -1430,39 +1337,43 @@ def add_firmae_hacks(proj_dir, config, output_dir, settings):
                 www_cmds.append(cmd)
                 www_paths.append(file)
 
-    if len(www_cmds):
-        # We want to start each identified webserver in a loop
+    if not len(www_cmds):
+        return
 
-        # Start of the shell script
-        cmd_str = """#!/igloo/utils/sh
-        /igloo/utils/busybox sleep 120
+    # Start of the shell script
+    # We want to start each identified webserver in a loop
+    cmd_str = """#!/igloo/utils/sh
+    /igloo/utils/busybox sleep 120
 
-        while true; do
-        """
+    while true; do
+    """
 
-        # Loop through the commands to add them to the script
-        # XXX we need to preload our libnvram here. If we ever mess with that we should also change it here
-        for cmd in www_cmds:
-            cmd_str += f"""
-            if ! (/igloo/utils/busybox ps | /igloo/utils/busybox grep -v grep | /igloo/utils/busybox grep -sqi "{cmd}"); then
-               {cmd} &
-            fi
-        """
-        # Close the loop
-        cmd_str += """
-            /igloo/utils/busybox sleep 30
-            done
-        """
+    # Loop through the commands to add them to the script
+    # XXX we need to preload our libnvram here. If we ever mess with that we should also change it here
+    for cmd in www_cmds:
+        cmd_str += f"""
+        if ! (/igloo/utils/busybox ps | /igloo/utils/busybox grep -v grep | /igloo/utils/busybox grep -sqi "{cmd}"); then
+            {cmd} &
+        fi
+    """
+    # Close the loop
+    cmd_str += """
+        /igloo/utils/busybox sleep 30
+        done
+    """
 
-        config["static_files"]["/igloo/utils/www_cmds"] = {
-            "type": "inline_file",
-            "contents": cmd_str,
-            "mode": 0o755,
-        }
-
-        if settings:
-            config["core"]["force_www"] = settings["set_core_force_www"]
-
+    files_to_add['force_www'] = {
+                    "core": {
+                        "force_www": True
+                    },
+                    "static_files": {
+                        "/igloo/utils/www_cmds": {
+                            "type": "inline_file",
+                            "contents": cmd_str,
+                            "mode": 0o755,
+                        }
+                    }
+                }
 
 def add_lib_inject_symlinks(proj_dir, conf):
     """
@@ -1490,54 +1401,14 @@ def add_lib_inject_symlinks(proj_dir, conf):
         )
 
 
-def extend_config_with_static(proj_dir, base_config, outdir, settings):
+def generate_static_patches(proj_dir, base_config, outdir, patch_dir):
 
-    if "meta" not in base_config:
-        base_config["meta"] = {}
+    # Create patches in the patch directory
+    create_patches(proj_dir, base_config, outdir, patch_dir)
 
-    pre_shim(proj_dir, base_config, settings)
-
-    # Search the filesystem for filenames that we want to shim with igloo-utils
-    # We shim them all, every time
-    shim_configs(proj_dir, base_config, settings)
-
-    # Next we want to identify potential device files and environment variables
-    # These are stored in our metadata: [meta][potential_dev] and [meta][potential_env]
-    # and they write to base/{env,files,init}.yaml
-    add_init_meta(proj_dir, base_config, outdir)
-    add_env_meta(proj_dir, base_config, outdir)
-    add_dev_proc_meta(proj_dir, base_config, outdir)
-
-    # Analyze *.so, *.so.* to learn about library functions
-    # and exported nvram values
-    library_analysis(proj_dir, base_config, outdir)
-    add_nvram_meta(proj_dir, base_config, outdir, settings)  # Sets more nvram values
-
-    if settings and settings["enable_firmae_hack"]:
-        add_firmae_hacks(proj_dir, base_config, outdir, settings)
+    log_potential_pseudofiles(proj_dir, base_config, outdir)
+    
+    # Rewrite config to add lib_inject symlinks at the right paths
     add_lib_inject_symlinks(proj_dir, base_config)
 
-    # TODO: Additional static analysis of shell scripts to find more environment variables?
-    # We could do some LLM-based shell script analysis
-
     return base_config
-
-
-def main():
-    from os.path import dirname
-    from sys import argv
-
-    if len(argv) != 3:
-        print("Usage: python3 penguin_static.py <config> [outdir]")
-        exit(1)
-
-    # We'll dump the static analysis outputs into outdir/{env,files}.yaml
-    # We don't use the returned object with the meta fields when called directly
-    inconf = yaml.load(open(argv[1]), Loader=yaml.FullLoader)
-    outdir = argv[2] if len(argv) > 2 else dirname(argv[1])
-    proj_dir = dirname(argv[1])
-    extend_config_with_static(proj_dir, inconf, outdir)
-
-
-if __name__ == "__main__":
-    main()

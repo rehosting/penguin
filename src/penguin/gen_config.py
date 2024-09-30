@@ -26,7 +26,7 @@ from .defaults import (
     static_dir,
 )
 from .penguin_config import dump_config
-from .penguin_static import extend_config_with_static
+from .penguin_static import generate_static_patches, find_env_options_and_init
 
 logger = getColoredLogger("penguin.gen_config")
 
@@ -247,6 +247,19 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
                     "mode": 0o755,
                 }
 
+	# Add serial device in pseudofiles
+    # XXX: For mips we use major 4, minor 65. For arm we use major 204, minor 65.
+    # This is because arm uses ttyAMA (major 204) and mips uses ttyS (major 4).
+    # so calling it ttyS1 is a bit of a misnomer, but we don't want to go patch the console
+    # binary to use a different path.
+    data["static_files"]["/igloo/serial"] = {
+        "type": "dev",
+        "devtype": "char",
+        "major": 4 if "mips" in data["core"]["arch"] else 204,
+        "minor": 65,
+        "mode": 0o666,
+    }
+
     data["plugins"] = default_plugins
 
     if settings.get("coverage"):
@@ -282,12 +295,19 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
     # readable/writable by everyone since non-container users will want to access them
     os.umask(0o000)
 
-    data = extend_config_with_static(
+    init = find_env_options_and_init(output_dir, data, f"{output_dir}/base/")
+    if init is None:
+        raise ValueError("Failed to find an init script")
+    data["env"]["igloo_init"] = init
+
+    patch_names = generate_static_patches(
         output_dir,
         data,
         f"{output_dir}/base/",
-        settings,
-    )
+        f"{output_dir}/patches/")
+    
+
+    # TODO: Add patches by name into config['patches']
 
     if not auto_explore:
         # We want to build this configuration for a single-shot rehost.
