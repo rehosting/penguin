@@ -218,7 +218,7 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
     #
     # They to go in `/igloo/ltrace`, because `/igloo` is treated as ltrace's
     # `/usr/share`, and the files are normally in `/usr/share/ltrace`.
-    data["static_files"]["/igloo/ltrace/*"] = {
+    data["static_files"][f"/igloo/ltrace/*"] = {
         "type": "host_file",
         "mode": 0o444,
         "host_path": join(*[static_dir, "ltrace", "*"]),
@@ -234,8 +234,8 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
         arch_suffix = ".x86_64"
         dylib_dir = join(static_dir, "dylibs", "x86_64")
 
-    # Add dynamic libraries
-    data["static_files"]["/igloo/dylibs/*"] = {
+	# Add dynamic libraries
+    data["static_files"][f"/igloo/dylibs/*"] = {
         "type": "host_file",
         "mode": 0o755,
         "host_path": join(dylib_dir, "*"),
