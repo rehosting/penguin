@@ -333,8 +333,8 @@ class FileFailures(PyPlugin):
         # assert(ret == -2), f"Unexpected return value {ret} from igloo_syscall"
         # assert name not in ('open', 'openat', 'ioctl', 'close'), f"Unexpected syscall {name} in igloo_syscall"
 
-        # Use null terminator and interpret as UTF-8
-        strings = [s.split(b"\0", 1)[0].decode() for s in strings]
+        # Use null terminator and interpret as latin-1
+        strings = [s.split(b"\0", 1)[0].decode("latin-1", errors="ignore") for s in strings]
 
         fnames = (
             strings[i]
