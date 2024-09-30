@@ -463,7 +463,7 @@ def makeConfig(fs, out, artifacts, verbose, settings_path):
         with open(os.path.join(result_dir, "result"), "w") as f:
             f.write(str(e)+"\n")
         logger.error(f"Error! Could not generate config for {fs}")
-        logger.error(e)
+        logger.exception(e)
         return None
 
 
