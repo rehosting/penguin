@@ -342,10 +342,7 @@ class ConfigChromosome:
         return None
 
     def mitigations_to_str(self):
-        output="fConfig: {self.hash}"
-        for m in self.genes:
-            output+=f"\n{m.name}: {m.config_opts}"
-        return output
+        return "\n".join(f"{m.name}: {m.config_opts}" for m in self.genes)
 
 class ConfigPopulation:
     def __init__(self, global_state, base_config, run_base, logger, pop_size, nelites=1):
@@ -446,11 +443,11 @@ class ConfigPopulation:
         We also tack on the base config, so watch out for that.
         """
         failures = [] #TODO: should we track only new failures?
-        score = 0.0
+        score = {"empty": 0.0}
 
-        if self.get_fitness(config) is not None:
+        if self.get_fitness(config) != False:
             self.logger.info(f"Skipping config {config} since it has already been tried")
-            return failures, score
+            return failures, {"previous_run": self.get_fitness(config)}
 
         run_dir = os.path.join(self.run_base, str(run_index))
         if os.path.isdir(run_dir):
@@ -473,6 +470,7 @@ class ConfigPopulation:
         os.makedirs(out_dir, exist_ok=True)
         #Stash genes in the run directory
         with open(os.path.join(run_dir, "genes.txt"), "w") as f:
+            output=f"Config: {config.hash}"
             f.write(config.mitigations_to_str())
         try:
             PandaRunner().run(conf_yaml, self.global_state.proj_dir, out_dir, timeout=timeout)
@@ -511,7 +509,7 @@ class ConfigPopulation:
             self.logger.info(f"Double record! Fitness for {config.hash} already recorded")
 
     def get_fitness(self, config: ConfigChromosome):
-        self.fitnesses.get(config.hash, False)
+        return self.fitnesses.get(config.hash, False)
 
     def selection(self, nparents):
         """
@@ -521,7 +519,15 @@ class ConfigPopulation:
         """
         self.parents = []
         #get current population, sorted by fitness, higher is better (e.g., 6/6 is better than 5/6)
-        sorted_configs = sorted(self.chromosomes, key=lambda x: self.get_fitness(x))
+        if len(self.chromosomes) == 0:
+            sorted_configs = []
+        else:
+            try:
+                sorted_configs = sorted(self.chromosomes, key=lambda c: self.get_fitness(c))
+            except:
+                for c in self.chromosomes:
+                    print(c.genes)
+                import IPython; IPython.embed()
 
         #probability of a selecting each config, weighted rank based selection
         n = len(sorted_configs)
