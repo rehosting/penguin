@@ -106,7 +106,7 @@ def get_kernel_path(arch, end, static_dir):
         return static_dir + f"kernels/{DEFAULT_KERNEL}/" + "vmlinux" + f".{arch}{end}"
 
 
-def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
+def make_config(fs, out, artifacts, timeout=None, auto_explore=False):
     logger.info(f"Generating new configuration for {fs}...")
     """
     Given a filesystem as a .tar.gz make a configuration
@@ -262,9 +262,6 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
 
     data["plugins"] = default_plugins
 
-    if settings.get("coverage"):
-        data["plugins"]["coverage"]["enabled"] = True
-
     # Explicitly placing this at the end
     data["nvram"] = {}
 
@@ -414,7 +411,7 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
     return final_out
 
 
-def fakeroot_gen_config(fs, out, artifacts, verbose, settings_path):
+def fakeroot_gen_config(fs, out, artifacts, verbose):
     o = Path(out)
     cmd = [
         "fakeroot",
@@ -428,8 +425,6 @@ def fakeroot_gen_config(fs, out, artifacts, verbose, settings_path):
     ]
     if verbose:
         cmd.extend(["--verbose"])
-    if settings_path:
-        cmd.extend(["--settings-path", str(settings_path)])
     p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
     p.wait()
     if o.exists():
@@ -441,28 +436,13 @@ def fakeroot_gen_config(fs, out, artifacts, verbose, settings_path):
 @click.option("--out", required=True, help="Path to a config to be created")
 @click.option("--artifacts", default=None, help="Path to a directory for artifacts")
 @click.option("-v", "--verbose", count=True)
-@click.option(
-    "-s", "--settings-path", type=str, help="Path to the YAML configuration file"
-)
-def makeConfig(fs, out, artifacts, verbose, settings_path):
+def makeConfig(fs, out, artifacts, verbose):
     if verbose:
         logger.setLevel(logging.DEBUG)
 
-    default_settings_path = os.path.join(
-        *[dirname(dirname(__file__)), "resources", "default_settings.yaml"]
-    )
-    with open(default_settings_path, "r") as f:
-        settings = yaml.safe_load(f)
-
-    # If a settings file is provided, update the default settings with the user settings
-    if settings_path:
-        with open(settings_path, "r") as f:
-            user_settings = yaml.safe_load(f)
-        settings.update(user_settings)
-
     try:
         # Return a path to a config if we generate one
-        return make_config(fs, out, artifacts, settings)
+        return make_config(fs, out, artifacts)
     except Exception as e:
         # Otherwise log error to results directory and with logger
         # Then return None
