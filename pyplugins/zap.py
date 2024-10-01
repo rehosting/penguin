@@ -298,7 +298,7 @@ class Zap(PyPlugin):
         for url in zap.core.urls():
             print(url, file=log_file)
 
-    def zap_on_bind(self, proto, guest_ip, guest_port, host_port, procname):
+    def zap_on_bind(self, proto, guest_ip, guest_port, host_port, host_ip, procname):
         """
         There was a bind - spider and active scan. Note we now go through SyscallProxy
         so we can analyze syscall behavior during each zap-generated requestd
