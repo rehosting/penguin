@@ -71,166 +71,143 @@ default_plugins = {
 
 # Hardcoded device list and acos ioctls are from Firmadyne/FirmAE
 # https://github.com/pr0v3rbs/FirmAE_kernel-v4.1/blob/master/drivers/firmadyne/devfs_stubs.c#L37-L52
-default_pseudo_model = {
+_default_pseudo_model = {
     "read": {
         "model": "zero",
     },
     "write": {
         "model": "discard",
-    },
-}
-acos_pseudo_model = deepcopy(default_pseudo_model)
-acos_pseudo_model["ioctl"] = {
-    0x40046431: {"model": "return_const", "val": 1},
-    0x80046431: {"model": "return_const", "val": 1},
-    0x40046432: {"model": "return_const", "val": 1},
-    0x80046432: {"model": "return_const", "val": 1},
+    }
 }
 
+_default_dev_model = deepcopy(_default_pseudo_model)
+_default_dev_model["ioctl"] = {
+    "*": {
+        "model": "return_const",
+        "val": 0,
+    }
+}
+
+# Hardcoded ioctl models for some devices from FirmAE
+_dev_acos_pseudo_model = deepcopy(_default_dev_model)
+_dev_acos_pseudo_model["ioctl"].update({
+        0x40046431: {"model": "return_const", "val": 1},
+        0x80046431: {"model": "return_const", "val": 1},
+        0x40046432: {"model": "return_const", "val": 1},
+        0x80046432: {"model": "return_const", "val": 1},
+    })
+
 default_pseudofiles = {
-    "/dev/acos_nat_cli": acos_pseudo_model,
-    "/dev/brcmboard": default_pseudo_model,
-    "/dev/dsl_cpe_api": default_pseudo_model,
-    "/dev/gpio": default_pseudo_model,
-    "/dev/nvram": default_pseudo_model,
-    "/dev/pib": default_pseudo_model,
-    "/dev/sc_led": default_pseudo_model,
-    "/dev/tca0": default_pseudo_model,
-    "/dev/ticfg": default_pseudo_model,
-    "/dev/watchdog": default_pseudo_model,
-    "/dev/wdt": default_pseudo_model,
-    "/dev/zybtnio": default_pseudo_model,
-    "/proc/blankstatus": default_pseudo_model,
-    "/proc/btnCnt": default_pseudo_model,
-    "/proc/br_igmpProxy": default_pseudo_model,
-    "/proc/BtnMode": default_pseudo_model,
-    "/proc/gpio": default_pseudo_model,
-    "/proc/led": default_pseudo_model,
-    "/proc/push_button": default_pseudo_model,
-    "/proc/rtk_promiscuous": default_pseudo_model,
-    "/proc/rtk_vlan_support": default_pseudo_model,
-    "/proc/RstBtnCnt": default_pseudo_model,
-    "/proc/sw_nat": default_pseudo_model,
-    "/proc/simple_config/reset_button_s": default_pseudo_model,
-    "/proc/quantum/drv_ctl": default_pseudo_model,
-    "/proc/rt3052/mii/ctrl": default_pseudo_model,
-    "/proc/rt3052/mii/data": default_pseudo_model,
+
+	# Reasonable generic /dev entries
+    "/dev/gpio": _default_dev_model,
+    "/dev/nvram": _default_dev_model,
+    "/dev/watchdog": _default_dev_model,
+
+	# Reasonable generic /proc entries
+    "/proc/gpio": _default_pseudo_model,
+    "/proc/led": _default_pseudo_model,
+
+	# Netgear specific unique device + behavior
+    "/dev/acos_nat_cli": _dev_acos_pseudo_model,
+
+	# Hardcoded /dev list from FirmAE
+    "/dev/brcmboard": _default_dev_model,
+    "/dev/dsl_cpe_api": _default_dev_model,
+    "/dev/pib": _default_dev_model,
+    "/dev/sc_led": _default_dev_model,
+    "/dev/tca0": _default_dev_model,
+    "/dev/ticfg": _default_dev_model,
+    "/dev/wdt": _default_dev_model,
+    "/dev/zybtnio": _default_dev_model,
+
+	# Hardcoded /proc entries from FirmAE
+    "/proc/blankstatus": _default_pseudo_model,
+    "/proc/btnCnt": _default_pseudo_model,
+    "/proc/br_igmpProxy": _default_pseudo_model,
+    "/proc/BtnMode": _default_pseudo_model,
+    "/proc/push_button": _default_pseudo_model,
+    "/proc/rtk_promiscuous": _default_pseudo_model,
+    "/proc/rtk_vlan_support": _default_pseudo_model,
+    "/proc/RstBtnCnt": _default_pseudo_model,
+    "/proc/sw_nat": _default_pseudo_model,
+    "/proc/simple_config/reset_button_s": _default_pseudo_model,
+    "/proc/quantum/drv_ctl": _default_pseudo_model,
+    "/proc/rt3052/mii/ctrl": _default_pseudo_model,
+    "/proc/rt3052/mii/data": _default_pseudo_model,
 }
 
 default_lib_aliases = {
-    # string_introspection
-    "strcmp": "libinject_strcmp",
-    "strncmp": "libinject_strncmp",
-    "getenv": "libinject_getenv",
-    "strstr": "libinject_strstr",
+    # Device specific FirmAE hacks - unknown which devices these target
+    # Some seem sort of reasonable/generic (load -> init?)
+        "_nvram_get": "nvram_get",
+        "nvram_load": "nvram_init",
+        "nvram_get_state": "nvram_get_int",
+        "nvram_set_state": "nvram_set_int",
+        "nvram_restore_default": "nvram_reset",
+        "nvram_upgrade": "nvram_commit",
+        "nvram_check": "true",
+        "nvram_flag_reset": "true",
+        "nvram_flag_set": "true",
+        "nvram_loaddefault": "true",
+        "VCTGetPortAutoNegSetting": "false1",
+        "get_default_mac": "true",
 
-    # atheros_broadcom
-    "nvram_get_nvramspace": "libinject_nvram_get_nvramspace",
-    "nvram_nget": "libinject_nvram_nget",
-    "nvram_nset": "libinject_nvram_nset",
-    "nvram_nset_int": "libinject_nvram_nset_int",
-    "nvram_nmatch": "libinject_nvram_nmatch",
+        # getf/setf -> envram implementation
+        "nvram_getf": "envram_getf",
+        "nvram_setf": "envram_setf",
 
-    # realtek
-    "apmib_get": "libinject_apmib_get",
-    "apmib_set": "libinject_apmib_set",
+        # Master/slave -> false
+        "nvram_master_init": "false",
+        "nvram_slave_init": "false",
 
-    # netgear_acos
-    "WAN_ith_CONFIG_GET": "libinject_WAN_ith_CONFIG_GET",
+        # "_adv" shim
+        "nvram_lock_adv": "true",
+        "nvram_unlock_adv": "true",
+        "nvram_commit_adv": "nvram_commit",
+	
+        # "WAN_" shims
+        "WAN_ith_CONFIG_SET_AS_INT": "nvram_nset_int",
+        "WAN_ith_CONFIG_SET_AS_STR": "nvram_nset",
 
-    # zyxel_or_edimax
-    "nvram_getall_adv": "libinject_nvram_getall_adv",
-    "nvram_get_adv": "libinject_nvram_get_adv",
-    "nvram_set_adv": "libinject_nvram_set_adv",
-    "nvram_state": "libinject_nvram_state",
-    "envram_commit": "libinject_envram_commit",
-    "envram_default": "libinject_envram_default",
-    "envram_load": "libinject_envram_load",
-    "envram_safe_load": "libinject_envram_safe_load",
-    "envram_match": "libinject_envram_match",
-    "envram_get": "libinject_envram_get",
-    "envram_getf": "libinject_envram_getf",
-    "envram_set": "libinject_envram_set",
-    "envram_setf": "libinject_envram_setf",
-    "envram_unset": "libinject_envram_unset",
 
-    # ralink
-    "nvram_bufget": "libinject_nvram_bufget",
-    "nvram_bufset": "libinject_nvram_bufset",
+    # Netgear (acos) specific FirmAE hack
+    "acosNvramConfig_get": "nvram_get",
+    "acosNvramConfig_init": "nvram_init",
+    "acosNvramConfig_invmatch": "nvram_invmatch",
+    "acosNvramConfig_loadFactoryDefault": "nvram_loaddefault",
+    "acosNvramConfig_match": "nvram_match",
+    "acosNvramConfig_read": "nvram_get_buf",
+    "acosNvramConfig_save": "nvram_commit",
+    "acosNvramConfig_save_config": "nvram_commit",
+    "acosNvramConfig_set": "nvram_set",
+    "acosNvramConfig_unset": "nvram_unset",
+    "acosNvramConfig_write": "nvram_set",
+    "acos_nvram_commit": "nvram_commit",
+    "acos_nvram_get": "nvram_get",
+    "acos_nvram_init": "nvram_init",
+    "acos_nvram_loaddefault": "true",
+    "acos_nvram_read": "nvram_get_buf",
+    "acos_nvram_set": "nvram_set",
+    "acos_nvram_unset": "nvram_unset",
 
-    # One to one mappings of orig fn to shim
-    "nvram_init": "libinject_nvram_init",
-    "nvram_reset": "libinject_nvram_reset",
-    "nvram_clear": "libinject_nvram_clear",
-    "nvram_close": "libinject_nvram_close",
-    "nvram_commit": "libinject_nvram_commit",
-    "nvram_get": "libinject_nvram_get",
-    "nvram_safe_get": "libinject_nvram_safe_get",
-    "nvram_default_get": "libinject_nvram_default_get",
-    "nvram_get_buf": "libinject_nvram_get_buf",
-    "nvram_get_int": "libinject_nvram_get_int",
-    "nvram_getall": "libinject_nvram_getall",
-    "nvram_set": "libinject_nvram_set",
-    "nvram_set_int": "libinject_nvram_set_int",
-    "nvram_unset": "libinject_nvram_unset",
-    "nvram_safe_unset": "libinject_nvram_safe_unset",
-    "nvram_list_add": "libinject_nvram_list_add",
-    "nvram_list_exist": "libinject_nvram_list_exist",
-    "nvram_list_del": "libinject_nvram_list_del",
-    "nvram_match": "libinject_nvram_match",
-    "nvram_invmatch": "libinject_nvram_invmatch",
-    "nvram_parse_nvram_from_file": "libinject_parse_nvram_from_file",
+	# Netgear (6250/6400) specific FirmAE hack
+    "agApi_fwGetFirstTriggerConf": "true1",
+    "agApi_fwGetNextTriggerConf": "true1",
 
-    # Alternative names for the same function
-    "nvram_load": "libinject_nvram_init",
-    "nvram_loaddefault": "libinject_ret_1",
-    "_nvram_get": "libinject_nvram_get",
-    "nvram_get_state": "libinject_nvram_get_int",
-    "nvram_set_state": "libinject_nvram_set_int",
-    "nvram_restore_default": "libinject_nvram_reset",
-    "nvram_upgrade": "libinject_nvram_commit",
-    "get_default_mac": "libinject_ret_1",
-    "VCTGetPortAutoNegSetting": "libinject_ret_0_arg",
-    "agApi_fwGetFirstTriggerConf": "libinject_ret_1_arg",
-    "agApi_fwGetNextTriggerConf": "libinject_ret_1_arg",
-    "artblock_get": "libinject_nvram_get",
-    "artblock_fast_get": "libinject_nvram_safe_get",
-    "artblock_safe_get": "libinject_nvram_safe_get",
-    "artblock_set": "libinject_nvram_set",
-    "nvram_flag_set": "libinject_ret_1",
-    "nvram_flag_reset": "libinject_ret_1",
-    "nvram_master_init": "libinject_ret_0",
-    "nvram_slave_init": "libinject_ret_0",
-    "apmib_init": "libinject_ret_1",
-    "apmib_reinit": "libinject_ret_1",
-    "apmib_update": "libinject_ret_1",
-    "WAN_ith_CONFIG_SET_AS_STR": "libinject_nvram_nset",
-    "WAN_ith_CONFIG_SET_AS_INT": "libinject_nvram_nset_int",
-    "acos_nvram_init": "libinject_nvram_init",
-    "acos_nvram_get": "libinject_nvram_get",
-    "acos_nvram_read": "libinject_nvram_get_buf",
-    "acos_nvram_set": "libinject_nvram_set",
-    "acos_nvram_loaddefault": "libinject_ret_1",
-    "acos_nvram_unset": "libinject_nvram_unset",
-    "acos_nvram_commit": "libinject_nvram_commit",
-    "acosNvramConfig_init": "libinject_nvram_init",
-    "acosNvramConfig_get": "libinject_nvram_get",
-    "acosNvramConfig_read": "libinject_nvram_get_buf",
-    "acosNvramConfig_set": "libinject_nvram_set",
-    "acosNvramConfig_write": "libinject_nvram_set",
-    "acosNvramConfig_unset": "libinject_nvram_unset",
-    "acosNvramConfig_match": "libinject_nvram_match",
-    "acosNvramConfig_invmatch": "libinject_nvram_invmatch",
-    "acosNvramConfig_save": "libinject_nvram_commit",
-    "acosNvramConfig_save_config": "libinject_nvram_commit",
-    "acosNvramConfig_loadFactoryDefault": "libinject_ret_1",
-    "nvram_commit_adv": "libinject_nvram_commit",
-    "nvram_unlock_adv": "libinject_ret_1",
-    "nvram_lock_adv": "libinject_ret_1",
-    "nvram_check": "libinject_ret_1",
-    "envram_get_func": "libinject_envram_get",
-    "nvram_getf": "libinject_envram_getf",
-    "envram_set_func": "libinject_envram_set",
-    "nvram_setf": "libinject_envram_setf",
-    "envram_unset_func": "libinject_envram_unset",
+    # Realtek specific FirmAE hacks
+    "apmib_init": "true",
+    "apmib_reinit": "true",
+    "apmib_update": "true",
+
+	# D-Link specific FirmAE hacks
+    "artblock_fast_get": "nvram_safe_get",
+    "artblock_get": "nvram_get",
+    "artblock_safe_get": "nvram_safe_get",
+    "artblock_set": "nvram_set",
+
+	# ASUS specific FirmAE hacks
+    "envram_get_func": "envram_get",
+    "envram_set_func": "envram_set",
+    "envram_unset_func": "envram_unset",
 }
