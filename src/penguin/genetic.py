@@ -53,6 +53,7 @@ def ga_search(
     population = ConfigPopulation(global_state, base_config, run_base, logger, pop_size)
     init_gene = create_init_gene(base_config, global_state)
     population.extend_genome(None, init_gene)
+    old_learning_configs = set() #store the learning configs we've already tried
 
     for iter in range(1,max_iters+1,1):
         logger.info(f"Starting generation {iter}/{max_iters} with {len(population.chromosomes)} configurations, {len(population.pool.genes)} genes, and {nthreads} workers")
@@ -84,7 +85,10 @@ def ga_search(
                         new_mit = Mitigation(f, f.type, dict_to_frozenset(diff))
                         if m.exclusive:
                             #we'll add a new config based on this config with the exclusive mitigation
-                            learning_configs.add(ConfigChromosome(config, new_mit))
+                            learning_config = ConfigChromosome(config, new_mit)
+                            if learning_config.hash not in old_learning_configs:
+                                old_learning_configs.add(learning_config.hash)
+                                learning_configs.add(learning_config)
                         else:
                             mitigations.add(new_mit)
 
@@ -522,12 +526,7 @@ class ConfigPopulation:
         if len(self.chromosomes) == 0:
             sorted_configs = []
         else:
-            try:
-                sorted_configs = sorted(self.chromosomes, key=lambda c: self.get_fitness(c))
-            except:
-                for c in self.chromosomes:
-                    print(c.genes)
-                import IPython; IPython.embed()
+            sorted_configs = sorted(self.chromosomes, key=lambda c: self.get_fitness(c))
 
         #probability of a selecting each config, weighted rank based selection
         n = len(sorted_configs)
