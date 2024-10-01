@@ -193,6 +193,15 @@ class Core(BaseModel):
             description="Version of the config file format",
         ),
     ]
+    auto_patching: Annotated[
+        bool,
+        Field(
+            True,
+            title="Enable automatic patching",
+            description="Whether to automatically apply patches named patch_*.yaml or from patches/*.yaml in the project directory",
+            examples=[False, True],
+        ),
+    ]
 
 
 EnvVal = _newtype(
@@ -708,6 +717,17 @@ def load_config(path, validate=True):
     with open(path, "r") as f:
         config = yaml.load(f, Loader=CoreLoader)
     config_folder = Path(path).parent
+    # look for files called patch_*.yaml in the same directory as the config file
+    if config["core"].get("auto_patching", False) is True:
+        patch_files = list(config_folder.glob("patch_*.yaml"))
+        patches_dir = Path(config_folder, "patches")
+        if patches_dir.exists():
+            patch_files += list(patches_dir.glob("*.yaml"))
+        if patch_files:
+            if config.get("patches", None) is None:
+                config["patches"] = []
+            for patch_file in patch_files:
+                config["patches"].append(str(patch_file))
     if config.get("patches", None) is not None:
         patch_list = config["patches"]
         for patch in patch_list:

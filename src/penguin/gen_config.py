@@ -170,6 +170,7 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
         "strace": False,
         "ltrace": False,
         "version": default_version,
+        "auto_patching": True,
     }
 
     data["blocked_signals"] = []
