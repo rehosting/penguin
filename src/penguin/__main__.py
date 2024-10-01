@@ -344,15 +344,15 @@ def penguin_run(args):
     if not config.exists():
         raise ValueError(f"Config file does not exist: {args.config}")
 
-    if args.config == "config.yaml":
-        current_dir = os.getcwd()
-        args.config = current_dir + "/config.yaml"
-
     # Allow config to be the project dir (which contains config.yaml)
     if os.path.isdir(args.config) and os.path.exists(
         os.path.join(args.config, "config.yaml")
     ):
         args.config = os.path.join(args.config, "config.yaml")
+
+    if not os.path.isabs(args.config):
+        current_dir = os.getcwd()
+        args.config = os.path.join(current_dir, args.config)
 
     # Sanity check, should have a 'base' directory next to the config
     if not os.path.isdir(os.path.join(os.path.dirname(args.config), "base")):
