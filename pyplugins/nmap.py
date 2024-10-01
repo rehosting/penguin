@@ -13,9 +13,9 @@ class Nmap(PyPlugin):
         self.ppp.VsockVPN.ppp_reg_cb("on_bind", self.nmap_on_bind)
         self.subprocesses = []
         self.lock = Lock()
-        self.custom_nmap = os.path.isfile("/etc/nmap/.custom")
+        self.custom_nmap = os.path.isfile("/usr/local/etc/nmap/.custom")
 
-    def nmap_on_bind(self, proto, guest_ip, guest_port, host_port, procname):
+    def nmap_on_bind(self, proto, guest_ip, guest_port, host_port, host_ip, procname):
         """
         There was a bind - run nmap! Maybe bail if we've already seen this port
         or something for systems that repeatedly start/stop  listening?
@@ -29,34 +29,27 @@ class Nmap(PyPlugin):
         f = self.outdir + f"/nmap_{proto}_{guest_port}_{host_port}.log"
 
         # Launch a thread to analyze this request
-        t = threading.Thread(target=self.scan_thread, args=(guest_port, host_port, f))
+        t = threading.Thread(target=self.scan_thread, args=(host_ip, guest_port, host_port, f))
         t.daemon = True
         t.start()
 
-    def scan_thread(self, guest_port, host_port, log_file_name):
+    def scan_thread(self, host_ip, guest_port, host_port, log_file_name):
         # nmap scan our target in service-aware mode
 
         if os.path.isfile(log_file_name):
             # Need a unique name - unlikely that host_port would get reused so this might just stack if it ever happens
             log_file_name += ".alt"
 
+        if self.custom_nmap and guest_port != host_port:
+            # Special: we want to scan as if we're connecting to guest_port (i.e., guest port 80 -> do webserver scans)
+            # but we're actually connecting to host_port
+            port_magic = [f"-p{guest_port}", "--redirect-port", f"{guest_port},{host_port}"]
+        else:
+            # Normal, just scan the port. If it's a stock nmap the scan will be lower quality
+            port_magic = [f"-p{host_port}"]
+
         process = subprocess.Popen(
-            [
-                "nmap",
-                f"-p{guest_port}",  # Target guest port. XXX: redirect-port below means this actually hits host_port, but gets scanned as if it was this
-                # port (i.e., if 80 we scan for http, even if we're going through 4321)
-            ]
-            + (
-                [
-                    "--redirect-port",
-                    str(guest_port),
-                    str(
-                        host_port
-                    ),  # Pretend we're connecting to guest_port, but internally connect to host_port
-                ]
-                if (self.custom_nmap and guest_port != host_port)
-                else []
-            )  # If unsupported or guest-host ports actually match, we skip this
+            [ "nmap" ] + port_magic
             + [
                 "-unprivileged",  # Don't try anything privileged
                 "-n",  # Do not do DNS resolution
@@ -65,7 +58,7 @@ class Nmap(PyPlugin):
                 # "--script-timeout", "5m", # Kill nmap scripts if they take > 5m
                 "--scan-delay",
                 "0.1s",  # Delay between scans - allow other processes to run - toggle as needed?
-                "127.0.0.1",  # Target is localhost
+                host_ip, # Local IP address
                 "-oX",
                 log_file_name,  # XML output format, store in log file
             ],

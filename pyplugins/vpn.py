@@ -134,7 +134,7 @@ class VsockVPN(PyPlugin):
                 for seen_ip in self.seen_ips:
                     host_port = self.bridge(sock_type, seen_ip, port, procname, ipvn)
                     self.ppp_run_cb(
-                        "on_bind", sock_type, seen_ip, port, host_port, procname
+                        "on_bind", sock_type, seen_ip, port, host_port, self.exposed_ip, procname
                     )
 
             elif ip not in self.seen_ips:
@@ -145,13 +145,13 @@ class VsockVPN(PyPlugin):
                 for sock_type, seen_port, seen_procname in self.wild_ips:
                     host_port = self.bridge(
                         sock_type, ip, seen_port, seen_procname, ipvn
-                    )
+                    ) # If unsupported or guest-host ports actually match, we skip this
                     self.ppp_run_cb(
-                        "on_bind", sock_type, ip, seen_port, host_port, procname
+                        "on_bind", sock_type, ip, seen_port, host_port, self.exposed_ip, procname
                     )
 
         host_port = self.bridge(sock_type, ip, port, procname, ipvn)
-        self.ppp_run_cb("on_bind", sock_type, ip, port, host_port, procname)
+        self.ppp_run_cb("on_bind", sock_type, ip, port, host_port, self.exposed_ip, procname)
 
     def map_bound_socket(self, sock_type, ip, guest_port, procname):
         host_port = guest_port
