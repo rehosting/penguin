@@ -207,6 +207,8 @@ RUN apt-get update && apt-get install -q -y \
 
 # OPTIONALLY build and install custom nmap at /build/nmap. Only if SSH keys available and can clone
 # Failure is allowed and non-fatal.
+# If you have access run the following to build your container:
+# eval `ssh-agent -s`; ssh-add ~/.ssh/id_rsa; ./penguin --build
 RUN --mount=type=ssh \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts && \
     git clone git@github.com:rehosting/nmap.git /src && \
