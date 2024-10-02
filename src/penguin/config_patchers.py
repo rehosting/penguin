@@ -1,0 +1,1405 @@
+import os
+import re
+import stat
+import struct
+import subprocess
+import tarfile
+
+import elftools
+from elftools.common.exceptions import ELFError
+from elftools.elf.elffile import ELFFile
+
+from abc import ABC, abstractmethod
+from collections import defaultdict
+from pathlib import Path
+
+from penguin import getColoredLogger
+from .arch import arch_filter, arch_end
+from .defaults import (
+    default_init_script,
+    default_lib_aliases,
+    default_netdevs,
+    default_plugins,
+    default_pseudofiles,
+    DEFAULT_KERNEL,
+    default_version as DEFAULT_VERSION,
+    static_dir as STATIC_DIR
+)
+
+logger = getColoredLogger("penguin.config_patchers")
+
+class PatchGenerator(ABC):
+    def __init__(self):
+        self.enabled = True
+        self.patch_name = None
+
+    @abstractmethod
+    def generate(self, patches):
+        raise NotImplementedError("Subclasses should implement this method")
+
+
+class TarHelper:
+    '''
+    Collection of static method to help find files in a tar archive
+    '''
+    @staticmethod
+    def get_symlink_members(tarfile_path):
+        with tarfile.open(tarfile_path, "r") as tar:
+            # Trim leading . from path, everything is ./
+            return {
+                member.name[1:]: member.linkname
+                for member in tar.getmembers()
+                if member.issym()
+            }
+
+    @staticmethod
+    def get_all_members(tarfile_path):
+        with tarfile.open(tarfile_path, "r") as tar:
+            # Trim leading . from path, everything is ./
+            #return {member.name[1:] for member in tar.getmembers()}
+            return tar.getmembers()
+
+    # UNUSED
+    @staticmethod
+    def get_other_members(tarfile_path):
+        # Get things that aren't files nor directories - devices, symlinnks, etc
+        with tarfile.open(tarfile_path, "r") as tar:
+            # Trim leading . from path, everything is ./
+            return {
+                member.name[1:]
+                for member in tar.getmembers()
+                if not member.isfile() and not member.isdir
+            }
+
+    # UNUSED
+    @staticmethod
+    def get_directory_members(tarfile_path):
+        with tarfile.open(tarfile_path, "r") as tar:
+            # Trim leading . from path, everything is ./
+            results = {member.name[1:] for member in tar.getmembers() if member.isdir()}
+        # For each result, recursively add all parent directories
+        # e.g., /etc/hosts -> /etc, /
+        for r in list(results):
+            parts = r.split("/")
+            for i in range(len(parts)):
+                results.add("/".join(parts[: i + 1]))
+        return results
+
+    # UNUSED
+    @staticmethod
+    def get_file_members(tarfile_path):
+        with tarfile.open(tarfile_path, "r") as tar:
+            # Trim leading . from path, everything is ./
+            return {member.name[1:] for member in tar.getmembers() if member.isfile()}
+
+
+class FileHelper:
+    @staticmethod
+    def find_executables(tmp_dir, target_dirs=None):
+        if not target_dirs:
+            target_dirs = {"/"}
+        for root, _, files in os.walk(tmp_dir):
+            # Exclude the '/igloo' path
+            if "/igloo" in root:
+                continue
+
+            for file in files:
+                file_path = Path(root) / file
+                # Check if the file is executable and in one of the target directories
+                if (
+                    file_path.is_file()
+                    and os.access(file_path, os.X_OK)
+                    and any(str(file_path).endswith(d) for d in target_dirs)
+                ):
+                    yield file_path
+
+    @staticmethod
+    def find_strings_in_file(file_path, pattern):
+        result = subprocess.run(["strings", file_path], capture_output=True, text=True)
+        return [line for line in result.stdout.splitlines() if re.search(pattern, line)]
+
+    @staticmethod
+    def find_shell_scripts(tmp_dir):
+        for root, _, files in os.walk(tmp_dir):
+            # Exclude the '/igloo' path
+            if "/igloo" in root:
+                continue
+
+            for file in files:
+                file_path = Path(root) / file
+                # Check if the file is executable and in one of the target directories
+                if (
+                    file_path.is_file()
+                    and os.access(file_path, os.X_OK)
+                    and str(file_path).endswith(".sh")
+                ):
+                    yield file_path
+
+
+class NvramHelper:
+    @staticmethod
+    def _get_default_nvram_values():
+        """
+        Default nvram values from Firmadyne and FirmAE
+        """
+        nvram = {
+            "console_loglevel": "7",
+            "restore_defaults": "1",
+            "sku_name": "",
+            "wla_wlanstate": "",
+            "lan_if": "br0",
+            "lan_ipaddr": "192.168.0.50",
+            "lan_bipaddr": "192.168.0.255",
+            "lan_netmask": "255.255.255.0",
+            "time_zone": "PST8PDT",
+            "wan_hwaddr_def": "01:23:45:67:89:ab",
+            "wan_ifname": "eth0",
+            "lan_ifnames": "eth1 eth2 eth3 eth4",
+            "ethConver": "1",
+            "lan_proto": "dhcp",
+            "wan_ipaddr": "0.0.0.0",
+            "wan_netmask": "255.255.255.0",
+            "wanif": "eth0",
+            "time_zone_x": "0",
+            "rip_multicast": "0",
+            "bs_trustedip_enable": "0",
+            "et0macaddr": "01:23:45:67:89:ab",
+            "filter_rule_tbl": "",
+            "pppoe2_schedule_config": "127:0:0:23:59",
+            "schedule_config": "127:0:0:23:59",
+            "access_control_mode": "0",
+            "fwpt_df_count": "0",
+            "static_if_status": "1",
+            "www_relocation": "",
+        }
+
+        # Helper function add default entries from firmae
+        def _add_firmae_for_entries(config_dict, pattern, value, start, end):
+            for index in range(start, end + 1):
+                config_dict[pattern % index] = value
+
+        # TODO: do we want a config toggle for these entires seprately from the other defaults?
+        _add_firmae_for_entries(
+            nvram,
+            "usb_info_dev%d",
+            "A200396E0402FF83@1@14.4G@U@1@USB_Storage;U:;0;0@",
+            0,
+            101,
+        )
+        _add_firmae_for_entries(nvram, "wla_ap_isolate_%d", "", 1, 5)
+        _add_firmae_for_entries(nvram, "wlg_ap_isolate_%d", "", 1, 5)
+        _add_firmae_for_entries(nvram, "wlg_allow_access_%d", "", 1, 5)
+        _add_firmae_for_entries(nvram, "%d:macaddr", "01:23:45:67:89:ab", 0, 3)
+        _add_firmae_for_entries(nvram, "lan%d_ifnames", "", 1, 10)
+
+        return nvram
+
+    @staticmethod
+    def parse_nvram_file(path, f):
+        """
+        There are a few formats we want to support. binary data like key=value\x00
+        and text files with key=value\n
+        Returns a dictionary of key-value pairs. Potentially empty.
+        """
+        file_content = f.read()
+        key_val_pairs = file_content.split(b"\x00")
+        results_null = {}
+        results_lines = {}
+
+        # print(f"Parsing potential nvram file {path}")
+        # print(f"Found {len(key_val_pairs)} null terminators pairs vs {len(file_content.splitlines())} lines")
+
+        for pair in key_val_pairs[:-1]:  # Exclude the last split as it might be empty
+            try:
+                key, val = pair.split(b"=", 1)
+                # It's safe to set val as a stirng, even when it's an int
+                if key.startswith(b"#"):
+                    continue
+                results_null[key] = val
+            except ValueError:
+                logger.warning(f"could not process default nvram file {path} for {pair}")
+                continue
+
+        # Second pass, if there are a lot of lines, let's try that way
+        for line in file_content.split(b"\n"):
+            if line.startswith(b"#"):
+                continue
+            if b"=" not in line:
+                continue
+            key, val = line.split(b"=", 1)
+            results_lines[key] = val
+
+        # Do we have more results in one than the other? Either should have at least 5 for us to have any confidence
+        if len(results_null) > 5 and len(results_null) > len(results_lines):
+            return results_null
+        elif len(results_lines) > 5 and len(results_lines) > len(results_null):
+            return results_lines
+        else:
+            return {}
+
+
+    @staticmethod
+    def nvram_config_analysis(fs_path, full_path=True):
+        # Nvram source 2: standard nvram paths with plaintext data
+        # If we have a hit, we combine with any existing values
+        # These are notionally sorted - if an earlier path provides a value, we won't clobber
+        # but we will consume keys from all paths that we can find and parse
+        # If full_path, we check the whole path, otherwise just the basename
+        nvram_paths = [
+            "./var/etc/nvram.default",
+            "./etc/nvram.default",
+            "./etc/nvram.conf",
+            "./etc/nvram.deft",
+            "./etc/nvram.update",
+            "./etc/wlan/nvram_params",
+            "./etc/system_nvram_defaults",
+            "./image/mnt/nvram_ap.default",
+            "./etc_ro/Wireless/RT2860AP/RT2860_default_vlan",
+            "./etc_ro/Wireless/RT2860AP/RT2860_default_novlan",
+            "./image/mnt/nvram_whp.default",
+            "./image/mnt/nvram_rt.default",
+            "./image/mnt/nvram_rpt.default",
+            "./image/mnt/nvram.default",
+        ]
+        nvram_basenames = set([os.path.basename(x) for x in nvram_paths])
+
+        path_nvrams = {}
+        # XXX: Should we store the source filename somewhere? Maybe
+        # move this to a static analysis that spits out more verbose data
+        # and then only some turns into a config patch?
+        if full_path:
+            # Check the exact paths
+            for path in nvram_paths:
+                abs_path = os.path.join(fs_path, path.lstrip("/"))
+                if os.path.exists(abs_path):
+                    # Found a default nvram file, parse it
+                    with open(abs_path, "rb") as f:
+                        result = NvramHelper.parse_nvram_file(path, f)
+                        # result is key -> value. We want to store path as well
+                        for k, v in result.items():
+                            path_nvrams[k.decode()] = v.decode()
+        else:
+            # Check every file to see if it has a matching basename
+            for root, _, files in os.walk(fs_path):
+                for file in files:
+                    abs_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(abs_path, fs_path)
+                    
+                    if rel_path in nvram_paths:
+                        # Exact match - we already checked this
+                        continue
+                    
+                    if any(file == fname for fname in nvram_basenames):
+                        # Found a matching basename, parse the file
+                        with open(abs_path, "rb") as f:
+                            result = NvramHelper.parse_nvram_file(rel_path, f)
+                            for k, v in result.items():
+                                path_nvrams[k.decode()] = v.decode()
+
+
+        return path_nvrams
+
+
+
+
+class BasePatch(PatchGenerator):
+    '''
+    Generate base config for static_files and default plugins
+    '''
+    UNKNOWN_INIT = "UNKNOWN_FIX_ME" # Could also use /igloo/utils/exit0.sh?
+
+    def __init__(self, arch_info, inits):
+        self.patch_name = "base"
+        self.enabled = True
+
+        self.set_arch_info(arch_info)
+
+        if len(inits):
+            self.igloo_init = inits[0]
+        else:
+            self.igloo_init = self.UNKNOWN_INIT
+            logger.warning("Failed to find any init programs - config will need manual refinement")
+
+
+    def set_arch_info(self, arch_identified):
+        '''
+        Our naming convention for architectures is a bit inconsistent. This function
+        handles that by settings self.{arch_name,arch_suffix,dylib_dir}.
+        '''
+
+        # TODO: should we allow a config to be generated for an unsupported architecture?
+        # For example, what if we're wrong and a user wants to customize this.
+        arch, endian = arch_end(arch_identified)
+        if arch is None:
+            raise ValueError(f"Architecture {arch_identified} not supported ({arch}, {endian})")
+
+        if arch == "aarch64":
+            # TODO: We should use a consistent name here. Perhaps aarch64eb?
+            self.arch_name = "aarch64"
+            self.arch_suffix = ".aarch64"
+            self.dylib_dir = os.path.join(STATIC_DIR, "dylibs", "arm64")
+            self.kernel_name = f"zImage.arm64"
+        elif arch == "intel64":
+            self.arch_name = "intel64"
+            self.arch_suffix = ".x86_64"
+            self.dylib_dir = os.path.join(STATIC_DIR, "dylibs", "x86_64")
+            self.kernel_name = f"bzImage.x86_64"
+        else:
+            self.arch_name = arch + endian
+            self.arch_suffix = f".{arch}{endian}"
+            self.dylib_dir = os.path.join(STATIC_DIR, "dylibs", arch + endian)
+            if arch == "arm":
+                self.kernel_name = f"zImage.{arch}{endian}"
+            else:
+                self.kernel_name = f"vmlinux.{arch}{endian}"
+
+    def get_kernel_path(self):
+        return os.path.join(*[STATIC_DIR, "kernels", DEFAULT_KERNEL, self.kernel_name])
+
+    def generate(self, patches):
+        resources = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources")
+
+        result = {
+            "core": {
+                "arch": self.arch_name,
+                "kernel": self.get_kernel_path(),
+            },
+            "env": {
+                "igloo_init": self.igloo_init,
+            },
+            "static_files": {
+                "/igloo": {
+                    "type": "dir",
+                    "mode": 0o755,
+                },
+                "/igloo/init": {
+                    "type": "inline_file",
+                    "contents": default_init_script,
+                    "mode": 0o111,
+                },
+                "/igloo/utils/sh": {
+                    "type": "symlink",
+                    "target": "/igloo/utils/busybox",
+                },
+                "/igloo/utils/sleep": {
+                    "type": "symlink",
+                    "target": "/igloo/utils/busybox",
+                },
+                # Pre-computed crypto keys
+                "/igloo/keys/*": {
+                    "type": "host_file",
+                    "mode": 0o444,
+                    "host_path": os.path.join(*[resources, "static_keys", "*"])
+                },
+                # Add ltrace prototype files. They go in /igloo/ltrace because /igloo is treated as ltrace's /usr/share, and the files are normally in /usr/share/ltrace.
+                "/igloo/ltrace/*": {
+                    "type": "host_file",
+                    "mode": 0o444,
+                    "host_path": os.path.join(*[STATIC_DIR, "ltrace", "*"]),
+                },
+
+                # Dynamic libraries
+                "/igloo/dylibs/*": {
+                    "type": "host_file",
+                    "mode": 0o755,
+                    "host_path": os.path.join(self.dylib_dir, "*"),
+                },
+
+                "/igloo/utils": {
+                    "type": "dir",
+                    "mode": 0o755,
+                },
+
+                # Add serial device in pseudofiles
+                # XXX: For mips we use major 4, minor 65. For arm we use major 204, minor 65.
+                # This is because arm uses ttyAMA (major 204) and mips uses ttyS (major 4).
+                "/igloo/serial": {
+                    "type": "dev",
+                    "devtype": "char",
+                    "major": 4 if 'mips' in self.arch_name else 204,
+                    "minor": 65,
+                    "mode": 0o666,
+                }
+            },
+            "plugins": default_plugins,
+        }
+
+        # Always add our utilities into static files. Note that we can't currently use
+        # a full directory copy since we're doing some renaming.
+        # TODO: Refactor utility paths in container so we can just copy the whole directory
+        # for a given architecture.
+        for util_dir in ["console", "libnvram", "utils.bin", "utils.source", "vpn"]:
+            for f in os.listdir(os.path.join(STATIC_DIR, util_dir)):
+                if f.endswith(self.arch_suffix) or f.endswith(".all"):
+                    out_name = f.replace(self.arch_suffix, "").replace(".all", "")
+                    result["static_files"][f"/igloo/utils/{out_name}"] = {
+                        "type": "host_file",
+                        "host_path": f"/igloo_static/{util_dir}/{f}",
+                        "mode": 0o755,
+                    }
+        return result
+
+class AutoExplorePatch(PatchGenerator):
+    '''
+    Auto explore: Disable root shell, add timeout, enable nmap 
+    '''
+    def __init__(self, timeout=300):
+        self.patch_name = "auto_explore"
+        self.timeout = timeout
+        self.enabled = False
+
+    def generate(self, patches):
+        return {
+            "core": {
+                "root_shell": False
+            },
+            "plugins": {
+                "core": {
+                    #"timeout": self.timeout # XXX: Isn't this set at runtime?
+                },
+                "nmap": {
+                    "enabled": True
+                }
+            }
+        }
+
+class NetdevsPatch(PatchGenerator):
+    '''
+    Add list of default network device names
+    '''
+    def __init__(self):
+        self.enabled = True
+        self.patch_name = "default.netdevs"
+
+    def generate(self, patches):
+        return { 'netdevs': default_netdevs }
+
+class PseudofilesPatch(PatchGenerator):
+    '''
+    Add default pseudofiles
+    '''
+    def __init__(self):
+        self.enabled = True
+        self.patch_name = "default.pseudofiles"
+
+    def generate(self, patches):
+        return { 'pseudofiles': default_pseudofiles }
+
+
+class LibInjectSymlinks(PatchGenerator):
+    '''
+    Detect the ABI of all libc.so files and place a symlink in the same
+    directory to lib_inject of the same ABI
+    '''
+    def __init__(self, filesystem_root_path):
+        self.enabled = True
+        self.patch_name = 'lib_inject.core'
+        self.filesystem_root_path = filesystem_root_path
+
+
+    def generate(self, patches):
+        libc_paths = []
+        result = defaultdict(dict)
+
+        # Walk through the filesystem root to find all "libc.so" files
+        for root, dirs, files in os.walk(self.filesystem_root_path):
+            for filename in files:
+                if filename.startswith("libc.so"):
+                    libc_paths.append(Path(os.path.join(root, filename)))
+
+        # Iterate over the found libc.so files to generate symlinks based on ABI
+        for p in libc_paths:
+            with open(p, 'rb') as file:
+                try:
+                        e = ELFFile(file)
+                except ELFError:
+                    # Not an ELF. It could be, for example, a GNU ld script.
+                    continue
+
+                # Assume `arch_filter` is a function that extracts the ABI from an ELF file.
+                abi = arch_filter(e).abi
+
+            # Ensure dest starts with a /
+            dest = Path("/") / \
+                p.relative_to(self.filesystem_root_path).parent / \
+                "lib_inject.so"
+
+            result["static_files"][str(dest)] = {
+                "type": "symlink",
+                "target": f"/igloo/lib_inject_{abi}.so",
+            }
+        return result
+
+class LibInjectDefaultAliases(PatchGenerator):
+    '''
+    Set default aliases in libinject
+    '''
+    def __init__(self):
+        self.enabled = True
+        self.patch_name = 'lib_inject.defaults'
+
+    def generate(self, patches):
+        if len(default_lib_aliases):
+            return {'lib_inject': {'aliases': default_lib_aliases}}
+
+
+class ForceWWW(PatchGenerator):
+    '''
+    This is a hacky FirmAE approach to identify webservers and just start
+    them. Unsurprisingly, it increases the rate of web servers starting.
+    We'll export this into our static files section so we could later decide
+    to try it. We'll enable this by default here.
+    '''
+
+    def __init__(self, fs_path):
+        self.enabled = True
+        self.patch_name = 'force_www'
+        self.fs_path = fs_path
+
+    def generate(self, patches):
+        # Map between filename and command
+        file2cmd = {
+            "./etc/init.d/uhttpd": "/etc/init.d/uhttpd start",
+            "./usr/bin/httpd": "/usr/bin/httpd",
+            "./usr/sbin/httpd": "/usr/sbin/httpd",
+            "./bin/goahead": "/bin/goahead",
+            "./bin/alphapd": "/bin/alphapd",
+            "./bin/boa": "/bin/boa",
+            "./usr/sbin/lighttpd": "/usr/sbin/lighttpd -f /etc/lighttpd/lighttpd.conf",
+        }
+
+        www_cmds = []
+        www_paths = []
+
+        # Do we have lighttpd.conf?
+        have_lighttpd_conf = os.path.isfile(os.path.join(self.fs_path, "./etc/lighttpd/lighttpd.conf"))
+
+        for file, cmd in file2cmd.items():
+            if os.path.isfile(os.path.join(self.fs_path, file)):
+                if file == "./usr/sbin/lighttpd" and not have_lighttpd_conf:
+                    # Lighttpd only valid if there's a config file
+                    continue
+                www_cmds.append(cmd)
+                www_paths.append(file)
+
+        if not len(www_cmds):
+            return
+
+        # Start of the shell script
+        # We want to start each identified webserver in a loop
+        cmd_str = """#!/igloo/utils/sh
+        /igloo/utils/busybox sleep 120
+
+        while true; do
+        """
+
+        # Loop through the commands to add them to the script
+        for cmd in www_cmds:
+            cmd_str += f"""
+            if ! (/igloo/utils/busybox ps | /igloo/utils/busybox grep -v grep | /igloo/utils/busybox grep -sqi "{cmd}"); then
+                {cmd} &
+            fi
+        """
+        # Close the loop
+        cmd_str += """
+            /igloo/utils/busybox sleep 30
+            done
+        """
+
+        return {
+            "core": {
+                'force_www': True
+            },
+            "static_files": {
+                "/igloo/utils/www_cmds": {
+                    "type": "inline_file",
+                    "contents": cmd_str,
+                    "mode": 0o755,
+                }
+            }
+        }
+
+class GenerateMissingDirs(PatchGenerator):
+    '''
+    Examine the fs *archive* to identify missing directories
+    We ignore the extracted filesystem because we want to
+    ensure symlinks are handled correctly
+    '''
+    TARGET_DIRECTORIES = [
+        "/proc",
+        "/etc_ro",
+        "/tmp",
+        "/var",
+        "/run",
+        "/sys",
+        "/root",
+        "/tmp/var",
+        "/tmp/media",
+        "/tmp/etc",
+        "/tmp/var/run",
+        "/tmp/home",
+        "/tmp/home/root",
+        "/tmp/mnt",
+        "/tmp/opt",
+        "/tmp/www",
+        "/var/run",
+        "/var/lock",
+        "/usr/bin",
+        "/usr/sbin",
+    ]
+
+
+    def __init__(self, archive_path, archive_files):
+        self.patch_name = "static.missing_dirs"
+        self.enabled = True
+        self.archive_path = archive_path
+        self.archive_files = {member.name[1:] for member in archive_files}
+
+    @staticmethod
+    def _resolve_path(d, symlinks, depth=0):
+        parts = d.split("/")
+        for i in range(len(parts), 1, -1):
+            sub_path = "/".join(parts[:i])
+            if sub_path in symlinks:
+                return GenerateMissingDirs._resolve_path(
+                    d.replace(sub_path, symlinks[sub_path], 1), symlinks
+                )
+        if not d.startswith("/"):
+            d = "/" + d
+
+        if d in symlinks:
+            # We resolved a symlink to another symlink, need to recurse
+            # XXX: What if our resolved path contains a symlink earlier in the path TODO
+            if depth > 10 or d == symlinks[d]:
+                logger.warning(f"Symlink loop detected for {d}")
+                return d
+            else:
+                # Recurse
+                return GenerateMissingDirs._resolve_path(symlinks[d], symlinks, depth=depth+1)
+
+        return d
+
+    def generate(self, patches):
+        # XXX: Do we want to operate on archives to ensure symlinks behave as expected?
+        symlinks = TarHelper.get_symlink_members(self.archive_path)
+        result = defaultdict(dict)
+
+        for d in self.TARGET_DIRECTORIES:
+            # It's not already in there, add it as a world-readable directory
+            # Handle symlinks. If we have a directory like /tmp/var and /tmp is a symlink to /asdf, we want to make /asdf/var
+
+            resolved_path = self._resolve_path(d, symlinks)
+            # Try handling ../s by resolving the path
+            if ".." in resolved_path.split("/"):
+                resolved_path = os.path.normpath(resolved_path)
+
+            if ".." in resolved_path.split("/"):
+                logger.debug("Skipping directory with .. in path: " + resolved_path)
+                continue
+
+            while resolved_path.endswith("/"):
+                resolved_path = resolved_path[:-1]
+
+            # Check if this directory looks like / - it might be ./ or something else
+            if resolved_path == ".":
+                continue
+
+            # Guestfs gets mad if there's a /. in the path
+            if resolved_path.endswith("/."):
+                resolved_path = resolved_path[:-2]
+
+            # Look at each parent directory, is it a symlink?
+            for i in range(1, len(resolved_path.split("/"))):
+                parent = "/".join(resolved_path.split("/")[:i])
+                if parent in symlinks:
+                    logger.debug(
+                        f"Skipping {resolved_path} because parent {parent} is a symlink"
+                    )
+                    continue
+
+            while "/./" in resolved_path:
+                resolved_path = resolved_path.replace("/./", "/")
+
+            # If this path is in the archive OR any existing patches, skip
+            # Note we're ignoring the enabled flag of patches
+            if resolved_path in self.archive_files or any([resolved_path in \
+                    p[0].get('static_files', {}).keys() for p in patches.values()]):
+                continue
+
+            # Add path and parents (as necessary)
+            path_parts = resolved_path.split("/")
+            for i in range(1, len(path_parts) + 1):
+                subdir = "/".join(path_parts[:i])
+                if subdir not in self.archive_files:
+                    result['static_files'][subdir] = {
+                        "type": "dir",
+                        "mode": 0o755,
+                    }
+        return result
+
+class GenerateReferencedDirs(PatchGenerator):
+    '''
+    FirmAE "Boot mitigation": find path strings in binaries, make their directories
+    if they don't already exist.
+    '''
+    def __init__(self, extract_dir):
+        self.patch_name = "static.binary_paths"
+        self.enabled = True
+        self.extract_dir = extract_dir
+
+    def generate(self, patches):
+        result = defaultdict(dict)
+        for f in FileHelper.find_executables(
+            self.extract_dir, {"/bin", "/sbin", "/usr/bin", "/usr/sbin"}
+        ):
+            # For things that look like binaries, find unique strings that look like paths
+            for dest in list(
+                set(FileHelper.find_strings_in_file(f, "^(/var|/etc|/tmp)(.+)([^\\/]+)$"))
+            ):
+                if any([x in dest for x in ["%s", "%c", "%d", "/tmp/services"]]):
+                    # Ignore these paths, printf format strings aren't real directories to create
+                    # Not sure what /tmp/services is or where we got that from?
+                    continue
+                result["static_files"][dest] = {
+                    "type": "dir",
+                    "mode": 0o755,
+                }
+        return result
+
+class GenerateShellMounts(PatchGenerator):
+    """
+    Ensure we have /mnt/* directories referenced by shell scripts
+    """
+    def __init__(self, extract_dir, existing):
+        self.patch_name = "static.shell_script_mounts"
+        self.extract_dir = extract_dir
+        self.extract_dir = extract_dir
+        self.existing = {member.name[1:] for member in existing}
+
+    def generate(self, patches):
+        result = defaultdict(dict)
+
+        for f in FileHelper.find_shell_scripts(self.extract_dir):
+            for dest in list(
+                set(FileHelper.find_strings_in_file(f, "^/mnt/[a-zA-Z0-9._/]+$"))
+            ):
+                # Does this file exist in the filesystem or in any existing patches?
+                if dest in self.existing or any([dest in \
+                        p.get('static_files', {}).keys() for p in patches.values()]):
+                    continue
+                result['static_files'][dest] = {
+                    "type": "dir",
+                    "mode": 0o755,
+                }
+        return result
+
+class GenerateMissingFiles(PatchGenerator):
+    '''
+    Ensure we have /bin/sh, /etc/TZ, /var/run/libnvram.pid.
+    Ensure /etc/hosts has an entry for localhost
+    '''
+    def __init__(self, extract_dir):
+        self.patch_name = "static.missing_files"
+        self.enabled = True
+        self.extract_dir = extract_dir
+
+    def generate(self, patches):
+        # Firmadyne/FirmAE mitigation, ensure these 3 files always exist
+        # Note including /bin/sh here means we'll add it if it's missing and as a symlink to /igloo/utils/busybox
+        # this is similar to how we can shim an (existing) /bin/sh to point to /igloo/utils/busybox but here we
+        # only add it if it's missing
+        result = defaultdict(dict)
+
+        model = {
+            "/bin/sh": {"type": "symlink",
+                        "target": "/igloo/utils/busybox"
+            },
+            "/etc/TZ": {
+                "type": "inline_file",
+                "contents": "EST5EDT",
+                "mode": 0o755,
+            },
+            "/var/run/libnvram.pid": {
+                "type": "inline_file",
+                "contents": "",
+                "mode": 0o644,
+            },
+        }
+
+        for fname, data in model.items():
+            if not os.path.isfile(os.path.join(self.extract_dir, fname[1:])):
+                result['static_files'][fname] = data
+
+        # Ensure we have an entry for localhost in /etc/hosts. So long as we have an /etc/ directory
+        hosts = ""
+        if os.path.isfile(os.path.join(self.extract_dir, "etc/hosts")):
+            with open(os.path.join(self.extract_dir, "etc/hosts"), "r") as f:
+                hosts = f.read()
+
+        # if '127.0.0.1 localhost' not in hosts:
+        # Regex with whitespace and newlines
+        if not re.search(r"^127\.0\.0\.1\s+localhost\s*$", hosts, re.MULTILINE):
+            if len(hosts) and not hosts.endswith("\n"):
+                hosts += "\n"
+            hosts += "127.0.0.1 localhost\n"
+
+            result["static_files"]["/etc/hosts"] = {
+                "type": "inline_file",
+                "contents": hosts,
+                "mode": 0o755,
+            }
+        return result
+
+class DeleteFiles(PatchGenerator):
+    '''
+    Delete some files we don't want
+    '''
+
+    def __init__(self, extract_dir):
+        self.patch_name = "static.delete_files"
+        self.enabled = True
+        self.extract_dir = extract_dir
+
+    def generate(self, patches):
+        result = defaultdict(dict)
+        # Delete some files that we don't want. securetty is general, limits shell access.
+        # 'sys_resetbutton' is some FW-specific hack from FirmAE
+
+        # TODO: does securetty matter if our root shell is disabled?
+        for f in ["/etc/securetty", "/etc/scripts/sys_resetbutton"]:
+            if os.path.isfile(os.path.join(self.extract_dir, f[1:])):
+                result["static_files"][f] = {
+                    "type": "delete",
+                }
+        return result
+
+class LinksysHack(PatchGenerator):
+    '''
+    Linksys specific hack from firmae with pseudofile model
+    '''
+    def __init__(self, extract_dir):
+        self.patch_name = "pseudofiles.linksys"
+        self.enabled = True
+        self.extract_dir = extract_dir
+
+    def generate(self, patches):
+        result = defaultdict(dict)
+        # TODO: The following changes from FirmAE should likely be disabled by default
+        # as we can't consider this information as part of our search if it's in the initial config
+        # Linksys specific hack from firmae
+        if all(
+            os.path.isfile(os.path.join(self.extract_dir, x[1:]))
+            for x in ["/bin/gpio", "/usr/lib/libcm.so", "/usr/lib/libshared.so"]
+        ):
+            result["pseudofiles"]["/dev/gpio/in"] = {
+                "read": {
+                    "model": "return_const",
+                    "val": 0xFFFFFFFF,
+                }
+            }
+
+        return result
+
+class KernelModules(PatchGenerator):
+    """
+    Create a symlink from the guest kernel module path to our kernel's module path (ie.., /lib/modules/1.2.0-custom -> /lib/modules/4.10.0)
+    """
+    def __init__(self, extract_dir):
+        self.patch_name = "static.kernel_modules"
+        self.enabled = True
+        self.extract_dir = extract_dir
+
+    def generate(self, patches):
+        result = defaultdict(dict)
+
+        # Identify original kernel version and shim /lib/modules/4.10.0 to it's /lib/modules path
+        kernel_version = None
+        potential_kernels = set()
+
+        # Look at all directories in self.extract_dir / lib / modules
+        # to find potential kernel versions
+        for root, dirs, files in os.walk(os.path.join(self.extract_dir, "lib/modules")):
+            for d in dirs:
+                potential_kernels.add(d)
+
+        # Do any of these kernel strings look like a version
+        # If we only have one, let's say it's definitely right
+        if len(potential_kernels) == 1:
+            kernel_version = potential_kernels.pop()
+        elif len(potential_kernels) > 1:
+            # Yikes, how can we tell which is the right one?
+            # One simple heuristic for now - look for dots and dashes?
+            # Future could be to look for .ko files in dir
+            for potential_name in potential_kernels:
+                if "." in potential_name and "-" in potential_name:
+                    kernel_version = potential_name
+                    break
+            if not kernel_version:
+                # Try again, ignoring dashes
+                for potential_name in potential_kernels:
+                    if "." in potential_name:
+                        kernel_version = potential_name
+                        break
+
+                # Fallback to picking the first one (TODO, could check for numbers at least)
+                if not kernel_version:
+                    logger.warning(
+                        "multiple kernel versions look valid (TODO improve selection logic, grabbing first)"
+                    )
+                    logger.warning(potential_kernels)
+                    kernel_version = potential_kernels.pop()
+
+        if kernel_version:
+            # We have a kernel version, add it to our config
+            # XXX DEFAULT_KERNEL is like "4.10" but we need the full 
+            # path in /lib/modules like "4.10.0" so we add the .0. If the version
+            # changes in the future we might need to update this
+            result["static_files"] \
+                        [f"/lib/modules/{DEFAULT_KERNEL}.0"] = {
+                "type": "symlink",
+                "target": f"/lib/modules/{kernel_version}",
+            }
+
+        return result
+
+class ShimBinaries:
+    '''
+    Identify binaries in the guest FS that we want to shim
+    and add symlinks to go from guest bin -> igloo bin
+    into our config.
+    '''
+    def __init__(self, files):
+        self.files = files
+
+    def make_shims(self, shim_targets):
+        result = defaultdict(dict)
+        for fname in self.files:
+            path = fname.path[1:]  # Trim leading .
+            basename = os.path.basename(path)
+
+            if path.startswith("/igloo/utils/"):
+                raise ValueError(
+                    "Unexpected /igloo/utils present in input filesystem archive"
+                )
+
+            # It's a guest file/symlink. If it's one of our targets and executable, we want to shim!
+            if not (fname.isfile() or fname.issym()) or not fname.mode & (
+                stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+            ):
+                # Skip if it's not a file or non-executable
+                continue
+
+            # Is the current file one we want to shim?
+            if basename in shim_targets:
+                # Backup the original binary
+                result[f"/igloo/utils/{basename}.orig"] = {
+                    "type": "move",
+                    "from": path,
+                }
+                # Add a symlink from the guest path to the shim path
+                result[path] = {
+                    "type": "symlink",
+                    "target": f"/igloo/utils/{shim_targets[basename]}",
+                }
+        return {'static_files': result}
+    
+class ShimStopBins(ShimBinaries,PatchGenerator):
+    def __init__(self, files):
+        super().__init__(files)
+        self.patch_name = "static.shims.stop_bins"
+        self.enabled = True
+
+    def generate(self, patches):
+        result = defaultdict(dict)
+        return self.make_shims({
+            "reboot": "exit0.sh",
+            "halt": "exit0.sh",
+        })
+
+class ShimNoModules(ShimBinaries,PatchGenerator):
+    def __init__(self, files):
+        super().__init__(files)
+        self.patch_name = "static.shims.no_modules"
+        self.enabled = True
+    
+    def generate(self, patches):
+        return self.make_shims({
+            "insmod": "exit0.sh"
+        })
+
+class ShimBusybox(ShimBinaries,PatchGenerator):
+    def __init__(self, files):
+        super().__init__(files)
+        self.patch_name = "static.shims.busybox"
+        self.enabled = True
+    
+    def generate(self, patches):
+        return self.make_shims({
+            "ash": "busybox",
+            "sh": "busybox",
+            "bash": "bash",
+        })
+
+class ShimFwEnv(ShimBinaries,PatchGenerator):
+    '''
+    Replace fw_printenv/getenv/setenv with hypercall based alternatives
+    Work in progress. Needs testing
+    '''
+    def __init__(self, files):
+        raise NotImplementedError("Untested shim type")
+        super().__init__(files)
+        self.patch_name = "static.shims.fw_env"
+
+    def generate(self, patches):
+        return self.make_shims({
+            "fw_printenv": "fw_printenv",
+            "fw_getenv": "fw_printenv",
+            "fw_setenv": "fw_printenv",
+        })
+
+
+class NvramLibraryRecovery(PatchGenerator):
+    """
+    Examine all the libraries (.so, .so.* files) in the filesystem. Use pyelftools
+    to parse and extract any definitions for the NVRAM_KEYS variables.
+
+    XXX: Should this be a static analysis pass that just has results consumed
+    during config generation? I think so
+    """
+    NVRAM_KEYS = ["Nvrams", "router_defaults"]
+
+    def __init__(self, extract_dir, arch_info):
+        self.extract_dir = extract_dir
+        self.archend = arch_end(arch_info) # If this is None we'll fail in BasePatch
+        self.patch_name = "nvram.01_library_analysis"
+        self.enabled = True
+
+    @staticmethod
+    def _find_symbol_address(elffile, symbol_name):
+        try:
+            symbol_tables = [
+                s
+                for s in elffile.iter_sections()
+                if isinstance(s, elftools.elf.sections.SymbolTableSection)
+            ]
+        except elftools.common.exceptions.ELFParseError:
+            return None, None
+
+        for section in symbol_tables:
+            if symbol := section.get_symbol_by_name(symbol_name):
+                symbol = symbol[0]
+                return (
+                    symbol["st_value"],
+                    symbol["st_shndx"],
+                )  # Return symbol address and section index
+        return None, None
+
+    @staticmethod
+    def _get_string_from_address(elffile, address, is_64=False, is_eb=False):
+        for section in elffile.iter_sections():
+            start_addr = section["sh_addr"]
+            end_addr = start_addr + section.data_size
+            if start_addr <= address < end_addr:
+                offset_within_section = address - start_addr
+                data = section.data()[offset_within_section:]
+                str_end = data.find(b"\x00")
+                if str_end != -1:
+                    try:
+                        return data[:str_end].decode("utf-8")
+                    except UnicodeDecodeError:
+                        # print(f"Failed to decode string: {data[:str_end]}")
+                        pass
+        return None
+
+    @staticmethod
+    def _analyze_library(elf_path, archend):
+        """
+        Examine a single library. Is there anything we care about in here?
+
+        1) look for exported tables: router_defaults and Nvrams to place in default nvram config
+        2) report all exported function names
+        """
+
+        is_eb = "eb" in archend
+        is_64 = "64" in archend
+
+        symbols = {}  # Symbol name -> relative(?) address
+        nvram_data = {}  # key -> value (may be empty string)
+
+        def _is_elf(filename):
+            try:
+                with open(filename, "rb") as f:
+                    magic = f.read(4)
+                return magic == b"\x7fELF"
+            except IOError:
+                return False
+
+        with open(elf_path, "rb") as f:
+            try:
+                elffile = ELFFile(f)
+            except elftools.common.exceptions.ELFError:
+                # elftools failed to parse our file. If it's actually an ELF, warn
+                if _is_elf(elf_path):
+                    logger.warning(
+                        f"Failed to parse {elf_path} as an ELF file when analyzing libraries"
+                    )
+                return nvram_data, symbols
+
+            try:
+                match = ".dynsym" in [s.name for s in elffile.iter_sections()]
+            except elftools.common.exceptions.ELFParseError:
+                logger.warning(
+                    f"Failed to find .dynsym section in {elf_path} when analyzing libraries"
+                )
+                match = False
+
+            if match:
+                dynsym = elffile.get_section_by_name(".dynsym")
+                for symbol in dynsym.iter_symbols():
+
+                    # Filter for exported functions??
+                    if symbol["st_info"]["bind"] == "STB_GLOBAL":
+                        symbols[symbol.name] = symbol["st_value"]
+
+            # Check for nvram keys
+            for nvram_key in NvramLibraryRecovery.NVRAM_KEYS:
+                address, section_index = NvramLibraryRecovery._find_symbol_address(elffile, nvram_key)
+                if address is None:
+                    continue
+
+                if section_index == "SHN_UNDEF":
+                    # This is a common case for shared libraries, it means
+                    # the symbol is defined in another library?
+                    continue
+
+                try:
+                    section = elffile.get_section(section_index)
+                except TypeError:
+                    logger.warning(
+                        f"Failed to get section {section_index} for symbol {nvram_key} in {elf_path} when analyzing libraries"
+                    )
+                    continue
+                data = section.data()
+                start_addr = section["sh_addr"]
+                offset = address - start_addr
+
+                pointer_size = 8 if is_64 else 4
+                unpack_format = f"{'>' if is_eb else '<'}{'Q' if is_64 else 'I'}"
+
+                # We expect key_ptr, value_ptr, NULL, ...
+                # note that we could have key_ptr, NULL, NULL
+                # end when we get a NULL key
+
+                fail_count = 0
+                while offset + (pointer_size * 3) < len(data):
+                    ptrs = [
+                        struct.unpack(
+                            unpack_format,
+                            data[
+                                offset + i * pointer_size: offset + (i + 1) * pointer_size
+                            ],
+                        )[0]
+                        for i in range(3)
+                    ]
+                    if ptrs[0] != 0:
+                        key = NvramLibraryRecovery._get_string_from_address(elffile, ptrs[0], is_64, is_eb)
+                        val = NvramLibraryRecovery._get_string_from_address(elffile, ptrs[1], is_64, is_eb)
+
+                        if (
+                            key
+                            and not any([x in key for x in ' /\t\n\r<>"'])
+                            and not key[0].isnumeric()
+                        ):
+                            fail_count = 0
+                            if key not in nvram_data:
+                                nvram_data[key] = val
+                        else:
+                            fail_count += 1
+                    else:
+                        # Should we break here?
+                        # For now let's just keep going (be sure to keep offset increment below)
+                        # so we're more likely to find additional keys - might get false positives though
+                        pass
+
+                    if fail_count > 5:
+                        # Probably just outside of the table?
+                        break
+
+                    offset += pointer_size * 3
+
+        return nvram_data, symbols
+
+    def generate(self, patches):
+        symbols = {}
+        nvram = {}
+
+        # Now let's examine each extracted library
+        for root, _, files in os.walk(self.extract_dir):
+            for file in files:
+                file_path = Path(root) / file
+                if file_path.is_file() and \
+                        (str(file_path).endswith(".so") or ".so." in str(file_path)):
+                    try:
+                        found_nvram, found_syms = self._analyze_library(file_path,
+                                                                        self.archend)
+                    except Exception as e:
+                        logger.error(
+                            f"Unhandled exception in _analyze_library for {file_path}: {e}"
+                        )
+                        continue
+                    tmpless_path = str(file_path).replace(str(self.extract_dir), "")
+                    for symname, offset in found_syms.items():
+                        symbols[(tmpless_path, symname)] = offset
+                    for key, value in found_nvram.items():
+                        nvram[(tmpless_path, key)] = value
+
+        # Let's use the csv format for now
+        #with open(os.path.join(outdir, "library_symbols.csv"), "w") as f:
+        #    writer = csv.writer(f)
+        #    writer.writerow(["path", "symbol", "offset"])
+        #    for (path, symname), offset in symbols.items():
+        #        writer.writerow([path, symname, offset])
+
+        #with open(os.path.join(outdir, "nvram.csv"), "w") as f:
+        #    writer = csv.writer(f)
+        #    writer.writerow(["source", "path", "key", "value"])
+        #    for (path, key), value in nvram.items():
+        #        if key is not None and len(key):
+        #            writer.writerow(
+        #                ["libraries", path, key, value if value is not None else ""]
+        #            )
+
+        # XXX Is this right?
+        results = {} # key -> value
+        for (path, key), value in nvram.items():
+                if key is not None and len(key) and value is not None:
+                    results[key] = value
+        
+        if len(results):
+            return {'nvram': results}
+
+class NvramConfigRecovery(PatchGenerator):
+    """
+    Search for files that contain nvram keys and values to populate NVRAM defaults
+    """
+    def __init__(self, extract_dir):
+        self.extract_dir = extract_dir
+        self.patch_name = "nvram.02_config_paths"
+        self.enabled = True
+
+    def generate(self, patches):
+        result = NvramHelper.nvram_config_analysis(self.extract_dir, True)
+        if len(result):
+            return { 'nvram': result }
+
+
+class NvramConfigRecoveryWild(PatchGenerator):
+    """
+    Search for files that contain nvram keys and values to populate NVRAM defaults.
+    This version relaxes the search to allow for basename matches instead of full path
+    matches.
+    """
+    def __init__(self, extract_dir):
+        self.extract_dir = extract_dir
+        self.patch_name = "nvram.03_config_paths_basename"
+        self.enabled = True
+
+    def generate(self, patches):
+        result = NvramHelper.nvram_config_analysis(self.extract_dir, False)
+        if len(result):
+            return { 'nvram': result }
+
+
+class NvramDefaults(PatchGenerator):
+    """
+    Add default nvram values from Firmadyne and FirmAE
+    """
+    def __init__(self):
+        self.patch_name = "nvram.04_defaults"
+        self.enabled = True
+
+    def generate(self, patches):
+        result = NvramHelper._get_default_nvram_values()
+        if len(result):
+            return { 'nvram': result }
+
+class NvramFirmAEFileSpecific(PatchGenerator):
+    """
+    Apply FW-specific nvram patches based on presence of hardcoded strings in files
+    from FirmAE
+    """
+    FIRMAE_TARGETS = {  # filename -> (query, value to set if key is present)
+        "./sbin/rc": [("ipv6_6to4_lan_ip", "2002:7f00:0001::")],
+        "./lib/libacos_shared.so": [("time_zone_x", "0")],
+        "./sbin/acos_service": [("rip_enable", "0")],
+        "./usr/sbin/httpd": [
+            ("rip_multicast", "0"),
+            ("bs_trustedip_enable", "0"),
+            ("filter_rule_tbl", ""),
+        ],
+    }
+    def __init__(self, fs_path):
+        self.fs_path = fs_path
+        self.patch_name = "nvram.05_firmae_file_specific"
+
+    def generate(self, patches):
+        result = {}
+
+        # For each key in static_targets, check if the query is in the file
+        # TODO: Should we be operating on an archive to better handle symlinks?
+        for key, queries in self.FIRMAE_TARGETS.items():
+            if not os.path.isfile(os.path.join(self.fs_path, key[1:])):
+                continue
+
+            try:
+                with open(os.path.join(self.fs_path, key[1:]), "rb") as f:
+                    for query, _ in queries:
+                        # Check if query is in file
+                        if query.encode() in f.read():
+                            result[key] = query
+            except Exception as e:
+                # Not sure what kind of errors we could encounter here, missing files? perms?
+                logger.error(f"Failed to read {key} for nvram key check: {e}")
+
+        if len(result):
+            return { 'nvram': result }
+
+class AddPseudofiles(PatchGenerator):
+    '''
+    Keep this disabled for now
+    For all identified pseudofiles, try adding them. This reliably causes kernel panics - are we running
+    out of kernel memory or are we clobbering important things?
+    '''
+
+    def __init__(self, pseudofiles):
+        self.patch_name = "pseudofiles.missing"
+        self.pseudofiles = pseudofiles
+        self.enabled = False
+
+    def generate(self, patches):
+        results = {}
+        mtd_count = 0
+
+        for file_name in self.pseudofiles:
+            results[file_name] = {
+                'read': {
+                    "model": "zero",
+                },
+                'write': {
+                    "model": "discard",
+                }
+            }
+            if file_name.startswith("/dev/"):
+                # /dev files get a default IOCTL model
+                results[file_name]['ioctl'] = {
+                     '*': { "model": "return_const", "val": 0 }
+                }
+
+            if file_name.startswith("/dev/mtd"):
+                # MTD devices get a name (shows up in /proc/mtd)
+                # Note 'uboot' probably isn't right, but we need something
+                results[file_name]['name'] = f"uboot.{mtd_count}"
+                mtd_count += 1
+
+        if len(results):
+            return {'pseudofiles': results}

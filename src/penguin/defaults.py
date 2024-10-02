@@ -6,7 +6,7 @@ from os.path import dirname
 
 default_version = "1.0.0"
 static_dir = "/igloo_static/"
-DEFAULT_KERNEL = "4.10"
+DEFAULT_KERNEL = "4.10" # XXX in config_patchers we append .0 to this - may need to update
 
 # Where are plugins in the filesystem. These are our standard pyplugins
 # that we use for env, pseudofiles, etc.
