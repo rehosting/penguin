@@ -210,6 +210,19 @@ RUN --mount=type=ssh \
     touch /build/nmap/etc/nmap/.custom \
     || mkdir -p /build/nmap
 
+# Support buidling from source with local_packages. Make sure to
+# package from within nmap with `git clean -fx; tar cvzf nmap.tar.gz .`
+COPY ./local_package[s] /tmp/local_packages
+RUN if [ -f /tmp/local_packages/nmap.tar.gz ]; then \
+    rm -rf /src /build/nmap && \
+    mkdir /src && \
+    tar xzf /tmp/local_packages/nmap.tar.gz -C /src && \
+    cd /src && ./configure --prefix=/build/nmap && make -j$(nproc) && \
+    make install && \
+    mkdir -p /build/nmap/etc/nmap && \
+    touch /build/nmap/etc/nmap/.custom /build/nmap/etc/nmap/.custom_local; \
+    fi
+
 ### Python Builder: Build all wheel files necessary###
 FROM $BASE_IMAGE as python_builder
 ARG PANDA_VERSION
