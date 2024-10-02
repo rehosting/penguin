@@ -43,7 +43,7 @@ class Nmap(PyPlugin):
         if self.custom_nmap and guest_port != host_port:
             # Special: we want to scan as if we're connecting to guest_port (i.e., guest port 80 -> do webserver scans)
             # but we're actually connecting to host_port
-            port_magic = [f"-p{guest_port}", "--redirect-port", f"{guest_port},{host_port}"]
+            port_magic = [f"-p{guest_port}", "--redirect-port", str(guest_port), str(host_port)]
         else:
             # Normal, just scan the port. If it's a stock nmap the scan will be lower quality
             port_magic = [f"-p{host_port}"]
