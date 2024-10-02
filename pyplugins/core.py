@@ -168,6 +168,12 @@ class Core(PyPlugin):
             pass
 
         open(os.path.join(self.outdir, ".ran"), "w").close()
+
+        # Unload all plugins explicitly before ending analysis
+        # to ensure our unint methods are called
+        panda.unload_plugins()
+        time.sleep(1)
+
         panda.end_analysis()
 
     def graceful_shutdown(self, sig, frame):
