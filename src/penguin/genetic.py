@@ -2,6 +2,7 @@ import os
 import csv
 import sys
 import random
+import logging
 from types import SimpleNamespace
 from penguin import getColoredLogger
 from threading import Lock, RLock
@@ -41,6 +42,8 @@ def ga_search(
     """
 
     logger = getColoredLogger("penguin.ga_explore")
+    logger.setLevel(logging.DEBUG)
+
 
     run_base = os.path.join(output_dir, "runs")
     os.makedirs(run_base, exist_ok=True)
@@ -474,8 +477,8 @@ class ConfigPopulation:
         os.makedirs(out_dir, exist_ok=True)
         #Stash genes in the run directory
         with open(os.path.join(run_dir, "genes.txt"), "w") as f:
-            output=f"Config: {config.hash}"
-            f.write(config.mitigations_to_str())
+            output=f"Config: {config.hash}\n"
+            f.write(output+config.mitigations_to_str())
         try:
             PandaRunner().run(conf_yaml, self.global_state.proj_dir, out_dir, timeout=timeout)
 
@@ -515,6 +518,9 @@ class ConfigPopulation:
     def get_fitness(self, config: ConfigChromosome):
         return self.fitnesses.get(config.hash, False)
 
+    def config_in_pop(self, config: ConfigChromosome):
+        return config.hash in [c.hash for c in self.chromosomes]
+
     def selection(self, nparents):
         """
         A ranked based selection. We'll choose nparents to move on to the next generation
@@ -551,7 +557,7 @@ class ConfigPopulation:
                         self.parents.append(sorted_configs[i])
                     break
         self.logger.info(f"Selected {len(self.parents)} parents from {n} configs")
-        self.logger.debug(f"parents: {self.print_chromosomes(self.parents)}")
+        self.logger.debug(f"parents:\n {self.print_chromosomes(self.parents)}")
 
 
     def crossover(self, p1_prob=0.5):
@@ -587,10 +593,12 @@ class ConfigPopulation:
             #Only add this child if it is unique and has not been tried before
             #Since the population is a set, we don't have to check for duplicates
             if not self.get_fitness(child) and len(child.genes) > 0:
-                self.chromosomes.add(child)
+                if not self.config_in_pop(child):
+                    #Unfortunately, using sets didn't get us this diversity automagically
+                    self.chromosomes.add(child)
 
         self.logger.info(f"Population size after crossover is: {len(self.chromosomes)}")
-        self.logger.debug(f"population: {self.print_chromosomes(self.chromosomes)}")
+        self.logger.debug(f"population:\n {self.print_chromosomes(self.chromosomes)}")
 
     def mutation(self, nmuts=1):
         """
@@ -608,14 +616,15 @@ class ConfigPopulation:
                 m = random.choice(list(self.pool.get_mitigations(gene)))
                 child = ConfigChromosome(child, m)
 
-            if not self.get_fitness(child) and len(child.genes) > 0:
+            if not self.get_fitness(child) and not self.config_in_pop(child):
+                #If we have exhausted our configuration space, this will cause an infinite loop...
                 self.chromosomes.add(child)
 
         self.logger.info(f"Population size after mutation is: {len(self.chromosomes)}")
-        self.logger.debug(f"population: {self.print_chromosomes(self.chromosomes)}")
+        self.logger.debug(f"population:\n {self.print_chromosomes(self.chromosomes)}")
 
     def print_chromosomes(self, chromosomes):
-        return "\n".join([c.mitigations_to_str() for c in chromosomes])
+        return "\n".join([f"Chromosome {c.hash}:\n{c.mitigations_to_str()}" for c in chromosomes])
 
 
 def main():
