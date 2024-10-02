@@ -26,7 +26,7 @@ class Nmap(PyPlugin):
             # Let's just ignore entirely.
             return
 
-        f = self.outdir + f"/nmap_{proto}_{guest_port}_{host_port}.log"
+        f = self.outdir + f"/nmap_{proto}_{guest_port}_{host_port}.xml"
 
         # Launch a thread to analyze this request
         t = threading.Thread(target=self.scan_thread, args=(host_ip, guest_port, host_port, f))
