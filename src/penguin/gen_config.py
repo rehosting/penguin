@@ -197,17 +197,14 @@ def make_config(fs, out, artifacts, settings, timeout=None, auto_explore=False):
     }
 
     # Copy over the scripts that /igloo/init sources so that users can modify them
-    source_d = Path(os.path.join(*[dirname(dirname(__file__)), "resources", "source.d"]))
-    base_source_d = Path(output_dir, "base", "source.d")
-    base_source_d.mkdir(exist_ok=True, parents=True)
-    for f in os.listdir(source_d):
-        shutil.copy(os.path.join(source_d, f), base_source_d)
-        dest = f"/igloo/source.d/{f}"
-        data["static_files"][dest] = {
-            "type": "host_file",
-            "host_path": f"{base_source_d}/{f}",
-            "mode": 0o755,
-        }
+    base_source_d = os.path.join(output_dir, "base", "source.d")
+    shutil.copytree(os.path.join(*[dirname(dirname(__file__)), "resources", "source.d"]),
+                    base_source_d, dirs_exist_ok=True)
+    data["static_files"]["/igloo/source.d/*"] = {
+        "type": "host_file",
+        "host_path": f"{base_source_d}/*",
+        "mode": 0o755,
+    }
 
     data["static_files"]["/igloo/keys/"] = {
         "type": "dir",
