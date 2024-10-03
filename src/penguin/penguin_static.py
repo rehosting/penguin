@@ -262,7 +262,7 @@ def pre_shim(proj_dir, config, settings):
                 return d
             else:
                 # Recurse
-                return resolve_path(symlinks[d], symlinks, depth=depth+1)
+                return resolve_path(symlinks[d], symlinks, depth=depth + 1)
 
         return d
 
@@ -545,7 +545,7 @@ def analyze_library(elf_path, config):
                     struct.unpack(
                         unpack_format,
                         data[
-                            offset + i * pointer_size: offset + (i + 1) * pointer_size
+                            offset + i * pointer_size : offset + (i + 1) * pointer_size
                         ],
                     )[0]
                     for i in range(3)
@@ -704,16 +704,9 @@ def shim_configs(proj_dir, config, settings):
                 # Skip if it's not a file or non-executable
                 continue
 
-            # Is the current file one we want to shim?
             if basename in shim_targets:
-                # Backup the original binary
-                config["static_files"][f"/igloo/utils/{basename}.orig"] = {
-                    "type": "move",
-                    "from": path,
-                }
-                # Add a symlink from the guest path to the shim path
                 config["static_files"][path] = {
-                    "type": "symlink",
+                    "type": "shim",
                     "target": f"/igloo/utils/{shim_targets[basename]}",
                 }
 
@@ -806,14 +799,14 @@ def _is_init_script(tarinfo, fs):
 
                             if newlink.startswith("/"):
                                 link_target = os.path.normpath(
-                                    newlink + link_target[len(subpath):]
+                                    newlink + link_target[len(subpath) :]
                                 )
                             else:
                                 link_target = os.path.normpath(
                                     os.path.dirname(subpath)
                                     + "/"
                                     + newlink
-                                    + link_target[len(subpath):]
+                                    + link_target[len(subpath) :]
                                 )
 
                             if not link_target.startswith("./"):
