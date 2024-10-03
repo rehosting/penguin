@@ -5,6 +5,7 @@ import os
 import typing
 from copy import deepcopy
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
+from types import NoneType
 
 import jsonschema
 import yaml
@@ -206,8 +207,8 @@ class Core(BaseModel):
         bool,
         Field(
             False,
-            title="Enable guesthopper command runner",
-            description="Whether to start the daemon for running guest commands over vsock",
+            title="Enable running commands in the guest",
+            description="When enabled, starts the guesthopper daemon in the guest that the host can use to run commands over vsock",
             examples=[False, True],
         ),
     ]
@@ -821,7 +822,7 @@ def gen_docs_type_name(t):
         return "string"
     elif t is bool:
         return "boolean"
-    elif t is type(None):
+    elif t is NoneType:
         return "null"
     else:
         raise ValueError(f"unknown type {t}")
@@ -875,7 +876,7 @@ class DocsField:
         while (
             typing.get_origin(type_) is Union
             and len(typing.get_args(type_)) == 2
-            and typing.get_args(type_)[1] is type(None)
+            and typing.get_args(type_)[1] is NoneType
         ):
             type_ = typing.get_args(type_)[0]
 
