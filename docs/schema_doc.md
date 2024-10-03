@@ -894,6 +894,23 @@ Copy a file from the host into the guest
 |__Type__|string|
 
 
+#### `static_files.<string>.<type=shim>` Shim file
+
+
+##### `static_files.<string>.<type=shim>.type` Type of file action (shim file)
+
+|||
+|-|-|
+|__Type__|`"shim"`|
+
+
+##### `static_files.<string>.<type=shim>.target` Target file we want the shim to be symlinked to
+
+|||
+|-|-|
+|__Type__|string|
+
+
 ## `plugins` Plugins
 
 
