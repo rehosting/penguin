@@ -432,7 +432,7 @@ RUN if [ -d /tmp/local_packages ]; then \
         fi; \
         if [ -f /tmp/local_packages/busybox-latest.tar.gz ]; then \
             rm -rf /igloo_static/utils.bin/busybox.* && \
-            tar xvf /tmp/local_packages/busybox-latest.tar.gz -C /igloo_static/ \
+            tar xvf /tmp/local_packages/busybox-latest.tar.gz -C /igloo_static/ && \
             mv /igloo_static/build/* /igloo_static/utils.bin/ && \
             for file in /igloo_static/utils.bin/busybox.*-linux*; do mv "$file" "${file%-linux-*}"; done && \
             mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel; \
