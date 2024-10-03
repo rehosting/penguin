@@ -8,6 +8,7 @@ import subprocess
 import glob
 from os.path import dirname, join
 from pathlib import Path
+import sys
 
 import art
 
@@ -133,9 +134,6 @@ def add_init_arguments(parser):
         default="projects",
     )
     parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Set log level to debug"
-    )
-    parser.add_argument(
         "-s", "--settings-path", type=str, help="Path to the YAML configuration file"
     )
 
@@ -232,9 +230,6 @@ def add_patch_arguments(parser):
         "config", type=str, help="Path to the full config file to be updated"
     )
     parser.add_argument("patch", type=str, help="Path to the config patch")
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Set log level to debug"
-    )
 
 
 def penguin_patch(args):
@@ -274,9 +269,6 @@ def add_docs_arguments(parser):
         default=None,
         nargs="?",
         help="Documentation file to render. If unset, filenames are printed.",
-    )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Set log level to debug"
     )
 
 
@@ -345,9 +337,6 @@ def add_run_arguments(parser):
         type=int,
         default=None,
         help="Number of seconds that run/iteration should last. Default is None (must manually kill)"
-    )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Set log level to debug"
     )
     parser.add_argument("-a", "--auto", action="store_true", help="Run in auto mode (don't start telnet shell).")
 
@@ -420,6 +409,18 @@ def penguin_run(args):
     run_from_config(args.config, args.output, timeout=args.timeout, verbose=args.verbose, auto=args.auto)
 
 
+def guest_cmd(args):
+    guest_cmd_args = ["python3", "/igloo_static/guesthopper/guest_cmd.py"]+args.args
+
+    # A little goofy, but we run with check=False so we can promote the return code
+    result = subprocess.run(guest_cmd_args, capture_output=True, text=True, check=False)
+    if result.stdout:
+        sys.stdout.write(result.stdout)
+    if result.stderr:
+        sys.stderr.write(result.stderr)
+    sys.exit(result.returncode)
+
+
 def add_explore_arguments(parser):
     parser.add_argument(
         "config",
@@ -455,9 +456,6 @@ def add_explore_arguments(parser):
         action="store_true",
         default=False,
         help="Forcefully delete output directory if it exists.",
-    )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Set log level to debug"
     )
 
 
@@ -579,9 +577,10 @@ contains details on the configuration file format and options.
     )
     add_explore_arguments(parser_cmd_explore)
 
-    subparsers.add_parser(
+    parser_cmd_guest_cmd = subparsers.add_parser(
         "guest_cmd", help="Execute a command inside a guest and capture stdout/stderr"
     )
+    parser_cmd_guest_cmd.add_argument('args', nargs=argparse.REMAINDER, help='Pass remaining arguments as a command to the guest')
 
     # Add --wrapper-help stub
     parser.add_argument(
@@ -590,6 +589,10 @@ contains details on the configuration file format and options.
 
     parser.add_argument(
         "--version", action="version", help="Show version information", version=VERSION
+    )
+
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Set log level to debug"
     )
 
     args = parser.parse_args()
@@ -616,7 +619,7 @@ contains details on the configuration file format and options.
     elif args.cmd == "explore":
         penguin_explore(args)
     elif args.cmd == "guest_cmd":
-        pass
+        guest_cmd(args)
     else:
         parser.print_help()
 

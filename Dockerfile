@@ -121,7 +121,7 @@ RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} | \
   rm -rf /result && \
   for f in  /igloo_static/utils.bin/*.arm64; do mv -- "$f" "${f%.arm64}.aarch64"; done
 
-# Download guesthopper from CI pushed to panda.re. Populate /igloo_static/guesthopper
+# Download guesthopper from CI. Populate /igloo_static/guesthopper
 ARG GUESTHOPPER_VERSION
 RUN /get_release.sh rehosting guesthopper ${GUESTHOPPER_VERSION} ${DOWNLOAD_TOKEN} | \
     tar xzf - -C /igloo_static
