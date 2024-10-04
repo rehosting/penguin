@@ -331,7 +331,7 @@ class BasePatch(PatchGenerator):
         # For example, what if we're wrong and a user wants to customize this.
         arch, endian = arch_end(arch_identified)
         if arch is None:
-            raise ValueError(f"Architecture {arch_identified} not supported ({arch}, {endian})")
+            raise NotImplementedError(f"Architecture {arch_identified} not supported ({arch}, {endian})")
 
         if arch == "aarch64":
             # TODO: We should use a consistent name here. Perhaps aarch64eb?
