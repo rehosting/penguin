@@ -14,7 +14,7 @@ import art
 
 from penguin import VERSION, getColoredLogger
 
-from .common import yaml, patch_config
+from .common import yaml
 from .gen_config import fakeroot_gen_config
 from .manager import PandaRunner, calculate_score, graph_search
 from .penguin_config import load_config, dump_config
@@ -23,16 +23,17 @@ logger = getColoredLogger("penguin")
 
 
 def run_from_config(
-    config_path, output_dir, niters=1, nthreads=1, timeout=None, verbose=False, auto=False
+    proj_dir, config_path, output_dir, niters=1, nthreads=1, timeout=None, verbose=False, auto=False
 ):
+
+    if not os.path.isdir(proj_dir):
+        raise RuntimeError(f"Project directory not found: {proj_dir}")
 
     if not os.path.isfile(config_path):
         raise RuntimeError(f"Config file not found: {config_path}")
 
-    proj_dir = os.path.dirname(config_path)
-
     try:
-        config = load_config(config_path)
+        config = load_config(proj_dir, config_path)
     except UnicodeDecodeError:
         raise RuntimeError(
             f"Config file {config_path} is not a valid unicode YAML file. Is it a firmware file instead of a configuration?"
@@ -217,41 +218,7 @@ def penguin_init(args):
         logger.error(
             f"Failed to generate config for {args.rootfs}. See {args.output}/result for details."
         )
-
-
-def add_patch_arguments(parser):
-    add_common_arguments(parser)
-    parser.add_argument(
-        "config", type=str, help="Path to the full config file to be updated"
-    )
-    parser.add_argument("patch", type=str, help="Path to the config patch")
-
-
-def penguin_patch(args):
-    """
-    Given a config to be updated and a partial config (the patch), update each
-    field in the config with the corresponding field in the patch.
-    """
-
-    config = Path(args.config)
-    patch = Path(args.patch)
-
-    if not config.exists():
-        raise ValueError(f"Config file does not exist: {args.config}")
-
-    if not patch.exists():
-        raise ValueError(f"Patch file does not exist: {args.patch}")
-
-    # Read both yaml files
-    base_config = load_config(config, validate=False)
-    p_config = load_config(patch, validate=False)
-
-    # Update the base config with the patch
-    base_config = patch_config(base_config, p_config)
-
-    # Replace the original config with the updated one
-    with open(config, "w") as f:
-        yaml.dump(base_config, f, sort_keys=False)
+        exit(1)
 
 
 def add_docs_arguments(parser):
@@ -315,8 +282,15 @@ def penguin_docs(args):
 def add_run_arguments(parser):
     add_common_arguments(parser)
     parser.add_argument(
-        "config", type=str, help="Path to a config file within a project directory."
+        "project_dir", type=str, help="Path to project directory. For backwards compatability, a path to a config file within a project directory is also accepted."
     )
+
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="Path to a config file. Defaults to <project_dir>/config.yaml."
+    )
+
     parser.add_argument(
         "--output",
         type=str,
@@ -339,33 +313,44 @@ def add_run_arguments(parser):
 
 
 def penguin_run(args):
+    if not os.path.isabs(args.project_dir):
+        # Convert relative project_dir values to absolute
+        current_dir = os.getcwd()
+        args.project_dir = os.path.join(current_dir, args.project_dir)
+
+    if os.path.isfile(args.project_dir) or args.project_dir.endswith("/config.yaml"):
+        # Backwards compatability: if we have a config file in project_dir, take
+        # the directory of it as project_dir and set config to the config file
+        args.config = args.project_dir # Full path to config
+        args.project_dir = os.path.dirname(args.config)
+
     if args.force and os.path.isdir(args.output):
         shutil.rmtree(args.output, ignore_errors=True)
+
+    if not args.config and os.path.isdir(args.project_dir) and os.path.exists(
+        os.path.join(args.project_dir, "config.yaml")
+    ):
+        # If config is unset, check if it's in the project directory as config.yaml
+        # We'll use this as a default
+        args.config = os.path.join(args.project_dir, "config.yaml")
+
+    if args.config is None:
+        raise ValueError(f"Could not find config and none was provided. Auto-checked {args.project_dir} for config.yaml")
 
     config = Path(args.config)
     if not config.exists():
         raise ValueError(f"Config file does not exist: {args.config}")
 
-    # Allow config to be the project dir (which contains config.yaml)
-    if os.path.isdir(args.config) and os.path.exists(
-        os.path.join(args.config, "config.yaml")
-    ):
-        args.config = os.path.join(args.config, "config.yaml")
-
-    if not os.path.isabs(args.config):
-        current_dir = os.getcwd()
-        args.config = os.path.join(current_dir, args.config)
-
     # Sanity check, should have a 'base' directory next to the config
-    if not os.path.isdir(os.path.join(os.path.dirname(args.config), "base")):
+    if not os.path.isdir(os.path.join(args.project_dir, "base")):
         raise ValueError(
-            f"Config directory does not contain a 'base' directory: {os.path.dirname(args.config)}."
+            f"Project directory does not contain a 'base' directory: {args.project_dir}."
         )
 
     if args.output is None:
         # Expect a config like ./project/myfirmware/config.yaml, get myfirmware from there
         # and create ./project/myfirmware/results/X and auto-increment X
-        results_base = os.path.dirname(args.config) + "/results/"
+        results_base = os.path.join(args.project_dir, "results")
 
         if not os.path.exists(results_base):
             os.makedirs(results_base)
@@ -389,13 +374,19 @@ def penguin_run(args):
                 idx = max(results) + 1
 
         # Create symlink in results directory to latest
-        if os.path.islink(results_base + "latest"):
-            os.unlink(results_base + "latest")
-        os.symlink(f"./{idx}", results_base + "latest")
+        latest_dir = os.path.join(results_base, "latest")
+        if os.path.islink(latest_dir):
+            os.unlink(latest_dir)
+        os.symlink(f"./{idx}", latest_dir)
 
-        args.output = results_base + str(idx)
+        args.output = os.path.join(results_base, str(idx))
 
-    logger.info(f"Running config {args.config}")
+    friendly_config = args.config
+    if friendly_config.startswith(args.project_dir):
+        # Trim project_dir if it's relative
+        friendly_config = friendly_config[len(args.project_dir):]
+
+    logger.info(f"Running project {args.project_dir} with config {friendly_config}")
     logger.info(f"Saving results to {args.output}")
 
     if "/host_" in args.config or "/host_" in args.output:
@@ -403,7 +394,7 @@ def penguin_run(args):
             "Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments"
         )
 
-    run_from_config(args.config, args.output, timeout=args.timeout, verbose=args.verbose, auto=args.auto)
+    run_from_config(args.project_dir, args.config, args.output, timeout=args.timeout, verbose=args.verbose, auto=args.auto)
 
 
 def guest_cmd(args):
@@ -498,6 +489,7 @@ def penguin_explore(args):
         )
 
     run_from_config(
+        dirname(args.config),
         args.config,
         args.output,
         verbose=args.verbose,
@@ -563,9 +555,6 @@ contains details on the configuration file format and options.
     )
     add_init_arguments(parser_cmd_init)
 
-    parser_cmd_patch = subparsers.add_parser("patch", help="Patch a config file")
-    add_patch_arguments(parser_cmd_patch)
-
     parser_cmd_run = subparsers.add_parser("run", help="Run from a config")
     add_run_arguments(parser_cmd_run)
 
@@ -608,8 +597,6 @@ contains details on the configuration file format and options.
         penguin_init(args)
     elif args.cmd == "run":
         penguin_run(args)
-    elif args.cmd == "patch":
-        penguin_patch(args)
     elif args.cmd == "docs":
         penguin_docs(args)
     elif args.cmd == "explore":
