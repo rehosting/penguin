@@ -735,7 +735,10 @@ def load_config(path, validate=True):
         for patch in patch_list:
             # patches are loaded relative to the main config file
             patch_relocated = Path(config_folder, patch)
-            config = patch_config(config, patch_relocated)
+            if patch_relocated.exists():
+                # TODO: If we're missing a patch we should warn, but this happens 3-4x
+                # and that's too verbose.
+                config = patch_config(config, patch_relocated)
     # when loading a patch we don't need a completely valid config
     if validate:
         _validate_config(config)
