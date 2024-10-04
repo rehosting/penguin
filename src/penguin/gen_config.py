@@ -302,6 +302,15 @@ def main(fs, out, artifacts, verbose):
     try:
         # Return a path to a config if we generate one
         return initialize_and_build_config(fs, out, artifacts)
+    except NotImplementedError as e:
+        # Raised for unsupported architecture - don't need a full traceback, place in result file
+        result_dir = os.path.dirname(out)
+        if not os.path.isdir(result_dir):
+            os.makedirs(result_dir)
+        with open(os.path.join(result_dir, "result"), "w") as f:
+            f.write(str(e)+"\n")
+        logger.error(e) # Here we use .error to print the message without the traceback
+        return None
     except Exception as e:
         # Otherwise log error to results directory and with logger
         # Then return None
@@ -312,7 +321,7 @@ def main(fs, out, artifacts, verbose):
         with open(os.path.join(result_dir, "result"), "w") as f:
             f.write(str(e)+"\n")
         logger.error(f"Error! Could not generate config for {fs}")
-        logger.exception(e)
+        logger.exception(e) # Full traceback
         return None
 
 
