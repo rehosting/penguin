@@ -500,7 +500,7 @@ def fs_make_config_changes(fs_base, config, project_dir):
         )
 
 
-def make_image(fs, out, artifacts, config_path):
+def make_image(fs, out, artifacts, proj_dir, config_path):
     logger.info("Generating new image from config...")
     IN_TARBALL = Path(fs)
     ARTIFACTS = Path(artifacts or "/tmp")
@@ -515,7 +515,7 @@ def make_image(fs, out, artifacts, config_path):
 
     MODIFIED_TARBALL = Path(ARTIFACTS, "fs_out.tar")
     if config_path:
-        config = load_config(config_path)
+        config = load_config(proj_dir, config_path)
         with tempfile.TemporaryDirectory() as TMP_DIR:
             check_output(["tar", "xpsvf", IN_TARBALL, "-C", TMP_DIR])
             from .penguin_prep import prep_config
@@ -575,7 +575,7 @@ def make_image(fs, out, artifacts, config_path):
             _make_img(WORK_DIR, QCOW)
 
 
-def fakeroot_gen_image(fs, out, artifacts, config):
+def fakeroot_gen_image(fs, out, artifacts, proj_dir, config):
     o = Path(out)
     cmd = [
         "fakeroot",
@@ -586,6 +586,8 @@ def fakeroot_gen_image(fs, out, artifacts, config):
         str(o),
         "--artifacts",
         str(artifacts),
+        "--proj",
+        str(proj_dir),
         "--config",
         str(config),
     ]
@@ -605,9 +607,10 @@ def fakeroot_gen_image(fs, out, artifacts, config):
 @click.option("--fs", required=True, help="Path to a filesystem as a tar gz")
 @click.option("--out", required=True, help="Path to a qcow to be created")
 @click.option("--artifacts", default=None, help="Path to a directory for artifacts")
+@click.option("--proj", required=True, help="Path to a project directory")
 @click.option("--config", default=None, help="Path to config file")
 @click.option("-v", "--verbose", count=True)
-def makeImage(fs, out, artifacts, config, verbose):
+def makeImage(fs, out, artifacts, proj, config, verbose):
     if verbose:
         logger.setLevel(logging.DEBUG)
 
@@ -616,7 +619,7 @@ def makeImage(fs, out, artifacts, config, verbose):
         sys.exit(1)
 
     try:
-        make_image(fs, out, artifacts, config)
+        make_image(fs, out, artifacts, proj, config)
     except Exception as e:
         logger.error("Failed to generate image")
         # Show exception

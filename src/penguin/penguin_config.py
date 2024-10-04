@@ -714,15 +714,14 @@ def _validate_config(config):
     _validate_config_options(config)
 
 
-def load_config(path, validate=True):
+def load_config(proj_dir, path, validate=True):
     """Load penguin config from path"""
     with open(path, "r") as f:
         config = yaml.load(f, Loader=CoreLoader)
-    config_folder = Path(path).parent
     # look for files called patch_*.yaml in the same directory as the config file
     if config["core"].get("auto_patching", False) is True:
-        patch_files = list(config_folder.glob("patch_*.yaml"))
-        patches_dir = Path(config_folder, "patches")
+        patch_files = list(proj_dir.glob("patch_*.yaml"))
+        patches_dir = Path(proj_dir, "patches")
         if patches_dir.exists():
             patch_files += list(patches_dir.glob("*.yaml"))
         if patch_files:
@@ -733,8 +732,8 @@ def load_config(path, validate=True):
     if config.get("patches", None) is not None:
         patch_list = config["patches"]
         for patch in patch_list:
-            # patches are loaded relative to the main config file
-            patch_relocated = Path(config_folder, patch)
+            # patches are loaded relative to the project directory
+            patch_relocated = Path(proj_dir, patch)
             if patch_relocated.exists():
                 # TODO: If we're missing a patch we should warn, but this happens 3-4x
                 # and that's too verbose.
@@ -750,7 +749,7 @@ def load_config(path, validate=True):
 
         if config["core"].get("fs", None) is None:
             config["core"]["fs"] = "./base/empty_fs.tar.gz"
-            empty_fs_path = os.path.join(config_folder, "./base/empty_fs.tar.gz")
+            empty_fs_path = os.path.join(proj_dir, "./base/empty_fs.tar.gz")
             if not os.path.exists(empty_fs_path):
                 construct_empty_fs(empty_fs_path)
     return config
