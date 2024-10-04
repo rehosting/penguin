@@ -76,15 +76,17 @@ class Core(BaseModel):
     model_config = ConfigDict(title="Core configuration options", extra="forbid")
 
     arch: Annotated[
-        Literal["armel", "aarch64", "mipsel", "mipseb", "mips64eb", "intel64"],
+        Optional[Literal["armel", "aarch64", "mipsel", "mipseb", "mips64eb", "intel64"]],
         Field(
+            None,
             title="Architecture of guest",
             examples=["armel", "aarch64", "mipsel", "mipseb", "mips64eb", "intel64"],
         ),
     ]
     kernel: Annotated[
-        str,
+        Optional[Union[str]],
         Field(
+            None,
             title="Path to kernel image",
             examples=[
                 "/igloo_static/kernels/zImage.armel",
@@ -99,7 +101,7 @@ class Core(BaseModel):
         Union[str, None],
         Field(
             title="Project-relative path to filesystem tarball",
-            examples=["base/fs.tar"],
+            examples=["base/fs.tar.gz"],
         ),
     ]
     plugin_path: Annotated[
@@ -700,7 +702,7 @@ def _validate_config_options(config):
 
     logger = penguin.getColoredLogger("config")
 
-    if config["core"].get("ltrace", False) and config["core"]["arch"].startswith(
+    if config["core"].get("ltrace", False) and config["core"].get("arch", "").startswith(
         "mips64"
     ):
         logger.error("ltrace does not support mips64")
@@ -737,6 +739,12 @@ def load_config(path, validate=True):
     # when loading a patch we don't need a completely valid config
     if validate:
         _validate_config(config)
+        # Not required in schema as to allow for patches, but these really are required
+        if config["core"].get("arch", None) is None:
+            raise ValueError("No core.arch specified in config")
+        if config["core"].get("kernel", None) is None:
+            raise ValueError("No core.kernel specified in config")
+
         if config["core"].get("fs", None) is None:
             config["core"]["fs"] = "./base/empty_fs.tar.gz"
             empty_fs_path = os.path.join(config_folder, "./base/empty_fs.tar.gz")
@@ -746,7 +754,12 @@ def load_config(path, validate=True):
 
 
 def dump_config(config, path):
-    """Write penguin config to path"""
+    """
+    Write penguin config to path
+    TODO: If we have a config that includes patches we should validate *after* patches.
+    For now we allow empty arch and kernel with patches filling them in later, but
+    validation doesn't check this
+    """
     _validate_config(config)
     with open(path, "w") as f:
         f.write(
