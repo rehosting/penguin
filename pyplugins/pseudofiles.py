@@ -340,6 +340,7 @@ class FileFailures(PyPlugin):
             strings[i]
             for i, arg_name in enumerate(arg_names)
             if arg_name in ("filename", "path", "pathname", "fd")
+            and len(strings[i]) > 0
             and any(strings[i].startswith(x) for x in ("/dev/", "/proc/", "/sys/"))
         )
         for name in fnames:
