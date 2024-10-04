@@ -9,6 +9,9 @@ from yamlcore import CoreLoader, CoreDumper
 
 # Hex integers
 def int_to_hex_representer(dumper, data):
+    if not isinstance(data, int):
+        raise ValueError(f"YAML representer received non-integer: {data}. Something has gone very wrong")
+
     if data > 10:
         # Values < 10 can be base 10
         return dumper.represent_scalar("tag:yaml.org,2002:int", data)
