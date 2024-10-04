@@ -167,7 +167,7 @@ class PandaRunner:
         # which is a wrapper to call that script with: run_config(config=argv[1], out=argv[2], qcows=argv[3])
 
         # Let's call via system instead of subprocess
-        data = load_config(conf_yaml)
+        data = load_config(proj_dir, conf_yaml)
         timeout_s = None
         timeout_cmd = []
 
@@ -866,11 +866,11 @@ def main():
     import sys
 
     if len(sys.argv) < 3:
-        print(f"Usage: {sys.argv[0]} <config> <outdir>")
+        print(f"Usage: {sys.argv[0]} <proj_dir> <config> <outdir>")
         sys.exit(1)
 
-    config = load_config(sys.argv[1])
-    graph_search(os.path.dirname(sys.argv[1]), config, sys.argv[2])
+    config = load_config(sys.argv[1], sys.argv[2])
+    graph_search(sys.argv[1], config, sys.argv[3])
 
 
 if __name__ == "__main__":

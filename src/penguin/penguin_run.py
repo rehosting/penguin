@@ -185,7 +185,7 @@ def run_config(
     # Image isn't in our config, but the path we use is a property
     # of configs files section - we'll hash it to get a path
     # Read input config and validate
-    conf = load_config(conf_yaml)
+    conf = load_config(proj_dir, conf_yaml)
 
     if timeout is not None and conf.get("plugins", {}).get("core", None) is not None:
         # An arugument setting a timeout overrides the config's timeout
@@ -254,7 +254,7 @@ def run_config(
         try:
             from .gen_image import fakeroot_gen_image
 
-            fakeroot_gen_image(config_fs, config_image, qcow_dir, conf_yaml)
+            fakeroot_gen_image(config_fs, config_image, qcow_dir, proj_dir, conf_yaml)
         except Exception as e:
             logger.error(
                 f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}"
