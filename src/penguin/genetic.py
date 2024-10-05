@@ -197,7 +197,7 @@ def create_init_gene(base_config, global_state):
         #If we already have an init defined, we'll just use that
         mit =  Mitigation(f"init", "init", {'env': { 'igloo_init': base_config["env"]["igloo_init"]}})
         init_mitigations.add(mit)
-    return MitigationAlleleSet("init_init", frozenset(init_mitigations))
+    return MitigationAlleleSet("init", frozenset(init_mitigations))
 
 #TODO: should these move to common?
 def dict_to_frozenset(d):
@@ -278,10 +278,10 @@ class GenePool:
             failure_name = new_gene.failure_name
             new_mits = new_gene.mitigations
         elif isinstance(new_gene, Mitigation):
-            failure_name = new_gene.name
+            failure_name = f"{new_gene.type}_{new_gene.name}"
             new_mits = frozenset([new_gene])
         else:
-            raise(RuntimeError(f"Unexpected type for new_gene {new_gene}: {type(new_gene)}"))
+            raise(RuntimeError(f"Unexpected datatype for new_gene {new_gene}: {type(new_gene)}"))
 
         if failure_name not in self.genes:
             self.genes[failure_name] = new_mits
@@ -294,6 +294,9 @@ class GenePool:
             failure_name = failure_to_genename(failure)
         elif isinstance(failure, str):
             failure_name = failure
+        else:
+            print(RuntimeError(f"Unexpected datatype for failure {failure}: {type(failure)}"))
+            import IPython; IPython.embed()
         return self.genes.get(failure_name, frozenset())
 
     def failure_to_genename(failure: Failure):
@@ -308,16 +311,26 @@ class ConfigChromosome:
     #We do not keep the immutable base config in here since that is held in GlobalState
     genes: frozenset[Mitigation]
     hash: int
-    def __init__(self, parent: 'ConfigChromosome' = None, new_gene: Mitigation = None):
+    def __init__(self, parent: 'ConfigChromosome' = None, new_gene = None):
         self.genes = frozenset()
         if parent is None:
             parent = self #weird
-        if new_gene is not None:
+        elif not new_gene.name.startswith("init"):
+            try:
+                assert len(parent.genes) > 0, "If there's a parent and we aren't adding init, it must have genes"
+            except AssertionError as e:
+                print("Debugging ConfigChromosome constructor")
+                print("Parent genes: ", parent.genes)
+                print("new_gene: ", new_gene)
+                import IPython; IPython.embed()
+        if isinstance(new_gene, Mitigation):
             old_genes = parent.genes #faded and with lots of holes
-            if parent.get_mitigation(new_gene.name):
+            if old_gene := parent.get_mitigation(new_gene.name):
                 #If we had this gene, replace it with the new one. This is for mutations
-                old_genes = old_genes.difference([parent.get_mitigation(new_gene.name)])
-            self.genes = frozenset(parent.genes.union([new_gene]))
+                old_genes = old_genes.difference({old_gene})
+            self.genes = frozenset(old_genes.union({new_gene}))
+        elif isinstance(new_gene, frozenset):
+            self.genes = new_gene
         #cache the unsigned hash of genes, not sure how much this actually buys us
         self.hash = hash(self.genes) & (1 << sys.hash_info.width) - 1
 
@@ -417,7 +430,6 @@ class ConfigPopulation:
             except Exception as e:
                 self.logger.error(f"[thread {id}]: Error running config {config} with run index {run_index}: {e}")
                 self.work_queue.task_done()
-                raise e
 
             self.work_queue.task_done()
             self.logger.info(f"[thread {id}]: Finished config {config} with run index {run_index}")
@@ -552,7 +564,9 @@ class ConfigPopulation:
             r = random.random()
             for i in range(n):
                 if r < probs[i]:
-                    #only allow duplicates if our starting population is too small
+                    # only allow duplicates if our starting population is too small
+                    # they very well may get reduced in the crossover step, but we want this functionality
+                    # should our approach to crossover change
                     if sorted_configs[i] not in self.parents or n < nparents:
                         self.parents.append(sorted_configs[i])
                     break
@@ -585,20 +599,32 @@ class ConfigPopulation:
                     m1 = p1.get_mitigation(gene)
                     if m1:
                         child = ConfigChromosome(child, m1)
+                    else:
+                        m2 = p2.get_mitigation(gene)
+                        if m2:
+                            child = ConfigChromosome(child, m2)
                 else:
                     m2 = p2.get_mitigation(gene)
                     if m2:
                         child = ConfigChromosome(child, m2)
+                    else:
+                        m1 = p1.get_mitigation(gene)
+                        if m1:
+                            child = ConfigChromosome(child, m1)
 
             #Only add this child if it is unique and has not been tried before
             #Since the population is a set, we don't have to check for duplicates
             if not self.get_fitness(child) and len(child.genes) > 0:
+                try:
+                    assert(child.get_mitigation("init_init")), "Missing init gene"
+                except AssertionError as e:
+                    self.logger.error(f"Error in crossover: {e}")
                 if not self.config_in_pop(child):
                     #Unfortunately, using sets didn't get us this diversity automagically
                     self.chromosomes.add(child)
 
         self.logger.info(f"Population size after crossover is: {len(self.chromosomes)}")
-        self.logger.debug(f"population:\n {self.print_chromosomes(self.chromosomes)}")
+        self.logger.debug(f"population:\n{self.print_chromosomes(self.chromosomes)}")
 
     def mutation(self, nmuts=1):
         """
@@ -610,21 +636,44 @@ class ConfigPopulation:
         while len(self.chromosomes) < self.pop_size:
             #should we fill up mitigations for new failures first?
             #i.e., we have failures in the pool that aren't addressed by any config, do we just pick the first mitigation for all of them?
-            child = random.choice(self.parents)
+
+            #Originally did a growing configchromosome, but that was buggy and inefficient
+            genes = random.choice(self.parents).genes
+            gene_names = [g.name for g in genes]
+
+            #First, make sure we have all genes in this chromosome (with a possibility of no mitigation)
+            for g in self.pool.get_names():
+                if g not in gene_names:
+                    self.logger.debug(f"Adding missing gene {g}")
+                    choices = self.pool.get_mitigations(g)
+                    if not g.startswith("init"):
+                        #init is special, don't allow that to be None. otherwise maybe "no mitigation" is what we'd like?
+                        choices = choices.union({None})
+                    m = random.choice(list(choices))
+                    if m:
+                        genes = genes.union({m})
+
+            self.logger.debug(f"Mutating genes {genes}")
             for i in range(nmuts):
                 gene = random.choice(list(self.pool.get_names()))
-                m = random.choice(list(self.pool.get_mitigations(gene)))
-                child = ConfigChromosome(child, m)
+                self.logger.debug(f"Mutating gene {gene}")
+                choices = self.pool.get_mitigations(gene)
+                assert choices, f"No choices for gene {gene}"
+                m = random.choice(list(choices))
+                self.logger.debug(f"Mutation: {m}")
+                self.logger.debug(f"Before mutation: {genes}")
+                child = ConfigChromosome(None, genes.union({m}))
+                self.logger.debug(f"After mutation: {child.genes}")
 
-            if not self.get_fitness(child) and not self.config_in_pop(child):
+            if child and not self.get_fitness(child) and not self.config_in_pop(child):
                 #If we have exhausted our configuration space, this will cause an infinite loop...
                 self.chromosomes.add(child)
 
         self.logger.info(f"Population size after mutation is: {len(self.chromosomes)}")
-        self.logger.debug(f"population:\n {self.print_chromosomes(self.chromosomes)}")
+        self.logger.debug(f"population:\n{self.print_chromosomes(self.chromosomes)}")
 
     def print_chromosomes(self, chromosomes):
-        return "\n".join([f"Chromosome {c.hash}:\n{c.mitigations_to_str()}" for c in chromosomes])
+        return "\n".join([f"Chromosome {c}:\n{c.mitigations_to_str()}\n" for c in chromosomes])
 
 
 def main():
