@@ -48,23 +48,23 @@ class Nmap(PyPlugin):
             # Normal, just scan the port. If it's a stock nmap the scan will be lower quality
             port_magic = [f"-p{host_port}"]
 
-        process = subprocess.Popen(
-            [ "nmap" ] + port_magic
-            + [
-                "-unprivileged",  # Don't try anything privileged
-                "-n",  # Do not do DNS resolution
-                "-sT",  # TCP connect scan. XXX required for -sV to work with redirect port
-                "-sV",  # Scan for service version
-                "--version-intensity", "9", # Max version intensity
-                "--script=default,vuln,version",  # Run NSE scripts to enumerate service
-                # "--script-timeout", "5m", # Kill nmap scripts if they take > 5m
-                "--scan-delay",
-                "0.1s",  # Delay between scans - allow other processes to run - toggle as needed?
-                host_ip, # Local IP address
-                "-oX",
-                log_file_name,  # XML output format, store in log file
-            ],
-            # stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cmd = [ "nmap" ] + port_magic + [
+            "-unprivileged",  # Don't try anything privileged
+            "-n",  # Do not do DNS resolution
+            "-sT",  # TCP connect scan. XXX required for -sV to work with redirect port
+            "-sV",  # Scan for service version
+            "--version-intensity", "9", # Max version intensity
+            "--script=default,vuln,version",  # Run NSE scripts to enumerate service
+            # "--script-timeout", "5m", # Kill nmap scripts if they take > 5m
+            "--scan-delay",
+            "0.1s",  # Delay between scans - allow other processes to run - toggle as needed?
+            host_ip, # Local IP address
+            "-oX",
+            log_file_name,  # XML output format, store in log file
+        ]
+        process = subprocess.Popen(cmd,
+                                   # stdout=subprocess.DEVNULL,
+                                   # stderr=subprocess.DEVNULL)
         )
         with self.lock:
             self.subprocesses.append(process)

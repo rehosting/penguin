@@ -55,7 +55,7 @@ class VsockVPN(PyPlugin):
             self.logger.setLevel("DEBUG")
 
         # Check if we have CONTAINER_{IP,NAME} in env
-        self.exposed_ip = env.get("CONTAINER_IP", None)
+        self.exposed_ip = env.get("CONTAINER_IP", "127.0.0.1")
         self.container_name = env.get("CONTAINER_NAME", None)
 
         self.has_perms = geteuid() == 0
