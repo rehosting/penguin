@@ -380,3 +380,19 @@ class PseudofileFinder(StaticAnalysis):
                     results.append(relative_path)
 
         return results
+
+class ClusterCollector(StaticAnalysis):
+    '''
+    Collect summary statistics for this filesystem to help us later identify clusters
+    '''
+    def run(self, extract_dir, prior_results):
+        # Collect the basename of every executable file in the system
+        executables = set()
+        for root, _, files in os.walk(extract_dir):
+            for f in files:
+                if os.path.exists(os.path.join(root, f)) and os.access(os.path.join(root, f), os.X_OK):
+                    executables.add(os.path.basename(f))
+
+        return {
+            'executables': list(executables),
+        }
