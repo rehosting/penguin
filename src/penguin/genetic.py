@@ -662,6 +662,11 @@ class ConfigPopulation:
                 m = random.choice(list(choices))
                 self.logger.debug(f"Mutation: {m}")
                 self.logger.debug(f"Before mutation: {genes}")
+                if m.name in [g.name for g in genes]:
+                    #if we already have this gene, remove it
+                    self.logger.debug(f"Removing gene with name  {m.name}")
+                    self.logger.debug(f"all gene names: {[g.name for g in genes]}")
+                    genes = genes.difference({g for g in genes if g.name == m.name})
                 child = ConfigChromosome(None, genes.union({m}))
                 self.logger.debug(f"After mutation: {child.genes}")
 
