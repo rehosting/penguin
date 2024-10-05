@@ -96,6 +96,7 @@ class ConfigBuilder:
             InitFinder,
             EnvFinder,
             PseudofileFinder,
+            ClusterCollector,
         ]
 
         results = {}
