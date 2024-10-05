@@ -909,53 +909,56 @@ class KernelModules(PatchGenerator):
         self.enabled = True
         self.extract_dir = extract_dir
 
+    @staticmethod
+    def is_kernel_version(name):
+        # Regex to match typical kernel version patterns
+        return re.match(r"^\d+\.\d+\.\d+(-[\w\.]+)?$", name) is not None
+
     def generate(self, patches):
         result = defaultdict(dict)
 
-        # Identify original kernel version and shim /lib/modules/4.10.0 to it's /lib/modules path
+        # Identify original kernel version and create a symlink to /lib/modules
         kernel_version = None
         potential_kernels = set()
 
-        # Look at all directories in self.extract_dir / lib / modules
-        # to find potential kernel versions
-        for root, dirs, files in os.walk(os.path.join(self.extract_dir, "lib/modules")):
-            for d in dirs:
-                potential_kernels.add(d)
+        # Only look at the top-level directories in self.extract_dir / lib / modules
+        modules_path = os.path.join(self.extract_dir, "lib/modules")
+        if os.path.exists(modules_path):
+            for d in os.listdir(modules_path):
+                d_path = os.path.join(modules_path, d)
+                if os.path.isdir(d_path):
+                    potential_kernels.add(d)
 
-        # Do any of these kernel strings look like a version
-        # If we only have one, let's say it's definitely right
+        # Filter potential kernels to match the expected version pattern
+        potential_kernels = {d for d in potential_kernels if self.is_kernel_version(d)}
+
+        # Determine the kernel version to use
         if len(potential_kernels) == 1:
             kernel_version = potential_kernels.pop()
         elif len(potential_kernels) > 1:
-            # Yikes, how can we tell which is the right one?
-            # One simple heuristic for now - look for dots and dashes?
-            # Future could be to look for .ko files in dir
+            # Prioritize the version names that match more complex patterns with dashes
             for potential_name in potential_kernels:
                 if "." in potential_name and "-" in potential_name:
                     kernel_version = potential_name
                     break
             if not kernel_version:
-                # Try again, ignoring dashes
+                # Fallback to a simpler version matching pattern
                 for potential_name in potential_kernels:
                     if "." in potential_name:
                         kernel_version = potential_name
                         break
 
-                # Fallback to picking the first one (TODO, could check for numbers at least)
-                if not kernel_version:
-                    logger.warning(
-                        "multiple kernel versions look valid (TODO improve selection logic, grabbing first)"
-                    )
-                    logger.warning(potential_kernels)
-                    kernel_version = potential_kernels.pop()
+            # Fallback to picking the first one (could improve this further)
+            if not kernel_version:
+                logger.warning(
+                    "Multiple kernel versions look valid (TODO improve selection logic, grabbing first)"
+                )
+                logger.warning(potential_kernels)
+                kernel_version = potential_kernels.pop()
 
         if kernel_version:
             # We have a kernel version, add it to our config
-            # XXX DEFAULT_KERNEL is like "4.10" but we need the full 
-            # path in /lib/modules like "4.10.0" so we add the .0. If the version
-            # changes in the future we might need to update this
-            result["static_files"] \
-                        [f"/lib/modules/{DEFAULT_KERNEL}.0"] = {
+            result["static_files"][f"/lib/modules/{DEFAULT_KERNEL}.0"] = {
                 "type": "symlink",
                 "target": f"/lib/modules/{kernel_version}",
             }
