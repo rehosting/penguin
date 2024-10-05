@@ -278,7 +278,7 @@ class GenePool:
             failure_name = new_gene.failure_name
             new_mits = new_gene.mitigations
         elif isinstance(new_gene, Mitigation):
-            failure_name = f"{new_gene.type}_{new_gene.name}"
+            failure_name = new_gene.name
             new_mits = frozenset([new_gene])
         else:
             raise(RuntimeError(f"Unexpected datatype for new_gene {new_gene}: {type(new_gene)}"))
@@ -634,14 +634,14 @@ class ConfigPopulation:
         """
         #At this point, we have parents and a starter population with children from crossover, make new configs until are population is full
         while len(self.chromosomes) < self.pop_size:
-            #should we fill up mitigations for new failures first?
-            #i.e., we have failures in the pool that aren't addressed by any config, do we just pick the first mitigation for all of them?
-
             #Originally did a growing configchromosome, but that was buggy and inefficient
             genes = random.choice(self.parents).genes
             gene_names = [g.name for g in genes]
 
             #First, make sure we have all genes in this chromosome (with a possibility of no mitigation)
+            #this allows us to get a bunch of diversity from learning configs
+            print(f"Gene names: {gene_names}")
+            print(f"Pool names: {self.pool.get_names()}")
             for g in self.pool.get_names():
                 if g not in gene_names:
                     self.logger.debug(f"Adding missing gene {g}")
@@ -664,9 +664,9 @@ class ConfigPopulation:
                 self.logger.debug(f"Before mutation: {genes}")
                 if m.name in [g.name for g in genes]:
                     #if we already have this gene, remove it
-                    self.logger.debug(f"Removing gene with name  {m.name}")
-                    self.logger.debug(f"all gene names: {[g.name for g in genes]}")
+                    self.logger.debug(f"removing gene with name  {m.name}")
                     genes = genes.difference({g for g in genes if g.name == m.name})
+                    self.logger.debug(f"all gene names (after removal): {[g.name for g in genes]}")
                 child = ConfigChromosome(None, genes.union({m}))
                 self.logger.debug(f"After mutation: {child.genes}")
 
