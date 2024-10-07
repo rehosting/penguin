@@ -3,6 +3,7 @@ import csv
 import sys
 import random
 import logging
+import re
 from types import SimpleNamespace
 from penguin import getColoredLogger
 from threading import Lock, RLock
@@ -68,13 +69,13 @@ def ga_search(
         #now, go through and record the fitnesses, and update mitigations based on failures
         mitigations = set()
         for config in population.chromosomes:
-            result = results[config.hash]
             try:
+                result = results[config.hash]
                 population.record_fitness(config, result["fitness"])
             except Exception as e:
                 logger.error(f"Error recording fitness for {config}: {e}")
                 import IPython; IPython.embed()
-                raise e
+                #raise e
             full_config = population.get_full_config(config)
             dummy_config = SimpleNamespace(info=full_config,exclusive=None)
             providers = get_mitigation_providers(full_config)
@@ -116,7 +117,8 @@ def ga_search(
                             new_mit = Mitigation(f, f.type, dict_to_frozenset(diff))
                             if m.exclusive:
                                 #we'll add a new config based on this config with the exclusive mitigation
-                                raise("Exclusive mitigations not supported in learning step")
+                                #raise("Exclusive mitigations not supported in learning step")
+                                logger.warn("Exclusive mitigations not supported in learning step")
                             else:
                                 mitigations.add(new_mit)
 
@@ -300,7 +302,12 @@ class GenePool:
         return self.genes.get(failure_name, frozenset())
 
     def failure_to_genename(failure: Failure):
-        return f"{failure.type}_{failure.friendly_name}"
+        #HACK: interfaces return overly unique names so they wouldn't be considered the same gene
+        if failure.type == "interfaces":
+            name = re.sub(r'_\d+$', '', failure.friendly_name)
+            return f"{failure.type}_{name}"
+        else:
+            return f"{failure.type}_{failure.friendly_name}"
 
     def get_names(self):
         return self.genes.keys()
@@ -482,8 +489,6 @@ class ConfigPopulation:
         # Run the configuration
         conf_yaml = os.path.join(run_dir, "config.yaml")
 
-        #FIXME: if this config has been run before, just return the results
-
         timeout = full_config.get("plugins", {}).get("core", {}).get("timeout", None)
         out_dir = os.path.join(run_dir, "output")
         os.makedirs(out_dir, exist_ok=True)
@@ -501,6 +506,10 @@ class ConfigPopulation:
 
         #Now, get the score and failures
         score = calculate_score(out_dir)
+        with open(os.path.join(run_dir, "fitness.txt"), "w") as f:
+            total = float(sum(score.values()))
+            f.write(f"{total}\n")
+
         #HACK: fake out config into the format that graph stuff expects by creating "Worker"
         worker = Worker(
             self.global_state, #global_state
