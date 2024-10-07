@@ -1,11 +1,8 @@
 import os
 import re
 import stat
-import struct
-import subprocess
-import tarfile
+import hashlib
 
-import elftools
 from abc import ABC
 from elftools.common.exceptions import ELFError
 from elftools.elf.elffile import ELFFile
@@ -38,7 +35,7 @@ class FileSystemHelper:
         results = {}
         if not ignore:
             ignore = []
-    
+
         # iterate through each file in the extracted root directory
         for root, dirs, files in os.walk(extract_root):
             for filename in files:
@@ -76,7 +73,7 @@ class FileSystemHelper:
 class StaticAnalysis(ABC):
     def __init__(self):
         pass
-    
+
     def run(self, extract_dir, prior_results):
         pass
 
@@ -103,7 +100,11 @@ class ArchId(StaticAnalysis):
                         if f.read(4) != b"\x7fELF":
                             continue
                         f.seek(0)
-                        ef = ELFFile(f)
+                        try:
+                            ef = ELFFile(f)
+                        except ELFError as e:
+                            logger.warning(f"Failed to parse ELF file {path}: {e}. Ignoring")
+                            continue
                         info = arch_filter(ef)
                     assert info.bits is not None
                     arch_counts[info.bits][info.arch] += 1
@@ -301,26 +302,26 @@ class PseudofileFinder(StaticAnalysis):
     IGLOO_ADDED_DEVICES = [ "autofs", "btrfs-control", "cfs0", "cfs1", "cfs2","cfs3",
                             "cfs4", "console", "cpu_dma_latency", "full", "fuse", "kmsg",
                             "loop-control", "loop0", "loop1", "loop2", "loop3", "loop4",
-                            "loop5", "loop6", "loop7", "mem", "memory_bandwidth", 
-                            "network_latency", "network_throughput", "null", "port", "ppp", 
-                            "psaux", "ptmx", "ptyp0", "ptyp1", "ptyp2", "ptyp3", "ptyp4", 
-                            "ptyp5", "ptyp6", "ptyp7", "ptyp8", "ptyp9", "ptypa", "ptypb", 
-                            "ptypc", "ptypd", "ptype", "ptypf", "ram0", "ram1", "ram10", 
-                            "ram11", "ram12", "ram13", "ram14", "ram15", "ram2", "ram3", 
-                            "ram4", "ram5", "ram6", "ram7", "ram8", "ram9", "random", 
-                            "tty", "tty0", "tty1", "tty10", "tty11", "tty12", "tty13", 
-                            "tty14", "tty15", "tty16", "tty17", "tty18", "tty19", "tty2", 
-                            "tty20", "tty21", "tty22", "tty23", "tty24", "tty25", "tty26", 
-                            "tty27", "tty28", "tty29", "tty3", "tty30", "tty31", "tty32", 
-                            "tty33", "tty34", "tty35", "tty36", "tty37", "tty38", "tty39", 
-                            "tty4", "tty40", "tty41", "tty42", "tty43", "tty44", "tty45", 
-                            "tty46", "tty47", "tty48", "tty49", "tty5", "tty50", "tty51", 
-                            "tty52", "tty53", "tty54", "tty55", "tty56", "tty57", "tty58", 
-                            "tty59", "tty6", "tty60", "tty61", "tty62", "tty63", "tty7", 
-                            "tty8", "tty9", "ttys0", "ttys1", "ttys2", "ttys3", "ttyp0", 
-                            "ttyp1", "ttyp2", "ttyp3", "ttyp4", "ttyp5", "ttyp6", "ttyp7", 
-                            "ttyp8", "ttyp9", "ttypa", "ttypb", "ttypc", "ttypd", "ttype", 
-                            "ttypf", "urandom", "vcs", "vcs1", "vcsa", "vcsa1", "vda", 
+                            "loop5", "loop6", "loop7", "mem", "memory_bandwidth",
+                            "network_latency", "network_throughput", "null", "port", "ppp",
+                            "psaux", "ptmx", "ptyp0", "ptyp1", "ptyp2", "ptyp3", "ptyp4",
+                            "ptyp5", "ptyp6", "ptyp7", "ptyp8", "ptyp9", "ptypa", "ptypb",
+                            "ptypc", "ptypd", "ptype", "ptypf", "ram0", "ram1", "ram10",
+                            "ram11", "ram12", "ram13", "ram14", "ram15", "ram2", "ram3",
+                            "ram4", "ram5", "ram6", "ram7", "ram8", "ram9", "random",
+                            "tty", "tty0", "tty1", "tty10", "tty11", "tty12", "tty13",
+                            "tty14", "tty15", "tty16", "tty17", "tty18", "tty19", "tty2",
+                            "tty20", "tty21", "tty22", "tty23", "tty24", "tty25", "tty26",
+                            "tty27", "tty28", "tty29", "tty3", "tty30", "tty31", "tty32",
+                            "tty33", "tty34", "tty35", "tty36", "tty37", "tty38", "tty39",
+                            "tty4", "tty40", "tty41", "tty42", "tty43", "tty44", "tty45",
+                            "tty46", "tty47", "tty48", "tty49", "tty5", "tty50", "tty51",
+                            "tty52", "tty53", "tty54", "tty55", "tty56", "tty57", "tty58",
+                            "tty59", "tty6", "tty60", "tty61", "tty62", "tty63", "tty7",
+                            "tty8", "tty9", "ttys0", "ttys1", "ttys2", "ttys3", "ttyp0",
+                            "ttyp1", "ttyp2", "ttyp3", "ttyp4", "ttyp5", "ttyp6", "ttyp7",
+                            "ttyp8", "ttyp9", "ttypa", "ttypb", "ttypc", "ttypd", "ttype",
+                            "ttypf", "urandom", "vcs", "vcs1", "vcsa", "vcsa1", "vda",
                             "vsock", "zero", "vga_arbiter"]
 
     def run(self, extract_dir, prior_results):
@@ -386,13 +387,39 @@ class ClusterCollector(StaticAnalysis):
     Collect summary statistics for this filesystem to help us later identify clusters
     '''
     def run(self, extract_dir, prior_results):
-        # Collect the basename of every executable file in the system
+        # Collect the basename + hash of every executable file in the system
+        all_files = set()
         executables = set()
+        executable_hashes = set()
+
         for root, _, files in os.walk(extract_dir):
             for f in files:
-                if os.path.exists(os.path.join(root, f)) and os.access(os.path.join(root, f), os.X_OK):
+                file_path = os.path.join(root, f)
+
+                if os.path.isfile(file_path):
+                    all_files.add(os.path.basename(f))
+
+                if os.path.isfile(file_path) and os.access(file_path, os.X_OK):
                     executables.add(os.path.basename(f))
 
+                    hash_value = self.compute_file_hash(file_path)
+                    executable_hashes.add(hash_value)
+
+
         return {
-            'executables': list(executables),
-        }
+                'files': list(all_files),
+                'executables': list(executables),
+                'executable_hashes': list(executable_hashes)
+            }
+
+    @staticmethod
+    def compute_file_hash(file_path):
+        sha256 = hashlib.sha256()
+        try:
+            with open(file_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    sha256.update(chunk)
+        except IOError:
+            # Handle cases where file cannot be read (e.g., permissions issues)
+            return None
+        return sha256.hexdigest()
