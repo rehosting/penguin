@@ -599,6 +599,18 @@ StaticFileAction = _union(
                 ),
             ),
         ),
+        dict(
+            discrim_val="shim",
+            title="Shim file",
+            description=None,
+            fields=(
+                (
+                    "target",
+                    str,
+                    Field(title="Target file we want the shim to be symlinked to"),
+                ),
+            ),
+        ),
     ),
 )
 

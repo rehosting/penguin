@@ -168,6 +168,60 @@ def do_copy_tar(g, tar_host_path, guest_target_path, merge=False):
         )
 
 
+def _move_modify_guestfs(g, file_path, file):
+    # Move a file (or directory and children) TO
+    # the key in yaml (so we can avoid duplicate keys)
+    if g.is_symlink(file["from"]):
+        # print(f"Warning: skipping move_from for symlink {file['from']}")
+        # return
+        # Let's delete it and make a new symlink (might break?) - xxx does break
+        dest = g.readlink(file["from"])
+        g.rm(file["from"])
+        # Resolve the symlink and make a new one
+        # XXX: This is a bit of a hack, but we'll resolve the symlink and make a new one
+        new_dest = dest
+        if dest[0] != "/":
+            new_dest = os.path.normpath(
+                os.path.join(os.path.dirname(file["from"]), dest)
+            )
+            logger.debug(
+                f"Moving symlink {file['from']}->{dest} to {file_path}->{new_dest}"
+            )
+
+        try:
+            g.ln_s(dest, file_path)
+        except Exception as e:
+            print(f"WARNING: could not recreate symlink {file_path} to {dest}: {e}")
+
+    elif not g.exists(file["from"]):
+        raise ValueError(f"Can't move {file['from']} as it doesn't exist")
+    else:
+        g.mv(file["from"], file_path)
+
+
+def _symlink_modify_guestfs(g, file_path, file):
+    # file['target'] is what we point to
+    linkpath = file_path  # This is what we create
+    # Delete linkpath AND CONTENTS if it already exists
+    if g.exists(linkpath):
+        try:
+            g.rm_rf(linkpath)
+        except RuntimeError as e:
+            # If directory is like /asdf/. guestfs gets mad. Just warn.
+            logger.warning(f"could not delete exixsting {linkpath} to recreate it: {e}")
+            return
+
+    # If target doesn't exist, we can't symlink
+    if not g.exists(file["target"]):
+        raise ValueError(
+            f"Can't add symlink to {file['target']} as it doesn't exist in requested symlink from {linkpath}"
+        )
+
+    g.ln_s(file["target"], linkpath)
+    # Chmod the symlink to be 777 always
+    g.chmod(0o777, linkpath)
+
+
 def _modify_guestfs(g, file_path, file, project_dir):
     """
     Given a guestfs handle, a file path, and a file dict, perform the specified action on the guestfs filesystem.
@@ -263,28 +317,7 @@ def _modify_guestfs(g, file_path, file, project_dir):
             g.mkdir_p(dirname)
 
         elif action == "symlink":
-            # file['target'] is what we point to
-            linkpath = file_path  # This is what we create
-            # Delete linkpath AND CONTENTS if it already exists
-            if g.exists(linkpath):
-                try:
-                    g.rm_rf(linkpath)
-                except RuntimeError as e:
-                    # If directory is like /asdf/. guestfs gets mad. Just warn.
-                    logger.warning(
-                        f"could not delete exixsting {linkpath} to recreate it: {e}"
-                    )
-                    return
-
-            # If target doesn't exist, we can't symlink
-            if not g.exists(file["target"]):
-                raise ValueError(
-                    f"Can't add symlink to {file['target']} as it doesn't exist in requested symlink from {linkpath}"
-                )
-
-            g.ln_s(file["target"], linkpath)
-            # Chmod the symlink to be 777 always
-            g.chmod(0o777, linkpath)
+            _symlink_modify_guestfs(g, file_path, file)
 
         elif action == "dev":
             major = file["major"]
@@ -311,34 +344,7 @@ def _modify_guestfs(g, file_path, file, project_dir):
         elif action == "move":
             # Move a file (or directory and children) TO
             # the key in yaml (so we can avoid duplicate keys)
-            if g.is_symlink(file["from"]):
-                # print(f"Warning: skipping move_from for symlink {file['from']}")
-                # return
-                # Let's delete it and make a new symlink (might break?) - xxx does break
-                dest = g.readlink(file["from"])
-                g.rm(file["from"])
-                # Resolve the symlink and make a new one
-                # XXX: This is a bit of a hack, but we'll resolve the symlink and make a new one
-                new_dest = dest
-                if dest[0] != "/":
-                    new_dest = os.path.normpath(
-                        os.path.join(os.path.dirname(file["from"]), dest)
-                    )
-                    logger.debug(
-                        f"Moving symlink {file['from']}->{dest} to {file_path}->{new_dest}"
-                    )
-
-                try:
-                    g.ln_s(dest, file_path)
-                except Exception as e:
-                    print(
-                        f"WARNING: could not recreate symlink {file_path} to {dest}: {e}"
-                    )
-
-            elif not g.exists(file["from"]):
-                raise ValueError(f"Can't move {file['from']} as it doesn't exist")
-            else:
-                g.mv(file["from"], file_path)
+            _move_modify_guestfs(g, file_path, file)
 
         elif action == "chmod":
             # Change the mode of a file or directory
@@ -356,6 +362,16 @@ def _modify_guestfs(g, file_path, file, project_dir):
             guest_target_path = file_path
             merge = file["merge"] if "merge" in file else False
             do_copy_tar(g, hp, guest_target_path, merge)
+
+        elif action == "shim":
+            # Store original file
+            move_file_path = "/igloo/utils/" + file_path.split("/")[-1] + ".orig"
+            move_file = {"type": "move", "from": file_path}
+            _move_modify_guestfs(g, move_file_path, move_file)
+
+            # Create a symlink to desired target
+            symlink_file = {"type": "symlink", "target": file["target"]}
+            _symlink_modify_guestfs(g, file_path, symlink_file)
 
         else:
             raise RuntimeError(f"Unknown file system action {action}")
@@ -445,7 +461,7 @@ def fs_make_config_changes(fs_base, config, project_dir):
     sorted_files = {
         k: v
         for k, v in files.items()
-        if v["type"] not in ["move_from", "dir", "symlink"]
+        if v["type"] not in ["move_from", "dir", "symlink", "shim"]
     }
     sorted_files = sorted(sorted_files.items(), key=lambda x: len(x[0]))
     for file_path, file in sorted_files:
@@ -459,7 +475,10 @@ def fs_make_config_changes(fs_base, config, project_dir):
             _modify_guestfs(g, resolved_file_path, file, project_dir)
 
     # Create symlinks after everything else because guestfs requires destination to exist
-    move_from_files = {k: v for k, v in files.items() if v["type"] == "symlink"}
+    # move_from_files = {k: v for k, v in files.items() if v["type"] == "symlink"}
+    move_from_files = {
+        k: v for k, v in files.items() if v["type"] in ["symlink", "shim"]
+    }
     sorted_move_from_files = sorted(
         move_from_files.items(), key=lambda x: len(files[x[0]]["target"])
     )
