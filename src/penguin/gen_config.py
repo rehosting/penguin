@@ -101,10 +101,12 @@ class ConfigBuilder:
 
         results = {}
         for analysis in static_analyses:
-            # Call each analysis, if we get results update our dict and store on disk
-            if this_result := analysis().run(extracted_dir, results):
-                results[analysis.__name__] = this_result
+            # Call each analysis and store results
+            this_result = analysis().run(extracted_dir, results)
+            results[analysis.__name__] = this_result
 
+            # If we have results, store on disk. Always store in results dict, even if empty
+            if this_result:
                 with open(results_dir / f"{analysis.__name__}.yaml", "w") as f:
                     yaml.dump(this_result, f)
 
