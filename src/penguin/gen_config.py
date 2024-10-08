@@ -97,6 +97,7 @@ class ConfigBuilder:
             EnvFinder,
             PseudofileFinder,
             ClusterCollector,
+            LibrarySymbols,
         ]
 
         results = {}
@@ -191,7 +192,9 @@ class ConfigBuilder:
             NetdevsPatch(),
             PseudofilesPatch(),
             LibInjectSymlinks(extract_dir),
-            LibInjectDefaultAliases(),
+            LibInjectStringIntrospection(static_results['LibrarySymbols']),
+            LibInjectDynamicAliases(static_results['LibrarySymbols']),
+            LibInjectFixedAliases(),
             ForceWWW(extract_dir),
             GenerateMissingDirs(fs_archive, archive_files),
             GenerateReferencedDirs(extract_dir),
@@ -208,7 +211,7 @@ class ConfigBuilder:
             NvramDefaults(),
             NvramConfigRecoveryWild(extract_dir),
             NvramConfigRecovery(extract_dir),
-            NvramLibraryRecovery(extract_dir, static_results['ArchId']),
+            NvramLibraryRecovery(static_results['LibrarySymbols']),
             AddPseudofiles(static_results['PseudofileFinder']),
         ]
 
