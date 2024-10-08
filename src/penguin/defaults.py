@@ -137,77 +137,159 @@ default_pseudofiles = {
     "/proc/rt3052/mii/data": _default_pseudo_model,
 }
 
-default_lib_aliases = {
-    # Device specific FirmAE hacks - unknown which devices these target
+#### LIB INJECT MAPPINGS
+default_libinject_string_introspection = {
+    "strcmp": "libinject_strcmp",
+    "strncmp": "libinject_strncmp",
+    "getenv": "libinject_getenv",
+    "strstr": "libinject_strstr"
+}
+
+atheros_broadcom = {
+    "nvram_get_nvramspace": "libinject_nvram_get_nvramspace",
+    "nvram_nget": "libinject_nvram_nget",
+    "nvram_nset": "libinject_nvram_nset",
+    "nvram_nset_int": "libinject_nvram_nset_int",
+    "nvram_nmatch": "libinject_nvram_nmatch"
+}
+
+realtek = {
+    "apmib_get": "libinject_apmib_get",
+    "apmib_set": "libinject_apmib_set"
+}
+
+netgear_acos = {
+    "WAN_ith_CONFIG_GET": "libinject_WAN_ith_CONFIG_GET"
+}
+
+zyxel_or_edimax = {
+    "nvram_getall_adv": "libinject_nvram_getall_adv",
+    "nvram_get_adv": "libinject_nvram_get_adv",
+    "nvram_set_adv": "libinject_nvram_set_adv",
+    "nvram_state": "libinject_nvram_state",
+    "envram_commit": "libinject_envram_commit",
+    "envram_default": "libinject_envram_default",
+    "envram_load": "libinject_envram_load",
+    "envram_safe_load": "libinject_envram_safe_load",
+    "envram_match": "libinject_envram_match",
+    "envram_get": "libinject_envram_get",
+    "envram_getf": "libinject_envram_getf",
+    "envram_set": "libinject_envram_set",
+    "envram_setf": "libinject_envram_setf",
+    "envram_unset": "libinject_envram_unset"
+}
+
+ralink = {
+    "nvram_bufget": "libinject_nvram_bufget",
+    "nvram_bufset": "libinject_nvram_bufset"
+}
+
+# One to one mappings of orig fn to shim
+base_names = {
+    "nvram_init": "libinject_nvram_init",
+    "nvram_reset": "libinject_nvram_reset",
+    "nvram_clear": "libinject_nvram_clear",
+    "nvram_close": "libinject_nvram_close",
+    "nvram_commit": "libinject_nvram_commit",
+    "nvram_get": "libinject_nvram_get",
+    "nvram_safe_get": "libinject_nvram_safe_get",
+    "nvram_default_get": "libinject_nvram_default_get",
+    "nvram_get_buf": "libinject_nvram_get_buf",
+    "nvram_get_int": "libinject_nvram_get_int",
+    "nvram_getall": "libinject_nvram_getall",
+    "nvram_set": "libinject_nvram_set",
+    "nvram_set_int": "libinject_nvram_set_int",
+    "nvram_unset": "libinject_nvram_unset",
+    "nvram_safe_unset": "libinject_nvram_safe_unset",
+    "nvram_list_add": "libinject_nvram_list_add",
+    "nvram_list_exist": "libinject_nvram_list_exist",
+    "nvram_list_del": "libinject_nvram_list_del",
+    "nvram_match": "libinject_nvram_match",
+    "nvram_invmatch": "libinject_nvram_invmatch",
+    "nvram_parse_nvram_from_file": "libinject_parse_nvram_from_file",
+}
+
+# Alternative names for the same function
+base_aliases = {
     # Some seem sort of reasonable/generic (load -> init?)
-        "_nvram_get": "nvram_get",
-        "nvram_load": "nvram_init",
-        "nvram_get_state": "nvram_get_int",
-        "nvram_set_state": "nvram_set_int",
-        "nvram_restore_default": "nvram_reset",
-        "nvram_upgrade": "nvram_commit",
-        "nvram_check": "true",
-        "nvram_flag_reset": "true",
-        "nvram_flag_set": "true",
-        "nvram_loaddefault": "true",
-        "VCTGetPortAutoNegSetting": "false1",
-        "get_default_mac": "true",
+    "nvram_load": "libinject_nvram_init",
+    "nvram_loaddefault": "libinject_ret_1",
+    "_nvram_get": "libinject_nvram_get",
+    "nvram_get_state": "libinject_nvram_get_int",
+    "nvram_set_state": "libinject_nvram_set_int",
+    "nvram_restore_default": "libinject_nvram_reset",
+    "nvram_upgrade": "libinject_nvram_commit",
+    "VCTGetPortAutoNegSetting": "libinject_ret_0_arg",
+    "nvram_commit_adv": "libinject_nvram_commit",
+    "nvram_check": "libinject_ret_1",
+    "nvram_flag_set": "libinject_ret_1",
+    "nvram_flag_reset": "libinject_ret_1",
+    "get_default_mac": "libinject_ret_1",
 
-        # getf/setf -> envram implementation
-        "nvram_getf": "envram_getf",
-        "nvram_setf": "envram_setf",
+    # getf/setf -> envram implementation
+    "nvram_getf": "libinject_envram_getf",
+    "nvram_setf": "libinject_envram_setf",
 
-        # Master/slave -> false
-        "nvram_master_init": "false",
-        "nvram_slave_init": "false",
+    # Master/slave -> ret 0
+    "nvram_master_init": "libinject_ret_0",
+    "nvram_slave_init": "libinject_ret_0",
 
-        # "_adv" shim
-        "nvram_lock_adv": "true",
-        "nvram_unlock_adv": "true",
-        "nvram_commit_adv": "nvram_commit",
-	
-        # "WAN_" shims
-        "WAN_ith_CONFIG_SET_AS_INT": "nvram_nset_int",
-        "WAN_ith_CONFIG_SET_AS_STR": "nvram_nset",
+    # _adv -> ret 1
+    "nvram_unlock_adv": "libinject_ret_1",
+    "nvram_lock_adv": "libinject_ret_1",
 
-
-    # Netgear (acos) specific FirmAE hack
-    "acosNvramConfig_get": "nvram_get",
-    "acosNvramConfig_init": "nvram_init",
-    "acosNvramConfig_invmatch": "nvram_invmatch",
-    "acosNvramConfig_loadFactoryDefault": "nvram_loaddefault",
-    "acosNvramConfig_match": "nvram_match",
-    "acosNvramConfig_read": "nvram_get_buf",
-    "acosNvramConfig_save": "nvram_commit",
-    "acosNvramConfig_save_config": "nvram_commit",
-    "acosNvramConfig_set": "nvram_set",
-    "acosNvramConfig_unset": "nvram_unset",
-    "acosNvramConfig_write": "nvram_set",
-    "acos_nvram_commit": "nvram_commit",
-    "acos_nvram_get": "nvram_get",
-    "acos_nvram_init": "nvram_init",
-    "acos_nvram_loaddefault": "true",
-    "acos_nvram_read": "nvram_get_buf",
-    "acos_nvram_set": "nvram_set",
-    "acos_nvram_unset": "nvram_unset",
+    # "WAN_" shims
+    "WAN_ith_CONFIG_SET_AS_STR": "libinject_nvram_nset",
+    "WAN_ith_CONFIG_SET_AS_INT": "libinject_nvram_nset_int",
 
 	# Netgear (6250/6400) specific FirmAE hack
-    "agApi_fwGetFirstTriggerConf": "true1",
-    "agApi_fwGetNextTriggerConf": "true1",
+    "agApi_fwGetFirstTriggerConf": "libinject_ret_1_arg",
+    "agApi_fwGetNextTriggerConf": "libinject_ret_1_arg",
 
     # Realtek specific FirmAE hacks
-    "apmib_init": "true",
-    "apmib_reinit": "true",
-    "apmib_update": "true",
+    "apmib_init": "libinject_ret_1",
+    "apmib_reinit": "libinject_ret_1",
+    "apmib_update": "libinject_ret_1",
 
-	# D-Link specific FirmAE hacks
-    "artblock_fast_get": "nvram_safe_get",
-    "artblock_get": "nvram_get",
-    "artblock_safe_get": "nvram_safe_get",
-    "artblock_set": "nvram_set",
+    # Netgear (acos) specific FirmAE hack
+    "acos_nvram_init": "libinject_nvram_init",
+    "acos_nvram_get": "libinject_nvram_get",
+    "acos_nvram_read": "libinject_nvram_get_buf",
+    "acos_nvram_set": "libinject_nvram_set",
+    "acos_nvram_loaddefault": "libinject_ret_1",
+    "acos_nvram_unset": "libinject_nvram_unset",
+    "acos_nvram_commit": "libinject_nvram_commit",
+    "acosNvramConfig_init": "libinject_nvram_init",
+    "acosNvramConfig_get": "libinject_nvram_get",
+    "acosNvramConfig_read": "libinject_nvram_get_buf",
+    "acosNvramConfig_set": "libinject_nvram_set",
+    "acosNvramConfig_write": "libinject_nvram_set",
+    "acosNvramConfig_unset": "libinject_nvram_unset",
+    "acosNvramConfig_match": "libinject_nvram_match",
+    "acosNvramConfig_invmatch": "libinject_nvram_invmatch",
+    "acosNvramConfig_save": "libinject_nvram_commit",
+    "acosNvramConfig_save_config": "libinject_nvram_commit",
+    "acosNvramConfig_loadFactoryDefault": "libinject_ret_1",
 
-	# ASUS specific FirmAE hacks
-    "envram_get_func": "envram_get",
-    "envram_set_func": "envram_set",
-    "envram_unset_func": "envram_unset",
+    # D-Link specific FirmAE hacks
+    "artblock_get": "libinject_nvram_get",
+    "artblock_fast_get": "libinject_nvram_safe_get",
+    "artblock_safe_get": "libinject_nvram_safe_get",
+    "artblock_set": "libinject_nvram_set",
+
+    # ASUS specific FirmAE hacks
+    "envram_get_func": "libinject_envram_get",
+    "envram_set_func": "libinject_envram_set",
+    "envram_unset_func": "libinject_envram_unset",
 }
+
+# All variables together
+default_lib_aliases = {k: v for x in [
+    atheros_broadcom,
+    realtek,
+    netgear_acos,
+    zyxel_or_edimax,
+    ralink,
+    base_names,
+    base_aliases
+] for k, v in x.items()}
