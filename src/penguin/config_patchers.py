@@ -529,6 +529,11 @@ class LibInjectSymlinks(PatchGenerator):
                 "type": "symlink",
                 "target": f"/igloo/lib_inject_{abi}.so",
             }
+
+        if len(result.get("static_files", [])):
+            # LD_PRELOAD if we set any symlinks
+            result["env"] = {"LD_PRELOAD": "lib_inject.so"}
+
         return result
 
 class LibInjectStringIntrospection(PatchGenerator):
