@@ -454,7 +454,7 @@ def penguin_explore(args):
     if args.output is None:
         # Default to results/explore in the project directory for graph and ga_explore for genetic algorithm
         # Allows to more easily compare them side-by-side
-        if args.ga_explore:
+        if args.cmd == "ga_explore":
             args.output = os.path.dirname(args.config) + "/ga_explore/"
         else:
             args.output = os.path.dirname(args.config) + "/explore/"
@@ -486,7 +486,7 @@ def penguin_explore(args):
         niters=args.niters,
         nthreads=args.nworkers,
         timeout=args.timeout,
-        ga_explore=args.ga_explore
+        ga_explore=args.cmd == "ga_explore",
     )
 
 
@@ -591,7 +591,6 @@ contains details on the configuration file format and options.
     elif args.cmd == "explore":
         penguin_explore(args)
     elif args.cmd == "ga_explore":
-        args.ga_explore=True
         penguin_explore(args)
     else:
         parser.print_help()
