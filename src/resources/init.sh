@@ -17,7 +17,7 @@ fi
 
 if [ ! -z "${igloo_init}" ]; then
   echo '[IGLOO INIT] Running specified init binary';
-  LD_PRELOAD=lib_inject.so exec "${igloo_init}"
+  exec "${igloo_init}"
 fi
 echo "[IGLOO INIT] Fatal: no igloo_init specified in env. Abort"
 exit 1

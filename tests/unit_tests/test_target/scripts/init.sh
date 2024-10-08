@@ -62,14 +62,14 @@ fi
 
 if [ ! -z "${ROOT_SHELL}" ]; then
   echo '[IGLOO INIT] Launching root shell';
-  LD_PRELOAD=lib_inject.so ENV=/igloo/utils/igloo_profile /igloo/utils/console &
+  ENV=/igloo/utils/igloo_profile /igloo/utils/console &
   unset ROOT_SHELL
 fi
 
 if [ ! -z "${WWW}" ]; then
   if [ -e /igloo/utils/www_cmds ]; then
     echo '[IGLOO INIT] Force-launching webserver commands';
-    LD_PRELOAD=lib_inject.so /igloo/utils/sh /igloo/utils/www_cmds &
+    /igloo/utils/sh /igloo/utils/www_cmds &
   fi
   unset WWW
 fi
@@ -145,7 +145,7 @@ fi
 
 if [ ! -z "${igloo_init}" ]; then
   echo '[IGLOO INIT] Running specified init binary';
-  LD_PRELOAD=lib_inject.so exec "${igloo_init}"
+  exec "${igloo_init}"
 fi
 echo "[IGLOO INIT] Fatal: no igloo_init specified in env. Abort"
 exit 1
