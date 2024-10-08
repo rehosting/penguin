@@ -21,6 +21,7 @@ from .defaults import (
     default_netdevs,
     default_plugins,
     default_pseudofiles,
+    default_libinject_string_introspection,
     DEFAULT_KERNEL,
     default_version as DEFAULT_VERSION,
     static_dir as STATIC_DIR
@@ -530,17 +531,65 @@ class LibInjectSymlinks(PatchGenerator):
             }
         return result
 
-class LibInjectDefaultAliases(PatchGenerator):
+class LibInjectStringIntrospection(PatchGenerator):
     '''
-    Set default aliases in libinject
+    Add LibInject aliases for string introspection (e.g., for comparison detection).
+    For each method we see in the filesystem that's in our list of shim targets, add the shim
     '''
-    def __init__(self):
+    def __init__(self, library_info):
         self.enabled = True
-        self.patch_name = 'lib_inject.defaults'
+        self.patch_name = 'lib_inject.string_introspection'
+        self.library_info = library_info
 
     def generate(self, patches):
-        if len(default_lib_aliases):
-            return {'lib_inject': {'aliases': default_lib_aliases}}
+        aliases = {}
+        for _, exported_syms in self.library_info.get("symbols", {}).items():
+            for sym in exported_syms:
+                if sym in default_libinject_string_introspection:
+                    aliases[sym] = default_libinject_string_introspection[sym]
+
+        return {'lib_inject': {'aliases': aliases}}
+
+class LibInjectDynamicAliases(PatchGenerator):
+    '''
+    Set default aliases in libinject based on library analysis. If one of the defaults
+    is present in a library, we'll add it to the libinject alias list
+    '''
+    def __init__(self, library_info):
+        self.enabled = True
+        self.patch_name = 'lib_inject.dynamic_models'
+        self.library_info = library_info
+        self.unmodeled = set()
+
+    def generate(self, patches):
+        aliases = {}
+
+        # Only copy values from our defaults if we see that same symbol exported
+        for _, exported_syms in self.library_info.get("symbols", {}).items():
+            for sym in exported_syms:
+                if sym in default_lib_aliases:
+                    aliases[sym] = default_lib_aliases[sym]
+                elif "nvram" in sym and sym not in self.unmodeled:
+                    self.unmodeled.add(sym)
+
+        if len(self.unmodeled):
+            logger.info(f"Detected {len(self.unmodeled)} unmodeled symbols around nvram. You may wish to create libinject models for these:")
+            for sym in self.unmodeled:
+                logger.info(f"\t{sym}")
+
+        if len(aliases):
+            return {'lib_inject': {'aliases': aliases}}
+
+class LibInjectFixedAliases(PatchGenerator):
+    '''
+    Set all aliases in libinject from our defaults
+    '''
+    def __init__(self):
+        self.enabled = False
+        self.patch_name = 'lib_inject.fixed_models'
+
+    def generate(self, patches):
+        return {'lib_inject': {'aliases': default_lib_aliases}}
 
 
 class ForceWWW(PatchGenerator):
@@ -1056,224 +1105,18 @@ class ShimFwEnv(ShimBinaries,PatchGenerator):
 
 
 class NvramLibraryRecovery(PatchGenerator):
-    """
-    Examine all the libraries (.so, .so.* files) in the filesystem. Use pyelftools
-    to parse and extract any definitions for the NVRAM_KEYS variables.
-
-    XXX: Should this be a static analysis pass that just has results consumed
-    during config generation? I think so
-    """
-    NVRAM_KEYS = ["Nvrams", "router_defaults"]
-
-    def __init__(self, extract_dir, arch_info):
-        self.extract_dir = extract_dir
-        self.archend = arch_end(arch_info) # If this is None we'll fail in BasePatch
-        self.patch_name = "nvram.01_library_analysis"
-        self.enabled = True
-
-    @staticmethod
-    def _find_symbol_address(elffile, symbol_name):
-        try:
-            symbol_tables = [
-                s
-                for s in elffile.iter_sections()
-                if isinstance(s, elftools.elf.sections.SymbolTableSection)
-            ]
-        except elftools.common.exceptions.ELFParseError:
-            return None, None
-
-        for section in symbol_tables:
-            if symbol := section.get_symbol_by_name(symbol_name):
-                symbol = symbol[0]
-                return (
-                    symbol["st_value"],
-                    symbol["st_shndx"],
-                )  # Return symbol address and section index
-        return None, None
-
-    @staticmethod
-    def _get_string_from_address(elffile, address, is_64=False, is_eb=False):
-        for section in elffile.iter_sections():
-            start_addr = section["sh_addr"]
-            end_addr = start_addr + section.data_size
-            if start_addr <= address < end_addr:
-                offset_within_section = address - start_addr
-                data = section.data()[offset_within_section:]
-                str_end = data.find(b"\x00")
-                if str_end != -1:
-                    try:
-                        return data[:str_end].decode("utf-8")
-                    except UnicodeDecodeError:
-                        # print(f"Failed to decode string: {data[:str_end]}")
-                        pass
-        return None
-
-    @staticmethod
-    def _analyze_library(elf_path, archend):
-        """
-        Examine a single library. Is there anything we care about in here?
-
-        1) look for exported tables: router_defaults and Nvrams to place in default nvram config
-        2) report all exported function names
-        """
-
-        is_eb = "eb" in archend
-        is_64 = "64" in archend
-
-        symbols = {}  # Symbol name -> relative(?) address
-        nvram_data = {}  # key -> value (may be empty string)
-
-        def _is_elf(filename):
-            try:
-                with open(filename, "rb") as f:
-                    magic = f.read(4)
-                return magic == b"\x7fELF"
-            except IOError:
-                return False
-
-        with open(elf_path, "rb") as f:
-            try:
-                elffile = ELFFile(f)
-            except elftools.common.exceptions.ELFError:
-                # elftools failed to parse our file. If it's actually an ELF, warn
-                if _is_elf(elf_path):
-                    logger.warning(
-                        f"Failed to parse {elf_path} as an ELF file when analyzing libraries"
-                    )
-                return nvram_data, symbols
-
-            try:
-                match = ".dynsym" in [s.name for s in elffile.iter_sections()]
-            except elftools.common.exceptions.ELFParseError:
-                logger.warning(
-                    f"Failed to find .dynsym section in {elf_path} when analyzing libraries"
-                )
-                match = False
-
-            if match:
-                dynsym = elffile.get_section_by_name(".dynsym")
-                for symbol in dynsym.iter_symbols():
-
-                    # Filter for exported functions??
-                    if symbol["st_info"]["bind"] == "STB_GLOBAL":
-                        symbols[symbol.name] = symbol["st_value"]
-
-            # Check for nvram keys
-            for nvram_key in NvramLibraryRecovery.NVRAM_KEYS:
-                address, section_index = NvramLibraryRecovery._find_symbol_address(elffile, nvram_key)
-                if address is None:
-                    continue
-
-                if section_index == "SHN_UNDEF":
-                    # This is a common case for shared libraries, it means
-                    # the symbol is defined in another library?
-                    continue
-
-                try:
-                    section = elffile.get_section(section_index)
-                except TypeError:
-                    logger.warning(
-                        f"Failed to get section {section_index} for symbol {nvram_key} in {elf_path} when analyzing libraries"
-                    )
-                    continue
-                data = section.data()
-                start_addr = section["sh_addr"]
-                offset = address - start_addr
-
-                pointer_size = 8 if is_64 else 4
-                unpack_format = f"{'>' if is_eb else '<'}{'Q' if is_64 else 'I'}"
-
-                # We expect key_ptr, value_ptr, NULL, ...
-                # note that we could have key_ptr, NULL, NULL
-                # end when we get a NULL key
-
-                fail_count = 0
-                while offset + (pointer_size * 3) < len(data):
-                    ptrs = [
-                        struct.unpack(
-                            unpack_format,
-                            data[
-                                offset + i * pointer_size: offset + (i + 1) * pointer_size
-                            ],
-                        )[0]
-                        for i in range(3)
-                    ]
-                    if ptrs[0] != 0:
-                        key = NvramLibraryRecovery._get_string_from_address(elffile, ptrs[0], is_64, is_eb)
-                        val = NvramLibraryRecovery._get_string_from_address(elffile, ptrs[1], is_64, is_eb)
-
-                        if (
-                            key
-                            and not any([x in key for x in ' /\t\n\r<>"'])
-                            and not key[0].isnumeric()
-                        ):
-                            fail_count = 0
-                            if key not in nvram_data:
-                                nvram_data[key] = val
-                        else:
-                            fail_count += 1
-                    else:
-                        # Should we break here?
-                        # For now let's just keep going (be sure to keep offset increment below)
-                        # so we're more likely to find additional keys - might get false positives though
-                        pass
-
-                    if fail_count > 5:
-                        # Probably just outside of the table?
-                        break
-
-                    offset += pointer_size * 3
-
-        return nvram_data, symbols
+    '''
+    During static analysis the LibrarySymbols class collected
+    key->value mappings from libraries exporting some common nvram
+    defaults symbols ("Nvrams", "router_defaults") - add these to our
+    nvram config if we have any
+    '''
+    def __init__(self, library_info):
+        self.library_info = library_info
 
     def generate(self, patches):
-        symbols = {}
-        nvram = {}
-
-        # Now let's examine each extracted library
-        for root, _, files in os.walk(self.extract_dir):
-            for file in files:
-                file_path = Path(root) / file
-                if file_path.is_file() and \
-                        (str(file_path).endswith(".so") or ".so." in str(file_path)):
-                    try:
-                        found_nvram, found_syms = self._analyze_library(file_path,
-                                                                        self.archend)
-                    except Exception as e:
-                        logger.error(
-                            f"Unhandled exception in _analyze_library for {file_path}: {e}"
-                        )
-                        continue
-                    tmpless_path = str(file_path).replace(str(self.extract_dir), "")
-                    for symname, offset in found_syms.items():
-                        symbols[(tmpless_path, symname)] = offset
-                    for key, value in found_nvram.items():
-                        nvram[(tmpless_path, key)] = value
-
-        # Let's use the csv format for now
-        #with open(os.path.join(outdir, "library_symbols.csv"), "w") as f:
-        #    writer = csv.writer(f)
-        #    writer.writerow(["path", "symbol", "offset"])
-        #    for (path, symname), offset in symbols.items():
-        #        writer.writerow([path, symname, offset])
-
-        #with open(os.path.join(outdir, "nvram.csv"), "w") as f:
-        #    writer = csv.writer(f)
-        #    writer.writerow(["source", "path", "key", "value"])
-        #    for (path, key), value in nvram.items():
-        #        if key is not None and len(key):
-        #            writer.writerow(
-        #                ["libraries", path, key, value if value is not None else ""]
-        #            )
-
-        # XXX Is this right?
-        results = {} # key -> value
-        for (path, key), value in nvram.items():
-                if key is not None and len(key) and value is not None:
-                    results[key] = value
-        
-        if len(results):
-            return {'nvram': results}
+        if "nvram" in self.library_info and len(self.library_info["nvram"]):
+            return {'nvram': self.library_info["nvram"]}
 
 class NvramConfigRecovery(PatchGenerator):
     """
