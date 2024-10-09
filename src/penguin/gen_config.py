@@ -206,6 +206,7 @@ class ConfigBuilder:
             ShimStopBins(archive_files),
             ShimNoModules(archive_files),
             ShimBusybox(archive_files),
+            ShimCrypto(archive_files),
             #ShimFwEnv(archive_files),
             NvramFirmAEFileSpecific(extract_dir),
             NvramDefaults(),

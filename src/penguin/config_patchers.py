@@ -386,12 +386,6 @@ class BasePatch(PatchGenerator):
                     "type": "symlink",
                     "target": "/igloo/utils/busybox",
                 },
-                # Pre-computed crypto keys
-                "/igloo/keys/*": {
-                    "type": "host_file",
-                    "mode": 0o444,
-                    "host_path": os.path.join(*[resources, "static_keys", "*"])
-                },
                 # Add ltrace prototype files. They go in /igloo/ltrace because /igloo is treated as ltrace's /usr/share, and the files are normally in /usr/share/ltrace.
                 "/igloo/ltrace/*": {
                     "type": "host_file",
@@ -1090,6 +1084,32 @@ class ShimBusybox(ShimBinaries,PatchGenerator):
             "sh": "busybox",
             "bash": "bash",
         })
+
+class ShimCrypto(ShimBinaries,PatchGenerator):
+    def __init__(self, files):
+        super().__init__(files)
+        self.patch_name = "static.shims.crypto"
+        self.enabled = False
+
+    def generate(self, patches):
+        resources = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources")
+
+        result =  self.make_shims({
+            "openssl": "openssl",
+            "ssh-keygen": "ssh-keygen"
+        })
+
+        if not len(result.get("static_files", [])):
+            # Nothing to shim, don't add the key copy
+            return
+
+        result["static_files"]["/igloo/keys/*"] = {
+                "type": "host_file",
+                "mode": 0o444,
+                "host_path": os.path.join(*[resources, "static_keys", "*"])
+        }
+
+        return result
 
 class ShimFwEnv(ShimBinaries,PatchGenerator):
     '''
