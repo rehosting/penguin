@@ -123,6 +123,7 @@ class FileFailures(PyPlugin):
         self.logger = getColoredLogger("plugins.pseudofiles")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel(logging.DEBUG)
+        self.did_mtd_warn = False # Set if we've warned about misconfigured MTD devices
 
         # XXX: It has seemed like this should be 1 for some architectures, but that can't be right?
         self.ENOENT = 2
@@ -394,6 +395,7 @@ class FileFailures(PyPlugin):
         # For each device in our config that's /dev/mtdX, we'll add a line to the buffer
         # Buffer size is limited to 512 in kernel for now.
         buf = ""
+        did_warn = False
         for filename, details in self.config["pseudofiles"].items():
             if not filename.startswith("/dev/mtd"):
                 continue
@@ -403,20 +405,27 @@ class FileFailures(PyPlugin):
                 idx = idx[1:]
 
             if not idx.isdigit():
-                self.logger.warning(
-                    f"Mtd device {filename} is non-numeric. Skipping in /proc/mtd report"
-                )
+                if not self.did_mtd_warn:
+                    did_warn = True
+                    self.logger.warning(
+                        f"Mtd device {filename} is non-numeric. Skipping in /proc/mtd report"
+                    )
                 continue
 
             if "name" not in details:
-                self.logger.warning(
-                    f"Mtd device {filename} has no name. Skipping in /proc/mtd report"
-                )
+                if not self.did_mtd_warn:
+                    did_warn = True
+                    self.logger.warning(
+                        f"Mtd device {filename} has no name. Skipping in /proc/mtd report"
+                    )
                 continue
 
             buf += 'mtd{}: {:08x} {:08x} "{}"\n'.format(
                 int(idx), 0x1000000, 0x20000, details["name"]
             )
+
+        if did_warn:
+            self.did_mtd_warn = True
 
         buf = buf[offset: offset + length].encode()
 
