@@ -285,7 +285,7 @@ class NvramHelper:
             for root, _, files in os.walk(fs_path):
                 for file in files:
                     abs_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(abs_path, fs_path)
+                    rel_path = "./" + os.path.relpath(abs_path, fs_path)
                     
                     if rel_path in nvram_paths:
                         # Exact match - we already checked this
