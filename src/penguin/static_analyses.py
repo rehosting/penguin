@@ -12,16 +12,6 @@ from pathlib import Path
 from penguin import getColoredLogger
 
 from .arch import arch_filter, arch_end
-from .defaults import (
-    default_init_script,
-    default_lib_aliases,
-    default_netdevs,
-    default_plugins,
-    DEFAULT_KERNEL,
-    default_version as DEFAULT_VERSION,
-    static_dir as STATIC_DIR
-)
-
 logger = getColoredLogger("penguin.static_analyses")
 
 class FileSystemHelper:
@@ -504,7 +494,7 @@ class InterfaceFinder(StaticAnalysis):
 
         bad_prefixes = ["veth", "br"]
         bad_vals = ["lo", "set", "add", "del", "route", "show", "addr", "link", "up", "down",
-                     "flush", "help"]
+                     "flush", "help", "default"]
 
         # Filter out the default network interfaces
         interfaces = [iface for iface in interfaces if \
