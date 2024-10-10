@@ -88,6 +88,17 @@ _default_dev_model["ioctl"] = {
     }
 }
 
+core_pseudofiles = {
+	# Reasonable generic /dev entries
+    "/dev/gpio": _default_dev_model,
+    "/dev/nvram": _default_dev_model,
+    "/dev/watchdog": _default_dev_model,
+
+	# Reasonable generic /proc entries
+    "/proc/gpio": _default_pseudo_model,
+    "/proc/led": _default_pseudo_model,
+}
+
 # Hardcoded ioctl models for some devices from FirmAE
 _dev_acos_pseudo_model = deepcopy(_default_dev_model)
 _dev_acos_pseudo_model["ioctl"].update({
@@ -97,17 +108,7 @@ _dev_acos_pseudo_model["ioctl"].update({
         0x80046432: {"model": "return_const", "val": 1},
     })
 
-default_pseudofiles = {
-
-	# Reasonable generic /dev entries
-    "/dev/gpio": _default_dev_model,
-    "/dev/nvram": _default_dev_model,
-    "/dev/watchdog": _default_dev_model,
-
-	# Reasonable generic /proc entries
-    "/proc/gpio": _default_pseudo_model,
-    "/proc/led": _default_pseudo_model,
-
+expert_knowledge_pseudofiles = {
 	# Netgear specific unique device + behavior
     "/dev/acos_nat_cli": _dev_acos_pseudo_model,
 

@@ -20,7 +20,8 @@ from .defaults import (
     default_lib_aliases,
     default_netdevs,
     default_plugins,
-    default_pseudofiles,
+    core_pseudofiles,
+    expert_knowledge_pseudofiles,
     default_libinject_string_introspection,
     DEFAULT_KERNEL,
     default_version as DEFAULT_VERSION,
@@ -436,7 +437,7 @@ class BasePatch(PatchGenerator):
 
 class AutoExplorePatch(PatchGenerator):
     '''
-    Auto explore: Disable root shell, add timeout, enable nmap 
+    Auto explore: force_www(?), root_shell, nmap, coverage
     '''
     def __init__(self, timeout=300):
         self.patch_name = "auto_explore"
@@ -446,39 +447,68 @@ class AutoExplorePatch(PatchGenerator):
     def generate(self, patches):
         return {
             "core": {
-                "root_shell": False
+                "root_shell": False,
+                "force_www": True
             },
             "plugins": {
-                "core": {
-                    #"timeout": self.timeout # XXX: Isn't this set at runtime?
-                },
                 "nmap": {
+                    "enabled": True
+                },
+                "coverage": {
                     "enabled": True
                 }
             }
         }
 
-class NetdevsPatch(PatchGenerator):
+class NetdevsDefault(PatchGenerator):
     '''
     Add list of default network device names
     '''
     def __init__(self):
         self.enabled = True
-        self.patch_name = "default.netdevs"
+        self.patch_name = "netdevs.default"
 
     def generate(self, patches):
         return { 'netdevs': default_netdevs }
 
-class PseudofilesPatch(PatchGenerator):
+class NetdevsDynamic(PatchGenerator):
     '''
-    Add default pseudofiles
+    Add list of network device names observed in static analysis
+    '''
+    def __init__(self, netdevs):
+        self.enabled = True
+        self.patch_name = "netdevs.dynamic"
+        self.netdevs = netdevs
+
+    def generate(self, patches):
+        values = set()
+        for src, devs in self.netdevs.items():
+            values.update(devs)
+        if len(values):
+            return { 'netdevs': list(values) }
+
+
+class PseudofilesDefaults(PatchGenerator):
+    '''
+    Some reasonably standard pseudofile defaults like /dev/nvram
     '''
     def __init__(self):
         self.enabled = True
-        self.patch_name = "default.pseudofiles"
+        self.patch_name = "pseudofiles.default"
 
     def generate(self, patches):
-        return { 'pseudofiles': default_pseudofiles }
+        return { 'pseudofiles': core_pseudofiles }
+
+class PseudofilesExpert(PatchGenerator):
+    '''
+    Fixed set of pseudofile models from FirmAE
+    '''
+    def __init__(self):
+        self.enabled = True
+        self.patch_name = "pseudofiles.expert_knowledge"
+
+    def generate(self, patches):
+        return { 'pseudofiles': expert_knowledge_pseudofiles }
 
 
 class LibInjectSymlinks(PatchGenerator):
@@ -590,6 +620,37 @@ class LibInjectFixedAliases(PatchGenerator):
     def generate(self, patches):
         return {'lib_inject': {'aliases': default_lib_aliases}}
 
+"""
+class LibInjectJITAliases(PatchGenerator):
+    '''
+    For nvram methods that we don't have shims for, try throwing some defaults
+    based on symbol names. This is probably going to break things but could be interesting
+    '''
+    def __init__(self, library_info):
+        self.enabled = True
+        self.patch_name = 'lib_inject.jit_models'
+        self.library_info = library_info
+        self.unmodeled = set()
+
+    def generate(self, patches):
+        aliases = {}
+
+        # Only copy values from our defaults if we see that same symbol exported
+        for _, exported_syms in self.library_info.get("symbols", {}).items():
+            for sym in exported_syms:
+                if "nvram" in sym and sym not in default_lib_aliases:
+                    if "_get" in sym:
+                        target = "libinject_nvram_get"
+                    elif "_set" in sym:
+                        target = "libinject_nvram_get"
+                    else:
+                        target = "libinject_ret_0"
+                    aliases[sym] = target
+                    logger.info(f"\tJIT mapping {sym} -> {target}")
+
+        if len(aliases):
+            return {'lib_inject': {'aliases': aliases}}
+"""
 
 class ForceWWW(PatchGenerator):
     '''
@@ -1231,9 +1292,8 @@ class NvramFirmAEFileSpecific(PatchGenerator):
 
 class AddPseudofiles(PatchGenerator):
     '''
-    Keep this disabled for now
-    For all identified pseudofiles, try adding them. This reliably causes kernel panics - are we running
-    out of kernel memory or are we clobbering important things?
+    For all missing pseudofiles we saw referenced during static analysis,
+    try adding them with a default model
     '''
 
     def __init__(self, pseudofiles):
@@ -1245,26 +1305,38 @@ class AddPseudofiles(PatchGenerator):
         results = {}
         mtd_count = 0
 
-        for file_name in self.pseudofiles:
-            results[file_name] = {
-                'read': {
-                    "model": "zero",
-                },
-                'write': {
-                    "model": "discard",
-                }
-            }
-            if file_name.startswith("/dev/"):
-                # /dev files get a default IOCTL model
-                results[file_name]['ioctl'] = {
-                     '*': { "model": "return_const", "val": 0 }
+        for section, file_names in self.pseudofiles.items():
+            for file_name in file_names:
+                if section == 'dev' and file_name.startswith("/dev/mtd"):
+                    # TODO: do we want to make placeholders for MTD or not?
+                    continue
+
+                if file_name.endswith("/"):
+                    # We don't want to treat a directory as a pseudofile, instead we'll
+                    # add a placehodler into the directory. This ensures the directory is created
+                    # XXX: hyperfs doesn't allow userspace to create files in these directories yet
+                    # https://github.com/rehosting/hyperfs/issues/20
+                    file_name += ".placeholder"
+                results[file_name] = {
+                    'read': {
+                        "model": "zero",
+                    },
+                    'write': {
+                        "model": "discard",
+                    }
                 }
 
-            if file_name.startswith("/dev/mtd"):
-                # MTD devices get a name (shows up in /proc/mtd)
-                # Note 'uboot' probably isn't right, but we need something
-                results[file_name]['name'] = f"uboot.{mtd_count}"
-                mtd_count += 1
+                if section == "dev":
+                    # /dev files get a default IOCTL model
+                    results[file_name]['ioctl'] = {
+                        '*': { "model": "return_const", "val": 0 }
+                    }
+
+                    if file_name.startswith("/dev/mtd"):
+                        # MTD devices get a name (shows up in /proc/mtd)
+                        # Note 'uboot' probably isn't right, but we need something
+                        results[file_name]['name'] = f"uboot.{mtd_count}"
+                        mtd_count += 1
 
         if len(results):
             return {'pseudofiles': results}
