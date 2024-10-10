@@ -5,8 +5,8 @@
 # connected to anything. Pseudofile penguin_net is populated
 # from config's netdevs list.
 for iface in $(/igloo/utils/busybox cat /proc/penguin_net 2>/dev/null || echo ""); do
-  /igloo/utils/busybox ip link add $iface type dummy
-  /igloo/utils/busybox ip link set $iface up
+  /igloo/utils/busybox ip link add "$iface" type dummy
+  /igloo/utils/busybox ip link set "$iface" up
 done
   /igloo/utils/busybox ip link delete dummy0 || true
 
