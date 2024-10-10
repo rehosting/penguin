@@ -20,7 +20,6 @@ from .defaults import (
     default_lib_aliases,
     default_netdevs,
     default_plugins,
-    core_pseudofiles,
     expert_knowledge_pseudofiles,
     default_libinject_string_introspection,
     DEFAULT_KERNEL,
@@ -369,6 +368,37 @@ class BasePatch(PatchGenerator):
             "env": {
                 "igloo_init": self.igloo_init,
             },
+            "pseudofiles": {
+                # Ensure guest can't interfere with our 2nd serial console - make it a null device
+                "/dev/ttyS1": {
+                    "read": {
+                        "model": "zero",
+                    },
+                    "write": {
+                        "model": "discard",
+                    },
+                    "ioctl": {
+                        "*": {
+                            "model": "return_const",
+                            "val": 0,
+                        }
+                    }
+                },
+                "/dev/ttyAMA1": {
+                    "read": {
+                        "model": "zero",
+                    },
+                    "write": {
+                        "model": "discard",
+                    },
+                    "ioctl": {
+                        "*": {
+                            "model": "return_const",
+                            "val": 0,
+                        }
+                    }
+                }
+            },
             "static_files": {
                 "/igloo": {
                     "type": "dir",
@@ -487,17 +517,6 @@ class NetdevsDynamic(PatchGenerator):
         if len(values):
             return { 'netdevs': list(values) }
 
-
-class PseudofilesDefaults(PatchGenerator):
-    '''
-    Some reasonably standard pseudofile defaults like /dev/nvram
-    '''
-    def __init__(self):
-        self.enabled = True
-        self.patch_name = "pseudofiles.default"
-
-    def generate(self, patches):
-        return { 'pseudofiles': core_pseudofiles }
 
 class PseudofilesExpert(PatchGenerator):
     '''
@@ -1296,16 +1315,16 @@ class NvramFirmAEFileSpecific(PatchGenerator):
         if len(result):
             return { 'nvram': result }
 
-class AddPseudofiles(PatchGenerator):
+class PseudofilesDynamic(PatchGenerator):
     '''
     For all missing pseudofiles we saw referenced during static analysis,
     try adding them with a default model
     '''
 
     def __init__(self, pseudofiles):
-        self.patch_name = "pseudofiles.missing"
+        self.patch_name = "pseudofiles.dynamic"
         self.pseudofiles = pseudofiles
-        self.enabled = False
+        self.enabled = True
 
     def generate(self, patches):
         results = {}
