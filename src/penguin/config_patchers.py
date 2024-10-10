@@ -501,7 +501,7 @@ class NetdevsDefault(PatchGenerator):
     def generate(self, patches):
         return { 'netdevs': default_netdevs }
 
-class NetdevsDynamic(PatchGenerator):
+class NetdevsTailored(PatchGenerator):
     '''
     Add list of network device names observed in static analysis
     '''
@@ -600,7 +600,7 @@ class LibInjectStringIntrospection(PatchGenerator):
 
         return {'lib_inject': {'aliases': aliases}}
 
-class LibInjectDynamicAliases(PatchGenerator):
+class LibInjectTailoredAliases(PatchGenerator):
     '''
     Set default aliases in libinject based on library analysis. If one of the defaults
     is present in a library, we'll add it to the libinject alias list
@@ -1311,7 +1311,7 @@ class NvramFirmAEFileSpecific(PatchGenerator):
         if len(result):
             return { 'nvram': result }
 
-class PseudofilesDynamic(PatchGenerator):
+class PseudofilesTaiored(PatchGenerator):
     '''
     For all missing pseudofiles we saw referenced during static analysis,
     try adding them with a default model
