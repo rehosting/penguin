@@ -512,6 +512,8 @@ class NetdevsDynamic(PatchGenerator):
 
     def generate(self, patches):
         values = set()
+        if not self.netdevs:
+            return
         for src, devs in self.netdevs.items():
             values.update(devs)
         if len(values):
