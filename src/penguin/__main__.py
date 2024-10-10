@@ -40,22 +40,12 @@ def run_from_config(
         )
 
     if not os.path.isfile(config["core"]["kernel"]):
-        # The config specifies where the kernel shoudl be. Generally this is in
+        # The config specifies where the kernel should be. Generally this is in
         # /igloo_static/kernels, but it could be elsewhere.
         raise RuntimeError(f"Base kernel not found: {config['core']['kernel']}")
 
-    if niters > 1 or auto:
-        # Change config for auto exploration. Delete init. Set timeout, enable nmap, disable root shell
-        # Note this is a design change from how gen_config works and how we used to do this - we're now starting
-        # from a previously created config, so we'll toggle these settings after loading. Previously we'd generate
-        # the initial config for automated exploration and go from there.
-        config["core"]["root_shell"] = False
-        config["core"]["force_www"] = True
-        config["plugins"]["core"]["timeout"] = timeout if timeout else 300
-        config["plugins"]["nmap"]["enabled"] = True
-        config["plugins"]["coverage"]["enabled"] = True
-
-        dump_config(config, config_path)
+    # XXX: Should we put this in results somewhere?
+    #dump_config(config, config_path+".realized")
 
     if niters > 1:
         # Only trigger graph_search if 'penguin explore'. We might be running in auto mode
