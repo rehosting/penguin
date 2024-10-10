@@ -191,8 +191,8 @@ class ConfigBuilder:
             AutoExplorePatch(timeout=300), # TODO: timeout should be set at runtime, not in config?
             NetdevsDefault(),
             NetdevsDynamic(static_results['InterfaceFinder']),
-            PseudofilesDefaults(),
             PseudofilesExpert(),
+            PseudofilesDynamic(static_results['PseudofileFinder']),
             LibInjectSymlinks(extract_dir),
             LibInjectStringIntrospection(static_results['LibrarySymbols']),
             LibInjectDynamicAliases(static_results['LibrarySymbols']),
@@ -215,7 +215,6 @@ class ConfigBuilder:
             NvramConfigRecoveryWild(extract_dir),
             NvramConfigRecovery(extract_dir),
             NvramLibraryRecovery(static_results['LibrarySymbols']),
-            AddPseudofiles(static_results['PseudofileFinder']),
         ]
 
         # collect patches in patches[patchfile_name] -> {section -> {key -> value}}

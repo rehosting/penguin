@@ -88,17 +88,6 @@ _default_dev_model["ioctl"] = {
     }
 }
 
-core_pseudofiles = {
-	# Reasonable generic /dev entries
-    "/dev/gpio": _default_dev_model,
-    "/dev/nvram": _default_dev_model,
-    "/dev/watchdog": _default_dev_model,
-
-	# Reasonable generic /proc entries
-    "/proc/gpio": _default_pseudo_model,
-    "/proc/led": _default_pseudo_model,
-}
-
 # Hardcoded ioctl models for some devices from FirmAE
 _dev_acos_pseudo_model = deepcopy(_default_dev_model)
 _dev_acos_pseudo_model["ioctl"].update({
@@ -109,10 +98,19 @@ _dev_acos_pseudo_model["ioctl"].update({
     })
 
 expert_knowledge_pseudofiles = {
-	# Netgear specific unique device + behavior
+    # Reasonable generic /dev entries
+    "/dev/gpio": _default_dev_model,
+    "/dev/nvram": _default_dev_model,
+    "/dev/watchdog": _default_dev_model,
+
+    # Reasonable generic /proc entries
+    "/proc/gpio": _default_pseudo_model,
+    "/proc/led": _default_pseudo_model,
+
+    # Netgear specific unique device + behavior
     "/dev/acos_nat_cli": _dev_acos_pseudo_model,
 
-	# Hardcoded /dev list from FirmAE
+    # Hardcoded /dev list from FirmAE
     "/dev/brcmboard": _default_dev_model,
     "/dev/dsl_cpe_api": _default_dev_model,
     "/dev/pib": _default_dev_model,
@@ -122,7 +120,7 @@ expert_knowledge_pseudofiles = {
     "/dev/wdt": _default_dev_model,
     "/dev/zybtnio": _default_dev_model,
 
-	# Hardcoded /proc entries from FirmAE
+    # Hardcoded /proc entries from FirmAE
     "/proc/blankstatus": _default_pseudo_model,
     "/proc/btnCnt": _default_pseudo_model,
     "/proc/br_igmpProxy": _default_pseudo_model,
@@ -243,7 +241,7 @@ base_aliases = {
     "WAN_ith_CONFIG_SET_AS_STR": "libinject_nvram_nset",
     "WAN_ith_CONFIG_SET_AS_INT": "libinject_nvram_nset_int",
 
-	# Netgear (6250/6400) specific FirmAE hack
+    # Netgear (6250/6400) specific FirmAE hack
     "agApi_fwGetFirstTriggerConf": "libinject_ret_1_arg",
     "agApi_fwGetNextTriggerConf": "libinject_ret_1_arg",
 
