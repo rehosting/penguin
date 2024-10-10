@@ -17,7 +17,6 @@ from .defaults import (
     default_lib_aliases,
     default_netdevs,
     default_plugins,
-    default_pseudofiles,
     DEFAULT_KERNEL,
     default_version as DEFAULT_VERSION,
     static_dir as STATIC_DIR
@@ -301,15 +300,15 @@ class EnvFinder(StaticAnalysis):
 
 class PseudofileFinder(StaticAnalysis):
     IGLOO_ADDED_DEVICES = [ "autofs", "btrfs-control", "cfs0", "cfs1", "cfs2","cfs3",
-                            "cfs4", "console", "cpu_dma_latency", "full", "fuse", "kmsg",
+                            "cfs4", "console", "cpu_dma_latency", "full", "fuse", "input", "kmsg",
                             "loop-control", "loop0", "loop1", "loop2", "loop3", "loop4",
-                            "loop5", "loop6", "loop7", "mem", "memory_bandwidth",
+                            "loop5", "loop6", "loop7", "mem", "memory_bandwidth", "mice", "net",
                             "network_latency", "network_throughput", "null", "port", "ppp",
-                            "psaux", "ptmx", "ptyp0", "ptyp1", "ptyp2", "ptyp3", "ptyp4",
+                            "psaux", "ptmx", "pts", "ptyp0", "ptyp1", "ptyp2", "ptyp3", "ptyp4",
                             "ptyp5", "ptyp6", "ptyp7", "ptyp8", "ptyp9", "ptypa", "ptypb",
-                            "ptypc", "ptypd", "ptype", "ptypf", "ram0", "ram1", "ram10",
+                            "ptypc", "ptypd", "ptype", "ptypf", "ram", "ram0", "ram1", "ram10",
                             "ram11", "ram12", "ram13", "ram14", "ram15", "ram2", "ram3",
-                            "ram4", "ram5", "ram6", "ram7", "ram8", "ram9", "random",
+                            "ram4", "ram5", "ram6", "ram7", "ram8", "ram9", "random", "root",
                             "tty", "tty0", "tty1", "tty10", "tty11", "tty12", "tty13",
                             "tty14", "tty15", "tty16", "tty17", "tty18", "tty19", "tty2",
                             "tty20", "tty21", "tty22", "tty23", "tty24", "tty25", "tty26",
@@ -319,51 +318,133 @@ class PseudofileFinder(StaticAnalysis):
                             "tty46", "tty47", "tty48", "tty49", "tty5", "tty50", "tty51",
                             "tty52", "tty53", "tty54", "tty55", "tty56", "tty57", "tty58",
                             "tty59", "tty6", "tty60", "tty61", "tty62", "tty63", "tty7",
-                            "tty8", "tty9", "ttys0", "ttys1", "ttys2", "ttys3", "ttyp0",
+                            "tty8", "tty9",
+                            "ttyS0", "ttyS1", "ttyS2", "ttyS3",
+                            "ttyp0",
                             "ttyp1", "ttyp2", "ttyp3", "ttyp4", "ttyp5", "ttyp6", "ttyp7",
                             "ttyp8", "ttyp9", "ttypa", "ttypb", "ttypc", "ttypd", "ttype",
-                            "ttypf", "urandom", "vcs", "vcs1", "vcsa", "vcsa1", "vda",
-                            "vsock", "zero", "vga_arbiter"]
+                            "ttypf", "tun", "urandom", "vcs", "vcs1", "vcsa", "vcsa1", "vda",
+                             "vga_arbiter", "vsock", "zero",
+                            "root", "pts", # Added in init
+                            "ttyAMA0", "ttyAMA1" # ARM
+                            ]
 
-    def run(self, extract_dir, prior_results):
-        pattern = re.compile(r"\/dev\/([a-zA-Z0-9_/]+)", re.MULTILINE)
+    IGLOO_PROCFS = [ "thread-self", "self", "sysrq-trigger",
+                        "pagetypeinfo", "vmallocinfo", "sched_debug",
+                        "filesystems", "execdomains", "device-tree",
+                        "timer_list", "partitions", "kpageflags",
+                        "kpagecount", "interrupts", "key-users",
+                        "diskstats", "config.gz", "buddyinfo",
+                        "zoneinfo", "softirqs", "slabinfo", "kallsyms",
+                        "consoles", "version", "sysvipc/", "modules",
+                        "meminfo", "loadavg", "ioports", "devices",
+                        "cpuinfo", "cmdline", "cgroups", "vmstat",
+                        "uptime", "mounts", "driver/", "crypto",
+                        "swaps", "locks", " kcore", "iomem", "stat",
+                        "scsi", "misc", "kmsg", "keys", "tty", "sys",
+                        "net", "mtd", "irq", "dma", "bus", "fs", "fb",
 
-        matches = FileSystemHelper.find_regex(pattern, extract_dir).keys()
-        potential_devfiles = [f"/dev/{m}" for m in matches]
+                        # Directories
+                        # sysvipc, driver (empty), scsi, tty, sys (big), irq (numbers), bus, fs
+                        "sysvipc/shm",
+                        "sysvipc/sem",
+                        "sysvipc/msg",
 
-        # list of devices from igloo kernel's /dev with no pseudofiles
+                        "scsi/device_info",
+                        "scsi/scsi",
 
+                        "tty/drivers",
+                        "tty/ldisc",
+                        "tty/driver/",
+                        "tty/driver/serial",
+                        "tty/ldisc/",
 
-        for k in self._get_devfiles_in_fs(extract_dir) + \
-                        ["/dev/{x}" for x in self.IGLOO_ADDED_DEVICES]:
-            if k in potential_devfiles:
-                potential_devfiles.remove(k)
+                        "bus/",
+                        "bus/pci/",
+                        "bus/pci/00",
+                        "bus/pci/00/00.0",
+                        "bus/pci/00/0a.0",
+                        "bus/pci/00/0a.1 ",
+                        "bus/pci/00/0a.2 ",
+                        "bus/pci/00/0a.3 ",
+                        "bus/pci/00/0b.0 ",
+                        "bus/pci/00/12.0 ",
+                        "bus/pci/00/13.0 ",
+                        "bus/pci/00/14.0 ",
+                        "bus/pci/devices ",
+                        "bus/input/",
+                        "bus/input/devices",
+                        "bus/input/handlers",
 
-        # drop any directories
-        directories_to_remove = set()
+                        "fs/",
+                        "fs/afs/",
+                        "fs/afs/cells",
+                        "fs/afs/rootcell",
+                        "fs/ext4",
+                        "fs/f2fs",
+                        "fs/jbd2",
+                        "fs/nfsd",
+                        "fs/lockd/",
+                        "fs/lockd/nlm_end_grace",
+                        "fs/nfsfs/",
+                        "fs/nfsfs/servers",
+                        "fs/nfsfs/volumes",
+    ]
 
-        # populate set with directories that have subpaths
-        for k in potential_devfiles:
-            parent_path_parts = k.split("/")[:-1]
-            for i in range(len(parent_path_parts)):
-                parent_path = "/".join(parent_path_parts[: i + 1])
-                if parent_path in potential_devfiles:
-                    directories_to_remove.add(parent_path)
+    # Some special ones that are probably not rehosting artifacts and a pain to model
+    PROC_IGNORE = ["irq/"]
 
-        # create the filtered list
-        filtered_devfiles = [
-            k for k in potential_devfiles if k not in directories_to_remove
+    def __init__(self):
+        # Load ../resources/proc_sys.txt, add each line to IGLOO_PROCFS
+        resources = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources")
+        with open(os.path.join(resources, "proc_sys.txt"), "r") as f:
+            for line in f.readlines():
+                self.IGLOO_PROCFS.append(line.strip())
+
+    def _filter_files(self, extract_dir, pattern, ignore_list, remove_list):
+        """
+        Filters files in a directory based on a regex pattern, an ignore list, and a remove list.
+        """
+        # Find all files matching the pattern
+        found_files = list(FileSystemHelper.find_regex(pattern, extract_dir).keys())
+
+        # Apply ignore filters (like PROC_IGNORE)
+        filtered_files = [
+            f for f in found_files if not any(f.startswith(ignored) for ignored in ignore_list)
         ]
 
-        pattern = re.compile(r"\/proc\/([a-za-z0-9_/]+)", re.MULTILINE)
-        proc_files = ["/proc/" + x for x in FileSystemHelper.find_regex(pattern, extract_dir).keys()]
-        # TODO: drop any proc files we expect to have in our kernel?
+        # Remove items from remove_list (like IGLOO_ADDED_DEVICES or IGLOO_PROCFS)
+        filtered_files = [f for f in filtered_files if f not in remove_list]
 
-        potential_files = filtered_devfiles + proc_files
+        # Remove directories that have subpaths
+        directories_to_remove = {
+            "/".join(k.split("/")[:i + 1])  # get parent directories
+            for k in filtered_files
+            for i in range(len(k.split("/")[:-1]))  # only consider parent parts
+        }
 
-        assert(isinstance(potential_files, list))
+        return [k for k in filtered_files if k not in directories_to_remove]
 
-        return potential_files
+    def run(self, extract_dir, prior_results):
+        # Regex patterns for dev and proc files
+        dev_pattern = re.compile(r"/dev/([a-zA-Z0-9_/]+)", re.MULTILINE)
+        proc_pattern = re.compile(r"/proc/([a-zA-Z0-9_/]+)", re.MULTILINE)
+
+        # Filter device files
+        dev_files = self._filter_files(
+            extract_dir, dev_pattern, [], self.IGLOO_ADDED_DEVICES
+        )
+
+        # Filter proc files, applying PROC_IGNORE and IGLOO_PROCFS
+        proc_files = self._filter_files(
+            extract_dir, proc_pattern, self.PROC_IGNORE, self.IGLOO_PROCFS
+        )
+
+        # Return dev and proc files in the appropriate format
+        return {
+            "dev": [f"/dev/{x}" for x in dev_files],
+            "proc": [f"/proc/{x}" for x in proc_files],
+        }
 
     @staticmethod
     def _get_devfiles_in_fs(extracted_dir):
@@ -382,6 +463,64 @@ class PseudofileFinder(StaticAnalysis):
                     results.append(relative_path)
 
         return results
+
+class InterfaceFinder(StaticAnalysis):
+    def run(self, extract_dir, prior_results):
+        """
+        Identify network interfaces in the filesystem.
+        """
+        # Find all network interfaces in the filesystem
+        pattern = re.compile(r"/sys/class/net/([a-zA-Z0-9_]+)", re.MULTILINE)
+        sys_net_ifaces = FileSystemHelper.find_regex(pattern, extract_dir).keys()
+
+        # Filter out the default network interfaces
+        sys_net_ifaces = [i for i in sys_net_ifaces if not i.startswith("veth") and not i.startswith("br") \
+                          and not i == "lo"]
+
+        # Now search for references to standard network commands: ifconfig, ip, brctl
+        # We'll use these to identify interfaces
+        interfaces = set()
+
+        # Look for patterns that match network interface names in the context of commands
+        interface_regex = r"([a-zA-Z0-9][a-zA-Z0-9_-]{2,15})"
+
+        ifconfig_matches = re.compile(rf"ifconfig\s+{interface_regex}")
+        ip_link_matches = re.compile(rf"ip\s+(?:addr|link|route|add|set|show)\s+{interface_regex}")
+        ifup_down_matches = re.compile(rf"if(?:up|down)\s+{interface_regex}")
+        ethtool_matches = re.compile(rf"ethtool\s+{interface_regex}")
+        route_matches = re.compile(rf"route\s+(?:add|del)\s+{interface_regex}")
+        iwconfig_matches = re.compile(rf"iwconfig\s+{interface_regex}")
+        netstat_matches = re.compile(rf"netstat\s+-r\s+{interface_regex}")
+        ss_matches = re.compile(rf"ss\s+-i\s+{interface_regex}")
+
+        # Aggregate all patterns
+        patterns = [
+            ifconfig_matches, ip_link_matches, ifup_down_matches, ethtool_matches,
+            route_matches, iwconfig_matches, netstat_matches, ss_matches
+        ]
+
+        for p in patterns:
+            interfaces.update(FileSystemHelper.find_regex(p, extract_dir).keys())
+
+        bad_prefixes = ["veth", "br"]
+        bad_vals = ["lo", "set", "add", "del", "route", "show", "addr", "link", "up", "down",
+                     "flush", "help"]
+
+        # Filter out the default network interfaces
+        interfaces = [iface for iface in interfaces if \
+                      not any([x in iface for x in bad_vals]) and \
+                      not any([iface.startswith(x) for x in bad_prefixes]) and \
+                      not iface.isnumeric()]
+
+        result = {}
+        if len(sys_net_ifaces):
+            result["sysfs"] = list(sys_net_ifaces)
+
+        if len(interfaces):
+            result["commands"] = list(interfaces)
+
+        if len(result):
+            return result
 
 class ClusterCollector(StaticAnalysis):
     '''
