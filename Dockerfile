@@ -399,17 +399,17 @@ RUN echo '[ ! -z "$TERM" ] && [ -z "$NOBANNER" ] && /usr/local/bin/banner.sh' >>
 COPY ./docs /docs
 COPY ./README.md /docs/README.md
 
+# Add DB module
+COPY ./db /db
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -e /db
+
 # Now copy in our module and install it
 # penguin is editable so we can mount local copy for dev
-# setuptools is workaround for igloo #131
 COPY --from=version_generator /app/version.txt /pkg/penguin/version.txt
 COPY ./src /pkg
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -e /pkg
-
-COPY ./db /db
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -e /db
 
 # Copy pyplugins into our the pandata directory. We might mount
 # this from the host during development. In the long term we'll
