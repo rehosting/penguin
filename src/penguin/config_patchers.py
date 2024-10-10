@@ -472,7 +472,7 @@ class AutoExplorePatch(PatchGenerator):
     def __init__(self, timeout=300):
         self.patch_name = "auto_explore"
         self.timeout = timeout
-        self.enabled = False
+        self.enabled = True
 
     def generate(self, patches):
         return {
