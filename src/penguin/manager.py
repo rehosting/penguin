@@ -158,7 +158,7 @@ class PandaRunner:
         verbose=False,
     ):
         """
-        If init or timeout are set they override
+        If init or timeout are set they override config
         """
         # penguin_run will run panda directly which might exit (or crash/hang)
         # and definitely will close stdout/stderr which will break subsequent
@@ -167,17 +167,8 @@ class PandaRunner:
         # which is a wrapper to call that script with: run_config(config=argv[1], out=argv[2], qcows=argv[3])
 
         # Let's call via system instead of subprocess
-        data = load_config(proj_dir, conf_yaml)
         timeout_s = None
         timeout_cmd = []
-
-        if (
-            timeout is None
-            and "plugins" in data
-            and "core" in data["plugins"]
-            and "timeout" in data["plugins"]["core"]
-        ):
-            timeout = data["plugins"]["core"]["timeout"]
 
         if timeout:
             # We'll give 3x run time to account for startup and shutdown processing time?
