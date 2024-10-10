@@ -30,7 +30,6 @@ from .defaults import (
     default_lib_aliases,
     default_netdevs,
     default_plugins,
-    default_pseudofiles,
     default_version as DEFAULT_VERSION,
     static_dir as STATIC_DIR
 )
@@ -96,6 +95,7 @@ class ConfigBuilder:
             InitFinder,
             EnvFinder,
             PseudofileFinder,
+            InterfaceFinder,
             ClusterCollector,
             LibrarySymbols,
         ]
@@ -189,8 +189,10 @@ class ConfigBuilder:
         patch_generators = [
             BasePatch(static_results['ArchId'], static_results['InitFinder']),
             AutoExplorePatch(timeout=300), # TODO: timeout should be set at runtime, not in config?
-            NetdevsPatch(),
-            PseudofilesPatch(),
+            NetdevsDefault(),
+            NetdevsDynamic(static_results['InterfaceFinder']),
+            PseudofilesDefaults(),
+            PseudofilesExpert(),
             LibInjectSymlinks(extract_dir),
             LibInjectStringIntrospection(static_results['LibrarySymbols']),
             LibInjectDynamicAliases(static_results['LibrarySymbols']),
