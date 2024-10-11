@@ -143,22 +143,34 @@ def ga_search(
             population.mutation(1)
 
 
-
-    """
+    # Below is to give results comparable to the graph search
     # We're all done! In the .finished file we'll write the final run_index
     # This way we can tell if a run is done early vs still in progress
     with open(os.path.join(output_dir, "finished.txt"), "w") as f:
-        f.write(str(run_index.get()))
+        f.write(str(population.run_index.get()))
 
     # Let's also write a best.txt file with run index of the best run
     # TODO: implement this
-    if best := config_manager.graph.get_best_run_configuration():
-        report_best_results(
-            best.run_idx,
-            os.path.join(*[run_base, str(best.run_idx), "output"]),
-            output_dir,
-        )
-    """
+
+    #Look through all the run dirs and find the latest fitness.txt (float)
+    #Then, find the highest one
+    #Write that to best.txt
+    #If we have a tie, we'll just pick the first one
+    best_fitness = 0.0
+    best_run = 0
+    for run in os.listdir(run_base):
+        fitness_file = os.path.join(run_base, run, "fitness.txt")
+        if os.path.isfile(fitness_file):
+            with open(fitness_file, "r") as f:
+                fitness = float(f.readline())
+                if fitness > best_fitness:
+                    best_fitness = fitness
+                    best_run = run
+    with open(os.path.join(output_dir, "best.txt"), "w") as f:
+        f.write(str(best_run))
+    logger.info(f"Best run: {best_run} with fitness {best_fitness}")
+
+
 
 def create_init_gene(base_config, global_state):
     """
@@ -626,11 +638,11 @@ class ConfigPopulation:
             if not self.get_fitness(child) and len(child.genes) > 0:
                 try:
                     assert(child.get_mitigation("init_init")), "Missing init gene"
+                    if not self.config_in_pop(child)
+                        #Unfortunately, using sets didn't get us this diversity automagically
+                        self.chromosomes.add(child)
                 except AssertionError as e:
                     self.logger.error(f"Error in crossover: {e}")
-                if not self.config_in_pop(child):
-                    #Unfortunately, using sets didn't get us this diversity automagically
-                    self.chromosomes.add(child)
 
         self.logger.info(f"Population size after crossover is: {len(self.chromosomes)}")
         self.logger.debug(f"population:\n{self.print_chromosomes(self.chromosomes)}")
