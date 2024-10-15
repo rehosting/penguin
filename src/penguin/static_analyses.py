@@ -1,6 +1,7 @@
 import os
 import re
 import stat
+import struct
 import hashlib
 
 from abc import ABC
