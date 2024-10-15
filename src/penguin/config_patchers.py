@@ -1220,6 +1220,8 @@ class NvramLibraryRecovery(PatchGenerator):
     '''
     def __init__(self, library_info):
         self.library_info = library_info
+        self.patch_name = "nvram.01_library"
+        self.enabled = True
 
     def generate(self, patches):
         if "nvram" in self.library_info and len(self.library_info["nvram"]):
@@ -1311,7 +1313,7 @@ class NvramFirmAEFileSpecific(PatchGenerator):
         if len(result):
             return { 'nvram': result }
 
-class PseudofilesTaiored(PatchGenerator):
+class PseudofilesTailored(PatchGenerator):
     '''
     For all missing pseudofiles we saw referenced during static analysis,
     try adding them with a default model
