@@ -250,6 +250,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       html5lib \
       pandare==${PANDA_VERSION} \
       ipdb \
+      python-Levenshtein \
       lief  \
       lxml \
       lz4 \
