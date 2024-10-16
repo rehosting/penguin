@@ -136,7 +136,8 @@ class Health(PyPlugin):
                 except ValueError:
                     argv.append(f"(error: 0x{ptr:x})")
                     nullable_argv.append(None)
-            self.ficd.on_exec(fname + " " + " ".join(argv))
+            if self.ficd:
+                self.ficd.on_exec(fname + " " + " ".join(argv))
 
             try:
                 self.ppp_run_cb("igloo_exec", cpu, fname, nullable_argv)
