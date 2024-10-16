@@ -638,7 +638,7 @@ class ConfigPopulation:
             if not self.get_fitness(child) and len(child.genes) > 0:
                 try:
                     assert(child.get_mitigation("init_init")), "Missing init gene"
-                    if not self.config_in_pop(child)
+                    if not self.config_in_pop(child):
                         #Unfortunately, using sets didn't get us this diversity automagically
                         self.chromosomes.add(child)
                 except AssertionError as e:
