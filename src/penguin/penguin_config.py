@@ -713,6 +713,13 @@ def _validate_config(config):
     _validate_config_schema(config)
     _validate_config_options(config)
 
+def load_unpatched_config(path):
+    '''
+    Load a configuration without applying any patches. No validation.
+    '''
+    with open(path, "r") as f:
+        config = yaml.load(f, Loader=CoreLoader)
+    return config
 
 def load_config(proj_dir, path, validate=True):
     """Load penguin config from path"""
