@@ -18,8 +18,10 @@ from .common import get_inits_from_proj
 from .gen_config import fakeroot_gen_config
 from .manager import PandaRunner, calculate_score
 from .penguin_config import load_config
+
 from .genetic import ga_search
 from .graph_search import graph_search
+from .patch_search import patch_search
 
 logger = getColoredLogger("penguin")
 
@@ -124,7 +126,10 @@ def explore_from_config(
         )
 
     if explore_type == "patch_explore":
-        raise NotImplementedError("Patch search not yet implemented")
+        return patch_search(
+            proj_dir, config_path, output_dir, timeout, max_iters=niters,
+            nworkers=nworkers, verbose=verbose
+        )
 
     raise ValueError(f"Invalid explore_type: {explore_type}")
 
