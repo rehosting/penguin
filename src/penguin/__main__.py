@@ -14,40 +14,14 @@ import art
 
 from penguin import VERSION, getColoredLogger
 
-from .common import yaml
+from .common import get_inits_from_proj
 from .gen_config import fakeroot_gen_config
-from .manager import PandaRunner, calculate_score, graph_search
-from .penguin_config import load_config, dump_config
+from .manager import PandaRunner, calculate_score
+from .penguin_config import load_config
 from .genetic import ga_search
+from .graph_search import graph_search
 
 logger = getColoredLogger("penguin")
-
-def _get_default_init(config, proj_dir):
-    '''
-    Given a project directory, find a default init from
-    static/InitFinder.yaml
-
-    Raises RuntimeError if no init can be found.
-    '''
-
-    inits_path = os.path.join(*[proj_dir, "static", "InitFinder.yaml"])
-    if os.path.isfile(join(inits_path)):
-        with open(inits_path, "r") as f:
-            options = yaml.safe_load(f)
-            if len(options):
-                logger.info(
-                    f"Config does not specify init. Selecting first option: {options[0]}."
-                    + (
-                        (" Other options are: " + ", ".join(options[1:]))
-                        if len(options) > 1
-                        else ""
-                    )
-                )
-                return options[0]
-
-    raise RuntimeError(
-        f"Static analysis failed to identify an init script. Please specify one in your config under env.igloo_init"
-    )
 
 def _validate_project(proj_dir, config_path):
     if not os.path.isdir(proj_dir):
@@ -69,6 +43,7 @@ def _validate_project(proj_dir, config_path):
         raise RuntimeError(f"Base kernel not found: {config['core']['kernel']}")
 
     # XXX: Should we put this in results somewhere?
+    # from .penguin_config import load_config
     #dump_config(config, config_path+".realized")
     return config
 
@@ -85,7 +60,21 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
     # use the one specified in the config.
     specified_init = None
     if config.get("env", {}).get("igloo_init", None) is None:
-        specified_init = _get_default_init(config, proj_dir)
+        options = get_inits_from_proj(proj_dir)
+        if len(options):
+            logger.info(
+                f"Config does not specify init. Selecting first option: {options[0]}."
+                + (
+                    (" Other options are: " + ", ".join(options[1:]))
+                    if len(options) > 1
+                    else ""
+                )
+            )
+            specified_init = options[0]
+        else:
+            raise RuntimeError(
+                f"Static analysis failed to identify an init script. Please specify one in your config under env.igloo_init"
+            )
 
     PandaRunner().run(
         config_path,
@@ -98,6 +87,7 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
     )  # niters is 1
 
     # Single iteration: there is no best - don't report that
+    # from manager import report_best_results
     # report_best_results(run_base, output_dir, os.path.dirname(output_dir))
 
     # But do calculate and report scores. Unlike multi-run mode, we'll write scores right into output dir instead of in parent

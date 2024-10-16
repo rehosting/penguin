@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 import coloredlogs
 import yaml
+from os.path import join, isfile
 from yamlcore import CoreLoader, CoreDumper
 
 
@@ -137,3 +138,17 @@ def getColoredLogger(name):
     logger.setLevel = custom_set_level
 
     return logger
+
+def get_inits_from_proj(proj_dir):
+    '''
+    Given a project directory, find a default init from
+    static/InitFinder.yaml
+
+    Raises RuntimeError if no init can be found.
+    '''
+
+    inits_path = join(*[proj_dir, "static", "InitFinder.yaml"])
+    if isfile(join(inits_path)):
+        with open(inits_path, "r") as f:
+            options = yaml.safe_load(f)
+            return options
