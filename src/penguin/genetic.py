@@ -1,9 +1,9 @@
 import os
-import csv
 import sys
 import random
 import logging
 import re
+import shutil
 from types import SimpleNamespace
 from penguin import getColoredLogger
 from threading import Lock, RLock
@@ -11,12 +11,13 @@ from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from copy import deepcopy
 
-from .common import yaml
-from .graphs import Configuration, ConfigurationManager
-from .penguin_config import dump_config, hash_yaml_config, load_config
+from .common import get_inits_from_proj
+from .penguin_config import dump_config, load_config
 from .utils import AtomicCounter, get_mitigation_providers
-from .manager import GlobalState, PandaRunner, calculate_score, Worker
+from .manager import PandaRunner, calculate_score
 from .graphs import Failure
+
+from .graph_search import Worker # just for analyze_failures. Maybe refactor
 
 from penguin.analyses import PenguinAnalysis
 
@@ -51,13 +52,10 @@ def ga_search(
     os.makedirs(run_base, exist_ok=True)
     dump_config(base_config, os.path.join(output_dir, "base_config.yaml"))
 
-    #pass a copy of the base config to the global state so it doesn't slice out things we want to keep
-    global_state = GlobalState(proj_dir, output_dir, deepcopy(base_config))
-
     #Our first gene are the init options, do this outside of the population class
-    population = ConfigPopulation(global_state, base_config, run_base, logger,
+    population = ConfigPopulation(proj_dir, base_config, run_base, logger,
                                   pop_size, timeout, verbose=verbose)
-    init_gene = create_init_gene(base_config, global_state)
+    init_gene = create_init_gene(base_config, proj_dir)
     population.extend_genome(None, init_gene)
     old_learning_configs = set() #store the learning configs we've already tried
 
@@ -174,13 +172,13 @@ def ga_search(
 
 
 
-def create_init_gene(base_config, global_state):
+def create_init_gene(base_config, proj_dir):
     """
     Based on add_init_options_to_graph in manager.py
 
     A config needs to have an ['env']['igloo_init'] in order to do anything useful.
     We might have a single option already set or we might have multiple options
-    stored in our global_state (based on static analysis).
+    stored proj_dir/static/InitFinder.yaml (based on static analysis).
 
     If we have no value set and no potential values, we raise an error.
 
@@ -200,12 +198,13 @@ def create_init_gene(base_config, global_state):
     init_mitigations = set()
 
     if len(base_config["env"].get("igloo_init", [])) == 0:
-        if len(global_state.inits) == 0:
+        init_options = get_inits_from_proj(proj_dir)
+        if len(init_options) == 0:
             raise RuntimeError(
                 "No potential init binaries identified and none could be found"
             )
 
-        for init in global_state.inits:
+        for init in init_options:
             # First add mitigation:
             this_init_mit = Mitigation(f"init_{init}", "init", {"env": {"igloo_init": init}})
             init_mitigations.add(this_init_mit)
@@ -329,7 +328,6 @@ class GenePool:
 class ConfigChromosome:
     #At the end of the day, each "chromosome" is going to be a configuration. Which is set of mitigations
     #We are using a frozenset since each chromosome will be unique
-    #We do not keep the immutable base config in here since that is held in GlobalState
     genes: frozenset[Mitigation]
     hash: int
     def __init__(self, parent: 'ConfigChromosome' = None, new_gene = None):
@@ -386,9 +384,9 @@ class ConfigChromosome:
         return "\n".join(f"{m.name}: {m.config_opts}" for m in self.genes)
 
 class ConfigPopulation:
-    def __init__(self, global_state, base_config, run_base, logger, pop_size,
+    def __init__(self, proj_dir, base_config, run_base, logger, pop_size,
                  timeout, nelites=1, verbose=False):
-        self.global_state = global_state
+        self.proj_dir = proj_dir
         self.base_config = deepcopy(base_config) #store the base configuration, assumes it is immutable
         self.chromosomes = set()
         self.attempted_configs = set() #store the configurations we've already tried - do we need this with the cache?
@@ -513,7 +511,7 @@ class ConfigPopulation:
             output=f"Config: {config.hash}\n"
             f.write(output+config.mitigations_to_str())
         try:
-            PandaRunner().run(conf_yaml, self.global_state.proj_dir, out_dir,
+            PandaRunner().run(conf_yaml, self.proj_dir, out_dir,
                               timeout=self.timeout, verbose=self.verbose)
 
         except RuntimeError as e:
@@ -527,21 +525,9 @@ class ConfigPopulation:
             total = float(sum(score.values()))
             f.write(f"{total}\n")
 
-        #HACK: fake out config into the format that graph stuff expects by creating "Worker"
-        worker = Worker(
-            self.global_state, #global_state
-            None, #config_manager
-            self.global_state.proj_dir, #proj_dir,
-            run_dir, #run_base,
-            1, #max_iters,
-            run_index,
-            1, #active_worker_count,
-            thread_id=id,
-            logger=self.logger,
-            )
-        fake_graph_node = SimpleNamespace(info=full_config,exclusive=None)
-        failures = worker.analyze_failures(run_dir, fake_graph_node, 1)
-        #end HACK
+        # Bit of a hack, make a fake graph node with our config to analyze failures on
+        fake_graph_node = SimpleNamespace(info=full_config, exclusive=None)
+        failures = Worker.analyze_failures(run_dir, fake_graph_node, 1, logger=self.logger)
 
         return failures, score
 
