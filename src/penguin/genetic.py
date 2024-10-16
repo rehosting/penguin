@@ -35,7 +35,8 @@ Overall idea:
 """
 
 def ga_search(
-    proj_dir, base_config, output_dir, max_iters=1000, nthreads=1, init=None, pop_size=8
+    proj_dir, base_config, output_dir, timeout, max_iters=1000, nthreads=1,
+    init=None, pop_size=8, verbose=False
 ):
     """
     Main entrypoint. Given an initial config and directory run our
@@ -54,7 +55,8 @@ def ga_search(
     global_state = GlobalState(proj_dir, output_dir, deepcopy(base_config))
 
     #Our first gene are the init options, do this outside of the population class
-    population = ConfigPopulation(global_state, base_config, run_base, logger, pop_size)
+    population = ConfigPopulation(global_state, base_config, run_base, logger,
+                                  pop_size, timeout, verbose=verbose)
     init_gene = create_init_gene(base_config, global_state)
     population.extend_genome(None, init_gene)
     old_learning_configs = set() #store the learning configs we've already tried
@@ -384,7 +386,8 @@ class ConfigChromosome:
         return "\n".join(f"{m.name}: {m.config_opts}" for m in self.genes)
 
 class ConfigPopulation:
-    def __init__(self, global_state, base_config, run_base, logger, pop_size, nelites=1):
+    def __init__(self, global_state, base_config, run_base, logger, pop_size,
+                 timeout, nelites=1, verbose=False):
         self.global_state = global_state
         self.base_config = deepcopy(base_config) #store the base configuration, assumes it is immutable
         self.chromosomes = set()
@@ -398,7 +401,9 @@ class ConfigPopulation:
         self.fitnesses = dict() #cache the fitness of each configuration
         self.pop_size = pop_size
         self.parents = []
+        self.timeout = timeout
         self.nelites = nelites #number of elites to keep in the next generation
+        self.verbose = verbose
 
     #This is where the biology breaks down a bit. We'll add a new chromosome to the population based on an observed failure
     def extend_genome(self, parent: ConfigChromosome, new_gene: MitigationAlleleSet):
@@ -501,7 +506,6 @@ class ConfigPopulation:
         # Run the configuration
         conf_yaml = os.path.join(run_dir, "config.yaml")
 
-        timeout = full_config.get("plugins", {}).get("core", {}).get("timeout", None)
         out_dir = os.path.join(run_dir, "output")
         os.makedirs(out_dir, exist_ok=True)
         #Stash genes in the run directory
@@ -509,7 +513,8 @@ class ConfigPopulation:
             output=f"Config: {config.hash}\n"
             f.write(output+config.mitigations_to_str())
         try:
-            PandaRunner().run(conf_yaml, self.global_state.proj_dir, out_dir, timeout=timeout)
+            PandaRunner().run(conf_yaml, self.global_state.proj_dir, out_dir,
+                              timeout=self.timeout, verbose=self.verbose)
 
         except RuntimeError as e:
             # Uh oh, we got an error while running. Warn and continue
