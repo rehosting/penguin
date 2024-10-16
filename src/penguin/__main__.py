@@ -22,9 +22,36 @@ from .genetic import ga_search
 
 logger = getColoredLogger("penguin")
 
+def _get_default_init(config, proj_dir):
+    '''
+    Given a project directory, find a default init from
+    static/InitFinder.yaml
+
+    Raises RuntimeError if no init can be found.
+    '''
+
+    inits_path = os.path.join(*[proj_dir, "static", "InitFinder.yaml"])
+    if os.path.isfile(join(inits_path)):
+        with open(inits_path, "r") as f:
+            options = yaml.safe_load(f)
+            if len(options):
+                logger.info(
+                    f"Config does not specify init. Selecting first option: {options[0]}."
+                    + (
+                        (" Other options are: " + ", ".join(options[1:]))
+                        if len(options) > 1
+                        else ""
+                    )
+                )
+                return options[0]
+
+    raise RuntimeError(
+        f"Static analysis failed to identify an init script. Please specify one in your config under env.igloo_init"
+    )
+
 
 def run_from_config(
-    proj_dir, config_path, output_dir, niters=1, nthreads=1, timeout=None, verbose=False, auto=False, ga_explore=False
+    proj_dir, config_path, output_dir, niters=1, nthreads=1, timeout=None, verbose=False, auto=False, explore_type=None
 ):
 
     if not os.path.isdir(proj_dir):
@@ -49,68 +76,66 @@ def run_from_config(
     #dump_config(config, config_path+".realized")
 
     if niters > 1:
-        if not ga_explore:
+        if not explore_type:
+            raise ValueError("Must specify explore_type when running multiple iterations")
+
+        if explore_type == "explore":
             # Only trigger graph_search if 'penguin explore'. We might be running in auto mode
             # for 'single_shot' rehosting tests in which case timeout != None and niters = 1.
             logger.info(f"Exploring using graph search for {niters} iterations.")
             return graph_search(
                 proj_dir, config, output_dir, max_iters=niters, nthreads=nthreads
             )
-        else:
+        elif explore_type == "ga_explore":
             # We're running a genetic algorithm exploration
             logger.info(f"Exploring using genetic algorithm for {niters} iterations.")
             return ga_search(
                 proj_dir, config, output_dir, max_iters=niters, nthreads=nthreads
             )
 
-    # You already have a config, let's just run it. This is what happens
-    # in each iterative run normally. Here we just do it directly.
-    # Only needs a single thread, regardless of nthreads.
-    # We need to select an init - grab the first one from our base/env.yaml file
+        elif explore_type == "patch_explore":
+            logger.info(f"Exploring using patch search for {niters} iterations.")
+            raise NotImplementedError("Patch search not yet implemented")
 
-    init = None
-    if config.get("env", {}).get("igloo_init", None) is None:
-        with open(join(dirname(output_dir), "base", "env.yaml"), "r") as f:
-            env = yaml.safe_load(f)
-            if env.get("igloo_init", None) and len(env["igloo_init"]) > 0:
-                init = env["igloo_init"][0]
-                logger.info(
-                    f"Config does not specify init. Selecting first option: {init}."
-                    + (
-                        (" Other options are: " + ", ".join(env["igloo_init"][1:]))
-                        if len(env["igloo_init"]) > 1
-                        else ""
-                    )
-                )
-            else:
-                raise RuntimeError(
-                    f"Static analysis failed to identify an init script. Please specify one in {output_dir}/config.yaml and run again with --config."
-                )
+        else:
+            raise ValueError(f"Invalid explore_type: {explore_type}")
 
-    PandaRunner().run(
-        config_path,
-        proj_dir,
-        output_dir,
-        init=init,
-        timeout=timeout,
-        show_output=True,
-        verbose=verbose,
-    )  # niters is 1
+    else:
+        # You already have a config, let's just run it. This is what happens
+        # in each iterative run normally. Here we just do it directly.
+        # Only needs a single thread, regardless of nthreads.
 
-    # Single iteration: there is no best - don't report that
-    # report_best_results(run_base, output_dir, os.path.dirname(output_dir))
+        # PandaRunner allows us to override the init from what's specified in the
+        # config if necessary. If we don't have an init, go find a default, otherwise
+        # use the one specified in the config.
+        specified_init = None
+        if config.get("env", {}).get("igloo_init", None) is None:
+            specified_init = _get_default_init(config, proj_dir)
 
-    # But do calculate and report scores. Unlike multi-run mode, we'll write scores right into output dir instead of in parent
-    best_scores = calculate_score(
-        output_dir, have_console=not config["core"].get("show_output", False)
-    )
-    with open(os.path.join(output_dir, "scores.txt"), "w") as f:
-        f.write("score_type,score\n")
-        for k, v in best_scores.items():
-            f.write(f"{k},{v:.02f}\n")
-    with open(os.path.join(output_dir, "score.txt"), "w") as f:
-        total_score = sum(best_scores.values())
-        f.write(f"{total_score:.02f}\n")
+        PandaRunner().run(
+            config_path,
+            proj_dir,
+            output_dir,
+            init=specified_init,
+            timeout=timeout,
+            show_output=True,
+            verbose=verbose,
+        )  # niters is 1
+
+        # Single iteration: there is no best - don't report that
+        # report_best_results(run_base, output_dir, os.path.dirname(output_dir))
+
+        # But do calculate and report scores. Unlike multi-run mode, we'll write scores right into output dir instead of in parent
+        best_scores = calculate_score(
+            output_dir, have_console=not config["core"].get("show_output", False)
+        )
+        with open(os.path.join(output_dir, "scores.txt"), "w") as f:
+            f.write("score_type,score\n")
+            for k, v in best_scores.items():
+                f.write(f"{k},{v:.02f}\n")
+        with open(os.path.join(output_dir, "score.txt"), "w") as f:
+            total_score = sum(best_scores.values())
+            f.write(f"{total_score:.02f}\n")
 
 
 def add_common_arguments(parser):
@@ -465,12 +490,9 @@ def penguin_explore(args):
         )
 
     if args.output is None:
-        # Default to results/explore in the project directory for graph and ga_explore for genetic algorithm
-        # Allows to more easily compare them side-by-side
-        if args.cmd == "ga_explore":
-            args.output = os.path.dirname(args.config) + "/ga_explore/"
-        else:
-            args.output = os.path.dirname(args.config) + "/explore/"
+        # Default to results/{explore,ga_explore,patch_explore} in the project directory
+        # Multiple directories allow for easier comparison
+        args.output = os.path.join(os.path.dirname(args.config), args.cmd)
 
     if args.force and os.path.isdir(args.output):
         # Delete the output directory if it exists
@@ -499,7 +521,7 @@ def penguin_explore(args):
         niters=args.niters,
         nthreads=args.nworkers,
         timeout=args.timeout,
-        ga_explore=args.cmd == "ga_explore",
+        explore_type=args.cmd
     )
 
 
@@ -579,6 +601,11 @@ contains details on the configuration file format and options.
     )
     add_explore_arguments(parser_cmd_ga_explore)
 
+    parser_cmd_patch_explore = subparsers.add_parser(
+        "patch_explore", help="Search for alternative configurations to improve system health by using a patch-based search."
+    )
+    add_explore_arguments(parser_cmd_patch_explore)
+
     # Add --wrapper-help stub
     parser.add_argument(
         "--wrapper-help", action="store_true", help="Show help for host penguin wrapper"
@@ -607,11 +634,9 @@ contains details on the configuration file format and options.
         penguin_run(args)
     elif args.cmd == "docs":
         penguin_docs(args)
-    elif args.cmd == "explore":
-        penguin_explore(args)
     elif args.cmd == "guest_cmd":
         guest_cmd(args)
-    elif args.cmd == "ga_explore":
+    elif args.cmd in ["explore", "ga_explore", "patch_explore"]:
         penguin_explore(args)
     else:
         parser.print_help()
