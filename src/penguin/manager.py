@@ -274,7 +274,9 @@ class Worker:
         run_base,
         max_iters,
         run_index,
+        timeout,
         active_worker_count,
+        verbose=False,
         thread_id=None,
         logger=None,
     ):
@@ -286,6 +288,8 @@ class Worker:
         self.run_index = run_index
         self.active_worker_count = active_worker_count
         self.thread_id = thread_id
+        self.timeout = timeout
+        self.verbose = verbose
         self.logger = logger or getColoredLogger(
             f"mgr{self.thread_id if self.thread_id is not None else ''}.run.{self.run_index.get()}"
         )
@@ -457,20 +461,6 @@ class Worker:
 
         if do_run:
             # config_depth = self.config_manager.graph.get_config_depth(config)
-            timeout = (
-                config.info.get("plugins", {}).get("core", {}).get("timeout", None)
-            )
-            # XXX: Disabled - premature optimization? It's nice when it works, but we might end up
-            # fixing low-priority failures that occur early instead of the important ones
-            # if timeout is not None and not config.exclusive:
-            #    # We want to gradually increase timeout as we get deeper
-            #    # Exclusive nodes are important analyses and we don't want to rerun them. Let them have full time.
-            #    # Also if we truncate exclusive nodes we need to fix a bug where the truncation failure gets
-            #    # passed to the exclusive mitigation provider. It's a mess.
-            #    new_timeout = min(30 * config_depth, timeout)
-            #    truncated = timeout - new_timeout # How truncated were we?
-            #    timeout = new_timeout
-
             for config_idx in range(n_config_tests):
                 out_dir = os.path.join(
                     run_dir, "output" + (str(config_idx) if config_idx > 0 else "")
@@ -479,7 +469,8 @@ class Worker:
                 try:
                     # self._subprocess_panda_run(conf_yaml, run_dir, out_dir)
                     PandaRunner().run(
-                        conf_yaml, self.proj_dir, out_dir, timeout=timeout
+                        conf_yaml, self.proj_dir, out_dir,
+                        timeout=self.timeout, verbose=self.verbose
                     )
 
                 except RuntimeError as e:
@@ -760,7 +751,8 @@ def report_best_results(best_idx, best_output, output_dir):
 
 
 def graph_search(
-    proj_dir, initial_config, output_dir, max_iters=1000, nthreads=1, init=None
+    proj_dir, initial_config, output_dir, timeout, max_iters=1000,
+    nthreads=1, init=None, verbose=False
 ):
     """
     Main entrypoint. Given an initial config and directory run our
@@ -807,8 +799,10 @@ def graph_search(
                 run_base,
                 max_iters,
                 run_index,
+                timeout,
                 active_worker_count,
                 thread_id=idx,
+                verbose=verbose
             )
             t = Thread(target=worker_instance.run)
             # t.daemon = True
