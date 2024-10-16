@@ -660,18 +660,14 @@ class GlobalState:
             raise ValueError(f"Base filesystem archive not found: {self.info['fs']}")
 
         # Static analysis *must* have found some inits, otherwise we can't even start execution!
-        # Potential inits will be in our base directory, should be in output_dir, I think?
-        self.inits = []
-        # Read from proj_dir/base/env.yaml to get inits
-        with open(os.path.join(proj_dir, "base", "env.yaml")) as f:
-            env = yaml.safe_load(f)
-            for k, v in env.items():
-                if k == "igloo_init":
-                    self.inits.extend(v)
+        inits_path = os.path.join(*[proj_dir, "static", "InitFinder.yaml"])
+        if os.path.isfile(inits_path):
+            with open(inits_path, "r") as f:
+                self.inits = yaml.safe_load(f)
 
         if not self.inits:
             raise RuntimeError(
-                f"No potential inits found in {output_dir}/base/env.yaml"
+                f"No potential inits found during static analysis: {inits_path} is empty."
             )
 
 
