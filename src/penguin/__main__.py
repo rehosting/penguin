@@ -49,11 +49,7 @@ def _get_default_init(config, proj_dir):
         f"Static analysis failed to identify an init script. Please specify one in your config under env.igloo_init"
     )
 
-
-def run_from_config(
-    proj_dir, config_path, output_dir, niters=1, nthreads=1, timeout=None, verbose=False, auto=False, explore_type=None
-):
-
+def _validate_project(proj_dir, config_path):
     if not os.path.isdir(proj_dir):
         raise RuntimeError(f"Project directory not found: {proj_dir}")
 
@@ -74,69 +70,72 @@ def run_from_config(
 
     # XXX: Should we put this in results somewhere?
     #dump_config(config, config_path+".realized")
+    return config
 
-    if niters > 1:
-        if not explore_type:
-            raise ValueError("Must specify explore_type when running multiple iterations")
 
-        if explore_type == "explore":
-            # Only trigger graph_search if 'penguin explore'. We might be running in auto mode
-            # for 'single_shot' rehosting tests in which case timeout != None and niters = 1.
-            logger.info(f"Exploring using graph search for {niters} iterations.")
-            return graph_search(
-                proj_dir, config, output_dir, max_iters=niters, nthreads=nthreads
-            )
-        elif explore_type == "ga_explore":
-            # We're running a genetic algorithm exploration
-            logger.info(f"Exploring using genetic algorithm for {niters} iterations.")
-            return ga_search(
-                proj_dir, config, output_dir, max_iters=niters, nthreads=nthreads
-            )
+def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=False):
+    config = _validate_project(proj_dir, config_path)
 
-        elif explore_type == "patch_explore":
-            logger.info(f"Exploring using patch search for {niters} iterations.")
-            raise NotImplementedError("Patch search not yet implemented")
+    # You already have a config, let's just run it. This is what happens
+    # in each iterative run normally. Here we just do it directly.
+    # Only needs a single thread, regardless of nthreads.
 
-        else:
-            raise ValueError(f"Invalid explore_type: {explore_type}")
+    # PandaRunner allows us to override the init from what's specified in the
+    # config if necessary. If we don't have an init, go find a default, otherwise
+    # use the one specified in the config.
+    specified_init = None
+    if config.get("env", {}).get("igloo_init", None) is None:
+        specified_init = _get_default_init(config, proj_dir)
 
-    else:
-        # You already have a config, let's just run it. This is what happens
-        # in each iterative run normally. Here we just do it directly.
-        # Only needs a single thread, regardless of nthreads.
+    PandaRunner().run(
+        config_path,
+        proj_dir,
+        output_dir,
+        init=specified_init,
+        timeout=timeout,
+        show_output=True,
+        verbose=verbose,
+    )  # niters is 1
 
-        # PandaRunner allows us to override the init from what's specified in the
-        # config if necessary. If we don't have an init, go find a default, otherwise
-        # use the one specified in the config.
-        specified_init = None
-        if config.get("env", {}).get("igloo_init", None) is None:
-            specified_init = _get_default_init(config, proj_dir)
+    # Single iteration: there is no best - don't report that
+    # report_best_results(run_base, output_dir, os.path.dirname(output_dir))
 
-        PandaRunner().run(
-            config_path,
-            proj_dir,
-            output_dir,
-            init=specified_init,
-            timeout=timeout,
-            show_output=True,
-            verbose=verbose,
-        )  # niters is 1
+    # But do calculate and report scores. Unlike multi-run mode, we'll write scores right into output dir instead of in parent
+    best_scores = calculate_score(
+        output_dir, have_console=not config["core"].get("show_output", False)
+    )
+    with open(os.path.join(output_dir, "scores.txt"), "w") as f:
+        f.write("score_type,score\n")
+        for k, v in best_scores.items():
+            f.write(f"{k},{v:.02f}\n")
+    with open(os.path.join(output_dir, "score.txt"), "w") as f:
+        total_score = sum(best_scores.values())
+        f.write(f"{total_score:.02f}\n")
 
-        # Single iteration: there is no best - don't report that
-        # report_best_results(run_base, output_dir, os.path.dirname(output_dir))
+def explore_from_config(
+    explore_type, proj_dir, config_path, output_dir, niters, timeout,
+    nworkers=1, verbose=False, 
+):
+    config = _validate_project(proj_dir, config_path)
 
-        # But do calculate and report scores. Unlike multi-run mode, we'll write scores right into output dir instead of in parent
-        best_scores = calculate_score(
-            output_dir, have_console=not config["core"].get("show_output", False)
+    if not explore_type:
+        raise ValueError("Must specify explore_type when running multiple iterations")
+
+    if explore_type == "explore":
+        return graph_search(
+            proj_dir, config, output_dir, timeout, max_iters=niters,
+            nthreads=nworkers, verbose=verbose
         )
-        with open(os.path.join(output_dir, "scores.txt"), "w") as f:
-            f.write("score_type,score\n")
-            for k, v in best_scores.items():
-                f.write(f"{k},{v:.02f}\n")
-        with open(os.path.join(output_dir, "score.txt"), "w") as f:
-            total_score = sum(best_scores.values())
-            f.write(f"{total_score:.02f}\n")
 
+    if explore_type == "ga_explore":
+        return ga_search(
+            proj_dir, config, output_dir, max_iters=niters, nthreads=nworkers
+        )
+
+    if explore_type == "patch_explore":
+        raise NotImplementedError("Patch search not yet implemented")
+
+    raise ValueError(f"Invalid explore_type: {explore_type}")
 
 def add_common_arguments(parser):
     """
@@ -418,7 +417,7 @@ def penguin_run(args):
             "Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments"
         )
 
-    run_from_config(args.project_dir, args.config, args.output, timeout=args.timeout, verbose=args.verbose, auto=args.auto)
+    run_from_config(args.project_dir, args.config, args.output, timeout=args.timeout, verbose=args.verbose)
 
 
 def guest_cmd(args):
@@ -513,15 +512,15 @@ def penguin_explore(args):
             "Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments"
         )
 
-    run_from_config(
+    explore_from_config(
+        args.cmd,
         dirname(args.config),
         args.config,
         args.output,
-        verbose=args.verbose,
-        niters=args.niters,
-        nthreads=args.nworkers,
-        timeout=args.timeout,
-        explore_type=args.cmd
+        args.niters,
+        args.timeout,
+        nworkers=args.nworkers,
+        verbose=args.verbose
     )
 
 
