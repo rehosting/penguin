@@ -96,7 +96,7 @@ class Core(PyPlugin):
         if conf["core"].get("force_www", False):
             if conf.get("static_files", {}).get("/igloo/utils/www_cmds", None) is None:
                 self.logger.warning(
-                    "WARNING: Force WWW unavailable - no webservers were statically identified (/igloo/utils/www_cmds is empty)"
+                    "Force WWW unavailable - no webservers were statically identified (/igloo/utils/www_cmds is empty)"
                 )
             else:
                 conf["env"]["WWW"] = "1"
