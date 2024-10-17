@@ -160,14 +160,15 @@ class InterfaceAnalysis(PenguinAnalysis):
 
     def get_potential_mitigations(self, config, failure: Failure) -> List[Mitigation]:
         # Create a mitiation with every iface in the list, so long as at least one isn't already in the config
-        ifaces = failure.info["ifaces"]
+        ifaces = failure.info["ifaces"] # Should just be one now
         if not any([iface not in config.get("netdevs", []) for iface in ifaces]):
             return []  # Already present
+        iface = ifaces[0]
 
         # Create a mitigation with all the ifaces
         return [
-            Mitigation(f"iface_{len(ifaces)}", self.ANALYSIS_TYPE, {"ifaces": ifaces},
-                       patch={"netdevs": ifaces})
+            Mitigation(f"iface_{iface}", self.ANALYSIS_TYPE, {"ifaces": [iface]},
+                       patch={"netdevs": [iface]})
         ]
 
     def implement_mitigation(
