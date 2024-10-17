@@ -43,6 +43,13 @@ DEFAULT_ENV_VARS = [
     "idle",
     "acpi",
     "LD_LIBRARY_PATH",
+    # Vars that control penguin's init script - ignore
+    "SHARED_DIR",
+    "ROOT_SHELL",
+    "WWW",
+    "CID",
+    "STRACE",
+    "igloo_init"
 ]
 
 
