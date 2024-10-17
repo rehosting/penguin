@@ -523,6 +523,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                                 "weight": weight,
                                 "source": "from_dynamic",
                             },
+                            patch={'env': {var_name: dynval}}
                         )
                     )
             else:
@@ -541,6 +542,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                                 "weight": 0.1,
                                 "source": "default",
                             },
+                            patch={'env': {var_name: val}}
                         )
                     )
             return results
@@ -565,6 +567,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                     "weight": 1,
                     "source": "need_dynamic",
                 },
+                patch={'env': {var_name: ENV_MAGIC_VAL}},
                 exclusive=True,
             )
         ]
