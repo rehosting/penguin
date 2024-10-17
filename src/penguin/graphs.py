@@ -130,7 +130,7 @@ class Configuration(GraphNode):
 
 
 class Failure(GraphNode):
-    def __init__(self, name, type, info=None):
+    def __init__(self, name, type, info=None, patch_name=None):
         """
         Failures are observed by running our target system with a given
         config. These are of various types and have a dictionary of info
@@ -141,6 +141,7 @@ class Failure(GraphNode):
         super().__init__(name)
         self.type = type
         self.info = info or {}
+        self.patch_name = patch_name if patch_name else name
 
     def to_dict(self):
         super_dict = super().to_dict()

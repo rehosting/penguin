@@ -423,6 +423,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                         f"dynval_{target_var}",
                         self.ANALYSIS_TYPE,
                         {"var": target_var, "values": dyn_vals, "source": "dynamic"},
+                        patch_name=target_var
                     )
                 ]
             else:
@@ -473,7 +474,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
             default_env_vars += list(config["env"].keys())
 
         env_failures = [
-            Failure("unset_" + env, self.ANALYSIS_TYPE, {"var": env, "source": "unset"})
+            Failure("unset_" + env, self.ANALYSIS_TYPE, {"var": env, "source": "unset"}, patch_name=env)
             for env in env_accesses
             if 2 < len(env) < 16 and env not in default_env_vars
         ]
