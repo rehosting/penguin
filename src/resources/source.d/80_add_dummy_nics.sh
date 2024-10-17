@@ -1,3 +1,6 @@
+# Bring up the loopback interface
+/igloo/utils/busybox ip link set lo up
+
 # Pretend we have some network interfaces. Note these aren't
 # connected to anything. Pseudofile penguin_net is populated
 # from config's netdevs list.
