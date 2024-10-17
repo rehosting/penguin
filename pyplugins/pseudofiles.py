@@ -1401,6 +1401,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                             "action": "ioctl_model",
                             "model": "symex",
                         },
+                        exclusive=self.ANALYSIS_TYPE,
                         patch={ # XXX: We're adding ioctl model above - todo update?
                                 "pseudofiles": {
                                     path: {
