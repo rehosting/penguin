@@ -580,7 +580,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                     "source": "need_dynamic",
                 },
                 patch={'env': {var_name: ENV_MAGIC_VAL}},
-                exclusive=True,
+                exclusive=self.ANALYSIS_TYPE,
             )
         ]
 

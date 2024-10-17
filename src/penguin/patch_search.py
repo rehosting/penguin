@@ -57,7 +57,7 @@ class DoublyWeightedSet:
                                                 not have_exclusive)
                     if soln[1] is not None:
                         selected_failures.append(soln)
-                        have_exclusive |= soln[2]
+                        have_exclusive |= (soln[2] is not None)
 
         return selected_failures
 
@@ -86,7 +86,7 @@ class DoublyWeightedSet:
             if rand_val < cumulative:
                 return i
         return len(weights) - 1  # Fallback to last index
-    
+
     def __str__(self):
         """Custom string representation to show failures and their solutions"""
         output = ""
@@ -136,7 +136,7 @@ class PatchSearch:
                 name = f"static.default.{friendly_name}"
                 # We always want these, and the single solution should always be applied
                 self.weights.add_failure(name, 1.0)
-                self.weights.add_solution(name, patch, 1.0) 
+                self.weights.add_solution(name, patch, 1.0)
             else:
                 name = f"static.potential.{friendly_name}"
                 # TODO: we do actually have some groups right off the bat, but they
@@ -216,7 +216,7 @@ class PatchSearch:
             # Uh oh, we got an error while running. Warn and continue
             self.logger.error(f"Could not run {run_dir}: {e}")
             return
-        
+
         self.process_results(run_index, run_dir, out_dir, conf_yaml)
 
     def process_results(self, run_index, run_dir, out_dir, conf_yaml):
@@ -239,7 +239,6 @@ class PatchSearch:
         # Report on failures. TODO: do we want to write these down or just log?
         with open(os.path.join(run_dir, "failures.yaml"), "w") as f:
             yaml.dump([fail.to_dict() for fail in failures], f)
-        print(f"Saw {len(failures)} failures")
         for failure in failures:
             # TODO: if we do a learning config it shows up as distinct failures
             # while we want to treat it as a single failure
@@ -270,23 +269,28 @@ class PatchSearch:
                     # If it's at selection time, we'll need to track mitigations then
                     weight = 0.01
 
-                # Need to create YAML file for mitigation.patch on disk in our 
+                # Need to create YAML file for mitigation.patch on disk in our
                 # patches dir
                 hsh = hash_yaml_config(mitigation.patch)[:6]
                 mit_path = os.path.join(self.patch_dir,
                                               f"{failure.type}_{failure.patch_name}_{hsh}.yaml")
-                with open(mit_path, "w") as f:
-                    yaml.dump(mitigation.patch, f)
 
-                # Make it a relative path to proj_dir
-                mit_path = mit_path.replace(self.proj_dir, "")
-                if mit_path.startswith("/"):
-                    mit_path = mit_path[1:]
+                if not os.path.isfile(mit_path):
+                    with open(mit_path, "w") as f:
+                        yaml.dump(mitigation.patch, f)
 
+                    # Make it a relative path to proj_dir
+                    mit_path = mit_path.replace(self.proj_dir, "")
+                    if mit_path.startswith("/"):
+                        mit_path = mit_path[1:]
+                    self.logger.info(f"Found new potential {mitigation}")
+
+                # Intentionally hitting this even if the hash exists, we might want to be
+                # doing some re-weighting in self.weights - it will ignore if duplicated
                 self.weights.add_solution(failure.patch_name, mit_path, weight, exclusive=mitigation.exclusive)
 
-        print(f"Weights after run {run_index}")
-        print(self.weights)
+        with open(os.path.join(out_dir, "weights.txt"), "w") as f:
+            f.write(str(self.weights))
 
 
     def find_mitigations(
@@ -300,14 +304,13 @@ class PatchSearch:
                 raise TypeError(
                     f"Plugin {analysis.ANALYSIS_TYPE} returned a non-Mitigation object {m}"
                 )
-            self.logger.info(f"Plugin {analysis.ANALYSIS_TYPE} suggests {m}")
             results.append(m)
         return results
 
     def analyze_failures(self, config, run_dir, exclusive=None):
         """
         After we run a configuration, do our post-run analysis of failures.
-        Run each PyPlugin that has a PenguinAnalysis implemented. Ask each to 
+        Run each PyPlugin that has a PenguinAnalysis implemented. Ask each to
         identify failures.
         """
 
@@ -349,4 +352,3 @@ def patch_search(proj_dir, config_path, output_dir, timeout, max_iters=1000,
                  nworkers=1, verbose=False):
     return PatchSearch(proj_dir, config_path, output_dir, timeout,
                        max_iters, nworkers, verbose).run()
-    
