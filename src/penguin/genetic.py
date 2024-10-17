@@ -645,6 +645,7 @@ class ConfigPopulation:
         Our mutation here is essentially "try a different mitigation". Elites will get modified here
         """
         #At this point, we have parents and a starter population with children from crossover, make new configs until are population is full
+        failed = 0
         while len(self.chromosomes) < self.pop_size:
             #Originally did a growing configchromosome, but that was buggy and inefficient
             genes = random.choice(self.parents).genes
@@ -685,6 +686,12 @@ class ConfigPopulation:
             if child and not self.get_fitness(child) and not self.config_in_pop(child):
                 #If we have exhausted our configuration space, this will cause an infinite loop...
                 self.chromosomes.add(child)
+                failed = 0
+            else:
+                failed += 1
+                if failed > 20:
+                    self.logger.warn(f"Failed to generate a new configuration 20 times in a row, giving up")
+                    break
 
         self.logger.info(f"Population size after mutation is: {len(self.chromosomes)}")
         self.logger.debug(f"population:\n{self.print_chromosomes(self.chromosomes)}")
@@ -723,9 +730,16 @@ def main():
         default=4,
         help="Number of workers to run in parallel. Default is 4",
     )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=300,
+        help="Timeout in seconds. Default is 300",
+    )
     args = parser.parse_args()
-    config = load_config(args.config)
-    ga_search(os.path.dirname(args.config), config, args.outdir, args.niters, args.nworkers)
+    proj_dir = os.path.dirname(args.config)
+    config = load_config(proj_dir, args.config)
+    ga_search(os.path.dirname(args.config), config, args.outdir, args.timeout, args.niters, args.nworkers)
 
 
 if __name__ == "__main__":
