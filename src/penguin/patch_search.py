@@ -29,10 +29,12 @@ class DoublyWeightedSet:
                 raise ValueError(f"Failure '{failure_name}' already exists.")
 
     def add_solution(self, failure_name, solution, weight=0.5, exclusive=False):
-        """Add a potential solution to an existing failure"""
+        """Add a potential solution to an existing failure if it's not already there"""
         with self.lock:
             if failure_name in self.failures:
-                self.failures[failure_name]["solutions"].append({"solution": solution, "weight": weight, "exclusive": exclusive})
+                # Confirm the solution isn't already in the list
+                if solution not in [x["solution"] for x in self.failures[failure_name]["solutions"]]:
+                    self.failures[failure_name]["solutions"].append({"solution": solution, "weight": weight, "exclusive": exclusive})
             else:
                 raise ValueError(f"Failure '{failure_name}' does not exist. Add it first.")
 
@@ -239,6 +241,8 @@ class PatchSearch:
             yaml.dump([fail.to_dict() for fail in failures], f)
         print(f"Saw {len(failures)} failures")
         for failure in failures:
+            # TODO: if we do a learning config it shows up as distinct failures
+            # while we want to treat it as a single failure
             if failure not in self.weights.failures:
                 # TODO: how should we prioritize the weight of new failures?
                 self.weights.add_failure(failure, 0.5)
