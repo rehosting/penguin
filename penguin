@@ -309,7 +309,8 @@ penguin_run() {
     fi
 
     # If we are running a command in the guest, we want to docker exec then bail
-    if [ "${cmd[0]}" == "guest_cmd" ]; then
+    if [[ ${#cmd[@]} -gt 1 && ( "${cmd[0]}" == "guest_cmd" ) ]]; then
+
         # Kludgy, but lets us reuse the $container_name mechanism above
         docker_cmd=("docker" "exec" "-it" "${container_name}" "python3" "/igloo_static/guesthopper/guest_cmd.py" "${cmd[@]:2}")
         "${docker_cmd[@]}"
