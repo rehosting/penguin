@@ -169,7 +169,6 @@ class PatchSearch:
         '''
         Entrypoint for the patch search.
         '''
-        print("Running with {self.nworkers} workers")
         with ThreadPoolExecutor(max_workers=self.nworkers) as executor:
             futures = []
             for idx in range(self.max_iters):

@@ -548,14 +548,16 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
     # Unique suffix to avoid conflicts
     suffix = randint(0, 1000000)
 
-    # Decompress the archive and store in artifacts/fs.tar
-    ORIGINAL_DECOMP_FS = Path(ARTIFACTS, f"fs_orig_{suffix}.tar")
+    # Decompress the archive and store in artifacts/fs_orig.tar
+    # XXX: Why do we do this?
+    #ORIGINAL_DECOMP_FS = Path(ARTIFACTS, f"fs_orig.tar")
+    #check_output(f'gunzip -c "{IN_TARBALL}" > "{ORIGINAL_DECOMP_FS}"', shell=True)
 
-    check_output(f'gunzip -c "{IN_TARBALL}" > "{ORIGINAL_DECOMP_FS}"', shell=True)
     project_dir = os.path.dirname(os.path.realpath(config_path))
 
-    MODIFIED_TARBALL = Path(ARTIFACTS, f"fs_out_{suffix}.tar")
     if config_path:
+        delete_tar = True
+        MODIFIED_TARBALL = Path(ARTIFACTS, f"fs_out_{suffix}.tar")
         config = load_config(proj_dir, config_path)
         with tempfile.TemporaryDirectory() as TMP_DIR:
             check_output(["tar", "xpsvf", IN_TARBALL, "-C", TMP_DIR])
@@ -566,6 +568,7 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
             check_output(["tar", "czpvf", MODIFIED_TARBALL, "-C", TMP_DIR, "."])
         TARBALL = MODIFIED_TARBALL
     else:
+        delete_tar = False
         TARBALL = IN_TARBALL
 
     # 1GB of padding. XXX is this a good amount - does it slow things down if it's too much?
@@ -586,7 +589,7 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
         NUMBER_OF_INODES + 1000
     )  # Padding for more files getting added later
 
-    def _make_img(work_dir, qcow):
+    def _make_img(work_dir, qcow, delete_tar):
         IMAGE = Path(work_dir, "image.raw")
         check_output(["truncate", "-s", str(FILESYSTEM_SIZE), IMAGE])
         check_output(
@@ -605,15 +608,17 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
             ]
         )
         check_output(["qemu-img", "convert", "-f", "raw", "-O", "qcow2", IMAGE, qcow])
+        if delete_tar:
+            check_output(["rm", TARBALL])
 
     with tempfile.TemporaryDirectory() as WORK_DIR:
         # if our QCOW path is a lustrefs we need to operate within the workdir and copy the qcow out
         if get_mount_type(QCOW.parent) == "lustre":
             # Need to convert to qcow within the workdir
-            _make_img(WORK_DIR, Path(WORK_DIR, "image.qcow"))
+            _make_img(WORK_DIR, Path(WORK_DIR, "image.qcow"), delete_tar)
             check_output(["mv", Path(WORK_DIR, "image.qcow"), QCOW])
         else:
-            _make_img(WORK_DIR, QCOW)
+            _make_img(WORK_DIR, QCOW, delete_tar)
 
 
 def fakeroot_gen_image(fs, out, artifacts, proj_dir, config):
