@@ -430,7 +430,7 @@ def run_config(
             "osi_linux",
             args={
                 "kconf_file": os.path.join(os.path.dirname(kernel), "osi.config"),
-                "pagewalk": True,
+                "pagewalk": True if archend in ["mipsel", "mipseb", "armel"] else False,
                 "kconf_group": q_config["kconf_group"],
             },
         )
