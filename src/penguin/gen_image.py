@@ -6,6 +6,7 @@ import tarfile
 import tempfile
 from pathlib import Path
 from subprocess import check_output
+from random import randint
 
 import click
 
@@ -507,13 +508,16 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
     QCOW = Path(out)
     ARTIFACTS.mkdir(exist_ok=True)
 
+    # Unique suffix to avoid conflicts
+    suffix = randint(0, 1000000)
+
     # Decompress the archive and store in artifacts/fs.tar
-    ORIGINAL_DECOMP_FS = Path(ARTIFACTS, "fs_orig.tar")
+    ORIGINAL_DECOMP_FS = Path(ARTIFACTS, f"fs_orig_{suffix}.tar")
 
     check_output(f'gunzip -c "{IN_TARBALL}" > "{ORIGINAL_DECOMP_FS}"', shell=True)
     project_dir = os.path.dirname(os.path.realpath(config_path))
 
-    MODIFIED_TARBALL = Path(ARTIFACTS, "fs_out.tar")
+    MODIFIED_TARBALL = Path(ARTIFACTS, f"fs_out_{suffix}.tar")
     if config_path:
         config = load_config(proj_dir, config_path)
         with tempfile.TemporaryDirectory() as TMP_DIR:
