@@ -495,6 +495,10 @@ class EnvTrackerAnalysis(PenguinAnalysis):
             results = []
             if fail_info["source"] != "dynamic":
                 # Should only be here after a dynamic search
+                for k, v in config[self.ANALYSIS_TYPE].items():
+                    if v == ENV_MAGIC_VAL:
+                        print(f"Found magic value {v} in {k} but ERROR")
+                print(fail_info)
                 raise ValueError(
                     f"Expected source=dynamic for config with {ENV_MAGIC_VAL} but got {fail_info}"
                 )
