@@ -42,7 +42,7 @@ class ConfigBuilder:
     Given a filesystem and an output directory, create a configuration
     and initialize the output directory as necessary.
     '''
-    PATCH_DIR = "auto_patches"
+    PATCH_DIR = "static_patches"
 
     def __init__(self, fs_archive, output_dir):
         # Create a 'base' directory for analysis results, copy fs into it

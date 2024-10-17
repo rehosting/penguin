@@ -122,6 +122,6 @@ class SigInt(PenguinAnalysis):
             new_config["blocked_signals"] = []
 
         if sig in new_config["blocked_signals"]:
-            return []  # It was alrady blocked. Weird
+            return []  # It was already blocked. Weird
         new_config["blocked_signals"].append(sig)
         return [Configuration(f"block_sig{sig}", new_config)]

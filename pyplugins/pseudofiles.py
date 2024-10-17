@@ -29,6 +29,8 @@ KNOWN_PATHS = [
     "/dev/zero",
     "/dev/random",
     "/dev/urandom",  # Standard devices we should see in devtmpfs
+    # TODO: pull in devices like how we do during static analysis (e.g., /resources/proc_sys.txt)
+    "/proc/penguin_net",
 ]
 
 try:
