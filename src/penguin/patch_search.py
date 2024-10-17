@@ -1,6 +1,7 @@
 import os
 import random
 import shutil
+import threading
 
 from typing import List
 from copy import deepcopy
@@ -16,20 +17,23 @@ class DoublyWeightedSet:
     def __init__(self):
         # Store failures as a dictionary with weights and their potential solutions
         self.failures = {}
+        self.lock = threading.Lock()
 
     def add_failure(self, failure_name, weight=0.5):
         """Add a failure with a specific weight (default 0.5)"""
-        if failure_name not in self.failures:
-            self.failures[failure_name] = {"weight": weight, "solutions": []}
-        else:
-            raise ValueError(f"Failure '{failure_name}' already exists.")
+        with self.lock:
+            if failure_name not in self.failures:
+                self.failures[failure_name] = {"weight": weight, "solutions": []}
+            else:
+                raise ValueError(f"Failure '{failure_name}' already exists.")
 
     def add_solution(self, failure_name, solution, weight=0.5, exclusive=False):
         """Add a potential solution to an existing failure"""
-        if failure_name in self.failures:
-            self.failures[failure_name]["solutions"].append({"solution": solution, "weight": weight, "exclusive": exclusive})
-        else:
-            raise ValueError(f"Failure '{failure_name}' does not exist. Add it first.")
+        with self.lock:
+            if failure_name in self.failures:
+                self.failures[failure_name]["solutions"].append({"solution": solution, "weight": weight, "exclusive": exclusive})
+            else:
+                raise ValueError(f"Failure '{failure_name}' does not exist. Add it first.")
 
     def probabilistic_mitigation_selection(self):
         """Select independent failures to mitigate and pick one of their solutions."""
@@ -37,19 +41,20 @@ class DoublyWeightedSet:
         have_exclusive = False
 
         # Step 1: For each failure, decide probabilistically if it will be mitigated
-        for failure_name, failure_data in self.failures.items():
-            # If there are no solutions, we can't mitigate the failure - skip
-            if not failure_data["solutions"]:
-                continue
-            failure_weight = failure_data["weight"]
-            if random.random() <= failure_weight:
-                # Step 2: Select one solution for the chosen failure
-                # if we get one
-                soln = self._select_solution(failure_name, can_be_exclusive=
-                                             not have_exclusive)
-                if soln[1] is not None:
-                    selected_failures.append(soln)
-                    have_exclusive |= soln[2]
+        with self.lock:
+            for failure_name, failure_data in self.failures.items():
+                # If there are no solutions, we can't mitigate the failure - skip
+                if not failure_data["solutions"]:
+                    continue
+                failure_weight = failure_data["weight"]
+                if random.random() <= failure_weight:
+                    # Step 2: Select one solution for the chosen failure
+                    # if we get one
+                    soln = self._select_solution(failure_name, can_be_exclusive=
+                                                not have_exclusive)
+                    if soln[1] is not None:
+                        selected_failures.append(soln)
+                        have_exclusive |= soln[2]
 
         return selected_failures
 
@@ -137,8 +142,8 @@ class PatchSearch:
                 name = f"static.potential.{friendly_name}"
                 # TODO: we do actually have some groups right off the bat, but they
                 # could actually be combined - e.g., select one of our nvram sources
-                self.weights.add_failure(name, 0.5) # We might want it. Who knows
-                self.weights.add_solution(name, patch, 0.5) # This might help. Who knows
+                self.weights.add_failure(name, 0.9) # We might want it. Who knows
+                self.weights.add_solution(name, patch, 0.9) # This might help. Who knows
 
 
     def generate_new_config(self, tries=10):
@@ -165,11 +170,23 @@ class PatchSearch:
         '''
         Entrypoint for the patch search.
         '''
+        threads = []
         for idx in range(self.max_iters):
+            if len(threads) >= self.nworkers:
+                for thread in threads:
+                    thread.join()
+                threads = []
+
             next_config = self.generate_new_config()
             if not next_config:
                 break
-            self.run_iteration(idx, next_config)
+
+            thread = threading.Thread(target=self.run_iteration, args=(idx, next_config))
+            thread.start()
+            threads.append(thread)
+
+        for thread in threads:
+            thread.join()
 
     def run_iteration(self, run_index, config):
         '''
@@ -204,7 +221,7 @@ class PatchSearch:
         with open(os.path.join(run_dir, "score.txt"), "w") as f:
             total = float(sum(score.values()))
             f.write(f"{total}\n")
-        self.logger.info(f"Score for {run_dir}: {total}")
+        self.logger.info(f"Score for run {run_index}: {total}")
 
         # TODO: update weights of patches we had selected based on score
 
