@@ -5,6 +5,7 @@ import threading
 
 from typing import List
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from penguin.common import getColoredLogger, yaml
 from .penguin_config import dump_config, hash_yaml_config, load_config, load_unpatched_config
@@ -90,7 +91,7 @@ class DoublyWeightedSet:
         for failure, details in self.failures.items():
             output += f"Failure: {failure} (Weight: {details['weight']})\n"
             for sol in details["solutions"]:
-                output += f"  - Solution: {sol['solution']} (Weight: {sol['weight']})\n"
+                output += f"  - Solution: {sol['solution']} (Weight: {sol['weight']}, Exclusive: {sol['exclusive']})\n"
         return output
 
 class PatchSearch:
@@ -103,10 +104,6 @@ class PatchSearch:
         self.max_iters = max_iters
         self.nworkers = nworkers
         self.verbose = verbose
-
-        if self.nworkers != 1:
-            self.logger.error("nworkers > 1 not supported yet - setting to 1")
-            self.nworkers = 1
 
         # XXX unlike other searches, we take config path and load ourselves with
         # load_unpatched_config (others take in the loaded config with patches already
@@ -170,28 +167,30 @@ class PatchSearch:
         '''
         Entrypoint for the patch search.
         '''
-        threads = []
-        for idx in range(self.max_iters):
-            if len(threads) >= self.nworkers:
-                for thread in threads:
-                    thread.join()
-                threads = []
+        print("Running with {self.nworkers} workers")
+        with ThreadPoolExecutor(max_workers=self.nworkers) as executor:
+            futures = []
+            for idx in range(self.max_iters):
+                futures.append(executor.submit(self.run_iteration, idx))
 
-            next_config = self.generate_new_config()
-            if not next_config:
-                break
+            # Wait for all the submitted tasks to complete
+            for future in as_completed(futures):
+                try:
+                    future.result()  # Optionally handle exceptions here
+                except Exception as e:
+                    print(f"Thread raised an exception: {e}")
 
-            thread = threading.Thread(target=self.run_iteration, args=(idx, next_config))
-            thread.start()
-            threads.append(thread)
-
-        for thread in threads:
-            thread.join()
-
-    def run_iteration(self, run_index, config):
+    def run_iteration(self, run_index):
         '''
         Run a single configuration. Update self.available_configs??
         '''
+        # Select config immediately prior to running (so we're not queuing up stale ones)
+        self.logger.info(f"Idx {run_index} generate new config...")
+        config = self.generate_new_config()
+        if not config:
+            self.logger.info(f"Idx {run_index} no new config - done?")
+            return
+
         self.logger.info(f"Starting iteration {run_index} with patches: {config['patches']}")
 
         run_dir = os.path.join(self.run_base, str(run_index))
@@ -215,7 +214,10 @@ class PatchSearch:
             # Uh oh, we got an error while running. Warn and continue
             self.logger.error(f"Could not run {run_dir}: {e}")
             return
+        
+        self.process_results(run_index, run_dir, out_dir, conf_yaml)
 
+    def process_results(self, run_index, run_dir, out_dir, conf_yaml):
         # Now, get the score and failures
         score = calculate_score(out_dir)
         with open(os.path.join(run_dir, "score.txt"), "w") as f:
@@ -274,6 +276,10 @@ class PatchSearch:
 
                 self.weights.add_solution(failure, mit_path, weight, exclusive=mitigation.exclusive)
 
+        print(f"Weights after run {run_index}")
+        print(self.weights)
+
+
     def find_mitigations(
         self, failure: Failure, config
     ) -> List[Mitigation]:
@@ -285,7 +291,7 @@ class PatchSearch:
                 raise TypeError(
                     f"Plugin {analysis.ANALYSIS_TYPE} returned a non-Mitigation object {m}"
                 )
-            self.logger.info(f"Plugin {analysis.ANALYSIS_TYPE} suggests mitigation {m}")
+            self.logger.info(f"Plugin {analysis.ANALYSIS_TYPE} suggests {m}")
             results.append(m)
         return results
 
