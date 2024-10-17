@@ -1145,6 +1145,15 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                 "models": ["zero"],
                                 "weight": 100,
                             },
+                            patch={"pseudofiles": {"/dev/mtd0": {
+                                "name": "uboot",
+                                "read": {
+                                    "model": "zero"
+                                },
+                                "write": {
+                                    "model": "discard"
+                                }
+                                }}},
                         )
                     ]
                 elif failure.info["type"] == "mtd":
@@ -1160,6 +1169,15 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                 "models": ["zero"],
                                 "weight": 100,
                             },
+                            patch={"pseudofiles": {path: {
+                                "name": "uboot",
+                                "read": {
+                                    "model": "zero"
+                                },
+                                "write": {
+                                    "model": "discard"
+                                }
+                                }}},
                         )
                     ]
 
@@ -1176,6 +1194,15 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                 "models": ["zero"],
                                 "weight": 100,
                             },
+                            patch={"pseudofiles": {path: {
+                                "read": {
+                                    "model": "zero"
+                                },
+                                "write": {
+                                    "model": "discard"
+                                }
+                                # no IOCTL for procfs
+                                }}},
                         )
                     ]
 
@@ -1192,6 +1219,15 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                 "models": ["zero"],
                                 "weight": 100,
                             },
+                            patch={"pseudofiles": {path: {
+                                "read": {
+                                    "model": "zero"
+                                },
+                                "write": {
+                                    "model": "discard"
+                                }
+                                # no IOCTL for procfs
+                                }}},
                         )
                     ]
 
@@ -1208,6 +1244,24 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     f"pseudofile_add_{path}",
                     self.ANALYSIS_TYPE,
                     {"path": path, "action": "add", "weight": 100},
+                    patch={
+                            "pseudofiles": {
+                                path: {
+                                    "read": {
+                                        "model": "zero"
+                                    },
+                                    "write": {
+                                        "model": "discard"
+                                    },
+                                    "ioctl": {
+                                        "*": {
+                                            "model": "return_const",
+                                            "val": 0
+                                        }
+                                    }
+                                }
+                            }
+                        }
                 )
             ]
 
@@ -1239,6 +1293,15 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         "model": "zero",
                         "weight": 5,
                     },
+                    patch={ # XXX: We're adding read model 0 by default above - should this matter?
+                            "pseudofiles": {
+                                path: {
+                                    "read": {
+                                        "model": "zero"
+                                    },
+                                }
+                            }
+                        }
                 )
             ]
 
@@ -1257,6 +1320,15 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         "model": "discard",
                         "weight": 5,
                     },
+                    patch={ # XXX: We're adding read model 0 by default above - should this matter?
+                            "pseudofiles": {
+                                path: {
+                                    "read": {
+                                        "model": "discard"
+                                    },
+                                }
+                            }
+                        }
                 )
             ]
 
@@ -1290,6 +1362,18 @@ class FileFailuresAnalysis(PenguinAnalysis):
                             ),  # We want to use these symex results! Zero more likely to be correct?
                             "val": val,
                         },
+                        patch={ # XXX: We're adding ioctl model above - todo update?
+                                "pseudofiles": {
+                                    path: {
+                                        "ioctl": {
+                                            cmd: {
+                                                "model": "return_const",
+                                                "val": val,
+                                            }
+                                        },
+                                    }
+                                }
+                            }
                     )
                     for val in failure.info["symex_results"]
                 ]
@@ -1306,6 +1390,17 @@ class FileFailuresAnalysis(PenguinAnalysis):
                             "weight": 5,
                             "action": "ioctl_model",
                             "model": "symex",
+                        },
+                        patch={ # XXX: We're adding ioctl model above - todo update?
+                                "pseudofiles": {
+                                    path: {
+                                        "ioctl": {
+                                            cmd: { # xxx should cmd be string?
+                                                "model": "symex",
+                                            },
+                                        }
+                                    }
+                                }
                         },
                     )
                 ]
