@@ -147,13 +147,15 @@ class InterfaceAnalysis(PenguinAnalysis):
             iface for iface in ifaces if iface not in self.config.get("netdevs", [])
         ]
 
-        # Single failure with all ifaces
+        # One failure for each iface
         return [
             Failure(
-                f"net_ifaces_{len(ifaces)}",
+                f"net_ifaces_{name}",
                 self.ANALYSIS_TYPE,
-                {"ifaces": sorted(ifaces)},
+                {"ifaces": [name]},
+                patch_name=f"iface_{name}",
             )
+            for name in ifaces
         ]
 
     def get_potential_mitigations(self, config, failure: Failure) -> List[Mitigation]:
