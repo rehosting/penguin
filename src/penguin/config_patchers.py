@@ -467,18 +467,16 @@ class BasePatch(PatchGenerator):
 
 class AutoExplorePatch(PatchGenerator):
     '''
-    Auto explore: force_www(?), root_shell, nmap, coverage
+    Auto explore: no root_shell, yes nmap, yes coverage
     '''
-    def __init__(self, timeout=300):
+    def __init__(self):
         self.patch_name = "auto_explore"
-        self.timeout = timeout
         self.enabled = True
 
     def generate(self, patches):
         return {
             "core": {
                 "root_shell": False,
-                "force_www": True
             },
             "plugins": {
                 "nmap": {

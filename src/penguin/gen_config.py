@@ -188,7 +188,7 @@ class ConfigBuilder:
         # Later patches will override earlier ones
         patch_generators = [
             BasePatch(static_results['ArchId'], static_results['InitFinder']),
-            AutoExplorePatch(timeout=300), # TODO: timeout should be set at runtime, not in config?
+            AutoExplorePatch(),
             NetdevsDefault(),
             NetdevsTailored(static_results['InterfaceFinder']),
             PseudofilesExpert(),
