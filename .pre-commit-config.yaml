@@ -1,0 +1,10 @@
+repos:
+-   repo: https://github.com/pycqa/flake8
+    rev: '7.1.1'  # pick a git hash / tag to point to
+    hooks:
+    - id: flake8
+# autopep8 currently wants to make changes that aren't required by flake8
+#-   repo: https://github.com/hhatto/autopep8
+#    rev: 'v2.3.1'  # select the tag or revision you want, or run `pre-commit autoupdate`
+#    hooks:
+#    -   id: autopep8
