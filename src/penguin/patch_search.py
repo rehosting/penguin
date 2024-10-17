@@ -204,6 +204,7 @@ class PatchSearch:
         with open(os.path.join(run_dir, "score.txt"), "w") as f:
             total = float(sum(score.values()))
             f.write(f"{total}\n")
+        self.logger.info(f"Score for {run_dir}: {total}")
 
         # TODO: update weights of patches we had selected based on score
 
@@ -219,8 +220,6 @@ class PatchSearch:
             yaml.dump([fail.to_dict() for fail in failures], f)
         print(f"Saw {len(failures)} failures")
         for failure in failures:
-            print("Failure: ", failure)
-
             if failure not in self.weights.failures:
                 # TODO: how should we prioritize the weight of new failures?
                 self.weights.add_failure(failure, 0.5)
@@ -232,8 +231,6 @@ class PatchSearch:
 
             mitigations = self.find_mitigations(failure, patched_config)
             for mitigation in mitigations:
-                self.logger.info(f"Mitigation: {mitigation}")
-
                 if mitigation.patch is None:
                     self.logger.warning(f"Mitigation {mitigation} has no patch. Ignore")
                     continue
@@ -252,9 +249,9 @@ class PatchSearch:
 
                 # Need to create YAML file for mitigation.patch on disk in our 
                 # patches dir
-                hsh = hash_yaml_config(mitigation.patch)
+                hsh = hash_yaml_config(mitigation.patch)[:6]
                 mit_path = os.path.join(self.patch_dir,
-                                              f"mitigation_{hsh}.yaml")
+                                              f"{failure.type}_{hsh}.yaml")
                 with open(mit_path, "w") as f:
                     yaml.dump(mitigation.patch, f)
 
