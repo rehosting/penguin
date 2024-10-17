@@ -132,7 +132,7 @@ class PatchSearch:
         for patch in self.base_config['patches']:
             friendly_name = patch.split("/")[-1].replace(".yaml", "")
             print("\t*", friendly_name)
-            if friendly_name in ["base", "auto_explore", "libinject.core"]:
+            if friendly_name in ["base", "auto_explore", "libinject.core", "force_www"]:
                 name = f"static.default.{friendly_name}"
                 # We always want these, and the single solution should always be applied
                 self.weights.add_failure(name, 1.0)
@@ -181,6 +181,7 @@ class PatchSearch:
                     future.result()  # Optionally handle exceptions here
                 except Exception as e:
                     print(f"Thread raised an exception: {e}")
+                    self.logger.exception(e) # Show the full traceback
 
     def run_iteration(self, run_index):
         '''
@@ -243,11 +244,11 @@ class PatchSearch:
         for failure in failures:
             # TODO: if we do a learning config it shows up as distinct failures
             # while we want to treat it as a single failure
-            if failure not in self.weights.failures:
+            try:
+                self.weights.add_failure(failure.patch_name, 0.5)
+            except ValueError:
+                # It's already in there. Can't just check first, because we need lock
                 # TODO: how should we prioritize the weight of new failures?
-                self.weights.add_failure(failure, 0.5)
-            else:
-                # TODO: should we increase the weight whenever we see a failure again?
                 pass
 
             # Now let's add potential solutions
@@ -274,11 +275,16 @@ class PatchSearch:
                 # patches dir
                 hsh = hash_yaml_config(mitigation.patch)[:6]
                 mit_path = os.path.join(self.patch_dir,
-                                              f"{failure.type}_{hsh}.yaml")
+                                              f"{failure.type}_{failure.patch_name}_{hsh}.yaml")
                 with open(mit_path, "w") as f:
                     yaml.dump(mitigation.patch, f)
 
-                self.weights.add_solution(failure, mit_path, weight, exclusive=mitigation.exclusive)
+                # Make it a relative path to proj_dir
+                mit_path = mit_path.replace(self.proj_dir, "")
+                if mit_path.startswith("/"):
+                    mit_path = mit_path[1:]
+
+                self.weights.add_solution(failure.patch_name, mit_path, weight, exclusive=mitigation.exclusive)
 
         print(f"Weights after run {run_index}")
         print(self.weights)

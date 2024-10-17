@@ -937,6 +937,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                 "path": path,
                                 "symex_results": [0],
                             },
+                            patch_name=path.replace("/", "_")
                         )
                     )
 
@@ -962,6 +963,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                             f"{path}_ioctl_{int(cmd):x}_fromsymex",
                             self.ANALYSIS_TYPE,
                             fail_data,
+                            patch_name=path.replace("/", "_")
                         )
                     )
 
@@ -985,6 +987,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                     "path": path,
                                     "sc": _unify_sc_names(sc),
                                 },
+                                patch_name=path.replace("/", "_")
                             )
                             if this_fail not in fails:
                                 fails.append(this_fail)
@@ -997,6 +1000,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     elif path == "/proc/mtd":
                         # This is a special case - the guest is reading /proc/mtd and we don't have any devices
                         # presumably it might want a device and for it to be a device of a specific name.
+                        # TODO: Are we still using this in 2024?
                         fails.append(
                             Failure(
                                 "/proc/mtd",
@@ -1016,6 +1020,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                             path,
                             self.ANALYSIS_TYPE,
                             {"type": "proc", "path": path, "sc": _unify_sc_names(sc)},
+                            patch_name=path.replace("/", "_")
                         )
                         if this_fail not in fails:
                             fails.append(this_fail)
@@ -1023,7 +1028,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
 
                 elif path.startswith("/dev/"):
                     if path.startswith("/dev/mtd"):
-                        fails.append(Failure(path, self.ANALYSIS_TYPE, {"type": "mtd"}))
+                        fails.append(Failure(path, self.ANALYSIS_TYPE, {"type": "mtd"},
+                                     patch_name=path.replace("/", "_")))
                         continue
                     # Normal case: we saw a syscall fail on a given path and we want to report it
                     for sc, raw_data in info.items():
@@ -1047,6 +1053,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                 f"pseudofile_{path}_{_unify_sc_names(sc)}",
                                 self.ANALYSIS_TYPE,
                                 data,
+                                patch_name=path.replace("/", "_")
                             )
                             if this_fail not in fails:
                                 fails.append(this_fail)
@@ -1062,6 +1069,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                     f"{path}_ioctl_{int(cmd):x}",
                                     self.ANALYSIS_TYPE,
                                     {"cmd": cmd, "sc": "ioctl", "path": path},
+                                    patch_name=path.replace("/", "_")
                                 )
                                 if this_fail not in fails:
                                     fails.append(this_fail)
