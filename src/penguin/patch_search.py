@@ -180,23 +180,33 @@ class PatchSearch(ConfigSearch):
         patched_config = load_config(self.proj_dir, conf_yaml)
 
         failures = self.analyze_failures(patched_config, run_dir)
+        #for f in failures:
+        #    self.logger.info(f"\tRun {run_index} sees failure: {f} with patch_name {f.patch_name}")
 
         # Report on failures. TODO: do we want to write these down or just log?
         with open(os.path.join(run_dir, "failures.yaml"), "w") as f:
             yaml.dump([fail.to_dict() for fail in failures], f)
+
         for failure in failures:
             # TODO: if we do a learning config it shows up as distinct failures
             # while we want to treat it as a single failure
+            is_new = False
             try:
-                self.weights.add_failure(failure.patch_name, 0.5)
+                self.weights.add_failure(failure.patch_name)
+                is_new = True
+                #self.logger.info("\tNew failure: " + failure.patch_name)
             except ValueError:
                 # It's already in there. Can't just check first, because we need lock
                 # TODO: how should we prioritize the weight of new failures?
+                #self.logger.info("\tExisting failure: " + failure.patch_name)
                 pass
 
             # Now let's add potential solutions
 
             mitigations = find_mitigations(failure, patched_config)
+            if not len(mitigations) and is_new:
+                self.logger.warning(f"New failure {failure} has no mitigations?")
+
             for mitigation in mitigations:
                 if mitigation.patch is None:
                     self.logger.warning(f"Mitigation {mitigation} has no patch. Ignore")
@@ -211,7 +221,7 @@ class PatchSearch(ConfigSearch):
                 if not os.path.isfile(mit_path):
                     with open(mit_path, "w") as f:
                         yaml.dump(mitigation.patch, f)
-                    self.logger.info(f"Found new potential {mitigation}")
+                    self.logger.info(f"\t\tFound new potential {mitigation}") # XXX cached state between runs will make this rare
 
                 # Make it a relative path to proj_dir
                 mit_path = mit_path.replace(self.proj_dir, "")
