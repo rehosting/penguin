@@ -121,7 +121,7 @@ def explore_from_config(
 
     if explore_type == "ga_explore":
         return ga_search(
-            proj_dir, config, output_dir, timeout, max_iters=niters,
+            proj_dir, config_path, output_dir, timeout, max_iters=niters,
             nthreads=nworkers, verbose=verbose
         )
 
