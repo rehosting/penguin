@@ -122,7 +122,6 @@ class PatchSearch(ConfigSearch):
         Run a single configuration. Update self.available_configs??
         '''
         # Select config immediately prior to running (so we're not queuing up stale ones)
-        self.logger.info(f"Idx {run_index} generate new config...")
         config, selection = self.generate_new_config()
         if not config:
             #for _ in range(10):

@@ -20,7 +20,7 @@ class MABWeightedSet:
     This class is thread-safe and can be used in a multi-threaded environment.
     '''
 
-    def __init__(self, alpha=5, beta=10):
+    def __init__(self, alpha=5, beta=5):
         # Store failures as a dictionary with potential solutions
         self.failures = {}  # (failure_name -> {"solutions": [{"solution": str, "alpha": float, "beta": float}]})
         self.alpha_init = alpha  # Initial alpha value for the Beta distribution
@@ -86,6 +86,9 @@ class MABWeightedSet:
                 failure_name = next(iter(self.learning_queue.keys()))
                 self.already_learned.add(failure_name)
                 soln = self.learning_queue.pop(failure_name)
+
+                print("Selected exclusive configuration:", failure_name, soln['patches'][-1])
+
                 return [(f"exclusive_{failure_name}_{soln['exclusive']}", patch) for patch in soln['patches']]
 
 
@@ -167,14 +170,20 @@ class MABWeightedSet:
         Update the Beta distribution for the selected solution based on the observed result.
         """
 
+        # Before we update the average score or our alphas/betas, we need to see if this is
+        # the result of an exclusive run - it will be if every failure_name starts with "exclusive_"
+        if all(failure_name.startswith("exclusive_") for failure_name, _ in selected_failures):
+            # We're in a learning mode - just ignore the result
+            print("\tIgnoring run, was exclusive")
+            return
+
         with self.lock:
             self.observed_scores.append(final_score)
             avg_score = sum(self.observed_scores) / len(self.observed_scores)
 
             for failure_name, selected_solution in selected_failures:
                 if failure_name.startswith("exclusive_"):
-                    # We were in a learning mode if we have any exclusive failures - just ignore the result
-                    continue
+                    raise ValueError
 
                 solution_idx = next(i for i, s in enumerate(self.failures[failure_name]["solutions"])
                                     if s["solution"] == selected_solution)
