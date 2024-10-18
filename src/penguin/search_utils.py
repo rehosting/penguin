@@ -58,6 +58,7 @@ class MABWeightedSet:
             epsilon = 0.05  # 5% chance to explore at random
 
             with self.lock:
+                # TODO: should we order failures randomly here to ensure we don't bias towards early exclusive choices?
                 for failure_name, failure_data in self.failures.items():
                     if not failure_data["solutions"]:
                         continue

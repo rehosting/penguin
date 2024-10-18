@@ -283,5 +283,7 @@ class PatchSearch:
 # Entrypoint for __main__
 def patch_search(proj_dir, config_path, output_dir, timeout, max_iters=1000,
                  nworkers=1, verbose=False):
-    return PatchSearch(proj_dir, config_path, output_dir, timeout,
-                       max_iters, nworkers, verbose).run()
+    p = PatchSearch(proj_dir, config_path, output_dir, timeout,
+                       max_iters, nworkers, verbose)
+    p.run()
+    print(p.weights)
