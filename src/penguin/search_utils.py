@@ -157,7 +157,7 @@ class ConfigSearch:
         #We expect children to set up their own logger
         pass
 
-    def find_mitigations(failure: Failure, config) -> List[Mitigation]:
+    def find_mitigations(self, failure: Failure, config) -> List[Mitigation]:
         results = []
         # Lookup the plugin that can handle this failure
         analysis = get_mitigation_providers(config)[failure.type]
@@ -169,7 +169,7 @@ class ConfigSearch:
             results.append(m)
         return results
 
-    def analyze_failures(logger, config, run_dir, exclusive=None):
+    def analyze_failures(self, config, run_dir, exclusive=None):
         """
         After we run a configuration, do our post-run analysis of failures.
         Run each PyPlugin that has a PenguinAnalysis implemented. Ask each to
