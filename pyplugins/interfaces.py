@@ -168,7 +168,7 @@ class InterfaceAnalysis(PenguinAnalysis):
         # Create a mitigation with all the ifaces
         return [
             Mitigation(f"iface_{iface}", self.ANALYSIS_TYPE, {"ifaces": [iface]},
-                       patch={"netdevs": [iface]})
+                       patch={"netdevs": [iface]}, failure_name=failure.friendly_name)
         ]
 
     def implement_mitigation(
