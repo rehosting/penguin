@@ -5,6 +5,7 @@ import numpy as np
 from .graphs import Failure, Mitigation
 from typing import List
 import os
+from copy import deepcopy
 from .utils import get_mitigation_providers
 
 class MABWeightedSet:
@@ -26,6 +27,8 @@ class MABWeightedSet:
         self.beta_init = beta    # Initial beta value for the Beta distribution
         self.observed_scores = []  # Track all observed scores
         self.selections = []
+        self.learning_queue = {} # failure name -> {config: config, exclusive: provider}
+        self.already_learned = set()
 
         self.lock = threading.Lock()
 
@@ -39,6 +42,23 @@ class MABWeightedSet:
 
         if allow_none:
             self.add_solution(failure_name, None)
+
+    def queue_learning(self, failure_name, mitigation, config, exclusive):
+        """
+        On a run we observed a failure that produced an exclusive mitigation - in other words, an analysis
+        has requested we do a special (and expensive) run just so we can learn more about potential solutions to the failure.
+        For now we'll do it ASAP if it's a new mitigation, otherwise we'll ignore
+        """
+        with self.lock:
+            if failure_name in self.already_learned or failure_name in self.learning_queue:
+                # Already learned or queued
+                return
+
+            self.learning_queue[failure_name] = {
+                "patches": deepcopy(config['patches']) + [mitigation],
+                "exclusive": exclusive,
+            }
+
 
     def add_solution(self, failure_name, solution, exclusive=None):
         """Add a potential solution to an existing failure."""
@@ -59,6 +79,16 @@ class MABWeightedSet:
 
     def probabilistic_mitigation_selection(self):
         """Select independent failures to mitigate and pick one of their solutions."""
+        with self.lock:
+            # If we have any entries in self.learning_queue, we'll process them first
+            if len(self.learning_queue.keys()):
+                # Need to return a list with an exact set of patches to run in [(failure_name, patch), ]
+                failure_name = next(iter(self.learning_queue.keys()))
+                self.already_learned.add(failure_name)
+                soln = self.learning_queue.pop(failure_name)
+                return [(f"exclusive_{failure_name}_{soln['exclusive']}", patch) for patch in soln['patches']]
+
+
         for _ in range(1000):  # Limiting to 100 tries for fairness
             selected_failures = []  # (failure_name, solution)
             have_exclusive = False
@@ -136,11 +166,16 @@ class MABWeightedSet:
         """
         Update the Beta distribution for the selected solution based on the observed result.
         """
+
         with self.lock:
             self.observed_scores.append(final_score)
             avg_score = sum(self.observed_scores) / len(self.observed_scores)
 
             for failure_name, selected_solution in selected_failures:
+                if failure_name.startswith("exclusive_"):
+                    # We were in a learning mode if we have any exclusive failures - just ignore the result
+                    continue
+
                 solution_idx = next(i for i, s in enumerate(self.failures[failure_name]["solutions"])
                                     if s["solution"] == selected_solution)
                 solution_data = self.failures[failure_name]["solutions"][solution_idx]
