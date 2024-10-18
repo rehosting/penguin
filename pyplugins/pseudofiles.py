@@ -937,7 +937,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                 "path": path,
                                 "symex_results": [0],
                             },
-                            patch_name=path.replace("/", "_")
+                            patch_name=f"{path}_ioctl_{int(cmd):x}".replace("/", "_")
                         )
                     )
 
@@ -963,7 +963,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                             f"{path}_ioctl_{int(cmd):x}_fromsymex",
                             self.ANALYSIS_TYPE,
                             fail_data,
-                            patch_name=path.replace("/", "_")
+                            patch_name=f"{path}_ioctl_{int(cmd):x}".replace("/", "_")
                         )
                     )
 
@@ -1069,7 +1069,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                     f"{path}_ioctl_{int(cmd):x}",
                                     self.ANALYSIS_TYPE,
                                     {"cmd": cmd, "sc": "ioctl", "path": path},
-                                    patch_name=path.replace("/", "_")
+                                    patch_name=f"{path}_ioctl_{int(cmd):x}".replace("/", "_")
                                 )
                                 if this_fail not in fails:
                                     fails.append(this_fail)
@@ -1242,7 +1242,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                 "write": {
                                     "model": "discard"
                                 }
-                                # no IOCTL for procfs
+                                # no IOCTL for sysfs
                                 }}},
                             failure_name = failure.friendly_name
                         )
