@@ -201,7 +201,7 @@ class PandaRunner:
             cmd.append("verbose")
 
         try:
-            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            p = subprocess.Popen(cmd)
             p.wait(timeout=timeout_s + 180 if timeout_s else None)
         except subprocess.TimeoutExpired:
             self.logger.info(
