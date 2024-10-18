@@ -114,8 +114,16 @@ class PatchSearch(ConfigSearch):
                     self.logger.exception(e) # Show the full traceback
                     # Bail
                     executor.shutdown(wait=False)
-                    os._exit(1)
+                    break
 
+        # Report results
+        self.logger.info("All iterations complete")
+        print(self.weights)
+
+        for failure, failure_data in mab.failures.items():
+            # Select the best solution from our MAB solution by alpha / (alpha + beta). Could also just use alpha?
+            best_soln = max(failure_data["solutions"], key=lambda x: x["alpha"] / (x["alpha"] + x["beta"]))
+            print(f"For {failure} best identified solution is {best_soln['solution']}")
 
     def run_iteration(self, run_index):
         '''
@@ -155,6 +163,7 @@ class PatchSearch(ConfigSearch):
         except RuntimeError as e:
             # Uh oh, we got an error while running. Warn and continue
             self.logger.error(f"Could not run {run_dir}: {e}")
+            self.logger.traceback(e)
             return
 
         self.process_results(run_index, run_dir, out_dir, conf_yaml, selection)
