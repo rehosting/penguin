@@ -58,6 +58,9 @@ def patch_config(base_config, patch):
         for k, v in new.items():
             if isinstance(v, dict):
                 base[k] = _recursive_update(base.get(k, {}), v)
+            if isinstance(v, list):
+                # Append
+                base[k] = base.get(k, []) + v
             else:
                 base[k] = v
         return base
