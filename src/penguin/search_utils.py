@@ -3,6 +3,7 @@ import threading
 from collections import defaultdict
 import numpy as np
 from .graphs import Failure, Mitigation
+from .utils import get_mitigation_providers
 from typing import List
 import os
 from copy import deepcopy
