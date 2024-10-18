@@ -5,6 +5,7 @@ import numpy as np
 from .graphs import Failure, Mitigation
 from typing import List
 import os
+from .utils import get_mitigation_providers
 
 class MABWeightedSet:
     '''
