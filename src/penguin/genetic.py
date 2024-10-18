@@ -4,6 +4,7 @@ import random
 import logging
 import re
 import shutil
+import yaml
 from types import SimpleNamespace
 from penguin import getColoredLogger
 from threading import Lock, RLock
@@ -12,12 +13,12 @@ from queue import Queue
 from copy import deepcopy
 
 from .common import get_inits_from_proj
-from .penguin_config import dump_config, load_config
+from .penguin_config import dump_config, load_config, load_unpatched_config, hash_yaml_config
 from .utils import AtomicCounter, get_mitigation_providers
 from .manager import PandaRunner, calculate_score
-from .graphs import Failure
+from .graphs import Failure, Mitigation
 
-from .graph_search import Worker # just for analyze_failures. Maybe refactor
+from .search_utils import ConfigSearch
 
 from penguin.analyses import PenguinAnalysis
 
@@ -36,17 +37,20 @@ Overall idea:
 """
 
 def ga_search(
-    proj_dir, base_config, output_dir, timeout, max_iters=1000, nthreads=1,
+    proj_dir, config_path, output_dir, timeout, max_iters=1000, nthreads=1,
     init=None, pop_size=8, verbose=False
 ):
     """
     Main entrypoint. Given an initial config and directory run our
     genetic algorithm search.
     """
+    base_config = load_unpatched_config(config_path)
 
     logger = getColoredLogger("penguin.ga_explore")
     logger.setLevel(logging.DEBUG)
 
+    patch_dir = os.path.join(proj_dir, "dynamic_patches")
+    os.makedirs(patch_dir, exist_ok=True)
 
     run_base = os.path.join(output_dir, "runs")
     os.makedirs(run_base, exist_ok=True)
@@ -54,13 +58,14 @@ def ga_search(
 
     #Our first gene are the init options, do this outside of the population class
     population = ConfigPopulation(proj_dir, base_config, run_base, logger,
-                                  pop_size, timeout, verbose=verbose)
+                                  pop_size, timeout, max_iters, verbose=verbose)
     init_gene = create_init_gene(base_config, proj_dir)
     population.extend_genome(None, init_gene)
-    old_learning_configs = set() #store the learning configs we've already tried
+    learned_failures = set() #store the names of failures we've tried learning about
+    generation = 0
 
-    for iter in range(1,max_iters+1,1):
-        logger.info(f"Starting generation {iter}/{max_iters} with {len(population.chromosomes)} configurations, {len(population.pool.genes)} genes, and {nthreads} workers")
+    while population.run_index.get() < max_iters:
+        logger.info(f"Starting generation {generation} with {len(population.chromosomes)} configurations, {len(population.pool.genes)} genes, and {nthreads} workers")
 
         #we'll store a dict of {chromosome: {failures: [], scores: dict, fitness: float}}
         results = population.run_configs(nthreads, population.chromosomes)
@@ -68,79 +73,80 @@ def ga_search(
         #at this point, results contains the fitness and failures for each chromosome
         #now, go through and record the fitnesses, and update mitigations based on failures
         mitigations = set()
+        learning_configs=set() #mitigations we'll use to learn more (exclusive in the graph paralence)
         for config in population.chromosomes:
+            if config.hash not in results:
+                logger.warn(f"Missing results for {config}, probably a double run?")
+                continue
             try:
                 result = results[config.hash]
                 population.record_fitness(config, result["fitness"])
             except Exception as e:
                 logger.error(f"Error recording fitness for {config}: {e}")
-                import IPython; IPython.embed()
-                #raise e
             full_config = population.get_full_config(config)
-            dummy_config = SimpleNamespace(info=full_config,exclusive=None)
-            providers = get_mitigation_providers(full_config)
-            learning_configs=set() #mitigations we'll use to learn more (exclusive in the graph paralence)
             for f in result["failures"]:
-                for pm in providers[f.type].get_potential_mitigations(full_config, f):
-                    #pm in this case in a Mitigation(GraphNode)
-                    for m in providers[f.type].implement_mitigation(dummy_config, f, pm):
-                        #m in this case in a Configuration(GraphNode), which is a full configuration
-                        diff = diff_configs(m.info, full_config)
-                        new_mit = Mitigation(f, f.type, dict_to_frozenset(diff))
-                        if m.exclusive:
-                            #we'll add a new config based on this config with the exclusive mitigation
-                            learning_config = ConfigChromosome(config, new_mit)
-                            if learning_config.hash not in old_learning_configs:
-                                old_learning_configs.add(learning_config.hash)
-                                learning_configs.add(learning_config)
-                        else:
-                            mitigations.add(new_mit)
+                for m in population.find_mitigations(f, full_config):
+                    #m in this case in a Configuration(GraphNode), which is a full configuration
+                    if m.exclusive:
+                        #we'll add a new config based on this config with the exclusive mitigation
+                        learning_config = ConfigChromosome(config, m)
+                        if f.friendly_name not in learned_failures:
+                            learning_configs.add(learning_config)
+                    else:
+                        mitigations.add(m)
 
-            #at this point we run all the learning configs, and process results again - FIXME refactor
-            learning_results=population.run_configs(nthreads, learning_configs)
+        #at this point we run all the learning configs, and process results again - FIXME refactor
+        learning_results = population.run_configs(nthreads, learning_configs)
 
-            #and we need to now process those mitigations, almost the same as above but we won't track
-            #score since these were theoretically no different than before - just with learning stuff
-            #(might want to account into some aggregate score later)
-            for l in learning_configs:
-                full_config = population.get_full_config(l)
-                dummy_config = SimpleNamespace(info=full_config,exclusive=None)
-                providers = get_mitigation_providers(full_config)
-                result = learning_results[l.hash]
-                for f in result["failures"]:
-                    #TypeError: unhashable type: 'set' from below line:
-                    for pm in providers[f.type].get_potential_mitigations(full_config, f):
-                        #pm in this case in a Mitigation(GraphNode)
-                        for m in providers[f.type].implement_mitigation(dummy_config, f, pm):
-                            #m in this case in a Configuration(GraphNode), which is a full configuration
-                            diff = diff_configs(m.info, full_config)
-                            new_mit = Mitigation(f, f.type, dict_to_frozenset(diff))
-                            if m.exclusive:
-                                #we'll add a new config based on this config with the exclusive mitigation
-                                #raise("Exclusive mitigations not supported in learning step")
-                                logger.warn("Exclusive mitigations not supported in learning step")
-                            else:
-                                mitigations.add(new_mit)
+        #and we need to now process those mitigations, almost the same as above but we won't track
+        #score since these were theoretically no different than before - just with learning stuff
+        #(might want to account into some aggregate score later)
+        for l in learning_configs:
+            full_config = population.get_full_config(l)
+            result = learning_results[l.hash]
+            for f in result["failures"]:
+                for m in population.find_mitigations(f, full_config):
+                    #m in this case in a Configuration(GraphNode), which is a full configuration
+                    if m.exclusive:
+                        logger.warn("Shouldn't get here! Exclusive mitigations not supported in learning step")
+                    else:
+                        mitigations.add(m)
 
-            #TODO: did we want to run any new mitigations to get some fitness data on them before we used them?
+        #TODO: did we want to run any new mitigations to get some fitness data on them before we used them?
 
-            #at this point, we've processed all configs and ran a learning step. we now have
-            #  * a set of mitigations from our population
-            #  * fitnesses for each configuration in our population
+        #at this point, we've processed all configs and ran a learning step. we now have
+        #  * a set of mitigations from our population
+        #  * fitnesses for each configuration in our population
 
-            #First, we update the gene pool with mitigations we've learned
-            for m in mitigations:
-                population.pool.update(m)
+        #First, we update the gene pool with mitigations we've learned and create patch files for them
+        for m in mitigations:
+            hsh = hash_yaml_config(mitigation.patch)[:6]
+            mit_path = os.path.join(patch_dir, f"{m.failure_name}_{m.friendly_name}_{hsh}.yaml")
 
-            #select half of the exsiting configs to move on as parents of the next generation
-            #if the population is less than the number of parents expect, we'll add them all and duplicate
-            population.selection(pop_size/2)
+            if not os.path.isfile(mit_path):
+                with open(mit_path, "w") as f:
+                    yaml.dump(m.patch, f)
+                logger.info(f"Found new potential {m}")
 
-            #we now have parents, do crossover, we'll do a 50-50 mix
-            population.crossover(0.5)
+            # Make it a relative path to proj_dir
+            mit_path = mit_path.replace(proj_dir, "")
+            if mit_path.startswith("/"):
+                mit_path = mit_path[1:]
+            m.patch = {'patches': [mit_path]}
+            population.pool.update(m)
 
-            #and mutation, for now we'll do one gene
-            population.mutation(1)
+        import IPython; IPython.embed()
+        #select half of the exsiting configs to move on as parents of the next generation
+        #if the population is less than the number of parents expect, we'll add them all and duplicate
+        population.selection(pop_size/2)
+
+        #we now have parents, do crossover, we'll do a 50-50 mix
+        population.crossover(0.5)
+
+        #and mutation, for now we'll do one gene
+        population.mutation(1)
+
+        generation += 1
 
 
     # Below is to give results comparable to the graph search
@@ -206,11 +212,13 @@ def create_init_gene(base_config, proj_dir):
 
         for init in init_options:
             # First add mitigation:
-            this_init_mit = Mitigation(f"init_{init}", "init", {"env": {"igloo_init": init}})
+            this_init_mit = Mitigation(f"init_{init}", "init", patch = {"env": {"igloo_init": init}},
+                                       failure_name="init")
             init_mitigations.add(this_init_mit)
     else:
         #If we already have an init defined, we'll just use that
-        mit =  Mitigation(f"init", "init", {'env': { 'igloo_init': base_config["env"]["igloo_init"]}})
+        mit =  Mitigation(f"init", "init", patch={'env': { 'igloo_init': base_config["env"]["igloo_init"]}},
+                          failure_name="init")
         init_mitigations.add(mit)
     return MitigationAlleleSet("init", frozenset(init_mitigations))
 
@@ -252,26 +260,6 @@ def diff_configs(new, old):
     return diff
 
 @dataclass(frozen=True, eq=True)
-class Mitigation:
-    """
-    This class represents a specific mitigation for a given failure
-    A configuration is a set of these
-    """
-    name: str
-    type: str
-    config_opts: frozenset
-
-    def __init__(self, name, type, config_opts: dict):
-        if isinstance(name, Failure):
-            object.__setattr__(self, "name", GenePool.failure_to_genename(name))
-        elif isinstance(name, str):
-            object.__setattr__(self, "name", name)
-        else:
-            raise(RuntimeError(f"Unexpected type for Mitigation name {name}: {type(name)}"))
-        object.__setattr__(self, "type", type)
-        object.__setattr__(self, "config_opts", frozenset(dict_to_frozenset(config_opts)))
-
-@dataclass(frozen=True, eq=True)
 class MitigationAlleleSet:
     """
     This class contains the set of mitigations we know about for a given failure
@@ -289,11 +277,10 @@ class GenePool:
         #TODO look into the data structure for indexing failures here
 
     def update(self, new_gene):
+        failure_name = new_gene.failure_name
         if isinstance(new_gene, MitigationAlleleSet):
-            failure_name = new_gene.failure_name
             new_mits = new_gene.mitigations
         elif isinstance(new_gene, Mitigation):
-            failure_name = new_gene.name
             new_mits = frozenset([new_gene])
         else:
             raise(RuntimeError(f"Unexpected datatype for new_gene {new_gene}: {type(new_gene)}"))
@@ -311,16 +298,18 @@ class GenePool:
             failure_name = failure
         else:
             print(RuntimeError(f"Unexpected datatype for failure {failure}: {type(failure)}"))
-            import IPython; IPython.embed()
         return self.genes.get(failure_name, frozenset())
 
     def failure_to_genename(failure: Failure):
         #HACK: interfaces return overly unique names so they wouldn't be considered the same gene
+        return failure.friendly_name
+        """
         if failure.type == "interfaces":
             name = re.sub(r'_\d+$', '', failure.friendly_name)
             return f"{failure.type}_{name}"
         else:
             return f"{failure.type}_{failure.friendly_name}"
+        """
 
     def get_names(self):
         return self.genes.keys()
@@ -334,7 +323,8 @@ class ConfigChromosome:
         self.genes = frozenset()
         if parent is None:
             parent = self #weird
-        elif not new_gene.name.startswith("init"):
+        """
+        elif not new_gene.failure_name.startswith("init"):
             try:
                 assert len(parent.genes) > 0, "If there's a parent and we aren't adding init, it must have genes"
             except AssertionError as e:
@@ -342,9 +332,10 @@ class ConfigChromosome:
                 print("Parent genes: ", parent.genes)
                 print("new_gene: ", new_gene)
                 import IPython; IPython.embed()
+        """
         if isinstance(new_gene, Mitigation):
             old_genes = parent.genes #faded and with lots of holes
-            if old_gene := parent.get_mitigation(new_gene.name):
+            if old_gene := parent.get_mitigation(new_gene.failure_name):
                 #If we had this gene, replace it with the new one. This is for mutations
                 old_genes = old_genes.difference({old_gene})
             self.genes = frozenset(old_genes.union({new_gene}))
@@ -360,7 +351,7 @@ class ConfigChromosome:
         config_dict = {}
         #TODO: should we do some validation to make sure our config doesn't have conflicting options?
         for m in self.genes:
-            sub_dict = frozenset_to_dict(m.config_opts)
+            sub_dict = frozenset_to_dict(m.patch)
             for k, v in sub_dict.items():
                 if k in config_dict:
                     if isinstance(config_dict[k], list):
@@ -374,18 +365,21 @@ class ConfigChromosome:
         return config_dict
 
     def get_mitigation(self, failure_name):
+        if failure_name is None:
+            #happens with learning configs
+            return None
         assert(isinstance(failure_name, str)), "Failure name must be a string"
         for m in self.genes:
-            if m.name == failure_name:
+            if m.failure_name == failure_name:
                 return m
         return None
 
     def mitigations_to_str(self):
-        return "\n".join(f"{m.name}: {m.config_opts}" for m in self.genes)
+        return "\n".join(f"{m.friendly_name}: {m.patch}" for m in self.genes)
 
-class ConfigPopulation:
+class ConfigPopulation(ConfigSearch):
     def __init__(self, proj_dir, base_config, run_base, logger, pop_size,
-                 timeout, nelites=1, verbose=False):
+                 timeout, max_runs, nelites=1, verbose=False):
         self.proj_dir = proj_dir
         self.base_config = deepcopy(base_config) #store the base configuration, assumes it is immutable
         self.chromosomes = set()
@@ -402,6 +396,7 @@ class ConfigPopulation:
         self.timeout = timeout
         self.nelites = nelites #number of elites to keep in the next generation
         self.verbose = verbose
+        self.max_runs = max_runs
 
     #This is where the biology breaks down a bit. We'll add a new chromosome to the population based on an observed failure
     def extend_genome(self, parent: ConfigChromosome, new_gene: MitigationAlleleSet):
@@ -444,14 +439,18 @@ class ConfigPopulation:
 
             try:
                 config, run_index = task
-                self.logger.info(f"[thread {id}]: Running config {config} with run index {run_index}")
-                failures, scores = self.run_config(config, run_index)
-                with self.lock:
-                    results[config.hash] = {"failures": failures, "scores": scores,
-                                            "fitness":  float(sum(scores.values()))}
+                if run_index < self.max_runs:
+                    self.logger.info(f"[thread {id}]: Running config {config} with run index {run_index}")
+                    failures, scores = self.run_config(config, run_index)
+                    with self.lock:
+                        results[config.hash] = {"failures": failures, "scores": scores,
+                                                "fitness":  float(sum(scores.values()))}
+                else:
+                    self.logger.info(f"[thread {id}]: Skipping config {config} with run index {run_index}")
             except Exception as e:
                 self.logger.error(f"[thread {id}]: Error running config {config} with run index {run_index}: {e}")
                 self.work_queue.task_done()
+                traceback.print_exc()
 
             self.work_queue.task_done()
             self.logger.info(f"[thread {id}]: Finished config {config} with run index {run_index}")
@@ -525,9 +524,9 @@ class ConfigPopulation:
             total = float(sum(score.values()))
             f.write(f"{total}\n")
 
-        # Bit of a hack, make a fake graph node with our config to analyze failures on
-        fake_graph_node = SimpleNamespace(info=full_config, exclusive=None)
-        failures = Worker.analyze_failures(run_dir, fake_graph_node, 1, logger=self.logger)
+        # Failure analysis needs a config with the patches expanded
+        patched_config = load_config(self.proj_dir, conf_yaml)
+        failures = self.analyze_failures(patched_config, run_dir)
 
         return failures, score
 
@@ -649,7 +648,7 @@ class ConfigPopulation:
         while len(self.chromosomes) < self.pop_size:
             #Originally did a growing configchromosome, but that was buggy and inefficient
             genes = random.choice(self.parents).genes
-            gene_names = [g.name for g in genes]
+            gene_names = [g.failure_name for g in genes]
 
             #First, make sure we have all genes in this chromosome (with a possibility of no mitigation)
             #this allows us to get a bunch of diversity from learning configs
@@ -675,11 +674,11 @@ class ConfigPopulation:
                 m = random.choice(list(choices))
                 self.logger.debug(f"Mutation: {m}")
                 self.logger.debug(f"Before mutation: {genes}")
-                if m.name in [g.name for g in genes]:
+                if m.failure_name in [g.failure_name for g in genes]:
                     #if we already have this gene, remove it
-                    self.logger.debug(f"removing gene with name  {m.name}")
-                    genes = genes.difference({g for g in genes if g.name == m.name})
-                    self.logger.debug(f"all gene names (after removal): {[g.name for g in genes]}")
+                    self.logger.debug(f"removing gene with name  {m.failure_name}")
+                    genes = genes.difference({g for g in genes if g.failure_name == m.failure_name})
+                    self.logger.debug(f"all gene names (after removal): {[g.failure_name for g in genes]}")
                 child = ConfigChromosome(None, genes.union({m}))
                 self.logger.debug(f"After mutation: {child.genes}")
 
@@ -738,8 +737,7 @@ def main():
     )
     args = parser.parse_args()
     proj_dir = os.path.dirname(args.config)
-    config = load_config(proj_dir, args.config)
-    ga_search(os.path.dirname(args.config), config, args.outdir, args.timeout, args.niters, args.nworkers)
+    ga_search(os.path.dirname(args.config), args.config, args.outdir, args.timeout, args.niters, args.nworkers)
 
 
 if __name__ == "__main__":
