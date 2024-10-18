@@ -45,6 +45,9 @@ class MABWeightedSet:
             if failure_name not in self.failures:
                 raise ValueError(f"Failure '{failure_name}' does not exist. Add it first.")
 
+            if exclusive is not None and not isinstance(exclusive, str):
+                raise ValueError(f"Exclusive must be None or the name of a failure, not {exclusive} in {failure_name} -> {solution}")
+
             if solution not in [x["solution"] for x in self.failures[failure_name]["solutions"]]:
                 self.failures[failure_name]["solutions"].append({
                     "solution": solution,
