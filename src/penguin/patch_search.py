@@ -12,9 +12,7 @@ from .manager import PandaRunner, calculate_score
 from .graph_search import Worker # just for analyze_failures. Maybe refactor
 from .utils import get_mitigation_providers
 from .graphs import Failure, Mitigation
-
 from .search_utils import DoublyWeightedSet
-
 
 
 class PatchSearch:
