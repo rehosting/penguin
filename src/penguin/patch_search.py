@@ -10,7 +10,6 @@ from penguin.common import getColoredLogger, yaml
 from .penguin_config import dump_config, hash_yaml_config, load_config, load_unpatched_config
 from .manager import PandaRunner, calculate_score
 from .graph_search import Worker # just for analyze_failures. Maybe refactor
-from .utils import get_mitigation_providers
 from .graphs import Failure, Mitigation
 from .search_utils import MABWeightedSet, ConfigSearch
 
@@ -203,7 +202,7 @@ class PatchSearch(ConfigSearch):
 
             # Now let's add potential solutions
 
-            mitigations = find_mitigations(failure, patched_config)
+            mitigations = self.find_mitigations(failure, patched_config)
             if not len(mitigations) and is_new:
                 self.logger.warning(f"New failure {failure} has no mitigations?")
 
