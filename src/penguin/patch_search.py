@@ -1,8 +1,6 @@
 import os
-import random
 import shutil
-import threading
-import math
+from time import sleep
 
 from typing import List
 from copy import deepcopy
@@ -15,173 +13,8 @@ from .graph_search import Worker # just for analyze_failures. Maybe refactor
 from .utils import get_mitigation_providers
 from .graphs import Failure, Mitigation
 
-class DoublyWeightedSet:
-    def __init__(self):
-        # Store failures as a dictionary with weights and their potential solutions
-        self.failures = {}
-        self.past_scores = {}
-        self.alpha = 0.01  # Learning rate for weight updates
-        self.lock = threading.Lock()
+from .search_utils import DoublyWeightedSet
 
-    def add_failure(self, failure_name, weight=0.5, always_select=False):
-        """Add a failure with a specific weight (default 0.5) and a flag to always select it."""
-        with self.lock:
-            if failure_name not in self.failures:
-                self.failures[failure_name] = {
-                    "weight": weight,
-                    "solutions": [],
-                    "always_select": always_select  # Mark failures that should always be selected
-                }
-            else:
-                raise ValueError(f"Failure '{failure_name}' already exists.")
-
-    def add_solution(self, failure_name, solution, weight=0.5, exclusive=False, always_select=False):
-        """Add a potential solution to an existing failure, with an option to always select."""
-        with self.lock:
-            if failure_name in self.failures:
-                if solution not in [x["solution"] for x in self.failures[failure_name]["solutions"]]:
-                    self.failures[failure_name]["solutions"].append({
-                        "solution": solution,
-                        "weight": weight,
-                        "exclusive": exclusive,
-                        "always_select": always_select  # Mark solution that should always be applied
-                    })
-            else:
-                raise ValueError(f"Failure '{failure_name}' does not exist. Add it first.")
-
-
-    def probabilistic_mitigation_selection(self):
-        """Select independent failures to mitigate and pick one of their solutions."""
-        selected_failures = []  # (failure_name, solution)
-        have_exclusive = False
-
-        # Step 1: For each failure, decide probabilistically if it will be mitigated
-        with self.lock:
-            for failure_name, failure_data in self.failures.items():
-                # If there are no solutions, skip
-                if not failure_data["solutions"]:
-                    continue
-
-                # If the failure or solution is marked as always_select, skip the probabilistic check
-                if failure_data.get("always_select", False):
-                    selected_solution = failure_data["solutions"][0]["solution"]
-                    selected_failures.append((failure_name, selected_solution))
-                    continue
-
-                failure_weight = failure_data["weight"]
-                if random.random() <= failure_weight:
-                    # Step 2: Select one solution for the chosen failure
-                    soln = self._select_solution(failure_name, can_be_exclusive=not have_exclusive)
-                    if soln[1] is not None:
-                        selected_failures.append((soln[0], soln[1]))
-                        have_exclusive |= (soln[2] is not None)
-
-        return selected_failures
-
-    def _select_solution(self, failure_name, can_be_exclusive=True):
-        """Select a solution for a given failure based on solution weights"""
-        # First select all potential solutions. If not can_be_exclusive, filter out
-        # exclusive solutions
-        solutions = [x for x in self.failures[failure_name]["solutions"] \
-                     if not x["exclusive"] or can_be_exclusive]
-        if solutions:
-            solution_weights = [s["weight"] for s in solutions]
-            solution_idx = self._weighted_choice(solution_weights)
-            selected_solution = solutions[solution_idx]["solution"]
-            is_exclusive = solutions[solution_idx]["exclusive"]
-            return failure_name, selected_solution, is_exclusive
-        else:
-            return failure_name, None, False
-
-    def _weighted_choice(self, weights):
-        """Helper function to make a weighted choice from a list of weights"""
-        total = sum(weights)
-        rand_val = random.uniform(0, total)
-        cumulative = 0
-        for i, w in enumerate(weights):
-            cumulative += w
-            if rand_val < cumulative:
-                return i
-        return len(weights) - 1  # Fallback to last index
-
-    def __str__(self):
-        """Custom string representation to show failures and their solutions"""
-        output = ""
-        for failure, details in self.failures.items():
-            output += f"Failure: {failure} (Weight: {details['weight']})\n"
-            for sol in details["solutions"]:
-                output += f"  - Solution: {sol['solution']} (Weight: {sol['weight']}, Exclusive: {sol['exclusive']})\n"
-        return output
-
-    def report_result(self, selected_failures, final_score):
-        """
-        Update the weights for both failures and solutions based on the observed result (final_score).
-        """
-        with self.lock:
-            for failure_name, selected_solution in selected_failures:
-                # Initialize history of scores for this failure-solution pair if not present
-                key = (failure_name, selected_solution)
-                if key not in self.past_scores:
-                    self.past_scores[key] = []  # Make sure it's initialized as a list
-
-                # Append the new score to this failure-solution's history
-                self.past_scores[key].append(final_score)
-
-                # Normalize score based on the history of past scores for this pair
-                normalized_score = self._normalize_score(key)
-
-                # Update the failure and solution weights based on the normalized score
-                failure_data = self.failures[failure_name]
-                failure_weight = failure_data["weight"]
-                expected_score = self._expected_score(key)
-
-                error_term = normalized_score - expected_score
-                new_failure_weight = failure_weight + self.alpha * error_term
-                failure_data["weight"] = max(0.0, min(1.0, new_failure_weight))  # Keep within [0, 1]
-
-                # Update the solution weight (with Bayesian-like updating)
-                solution_idx = next(i for i, s in enumerate(failure_data["solutions"])
-                                    if s["solution"] == selected_solution)
-                solution_data = failure_data["solutions"][solution_idx]
-                solution_weight = solution_data["weight"]
-                posterior_weight = self._bayesian_update(solution_weight, normalized_score)
-                solution_data["weight"] = posterior_weight
-
-
-    def _normalize_score(self, key):
-        """Normalize the score based on the history of past scores for the given key (failure, solution)."""
-        if key not in self.past_scores or not self.past_scores[key]:
-            return 0.5  # Default score if no history exists
-
-        scores = self.past_scores[key]
-        if not isinstance(scores, list):  # Type check to catch errors
-            raise TypeError(f"Expected list for past_scores[{key}], got {type(scores)}")
-        # Check each value, ensure it's an int
-        for score in scores:
-            if not isinstance(score, (int, float)):
-                raise TypeError(f"Expected int/float for past_scores[{key}], got {type(score)}: {score}")
-
-        mean_score = sum(scores) / len(scores)
-        score_range = max(scores) - min(scores) if len(scores) > 1 else 1
-        return (scores[-1] - mean_score) / score_range
-
-    def _expected_score(self, key):
-        """Estimate the expected score for the given failure and solution based on past performance."""
-        if key not in self.past_scores or not self.past_scores[key]:
-            return 0.5  # Default expected score if no history exists
-
-        scores = self.past_scores[key]
-        if not isinstance(scores, list):  # Type check to ensure correct type
-            raise TypeError(f"Expected list for past_scores[{key}], got {type(scores)}")
-
-        return sum(scores) / len(scores)
-
-
-    def _bayesian_update(self, prior_weight, score):
-        """Perform a Bayesian update of the solution weight."""
-        likelihood = math.exp(-abs(score - 0.5))  # A simple likelihood function
-        posterior_weight = prior_weight * likelihood
-        return posterior_weight / (posterior_weight + (1 - prior_weight) * (1 - likelihood))
 
 
 class PatchSearch:
@@ -222,8 +55,8 @@ class PatchSearch:
             print("\t*", friendly_name)
             always = friendly_name in ["base", "auto_explore", "libinject.core", "force_www"]
             name = f"static.potential.{friendly_name}"
-            self.weights.add_failure(name, 1.0, always_select = always)
-            self.weights.add_solution(name, patch, 1.0, always_select = always)
+            self.weights.add_failure(name, 0.5, always_select = always)
+            self.weights.add_solution(name, patch, 0.5, always_select = always)
 
         # TODO: init binary selection -> always select failure with solutions spanning init choices?
         # Should we make multiple patches in gen_config? Should we read static/InitFinder.yaml here and make one for each?
@@ -279,6 +112,12 @@ class PatchSearch:
         self.logger.info(f"Idx {run_index} generate new config...")
         config, selection = self.generate_new_config()
         if not config:
+            #for _ in range(10):
+            #    # XXX: How to shutdown better? We want to see if we get a new config
+            #    # after currently-running ones finish
+            #    sleep(30)
+            #    config, selection = self.generate_new_config()
+            #if not config:
             self.logger.info(f"Idx {run_index} no new config - done?")
             return
 
@@ -363,12 +202,12 @@ class PatchSearch:
                 if not os.path.isfile(mit_path):
                     with open(mit_path, "w") as f:
                         yaml.dump(mitigation.patch, f)
-
-                    # Make it a relative path to proj_dir
-                    mit_path = mit_path.replace(self.proj_dir, "")
-                    if mit_path.startswith("/"):
-                        mit_path = mit_path[1:]
                     self.logger.info(f"Found new potential {mitigation}")
+
+                # Make it a relative path to proj_dir
+                mit_path = mit_path.replace(self.proj_dir, "")
+                if mit_path.startswith("/"):
+                    mit_path = mit_path[1:]
 
                 # Intentionally hitting this even if the hash exists, we might want to be
                 # doing some re-weighting in self.weights - it will ignore if duplicated
