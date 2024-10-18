@@ -105,7 +105,7 @@ class SigInt(PenguinAnalysis):
         return [
             Mitigation(
                 f"block_sig{sig}", self.ANALYSIS_TYPE, {"signal": sig, "weight": 50},
-                patch={"blocked_signals": [sig]}
+                patch={"blocked_signals": [sig]}, failure_name=failure.friendly_name
             )
         ]
 

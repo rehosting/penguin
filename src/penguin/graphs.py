@@ -150,7 +150,7 @@ class Failure(GraphNode):
 
 
 class Mitigation(GraphNode):
-    def __init__(self, name, type, info=None, exclusive=False, patch=None):
+    def __init__(self, name, type, info=None, exclusive=False, patch=None, failure_name=None):
         """
         A mitigation is designed to mitigate an identified failure.
         It has a strategy that can be applied to a configuration that
@@ -164,6 +164,7 @@ class Mitigation(GraphNode):
         self.info = info if info else {}
         self.exclusive = exclusive
         self.patch = patch
+        self.failure_name = failure_name
 
 
 class ConfigurationGraph:
