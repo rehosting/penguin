@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from copy import deepcopy
 
-from .common import get_inits_from_proj
+from .common import get_inits_from_proj, patch_config
 from .penguin_config import dump_config, load_config, load_unpatched_config, hash_yaml_config
 from .utils import AtomicCounter, get_mitigation_providers
 from .manager import PandaRunner, calculate_score
@@ -63,6 +63,7 @@ def ga_search(
     population.extend_genome(None, init_gene)
     learned_failures = set() #store the names of failures we've tried learning about
     generation = 0
+    import IPython; IPython.embed()
 
     while population.run_index.get() < max_iters:
         logger.info(f"Starting generation {generation} with {len(population.chromosomes)} configurations, {len(population.pool.genes)} genes, and {nthreads} workers")
@@ -83,7 +84,7 @@ def ga_search(
                 population.record_fitness(config, result["fitness"])
             except Exception as e:
                 logger.error(f"Error recording fitness for {config}: {e}")
-            full_config = population.get_full_config(config)
+            full_config = population.get_patched_config(config)
             for f in result["failures"]:
                 for m in population.find_mitigations(f, full_config):
                     #m in this case in a Configuration(GraphNode), which is a full configuration
@@ -92,9 +93,11 @@ def ga_search(
                         learning_config = ConfigChromosome(config, m)
                         if f.friendly_name not in learned_failures:
                             learning_configs.add(learning_config)
+                            logger.info(f"Adding learning config for {f.friendly_name}")
                     else:
                         mitigations.add(m)
 
+        logger.info(f"Starting learning with {len(learning_configs)} configurations")
         #at this point we run all the learning configs, and process results again - FIXME refactor
         learning_results = population.run_configs(nthreads, learning_configs)
 
@@ -102,7 +105,7 @@ def ga_search(
         #score since these were theoretically no different than before - just with learning stuff
         #(might want to account into some aggregate score later)
         for l in learning_configs:
-            full_config = population.get_full_config(l)
+            full_config = population.get_patched_config(l)
             result = learning_results[l.hash]
             for f in result["failures"]:
                 for m in population.find_mitigations(f, full_config):
@@ -135,7 +138,6 @@ def ga_search(
             m.patch = {'patches': [mit_path]}
             population.pool.update(m)
 
-        import IPython; IPython.embed()
         #select half of the exsiting configs to move on as parents of the next generation
         #if the population is less than the number of parents expect, we'll add them all and duplicate
         population.selection(pop_size/2)
@@ -451,6 +453,7 @@ class ConfigPopulation(ConfigSearch):
                 self.logger.error(f"[thread {id}]: Error running config {config} with run index {run_index}: {e}")
                 self.work_queue.task_done()
                 traceback.print_exc()
+                import IPython; IPython.embed()
 
             self.work_queue.task_done()
             self.logger.info(f"[thread {id}]: Finished config {config} with run index {run_index}")
@@ -473,6 +476,14 @@ class ConfigPopulation(ConfigSearch):
         combined_config = deepcopy(self.base_config)
         combined_config.update(config.to_dict())
         return combined_config
+
+    def get_patched_config(self, config: ConfigChromosome):
+        patched_config = self.get_full_config(config)
+        for p in patched_config.get("patches", []):
+            # kinda funny how the names wound up...
+            p_yaml =  load_unpatched_config(os.path.join(self.proj_dir, p))
+            patched_config = patch_config(patched_config, p_yaml)
+        return patched_config
 
     def run_config(self, config: ConfigChromosome, run_index: int) -> Tuple[List[Failure], float]:
         """
@@ -498,6 +509,7 @@ class ConfigPopulation(ConfigSearch):
 
         # Write config to disk
         full_config = self.get_full_config(config)
+        self.logger.info(f"config {config} uses patches: {full_config.get('patches', [])}")
         dump_config(full_config, os.path.join(run_dir, "config.yaml"))
 
         # Run the configuration
