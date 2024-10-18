@@ -480,7 +480,8 @@ class AutoExplorePatch(PatchGenerator):
             },
             "plugins": {
                 "nmap": {
-                    "enabled": True
+                    "enabled": True,
+                    "depends_on": "vpn",
                 },
                 "coverage": {
                     "enabled": True
