@@ -1,180 +1,140 @@
 import random
 import threading
-import math
 from collections import defaultdict
+import numpy as np
 
-class SinglyWeightedSet:
+class MABWeightedSet:
     '''
     This class stores failures and potential solutions. Within each failure we have a set of potential solutions,
-    each with its own weight.
+    each with its own weight, and we model each solution using Thompson Sampling with a Beta distribution.
 
-    We provide a probabilistic selection mechanism to select one of the failure's solutions based on their weights.
-    By default, a failure can also be ignored (Solution: None).
-
-    After observing the result of the selected failure-solution pair, we update the weights for the solutions based
-    on the observed result. During observation, we might identify new failures or new solutions.
-    These can be added after the initial setup.
-
-    Across multiple runs, this class aims to identify which solutions are the most effective for each failure.
+    We provide a probabilistic selection mechanism to select one of the failure's solutions based on Thompson Sampling.
+    After observing the result of the selected failure-solution pair, we update the Beta distributions for the solutions 
+    based on the observed result.
 
     This class is thread-safe and can be used in a multi-threaded environment.
     '''
 
-    def __init__(self, alpha=0.1):
+    def __init__(self, alpha=5, beta=10):
         # Store failures as a dictionary with potential solutions
-        self.failures = {} # (failure_name -> {"solutions": [{"solution": str, "weight": float}]})
-        self.past_scores = {} # (failure_name, solution) -> [float] to store past scores for each failure-solution pair
-        self.alpha = alpha  # Learning rate for weight updates
-        self.max_observed_score = 0  # Track the highest observed score for normalization
-        self.min_observed_score = 999999999 # Track the lowest observed score for normalization
+        self.failures = {}  # (failure_name -> {"solutions": [{"solution": str, "alpha": float, "beta": float}]})
+        self.alpha_init = alpha  # Initial alpha value for the Beta distribution
+        self.beta_init = beta    # Initial beta value for the Beta distribution
+        self.observed_scores = []  # Track all observed scores
+        self.selections = []
+
         self.lock = threading.Lock()
 
-    def add_failure(self, failure_name, allow_none = True):
+    def add_failure(self, failure_name, allow_none=True):
         """Add a failure."""
         with self.lock:
             if failure_name not in self.failures:
-                self.failures[failure_name] = {
-                    "solutions": []
-                }
+                self.failures[failure_name] = {"solutions": []}
             else:
                 raise ValueError(f"Failure '{failure_name}' already exists.")
+        
         if allow_none:
             self.add_solution(failure_name, None)
 
-    def add_solution(self, failure_name, solution, weight=1, exclusive=False):
+    def add_solution(self, failure_name, solution, exclusive=False):
         """Add a potential solution to an existing failure."""
-        assert 0 <= weight <= 1, "Weight must be between 0 and 1"
         with self.lock:
             if failure_name not in self.failures:
                 raise ValueError(f"Failure '{failure_name}' does not exist. Add it first.")
 
-            # Un-normalize before adding the new solution
-            old_len = len(self.failures[failure_name]["solutions"])
-            for sol in self.failures[failure_name]["solutions"]:
-                sol["weight"] *= old_len
-
             if solution not in [x["solution"] for x in self.failures[failure_name]["solutions"]]:
                 self.failures[failure_name]["solutions"].append({
                     "solution": solution,
-                    "weight": weight,
+                    "alpha": self.alpha_init,  # Beta distribution alpha (success count)
+                    "beta": self.beta_init,    # Beta distribution beta (failure count)
                     "exclusive": exclusive
                 })
 
-            for sol in self.failures[failure_name]["solutions"]:
-                sol["weight"] /= (old_len + 1)
-
-            # Assert that the sum is 1
-            assert math.isclose(sum([x["weight"] for x in self.failures[failure_name]["solutions"]]), 1.0)
-
     def probabilistic_mitigation_selection(self):
         """Select independent failures to mitigate and pick one of their solutions."""
-        selected_failures = []  # (failure_name, solution)
-        have_exclusive = False
+        for _ in range(1000):  # Limiting to 100 tries for fairness
+            selected_failures = []  # (failure_name, solution)
+            have_exclusive = False
+            epsilon = 0.05  # 5% chance to explore at random
 
-        # Step 1: For each failure, decide probabilistically if it will be mitigated
-        with self.lock:
-            for failure_name, failure_data in self.failures.items():
-                # If there are no solutions, skip
-                if not failure_data["solutions"]:
-                    continue
+            with self.lock:
+                for failure_name, failure_data in self.failures.items():
+                    if not failure_data["solutions"]:
+                        continue
 
-                # Step 2: Select one solution for the chosen failure
-                soln = self._select_solution(failure_name, can_be_exclusive=not have_exclusive)
-                if soln is not None and soln[1] is not None:
-                    selected_failures.append((soln[0], soln[1])) # (failure_name, solution)
-                    have_exclusive |= (soln[2] is not None)
+                    # With probability epsilon, explore a random solution
+                    soln = None
+                    if random.random() < epsilon:
+                        soln = self._select_solution_random(failure_name, can_be_exclusive=not have_exclusive) # returns (solution, exclusive)
 
-        return selected_failures
+                    if not soln:
+                        # If not randomly picking (or if random failed)
+                        # Select one solution for the chosen failure using Thompson Sampling
+                        soln = self._select_solution(failure_name, can_be_exclusive=not have_exclusive) # returns (solution, exclusive)
 
-    def _select_solution(self, failure_name, can_be_exclusive=True):
-        """Select a solution for a given failure based on solution weights"""
-        # First select all potential solutions. If not can_be_exclusive, filter out
-        # exclusive solutions
+                    if soln is not None and soln[0] is not None:
+                        selected_failures.append((failure_name, soln[0]))  # (failure_name, solution)
+                        have_exclusive |= (soln[1] is not None)
+
+                if selected_failures not in self.selections:
+                    self.selections.append(selected_failures)
+                    return selected_failures
+
+    def upper_confidence_bound(self, alpha, beta, n_total, n_solution):
+        """Calculate the UCB for a given solution."""
+        success_rate = alpha / (alpha + beta)
+        exploration_term = np.sqrt(2 * np.log(n_total + 1) / (n_solution + 1))  # Exploration incentive
+        return success_rate + exploration_term
+
+    def _select_solution_random(self, failure_name, can_be_exclusive=True):
         solutions = [x for x in self.failures[failure_name]["solutions"] \
-                     if (not x["exclusive"] or can_be_exclusive)]
+                     if not x["exclusive"] or can_be_exclusive]
         if solutions:
-            solution_weights = [s["weight"] for s in solutions]
-            solution_idx = self._weighted_choice(solution_weights)
-            selected_solution = solutions[solution_idx]["solution"]
-            is_exclusive = solutions[solution_idx]["exclusive"]
-            return failure_name, selected_solution, is_exclusive
+            soln = random.choice(solutions)
+            if soln and soln["solution"]:
+                return soln["solution"], soln["exclusive"]
         return None
 
-    def _weighted_choice(self, weights):
-        """Helper function to make a weighted choice from a list of weights"""
-        total = sum(weights)
-        rand_val = random.uniform(0, total)
-        cumulative = 0
-        for i, w in enumerate(weights):
-            cumulative += w
-            if rand_val < cumulative:
-                return i
-        return len(weights) - 1  # Fallback to last index
+    def _select_solution(self, failure_name, can_be_exclusive=True):
+        """Select a solution for a given failure using Thompson Sampling."""
+        solutions = [x for x in self.failures[failure_name]["solutions"] \
+                     if not x["exclusive"] or can_be_exclusive]
+
+        if solutions:
+            # Use Thompson Sampling by sampling from Beta(alpha, beta) for each solution
+            sampled_weights = [np.random.beta(sol["alpha"], sol["beta"]) for sol in solutions]
+            solution_idx = sampled_weights.index(max(sampled_weights))  # Choose the solution with the highest sample
+            selected_solution = solutions[solution_idx]["solution"]
+            is_exclusive = solutions[solution_idx]["exclusive"]
+            return selected_solution, is_exclusive
+        return None
 
     def report_result(self, selected_failures, final_score):
         """
-        Update the weights for solutions based on the observed result (final_score).
+        Update the Beta distribution for the selected solution based on the observed result.
         """
         with self.lock:
-            # Maintain running statistics for scores to dynamically adapt
-            self.min_observed_score = min(self.min_observed_score, final_score)
-            self.max_observed_score = max(self.max_observed_score, final_score)
-            
-            # Normalize score based on observed min and max so far
-            if self.max_observed_score > self.min_observed_score:
-                normalized_score = (final_score - self.min_observed_score) / (self.max_observed_score - self.min_observed_score)
-            else:
-                normalized_score = 0.5  # If no range exists, assume neutral
+            self.observed_scores.append(final_score)
+            avg_score = sum(self.observed_scores) / len(self.observed_scores)
 
             for failure_name, selected_solution in selected_failures:
-                key = (failure_name, selected_solution)
-
-                # Initialize the score history if not present (first run case)
-                if key not in self.past_scores:
-                    self.past_scores[key] = []
-                self.past_scores[key].append(normalized_score)
-
-                # Update the solution weight based on the normalized score
                 solution_idx = next(i for i, s in enumerate(self.failures[failure_name]["solutions"])
                                     if s["solution"] == selected_solution)
                 solution_data = self.failures[failure_name]["solutions"][solution_idx]
-                solution_weight = solution_data["weight"]
-                
-                # Perform a smoothed Bayesian update with normalized score
-                posterior_weight = self._bayesian_update(solution_weight, normalized_score)
-                
-                # Smooth the weight update by gradually moving towards the posterior weight
-                solution_data["weight"] = solution_weight + self.alpha * (posterior_weight - solution_weight)
 
-            # Normalize the weights to ensure they sum to 1
-            self._normalize_weights()
+                # Update distributions based on final score
+                decay_factor = 0.9  # Introduce a decay factor
+                weight = decay_factor * self.weighted_likelihood(final_score, avg_score)
 
+                if final_score > avg_score:  # Success case
+                    solution_data["alpha"] += weight  # Weighted update
+                else:  # Failure case
+                    solution_data["beta"] += weight  # Weighted update
 
-    def _normalize_weights(self):
-        """
-        Ensure that the weights for each failure's solutions sum to 1.
-        """
-        for failure_name, failure_data in self.failures.items():
-            total_weight = sum([sol['weight'] for sol in failure_data["solutions"]])
-            if total_weight > 0:
-                for sol in failure_data["solutions"]:
-                    sol['weight'] /= total_weight
-  
-    def _expected_score(self, key):
-        """Estimate the expected score for the given failure and solution based on past performance."""
-        if key not in self.past_scores or not self.past_scores[key]:
-            return 0.5  # Default expected score if no history exists
-
-        scores = self.past_scores[key]
-        return sum(scores) / len(scores)
-
-    def _bayesian_update(self, prior_weight, score):
-        """Perform a Bayesian update of the solution weight."""
-        likelihood = score / (1 - score + 1e-6) if score > 0.5 else (1 - score) / (score + 1e-6)
-        posterior_weight = prior_weight * likelihood
-        posterior_weight = posterior_weight ** 1.5  # This makes updates more aggressive
-        return posterior_weight / (posterior_weight + (1 - prior_weight) * (1 - likelihood))
-
+    def weighted_likelihood(self, final_score, avg_score):
+        """Calculate a weighted likelihood for updating based on score deviation."""
+        weight = abs(final_score - avg_score)  # More deviation = more weight
+        return min(1.0, weight)  # Cap weight at 1.0 to avoid excessive adjustments
 
     def __str__(self):
         """Custom string representation to show failures and their solutions"""
@@ -182,83 +142,104 @@ class SinglyWeightedSet:
         for failure, details in self.failures.items():
             output += f"Failure: {failure}\n"
             for sol in details["solutions"]:
-                output += f"  - Solution: {sol['solution']} (Weight: {sol['weight']:.02f}" + (" Exclusive" if sol['exclusive'] else "") + ")\n"
+                output += f"  - Solution: {sol['solution']} (Alpha: {sol['alpha']:.02f}, Beta: {sol['beta']:.02f}" + (" Exclusive" if sol['exclusive'] else "") + ")\n"
         return output
 
-# Assuming the rest of the script continues from here.
-
-def generate_ground_truth():
-    """
-    Generate synthetic ground truth for testing. Specify importance for failures
-    and impact of solutions.
-    """
-    return {
-        'failure1_important': {
-          'f1_soln1': 1,
-          'f1_soln2': 10,
-          'f1_soln3': 100,
-        },
-        'failure2_unimportant': {
-          'f2_soln1': 1,
-          'f2_soln2': 5,
-          'f2_soln3': 3,
-        },
-        'failure3_important': {
-          'f3_soln1': 200,
-          'f3_soln2': 50,
-        }
-    }
-
-def create_synthetic_test_data(dws, ground_truth):
-    """
-    Populate the SinglyWeightedSet instance with synthetic test data.
-    """
-    # Add failures from the ground truth
-    for failure_name, failure_data in ground_truth.items():
-        dws.add_failure(failure_name)
-        
-        # Add possible solutions for each failure with fixed initial weights 
-        for solution in failure_data.keys():
-            dws.add_solution(failure_name, solution) # Solutions are initially created equally
-
-def simulate_iterations(dws, ground_truth, iterations=100):
-    """
-    Run multiple iterations to simulate the selection and update process.
-    """
-    print("Initial weights:")
-    print(dws)
-
-    for idx in range(iterations):
-        # Select failures and their solutions probabilistically
-        selected_failures = dws.probabilistic_mitigation_selection()
-        
-        # Calculate a synthetic "final score" based on the ground truth.
-        # If the selected solution matches the ground truth preferred solution, assign a high score.
-        if not selected_failures:
-            break
-
-        # Calculate the final score based on the ground truth
-        final_score = 0
-        for failure, solution in selected_failures:
-            final_score += ground_truth[failure][solution]
-        
-        # Report the result to update weights
-        dws.report_result(selected_failures, final_score)
-        print(f"\nIteration {idx} selects {selected_failures} with score {final_score}")
-        print(dws)
-
-def main():
-    # Instantiate the SinglyWeightedSet class
-    dws = SinglyWeightedSet()
-    
-    # Generate synthetic ground truth
-    ground_truth = generate_ground_truth()
-    
-    # Create synthetic test data in the instance
-    create_synthetic_test_data(dws, ground_truth)
-    
-    # Run the synthetic test with multiple iterations
-    simulate_iterations(dws, ground_truth, iterations=1000)
-
 if __name__ == "__main__":
+    # Unit testing
+    def generate_ground_truth():
+        """
+        Generate synthetic ground truth for testing. Specify importance for failures
+        and impact of solutions.
+        """
+        ground_truth = {
+            'failure1': {
+            'f1_soln1': random.randint(1, 1000),
+            'f1_soln2': random.randint(1, 10000),
+            'f1_soln3': random.randint(1, 500),
+            },
+            'failure2': {
+            'f2_soln1': random.randint(1, 10),
+            'f2_soln2': random.randint(1, 10),
+            'f2_soln3': random.randint(1, 10),
+            },
+            'failure3': {
+            'f3_soln1': random.randint(1, 100),
+            'f3_soln2': random.randint(1, 100)
+            }
+        }
+
+        for f in ground_truth.keys():
+            ground_truth[f][None] = 0
+
+        return ground_truth
+
+    def create_synthetic_test_data(mab, ground_truth):
+        """
+        Populate the MABWeightedSet instance with synthetic test data.
+        """
+        # Add failures from the ground truth
+        for failure_name, failure_data in ground_truth.items():
+            mab.add_failure(failure_name)
+            
+            # Add possible solutions for each failure with fixed initial weights 
+            for solution in failure_data.keys():
+                mab.add_solution(failure_name, solution)  # Solutions are initially equal
+
+    def simulate_iterations(mab, ground_truth, iterations=100):
+        """
+        Run multiple iterations to simulate the selection and update process.
+        """
+        for idx in range(iterations):
+            # Select failures and their solutions probabilistically
+            selected_failures = mab.probabilistic_mitigation_selection()
+            
+            # Calculate a synthetic "final score" based on the ground truth.
+            # If the selected solution matches the ground truth preferred solution, assign a high score.
+            if not selected_failures:
+                break
+
+            # Calculate the final score based on the ground truth
+            final_score = 0
+            for failure, solution in selected_failures:
+                final_score += ground_truth[failure][solution]
+
+            final_score /= sum(len(v) for v in ground_truth.values())  # Normalize score between 0 and 1
+
+            # Report the result to update the Beta distributions
+            mab.report_result(selected_failures, final_score)
+            print(f"Iteration {idx} selects  " + ", ".join([f"{k}={v}" for (k, v) in selected_failures]) + f" with score {final_score:.02f}")
+
+    def main():
+        # Instantiate the MABWeightedSet class
+        mab = MABWeightedSet()
+        
+        # Generate synthetic ground truth
+        ground_truth = generate_ground_truth()
+        
+        # Create synthetic test data in the instance
+        create_synthetic_test_data(mab, ground_truth)
+        
+        # Run the synthetic test with multiple iterations
+        simulate_iterations(mab, ground_truth, iterations=500)
+        
+        # Print the final state of the failures and solutions
+        print(mab)
+
+        best = {} # failure -> best
+        for fail, solns in ground_truth.items():
+            best[fail] = max(solns, key=lambda x: solns[x])
+            print(f"Failure: {fail}")
+            for soln, value in solns.items():
+                print(f"  - {soln}: {value}")
+
+        # Get best results
+        for failure, failure_data in mab.failures.items():
+            best_soln = max(failure_data["solutions"], key=lambda x: x["alpha"] / (x["alpha"] + x["beta"]))
+            delta = abs(ground_truth[failure][best[failure]] - ground_truth[failure][best_soln["solution"]])
+            if best_soln["solution"] == best[failure] or delta == 0:
+                print(f"FOUND BEST for {failure}: {best[failure]}: weight {ground_truth[failure][best[failure]]}")
+            else:
+                print(f"MISMATCH for {failure}: {best[failure]} != {best_soln['solution']}: delta = {delta}")
+
     main()
