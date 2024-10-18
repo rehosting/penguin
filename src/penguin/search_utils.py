@@ -12,7 +12,7 @@ class MABWeightedSet:
     each with its own weight, and we model each solution using Thompson Sampling with a Beta distribution.
 
     We provide a probabilistic selection mechanism to select one of the failure's solutions based on Thompson Sampling.
-    After observing the result of the selected failure-solution pair, we update the Beta distributions for the solutions 
+    After observing the result of the selected failure-solution pair, we update the Beta distributions for the solutions
     based on the observed result.
 
     This class is thread-safe and can be used in a multi-threaded environment.
@@ -35,11 +35,11 @@ class MABWeightedSet:
                 self.failures[failure_name] = {"solutions": []}
             else:
                 raise ValueError(f"Failure '{failure_name}' already exists.")
-        
+
         if allow_none:
             self.add_solution(failure_name, None)
 
-    def add_solution(self, failure_name, solution, exclusive=False):
+    def add_solution(self, failure_name, solution, exclusive=None):
         """Add a potential solution to an existing failure."""
         with self.lock:
             if failure_name not in self.failures:
@@ -58,41 +58,49 @@ class MABWeightedSet:
         for _ in range(1000):  # Limiting to 100 tries for fairness
             selected_failures = []  # (failure_name, solution)
             have_exclusive = False
-            epsilon = 0.05  # 5% chance to explore at random
+            epsilon = 0.05  # 5% chance to explore at random within each failure
 
             with self.lock:
                 # TODO: should we order failures randomly here to ensure we don't bias towards early exclusive choices?
                 for failure_name, failure_data in self.failures.items():
+                    #print("Selecting solution for:", failure_name)
                     if not failure_data["solutions"]:
+                        print("\tNo solutions available for:", failure_name)
                         continue
 
                     # With probability epsilon, explore a random solution
                     soln = None
                     if random.random() < epsilon:
+                        #print("\tSelecting random solution for:", failure_name)
                         soln = self._select_solution_random(failure_name, can_be_exclusive=not have_exclusive) # returns (solution, exclusive)
 
                     if not soln:
+                        #print("\tSelecting Thompson Sampled solution for:", failure_name)
                         # If not randomly picking (or if random failed)
                         # Select one solution for the chosen failure using Thompson Sampling
                         soln = self._select_solution(failure_name, can_be_exclusive=not have_exclusive) # returns (solution, exclusive)
 
                     if soln is not None and soln[0] is not None:
+                        #print("\tSelected solution:", soln[0])
+                        #print("\tExclusive:", soln[1])
                         selected_failures.append((failure_name, soln[0]))  # (failure_name, solution)
+                        assert (soln[1] is not False) # Sanity check - was previously bool but is not Optional[str]
+
                         have_exclusive |= (soln[1] is not None)
 
                 if selected_failures not in self.selections:
                     self.selections.append(selected_failures)
                     return selected_failures
-
-    def upper_confidence_bound(self, alpha, beta, n_total, n_solution):
-        """Calculate the UCB for a given solution."""
-        success_rate = alpha / (alpha + beta)
-        exploration_term = np.sqrt(2 * np.log(n_total + 1) / (n_solution + 1))  # Exploration incentive
-        return success_rate + exploration_term
+            print("Failed to find any solutions?")
 
     def _select_solution_random(self, failure_name, can_be_exclusive=True):
         solutions = [x for x in self.failures[failure_name]["solutions"] \
                      if not x["exclusive"] or can_be_exclusive]
+
+        #print("\tPotential solutions for", failure_name, ":")
+        #for s in solutions:
+        #    print("\t\t", s)
+
         if solutions:
             soln = random.choice(solutions)
             if soln and soln["solution"]:
@@ -103,6 +111,9 @@ class MABWeightedSet:
         """Select a solution for a given failure using Thompson Sampling."""
         solutions = [x for x in self.failures[failure_name]["solutions"] \
                      if not x["exclusive"] or can_be_exclusive]
+        #print("\tPotential solutions for", failure_name, ":")
+        #for s in solutions:
+        #    print("\t", s)
 
         if solutions:
             # Use Thompson Sampling by sampling from Beta(alpha, beta) for each solution
@@ -111,6 +122,10 @@ class MABWeightedSet:
             selected_solution = solutions[solution_idx]["solution"]
             is_exclusive = solutions[solution_idx]["exclusive"]
             return selected_solution, is_exclusive
+
+        #print("No valid solutions found for", failure_name)
+        #print(self.failures[failure_name]["solutions"])
+        #print()
         return None
 
     def report_result(self, selected_failures, final_score):
@@ -210,27 +225,18 @@ class ConfigSearch:
 
 if __name__ == "__main__":
     # Unit testing
-    def generate_ground_truth():
+    def generate_ground_truth(N=5, M=5, min_weight=-100, max_weight=100, scale=1.2):
         """
-        Generate synthetic ground truth for testing. Specify importance for failures
-        and impact of solutions.
+        Generate synthetic ground truth for testing. Create N distinct failures with between 1 and M solutions each.
+        Each solution has a weight from scale**(min_weight to max_weight).
         """
-        ground_truth = {
-            'failure1': {
-            'f1_soln1': random.randint(1, 1000),
-            'f1_soln2': random.randint(1, 10000),
-            'f1_soln3': random.randint(1, 500),
-            },
-            'failure2': {
-            'f2_soln1': random.randint(1, 10),
-            'f2_soln2': random.randint(1, 10),
-            'f2_soln3': random.randint(1, 10),
-            },
-            'failure3': {
-            'f3_soln1': random.randint(1, 100),
-            'f3_soln2': random.randint(1, 100)
-            }
-        }
+        ground_truth = { }
+
+        # Add N failures with a random number 2, M solutions with random weights
+        N = 5
+        M = 5
+        for i in range(N):
+            ground_truth[f"failure{i}"] = {f"solution{j}": round((scale)**random.randint(min_weight, max_weight), 2) for j in range(random.randint(1,M))}
 
         for f in ground_truth.keys():
             ground_truth[f][None] = 0
@@ -244,8 +250,8 @@ if __name__ == "__main__":
         # Add failures from the ground truth
         for failure_name, failure_data in ground_truth.items():
             mab.add_failure(failure_name)
-            
-            # Add possible solutions for each failure with fixed initial weights 
+
+            # Add possible solutions for each failure with fixed initial weights
             for solution in failure_data.keys():
                 mab.add_solution(failure_name, solution)  # Solutions are initially equal
 
@@ -256,7 +262,7 @@ if __name__ == "__main__":
         for idx in range(iterations):
             # Select failures and their solutions probabilistically
             selected_failures = mab.probabilistic_mitigation_selection()
-            
+
             # Calculate a synthetic "final score" based on the ground truth.
             # If the selected solution matches the ground truth preferred solution, assign a high score.
             if not selected_failures:
@@ -276,17 +282,18 @@ if __name__ == "__main__":
     def main():
         # Instantiate the MABWeightedSet class
         mab = MABWeightedSet()
-        
+
         # Generate synthetic ground truth
         ground_truth = generate_ground_truth()
-        
+
         # Create synthetic test data in the instance
         create_synthetic_test_data(mab, ground_truth)
-        
+
         # Run the synthetic test with multiple iterations
         simulate_iterations(mab, ground_truth, iterations=500)
-        
+
         # Print the final state of the failures and solutions
+        print("========= RESULTS ========")
         print(mab)
 
         best = {} # failure -> best
@@ -297,12 +304,25 @@ if __name__ == "__main__":
                 print(f"  - {soln}: {value}")
 
         # Get best results
+        # If we had picked the best value for each failure, what would our total score be?
+        best_weight = sum(ground_truth[failure][best[failure]] for failure in ground_truth)
+
+        found_weight = 0
         for failure, failure_data in mab.failures.items():
+            # Select the best solution from our MAB solution by alpha / (alpha + beta). Could also just use alpha?
             best_soln = max(failure_data["solutions"], key=lambda x: x["alpha"] / (x["alpha"] + x["beta"]))
-            delta = abs(ground_truth[failure][best[failure]] - ground_truth[failure][best_soln["solution"]])
-            if best_soln["solution"] == best[failure] or delta == 0:
-                print(f"FOUND BEST for {failure}: {best[failure]}: weight {ground_truth[failure][best[failure]]}")
-            else:
-                print(f"MISMATCH for {failure}: {best[failure]} != {best_soln['solution']}: delta = {delta}")
+            found_weight += ground_truth[failure][best_soln["solution"]]
+            print(f"For {failure} best identified solution is {best_soln['solution']}")
+
+        print(f"Best possible score: {best_weight}")
+        print(f"MAB solution: {found_weight}")
+
+        percent_diff = (found_weight - best_weight) / best_weight
+        print(f"% difference: {100 * percent_diff:.02f}%")
+
+        if percent_diff > -0.1:
+            print("PASS")
+        else:
+            print("FAIL")
 
     main()
