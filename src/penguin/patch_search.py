@@ -12,10 +12,10 @@ from .manager import PandaRunner, calculate_score
 from .graph_search import Worker # just for analyze_failures. Maybe refactor
 from .utils import get_mitigation_providers
 from .graphs import Failure, Mitigation
-from .search_utils import MABWeightedSet
+from .search_utils import MABWeightedSet, ConfigSearch
 
 
-class PatchSearch:
+class PatchSearch(ConfigSearch):
     def __init__(self, proj_dir, config_path, output_dir, timeout,
                  max_iters, nworkers, verbose):
         self.logger = getColoredLogger("penguin.patch_search")
@@ -196,7 +196,7 @@ class PatchSearch:
 
             # Now let's add potential solutions
 
-            mitigations = self.find_mitigations(failure, patched_config)
+            mitigations = find_mitigations(failure, patched_config)
             for mitigation in mitigations:
                 if mitigation.patch is None:
                     self.logger.warning(f"Mitigation {mitigation} has no patch. Ignore")
@@ -226,58 +226,6 @@ class PatchSearch:
             f.write(str(self.weights))
 
 
-    def find_mitigations(
-        self, failure: Failure, config
-    ) -> List[Mitigation]:
-        results = []
-        # Lookup the plugin that can handle this failure
-        analysis = get_mitigation_providers(config)[failure.type]
-        for m in analysis.get_potential_mitigations(config, failure) or []:
-            if not isinstance(m, Mitigation):
-                raise TypeError(
-                    f"Plugin {analysis.ANALYSIS_TYPE} returned a non-Mitigation object {m}"
-                )
-            results.append(m)
-        return results
-
-    def analyze_failures(self, config, run_dir, exclusive=None):
-        """
-        After we run a configuration, do our post-run analysis of failures.
-        Run each PyPlugin that has a PenguinAnalysis implemented. Ask each to
-        identify failures.
-        """
-
-        fails = []  # (id, type, {data})
-        output_dir = os.path.join(run_dir, "output")
-
-        mitigation_providers = get_mitigation_providers(config)
-
-        # For an exclusive config, only query the exclusive provider
-        if exclusive is not None:
-            if exclusive not in mitigation_providers:
-                raise ValueError(
-                    f"Cannot use exclusive {exclusive} as it's not a mitigation provider"
-                )
-            mitigation_providers = {
-                exclusive: mitigation_providers[exclusive]
-            }
-
-        for plugin_name, analysis in mitigation_providers.items():
-            try:
-                failures = analysis.parse_failures(output_dir)
-            except Exception as e:
-                self.logger.error(e)
-                raise e
-
-            for failure in failures or []:
-                if not isinstance(failure, Failure):
-                    raise TypeError(
-                        f"Plugin {plugin_name} returned a non-Failure object {failure}"
-                    )
-                fails.append(failure)
-
-        # We might have duplicate failures, but that's okay, caller will dedup?
-        return fails
 
 
 # Entrypoint for __main__
