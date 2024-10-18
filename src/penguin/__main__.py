@@ -111,7 +111,17 @@ def run_from_config(
         f.write(f"{total_score:.02f}\n")
 
 
+def add_common_arguments(parser):
+    """
+    This function is for adding arguments we want available to all commands.
+    """
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Set log level to debug"
+    )
+
+
 def add_init_arguments(parser):
+    add_common_arguments(parser)
     parser.add_argument(
         "rootfs", type=str, help="The rootfs path. (e.g. path/to/fw_rootfs.tar.gz)"
     )
@@ -226,6 +236,7 @@ def penguin_init(args):
 
 
 def add_patch_arguments(parser):
+    add_common_arguments(parser)
     parser.add_argument(
         "config", type=str, help="Path to the full config file to be updated"
     )
@@ -260,6 +271,7 @@ def penguin_patch(args):
 
 
 def add_docs_arguments(parser):
+    add_common_arguments(parser)
     # parser.add_argument('filename', type=str,
     #    help='Documentation file to render. If unset, filenames are printed.',
     #    default=None)
@@ -317,6 +329,7 @@ def penguin_docs(args):
 
 
 def add_run_arguments(parser):
+    add_common_arguments(parser)
     parser.add_argument(
         "config", type=str, help="Path to a config file within a project directory."
     )
@@ -422,6 +435,7 @@ def guest_cmd(args):
 
 
 def add_explore_arguments(parser):
+    add_common_arguments(parser)
     parser.add_argument(
         "config",
         type=str,
@@ -556,6 +570,8 @@ contains details on the configuration file format and options.
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
+    add_common_arguments(parser)
+
     subparsers = parser.add_subparsers(help="subcommand", dest="cmd", required=False)
 
     parser_cmd_init = subparsers.add_parser(
@@ -589,10 +605,6 @@ contains details on the configuration file format and options.
 
     parser.add_argument(
         "--version", action="version", help="Show version information", version=VERSION
-    )
-
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Set log level to debug"
     )
 
     args = parser.parse_args()
