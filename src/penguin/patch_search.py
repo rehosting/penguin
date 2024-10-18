@@ -9,9 +9,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from penguin.common import getColoredLogger, yaml
 from .penguin_config import dump_config, hash_yaml_config, load_config, load_unpatched_config
 from .manager import PandaRunner, calculate_score
-from .graph_search import Worker # just for analyze_failures. Maybe refactor
-from .graphs import Failure, Mitigation
 from .search_utils import MABWeightedSet, ConfigSearch
+#from .graphs import Failure, Mitigation # We pass these objects around but don't use directly
 
 
 class PatchSearch(ConfigSearch):
@@ -115,7 +114,8 @@ class PatchSearch(ConfigSearch):
                     self.logger.exception(e) # Show the full traceback
                     # Bail
                     executor.shutdown(wait=False)
-                    return
+                    os._exit(1)
+
 
     def run_iteration(self, run_index):
         '''
@@ -134,7 +134,7 @@ class PatchSearch(ConfigSearch):
             self.logger.info(f"Idx {run_index} no new config - done?")
             return
 
-        self.logger.info(f"Starting iteration {run_index} with patches: {config['patches']}")
+        self.logger.info(f"Starting iteration {run_index}")# with patches: {config['patches']}")
 
         run_dir = os.path.join(self.run_base, str(run_index))
         if os.path.isdir(run_dir):
@@ -227,9 +227,15 @@ class PatchSearch(ConfigSearch):
                 if mit_path.startswith("/"):
                     mit_path = mit_path[1:]
 
-                # Intentionally hitting this even if the hash exists, we might want to be
-                # doing some re-weighting in self.weights - it will ignore if duplicated
-                self.weights.add_solution(failure.patch_name, mit_path, exclusive=mitigation.exclusive)
+                if mitigation.exclusive:
+                    # Add exclusive mitigation based on our current run
+                    # In other words, we'll rerun this exact same config + the learning change for exclusive
+                    # Unless we've already seen it before
+                    self.weights.queue_learning(failure.patch_name, mit_path, patched_config, mitigation.exclusive)
+                else:
+                    # Intentionally hitting this even if the hash exists, we might want to be
+                    # doing some re-weighting in self.weights - it will ignore if duplicated
+                    self.weights.add_solution(failure.patch_name, mit_path, exclusive=mitigation.exclusive)
 
         with open(os.path.join(out_dir, "weights.txt"), "w") as f:
             f.write(str(self.weights))
