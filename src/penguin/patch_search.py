@@ -12,7 +12,7 @@ from .manager import PandaRunner, calculate_score
 from .graph_search import Worker # just for analyze_failures. Maybe refactor
 from .utils import get_mitigation_providers
 from .graphs import Failure, Mitigation
-from .search_utils import DoublyWeightedSet
+from .search_utils import MABWeightedSet
 
 
 class PatchSearch:
@@ -31,7 +31,7 @@ class PatchSearch:
         # applied)
         self.base_config = load_unpatched_config(config_path)
         self.seen_configs = set()
-        self.weights = DoublyWeightedSet() # Track failures -> [solutions] with weights
+        self.weights = MABWeightedSet() # Track failures -> [solutions] with weights
 
         self.patch_dir = os.path.join(self.proj_dir, "dynamic_patches")
         os.makedirs(self.patch_dir, exist_ok=True)
@@ -53,11 +53,27 @@ class PatchSearch:
             print("\t*", friendly_name)
             always = friendly_name in ["base", "auto_explore", "libinject.core", "force_www"]
             name = f"static.potential.{friendly_name}"
-            self.weights.add_failure(name, 0.5, always_select = always)
-            self.weights.add_solution(name, patch, 0.5, always_select = always)
+            self.weights.add_failure(name, allow_none=not always)  # Must mitigate if it's one of always
+            self.weights.add_solution(name, patch)
 
-        # TODO: init binary selection -> always select failure with solutions spanning init choices?
-        # Should we make multiple patches in gen_config? Should we read static/InitFinder.yaml here and make one for each?
+        # Create a few patches after the fact (TODO: should this happen in gen_config?), one for
+        # each potential init. If there's only 1 already it will be in base and this is unnecessary
+        with open(os.path.join(self.proj_dir, "static", "InitFinder.yaml")) as f:
+            init_choices = yaml.safe_load(f)
+
+        if len(init_choices) > 1:
+            failure_name = "static.potential.init_finder"
+            self.weights.add_failure(failure_name, allow_none=False)
+            # Create init patches and add to weights
+            for init in init_choices:
+                mit_path = os.path.join(self.patch_dir, f"init_{init.replace('/', '_')}.txt")
+                with open(mit_path, "w") as f:
+                    yaml.dump({"env": {"igloo_init": init}}, f)
+
+                mit_path = mit_path.replace(self.proj_dir, "")
+                if mit_path.startswith("/"):
+                    mit_path = mit_path[1:]
+                self.weights.add_solution(failure_name, mit_path)
 
 
     def generate_new_config(self, tries=10):
@@ -186,11 +202,6 @@ class PatchSearch:
                     self.logger.warning(f"Mitigation {mitigation} has no patch. Ignore")
                     continue
 
-                # TODO: What do we want to do for weights? Lower for exclusive
-                # because we should select other solutions first (if they exist within the
-                # failure).
-                weight = 0.1 if mitigation.exclusive else 1.0
-
                 # Need to create YAML file for mitigation.patch on disk in our
                 # patches dir
                 hsh = hash_yaml_config(mitigation.patch)[:6]
@@ -209,7 +220,7 @@ class PatchSearch:
 
                 # Intentionally hitting this even if the hash exists, we might want to be
                 # doing some re-weighting in self.weights - it will ignore if duplicated
-                self.weights.add_solution(failure.patch_name, mit_path, weight, exclusive=mitigation.exclusive)
+                self.weights.add_solution(failure.patch_name, mit_path, exclusive=mitigation.exclusive)
 
         with open(os.path.join(out_dir, "weights.txt"), "w") as f:
             f.write(str(self.weights))
