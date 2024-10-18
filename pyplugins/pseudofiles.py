@@ -1114,6 +1114,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         "action": "add_group",
                         "weight": 100 + len(new_paths),
                     },
+                    failure_name = failure.friendly_name
                 )
             ]
 
@@ -1164,6 +1165,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                     "model": "discard"
                                 }
                                 }}},
+                            failure_name = failure.friendly_name
                         )
                     ]
                 elif failure.info["type"] == "mtd":
@@ -1188,6 +1190,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                     "model": "discard"
                                 }
                                 }}},
+                            failure_name = failure.friendly_name
                         )
                     ]
 
@@ -1213,6 +1216,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                 }
                                 # no IOCTL for procfs
                                 }}},
+                            failure_name = failure.friendly_name
                         )
                     ]
 
@@ -1238,6 +1242,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                 }
                                 # no IOCTL for procfs
                                 }}},
+                            failure_name = failure.friendly_name
                         )
                     ]
 
@@ -1271,7 +1276,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                     }
                                 }
                             }
-                        }
+                        },
+                    failure_name = failure.friendly_name
                 )
             ]
 
@@ -1311,7 +1317,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                     },
                                 }
                             }
-                        }
+                        },
+                    failure_name = failure.friendly_name
                 )
             ]
 
@@ -1338,7 +1345,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                     },
                                 }
                             }
-                        }
+                        },
+                failure_name = failure.friendly_name
                 )
             ]
 
@@ -1383,7 +1391,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                         },
                                     }
                                 }
-                            }
+                            },
+                        failure_name = failure.friendly_name
                     )
                     for val in failure.info["symex_results"]
                 ]
@@ -1413,6 +1422,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                     }
                                 }
                         },
+                        failure_name = failure.friendly_name
                     )
                 ]
 

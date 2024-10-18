@@ -233,6 +233,7 @@ class CoreAnalysis(PenguinAnalysis):
                     "extend",
                     self.ANALYSIS_TYPE,
                     {"duration": failure.info["truncated"]},
+                    failure_name=failure.friendly_name,
                 )
             ]
 
