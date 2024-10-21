@@ -536,6 +536,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                                 "source": "from_dynamic",
                             },
                             patch={'env': {var_name: dynval}},
+                            failure_name = failure.friendly_name
                         )
                     )
             else:
@@ -554,7 +555,8 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                                 "weight": 0.1,
                                 "source": "default",
                             },
-                            patch={'env': {var_name: val}}
+                            patch={'env': {var_name: val}},
+                            failure_name = failure.friendly_name
                         )
                     )
             return results
@@ -581,6 +583,7 @@ class EnvTrackerAnalysis(PenguinAnalysis):
                 },
                 patch={'env': {var_name: ENV_MAGIC_VAL}},
                 exclusive=self.ANALYSIS_TYPE,
+                failure_name = failure.friendly_name,
             )
         ]
 
