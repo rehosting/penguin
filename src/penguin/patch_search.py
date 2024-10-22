@@ -120,7 +120,7 @@ class PatchSearch(ConfigSearch):
         self.logger.info("All iterations complete")
         print(self.weights)
 
-        for failure, failure_data in mab.failures.items():
+        for failure, failure_data in self.weights.failures.items():
             # Select the best solution from our MAB solution by alpha / (alpha + beta). Could also just use alpha?
             best_soln = max(failure_data["solutions"], key=lambda x: x["alpha"] / (x["alpha"] + x["beta"]))
             print(f"For {failure} best identified solution is {best_soln['solution']}")
