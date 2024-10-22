@@ -405,7 +405,10 @@ class PseudofileFinder(StaticAnalysis):
         ]
 
         # Remove items from remove_list (like IGLOO_ADDED_DEVICES or IGLOO_PROCFS)
-        filtered_files = [f for f in filtered_files if f not in remove_list]
+        # And remove files that have a prefix in remove_list
+        filtered_files = [f for f in filtered_files if \
+                          f not in remove_list and
+                          not any(f.startswith(removed + "/") for removed in remove_list)]
 
         # Remove directories that have subpaths
         directories_to_remove = {
