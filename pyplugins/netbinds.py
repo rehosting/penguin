@@ -61,7 +61,6 @@ class NetBinds(PyPlugin):
         if int(port) != 0:
             self.remove_bind(ip, port, sock_type)
 
-
     def on_ipv6_release(self, cpu, ip_port, is_stream):
         sock_type = "tcp" if is_stream else "udp"
         ip_part, port = ip_port.rsplit(']:')
@@ -108,7 +107,6 @@ class NetBinds(PyPlugin):
 
         # Trigger our callback
         self.ppp_run_cb("on_bind", sock_type, ipvn, ip, port, procname)
-
 
     def track_bind(self, procname, ipvn, sock_type, ip, port, time):
         global bind_list
