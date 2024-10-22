@@ -317,73 +317,116 @@ class PseudofileFinder(StaticAnalysis):
                             "ttypf", "tun", "urandom", "vcs", "vcs1", "vcsa", "vcsa1", "vda",
                              "vga_arbiter", "vsock", "zero",
                             "root", "pts", # Added in init
-                            "ttyAMA0", "ttyAMA1" # ARM
+                            "ttyAMA0", "ttyAMA1", # ARM
+                            "stdin", "stdout", "stderr", # Symlinks to /proc/self/fd/X
                             ]
 
-    IGLOO_PROCFS = [ "thread-self", "self", "sysrq-trigger",
-                        "pagetypeinfo", "vmallocinfo", "sched_debug",
-                        "filesystems", "execdomains", "device-tree",
-                        "timer_list", "partitions", "kpageflags",
-                        "kpagecount", "interrupts", "key-users",
-                        "diskstats", "config.gz", "buddyinfo",
-                        "zoneinfo", "softirqs", "slabinfo", "kallsyms",
-                        "consoles", "version", "sysvipc/", "modules",
-                        "meminfo", "loadavg", "ioports", "devices",
-                        "cpuinfo", "cmdline", "cgroups", "vmstat",
-                        "uptime", "mounts", "driver/", "crypto",
-                        "swaps", "locks", " kcore", "iomem", "stat",
-                        "scsi", "misc", "kmsg", "keys", "tty", "sys",
-                        "net", "mtd", "irq", "dma", "bus", "fs", "fb",
+    IGLOO_PROCFS = [
+                    "buddyinfo",
+                    "cgroups",
+                    "cmdline",
+                    "config.gz",
+                    "consoles",
+                    "cpuinfo",
+                    "crypto",
+                    "devices",
+                    "diskstats",
+                    "execdomains",
+                    "fb",
+                    "filesystems",
+                    "interrupts",
+                    "iomem",
+                    "ioports",
+                    "kallsyms",
+                    "key-users",
+                    "keys",
+                    "kmsg",
+                    "kpagecount",
+                    "kpageflags",
+                    "loadavg",
+                    "locks",
+                    "meminfo",
+                    "misc",
+                    "modules",
+                    "mounts",
+                    "mtd", # We might shadow this later intentionally, but not by default
+                    "net",
+                    "pagetypeinfo",
+                    "partitions",
+                    "penguin_net", # This is custom and unique but we shouldn't ever shadow it
+                    "sched_debug",
+                    "slabinfo",
+                    "stat",
+                    "swaps",
+                    "sysrq-trigger",
+                    "thread-self",
+                    "timer_list",
+                    "uptime",
+                    "version",
+                    "vmallocinfo",
+                    "vmstat",
+                    "zoneinfo",
 
-                        # Directories
-                        # sysvipc, driver (empty), scsi, tty, sys (big), irq (numbers), bus, fs
-                        "sysvipc/shm",
-                        "sysvipc/sem",
-                        "sysvipc/msg",
+                    # Directories
+                    "bus",
+                    "bus/pci",
+                    "bus/pci/00",
+                    "bus/pci/00/00.0",
+                    "bus/pci/00/0a.0",
+                    "bus/pci/00/0a.1 ",
+                    "bus/pci/00/0a.2 ",
+                    "bus/pci/00/0a.3 ",
+                    "bus/pci/00/0b.0 ",
+                    "bus/pci/00/12.0 ",
+                    "bus/pci/00/13.0 ",
+                    "bus/pci/00/14.0 ",
+                    "bus/pci/devices ",
+                    "bus/input",
+                    "bus/input/devices",
+                    "bus/input/handlers",
 
-                        "scsi/device_info",
-                        "scsi/scsi",
+                    "cpu",
+                    "cpu/alignment",
 
-                        "tty/drivers",
-                        "tty/ldisc",
-                        "tty/driver/",
-                        "tty/driver/serial",
-                        "tty/ldisc/",
+                    "driver",
+                    "driver/rtc",
 
-                        "bus/",
-                        "bus/pci/",
-                        "bus/pci/00",
-                        "bus/pci/00/00.0",
-                        "bus/pci/00/0a.0",
-                        "bus/pci/00/0a.1 ",
-                        "bus/pci/00/0a.2 ",
-                        "bus/pci/00/0a.3 ",
-                        "bus/pci/00/0b.0 ",
-                        "bus/pci/00/12.0 ",
-                        "bus/pci/00/13.0 ",
-                        "bus/pci/00/14.0 ",
-                        "bus/pci/devices ",
-                        "bus/input/",
-                        "bus/input/devices",
-                        "bus/input/handlers",
+                    "fs",
+                    "fs/afs",
+                    "fs/afs/cells",
+                    "fs/afs/rootcell",
+                    "fs/ext4",
+                    "fs/f2fs",
+                    "fs/jbd2",
+                    "fs/nfsd",
+                    "fs/lockd",
+                    "fs/lockd/nlm_end_grace",
+                    "fs/nfsfs",
+                    "fs/nfsfs/servers",
+                    "fs/nfsfs/volumes",
 
-                        "fs/",
-                        "fs/afs/",
-                        "fs/afs/cells",
-                        "fs/afs/rootcell",
-                        "fs/ext4",
-                        "fs/f2fs",
-                        "fs/jbd2",
-                        "fs/nfsd",
-                        "fs/lockd/",
-                        "fs/lockd/nlm_end_grace",
-                        "fs/nfsfs/",
-                        "fs/nfsfs/servers",
-                        "fs/nfsfs/volumes",
+                    # Sys is special, loaded dynamically
+
+
+                    # sysvipc, driver (empty), scsi, tty, sys (big), irq (numbers), bus, fs
+                    "sysvipc/shm",
+                    "sysvipc/sem",
+                    "sysvipc/msg",
+
+                    "scsi/device_info",
+                    "scsi/scsi",
+
+                    "tty/drivers",
+                    "tty/ldisc",
+                    "tty/driver",
+                    "tty/driver/serial",
+                    "tty/ldisc",
     ]
 
-    # Some special ones that are probably not rehosting artifacts and a pain to model
-    PROC_IGNORE = ["irq/"]
+    # Directories that we want to just ignore entirely - don't create any entries
+    # within these directories. IRQs and device-tree are related to the emulated CPU
+    # self and PID are related to the process itself and dynamically created
+    PROC_IGNORE = ["irq", "self", "PID", "device-tree", "net"]
 
     def __init__(self):
         # Load ../resources/proc_sys.txt, add each line to IGLOO_PROCFS
@@ -395,20 +438,34 @@ class PseudofileFinder(StaticAnalysis):
     def _filter_files(self, extract_dir, pattern, ignore_list, remove_list):
         """
         Filters files in a directory based on a regex pattern, an ignore list, and a remove list.
+
+        Ignored list is a prefix - anything that starts with an ignored prefix is removed.
+
+        Remove list is an absolute match - anything in the remove list is removed.
         """
         # Find all files matching the pattern
         found_files = list(FileSystemHelper.find_regex(pattern, extract_dir).keys())
 
-        # Apply ignore filters (like PROC_IGNORE)
-        filtered_files = [
-            f for f in found_files if not any(f.startswith(ignored) for ignored in ignore_list)
-        ]
+        # Apply ignore filters: these are paths we'll ignore entirely
+        #filtered_files = [
+        #    f for f in found_files if not any(f == ignored or f.startswith(ignored +"/") for ignored in ignore_list)
+        #]
+        filtered_files = []
+        for x in found_files:
+            for f in ignore_list:
+                if x == f or x.startswith(f + "/"):
+                    #print(f"Ignoring {x}")
+                    break
+            else:
+                filtered_files.append(x)
 
         # Remove items from remove_list (like IGLOO_ADDED_DEVICES or IGLOO_PROCFS)
-        # And remove files that have a prefix in remove_list
-        filtered_files = [f for f in filtered_files if \
-                          f not in remove_list and
-                          not any(f.startswith(removed + "/") for removed in remove_list)]
+        #filtered_files = [f for f in filtered_files if \
+        #                  f not in remove_list]
+        for f in remove_list:
+            if f in filtered_files:
+                #print(f"Removing {f}")
+                filtered_files.remove(f)
 
         # Remove directories that have subpaths
         directories_to_remove = {
