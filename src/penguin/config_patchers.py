@@ -136,6 +136,50 @@ class FileHelper:
                 ):
                     yield file_path
 
+    @staticmethod
+    def exists(tmp_dir, target):
+        """
+        Check if the target exists within the extracted filesystem in tmp_dir,
+        handling symlinks correctly.
+
+        :param tmp_dir: The root of the extracted filesystem (e.g., /tmp/extracted)
+        :param target: The target path to check (e.g., /foo/zoo)
+        :return: True if the target exists within tmp_dir, False otherwise
+        """
+        assert target.startswith("/")
+        assert os.path.exists(tmp_dir)
+
+        # Strip the leading slash from the target to work with relative paths
+        target = target[1:]  # Remove leading '/'
+        parts = target.split("/")
+
+        # Initialize path traversal from tmp_dir
+        current_path = tmp_dir
+
+        for part in parts:
+            next_path = os.path.join(current_path, part)
+
+            if os.path.islink(next_path):
+                # Resolve symlink
+                resolved = os.readlink(next_path)
+
+                # If symlink is absolute, restart from tmp_dir
+                if resolved.startswith("/"):
+                    current_path = os.path.realpath(os.path.join(tmp_dir, resolved[1:]))
+                else:
+                    # Resolve relative symlink against the current path
+                    current_path = os.path.realpath(os.path.join(current_path, resolved))
+            else:
+                # Move one level deeper in the path
+                current_path = next_path
+
+            # If the resolved path doesn't exist at any point, return False
+            if not os.path.exists(current_path):
+                return False
+
+        # Final check: Ensure the fully resolved path exists
+        return os.path.exists(current_path)
+
 
 class NvramHelper:
     @staticmethod
@@ -285,11 +329,11 @@ class NvramHelper:
                 for file in files:
                     abs_path = os.path.join(root, file)
                     rel_path = "./" + os.path.relpath(abs_path, fs_path)
-                    
+
                     if rel_path in nvram_paths:
                         # Exact match - we already checked this
                         continue
-                    
+
                     if any(file == fname for fname in nvram_basenames):
                         # Found a matching basename, parse the file
                         with open(abs_path, "rb") as f:
@@ -902,7 +946,7 @@ class GenerateShellMounts(PatchGenerator):
     def __init__(self, extract_dir, existing):
         self.patch_name = "static.shell_script_mounts"
         self.extract_dir = extract_dir
-        self.extract_dir = extract_dir
+        self.enabled = True
         self.existing = {member.name[1:] for member in existing}
 
     def generate(self, patches):
@@ -912,10 +956,21 @@ class GenerateShellMounts(PatchGenerator):
             for dest in list(
                 set(FileHelper.find_strings_in_file(f, "^/mnt/[a-zA-Z0-9._/]+$"))
             ):
+                if not dest.endswith("/"):
+                    dest = os.path.dirname(dest)
+                    # We're making the directory in which the file we saw referenced
+                    # will be
+
                 # Does this file exist in the filesystem or in any existing patches?
                 if dest in self.existing or any([dest in \
-                        p.get('static_files', {}).keys() for p in patches.values()]):
+                        p[0].get('static_files', {}).keys() for p in patches.values()]):
                     continue
+
+                # Try resolving the dest (to handle symlinks more correctly than the existing check)
+                if FileHelper.exists(self.extract_dir, dest):
+                    # Directory already exists - don't clobber!
+                    continue
+
                 result['static_files'][dest] = {
                     "type": "dir",
                     "mode": 0o755,
@@ -1134,7 +1189,7 @@ class ShimBinaries:
                     "target": f"/igloo/utils/{shim_targets[basename]}",
                 }
         return {'static_files': result}
-    
+
 class ShimStopBins(ShimBinaries,PatchGenerator):
     def __init__(self, files):
         super().__init__(files)
@@ -1153,7 +1208,7 @@ class ShimNoModules(ShimBinaries,PatchGenerator):
         super().__init__(files)
         self.patch_name = "static.shims.no_modules"
         self.enabled = True
-    
+
     def generate(self, patches):
         return self.make_shims({
             "insmod": "exit0.sh"
@@ -1164,7 +1219,7 @@ class ShimBusybox(ShimBinaries,PatchGenerator):
         super().__init__(files)
         self.patch_name = "static.shims.busybox"
         self.enabled = True
-    
+
     def generate(self, patches):
         return self.make_shims({
             "ash": "busybox",
