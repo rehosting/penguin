@@ -8,6 +8,7 @@ from pandare import PyPlugin
 BINDS_FILE = "netbinds.csv"
 bind_list = []
 
+
 class NetBinds(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
