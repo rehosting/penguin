@@ -14,7 +14,7 @@ from copy import deepcopy
 
 from .common import get_inits_from_proj, patch_config
 from .penguin_config import dump_config, load_config, load_unpatched_config, hash_yaml_config
-from .utils import AtomicCounter, get_mitigation_providers
+from .utils import AtomicCounter, get_mitigation_providers, hash_image_inputs
 from .manager import PandaRunner, calculate_score
 from .graphs import Failure, Mitigation
 
@@ -38,7 +38,7 @@ Overall idea:
 
 def ga_search(
     proj_dir, config_path, output_dir, timeout, max_iters=1000, nthreads=1,
-    init=None, pop_size=8, verbose=False
+    init=None, pop_size=8, verbose=False, nmuts=1
 ):
     """
     Main entrypoint. Given an initial config and directory run our
@@ -48,6 +48,11 @@ def ga_search(
 
     logger = getColoredLogger("penguin.ga_explore")
     logger.setLevel(logging.DEBUG)
+
+    logger.info("Performing genetic algorithm search with the following parameters:")
+    logger.info(f"  Population size: {pop_size}")
+    logger.info(f"  Number of genes to mutate per mutation: {nmuts}")
+
 
     patch_dir = os.path.join(proj_dir, "dynamic_patches")
     os.makedirs(patch_dir, exist_ok=True)
@@ -99,6 +104,7 @@ def ga_search(
                                                                                        dict_to_frozenset({'patches': [patch_path]})))
                             learning_configs.add(learning_config)
                             logger.info(f"Adding learning config for {f.friendly_name}")
+                            learned_failures.add(f.friendly_name) #only queue learning once
                     else:
                         mitigations.add(m)
 
@@ -122,6 +128,7 @@ def ga_search(
                         logger.warning("Shouldn't get here! Exclusive mitigations not supported in learning step")
                     else:
                         logger.info(f"Learned new mitigation {m}")
+                        assert m.failure_name, "Mitigation must have a failure name: check {m.type}"
                         mitigations.add(m)
 
         #TODO: did we want to run any new mitigations to get some fitness data on them before we used them?
@@ -132,8 +139,10 @@ def ga_search(
 
         #First, we update the gene pool with mitigations we've learned and create patch files for them
         for m in mitigations:
+            if m is None:
+                continue
             hsh = hash_yaml_config(m.patch)[:6]
-            mit_path = os.path.join(patch_dir, f"{m.friendly_name.replace('/','_')}_{hsh}.yaml")
+            mit_path = os.path.join(patch_dir, f"{m.failure_name.replace('/','_')}_{m.friendly_name.replace('/','_')}_{hsh}.yaml")
 
             if not os.path.isfile(mit_path):
                 with open(mit_path, "w") as f:
@@ -145,7 +154,9 @@ def ga_search(
             if mit_path.startswith("/"):
                 mit_path = mit_path[1:]
             m.patch = {'patches': [mit_path]}
+            logger.debug(f"Adding mitigation {m} to pool")
             population.pool.update(m)
+            logger.debug(f"Pool is now: {population.pool.get_names()}")
 
         #select half of the exsiting configs to move on as parents of the next generation
         #if the population is less than the number of parents expect, we'll add them all and duplicate
@@ -155,7 +166,7 @@ def ga_search(
         population.crossover(0.5)
 
         #and mutation, for now we'll do one gene
-        population.mutation(1)
+        population.mutation(nmuts)
 
         generation += 1
 
@@ -302,6 +313,9 @@ class GenePool:
         #TODO look into the data structure for indexing failures here
 
     def update(self, new_gene):
+        if new_gene is None:
+            # nop
+            return
         failure_name = new_gene.failure_name
         if isinstance(new_gene, MitigationAlleleSet):
             new_mits = frozenset(new_gene.mitigations)
@@ -545,6 +559,9 @@ class ConfigPopulation(ConfigSearch):
         conf_yaml = os.path.join(run_dir, "config.yaml")
 
 
+        self.logger.debug(f"Config {config} has image_inputs hash {hash_image_inputs(self.proj_dir, full_config)}")
+
+
         out_dir = os.path.join(run_dir, "output")
         os.makedirs(out_dir, exist_ok=True)
         #Stash genes in the run directory
@@ -704,7 +721,7 @@ class ConfigPopulation(ConfigSearch):
                         #init is special, don't allow that to be None. otherwise maybe "no mitigation" is what we'd like?
                         choices = choices.union({None})
                     m = random.choice(list(choices))
-                    if m:
+                    if m and m is not None:
                         genes = genes.union({MitigationPatch(g, m)})
 
             self.logger.debug(f"Mutating genes {genes}")
@@ -728,8 +745,8 @@ class ConfigPopulation(ConfigSearch):
                 failed = 0
             else:
                 failed += 1
-                if failed > 20:
-                    self.logger.warn(f"Failed to generate a new configuration 20 times in a row, giving up")
+                if failed > 100:
+                    self.logger.warn(f"Failed to generate a new configuration 100 times in a row, giving up")
                     break
 
         self.logger.info(f"Population size after mutation is: {len(self.chromosomes)}")
@@ -775,9 +792,15 @@ def main():
         default=300,
         help="Timeout in seconds. Default is 300",
     )
+    parser.add_argument(
+        "--nmuts",
+        type=int,
+        default=1,
+        help="Number of mutations to perform per iteration. Default is 1",
+    )
     args = parser.parse_args()
     proj_dir = os.path.dirname(args.config)
-    ga_search(os.path.dirname(args.config), args.config, args.outdir, args.timeout, args.niters, args.nworkers)
+    ga_search(os.path.dirname(args.config), args.config, args.outdir, args.timeout, args.niters, args.nworkers, args.nmuts)
 
 
 if __name__ == "__main__":

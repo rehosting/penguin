@@ -122,7 +122,7 @@ def explore_from_config(
     if explore_type == "ga_explore":
         return ga_search(
             proj_dir, config_path, output_dir, timeout, max_iters=niters,
-            nthreads=nworkers, verbose=verbose
+            nthreads=nworkers, verbose=verbose, nmuts=1
         )
 
     if explore_type == "patch_explore":
@@ -466,6 +466,15 @@ def add_explore_arguments(parser):
         help="Forcefully delete output directory if it exists.",
     )
 
+def add_ga_explore_arguments(parser):
+    add_explore_arguments(parser)
+    parser.add_argument(
+        "--nmuts",
+        type=int,
+        default=1,
+        help="Number of mutations to try per chromosome per generation. Default is 1.",
+    )
+
 
 def penguin_explore(args):
     config = Path(args.config)
@@ -594,7 +603,7 @@ contains details on the configuration file format and options.
     parser_cmd_ga_explore = subparsers.add_parser(
         "ga_explore", help="Search for alternative configurations to improve system health by using a genetic algorithm."
     )
-    add_explore_arguments(parser_cmd_ga_explore)
+    add_ga_explore_arguments(parser_cmd_ga_explore)
 
     parser_cmd_patch_explore = subparsers.add_parser(
         "patch_explore", help="Search for alternative configurations to improve system health by using a patch-based search."
