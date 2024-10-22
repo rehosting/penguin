@@ -6,7 +6,6 @@ from os.path import join
 from pandare import PyPlugin
 
 BINDS_FILE = "netbinds.csv"
-bind_list = []
 
 
 class NetBinds(PyPlugin):
@@ -15,6 +14,7 @@ class NetBinds(PyPlugin):
         self.panda = panda
         self.seen_binds = set()
         self.start_time = time.time()
+        self.bind_list = []
 
         # The NetBinds.on_bind PPP callback happens on every bind.
         # Don't be confused by the vpn on_bind callback that happens
@@ -110,7 +110,6 @@ class NetBinds(PyPlugin):
         self.ppp_run_cb("on_bind", sock_type, ipvn, ip, port, procname)
 
     def track_bind(self, procname, ipvn, sock_type, ip, port, time):
-        global bind_list
         add_dict = {
                 "Process Name": procname,
                 "IPvN": ipvn,
@@ -119,13 +118,11 @@ class NetBinds(PyPlugin):
                 "Port": port,
                 "Time": time
                 }
-        bind_list.append(add_dict)
+        self.bind_list.append(add_dict)
 
     def remove_bind(self, ip, port, sock_type):
-        global bind_list
-        bind_list[:] = [bind for bind in bind_list if not (bind["IP"] == ip and bind["Port"] == int(port) and bind["Socket Type"] == sock_type)]
+        self.bind_list[:] = [bind for bind in self.bind_list if not (bind["IP"] == ip and bind["Port"] == int(port) and bind["Socket Type"] == sock_type)]
 
     @PyPlugin.ppp_export
     def give_list(self):
-        global bind_list
-        return bind_list
+        return self.bind_list
