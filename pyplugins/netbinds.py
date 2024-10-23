@@ -5,6 +5,8 @@ from os.path import join, dirname
 
 from pandare import PyPlugin
 
+from penguin import getColoredLogger
+
 BINDS_FILE = "netbinds.csv"
 SUMMARY_BINDS_FILE = "netbinds_summary.csv"
 
@@ -14,6 +16,7 @@ class NetBinds(PyPlugin):
         self.panda = panda
         self.seen_binds = set()
         self.start_time = time.time()
+        self.logger = getColoredLogger("plugins.netbinds")
 
         # The NetBinds.on_bind PPP callback happens on every bind.
         # Don't be confused by the vpn on_bind callback that happens
@@ -35,10 +38,14 @@ class NetBinds(PyPlugin):
         self.pending_sinaddr = None
 
     def on_ipv4_setup(self, cpu, procname, sin_addr):
+        if self.pending_procname is not None:
+            self.logger.error(f"Pending bind not cleared before new bind for ipv6: {self.pending_procname} vs {procname}")
         self.pending_procname = procname
         self.pending_sinaddr = int.to_bytes(sin_addr, 4, "little")
 
     def on_ipv6_setup(self, cpu, procname, sinaddr_addr):
+        if self.pending_procname is not None:
+            self.logger.error(f"Pending bind not cleared before new bind for ipv6: {self.pending_procname} vs {procname}")
         self.pending_procname = procname
         self.pending_sinaddr = self.panda.virtual_memory_read(cpu, sinaddr_addr, 16)
 
