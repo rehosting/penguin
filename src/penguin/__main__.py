@@ -22,6 +22,7 @@ from .penguin_config import load_config
 from .genetic import ga_search
 from .graph_search import graph_search
 from .patch_search import patch_search
+from .patch_minimizer import minimize
 
 logger = getColoredLogger("penguin")
 
@@ -127,6 +128,12 @@ def explore_from_config(
 
     if explore_type == "patch_explore":
         return patch_search(
+            proj_dir, config_path, output_dir, timeout, max_iters=niters,
+            nworkers=nworkers, verbose=verbose
+        )
+
+    if explore_type == "minimize":
+        return minimize(
             proj_dir, config_path, output_dir, timeout, max_iters=niters,
             nworkers=nworkers, verbose=verbose
         )
@@ -610,6 +617,11 @@ contains details on the configuration file format and options.
     )
     add_explore_arguments(parser_cmd_patch_explore)
 
+    parser_cmd_minimize = subparsers.add_parser(
+        "minimize", help="Search for a minimal set of patches to rehost a system."
+    )
+    add_explore_arguments(parser_cmd_minimize)
+
     # Add --wrapper-help stub
     parser.add_argument(
         "--wrapper-help", action="store_true", help="Show help for host penguin wrapper"
@@ -640,7 +652,7 @@ contains details on the configuration file format and options.
         penguin_docs(args)
     elif args.cmd == "guest_cmd":
         guest_cmd(args)
-    elif args.cmd in ["explore", "ga_explore", "patch_explore"]:
+    elif args.cmd in ["explore", "ga_explore", "patch_explore", "minimize"]:
         penguin_explore(args)
     else:
         parser.print_help()
