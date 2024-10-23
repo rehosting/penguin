@@ -131,10 +131,14 @@ class PatchMinmizer():
         patchsets=[self.patches_to_test] #our first patchset is the full set of patches
 
         while self.run_count < self.max_iters:
-            first_half_index = self.run_count + 1
-            second_half_index = self.run_count + 2
-            patchsets.append(set(self.patches_to_test[:len(self.patches_to_test)//2]))
-            patchsets.append(set(self.patches_to_test[len(self.patches_to_test)//2:]))
+            if self.run_count == 0:
+                first_half_index = self.run_count + 1
+                second_half_index = self.run_count + 2
+            else:
+                first_half_index = self.run_count
+                second_half_index = self.run_count + 1
+            patchsets.append(self.patches_to_test[:len(self.patches_to_test)//2])
+            patchsets.append(self.patches_to_test[len(self.patches_to_test)//2:])
 
             self.run_configs(patchsets)
 
