@@ -164,14 +164,16 @@ class PatchMinmizer():
             if i >= self.max_iters:
                 self.logger.info("Hit max iterations. Stopping")
                 break
-            patchsets.append(set(self.patches_to_test) - {patch})
+            patchset = deepcopy(self.patches_to_test)
+            patchset.remove(patch)
+            patchsets.append(patchset)
             run_tracker[i] = patch
 
         self.run_configs(patchsets)
 
         for i, patch in run_tracker.items():
-            if not self.config_still_viable(i):
-                self.logger.info(f"Removing {patch} from consideration")
+            if self.config_still_viable(i):
+                self.logger.info(f"Removing {patch} from consideration, appears unecessary")
                 self.patches_to_test.remove(patch)
 
         return self.patches_to_test
