@@ -14,6 +14,7 @@ class NetBinds(PyPlugin):
         self.panda = panda
         self.seen_binds = set()
         self.start_time = time.time()
+        self.bind_list = []
 
         # The NetBinds.on_bind PPP callback happens on every bind.
         # Don't be confused by the vpn on_bind callback that happens
@@ -28,6 +29,8 @@ class NetBinds(PyPlugin):
         self.ppp.Events.listen("igloo_ipv6_bind", self.on_ipv6_bind)
         self.ppp.Events.listen("igloo_ipv4_setup", self.on_ipv4_setup)
         self.ppp.Events.listen("igloo_ipv6_setup", self.on_ipv6_setup)
+        self.ppp.Events.listen("igloo_ipv4_release", self.on_ipv4_release)
+        self.ppp.Events.listen("igloo_ipv6_release", self.on_ipv6_release)
         self.pending_procname = None
         self.pending_sinaddr = None
 
@@ -52,6 +55,19 @@ class NetBinds(PyPlugin):
         )
         self.pending_procname = None
         self.pending_sinaddr = None
+
+    def on_ipv4_release(self, cpu, ip_port, is_stream):
+        sock_type = "tcp" if is_stream else "udp"
+        ip, port = ip_port.split(':')
+        if int(port) != 0:
+            self.remove_bind(ip, port, sock_type)
+
+    def on_ipv6_release(self, cpu, ip_port, is_stream):
+        sock_type = "tcp" if is_stream else "udp"
+        ip_part, port = ip_port.rsplit(']:')
+        if int(port) != 0:
+            ip = ip_part.lstrip('[')
+            self.remove_bind(ip, port, sock_type)
 
     def on_bind(self, cpu, procname, is_ipv4, is_stream, port, sin_addr):
         now = time.time()
@@ -88,5 +104,25 @@ class NetBinds(PyPlugin):
         with open(join(self.outdir, BINDS_FILE), "a") as f:
             f.write(f"{procname},{ipvn},{sock_type},{ip},{port},{time_delta:.3f}\n")
 
+        self.track_bind(procname, ipvn, sock_type, ip, port, time_delta)
+
         # Trigger our callback
         self.ppp_run_cb("on_bind", sock_type, ipvn, ip, port, procname)
+
+    def track_bind(self, procname, ipvn, sock_type, ip, port, time):
+        add_dict = {
+                "Process Name": procname,
+                "IPvN": ipvn,
+                "Socket Type": sock_type,
+                "IP": ip,
+                "Port": port,
+                "Time": time
+                }
+        self.bind_list.append(add_dict)
+
+    def remove_bind(self, ip, port, sock_type):
+        self.bind_list[:] = [bind for bind in self.bind_list if not (bind["IP"] == ip and bind["Port"] == int(port) and bind["Socket Type"] == sock_type)]
+
+    @PyPlugin.ppp_export
+    def give_list(self):
+        return self.bind_list
