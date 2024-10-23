@@ -834,8 +834,11 @@ class GenerateMissingDirs(PatchGenerator):
         for i in range(len(parts), 1, -1):
             sub_path = "/".join(parts[:i])
             if sub_path in symlinks:
+                if depth > 10 or d == symlinks[sub_path]:
+                    logger.warning(f"Symlink loop detected for {d}")
+                    return d
                 return GenerateMissingDirs._resolve_path(
-                    d.replace(sub_path, symlinks[sub_path], 1), symlinks
+                    d.replace(sub_path, symlinks[sub_path], 1), symlinks, depth=depth+1
                 )
         if not d.startswith("/"):
             d = "/" + d
