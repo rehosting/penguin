@@ -111,7 +111,7 @@ class NetBinds(PyPlugin):
         self.seen_binds.add((procname, ipvn, sock_type, ip, port))
 
 		# Log details to disk
-        self.report_bind_info(time_delta)
+        self.report_bind_info(time_delta, procname, ipvn, sock_type, ip, port)
 
         self.track_bind(procname, ipvn, sock_type, ip, port, time_delta)
 
@@ -136,15 +136,21 @@ class NetBinds(PyPlugin):
     def give_list(self):
         return self.bind_list
 
-    def report_bind_info(self, time_delta):
+    def report_bind_info(self, time_delta, procname, ipvn, sock_type, ip, port):
 		# Collect summary stats at this time (unique processes, total binds, bound_www, time)
         n_sockets = 0
         procs = set()
         bound_www = False
 
+        # Report this specific bind
+        with open(join(self.outdir, BINDS_FILE), "a") as f:
+            f.write(f"{procname},{ipvn},{sock_type},{ip},{port},{time_delta:.3f}\n")
+
         # Look through self.seen_binds, count unique procnames, total binds, and bound_www
-        for procname, ipvn, sock_type, ip, port in self.seen_binds:
-            procs.add(procname)
+        for data in self.seen_binds:
+            name = data[0]
+            port = data[4]
+            procs.add(name)
             n_sockets += 1
             if port == 80:
                 bound_www = True
@@ -153,7 +159,3 @@ class NetBinds(PyPlugin):
 		# Report summary stats
         with open(join(self.outdir, SUMMARY_BINDS_FILE), "a") as f:
             f.write(f"{n_procs},{n_sockets},{bound_www},{time_delta:.3f}\n")
-
-        # Report this specific bind
-        with open(join(self.outdir, BINDS_FILE), "a") as f:
-            f.write(f"{procname},{ipvn},{sock_type},{ip},{port},{time_delta:.3f}\n")
