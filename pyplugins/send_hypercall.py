@@ -104,3 +104,11 @@ class SendHypercall(PyPlugin):
         self.bash_cov_csv.flush()
         self.logger.debug(f"bash_command {path}:{lineno} {pid}: {cmd}")
         return 0, ""
+
+    def cmd_canary(self, status):
+        path = os.path.join(self.outdir, "canary.txt")
+        self.logger.debug(f"Received canary status {status}")
+        if int(status) == 0:
+            with open(path, "w") as f:
+                f.write("1")
+        return 0, ""
