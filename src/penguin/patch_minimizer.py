@@ -102,11 +102,17 @@ class PatchMinmizer():
                     break
 
     def config_still_viable(self, run_index):
-        #Run 0 is always our baseline
-        baseline = sum(self.scores[0].values())
+        #First, see if we dropped the number of network binds
+        if self.scores[run_index]["bound_sockets"] < self.scores[0]["bound_sockets"]:
+            self.logger.info(f"Run {run_index} has fewer sockets than baseline. Not viable")
+            return False
 
-        #Are we within 95% of the baseline?
-        our_score = sum(self.scores[run_index].values())
+        #Run 0 is always our baseline
+        baseline = self.scores[0]["blocks_covered"]
+
+        #Then, is overall health within 95% of the baseline?
+        #our_score = sum(self.scores[run_index].values())
+        our_score = self.scores[run_index]["blocks_covered"]
         self.logger.info(f"Score for {run_index}: {our_score} (baseline: {baseline})")
         return our_score >= 0.95 * baseline
 
@@ -130,7 +136,11 @@ class PatchMinmizer():
 
         patchsets=[self.patches_to_test] #our first patchset is the full set of patches
 
+        #Now, do the binary search. This is fairly optimistic, but can save a bunch of time when it works
         while self.run_count < self.max_iters:
+            self.logger.debug(f"Patches to test: {self.patches_to_test}")
+            #This code is a little klugdy since we want to run three configs in parallel the first time
+            #and two at a time after that
             if self.run_count == 0:
                 first_half_index = self.run_count + 1
                 second_half_index = self.run_count + 2
@@ -149,20 +159,21 @@ class PatchMinmizer():
                 return
             elif not first_half and not second_half:
                 self.logger.info("Config bisection had both halves fail. Time to move slowly")
+                patchsets.clear()
                 break
             elif first_half:
                 self.logger.info("First half passed, second half failed. Considering first half")
-                self.patches_to_test = patchsets[1]
+                self.patches_to_test = deepcopy(self.runmap[first_half_index])
             else:
                 self.logger.info("First half failed, second half passed. Considering second half")
-                self.patches_to_test = patchsets[2]
+                self.patches_to_test = deepcopy(self.runmap[second_half_index])
 
             patchsets.clear()
             if len(self.patches_to_test) == 1:
                 self.logger.info("Only one patch left. Stopping")
                 return self.patches_to_test
 
-        #Now we are done with the binary search. If we assume independence, we'll generate a config without each patch
+        #Now we are done with the binary search. Assuming independence, we'll generate a config without each patch
         run_tracker = dict()
         for i, patch in enumerate(self.patches_to_test, start=self.run_count):
             if i >= self.max_iters:
@@ -177,7 +188,7 @@ class PatchMinmizer():
 
         for i, patch in run_tracker.items():
             if self.config_still_viable(i):
-                self.logger.info(f"Removing {patch} from consideration, appears unecessary")
+                self.logger.info(f"After running {i} removing {patch} from consideration, appears unecessary")
                 self.patches_to_test.remove(patch)
 
         return self.patches_to_test
