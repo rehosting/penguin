@@ -587,17 +587,26 @@ class LibInjectSymlinks(PatchGenerator):
 
 
     def generate(self, patches):
-        libc_paths = []
+        library_paths = []
         result = defaultdict(dict)
 
         # Walk through the filesystem root to find all "libc.so" files
         for root, dirs, files in os.walk(self.filesystem_root_path):
             for filename in files:
                 if filename.startswith("libc.so"):
-                    libc_paths.append(Path(os.path.join(root, filename)))
+                    library_paths.append(Path(os.path.join(root, filename)))
+                elif filename.endswith(".so") or ".so." in filename:
+                    # It's a different library directory. Lower priority? Idk
+                    library_paths.append(Path(os.path.join(root, filename)))
 
         # Iterate over the found libc.so files to generate symlinks based on ABI
-        for p in libc_paths:
+        # XXX: we now look at all libraries, only look at each directory once though
+        handled_dirs  = set()
+        for p in library_paths:
+            if p.parent in handled_dirs:
+                continue
+            handled_dirs.add(p.parent)
+
             with open(p, 'rb') as file:
                 try:
                         e = ELFFile(file)
