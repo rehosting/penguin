@@ -104,7 +104,7 @@ class PatchMinmizer():
     def config_still_viable(self, run_index):
         #First, see if we dropped the number of network binds
         if self.scores[run_index]["bound_sockets"] < self.scores[0]["bound_sockets"]:
-            self.logger.info(f"Run {run_index} has fewer sockets than baseline. Not viable")
+            self.logger.info(f"Run {run_index} has fewer bound sockets than baseline. Not viable")
             return False
 
         #Run 0 is always our baseline
@@ -113,7 +113,7 @@ class PatchMinmizer():
         #Then, is overall health within 95% of the baseline?
         #our_score = sum(self.scores[run_index].values())
         our_score = self.scores[run_index]["blocks_covered"]
-        self.logger.info(f"Score for {run_index}: {our_score} (baseline: {baseline})")
+        self.logger.info(f"Blocks covered for {run_index}: {our_score} (baseline: {baseline}), percent: {our_score/baseline}")
         return our_score >= 0.95 * baseline
 
     def get_best_patchset(self):
@@ -138,6 +138,7 @@ class PatchMinmizer():
 
         #Now, do the binary search. This is fairly optimistic, but can save a bunch of time when it works
         while self.run_count < self.max_iters:
+            self.logger.info(f"{len(self.patches_to_test)} patches remaining")
             self.logger.debug(f"Patches to test: {self.patches_to_test}")
             #This code is a little klugdy since we want to run three configs in parallel the first time
             #and two at a time after that
@@ -171,26 +172,37 @@ class PatchMinmizer():
             patchsets.clear()
             if len(self.patches_to_test) == 1:
                 self.logger.info("Only one patch left. Stopping")
-                return self.patches_to_test
+                break
 
         #Now we are done with the binary search. Assuming independence, we'll generate a config without each patch
-        run_tracker = dict()
-        for i, patch in enumerate(self.patches_to_test, start=self.run_count):
-            if i >= self.max_iters:
-                self.logger.info("Hit max iterations. Stopping")
-                break
-            patchset = deepcopy(self.patches_to_test)
-            patchset.remove(patch)
-            patchsets.append(patchset)
-            run_tracker[i] = patch
+        #Greater than 2 since if we have two left binary search would've tested them both
+        if len(self.patches_to_test) > 2:
+            run_tracker = dict()
+            for i, patch in enumerate(self.patches_to_test, start=self.run_count):
+                if i >= self.max_iters:
+                    self.logger.info("Hit max iterations. Stopping")
+                    break
+                patchset = deepcopy(self.patches_to_test)
+                patchset.remove(patch)
+                patchsets.append(patchset)
+                run_tracker[i] = patch
 
-        self.run_configs(patchsets)
+            self.run_configs(patchsets)
 
-        for i, patch in run_tracker.items():
-            if self.config_still_viable(i):
-                self.logger.info(f"After running {i} removing {patch} from consideration, appears unecessary")
-                self.patches_to_test.remove(patch)
+            for i, patch in run_tracker.items():
+                if self.config_still_viable(i):
+                    self.logger.info(f"After running {i} removing {patch} from consideration, appears unecessary")
+                    self.patches_to_test.remove(patch)
 
+        output_file = os.path.join(self.proj_dir, "minimized.yaml")
+        if not os.path.exists(output_file):
+            self.logger.info(f"Writing minimized config to {output_file} (note: this may include auto_explore.yaml)")
+            patched_config = deepcopy(self.base_config)
+            self.base_config["patches"].extend(self.patches_to_test)
+            with open(output_file, "w") as f:
+                yaml.dump(self.base_config, f)
+        else:
+            self.logger.info(f"Config already exists at {output_file}, not overwriting")
         return self.patches_to_test
 
 def minimize(proj_dir, config_path, output_dir, timeout, max_iters=1000,
