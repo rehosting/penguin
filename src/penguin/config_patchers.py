@@ -666,6 +666,7 @@ class LibInjectTailoredAliases(PatchGenerator):
     def generate(self, patches):
         aliases = {}
 
+
         # Only copy values from our defaults if we see that same symbol exported
         for _, exported_syms in self.library_info.get("symbols", {}).items():
             for sym in exported_syms:
@@ -1282,7 +1283,11 @@ class NvramLibraryRecovery(PatchGenerator):
     During static analysis the LibrarySymbols class collected
     key->value mappings from libraries exporting some common nvram
     defaults symbols ("Nvrams", "router_defaults") - add these to our
-    nvram config if we have any
+    nvram config if we have any.
+
+    TODO: if we find multiple nvram source files here, we should generate multiple patches.
+    Then we should consider these during search. For now we just take non-conflicting values
+    from largest to smallest source files. More realistic might be to try each file individually.
     '''
     def __init__(self, library_info):
         self.library_info = library_info
@@ -1290,8 +1295,22 @@ class NvramLibraryRecovery(PatchGenerator):
         self.enabled = True
 
     def generate(self, patches):
-        if "nvram" in self.library_info and len(self.library_info["nvram"]):
-            return {'nvram': self.library_info["nvram"]}
+        sources = self.library_info.get("nvram", {})
+        if not len(sources):
+            return
+
+        # Sources is source filename -> key -> value
+        # First we want to sort sources from most to least keys
+        sorted_sources = sorted(sources.items(), key=lambda x: len(x[1]), reverse=True)
+
+        nvram_defaults = {}
+        for source, nvram in sorted_sources:
+            for key, value in nvram.items():
+                if key not in nvram_defaults:
+                    nvram_defaults[key] = value
+
+        if len(nvram_defaults):
+            return {'nvram': nvram_defaults}
 
 class NvramConfigRecovery(PatchGenerator):
     """
