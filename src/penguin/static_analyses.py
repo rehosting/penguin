@@ -657,28 +657,16 @@ class LibrarySymbols(StaticAnalysis):
                     for key, value in found_nvram.items():
                         nvram[(tmpless_path, key)] = value
 
-        # Let's use the csv format for now
-        #with open(os.path.join(outdir, "library_symbols.csv"), "w") as f:
-        #    writer = csv.writer(f)
-        #    writer.writerow(["path", "symbol", "offset"])
-        #    for (path, symname), offset in symbols.items():
-        #        writer.writerow([path, symname, offset])
-
-        #with open(os.path.join(outdir, "nvram.csv"), "w") as f:
-        #    writer = csv.writer(f)
-        #    writer.writerow(["source", "path", "key", "value"])
-        #    for (path, key), value in nvram.items():
-        #        if key is not None and len(key):
-        #            writer.writerow(
-        #                ["libraries", path, key, value if value is not None else ""]
-        #            )
-
-        # XXX Is this right?
-        nvram_values = {} # key -> value
+        # Raw data will be library path -> key -> value
+        nvram_values = {}
         for (path, key), value in nvram.items():
-                if key is not None and len(key) and value is not None:
-                    nvram_values[key] = value
+            if path not in nvram_values:
+                nvram_values[path] = {}
+            if key is not None and len(key) and value is not None:
+                nvram_values[path][key] = value
 
+        # nvram is key of filepath -> nvram key -> nvram value
+        # We should 1) generate patches for each possible non-conflicting source
         return {'nvram': nvram_values,
                 'symbols': sym_paths}
 
