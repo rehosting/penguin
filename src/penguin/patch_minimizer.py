@@ -21,6 +21,7 @@ class PatchMinmizer():
         self.nworkers = nworkers
         self.verbose = verbose
         self.patches_to_test = list()
+        self.binary_search = True
 
         base_config = load_unpatched_config(config_path)
         self.original_config = base_config
@@ -103,9 +104,11 @@ class PatchMinmizer():
 
     def config_still_viable(self, run_index):
         #First, see if we dropped the number of network binds
+        """
         if self.scores[run_index]["bound_sockets"] < self.scores[0]["bound_sockets"]:
             self.logger.info(f"Run {run_index} has fewer bound sockets than baseline. Not viable")
             return False
+        """
 
         #Run 0 is always our baseline
         baseline = self.scores[0]["blocks_covered"]
@@ -137,7 +140,7 @@ class PatchMinmizer():
         patchsets=[self.patches_to_test] #our first patchset is the full set of patches
 
         #Now, do the binary search. This is fairly optimistic, but can save a bunch of time when it works
-        while self.run_count < self.max_iters:
+        while self.run_count < self.max_iters and self.binary_search:
             self.logger.info(f"{len(self.patches_to_test)} patches remaining")
             self.logger.debug(f"Patches to test: {self.patches_to_test}")
             #This code is a little klugdy since we want to run three configs in parallel the first time
@@ -157,7 +160,9 @@ class PatchMinmizer():
             second_half = self.config_still_viable(second_half_index)
             if first_half and second_half:
                 self.logger.error("Config bisection had both halves pass. This is unexpected!!")
-                return
+                self.logger.error("Moving to slow mode, it's possible you have overlapping patches")
+                patchsets.clear()
+                break
             elif not first_half and not second_half:
                 self.logger.info("Config bisection had both halves fail. Time to move slowly")
                 patchsets.clear()
@@ -173,6 +178,10 @@ class PatchMinmizer():
             if len(self.patches_to_test) == 1:
                 self.logger.info("Only one patch left. Stopping")
                 break
+
+        if not self.binary_search:
+            #If we skipped the binary search, we need to run the baseline
+            self.run_configs([self.patches_to_test])
 
         #Now we are done with the binary search. Assuming independence, we'll generate a config without each patch
         #Greater than 2 since if we have two left binary search would've tested them both
@@ -195,6 +204,7 @@ class PatchMinmizer():
                     self.patches_to_test.remove(patch)
 
         output_file = os.path.join(self.proj_dir, "minimized.yaml")
+        #TODO: force overwrite of this when --force
         if not os.path.exists(output_file):
             self.logger.info(f"Writing minimized config to {output_file} (note: this may include auto_explore.yaml)")
             patched_config = deepcopy(self.base_config)
@@ -209,4 +219,4 @@ def minimize(proj_dir, config_path, output_dir, timeout, max_iters=1000,
                  nworkers=1, verbose=False):
     pm = PatchMinmizer(proj_dir, config_path, output_dir, timeout, max_iters, nworkers, verbose)
     pm.run()
-    print(f"Required patchset: {pm.patches_to_test}")
+    print(f"{len(pm.patches_to_test)} required patches: {pm.patches_to_test}")
