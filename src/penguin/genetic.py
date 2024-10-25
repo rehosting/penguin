@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from copy import deepcopy
 
-from .common import get_inits_from_proj, patch_config
+from .common import get_inits_from_proj, patch_config, frozenset_to_dict, dict_to_frozenset
 from .penguin_config import dump_config, load_config, load_unpatched_config, hash_yaml_config
 from .utils import AtomicCounter, get_mitigation_providers, hash_image_inputs
 from .manager import PandaRunner, calculate_score
@@ -250,25 +250,6 @@ def create_init_gene(base_config, proj_dir, patch_dir):
         init_mitigations.add(mit)
     return MitigationAlleleSet("init", frozenset(init_mitigations))
 
-#TODO: should these move to common?
-def dict_to_frozenset(d):
-    # Recursively convert dictionaries and lists to frozensets and tuples
-    if isinstance(d, dict):
-        return frozenset((k, dict_to_frozenset(v)) for k, v in d.items())
-    elif isinstance(d, list):
-        return tuple(dict_to_frozenset(item) for item in d)
-    else:
-        return d
-
-#TODO: should these move to common?
-def frozenset_to_dict(fs):
-    # Recursively convert frozensets and tuples back to dictionaries and lists
-    if isinstance(fs, frozenset):
-        return {k: frozenset_to_dict(v) for k, v in fs}
-    elif isinstance(fs, tuple):
-        return [frozenset_to_dict(item) for item in fs]
-    else:
-        return fs
 
 #This is absolutely horrible, but thing we need it for the bolt on approach to testing out this new search
 #Note: this does not support keys that were *removed)
