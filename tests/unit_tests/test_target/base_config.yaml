@@ -4,7 +4,7 @@ core:
   show_output: false
   strace: false
   ltrace: false
-  version: 1.0.0
+  version: 2
   force_www: false
   shared_dir: ./shared
 

@@ -20,7 +20,7 @@ static_files:
 
       lib_inject = ffi.open("lib_inject.so")
 
-      strstr = lib_inject.func("s", "strstr", "ss")
+      strstr = lib_inject.func("s", "libinject_strstr", "ss")
 
       device_path = None
       with open("/proc/mtd") as f:

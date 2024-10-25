@@ -232,7 +232,7 @@ my_shared_directory
 
 |||
 |-|-|
-|__Type__|`"1.0.0"`|
+|__Type__|`"1.0.0"` or `2`|
 
 Version of the config file format
 

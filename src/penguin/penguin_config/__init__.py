@@ -24,6 +24,7 @@ except ImportError:
     pass
 from pathlib import Path
 
+from . import versions
 from . import structure
 
 
@@ -58,6 +59,61 @@ def _validate_config_options(config):
         "mips64"
     ):
         logger.error("ltrace does not support mips64")
+        sys.exit(1)
+
+
+def _validate_config_version(config, path):
+    """Check if config is too old, and show changes and ask to auto-fix"""
+
+    latest_version = penguin.defaults.default_version
+    assert latest_version == len(versions.CHANGELOG)
+
+    v = config["core"]["version"]
+    if v == "1.0.0":
+        v = 1
+    changes = versions.CHANGELOG[v:]
+
+    if len(changes) != 0:
+        logger.error(
+            f"Config version {v} is too old for latest PENGUIN."
+            f" The latest version is {latest_version}."
+        )
+        s = ["# Changelog"]
+        for version in changes:
+            def format_paragraph(s):
+                return "\n\n".join(
+                    textwrap.fill(p, break_long_words=False)
+                    for p in textwrap.dedent(s).strip().split("\n\n")
+                )
+            example_config = version.example_old_config
+            example_old_text = yaml.dump(example_config).strip()
+            version.auto_fix(example_config),
+            example_new_text = yaml.dump(example_config).strip()
+            s += [
+                f"## Version {version.num}",
+                "### Changes in new version",
+                format_paragraph(version.change_description),
+                "### Fix guide",
+                format_paragraph(version.fix_guide),
+                "For example, change",
+                example_old_text,
+                "to",
+                example_new_text,
+            ]
+        logger.info("\n" + "\n\n".join(s) + "\n")
+
+        if click.confirm("Automatically apply fixes?", default=True):
+            path_old = f"{path}.old"
+            shutil.copyfile(path, path_old)
+            for version in changes:
+                version.auto_fix(config)
+                config["core"]["version"] = version.num
+            dump_config(config, path)
+            logger.info(
+                "Config updated."
+                f" Backup saved to '{path_old}'."
+                " Try running PENGUIN again."
+            )
         sys.exit(1)
 
 
@@ -103,6 +159,7 @@ def load_config(path, validate=True):
     # when loading a patch we don't need a completely valid config
     if validate:
         _validate_config(config)
+        _validate_config_version(config, path)
         if config["core"].get("fs", None) is None:
             config["core"]["fs"] = "./base/empty_fs.tar.gz"
             empty_fs_path = os.path.join(config_folder, "./base/empty_fs.tar.gz")
