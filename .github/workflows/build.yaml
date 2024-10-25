@@ -15,7 +15,7 @@ jobs:
       if: github.event_name == 'pull_request'
       uses: actions/setup-python@v2
       with:
-        python-version: 3.8
+        python-version: "3.10"
     - name: Install dependencies
       if: github.event_name == 'pull_request'
       run: pip install flake8 lintly markupsafe==2.0.1
