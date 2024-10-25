@@ -155,3 +155,21 @@ def get_inits_from_proj(proj_dir):
         with open(inits_path, "r") as f:
             options = yaml.safe_load(f)
             return options
+
+def dict_to_frozenset(d):
+    # Recursively convert dictionaries and lists to frozensets and tuples
+    if isinstance(d, dict):
+        return frozenset((k, dict_to_frozenset(v)) for k, v in d.items())
+    elif isinstance(d, list):
+        return tuple(dict_to_frozenset(item) for item in d)
+    else:
+        return d
+
+def frozenset_to_dict(fs):
+    # Recursively convert frozensets and tuples back to dictionaries and lists
+    if isinstance(fs, frozenset):
+        return {k: frozenset_to_dict(v) for k, v in fs}
+    elif isinstance(fs, tuple):
+        return [frozenset_to_dict(item) for item in fs]
+    else:
+        return fs
