@@ -172,24 +172,17 @@ def _move_modify_guestfs(g, file_path, file):
     # Move a file (or directory and children) TO
     # the key in yaml (so we can avoid duplicate keys)
     if g.is_symlink(file["from"]):
-        # print(f"Warning: skipping move_from for symlink {file['from']}")
-        # return
-        # Let's delete it and make a new symlink (might break?) - xxx does break
-        dest = g.readlink(file["from"])
+        
+        symlink_target = g.readlink(file["from"])
         g.rm(file["from"])
-        # Resolve the symlink and make a new one
-        # XXX: This is a bit of a hack, but we'll resolve the symlink and make a new one
-        new_dest = dest
-        if dest[0] != "/":
-            new_dest = os.path.normpath(
-                os.path.join(os.path.dirname(file["from"]), dest)
-            )
-            logger.debug(
-                f"Moving symlink {file['from']}->{dest} to {file_path}->{new_dest}"
-            )
 
+        if not os.path.isabs(symlink_target):
+            symlink_target = os.path.normpath(
+                os.path.join(os.path.dirname(file["from"]), symlink_target)
+            )
+        
         try:
-            g.ln_s(dest, file_path)
+            g.ln_s(symlink_target, file_path)
         except Exception as e:
             print(f"WARNING: could not recreate symlink {file_path} to {dest}: {e}")
 
