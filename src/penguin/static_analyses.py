@@ -356,6 +356,7 @@ class PseudofileFinder(StaticAnalysis):
                     "penguin_net", # This is custom and unique but we shouldn't ever shadow it
                     "sched_debug",
                     "slabinfo",
+                    "softirqs",
                     "stat",
                     "swaps",
                     "sysrq-trigger",
