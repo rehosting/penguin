@@ -509,13 +509,35 @@ class BasePatch(PatchGenerator):
                     }
         return result
 
-class AutoExplorePatch(PatchGenerator):
+class RootShell(PatchGenerator):
     '''
-    Auto explore: no root_shell, yes nmap, yes coverage
+    Add root shell
+    '''
+    def __init__(self):
+        self.patch_name = "root_shell"
+        self.enabled = False
+
+    def generate(self, patches):
+        return {
+            "core": {
+                "root_shell": False,
+            },
+        }
+
+
+class DynamicExploration(PatchGenerator):
+    '''
+    We are dynamically evaluating and refining a configuration. We need
+    to collect data programatically. Disable root shell, enable
+    coverage-tracking and nmap for coverage generation. Enable VPN
+    so nmap has something to talk to.
+
+    Ideally this will also be paired with ShimBusybox to get shell-level
+    instrumentation.
     '''
     def __init__(self):
         self.patch_name = "auto_explore"
-        self.enabled = True
+        self.enabled = False
 
     def generate(self, patches):
         return {
@@ -529,7 +551,50 @@ class AutoExplorePatch(PatchGenerator):
                 },
                 "coverage": {
                     "enabled": True
-                }
+                },
+                "vpn": {
+                    "enabled": True,
+                    "depends_on": "netbinds",
+                },
+                "netbinds":
+                {
+                    "enabled": True,
+                    "depends_on": "core",
+                    "shutdown_on_www": False,
+                },
+            }
+        }
+
+class SingleShot(PatchGenerator):
+    '''
+    We are doing a single-shot, automated evaluation. Disable root shell,
+    leave coverage/nmap/vpn disabled - we won't actually connect to anything
+    '''
+    def __init__(self):
+        self.patch_name = "single_shot"
+        self.enabled = True
+
+    def generate(self, patches):
+        return {
+            "core": {
+                "root_shell": False,
+            },
+            "plugins": {
+                "nmap": {
+                    "enabled": False,
+                },
+                "coverage": {
+                    "enabled": False,
+                },
+                "vpn": {
+                    "enabled": False,
+                },
+                "netbinds":
+                {
+                    "enabled": True,
+                    "shutdown_on_www": True,
+                },
+
             }
         }
 
@@ -1216,7 +1281,7 @@ class ShimBusybox(ShimBinaries,PatchGenerator):
     def __init__(self, files):
         super().__init__(files)
         self.patch_name = "static.shims.busybox"
-        self.enabled = True
+        self.enabled = False
 
     def generate(self, patches):
         return self.make_shims({
