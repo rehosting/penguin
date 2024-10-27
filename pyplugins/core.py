@@ -80,7 +80,7 @@ class Core(PyPlugin):
                     )
             else:
                 self.logger.info(
-                    "Root shell enabled. Connect with docker exec -it [your_container_name] telnet localhost {telnet_port}"
+                    f"Root shell enabled. Connect with docker exec -it [your_container_name] telnet localhost {telnet_port}"
                 )
 
         # Same thing, but for a shared directory
