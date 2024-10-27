@@ -35,7 +35,7 @@ class Core(PyPlugin):
     """
 
     def __init__(self, panda):
-        for arg in "plugins CID conf fs fw outdir".split():
+        for arg in "plugins conf fs fw outdir".split():
             if not self.get_arg(arg):
                 raise ValueError(f"[core] Missing required argument: {arg}")
 

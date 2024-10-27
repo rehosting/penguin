@@ -7,6 +7,7 @@ from contextlib import closing
 from os import environ as env
 from os import geteuid
 from os.path import join
+from pathlib import Path
 
 from pandare import PyPlugin
 
@@ -41,14 +42,17 @@ class VsockVPN(PyPlugin):
         self.ppp_cb_boilerplate("on_bind")
 
         self.outdir = self.get_arg("outdir")
-        vhost_socket = self.get_arg("vhost_socket")
-        CID = self.get_arg("CID")
+
+        self.launch_host_vpn(self.get_arg("CID"),
+                             self.get_arg("socket_path"),
+                             self.get_arg("uds_path"))
+
+
         port_maps = self.get_arg("IGLOO_VPN_PORT_MAPS")
         self.seen_ips = set()  # IPs we've seen
         self.wild_ips = set()  # (sock_type, port, procname) tuples
         self.mapped_ports = set()  # Ports we've mapped
         self.active_listeners = set()  # (proto, port)
-        assert CID is not None
 
         self.logger = getColoredLogger("plugins.VPN")
         if self.get_arg_bool("verbose"):
@@ -90,6 +94,31 @@ class VsockVPN(PyPlugin):
                     raise ValueError(f"Couldn't parse port map: {arg}")
             self.logger.info(f"VPN loaded fixed port assingments: {self.fixed_maps}")
 
+        with open(join(self.outdir, BRIDGE_FILE), "w") as f:
+            f.write("procname,ipvn,domain,guest_ip,guest_port,host_port\n")
+
+        # Whenever NetLog detects a bind, we'll set up bridges
+        self.ppp.NetBinds.ppp_reg_cb("on_bind", self.on_bind)
+
+    def launch_host_vpn(self, CID, socket_path, uds_path):
+        '''
+        Launch vhost-device-vsock and VPN on host
+        '''
+
+        # Launch a process that listens on the file socket and forwards to the uds
+        # which QEMU connects to.
+        self.host_vsock_bridge = subprocess.Popen(
+            [
+                "vhost-device-vsock",
+                "--guest-cid",
+                str(CID),
+                "--socket",
+                socket_path,
+                "--uds-path",
+                uds_path,
+            ]
+        )
+
         # Launch VPN on host as panda starts. Init in the guest will launch the VPN in the guest
         self.event_file = tempfile.NamedTemporaryFile(prefix=f"/tmp/vpn_events_{CID}_")
         self.host_vpn = subprocess.Popen(
@@ -101,17 +130,11 @@ class VsockVPN(PyPlugin):
                 "-c",
                 str(CID),
                 "-u",
-                vhost_socket,
+                uds_path,
             ],
             stdout=subprocess.DEVNULL,
         )
         running_vpns.append(self.host_vpn)
-
-        with open(join(self.outdir, BRIDGE_FILE), "w") as f:
-            f.write("procname,ipvn,domain,guest_ip,guest_port,host_port\n")
-
-        # Whenever NetLog detects a bind, we'll set up bridges
-        self.ppp.NetBinds.ppp_reg_cb("on_bind", self.on_bind)
 
     def on_bind(self, sock_type, ipvn, ip, port, procname):
         if port == 0:
@@ -226,9 +249,12 @@ class VsockVPN(PyPlugin):
             return sock.connect_ex(("localhost", port))
 
     def uninit(self):
+        self.logger.debug("Killing VPN")
+        if hasattr(self, "host_vsock_bridge"):
+            self.host_vsock_bridge.kill()
+
         if hasattr(self, "host_vpn"):
-            self.logger.debug("Killing VPN")
             self.host_vpn.terminate()
             self.host_vpn.kill()
             running_vpns[:] = [x for x in running_vpns if x != self.host_vpn]
-            self.logger.debug("Killed VPN")
+        self.logger.debug("Killed VPN")
