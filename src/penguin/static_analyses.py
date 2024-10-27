@@ -74,9 +74,11 @@ class ArchId(StaticAnalysis):
         Count architectures to identify most common.
         If we have both 32 and 64 bit binaries from the most common architecture
         we'll take 64-bit even if 32 is more common -> likely 64-bit with backwards compatibility
+
+        If we do not support the architecture, we'll raise an error
         '''
 
-        arch_counts = {32: Counter(), 64: Counter()}
+        arch_counts = {32: Counter(), 64: Counter(), "unknown": 0}
         for root, _, files in os.walk(extracted_fs):
             for file_name in files:
                 path = os.path.join(root, file_name)
@@ -97,8 +99,10 @@ class ArchId(StaticAnalysis):
                             logger.warning(f"Failed to parse ELF file {path}: {e}. Ignoring")
                             continue
                         info = arch_filter(ef)
-                    assert info.bits is not None
-                    arch_counts[info.bits][info.arch] += 1
+                    if info.bits is None or info.arch is None:
+                        arch_counts["unknown"]+= 1
+                    else:
+                        arch_counts[info.bits][info.arch] += 1
 
         # If there is at least one intel and non-intel arch,
         # filter out all the intel ones.
@@ -116,6 +120,10 @@ class ArchId(StaticAnalysis):
         # Then try the most common 32-bit one.
         best_64 = arch_counts[64].most_common(1)
         best_32 = arch_counts[32].most_common(1)
+        # If unknown is the most common, we'll raise an error
+        if arch_counts["unknown"] > (len(arch_counts[32]) + len(arch_counts[64])):
+            raise ValueError(f"Failed to determine architecture of filesystem")
+
         if len(best_64) != 0:
             best = best_64[0][0]
         elif len(best_32) != 0:
