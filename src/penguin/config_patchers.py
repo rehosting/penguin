@@ -560,7 +560,7 @@ class NetdevsTailored(PatchGenerator):
         for src, devs in self.netdevs.items():
             values.update(devs)
         if len(values):
-            return { 'netdevs': list(values) }
+            return { 'netdevs': sorted(list(values)) }
 
 
 class PseudofilesExpert(PatchGenerator):
