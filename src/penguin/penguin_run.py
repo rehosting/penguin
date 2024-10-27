@@ -277,50 +277,49 @@ def run_config(
             os.remove(config_image)
             raise ValueError(f"GenImage produced empty image file: {config_image}")
 
-    CID = 4  # We can use a constant CID with vhost-user-vsock
-    # Create a temp dir for our vhost files:
-    tmpdir = tempfile.TemporaryDirectory()
-    path = Path(tmpdir.name)
-    socket_path = path / "socket"
-    uds_path = path / "vsocket"
-    mem_path = path / "mem_path"
-
-    # Launch a process that listens on the file socket and forwards to the uds
-    # which QEMU connects to. TODO: move to vpn plugin?
-    host_vsock_bridge = subprocess.Popen(
-        [
-            "vhost-device-vsock",
-            "--guest-cid",
-            str(CID),
-            "--socket",
-            socket_path,
-            "--uds-path",
-            uds_path,
-        ]
-    )
-
     try:
         q_config = qemu_configs[archend]
     except KeyError:
         raise ValueError(f"Unknown architecture: {archend}")
 
-    vsock_args = [
-        "-object",
-        f'memory-backend-file,id=mem0,mem-path={mem_path},size={q_config["mem_gb"]}G,share=on',
-        "-numa",
-        "node,memdev=mem0",
-        "-chardev",
-        f"socket,id=char0,reconnect=0,path={socket_path}",
-        "-device",
-        "vhost-user-vsock-pci,chardev=char0",
-    ]
+    # We have to set up vsock args for qemu CLI arguments if we're using the vpn. We
+    # special case this here and add the arguments to the plugin later
+    vpn_enabled = conf_plugins.get("vpn", {"enabled": False}).get("enabled", False)
+    vsock_args = []
+    vpn_args = {}
 
-    append = f"root={ROOTFS} init=/igloo/init console=ttyS0  CID={CID} rw quiet panic=1"  # Required
+    if vpn_enabled:
+        logger.info("VPN enabled")
+        vpn_tmpdir = tempfile.TemporaryDirectory()
+        path = Path(vpn_tmpdir.name)
+        CID = 4  # We can use a constant CID with vhost-user-vsock
+        socket_path = path / "socket"
+        uds_path = path / "vsocket"
+        mem_path = path / "mem_path"
+
+        vpn_args = {"socket_path": socket_path, "uds_path": uds_path, "CID": CID}
+
+        vsock_args = [
+            "-object",
+            f'memory-backend-file,id=mem0,mem-path={mem_path},size={q_config["mem_gb"]}G,share=on',
+            "-numa",
+            "node,memdev=mem0",
+            "-chardev",
+            f"socket,id=char0,reconnect=0,path={socket_path}",
+            "-device",
+            "vhost-user-vsock-pci,chardev=char0",
+        ]
+    else:
+        logger.info("VPN DISABLED")
+
+    append = f"root={ROOTFS} init=/igloo/init console=ttyS0 rw quiet panic=1"  # Required
     append += " rootfstype=ext2 norandmaps nokaslr"  # Nice to have
     append += (
         " clocksource=jiffies nohz_full nohz=off no_timer_check"  # Improve determinism?
     )
-    append += " idle=poll acpi=off nosoftlockup "  # Improve determinism?
+    append += " idle=poll acpi=off nosoftlockup"  # Improve determinism?
+    if vpn_enabled:
+        append += " CID={vpn_args['CID']} "
 
     if archend in ["armel", "aarch64"]:
         append = append.replace("console=ttyS0", "console=ttyAMA0")
@@ -462,14 +461,12 @@ def run_config(
     logger.info("Loading plugins")
     for plugin_name in _sort_plugins_by_dependency(conf_plugins):
         details = conf_plugins[plugin_name]
-        if "enabled" in details and not details["enabled"]:
-            continue  # Special arg "enabled" - if false we skip
+        if details.get("enabled", True) == False:
+            continue  # Special arg "enabled" - if set & false we skip
         logger.debug(f"Loading plugin: {plugin_name}")
 
         args = {
             "plugins": conf_plugins,
-            "CID": CID,
-            "vhost_socket": uds_path,
             "conf": conf,
             "proj_name": os.path.basename(proj_dir).replace("host_", ""),
             "proj_dir": proj_dir,
@@ -490,7 +487,10 @@ def run_config(
             logger.debug(f"Setting {plugin_name} arg: {k} to {v}")
             args[k] = v
 
-        # If we have any deatils, pass them along
+        if plugin_name == "vpn":
+            # Pass along special args from earlier - socket_path, uds_path
+            args.update(vpn_args)
+
         local_plugin = False
         path = os.path.join(plugin_path, plugin_name + ".py")
         if not os.path.isfile(path):
@@ -555,8 +555,8 @@ def run_config(
             logger.exception(e)
         finally:
             panda.panda_finish()
-            host_vsock_bridge.kill()
-            shutil.rmtree(tmpdir.name)
+            if vpn_enabled:
+                shutil.rmtree(vpn_tmpdir.name)
 
     if show_output:
         _run()
