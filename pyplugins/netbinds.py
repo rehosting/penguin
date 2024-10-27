@@ -17,6 +17,7 @@ class NetBinds(PyPlugin):
         self.seen_binds = set()
         self.start_time = time.time()
         self.logger = getColoredLogger("plugins.netbinds")
+        self.shutdown_on_www = self.get_arg_bool("shutdown_on_www")
 
         # The NetBinds.on_bind PPP callback happens on every bind.
         # Don't be confused by the vpn on_bind callback that happens
@@ -99,6 +100,11 @@ class NetBinds(PyPlugin):
 
         # Trigger our callback
         self.ppp_run_cb("on_bind", sock_type, ipvn, ip, port, procname)
+
+        # If bind is 80 and we have shutdown_www option, end the emulation
+        if port == 80 and self.shutdown_on_www:
+            self.logger.info("Shutting down emulation due to bind on port 80")
+            self.panda.end_analysis()
 
     def report_bind_info(self, time_delta, procname, ipvn, sock_type, ip, port):
 		# Collect summary stats at this time (unique processes, total binds, bound_www, time)
