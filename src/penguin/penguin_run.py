@@ -479,9 +479,18 @@ def run_config(
             "verbose": verbose,
             "telnet_port": telnet_port,
         }
+        for k, v in details.items():
+            # Extend the args with everything from the config that isn't in our special args
+            if k in ["depends_on", "enabled"]:
+                continue
+            if k in args.keys():
+                if args[k] != v:
+                    raise ValueError(f"Config for {plugin_name} overwrites argument {k} {args[k]} -> {v}")
+                continue
+            logger.debug(f"Setting {plugin_name} arg: {k} to {v}")
+            args[k] = v
+
         # If we have any deatils, pass them along
-        if details is not None:
-            args.update(details)
         local_plugin = False
         path = os.path.join(plugin_path, plugin_name + ".py")
         if not os.path.isfile(path):
