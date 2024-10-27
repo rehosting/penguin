@@ -185,8 +185,9 @@ def arch_filter(elf):
     }.get(friendly_arch)
 
     if arch is None:
-        logger.warning(f"Unsupported architecture: {friendly_arch}")
+        logger.debug(f"Unsupported architecture: {friendly_arch}")
         logger.debug(f"ELF Header: {header}")
+        return ArchInfo()
 
     # Special processing for ARM and MIPS
     if arch == "arm":
