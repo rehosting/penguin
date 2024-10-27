@@ -158,7 +158,7 @@ class ConfigBuilder:
         return {
             "core": {
                 "fs": "./base/fs.tar.gz",
-                "root_shell": True,
+                "root_shell": False,
                 "show_output": False,
                 "strace": False,
                 "ltrace": False,
@@ -188,7 +188,9 @@ class ConfigBuilder:
         # Later patches will override earlier ones
         patch_generators = [
             BasePatch(static_results['ArchId'], static_results['InitFinder']),
-            AutoExplorePatch(),
+            RootShell(),
+            DynamicExploration(),
+            SingleShot(),
             NetdevsDefault(),
             NetdevsTailored(static_results['InterfaceFinder']),
             PseudofilesExpert(),
