@@ -276,7 +276,7 @@ def run_config(
 
     # We have to set up vsock args for qemu CLI arguments if we're using the vpn. We
     # special case this here and add the arguments to the plugin later
-    vpn_enabled = conf_plugins.get("vpn", {"enabled": False}).get("enabled", False)
+    vpn_enabled = conf_plugins.get("vpn", {"enabled": False}).get("enabled", True)
     vsock_args = []
     vpn_args = {}
 
