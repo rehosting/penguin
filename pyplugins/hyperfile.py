@@ -165,9 +165,15 @@ class HyperFile(PyPlugin):
             self.logger.debug("Failed to read hyperfile struct from guest - retry")
             return
 
+        if not len(device_name):
+            # XXX: why does this happen? Probably a bug somewhere else?
+            self.logger.warning("Empty device name in hyperfile request - ignore")
+            self.panda.arch.set_retval(cpu, self.panda.to_unsigned_guest(-22), failure=True)
+            return
+
         sub_offset = struct.calcsize(header_fmt)
 
-        # Ensure we have a model - if we don't, warn and add defult
+        # Ensure we have a model - if we don't, warn and add default
         if device_name not in self.files:
             self.logger.warning(f"Detected {hyper2name(type_val)} event on device {repr(device_name)} but device is not in config. Using defaults.")
             self.files[device_name] = {k: v for k, v in self.default_model.items()}  # XXX can't use deepcopy
