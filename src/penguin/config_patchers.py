@@ -959,8 +959,13 @@ class GenerateMissingDirs(PatchGenerator):
                     )
                     continue
 
+            # Clean up the path
             while "/./" in resolved_path:
                 resolved_path = resolved_path.replace("/./", "/")
+            while "//" in resolved_path:
+                resolved_path = resolved_path.replace("//", "/")
+            while resolved_path.endswith("/"):
+                resolved_path = resolved_path[:-1]
 
             # If this path is in the archive OR any existing patches, skip
             # Note we're ignoring the enabled flag of patches
@@ -970,6 +975,7 @@ class GenerateMissingDirs(PatchGenerator):
 
             # Add path and parents (as necessary)
             path_parts = resolved_path.split("/")
+            # If any parts are just .//
             for i in range(1, len(path_parts) + 1):
                 subdir = "/".join(path_parts[:i])
                 if subdir not in self.archive_files:
