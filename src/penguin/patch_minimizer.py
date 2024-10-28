@@ -189,6 +189,9 @@ class PatchMinmizer():
             total = float(sum(score.values()))
             f.write(f"{total}\n")
 
+        if run_index == 0:
+            #We're the baseline
+            self.logger.info(f"Baseline finished! {score['blocks_covered']} blocks executed and {score['bound_sockets']} sockets bound")
         return run_index, score
 
     def run_configs(self, patchsets: List[str]):
@@ -225,8 +228,11 @@ class PatchMinmizer():
         #Then, is overall health within 95% of the baseline?
         #our_score = sum(self.scores[run_index].values())
         our_score = self.scores[run_index]["blocks_covered"]
-        self.logger.info(f"Blocks covered for {run_index}: {our_score} (baseline: {baseline}), difference: {100.0*our_score/baseline}%")
-        return our_score >= 0.95 * baseline
+        fraction_baseline = our_score / baseline
+        self.logger.info(f"Blocks covered for {run_index}: {our_score} (baseline: {baseline}), our_score/baseline: {fraction_baseline}")
+        if fraction_baseline > 1.10:
+            self.logger.warning(f"Run {run_index} has more blocks >=10% more blocks covered than baseline. Are you sure baseline is optimized?")
+        return fraction_baseline >= 0.95
 
     def get_best_patchset(self):
         """
