@@ -319,7 +319,7 @@ def run_config(
     )
     append += " idle=poll acpi=off nosoftlockup"  # Improve determinism?
     if vpn_enabled:
-        append += " CID={vpn_args['CID']} "
+        append += f" CID={vpn_args['CID']} "
 
     if archend in ["armel", "aarch64"]:
         append = append.replace("console=ttyS0", "console=ttyAMA0")
