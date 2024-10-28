@@ -197,7 +197,7 @@ class HyperFile(PyPlugin):
                 try:
                     self.panda.virtual_memory_write(cpu, buffer, new_buffer)
                 except ValueError:
-                    self.logger.debug("Failed to write results of read into guest")
+                    self.logger.warning(f"After reading hyperfile {device_name} failed to write result into guest memory at {buffer:x} - retry")
                     self.panda.arch.set_retval(cpu, RETRY)
                     # XXX: If we ever have stateful files, we'll need to tell it the read failed
                     return
@@ -206,10 +206,17 @@ class HyperFile(PyPlugin):
 
         elif type_val == HYPER_WRITE:
             buffer, length, offset = struct.unpack_from(write_fmt, buf, sub_offset)
+            # We're writing data into our pseudofile. First we need to read what the guest
+            # has given us as data to write
+            # XXX offset is _internal_ to our data structures, it's how far into the file
+            # we've seeked. It's NOT related to the guest buffer
             try:
-                contents = self.panda.virtual_memory_read(cpu, buffer+offset, length)
+                contents = self.panda.virtual_memory_read(cpu, buffer, length)
             except ValueError:
+                self.logger.warning(f"Before writing to hyperfile {device_name} failed to read data out of guest memory at {buffer:x} with offset {offset:x}")
                 self.panda.arch.set_retval(cpu, RETRY)
+                # XXX: We might be able to get stuck in a loop here if hyperfs isn't paging in
+                # what we expect
                 return
 
             retval = model[type_val](device_name, buffer, length, offset, contents)
