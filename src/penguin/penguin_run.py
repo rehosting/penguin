@@ -281,7 +281,6 @@ def run_config(
     vpn_args = {}
 
     if vpn_enabled:
-        logger.info("VPN enabled")
         vpn_tmpdir = tempfile.TemporaryDirectory()
         path = Path(vpn_tmpdir.name)
         CID = 4  # We can use a constant CID with vhost-user-vsock
@@ -301,8 +300,6 @@ def run_config(
             "-device",
             "vhost-user-vsock-pci,chardev=char0",
         ]
-    else:
-        logger.info("VPN DISABLED")
 
     append = f"root={ROOTFS} init=/igloo/init console=ttyS0 rw quiet panic=1"  # Required
     append += " rootfstype=ext2 norandmaps nokaslr"  # Nice to have
