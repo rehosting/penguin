@@ -663,9 +663,13 @@ class LibInjectSymlinks(PatchGenerator):
 
         # Iterate over the found libc.so files to generate symlinks based on ABI
         for p in libc_paths:
+            if not os.path.isfile(p) or (os.path.islink(p) and not os.path.exists(p)):
+                # Skip broken symlinks
+                continue
+
             with open(p, 'rb') as file:
                 try:
-                        e = ELFFile(file)
+                    e = ELFFile(file)
                 except ELFError:
                     # Not an ELF. It could be, for example, a GNU ld script.
                     continue
