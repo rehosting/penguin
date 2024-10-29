@@ -49,7 +49,7 @@ jobs:
           
           - name: Create release
             id: create_release
-            uses: actions/create-release@v1
+            uses: actions/create-release@v2.0.8
             env:
               GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             with:
@@ -58,4 +58,5 @@ jobs:
               body: |
                 Release ${{ steps.version.outputs.v-version }} @${{ github.ref }}
               draft: false
+              generate_release_notes: true
               prerelease: false
