@@ -120,16 +120,28 @@ class ArchId(StaticAnalysis):
         # Then try the most common 32-bit one.
         best_64 = arch_counts[64].most_common(1)
         best_32 = arch_counts[32].most_common(1)
-        # If unknown is the most common, we'll raise an error
-        if arch_counts["unknown"] > (len(arch_counts[32]) + len(arch_counts[64])):
-            raise ValueError(f"Failed to determine architecture of filesystem")
-
         if len(best_64) != 0:
             best = best_64[0][0]
+            best_count = best_64[0][1]
         elif len(best_32) != 0:
             best = best_32[0][0]
+            best_count = best_32[0][1]
         else:
             raise ValueError(f"Failed to determine architecture of filesystem")
+
+        # If unknown is the most common, we'll raise an error
+        if arch_counts["unknown"] > best_count:
+            # Dump debug info - which arches have what counts?
+            for arch, count in arch_counts[32].items():
+                logger.info(f"32-bit arch {arch} has {count} files")
+
+            for arch, count in arch_counts[64].items():
+                logger.info(f"64-bit arch {arch} has {count} files")
+
+            # Finally, report unknown count
+            logger.info(f"Unknown architecture count: {arch_counts['unknown']}")
+            raise ValueError(f"Failed to determine architecture of filesystem")
+
 
         logger.debug(f"Identified architecture: {best}")
         return best
