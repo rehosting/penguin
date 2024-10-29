@@ -1475,6 +1475,9 @@ def add_lib_inject_symlinks(proj_dir, conf):
         except ELFError:
             # Not an ELF. It could be for example a GNU ld script.
             continue
+        except KeyError:
+            # it is possible to have bad libc symlinks
+            continue
         abi = arch_filter(e).abi
         resolved_path = str(Path("/", os.path.dirname(p), "lib_inject.so"))
         conf["static_files"][resolved_path] = dict(
