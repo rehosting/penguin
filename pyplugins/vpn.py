@@ -43,9 +43,11 @@ class VsockVPN(PyPlugin):
 
         self.outdir = self.get_arg("outdir")
 
+        #TODO: add option on whether or not to pass -o to host vpn
         self.launch_host_vpn(self.get_arg("CID"),
                              self.get_arg("socket_path"),
-                             self.get_arg("uds_path"))
+                             self.get_arg("uds_path"),
+                             self.get_arg_bool("log"))
 
 
         port_maps = self.get_arg("IGLOO_VPN_PORT_MAPS")
@@ -100,7 +102,7 @@ class VsockVPN(PyPlugin):
         # Whenever NetLog detects a bind, we'll set up bridges
         self.ppp.NetBinds.ppp_reg_cb("on_bind", self.on_bind)
 
-    def launch_host_vpn(self, CID, socket_path, uds_path):
+    def launch_host_vpn(self, CID, socket_path, uds_path, log=False):
         '''
         Launch vhost-device-vsock and VPN on host
         '''
@@ -121,8 +123,7 @@ class VsockVPN(PyPlugin):
 
         # Launch VPN on host as panda starts. Init in the guest will launch the VPN in the guest
         self.event_file = tempfile.NamedTemporaryFile(prefix=f"/tmp/vpn_events_{CID}_")
-        self.host_vpn = subprocess.Popen(
-            [
+        host_vpn_cmd = [
                 join(static_dir, "vpn/vpn.x86_64"),
                 "host",
                 "-e",
@@ -131,9 +132,10 @@ class VsockVPN(PyPlugin):
                 str(CID),
                 "-u",
                 uds_path,
-            ],
-            stdout=subprocess.DEVNULL,
-        )
+            ]
+        if log:
+            host_vpn_cmd.extend(["-o", self.outdir])
+        self.host_vpn = subprocess.Popen(host_vpn_cmd, stdout=subprocess.DEVNULL)
         running_vpns.append(self.host_vpn)
 
     def on_bind(self, sock_type, ipvn, ip, port, procname):

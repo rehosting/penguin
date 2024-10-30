@@ -554,6 +554,7 @@ class DynamicExploration(PatchGenerator):
                 },
                 "vpn": {
                     "enabled": True,
+                    "log": True,
                     "depends_on": "netbinds",
                 },
                 "netbinds":
