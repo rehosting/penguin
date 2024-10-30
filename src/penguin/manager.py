@@ -2,6 +2,7 @@ import csv
 import os
 import signal
 import subprocess
+import time
 
 from penguin import getColoredLogger
 
@@ -48,6 +49,11 @@ def calculate_score(result_dir, have_console=True):
     # We can only read console output if it's saved to disk
     # (instead of being shown on stdout)
     # if not self.global_state.info['show_output']:
+
+    if not os.path.isfile(f"{result_dir}/console.log"):
+        print(f"WARNING: {result_dir}/console.log not found - cannot check for kernel panic")
+        have_console = False
+
     if have_console:
         with open(
             f"{result_dir}/console.log", "r", encoding="utf-8", errors="ignore"
@@ -200,8 +206,9 @@ class PandaRunner:
         if verbose:
             cmd.append("verbose")
 
+        start = time.time()
         try:
-            p = subprocess.Popen(cmd)
+            p = subprocess.Popen(cmd) # Without stdout argument, the output will be printed to the console - great
             p.wait(timeout=timeout_s + 180 if timeout_s else None)
         except subprocess.TimeoutExpired:
             self.logger.info(
@@ -235,8 +242,8 @@ class PandaRunner:
             self.logger.debug("Shutdown complete")
             return
 
-        # elapsed = time.time() - start
-        # logger.info(f"Emulation finishes after {elapsed:.02f} seconds with return code {p.returncode if p else 'N/A'} for {conf_yaml}")
+        elapsed = time.time() - start
+        self.logger.info(f"Emulation finishes after {elapsed:.02f} seconds with return code {p.returncode if p else 'N/A'} for {conf_yaml}")
 
         ran_file = os.path.join(out_dir, ".ran")
         if not os.path.isfile(ran_file):
