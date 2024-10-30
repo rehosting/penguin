@@ -127,12 +127,18 @@ def redirect_stdout_stderr(stdout_path, stderr_path):
         yield
     finally:
         # Restore original stdout and stderr
-        os.dup2(original_stdout_fd, sys.stdout.fileno())
-        os.dup2(original_stderr_fd, sys.stderr.fileno())
+        # XXX Check if we still have a valid stdout/stderr
+        if sys.stdout is not None and sys.stderr is not None:
+            os.dup2(original_stdout_fd, sys.stdout.fileno())
+            os.dup2(original_stderr_fd, sys.stderr.fileno())
 
-        # Close the file descriptors for the new stdout and stderr
-        os.close(new_stdout)
-        os.close(new_stderr)
+            # Close the file descriptors for the new stdout and stderr
+            os.close(new_stdout)
+            os.close(new_stderr)
+        else:
+            # Record that we failed to restore stdout/stderr, this goes into
+            # the log file (not stdout/stderr)?
+            print("stdout or stderr is None - cannot restore")
 
 
 def run_config(
