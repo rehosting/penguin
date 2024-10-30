@@ -41,7 +41,7 @@ class Interfaces(PyPlugin):
         self.ppp.Health.ppp_reg_cb("igloo_exec", self.iface_on_exec)
 
     def handle_interface(self, iface):
-        if iface is None:
+        if iface is None or not len(iface):
             return
 
         if iface in self.added_ifaces or iface in self.missing_ifaces \
