@@ -214,7 +214,7 @@ class PandaRunner:
         except KeyboardInterrupt:
             self.logger.warning("Received keyboard interrupt while running emulation")
             self.logger.info(
-                "Please wait up to 30s for graceful shutdown and result reporting"
+                "Please wait up to 60s for graceful shutdown and result reporting"
             )
             self.logger.info("Otherwise, press Ctrl+C again to force kill")
 
@@ -222,8 +222,8 @@ class PandaRunner:
                 if self._send_sigusr1(p.pid):
                     try:
                         p.wait(
-                            timeout=30
-                        )  # Wait up to 30 seconds for the process to finish
+                            timeout=60
+                        )  # Wait up to 60 seconds for the process to finish
                     except subprocess.TimeoutExpired:
                         self.logger.error(
                             f"Process {p.pid} still running after SIGUSR1 + 30s: killing hard"

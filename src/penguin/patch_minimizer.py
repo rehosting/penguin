@@ -1,5 +1,8 @@
 import os
 import shutil
+import csv
+import re
+import statistics, math
 from time import sleep
 
 from typing import List
@@ -10,7 +13,7 @@ from penguin.common import getColoredLogger, yaml, frozenset_to_dict, dict_to_fr
 from .penguin_config import dump_config, hash_yaml_config, load_config, load_unpatched_config
 from .manager import PandaRunner, calculate_score
 
-class PatchMinmizer():
+class PatchMinimizer():
     def __init__(self, proj_dir, config_path, output_dir, timeout,
                  max_iters, nworkers, verbose):
         self.logger = getColoredLogger("penguin.patch_minmizer")
@@ -23,6 +26,7 @@ class PatchMinmizer():
         self.patches_to_test = list()
         self.binary_search = True
         self.dynamic_patch_dir = os.path.join(self.proj_dir, "dynamic_patches")
+        self.data_baseline = dict()
 
         base_config = load_unpatched_config(config_path)
         self.original_config = base_config
@@ -69,11 +73,11 @@ class PatchMinmizer():
         for key in dict1:
             if key in dict2:
                 if isinstance(dict1[key], dict) and isinstance(dict2[key], dict):
-                    sub_overlap = PatchMinmizer.dicts_overlap(dict1[key], dict2[key])
+                    sub_overlap = PatchMinimizer.dicts_overlap(dict1[key], dict2[key])
                     if sub_overlap:
                         overlap[key] = sub_overlap
                 elif isinstance(dict1[key], list) and isinstance(dict2[key], list):
-                    sub_overlap = PatchMinmizer.lists_overlap(dict1[key], dict2[key])
+                    sub_overlap = PatchMinimizer.lists_overlap(dict1[key], dict2[key])
                     if sub_overlap:
                         overlap[key] = sub_overlap
                 elif dict1[key] == dict2[key]:
@@ -91,7 +95,7 @@ class PatchMinmizer():
         for key in dict1:
             if key in dict2:
                 if isinstance(dict1[key], dict) and isinstance(dict2[key], dict):
-                    sub_diff = dict_remove(dict1[key], dict2[key])
+                    sub_diff = PatchMinimizer.diff_dicts(dict1[key], dict2[key])
                     if sub_diff:
                         diff[key] = sub_diff
                 elif isinstance(dict1[key], list) and isinstance(dict2[key], list):
@@ -117,7 +121,7 @@ class PatchMinmizer():
                 if patch != other:
                     patch_config = load_unpatched_config(os.path.join(self.proj_dir, patch))
                     other_config = load_unpatched_config(os.path.join(self.proj_dir, other))
-                    overlap = PatchMinmizer.dicts_overlap(patch_config, other_config)
+                    overlap = PatchMinimizer.dicts_overlap(patch_config, other_config)
                     if overlap:
                         overlap_key = dict_to_frozenset(overlap)
                         if overlap_key not in overlapping:
@@ -137,7 +141,7 @@ class PatchMinmizer():
                 old_patch_path = os.path.join(self.proj_dir, old_patch)
                 old_patch_config = load_unpatched_config(old_patch_path)
                 new_patch = deepcopy(old_patch_config)
-                diff = PatchMinmizer.diff_dicts(new_patch, frozenset_to_dict(overlap))
+                diff = PatchMinimizer.diff_dicts(new_patch, frozenset_to_dict(overlap))
 
                 old_patch_path = os.path.join(self.proj_dir, old_patch)
                 #Create the diff patch in dynamic dir still (originally used original dir, but would be misleading for static
@@ -214,14 +218,63 @@ class PatchMinmizer():
                     executor.shutdown(wait=False)
                     break
 
+    def verify_www_traffic(self, run_index):
+        # vpn files in self.run_base
+        output_dir = os.path.join(self.run_base, str(run_index), "output")
+        #go through each file named vpn_IP:TCPPORT and gather bytes received by port
+        total_data = dict()
+        pattern = re.compile(r"vpn_.*_(\d+)$")
+        for file in os.listdir(output_dir):
+            #and extract the port number:
+            m = pattern.match(file)
+            if m:
+                sublist = ([], [])
+                port = int(m.group(1))
+                file_path = os.path.join(output_dir, file)
+                with open(file_path, 'r', newline='') as csvfile:
+                    reader = csv.DictReader(csvfile)
+                    for row in reader:
+                        sublist[0].append(int(row['bytes_to_guest']))
+                        sublist[1].append(int(row['bytes_from_guest']))
+                if port not in total_data:
+                    total_data[port] = {'to_guest':[], 'from_guest':[]}
+                total_data[port]['to_guest'].extend(sublist[0])
+                total_data[port]['from_guest'].extend(sublist[1])
+        if run_index == 0:
+            self.data_baseline = deepcopy(total_data)
+        self.logger.info(f"Total data for {run_index}: {total_data}")
+        if run_index != 0 and self.data_baseline:
+            #Look at the bytes received from the guest
+            for port, data in total_data.items():
+                #focus on web stuff
+                if port == 80 or port == 443:
+                    if port not in self.data_baseline.keys():
+                        #should probably throw up a warning or something
+                        continue
+                    perc = 90
+                    port_percentile = PatchMinimizer.percentile(data['from_guest'], perc)
+                    baseline_percentile = PatchMinimizer.percentile(self.data_baseline[port]['from_guest'], perc)
+                    mean = statistics.mean(data['from_guest'])
+                    baseline_mean = statistics.mean(self.data_baseline[port]['from_guest'])
+                    self.logger.info(f"{perc}th percentile for port {port}: {port_percentile}, baseline: {baseline_percentile}")
+                    self.logger.info(f"mean for port {port}: {mean}, baseline: {baseline_mean}")
+                    if mean < 0.95 * baseline_mean:
+                        self.logger.info(f"Run {run_index} is not viable based on mean bytes received from guest on port {port}")
+                        return False
+        elif run_index != 0:
+            self.logger.warning(f"Run {run_index} has no data to compare with baseline. This means baseline measured no data")
+        return True
+
     def config_still_viable(self, run_index):
-        #First, see if we dropped the number of network binds
+        return self.verify_www_traffic(run_index)
         """
+        #First, see if we dropped the number of network binds
         if self.scores[run_index]["bound_sockets"] < self.scores[0]["bound_sockets"]:
             self.logger.info(f"Run {run_index} has fewer bound sockets than baseline. Not viable")
             return False
         """
 
+        """
         #Run 0 is always our baseline
         baseline = self.scores[0]["blocks_covered"]
 
@@ -232,7 +285,22 @@ class PatchMinmizer():
         self.logger.info(f"Blocks covered for {run_index}: {our_score} (baseline: {baseline}), our_score/baseline: {fraction_baseline}")
         if fraction_baseline > 1.10:
             self.logger.warning(f"Run {run_index} has more blocks >=10% more blocks covered than baseline. Are you sure baseline is optimized?")
+
         return fraction_baseline >= 0.95
+        """
+
+    @staticmethod
+    def percentile(data, percentile):
+        data.sort()
+        k = (len(data) - 1) * (percentile / 100)
+        f = math.floor(k)
+        c = math.ceil(k)
+
+        if f == c:
+            return data[int(k)]
+        d0 = data[int(f)] * (c - k)
+        d1 = data[int(c)] * (k - f)
+        return d0 + d1
 
     def get_best_patchset(self):
         """
@@ -270,6 +338,10 @@ class PatchMinmizer():
             patchsets.append(self.patches_to_test[len(self.patches_to_test)//2:])
 
             self.run_configs(patchsets)
+
+            #We need to record run 0's stats
+            if not self.data_baseline:
+                self.config_still_viable(0)
 
             first_half = self.config_still_viable(first_half_index)
             second_half = self.config_still_viable(second_half_index)
@@ -317,7 +389,8 @@ class PatchMinmizer():
                 if self.config_still_viable(i):
                     self.logger.info(f"After running {i} removing {patch} from consideration, appears unecessary")
                     self.patches_to_test.remove(patch)
-                    #Unless this was a set of redundant patches, then we'll take one of them
+                else:
+                    self.logger.info(f"Keeping {patch} since run {i} was not viable without it")
 
         output_file = os.path.join(self.proj_dir, "minimized.yaml")
         #TODO: force overwrite of this when --force
@@ -333,6 +406,6 @@ class PatchMinmizer():
 
 def minimize(proj_dir, config_path, output_dir, timeout, max_iters=1000,
                  nworkers=1, verbose=False):
-    pm = PatchMinmizer(proj_dir, config_path, output_dir, timeout, max_iters, nworkers, verbose)
+    pm = PatchMinimizer(proj_dir, config_path, output_dir, timeout, max_iters, nworkers, verbose)
     pm.run()
     print(f"{len(pm.patches_to_test)} required patches: {pm.patches_to_test}")
