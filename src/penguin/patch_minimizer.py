@@ -17,7 +17,7 @@ class PatchMinimizer():
     def __init__(self, proj_dir, config_path, output_dir, timeout,
                  max_iters, nworkers, verbose):
         self.logger = getColoredLogger("penguin.patch_minmizer")
-        self.proj_dir = proj_dir
+        self.proj_dir = (proj_dir + "/") if not proj_dir.endswith("/") else proj_dir
         self.output_dir = output_dir
         self.timeout = timeout
         self.max_iters = max_iters
@@ -30,6 +30,7 @@ class PatchMinimizer():
 
         base_config = load_unpatched_config(config_path)
         self.original_config = base_config
+        self.original_patched_config = load_config(self.proj_dir, config_path)
         self.base_config = deepcopy(base_config)
         self.run_count = 0
         self.scores = dict() #run_index -> score
@@ -157,7 +158,7 @@ class PatchMinimizer():
                 self.logger.info(f"Creating new patch {path} to preserve orthoganality")
                 with open(path, "w") as f:
                     yaml.dump(new_patch, f)
-                self.patches_to_test.append(path)
+                self.patches_to_test.append(path.replace(self.proj_dir, ""))
 
     def run_config(self, patchset, run_index):
         """
@@ -170,7 +171,10 @@ class PatchMinimizer():
             # Remove it
             shutil.rmtree(run_dir)
         os.makedirs(run_dir)
-        self.logger.info(f"Running patchset {patchset} in {run_dir}")
+        self.logger.info(f"Starting run {run_index} in {run_dir} with patches:")
+        for p in patchset:
+            self.logger.info(f"\t{p}")
+
         new_config = deepcopy(self.base_config)
         new_config["patches"].extend(patchset)
         conf_yaml = os.path.join(run_dir, "config.yaml")
@@ -193,9 +197,9 @@ class PatchMinimizer():
             total = float(sum(score.values()))
             f.write(f"{total}\n")
 
-        if run_index == 0:
-            #We're the baseline
-            self.logger.info(f"Baseline finished! {score['blocks_covered']} blocks executed and {score['bound_sockets']} sockets bound")
+        #if run_index == 0:
+        #    #We're the baseline
+        #    self.logger.info(f"Baseline finished! {score['blocks_covered']} blocks executed and {score['bound_sockets']} sockets bound")
         return run_index, score
 
     def run_configs(self, patchsets: List[str]):
@@ -209,7 +213,16 @@ class PatchMinimizer():
             # Wait for all the submitted tasks to complete
             for future in as_completed(futures):
                 try:
-                    index, score = future.result()  # Optionally handle exceptions here
+                    res = future.result()  # Optionally handle exceptions here
+                    if res is None:
+                        self.logger.error("Thread returned None??")
+                        continue
+                    index, score = res
+                    if score is None:
+                        # Error, need to retry. Add the patchset back to the queue
+                        self.logger.error(f"Error running patchset {patchset}. Retrying")
+                        self.patches_to_test.append(patchset)
+                        continue
                     self.scores[index] = score
                 except Exception as e:
                     print(f"Thread raised an exception: {e}")
@@ -242,7 +255,7 @@ class PatchMinimizer():
                 total_data[port]['from_guest'].extend(sublist[1])
         if run_index == 0:
             self.data_baseline = deepcopy(total_data)
-        self.logger.info(f"Total data for {run_index}: {total_data}")
+        #self.logger.info(f"Total data for {run_index}: {total_data}")
         if run_index != 0 and self.data_baseline:
             #Look at the bytes received from the guest
             for port, data in total_data.items():
@@ -314,11 +327,130 @@ class PatchMinimizer():
 
         return best
 
+    def establish_baseline(self):
+        '''
+        For our very first run, we'll establish the baseline.
+
+        First we'll validate that our provided config meets our expectations, or raise an exception if it fails
+            IF minimization target is webserver_start:
+                - it must already start a webserver - otherwise we can't minimize
+            IF minimization target is coverage
+                - it must produce coverage information (e.g., it should typically have auto_explore patch)
+                - actual limitation: it should have the vpn, nmap, coverage plugins
+            IF minimization target is network_traffic:
+                - It must generate network traffic
+                - actual requirements: should have the vpn and nmap plugins
+
+        After validating the config, run the baseline and do an initial static minimization by removing any pseudofiles
+        that aren't ever used. Split these into new patches and drop them from patches_to_test
+
+        Finally, update self.patches_to_test
+        '''
+
+        # TODO: have this be a parameter and support webserver start
+        MINIMIZATION_TARGET = 'network_traffic'
+
+        # Check in self.original_patched_config that we have the necessary plugins
+
+        match MINIMIZATION_TARGET:
+            case 'coverage':
+                # Check for the necessary plugins: vpn, nmap, coverage in self.original_patched_config['plugins'] keys
+                required_plugins = ['vpn', 'nmap', 'coverage']
+            case 'network_traffic':
+                required_plugins = ['vpn', 'nmap']
+            case 'webserver_start':
+                required_plugins = []
+
+        for required_plugin in required_plugins:
+            if required_plugin not in self.original_patched_config['plugins']:
+                raise ValueError(f"Config does not have the required plugin: {required_plugin} for search mode {MINIMIZATION_TARGET}")
+
+        assert(self.run_count == 0), f"Establish baseline should be run first not {self.run_count}"
+
+        patchset = self.patches_to_test
+        print("RUN BASELINE")
+        _, score = self.run_config(patchset, 0)
+        self.run_count += 1 # Bump run_count so we don't re-run baseline
+        self.scores[0] = score
+
+        self.config_still_viable(0)
+
+        # Output is in run_dir
+        run_dir = os.path.join(self.run_base, "0")
+
+        # Check netbinds_summary.csv to see if webserver (or other services start)
+        with open(os.path.join(*[run_dir, "output", "netbinds_summary.csv"])) as f:
+            reader = csv.DictReader(f)
+            netbinds = [row for row in reader]
+            www_start = any([row['bound_www'] == 'True' for row in netbinds])
+            any_network_starts = len(netbinds) > 0
+
+        if not any_network_starts:
+            # No matter what you're doing, something should start a network service
+            raise ValueError(f"Baseline config does not start any network services - invalid for mode {MINIMIZATION_TARGET}")
+
+        if (MINIMIZATION_TARGET == 'webserver_start') and not www_start:
+            # If you're minimizing on webserver start and your baseline doesn't start a webserver, that's a problem
+            raise ValueError(f"Baseline config does not start a webserver - invalid for mode {MINIMIZATION_TARGET}")
+
+        if (MINIMIZATION_TARGET == 'network_traffic') and not self.original_patched_config.get('plugins', {}).get('vpn', {}).get('log', False):
+            raise ValueError(f"Baseline config does not generate network traffic as plugins.vpn.log is not set - invalid for mode {MINIMIZATION_TARGET}")
+
+        # Check that baseline total_data isn't empty
+        if MINIMIZATION_TARGET == 'network_traffic' and not self.data_baseline:
+            raise ValueError(f"Baseline config empty - no network traffic generated. Invalid for mode {MINIMIZATION_TARGET}")
+
+        # Great - we have a valid baseline. Now let's figure out if any pseudofile patches are irrelevant.
+        # Look at output/pseudofiles_modeled.yaml - the keys here are the pseudofiles that were modeled, everything else is irrelevant
+        with open(os.path.join(*[run_dir, "output", "pseudofiles_modeled.yaml"])) as f:
+            pseudofiles = yaml.safe_load(f)
+            relevant_pseudofiles = set(pseudofiles.keys())
+
+        # Now look at our patches providing pseudofiles. Split them into two groups: those that are relevant and aren't
+        for patch in list(self.patches_to_test):
+            with open(os.path.join(self.proj_dir, patch)) as f:
+                patch_config = yaml.safe_load(f)
+                pseudofiles = patch_config.get('pseudofiles', [])
+                if not len(pseudofiles):
+                    # No pseudofiles
+                    continue
+
+                # Does this contain any pseudofiles that *aren't* relevant?
+                irrelevant_pseudofiles = set(pseudofiles) - relevant_pseudofiles
+                if not len(irrelevant_pseudofiles):
+                    # Everything was relevant
+                    continue
+
+                # We have irrelevant pseudofiles. Split them into a new (disabled) patch.
+                # Split relevant ones into a new (enabled) patch. Drop the original patch
+
+                # First create the new patch with only the relevant pseudofiles
+                new_patch = deepcopy(patch_config)
+                new_patch['pseudofiles'] = {pf: pseudofiles[pf] for pf in pseudofiles if pf not in irrelevant_pseudofiles}
+
+                # Remove old patch from our queue
+                self.patches_to_test.remove(patch)
+
+                if len(new_patch['pseudofiles']) or len(new_patch.keys()) > 1:
+                    # The new patch is doing something (either relevant pseudofiles or other actions)
+                    new_patch_path = os.path.join(self.dynamic_patch_dir, f"relevant_pseudofiles_{hash_yaml_config(new_patch)[-6:]}_{os.path.basename(patch)}")
+                    with open(new_patch_path, "w") as f:
+                        yaml.dump(new_patch, f)
+                    self.patches_to_test.append(new_patch_path.replace(self.proj_dir, ""))
+                    self.logger.info(f"Splitting patch {patch} into {new_patch_path} to remove {len(irrelevant_pseudofiles)} irrelevant pseudofiles")
+                else:
+                    self.logger.info(f"Removing patch {patch} entirely as it  only provides {len(irrelevant_pseudofiles)} irrelevant pseudofiles")
+
+
     def run(self):
         #First, establish a baseline score by running the base config.
         #We're going to do a binary search, so might as well run the other two halves as well
 
-        #It is assumed by other code that run 0 is the baseline 
+        #It is assumed by other code that run 0 is the baseline
+
+        self.logger.info("Establishing baseline")
+        self.establish_baseline()
+        self.logger.info(f"Baseline established: {self.data_baseline}")
 
         patchsets=[self.patches_to_test] #our first patchset is the full set of patches
 
@@ -326,14 +458,10 @@ class PatchMinimizer():
         while self.run_count < self.max_iters and self.binary_search:
             self.logger.info(f"{len(self.patches_to_test)} patches remaining")
             self.logger.debug(f"Patches to test: {self.patches_to_test}")
-            #This code is a little klugdy since we want to run three configs in parallel the first time
-            #and two at a time after that
-            if self.run_count == 0:
-                first_half_index = self.run_count + 1
-                second_half_index = self.run_count + 2
-            else:
-                first_half_index = self.run_count
-                second_half_index = self.run_count + 1
+            # XXX we used to special case the baseline as a 1-of-3 vs normally 1-of-2.
+            # Now we just run the baseline before starting
+            first_half_index = self.run_count
+            second_half_index = self.run_count + 1
             patchsets.append(self.patches_to_test[:len(self.patches_to_test)//2])
             patchsets.append(self.patches_to_test[len(self.patches_to_test)//2:])
 
@@ -341,6 +469,7 @@ class PatchMinimizer():
 
             #We need to record run 0's stats
             if not self.data_baseline:
+                self.logger.warning("Establish_baseline did not record any data. This is unexpected - adding it after the fact")
                 self.config_still_viable(0)
 
             first_half = self.config_still_viable(first_half_index)
