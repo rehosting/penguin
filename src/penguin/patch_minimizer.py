@@ -260,6 +260,7 @@ class PatchMinimizer():
                 total_data[port]['from_guest'].extend(sublist[1])
         if run_index == 0:
             self.data_baseline = deepcopy(total_data)
+
         #self.logger.info(f"Total data for {run_index}: {total_data}")
         if run_index != 0 and self.data_baseline:
             #Look at the bytes received from the guest
@@ -404,6 +405,9 @@ class PatchMinimizer():
         # Check that baseline total_data isn't empty
         if MINIMIZATION_TARGET == 'network_traffic' and not self.data_baseline:
             raise ValueError(f"Baseline config empty - no network traffic generated. Invalid for mode {MINIMIZATION_TARGET}")
+
+        if MINIMIZATION_TARGET == 'network_traffic' and sum([sum(data['from_guest']) for data in self.data_baseline.values()]) == 0:
+            raise ValueError(f"Baseline run had no network responses. Invalid for mode {MINIMIZATION_TARGET}")
 
         # Great - we have a valid baseline. Now let's figure out if any pseudofile patches are irrelevant.
         # Look at output/pseudofiles_modeled.yaml - the keys here are the pseudofiles that were modeled, everything else is irrelevant
