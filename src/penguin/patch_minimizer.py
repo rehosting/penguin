@@ -234,15 +234,20 @@ class PatchMinimizer():
     def verify_www_traffic(self, run_index):
         # vpn files in self.run_base
         output_dir = os.path.join(self.run_base, str(run_index), "output")
-        #go through each file named vpn_IP:TCPPORT and gather bytes received by port
+        #go through each file named vpn_IP_TCPPORT and gather bytes received by port
         total_data = dict()
-        pattern = re.compile(r"vpn_.*_(\d+)$")
+        # Ignore IP
+        pattern = re.compile(r"vpn_(?:([1-9\.]*)|\[[0-9a-f]\]).*_(\d+)")
+
+        if len(os.listdir(output_dir)) == 0:
+            self.logger.error(f"Run {run_index} produced no vpn output. This is unexpected")
+            return
         for file in os.listdir(output_dir):
             #and extract the port number:
             m = pattern.match(file)
             if m:
                 sublist = ([], [])
-                port = int(m.group(1))
+                port = int(m.group(2))
                 file_path = os.path.join(output_dir, file)
                 with open(file_path, 'r', newline='') as csvfile:
                     reader = csv.DictReader(csvfile)
