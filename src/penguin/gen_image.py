@@ -539,7 +539,7 @@ def fs_make_config_changes(fs_base, config, project_dir):
 
 
 def make_image(fs, out, artifacts, proj_dir, config_path):
-    logger.info("Generating new image from config...")
+    logger.debug("Generating new image from config...")
     IN_TARBALL = Path(fs)
     ARTIFACTS = Path(artifacts or "/tmp")
     QCOW = Path(out)
@@ -560,7 +560,7 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
         MODIFIED_TARBALL = Path(ARTIFACTS, f"fs_out_{suffix}.tar")
         config = load_config(proj_dir, config_path)
         with tempfile.TemporaryDirectory() as TMP_DIR:
-            check_output(["tar", "xpsvf", IN_TARBALL, "-C", TMP_DIR])
+            check_output(["tar", "xpsf", IN_TARBALL, "-C", TMP_DIR])
             from .penguin_prep import prep_config
 
             prep_config(config)
