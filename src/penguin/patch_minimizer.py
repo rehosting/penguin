@@ -45,7 +45,6 @@ class PatchMinimizer():
 
         base_config = load_unpatched_config(config_path)
         self.original_config = base_config
-        self.original_patched_config = load_config(self.proj_dir, config_path)
         self.base_config = deepcopy(base_config)
         self.run_count = 0
         self.scores = dict() #run_index -> score
@@ -57,16 +56,30 @@ class PatchMinimizer():
         # Gather all the candidate patches and our base config to include patches we need for exploration
         self.base_config["patches"] = list()
         for patch in base_config["patches"]:
-            if not patch.endswith("base.yaml") and not patch.endswith("auto_explore.yaml"):
+            if patch.endswith("/single_shot.yaml"):
+                self.logger.info("Ignoring single_shot patch to support automated minimization")
+                continue
+
+            if not patch.endswith("/base.yaml") and not patch.endswith("/auto_explore.yaml"):
                 self.patches_to_test.append(patch)
             else:
                 self.base_config["patches"].append(patch)
+
+        # Ensure we have static_patches/auto_explore.yaml and NOT single_shot.yaml
+        if not any([patch.endswith("/auto_explore.yaml") for patch in self.base_config["patches"]]):
+            self.logger.warning("Adding auto_explore patch to supported automated exploration to guide minimization")
+            # Ensure static_patches dir is in at least one of the patches
+            assert (any([patch.startswith("static_patches") for patch in self.patches_to_test])), "No static_patches dir in patches - not sure how to add auto_explore"
+            self.base_config["patches"].append("static_patches/auto_explore.yaml")
 
         self.split_overlapping_patches()
 
         self.run_base = os.path.join(output_dir, "runs")
         os.makedirs(self.run_base, exist_ok=True)
         dump_config(self.base_config, os.path.join(output_dir, "base_config.yaml"))
+
+        # Parse the config we just dumped, this renders the patches into our dict
+        self.original_patched_config = load_config(self.proj_dir, os.path.join(output_dir, "base_config.yaml"))
 
         self.logger.setLevel("DEBUG" if verbose else "INFO")
         self.logger.info(f"Loaded {len(self.patches_to_test)} patches to test")
@@ -205,7 +218,7 @@ class PatchMinimizer():
         except RuntimeError as e:
             # Uh oh, we got an error while running. Warn and continue
             self.logger.error(f"Could not run {run_dir}: {e}")
-            return {}
+            raise
 
         score = calculate_score(out_dir)
         with open(os.path.join(run_dir, "totalscore.txt"), "w") as f:
@@ -531,7 +544,6 @@ class PatchMinimizer():
 
         self.logger.info("Establishing baseline")
         self.establish_baseline()
-        self.logger.info(f"Baseline established: {self.data_baseline}")
 
         patchsets=[self.patches_to_test] #our first patchset is the full set of patches
 
