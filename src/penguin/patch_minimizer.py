@@ -29,7 +29,7 @@ def calculate_entropy(buffer: bytes) -> float:
 
 class PatchMinimizer():
     def __init__(self, proj_dir, config_path, output_dir, timeout,
-                 max_iters, nworkers, verbose):
+                 max_iters, nworkers, verbose, minimization_target="network_entropy"):
         self.logger = getColoredLogger("penguin.patch_minmizer")
         self.proj_dir = (proj_dir + "/") if not proj_dir.endswith("/") else proj_dir
         self.output_dir = output_dir
@@ -37,6 +37,7 @@ class PatchMinimizer():
         self.max_iters = max_iters
         self.nworkers = nworkers
         self.verbose = verbose
+        self.minimization_target = minimization_target
         self.patches_to_test = list()
         self.binary_search = True
         self.dynamic_patch_dir = os.path.join(self.proj_dir, "dynamic_patches")
@@ -245,19 +246,26 @@ class PatchMinimizer():
                     executor.shutdown(wait=False)
                     break
 
-    def verify_www_traffic(self, run_index):
-        # vpn files in self.run_base
-        output_dir = os.path.join(self.run_base, str(run_index), "output")
-        #go through each file named vpn_IP_TCPPORT and gather bytes received by port
-        total_data = dict()
-        # Ignore IP
-        pattern = re.compile(r"vpn_(?:([1-9\.]+)|\[[0-9a-f]\]+)_(\d+)")
+    def calculate_network_data(self, run_index):
+        '''
+        From a directory, calculate the bytes sent, received, and entropy of received from the guest
+        Consume vpn_{ip}_port files for data amounts (as csv) and vpn_response_{ip}_port files for entropy.
+        Note that ip could be ipv6 with []s. Colons in names are replaced with underscores (weird for ipv6)
+        '''
 
+        output_dir = os.path.join(self.run_base, str(run_index), "output")
+        total_data = dict()
+        pattern = re.compile(r"vpn_(?:([1-9\.]+)|\[[0-9a-f]\]+)_(\d+)")
         pattern2 = re.compile(r"vpn_response_(?:([1-9\.]*)|\[[0-9a-f]\]).*_(\d+)")
 
         if len(os.listdir(output_dir)) == 0:
-            self.logger.error(f"Run {run_index} produced no vpn output. This is unexpected")
+            self.logger.error(f"Run {run_index} produced no output. This is unexpected")
             return
+
+        if not os.path.isfile(os.path.join(output_dir, ".ran")):
+            self.logger.error(f"Run {run_index} did not complete. This is unexpected")
+            return
+
         for file in os.listdir(output_dir):
             #and extract the port number:
             if m := pattern.match(file):
@@ -275,7 +283,7 @@ class PatchMinimizer():
                 total_data[port]['to_guest'].extend(sublist[0])
                 total_data[port]['from_guest'].extend(sublist[1])
 
-            if m := pattern2.match(file):
+            elif m := pattern2.match(file):
                 # Looking at a response file
                 # Calculate the entropy of the response by reading the whole file
                 port = int(m.group(2))
@@ -288,24 +296,28 @@ class PatchMinimizer():
                 self.logger.debug(f"Run {run_index} port {port} has entropy: {entropy:.02f}")
                 total_data[port]['entropy'] = entropy
 
-        # TODO: refactor above so we calculate total_data in a dedicated method, then use in verify_www_traffic and establish_baseline
-        if run_index == 0:
-            self.data_baseline = deepcopy(total_data)
-            return True
-        else:
-            assert(self.data_baseline), "Baseline data not established"
-            target_ports = [80, 443]
-            #Look at the bytes received from the guest
-            for port, data in total_data.items():
-                if len(target_ports) and port not in target_ports:
-                    continue # Skip non-target ports
+        return total_data
 
-                if port not in self.data_baseline.keys():
-                    self.logger.warning("On run {run_index}, port {port} produces traffic not seen in baseline. Ignoring")
-                    continue
+    def verify_www_traffic(self, run_index):
+        '''
+        Given the results of a run, determine if it's still viable based on network traffic as compared to the baseline
+        '''
+        assert(self.data_baseline), "Baseline data not established"
+        target_ports = [80, 443]
 
-                # IF ENTROPY - how does the entropy of the response compare to the baseline? We want it to be similar
-                # First assert that the baseline has entropy
+        total_data = self.calculate_network_data(run_index)
+        #Look at the bytes received from the guest
+        for port, data in total_data.items():
+            if len(target_ports) and port not in target_ports:
+                continue # Skip non-target ports
+
+            if port not in self.data_baseline.keys():
+                self.logger.warning("On run {run_index}, port {port} produces traffic not seen in baseline. Ignoring")
+                continue
+
+            # IF ENTROPY - how does the entropy of the response compare to the baseline? We want it to be similar
+            # First assert that the baseline has entropy
+            if self.minimization_target == "network_entropy":
                 assert 'entropy' in self.data_baseline[port], f"Baseline data for port {port} does not have entropy"
                 if 'entropy' in data:
                     self.logger.info(f"Run {run_index} port {port} has entropy {data['entropy']:.02f}, baseline: {self.data_baseline[port]['entropy']:.02f}")
@@ -313,31 +325,31 @@ class PatchMinimizer():
                         self.logger.info(f"Run {run_index} is not viable based on entropy of response on port {port}. Got {data['entropy']:.02f} vs baseline: {self.data_baseline[port]['entropy']:.02f}")
                         return False
 
+            elif self.minimization_target == "network_traffic":
                 # IF WEB - how does the mean bytes received from the guest compare to the baseline? We want it to be similar
-                '''
-                    perc = 90
-                    port_percentile = PatchMinimizer.percentile(data['from_guest'], perc)
-                    baseline_percentile = PatchMinimizer.percentile(self.data_baseline[port]['from_guest'], perc)
-                    mean = statistics.mean(data['from_guest'])
-                    baseline_mean = statistics.mean(self.data_baseline[port]['from_guest'])
-                    self.logger.info(f"{perc}th percentile for port {port}: {port_percentile}, baseline: {baseline_percentile}")
-                    self.logger.info(f"mean for port {port}: {mean}, baseline: {baseline_mean}")
-                    if mean < 0.95 * baseline_mean:
-                        self.logger.info(f"Run {run_index} is not viable based on mean bytes received from guest on port {port}")
-                        return False
-                '''
+                perc = 90
+                port_percentile = PatchMinimizer.percentile(data['from_guest'], perc)
+                baseline_percentile = PatchMinimizer.percentile(self.data_baseline[port]['from_guest'], perc)
+                mean = statistics.mean(data['from_guest'])
+                baseline_mean = statistics.mean(self.data_baseline[port]['from_guest'])
+                self.logger.info(f"{perc}th percentile for port {port}: {port_percentile}, baseline: {baseline_percentile}")
+                self.logger.info(f"mean for port {port}: {mean}, baseline: {baseline_mean}")
+                if mean < 0.95 * baseline_mean:
+                    self.logger.info(f"Run {run_index} is not viable based on mean bytes received from guest on port {port}")
+                    return False
+            else:
+                raise ValueError(f"Unknown minimization target {self.minimization_target}")
         return True
 
-    def config_still_viable(self, run_index):
-        return self.verify_www_traffic(run_index)
-        """
+    def verify_coverage(self, run_index):
+        '''
+        Given the results of a run, determine if it's still viable based on coverage as compared to the baseline
+        '''
         #First, see if we dropped the number of network binds
         if self.scores[run_index]["bound_sockets"] < self.scores[0]["bound_sockets"]:
             self.logger.info(f"Run {run_index} has fewer bound sockets than baseline. Not viable")
             return False
-        """
 
-        """
         #Run 0 is always our baseline
         baseline = self.scores[0]["blocks_covered"]
 
@@ -350,7 +362,19 @@ class PatchMinimizer():
             self.logger.warning(f"Run {run_index} has more blocks >=10% more blocks covered than baseline. Are you sure baseline is optimized?")
 
         return fraction_baseline >= 0.95
-        """
+
+
+    def config_still_viable(self, run_index):
+        '''
+        Compare the results from this run to our baseline. Determine if it's still viable.
+        If not, we return False, indicating that this config is not valid by our minimization target.
+        '''
+
+        if self.minimization_target in ["network_entropy", "network_traffic"]:
+            return self.verify_www_traffic(run_index)
+
+        elif self.minimization_target == "coverage":
+            return self.verify_coverage(run_index)
 
     @staticmethod
     def percentile(data, percentile):
@@ -397,12 +421,9 @@ class PatchMinimizer():
         Finally, update self.patches_to_test
         '''
 
-        # TODO: have this be a parameter and support webserver start
-        MINIMIZATION_TARGET = 'network_entropy'
-
         # Check in self.original_patched_config that we have the necessary plugins
 
-        match MINIMIZATION_TARGET:
+        match self.minimization_target:
             case 'coverage':
                 # Check for the necessary plugins: vpn, nmap, coverage in self.original_patched_config['plugins'] keys
                 required_plugins = ['vpn', 'nmap', 'coverage']
@@ -415,17 +436,20 @@ class PatchMinimizer():
 
         for required_plugin in required_plugins:
             if required_plugin not in self.original_patched_config['plugins']:
-                raise ValueError(f"Config does not have the required plugin: {required_plugin} for search mode {MINIMIZATION_TARGET}")
+                raise ValueError(f"Config does not have the required plugin: {required_plugin} for search mode {self.minimization_target}")
 
-        if (MINIMIZATION_TARGET in ['network_traffic', 'network_entropy']) and not self.original_patched_config.get('plugins', {}).get('vpn', {}).get('log', False):
-            raise ValueError(f"Config does not have plugins.vpn.log set, required for search mode {MINIMIZATION_TARGET}")
+        if (self.minimization_target in ['network_traffic', 'network_entropy']) and not self.original_patched_config.get('plugins', {}).get('vpn', {}).get('log', False):
+            raise ValueError(f"Config does not have plugins.vpn.log set, required for search mode {self.minimization_target}")
 
         assert(self.run_count == 0), f"Establish baseline should be run first not {self.run_count}"
 
         patchset = self.patches_to_test
         _, score = self.run_config(patchset, 0)
         self.run_count += 1 # Bump run_count so we don't re-run baseline
+
+        # Score for baseline goes in self.scores (coverage) and data_baseline stores network data (entropy, bytes)
         self.scores[0] = score
+        self.data_baseline = self.calculate_network_data(0)
 
         self.config_still_viable(0)
 
@@ -441,21 +465,21 @@ class PatchMinimizer():
 
         if not any_network_starts:
             # No matter what you're doing, something should start a network service
-            raise ValueError(f"Baseline config does not start any network services - invalid for mode {MINIMIZATION_TARGET}")
+            raise ValueError(f"Baseline config does not start any network services - invalid for mode {self.minimization_target}")
 
-        if (MINIMIZATION_TARGET == 'webserver_start') and not www_start:
+        if (self.minimization_target == 'webserver_start') and not www_start:
             # If you're minimizing on webserver start and your baseline doesn't start a webserver, that's a problem
-            raise ValueError(f"Baseline config does not start a webserver - invalid for mode {MINIMIZATION_TARGET}")
+            raise ValueError(f"Baseline config does not start a webserver - invalid for mode {self.minimization_target}")
 
-        if (MINIMIZATION_TARGET in ['network_traffic', 'network_entropy']) and not self.original_patched_config.get('plugins', {}).get('vpn', {}).get('log', False):
-            raise ValueError(f"Baseline config does not generate network traffic as plugins.vpn.log is not set - invalid for mode {MINIMIZATION_TARGET}")
+        if (self.minimization_target in ['network_traffic', 'network_entropy']) and not self.original_patched_config.get('plugins', {}).get('vpn', {}).get('log', False):
+            raise ValueError(f"Baseline config does not generate network traffic as plugins.vpn.log is not set - invalid for mode {self.minimization_target}")
 
         # Check that baseline total_data isn't empty
-        if MINIMIZATION_TARGET == 'network_traffic' and not self.data_baseline:
-            raise ValueError(f"Baseline config empty - no network traffic generated. Invalid for mode {MINIMIZATION_TARGET}")
+        if self.minimization_target == 'network_traffic' and not self.data_baseline:
+            raise ValueError(f"Baseline config empty - no network traffic generated. Invalid for mode {self.minimization_target}")
 
-        if MINIMIZATION_TARGET == 'network_traffic' and sum([sum(data['from_guest']) for data in self.data_baseline.values()]) == 0:
-            raise ValueError(f"Baseline run had no network responses. Invalid for mode {MINIMIZATION_TARGET}")
+        if self.minimization_target == 'network_traffic' and sum([sum(data['from_guest']) for data in self.data_baseline.values()]) == 0:
+            raise ValueError(f"Baseline run had no network responses. Invalid for mode {self.minimization_target}")
 
         # Great - we have a valid baseline. Now let's figure out if any pseudofile patches are irrelevant.
         # Look at output/pseudofiles_modeled.yaml - the keys here are the pseudofiles that were modeled, everything else is irrelevant
