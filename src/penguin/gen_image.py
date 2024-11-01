@@ -555,8 +555,7 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
     def _make_img(work_dir, qcow, delete_tar):
         IMAGE = Path(work_dir, "image.raw")
         check_output(["truncate", "-s", str(FILESYSTEM_SIZE), IMAGE])
-        check_output(
-            [
+        subprocess.run([
                 "genext2fs",
                 "--faketime",
                 "-N",
@@ -568,7 +567,9 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
                 "-a",
                 TARBALL,
                 IMAGE,
-            ]
+            ],
+            stderr=subprocess.DEVNULL,
+            check=True
         )
         check_output(["qemu-img", "convert", "-f", "raw", "-O", "qcow2", IMAGE, qcow])
         if delete_tar:
