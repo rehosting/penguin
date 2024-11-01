@@ -230,7 +230,7 @@ def get_mount_type(path):
 
 
 def construct_empty_fs(path):
-    subprocess.check_output(f"tar -czvf {path} -T /dev/null", shell=True)
+    subprocess.check_output(f"tar -czf {path} -T /dev/null", shell=True)
 
 
 def get_mitigation_providers(config: dict):
