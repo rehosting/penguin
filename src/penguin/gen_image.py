@@ -528,7 +528,7 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
 
             prep_config(config)
             fs_make_config_changes(TMP_DIR, config, project_dir)
-            check_output(["tar", "czpvf", MODIFIED_TARBALL, "-C", TMP_DIR, "."])
+            check_output(["tar", "czpf", MODIFIED_TARBALL, "-C", TMP_DIR, "."])
         TARBALL = MODIFIED_TARBALL
     else:
         delete_tar = False
