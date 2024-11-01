@@ -187,7 +187,7 @@ class PatchMinimizer():
         os.makedirs(run_dir)
         self.logger.info(f"Starting run {run_index} in {run_dir} with patches:")
         for p in patchset:
-            self.logger.info(f"\t{p}")
+            self.logger.info(f"\tRun {run_index} has patch {p}")
 
         new_config = deepcopy(self.base_config)
         new_config["patches"].extend(patchset)
@@ -262,7 +262,6 @@ class PatchMinimizer():
             #and extract the port number:
             if m := pattern.match(file):
                 # Looking at a log of data amounts
-                print("Matched:", file)
                 sublist = ([], [])
                 port = int(m.group(2))
                 file_path = os.path.join(output_dir, file)
@@ -286,7 +285,7 @@ class PatchMinimizer():
                 file_path = os.path.join(output_dir, file)
                 with open(file_path, "rb") as f:
                     entropy = calculate_entropy(f.read())
-                print(f"Run {run_index} port {port} has entropy: {entropy}")
+                self.logger.debug(f"Run {run_index} port {port} has entropy: {entropy:.02f}")
                 total_data[port]['entropy'] = entropy
 
         # TODO: refactor above so we calculate total_data in a dedicated method, then use in verify_www_traffic and establish_baseline
@@ -309,9 +308,9 @@ class PatchMinimizer():
                 # First assert that the baseline has entropy
                 assert 'entropy' in self.data_baseline[port], f"Baseline data for port {port} does not have entropy"
                 if 'entropy' in data:
-                    self.logger.info(f"Entropy for port {port}: {data['entropy']}, baseline: {self.data_baseline[port]['entropy']}")
+                    self.logger.info(f"Run {run_index} port {port} has entropy {data['entropy']:.02f}, baseline: {self.data_baseline[port]['entropy']:.02f}")
                     if data['entropy'] < 0.95 * self.data_baseline[port]['entropy']:
-                        self.logger.info(f"Run {run_index} is not viable based on entropy of response on port {port}. Got {data['entropy']} vs baseline: {self.data_baseline[port]['entropy']}")
+                        self.logger.info(f"Run {run_index} is not viable based on entropy of response on port {port}. Got {data['entropy']:.02f} vs baseline: {self.data_baseline[port]['entropy']:.02f}")
                         return False
 
                 # IF WEB - how does the mean bytes received from the guest compare to the baseline? We want it to be similar
@@ -417,6 +416,9 @@ class PatchMinimizer():
         for required_plugin in required_plugins:
             if required_plugin not in self.original_patched_config['plugins']:
                 raise ValueError(f"Config does not have the required plugin: {required_plugin} for search mode {MINIMIZATION_TARGET}")
+
+        if (MINIMIZATION_TARGET in ['network_traffic', 'network_entropy']) and not self.original_patched_config.get('plugins', {}).get('vpn', {}).get('log', False):
+            raise ValueError(f"Config does not have plugins.vpn.log set, required for search mode {MINIMIZATION_TARGET}")
 
         assert(self.run_count == 0), f"Establish baseline should be run first not {self.run_count}"
 
