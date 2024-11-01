@@ -5,6 +5,7 @@ import re
 import statistics, math
 from time import sleep
 
+from collections import Counter
 from typing import List
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -12,6 +13,19 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from penguin.common import getColoredLogger, yaml, frozenset_to_dict, dict_to_frozenset
 from .penguin_config import dump_config, hash_yaml_config, load_config, load_unpatched_config
 from .manager import PandaRunner, calculate_score
+
+def calculate_entropy(buffer: bytes) -> float:
+    # Count the frequency of each byte value
+    byte_counts = Counter(buffer)
+    total_bytes = len(buffer)
+
+    # Calculate entropy
+    entropy = 0.0
+    for count in byte_counts.values():
+        probability = count / total_bytes
+        entropy -= probability * math.log2(probability)
+
+    return entropy
 
 class PatchMinimizer():
     def __init__(self, proj_dir, config_path, output_dir, timeout,
@@ -237,15 +251,18 @@ class PatchMinimizer():
         #go through each file named vpn_IP_TCPPORT and gather bytes received by port
         total_data = dict()
         # Ignore IP
-        pattern = re.compile(r"vpn_(?:([1-9\.]*)|\[[0-9a-f]\]).*_(\d+)")
+        pattern = re.compile(r"vpn_(?:([1-9\.]+)|\[[0-9a-f]\]+)_(\d+)")
+
+        pattern2 = re.compile(r"vpn_response_(?:([1-9\.]*)|\[[0-9a-f]\]).*_(\d+)")
 
         if len(os.listdir(output_dir)) == 0:
             self.logger.error(f"Run {run_index} produced no vpn output. This is unexpected")
             return
         for file in os.listdir(output_dir):
             #and extract the port number:
-            m = pattern.match(file)
-            if m:
+            if m := pattern.match(file):
+                # Looking at a log of data amounts
+                print("Matched:", file)
                 sublist = ([], [])
                 port = int(m.group(2))
                 file_path = os.path.join(output_dir, file)
@@ -255,21 +272,50 @@ class PatchMinimizer():
                         sublist[0].append(int(row['bytes_to_guest']))
                         sublist[1].append(int(row['bytes_from_guest']))
                 if port not in total_data:
-                    total_data[port] = {'to_guest':[], 'from_guest':[]}
+                    total_data[port] = {'to_guest':[], 'from_guest':[], 'entropy': 0.0}
                 total_data[port]['to_guest'].extend(sublist[0])
                 total_data[port]['from_guest'].extend(sublist[1])
+
+            if m := pattern2.match(file):
+                # Looking at a response file
+                # Calculate the entropy of the response by reading the whole file
+                port = int(m.group(2))
+                if port not in total_data:
+                    total_data[port] = {'to_guest':[], 'from_guest':[], 'entropy': 0.0}
+
+                file_path = os.path.join(output_dir, file)
+                with open(file_path, "rb") as f:
+                    entropy = calculate_entropy(f.read())
+                print(f"Run {run_index} port {port} has entropy: {entropy}")
+                total_data[port]['entropy'] = entropy
+
+        # TODO: refactor above so we calculate total_data in a dedicated method, then use in verify_www_traffic and establish_baseline
         if run_index == 0:
             self.data_baseline = deepcopy(total_data)
-
-        #self.logger.info(f"Total data for {run_index}: {total_data}")
-        if run_index != 0 and self.data_baseline:
+            return True
+        else:
+            assert(self.data_baseline), "Baseline data not established"
+            target_ports = [80, 443]
             #Look at the bytes received from the guest
             for port, data in total_data.items():
-                #focus on web stuff
-                if port == 80 or port == 443:
-                    if port not in self.data_baseline.keys():
-                        #should probably throw up a warning or something
-                        continue
+                if len(target_ports) and port not in target_ports:
+                    continue # Skip non-target ports
+
+                if port not in self.data_baseline.keys():
+                    self.logger.warning("On run {run_index}, port {port} produces traffic not seen in baseline. Ignoring")
+                    continue
+
+                # IF ENTROPY - how does the entropy of the response compare to the baseline? We want it to be similar
+                # First assert that the baseline has entropy
+                assert 'entropy' in self.data_baseline[port], f"Baseline data for port {port} does not have entropy"
+                if 'entropy' in data:
+                    self.logger.info(f"Entropy for port {port}: {data['entropy']}, baseline: {self.data_baseline[port]['entropy']}")
+                    if data['entropy'] < 0.95 * self.data_baseline[port]['entropy']:
+                        self.logger.info(f"Run {run_index} is not viable based on entropy of response on port {port}. Got {data['entropy']} vs baseline: {self.data_baseline[port]['entropy']}")
+                        return False
+
+                # IF WEB - how does the mean bytes received from the guest compare to the baseline? We want it to be similar
+                '''
                     perc = 90
                     port_percentile = PatchMinimizer.percentile(data['from_guest'], perc)
                     baseline_percentile = PatchMinimizer.percentile(self.data_baseline[port]['from_guest'], perc)
@@ -280,8 +326,7 @@ class PatchMinimizer():
                     if mean < 0.95 * baseline_mean:
                         self.logger.info(f"Run {run_index} is not viable based on mean bytes received from guest on port {port}")
                         return False
-        elif run_index != 0:
-            self.logger.warning(f"Run {run_index} has no data to compare with baseline. This means baseline measured no data")
+                '''
         return True
 
     def config_still_viable(self, run_index):
@@ -354,7 +399,7 @@ class PatchMinimizer():
         '''
 
         # TODO: have this be a parameter and support webserver start
-        MINIMIZATION_TARGET = 'network_traffic'
+        MINIMIZATION_TARGET = 'network_entropy'
 
         # Check in self.original_patched_config that we have the necessary plugins
 
@@ -363,6 +408,8 @@ class PatchMinimizer():
                 # Check for the necessary plugins: vpn, nmap, coverage in self.original_patched_config['plugins'] keys
                 required_plugins = ['vpn', 'nmap', 'coverage']
             case 'network_traffic':
+                required_plugins = ['vpn', 'nmap']
+            case 'network_entropy':
                 required_plugins = ['vpn', 'nmap']
             case 'webserver_start':
                 required_plugins = []
@@ -374,7 +421,6 @@ class PatchMinimizer():
         assert(self.run_count == 0), f"Establish baseline should be run first not {self.run_count}"
 
         patchset = self.patches_to_test
-        print("RUN BASELINE")
         _, score = self.run_config(patchset, 0)
         self.run_count += 1 # Bump run_count so we don't re-run baseline
         self.scores[0] = score
@@ -399,7 +445,7 @@ class PatchMinimizer():
             # If you're minimizing on webserver start and your baseline doesn't start a webserver, that's a problem
             raise ValueError(f"Baseline config does not start a webserver - invalid for mode {MINIMIZATION_TARGET}")
 
-        if (MINIMIZATION_TARGET == 'network_traffic') and not self.original_patched_config.get('plugins', {}).get('vpn', {}).get('log', False):
+        if (MINIMIZATION_TARGET in ['network_traffic', 'network_entropy']) and not self.original_patched_config.get('plugins', {}).get('vpn', {}).get('log', False):
             raise ValueError(f"Baseline config does not generate network traffic as plugins.vpn.log is not set - invalid for mode {MINIMIZATION_TARGET}")
 
         # Check that baseline total_data isn't empty
