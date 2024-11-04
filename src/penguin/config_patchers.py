@@ -599,6 +599,39 @@ class SingleShot(PatchGenerator):
             }
         }
 
+class ManualInteract(PatchGenerator):
+    '''
+    Interactive for manual exploration. Enable root shell, enable
+    vpn. Do not terminate on www bind.
+    '''
+    def __init__(self):
+        self.patch_name = "manual"
+        self.enabled = False
+
+    def generate(self, patches):
+        return {
+            "core": {
+                "root_shell": True
+            },
+            "plugins": {
+                "nmap": {
+                    "enabled": False,
+                },
+                "coverage": {
+                    "enabled": False,
+                },
+                "vpn": {
+                    "enabled": True,
+                },
+                "netbinds":
+                {
+                    "enabled": True,
+                    "shutdown_on_www": False,
+                },
+
+            }
+        }
+
 class NetdevsDefault(PatchGenerator):
     '''
     Add list of default network device names
