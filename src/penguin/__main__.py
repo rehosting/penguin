@@ -654,6 +654,8 @@ contains details on the configuration file format and options.
         guest_cmd(args)
     elif args.cmd in ["explore", "ga_explore", "patch_explore", "minimize"]:
         penguin_explore(args)
+    elif args.cmd == "guest_cmd":
+        pass
     else:
         parser.print_help()
 
