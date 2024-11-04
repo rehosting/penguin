@@ -467,6 +467,17 @@ class BasePatch(PatchGenerator):
                     "mode": 0o444,
                     "host_path": os.path.join(*[STATIC_DIR, "ltrace", "*"]),
                 },
+                # GuestCmd stuff
+                "/igloo/utils/guesthopper": {
+                    "type": "host_file",
+                    "mode": 0o755,
+                    "host_path": "/igloo_static/guesthopper/guesthopper."+self.arch_name
+                },
+                "/igloo/init.d/guesthopper": {
+                    "type": "inline_file",
+                    "mode": 0o755,
+                    "contents":"RUST_LOG=info /igloo/utils/guesthopper &",
+                },
 
                 # Dynamic libraries
                 "/igloo/dylibs/*": {

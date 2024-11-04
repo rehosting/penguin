@@ -588,6 +588,11 @@ contains details on the configuration file format and options.
     )
     add_explore_arguments(parser_cmd_explore)
 
+
+    subparsers.add_parser(
+        "guest_cmd", help="Execute a command inside a guest and capture stdout/stderr"
+    )
+
     parser_cmd_ga_explore = subparsers.add_parser(
         "ga_explore", help="Search for alternative configurations to improve system health by using a genetic algorithm."
     )
@@ -633,6 +638,8 @@ contains details on the configuration file format and options.
         penguin_docs(args)
     elif args.cmd in ["explore", "ga_explore", "patch_explore", "minimize"]:
         penguin_explore(args)
+    elif args.cmd == "guest_cmd":
+        pass
     else:
         parser.print_help()
 
