@@ -29,7 +29,7 @@ def calculate_entropy(buffer: bytes) -> float:
 
 class PatchMinimizer():
     def __init__(self, proj_dir, config_path, output_dir, timeout,
-                 max_iters, nworkers, verbose, minimization_target="network_entropy"):
+                 max_iters, nworkers, verbose, minimization_target="webserver_start"):
         self.logger = getColoredLogger("penguin.patch_minmizer")
         self.proj_dir = (proj_dir + "/") if not proj_dir.endswith("/") else proj_dir
         self.output_dir = output_dir
@@ -377,6 +377,19 @@ class PatchMinimizer():
         return fraction_baseline >= 0.95
 
 
+    def verify_www_started(self, run_index):
+        '''
+        Check netbinds log to ensure we saw a webserver bind
+        '''
+        run_dir = os.path.join(self.run_base, str(run_index))
+        with open(os.path.join(*[run_dir, "output", "netbinds_summary.csv"])) as f:
+            reader = csv.DictReader(f)
+            netbinds = [row for row in reader]
+            www_start = any([row['bound_www'] == 'True' for row in netbinds])
+            if not www_start:
+                self.logger.info(f"Run {run_index} did not start a webserver. Not viable")
+            return www_start
+
     def config_still_viable(self, run_index):
         '''
         Compare the results from this run to our baseline. Determine if it's still viable.
@@ -388,6 +401,12 @@ class PatchMinimizer():
 
         elif self.minimization_target == "coverage":
             return self.verify_coverage(run_index)
+
+        elif self.minimization_target == "webserver_start":
+            return self.verify_www_started(run_index)
+
+        else:
+            raise ValueError(f"Minimalization target {self.minimization_target} not recognized")
 
     @staticmethod
     def percentile(data, percentile):
