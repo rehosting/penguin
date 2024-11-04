@@ -476,7 +476,7 @@ class BasePatch(PatchGenerator):
                 "/igloo/init.d/guesthopper": {
                     "type": "inline_file",
                     "mode": 0o755,
-                    "contents":"RUST_LOG=info /igloo/utils/guesthopper &",
+                    "contents":"RUST_LOG=info /igloo/utils/guesthopper -s /igloo/utils/sh &",
                 },
 
                 # Dynamic libraries
