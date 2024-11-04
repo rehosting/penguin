@@ -60,10 +60,16 @@ class PatchMinimizer():
                 self.logger.info("Ignoring single_shot patch to support automated minimization")
                 continue
 
-            if not patch.endswith("/base.yaml") and not patch.endswith("/auto_explore.yaml"):
-                self.patches_to_test.append(patch)
-            else:
+            if patch.endswith("/manual.yaml"):
+                self.logger.info("Ignoring manual patch to support automated minimization")
+                continue
+
+            if any(patch.endswith(f"/{x}.yaml") for x in ["base", "auto_explore", "lib_inject.core"]):
+                # Patches we just leave *always* enabled: base, auto_explore and lib_inject.core
                 self.base_config["patches"].append(patch)
+            else:
+                # Patches we want to test. Will never include manual or single_shot (since we filtered at start of loop)
+                self.patches_to_test.append(patch)
 
         # Ensure we have static_patches/auto_explore.yaml and NOT single_shot.yaml
         if not any([patch.endswith("/auto_explore.yaml") for patch in self.base_config["patches"]]):
@@ -289,8 +295,13 @@ class PatchMinimizer():
                 with open(file_path, 'r', newline='') as csvfile:
                     reader = csv.DictReader(csvfile)
                     for row in reader:
-                        sublist[0].append(int(row['bytes_to_guest']))
-                        sublist[1].append(int(row['bytes_from_guest']))
+                        try:
+                            sublist[0].append(int(row['bytes_to_guest']))
+                            sublist[1].append(int(row['bytes_from_guest']))
+                        except ValueError as e:
+                            self.logger.error(f"Error reading {file_path}: {e}")
+                            self.logger.error(f"Row: {row}")
+                            continue
                 if port not in total_data:
                     total_data[port] = {'to_guest':[], 'from_guest':[], 'entropy': 0.0}
                 total_data[port]['to_guest'].extend(sublist[0])
@@ -325,7 +336,7 @@ class PatchMinimizer():
                 continue # Skip non-target ports
 
             if port not in self.data_baseline.keys():
-                self.logger.warning("On run {run_index}, port {port} produces traffic not seen in baseline. Ignoring")
+                self.logger.warning(f"On run {run_index}, port {port} produces traffic not seen in baseline. Ignoring")
                 continue
 
             # IF ENTROPY - how does the entropy of the response compare to the baseline? We want it to be similar
@@ -587,8 +598,8 @@ class PatchMinimizer():
             first_half = self.config_still_viable(first_half_index)
             second_half = self.config_still_viable(second_half_index)
             if first_half and second_half:
-                self.logger.error("Config bisection had both halves pass. This is unexpected!!")
-                self.logger.error("Moving to slow mode, it's possible you have overlapping patches")
+                self.logger.warning("Config bisection had both halves pass. It seems like no patches matter")
+                self.patches_to_test.clear()
                 patchsets.clear()
                 break
             elif not first_half and not second_half:
