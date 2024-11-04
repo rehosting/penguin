@@ -191,6 +191,7 @@ class ConfigBuilder:
             RootShell(),
             DynamicExploration(),
             SingleShot(),
+            ManualInteract(),
             NetdevsDefault(),
             NetdevsTailored(static_results['InterfaceFinder']),
             PseudofilesExpert(),
