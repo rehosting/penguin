@@ -27,9 +27,16 @@ def calculate_entropy(buffer: bytes) -> float:
 
     return entropy
 
+
+VALID_TARGETS = ["webserver_start", "coverage", "network_traffic", "network_entropy"]
+
 class PatchMinimizer():
     def __init__(self, proj_dir, config_path, output_dir, timeout,
-                 max_iters, nworkers, verbose, minimization_target="network_entropy"):
+                 max_iters, nworkers, verbose, minimization_target="webserver_start"):
+
+        if minimization_target not in VALID_TARGETS:
+            raise ValueError(f"Invalid minimization target {minimization_target}. Must be one of {VALID_TARGETS}")
+
         self.logger = getColoredLogger("penguin.patch_minmizer")
         self.proj_dir = (proj_dir + "/") if not proj_dir.endswith("/") else proj_dir
         self.output_dir = output_dir
@@ -55,16 +62,28 @@ class PatchMinimizer():
 
         # Gather all the candidate patches and our base config to include patches we need for exploration
         self.base_config["patches"] = list()
+
+        # We have 3 patches to pick between: manual, single_shot, and auto_explore.
+        # We never want manual. But we might want either single_shot or auto_explore depending on self.minimization_target
+        # If we're set to www_start, we want to take single_shot, else we want auto_explore
+
+        ignore_patches = ["manual"]
+        required_patches = ["base", "lib_inject.core"]
+
+        if self.minimization_target == "webserver_start":
+            ignore_patches.append("auto_explore")
+            this_required = "single_shot"
+        else:
+            ignore_patches.append("single_shot")
+            this_required = "auto_explore"
+
+        required_patches.append(this_required)
+
         for patch in base_config["patches"]:
-            if patch.endswith("/single_shot.yaml"):
-                self.logger.info("Ignoring single_shot patch to support automated minimization")
-                continue
+            if any(patch.endswith(f"{x}.yaml") for x in ignore_patches):
+                self.logger.info(f"Ignoring {patch} to support automated minimization")
 
-            if patch.endswith("/manual.yaml"):
-                self.logger.info("Ignoring manual patch to support automated minimization")
-                continue
-
-            if any(patch.endswith(f"/{x}.yaml") for x in ["base", "auto_explore", "lib_inject.core"]):
+            if any(patch.endswith(f"/{x}.yaml") for x in required_patches):
                 # Patches we just leave *always* enabled: base, auto_explore and lib_inject.core
                 self.base_config["patches"].append(patch)
             else:
@@ -72,11 +91,11 @@ class PatchMinimizer():
                 self.patches_to_test.append(patch)
 
         # Ensure we have static_patches/auto_explore.yaml and NOT single_shot.yaml
-        if not any([patch.endswith("/auto_explore.yaml") for patch in self.base_config["patches"]]):
-            self.logger.warning("Adding auto_explore patch to supported automated exploration to guide minimization")
+        if not any([patch.endswith(f"/{this_required}.yaml") for patch in self.base_config["patches"]]):
+            self.logger.warning(f"Adding {this_required} patch to supported automated exploration to guide minimization")
             # Ensure static_patches dir is in at least one of the patches
             assert (any([patch.startswith("static_patches") for patch in self.patches_to_test])), "No static_patches dir in patches - not sure how to add auto_explore"
-            self.base_config["patches"].append("static_patches/auto_explore.yaml")
+            self.base_config["patches"].append(f"static_patches/{this_required}.yaml")
 
         self.split_overlapping_patches()
 
@@ -268,8 +287,9 @@ class PatchMinimizer():
 
         output_dir = os.path.join(self.run_base, str(run_index), "output")
         total_data = dict()
-        pattern = re.compile(r"vpn_(?:([1-9\.]+)|\[[0-9a-f]\]+)_(\d+)")
-        pattern2 = re.compile(r"vpn_response_(?:([1-9\.]*)|\[[0-9a-f]\]).*_(\d+)")
+        pattern = re.compile(r"vpn_(?:([0-9\.]+)|\[[0-9a-f]\]+)_(\d+)")
+        pattern2 = re.compile(r"vpn_response_(?:([0-9\.]*)|\[[0-9a-f]\]).*_(\d+)")
+        pattern3 = re.compile(r"web_(?:([0-9\.]*)|\[[0-9a-f]\]).*_(\d+)")
 
         if len(os.listdir(output_dir)) == 0:
             self.logger.error(f"Run {run_index} produced no output. This is unexpected")
@@ -278,6 +298,9 @@ class PatchMinimizer():
         if not os.path.isfile(os.path.join(output_dir, ".ran")):
             self.logger.error(f"Run {run_index} did not complete. This is unexpected")
             return
+
+        default_data = {'to_guest':[], 'from_guest':[], 'entropy': 0.0, # Populated based on vpn logs
+                        'first_length': 0, 'first_entropy': 0.0} # Populated based on fetch_web logs
 
         for file in os.listdir(output_dir):
             #and extract the port number:
@@ -297,7 +320,7 @@ class PatchMinimizer():
                             self.logger.error(f"Row: {row}")
                             continue
                 if port not in total_data:
-                    total_data[port] = {'to_guest':[], 'from_guest':[], 'entropy': 0.0}
+                    total_data[port] = deepcopy(default_data)
                 total_data[port]['to_guest'].extend(sublist[0])
                 total_data[port]['from_guest'].extend(sublist[1])
 
@@ -306,17 +329,27 @@ class PatchMinimizer():
                 # Calculate the entropy of the response by reading the whole file
                 port = int(m.group(2))
                 if port not in total_data:
-                    total_data[port] = {'to_guest':[], 'from_guest':[], 'entropy': 0.0}
+                    total_data[port] = deepcopy(default_data)
 
                 file_path = os.path.join(output_dir, file)
                 with open(file_path, "rb") as f:
                     entropy = calculate_entropy(f.read())
                 self.logger.debug(f"Run {run_index} port {port} has entropy: {entropy:.02f}")
                 total_data[port]['entropy'] = entropy
+            elif m := pattern3.match(file):
+                # Looking at fetch_web log
+                port = int(m.group(2))
+                if port not in total_data:
+                    total_data[port] = deepcopy(default_data)
+                # Populate length and update entropy
+                with open(os.path.join(output_dir, file), "rb") as f:
+                    data = f.read()
+                    total_data[port]['first_entropy'] = calculate_entropy(data)
+                    total_data[port]['first_length'] = len(data)
 
         return total_data
 
-    def verify_www_traffic(self, run_index):
+    def verify_net_traffic(self, run_index):
         '''
         Given the results of a run, determine if it's still viable based on network traffic as compared to the baseline
         '''
@@ -324,6 +357,7 @@ class PatchMinimizer():
         target_ports = [80, 443]
 
         total_data = self.calculate_network_data(run_index)
+
         #Look at the bytes received from the guest
         for port, data in total_data.items():
             if len(target_ports) and port not in target_ports:
@@ -355,6 +389,13 @@ class PatchMinimizer():
                 if mean < 0.95 * baseline_mean:
                     self.logger.info(f"Run {run_index} is not viable based on mean bytes received from guest on port {port}")
                     return False
+
+            elif self.minimization_target == "webserver_start":
+                # We just want the webserver response to be non-empty
+                if data['first_length'] == 0:
+                    self.logger.info(f"Run {run_index} is not viable based on 0-byte first response length on port {port}")
+                    return False
+                self.logger.info(f"Run {run_index} has a non-empty first response on {port}: {data['first_length']} bytes with entropy {data['first_entropy']:.02f}")
             else:
                 raise ValueError(f"Unknown minimization target {self.minimization_target}")
         return True
@@ -387,6 +428,7 @@ class PatchMinimizer():
         Check netbinds log to ensure we saw a webserver bind
         '''
         run_dir = os.path.join(self.run_base, str(run_index))
+
         with open(os.path.join(*[run_dir, "output", "netbinds_summary.csv"])) as f:
             reader = csv.DictReader(f)
             netbinds = [row for row in reader]
@@ -400,18 +442,20 @@ class PatchMinimizer():
         Compare the results from this run to our baseline. Determine if it's still viable.
         If not, we return False, indicating that this config is not valid by our minimization target.
         '''
+        failure = False
 
-        if self.minimization_target in ["network_entropy", "network_traffic"]:
-            return self.verify_www_traffic(run_index)
+        if self.minimization_target == "webserver_start":
+            # If no www start, it's not viable
+            failure |= not self.verify_www_started(run_index)
 
-        elif self.minimization_target == "coverage":
-            return self.verify_coverage(run_index)
+        if not failure and self.minimization_target in ["webserver_start", "network_entropy", "network_traffic"]:
+            # If we're doing network stuff, we need to check the network data
+            failure |= not self.verify_net_traffic(run_index)
 
-        elif self.minimization_target == "webserver_start":
-            return self.verify_www_started(run_index)
+        if not failure and self.minimization_target == "coverage":
+            failure |= self.verify_coverage(run_index)
 
-        else:
-            raise ValueError(f"Minimalization target {self.minimization_target} not recognized")
+        return not failure
 
     @staticmethod
     def percentile(data, percentile):
@@ -487,6 +531,8 @@ class PatchMinimizer():
         # Score for baseline goes in self.scores (coverage) and data_baseline stores network data (entropy, bytes)
         self.scores[0] = score
         self.data_baseline = self.calculate_network_data(0)
+
+        assert(self.data_baseline), "Baseline data not established"
 
         self.config_still_viable(0)
 
