@@ -70,6 +70,25 @@ ARCH_ABI_INFO = dict(
             )
         ),
     ),
+    mips64el=dict(
+        target_triple="mips64el-linux-musl",
+        libnvram_arch_name="mips",
+        default_abi="n64",
+        abis=dict(
+            o32=dict(
+                musl_arch_name="mips",
+                m_flags=dict(abi="32"),
+            ),
+            n32=dict(
+                musl_arch_name="mipsn32",
+                m_flags=dict(abi="n32"),
+            ),
+            n64=dict(
+                musl_arch_name="mips64",
+                m_flags=dict(abi="64"),
+            ),
+        ),
+    ),
     mips64eb=dict(
         target_triple="mips64-linux-musl",
         libnvram_arch_name="mips",

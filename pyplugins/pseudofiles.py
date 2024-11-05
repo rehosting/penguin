@@ -327,6 +327,8 @@ class FileFailures(PyPlugin):
                 name, arg_names = self.syscall_info_table["arm"].get(nr, (None, None))
             elif "mips64eb" in arch:
                 name, arg_names = self.syscall_info_table["mipseb"].get(nr)
+            elif "mips64el" in arch:
+                name, arg_names = self.syscall_info_table["mipsel"].get(nr)
 
             if name is None:
                 return

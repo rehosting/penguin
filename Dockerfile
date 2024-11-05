@@ -1,14 +1,14 @@
 # versions of the various dependencies.
 ARG BASE_IMAGE="ubuntu:22.04"
 ARG DOWNLOAD_TOKEN="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"
-ARG PANDA_VERSION="1.8.50"
+ARG PANDA_VERSION="1.8.54"
 ARG BUSYBOX_VERSION="0.0.6"
-ARG LINUX_VERSION="2.4.8"
+ARG LINUX_VERSION="2.4.9"
 ARG LIBNVRAM_VERSION="0.0.15"
 ARG CONSOLE_VERSION="1.0.4"
-ARG PENGUIN_PLUGINS_VERSION="1.5.10"
-ARG VPN_VERSION="1.0.13"
-ARG HYPERFS_VERSION="0.0.31"
+ARG PENGUIN_PLUGINS_VERSION="1.5.15"
+ARG VPN_VERSION="1.0.16"
+ARG HYPERFS_VERSION="0.0.33"
 ARG GUESTHOPPER_VERSION="1.0.4"
 ARG GLOW_VERSION="1.5.1"
 ARG GUM_VERSION="0.14.5"
@@ -166,6 +166,7 @@ RUN cd / && \
   wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h && \
   mipseb-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipseb && \
   mips64eb-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/send_hypercall.mips64eb  && \
+  mips64el-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/send_hypercall.mips64el  && \
   mipsel-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipsel && \
   arm-linux-musleabi-gcc -s -static send_hypercall.c -o out/send_hypercall.armel && \
   aarch64-linux-musl-gcc -s -static send_hypercall.c -o out/send_hypercall.aarch64 && \
@@ -350,6 +351,7 @@ COPY --from=downloader /panda_plugins/aarch64/ /usr/local/lib/panda/aarch64/
 COPY --from=downloader /panda_plugins/mips/ /usr/local/lib/panda/mips/
 COPY --from=downloader /panda_plugins/mipsel/ /usr/local/lib/panda/mipsel/
 COPY --from=downloader /panda_plugins/mips64/ /usr/local/lib/panda/mips64/
+COPY --from=downloader /panda_plugins/mips64el/ /usr/local/lib/panda/mips64el/
 COPY --from=downloader /panda_plugins/x86_64/ /usr/local/lib/panda/x86_64/
 
 # Copy nmap build into /usr/local/bin
@@ -423,6 +425,7 @@ RUN if [ -d /tmp/local_packages ]; then \
             mv /tmp/plug/mips/* /usr/local/lib/panda/mips && \
             mv /tmp/plug/mipsel/* /usr/local/lib/panda/mipsel && \
             mv /tmp/plug/mips64/* /usr/local/lib/panda/mips64 && \
+            mv /tmp/plug/mips64el/* /usr/local/lib/panda/mips64el && \
             mv /tmp/plug/x86_64/* /usr/local/lib/panda/x86_64; \
         fi; \
         if [ -f /tmp/local_packages/kernels-latest.tar.gz ]; then \

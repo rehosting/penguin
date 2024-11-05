@@ -75,7 +75,7 @@ jobs:
       fail-fast: false
       matrix:
         kernel: ["4.10"]
-        arch: ["armel", "mipsel", "mipseb", "mips64eb", "aarch64", "x86_64"]
+        arch: ["armel", "mipsel", "mipseb", "mips64el", "mips64eb", "aarch64", "x86_64"]
 
     steps:
       - name: Install dependencies and label git workspace safe
