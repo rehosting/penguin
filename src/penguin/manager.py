@@ -44,7 +44,7 @@ def calculate_score(result_dir, have_console=True):
         # Sometimes this file is missing. I can't figure out why. It's related to the unint
         # method not getting called in health/core after a timeout. But I'm not sure why.
         print(f"WARNING: {result_dir}/health_final.yaml not found - cannot check for health")
-        return None
+        return {}
 
     with open(f"{result_dir}/health_final.yaml") as f:
         health_data = yaml.safe_load(f)
