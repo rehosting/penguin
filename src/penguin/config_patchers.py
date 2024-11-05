@@ -580,7 +580,7 @@ class DynamicExploration(PatchGenerator):
 class SingleShot(PatchGenerator):
     '''
     We are doing a single-shot, automated evaluation. Disable root shell,
-    leave coverage/nmap/vpn disabled - we won't actually connect to anything
+    leave coverage/nmap, but keep VPN on and use fetch_web to collect responses
     '''
     def __init__(self):
         self.patch_name = "single_shot"
@@ -599,12 +599,18 @@ class SingleShot(PatchGenerator):
                     "enabled": False,
                 },
                 "vpn": {
-                    "enabled": False,
+                    "enabled": True,
+                    "depends_on": "netbinds",
                 },
                 "netbinds":
                 {
                     "enabled": True,
-                    "shutdown_on_www": True,
+                    "shutdown_on_www": False, # We want fetch_web to do the shutdown
+                },
+                "fetch_web": {
+                    "depends_on": "vpn",
+                    "enabled": True,
+                    "shutdown_after_www": True,
                 },
 
             }
