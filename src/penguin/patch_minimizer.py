@@ -606,6 +606,7 @@ class PatchMinimizer():
 
                 if len(new_patch['pseudofiles']) or len(new_patch.keys()) > 1:
                     # The new patch is doing something (either relevant pseudofiles or other actions)
+                    os.makedirs(self.dynamic_patch_dir, exist_ok=True)
                     new_patch_path = os.path.join(self.dynamic_patch_dir, f"relevant_pseudofiles_{hash_yaml_config(new_patch)[-6:]}_{os.path.basename(patch)}")
                     with open(new_patch_path, "w") as f:
                         yaml.dump(new_patch, f)
