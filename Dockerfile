@@ -259,7 +259,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       setuptools \
       sqlalchemy \
       yamlcore \
-      junit-xml
+      junit-xml \
+      requests
 
 
 FROM python_builder as version_generator

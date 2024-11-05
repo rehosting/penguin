@@ -29,7 +29,7 @@ def calculate_entropy(buffer: bytes) -> float:
 
 class PatchMinimizer():
     def __init__(self, proj_dir, config_path, output_dir, timeout,
-                 max_iters, nworkers, verbose, minimization_target="network_entropy"):
+                 max_iters, nworkers, verbose, minimization_target="www_fetcher"):
         self.logger = getColoredLogger("penguin.patch_minmizer")
         self.proj_dir = (proj_dir + "/") if not proj_dir.endswith("/") else proj_dir
         self.output_dir = output_dir
@@ -394,6 +394,29 @@ class PatchMinimizer():
             if not www_start:
                 self.logger.info(f"Run {run_index} did not start a webserver. Not viable")
             return www_start
+    def verify_www_fetch(self, run_index):
+        run_dir = os.path.join(self.run_base, str(run_index))
+        www_fetched = dict()
+        for f in os.listdir(os.path.join(run_dir, "output")):
+            if f.startswith("www_fetcher"):
+                guest_port = int(f.split("_")[-2])
+                with open(os.path.join(run_dir,"output",f), "rb") as f:
+                    bytes_resp = int(f.read())
+                    if bytes_resp > 0:
+                        if guest_port not in www_fetched:
+                            www_fetched[guest_port] = 0
+                        www_fetched[guest_port] += 1
+        for port, count in self.data_baseline.items():
+            if port not in www_fetched:
+                self.logger.info(f"Run {run_index} did not fetch from port {port}")
+                return False
+            if count > www_fetched[port]:
+                self.logger.info(f"Config not viable: run {run_index} had {www_fetched[port]} non-zero respones, on port {port} - baseline had {count}")
+                return False
+            elif count < www_fetched[port]:
+                self.logger.warn(f"Run {run_index} had {www_fetched[port]} non-zero respones, on port {port} - baseline had fewer: {count}")
+                return False
+        return True
 
     def config_still_viable(self, run_index):
         '''
@@ -409,6 +432,9 @@ class PatchMinimizer():
 
         elif self.minimization_target == "webserver_start":
             return self.verify_www_started(run_index)
+
+        elif self.minimization_target == "www_fetcher":
+            return self.verify_www_fetch(run_index)
 
         else:
             raise ValueError(f"Minimalization target {self.minimization_target} not recognized")
@@ -451,6 +477,9 @@ class PatchMinimizer():
             IF minimization target is network_traffic:
                 - It must generate network traffic
                 - actual requirements: should have the vpn and nmap plugins
+            IF minimization target is www_fetcher:
+                - We must get a non-empty response on either port 80 or 443
+                - actual requirements: should have the vpn plugin
 
         After validating the config, run the baseline and do an initial static minimization by removing any pseudofiles
         that aren't ever used. Split these into new patches and drop them from patches_to_test
@@ -470,6 +499,8 @@ class PatchMinimizer():
                 required_plugins = ['vpn', 'nmap']
             case 'webserver_start':
                 required_plugins = []
+            case 'www_fetcher':
+                required_plugins = ['vpn', 'www_fetcher']
 
         for required_plugin in required_plugins:
             if required_plugin not in self.original_patched_config['plugins']:
@@ -526,6 +557,22 @@ class PatchMinimizer():
                 if sum([data['entropy'] for data in self.data_baseline.values()]) == 0:
                     raise ValueError(f"Baseline run had no network entropy. Invalid for mode {self.minimization_target}")
 
+        if self.minimization_target == 'www_fetcher':
+            #Count up number of non-zero respones on guest ports (either 80 or 443)
+            #We aren't guaranteed to have the same host_port, so we won't track that
+            self.data_baseline = dict()
+            for f in os.listdir(os.path.join(run_dir, "output")):
+                if f.startswith("www_fetcher"):
+                    guest_port = int(f.split("_")[-2])
+                    with open(os.path.join(run_dir,"output",f), "rb") as f:
+                        bytes_resp = int(f.read())
+                        if bytes_resp > 0:
+                            if guest_port not in self.data_baseline:
+                                self.data_baseline[guest_port] = 0
+                            self.data_baseline[guest_port] += 1
+            if not self.data_baseline:
+                raise ValueError(f"Baseline config does not have a non-empty webserver response - invalid for mode {self.minimization_target}")
+            self.logger.info(f"Baseline config had non-empty webserver responses on ports {list(self.data_baseline.keys())})")
 
         # Great - we have a valid baseline. Now let's figure out if any pseudofile patches are irrelevant.
         # Look at output/pseudofiles_modeled.yaml - the keys here are the pseudofiles that were modeled, everything else is irrelevant
@@ -561,6 +608,7 @@ class PatchMinimizer():
                 if len(new_patch['pseudofiles']) or len(new_patch.keys()) > 1:
                     # The new patch is doing something (either relevant pseudofiles or other actions)
                     new_patch_path = os.path.join(self.dynamic_patch_dir, f"relevant_pseudofiles_{hash_yaml_config(new_patch)[-6:]}_{os.path.basename(patch)}")
+                    os.makedirs(self.dynamic_patch_dir, exist_ok=True)
                     with open(new_patch_path, "w") as f:
                         yaml.dump(new_patch, f)
                     self.patches_to_test.append(new_patch_path.replace(self.proj_dir, ""))

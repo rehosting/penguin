@@ -574,6 +574,11 @@ class DynamicExploration(PatchGenerator):
                     "depends_on": "core",
                     "shutdown_on_www": False,
                 },
+                "www_fetcher":
+                {
+                    "enabled": True,
+                    "depends_on": "vpn",
+                },
             }
         }
 
