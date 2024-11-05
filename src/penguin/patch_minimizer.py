@@ -29,7 +29,7 @@ def calculate_entropy(buffer: bytes) -> float:
 
 class PatchMinimizer():
     def __init__(self, proj_dir, config_path, output_dir, timeout,
-                 max_iters, nworkers, verbose, minimization_target="webserver_start"):
+                 max_iters, nworkers, verbose, minimization_target="network_entropy"):
         self.logger = getColoredLogger("penguin.patch_minmizer")
         self.proj_dir = (proj_dir + "/") if not proj_dir.endswith("/") else proj_dir
         self.output_dir = output_dir
@@ -205,9 +205,7 @@ class PatchMinimizer():
             # Remove it
             shutil.rmtree(run_dir)
         os.makedirs(run_dir)
-        self.logger.info(f"Starting run {run_index} in {run_dir} with patches:")
-        for p in patchset:
-            self.logger.info(f"\tRun {run_index} has patch {p}")
+        self.logger.info(f"Starting run {run_index} in {run_dir} with patches:\n\t" + "\n\t".join(patchset))
 
         new_config = deepcopy(self.base_config)
         new_config["patches"].extend(patchset)
@@ -230,10 +228,6 @@ class PatchMinimizer():
         with open(os.path.join(run_dir, "totalscore.txt"), "w") as f:
             total = float(sum(score.values()))
             f.write(f"{total}\n")
-
-        #if run_index == 0:
-        #    #We're the baseline
-        #    self.logger.info(f"Baseline finished! {score['blocks_covered']} blocks executed and {score['bound_sockets']} sockets bound")
         return run_index, score
 
     def run_configs(self, patchsets: List[str]):
@@ -293,11 +287,11 @@ class PatchMinimizer():
                 port = int(m.group(2))
                 file_path = os.path.join(output_dir, file)
                 with open(file_path, 'r', newline='') as csvfile:
-                    reader = csv.DictReader(csvfile)
+                    reader = csv.reader(csvfile)
                     for row in reader:
                         try:
-                            sublist[0].append(int(row['bytes_to_guest']))
-                            sublist[1].append(int(row['bytes_from_guest']))
+                            sublist[0].append(int(row[0]))
+                            sublist[1].append(int(row[1]))
                         except ValueError as e:
                             self.logger.error(f"Error reading {file_path}: {e}")
                             self.logger.error(f"Row: {row}")
@@ -514,15 +508,24 @@ class PatchMinimizer():
             # If you're minimizing on webserver start and your baseline doesn't start a webserver, that's a problem
             raise ValueError(f"Baseline config does not start a webserver - invalid for mode {self.minimization_target}")
 
-        if (self.minimization_target in ['network_traffic', 'network_entropy']) and not self.original_patched_config.get('plugins', {}).get('vpn', {}).get('log', False):
-            raise ValueError(f"Baseline config does not generate network traffic as plugins.vpn.log is not set - invalid for mode {self.minimization_target}")
+        if (self.minimization_target in ['network_traffic', 'network_entropy']):
+            if not self.data_baseline:
+                # Check that baseline total_data isn't empty
+                raise ValueError(f"Baseline config empty - no network traffic generated. Invalid for mode {self.minimization_target}")
 
-        # Check that baseline total_data isn't empty
-        if self.minimization_target == 'network_traffic' and not self.data_baseline:
-            raise ValueError(f"Baseline config empty - no network traffic generated. Invalid for mode {self.minimization_target}")
+            if not self.original_patched_config.get('plugins', {}).get('vpn', {}).get('log', False):
+                # Network VPN must be enabled
+                raise ValueError(f"Baseline config does not generate network traffic as plugins.vpn.log is not set - invalid for mode {self.minimization_target}")
 
-        if self.minimization_target == 'network_traffic' and sum([sum(data['from_guest']) for data in self.data_baseline.values()]) == 0:
-            raise ValueError(f"Baseline run had no network responses. Invalid for mode {self.minimization_target}")
+            if sum([sum(data['from_guest']) for data in self.data_baseline.values()]) == 0:
+                # Need network response
+                raise ValueError(f"Baseline run had no network responses. Invalid for mode {self.minimization_target}")
+
+            if self.minimization_target == 'network_entropy':
+                # If data was non-zero I think entropy must also be non-zero - probably redundant
+                if sum([data['entropy'] for data in self.data_baseline.values()]) == 0:
+                    raise ValueError(f"Baseline run had no network entropy. Invalid for mode {self.minimization_target}")
+
 
         # Great - we have a valid baseline. Now let's figure out if any pseudofile patches are irrelevant.
         # Look at output/pseudofiles_modeled.yaml - the keys here are the pseudofiles that were modeled, everything else is irrelevant
@@ -574,75 +577,74 @@ class PatchMinimizer():
 
         self.logger.info("Establishing baseline")
         self.establish_baseline()
+        slow_mode = not self.binary_search
 
-        patchsets=[self.patches_to_test] #our first patchset is the full set of patches
+        patchsets=[] # Start with an empty list, we'll add our halves later
 
         #Now, do the binary search. This is fairly optimistic, but can save a bunch of time when it works
-        while self.run_count < self.max_iters and self.binary_search:
-            self.logger.info(f"{len(self.patches_to_test)} patches remaining")
-            self.logger.debug(f"Patches to test: {self.patches_to_test}")
-            # XXX we used to special case the baseline as a 1-of-3 vs normally 1-of-2.
-            # Now we just run the baseline before starting
-            first_half_index = self.run_count
-            second_half_index = self.run_count + 1
-            patchsets.append(self.patches_to_test[:len(self.patches_to_test)//2])
-            patchsets.append(self.patches_to_test[len(self.patches_to_test)//2:])
+        if not slow_mode:
+            while self.run_count < self.max_iters:
+                self.logger.info(f"{len(self.patches_to_test)} patches remaining")
+                self.logger.debug(f"Patches to test: {self.patches_to_test}")
+                # XXX we used to special case the baseline as a 1-of-3 vs normally 1-of-2.
+                # Now we just run the baseline before starting
+                first_half_index = self.run_count
+                second_half_index = self.run_count + 1
+                patchsets.append(self.patches_to_test[:len(self.patches_to_test)//2])
+                patchsets.append(self.patches_to_test[len(self.patches_to_test)//2:])
 
-            self.run_configs(patchsets)
+                self.run_configs(patchsets)
 
-            #We need to record run 0's stats
-            if not self.data_baseline:
-                self.logger.warning("Establish_baseline did not record any data. This is unexpected - adding it after the fact")
-                self.config_still_viable(0)
+                #We need to record run 0's stats
+                if not self.data_baseline:
+                    raise ValueError("Baseline data not established")
 
-            first_half = self.config_still_viable(first_half_index)
-            second_half = self.config_still_viable(second_half_index)
-            if first_half and second_half:
-                self.logger.warning("Config bisection had both halves pass. It seems like no patches matter")
-                self.patches_to_test.clear()
-                patchsets.clear()
-                break
-            elif not first_half and not second_half:
-                self.logger.info("Config bisection had both halves fail. Time to move slowly")
-                patchsets.clear()
-                break
-            elif first_half:
-                self.logger.info("First half passed, second half failed. Considering first half")
-                self.patches_to_test = deepcopy(self.runmap[first_half_index])
-            else:
-                self.logger.info("First half failed, second half passed. Considering second half")
-                self.patches_to_test = deepcopy(self.runmap[second_half_index])
-
-            patchsets.clear()
-            if len(self.patches_to_test) == 1:
-                self.logger.info("Only one patch left. Stopping")
-                break
-
-        if not self.binary_search:
-            #If we skipped the binary search, we need to run the baseline
-            self.run_configs([self.patches_to_test])
-
-        #Assuming orthoganality of patches, we'll generate a config without each patch
-        #Greater than 2 since if we have two left binary search would've tested them both
-        if len(self.patches_to_test) > 2 or not self.binary_search:
-            run_tracker = dict()
-            for i, patch in enumerate(self.patches_to_test, start=self.run_count):
-                if i >= self.max_iters:
-                    self.logger.info("Hit max iterations. Stopping")
+                first_half = self.config_still_viable(first_half_index)
+                second_half = self.config_still_viable(second_half_index)
+                if first_half and second_half:
+                    self.logger.warning("Config bisection had both halves pass. Either half is a valid solution? Testing in slow mode")
+                    slow_mode = True
+                    patchsets.clear()
                     break
-                patchset = deepcopy(self.patches_to_test)
-                patchset.remove(patch)
-                patchsets.append(patchset)
-                run_tracker[i] = patch
-
-            self.run_configs(patchsets)
-
-            for i, patch in run_tracker.items():
-                if self.config_still_viable(i):
-                    self.logger.info(f"After running {i} removing {patch} from consideration, appears unecessary")
-                    self.patches_to_test.remove(patch)
+                elif not first_half and not second_half:
+                    self.logger.info("Config bisection had both halves fail. Time to move slowly")
+                    slow_mode = True
+                    patchsets.clear()
+                    break
+                elif first_half:
+                    self.logger.info("First half passed, second half failed. Considering first half")
+                    self.patches_to_test = deepcopy(self.runmap[first_half_index])
                 else:
-                    self.logger.info(f"Keeping {patch} since run {i} was not viable without it")
+                    self.logger.info("First half failed, second half passed. Considering second half")
+                    self.patches_to_test = deepcopy(self.runmap[second_half_index])
+
+                patchsets.clear()
+                if len(self.patches_to_test) == 1:
+                    self.logger.info("Only one patch left. Stopping")
+                    break
+
+        if slow_mode:
+            #Assuming orthoganality of patches, we'll generate a config without each patch
+            #Greater than 2 since if we have two left binary search would've tested them both
+            if len(self.patches_to_test) > 2 or not self.binary_search:
+                run_tracker = dict()
+                for i, patch in enumerate(self.patches_to_test, start=self.run_count):
+                    if i >= self.max_iters:
+                        self.logger.info("Hit max iterations. Stopping")
+                        break
+                    patchset = deepcopy(self.patches_to_test)
+                    patchset.remove(patch)
+                    patchsets.append(patchset)
+                    run_tracker[i] = patch
+
+                self.run_configs(patchsets)
+
+                for i, patch in run_tracker.items():
+                    if self.config_still_viable(i):
+                        self.logger.info(f"After running {i} removing {patch} from consideration, appears unnecessary")
+                        self.patches_to_test.remove(patch)
+                    else:
+                        self.logger.info(f"Keeping {patch} since run {i} was not viable without it")
 
         output_file = os.path.join(self.proj_dir, "minimized.yaml")
         #TODO: force overwrite of this when --force
