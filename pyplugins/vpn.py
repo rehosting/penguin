@@ -152,6 +152,10 @@ class VsockVPN(PyPlugin):
 
         if ipvn == 4:  # Only handling IPv4 wildcards like this for now
             if ip == "0.0.0.0":
+                # First run normal callback with 0.0.0.0 IP
+                host_port = self.bridge(sock_type, ip, port, procname, ipvn)
+                self.ppp_run_cb("on_bind", sock_type, ip, port, host_port, self.exposed_ip, procname)
+
                 # Add wild_ips
                 self.wild_ips.add((sock_type, port, procname))
 
@@ -161,6 +165,7 @@ class VsockVPN(PyPlugin):
                     self.ppp_run_cb(
                         "on_bind", sock_type, seen_ip, port, host_port, self.exposed_ip, procname
                     )
+                return # Skip the final call to bridge / trigger ppp callback
 
             elif ip not in self.seen_ips:
                 # Find all wild_ips, log this IP
