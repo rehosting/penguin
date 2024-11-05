@@ -50,6 +50,8 @@ def make_syscall_info_table():
         return pycparser.c_parser.CParser().parse(input)
 
     def parse_protos_file(arch):
+        if arch == "mips64el":
+            arch = "mips64"
         with open(f"/igloo_static/syscalls/linux_{arch}_prototypes.txt") as f:
             lines = [
                 line.split(maxsplit=1)
@@ -67,7 +69,7 @@ def make_syscall_info_table():
             )
             for nr, ast in parse_protos_file(arch)
         }
-        for arch in ("arm", "arm64", "mips", "mips64", "x64")
+        for arch in ("arm", "arm64", "mips", "mips64", "mips64el", "x64")
     }
 
     vals["aarch64"] = vals["arm64"]

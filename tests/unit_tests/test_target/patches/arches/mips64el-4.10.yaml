@@ -1,0 +1,33 @@
+core:
+  arch: mips64el
+  kernel: /igloo_static/kernels/4.10/vmlinux.mips64el
+
+static_files:
+  /igloo/utils/busybox:
+    type: host_file
+    host_path: /igloo_static/utils.bin/busybox.mips64el
+    mode: 493
+  /igloo/utils/strace:
+    type: host_file
+    host_path: /igloo_static/utils.bin/strace.mips64el
+    mode: 493
+  /igloo/utils/micropython:
+    type: host_file
+    host_path: /igloo_static/utils.bin/micropython.mips64el
+    mode: 493
+  /igloo/utils/hyperfs:
+    type: host_file
+    host_path: /igloo_static/utils.bin/hyperfs.mips64el
+    mode: 493
+  /igloo/utils/send_hypercall:
+    type: host_file
+    host_path: /igloo_static/utils.bin/send_hypercall.mips64el
+    mode: 493
+  /igloo/utils/vpn:
+    type: host_file
+    host_path: /igloo_static/vpn/vpn.mips64el
+    mode: 493
+  /igloo/dylibs/*:
+    host_path: /igloo_static/dylibs/mips64el/*
+    mode: 493
+    type: host_file

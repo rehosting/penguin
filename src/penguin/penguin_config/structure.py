@@ -59,10 +59,10 @@ class Core(BaseModel):
     model_config = ConfigDict(title="Core configuration options", extra="forbid")
 
     arch: Annotated[
-        Literal["armel", "aarch64", "mipsel", "mipseb", "mips64eb", "intel64"],
+        Optional[Literal["armel", "aarch64", "mipsel", "mipseb", "mips64el", "mips64eb", "intel64"]],
         Field(
             title="Architecture of guest",
-            examples=["armel", "aarch64", "mipsel", "mipseb", "mips64eb", "intel64"],
+            examples=["armel", "aarch64", "mipsel", "mipseb", "mips64el", "mips64eb", "intel64"],
         ),
     ]
     kernel: Annotated[
@@ -74,6 +74,7 @@ class Core(BaseModel):
                 "/igloo_static/kernels/zImage.arm64",
                 "/igloo_static/kernels/vmlinux.mipsel",
                 "/igloo_static/kernels/vmlinux.mipseb",
+                "/igloo_static/kernels/vmlinux.mips64el",
                 "/igloo_static/kernels/vmlinux.mips64eb",
             ],
         ),

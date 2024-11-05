@@ -103,7 +103,7 @@ rm -rf qcows
 mkdir -p qcows
 
 kernel_versions=("4.10" "6.7")
-archs=("armel" "mipsel" "mipseb", "mips64eb", "aarch64")
+archs=("armel" "mipsel" "mipseb", "mips64el", "mips64eb", "aarch64")
 tests=( "multiinit" "pseudofile" "env" "combined")
 
 # We can specify an arch, a test, and a kernel version

@@ -47,6 +47,13 @@ qemu_configs = {
         "kconf_group": "mipseb",
         "mem_gb": "2",
     },
+    "mips64el": {
+        "qemu_machine": "malta",
+        "arch": "mips64el",
+        "kconf_group": "mips64el",
+        "mem_gb": "2",
+        "cpu": "MIPS64R2-generic",
+    },
     "mips64eb": {
         "qemu_machine": "malta",
         "arch": "mips64",
@@ -387,7 +394,7 @@ def run_config(
         ]
 
     # ARM maps ttyS1 to the first listed device while MIPS maps ttyS0 to the first devie
-    if archend in ["mipsel", "mipseb", "mips64eb"]:
+    if archend in ["mipsel", "mipseb", "mips64el", "mips64eb"]:
         args = args + console_out + root_shell
     else:
         args = args + root_shell + console_out
