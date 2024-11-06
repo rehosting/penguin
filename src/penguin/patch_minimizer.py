@@ -394,6 +394,7 @@ class PatchMinimizer():
             if not www_start:
                 self.logger.info(f"Run {run_index} did not start a webserver. Not viable")
             return www_start
+
     def verify_www_fetch(self, run_index):
         run_dir = os.path.join(self.run_base, str(run_index))
         www_fetched = dict()
@@ -572,7 +573,15 @@ class PatchMinimizer():
                             self.data_baseline[guest_port] += 1
             if not self.data_baseline:
                 raise ValueError(f"Baseline config does not have a non-empty webserver response - invalid for mode {self.minimization_target}")
-            self.logger.info(f"Baseline config had non-empty webserver responses on ports {list(self.data_baseline.keys())})")
+            self.logger.info(f"Baseline config had non-empty webserver responses:{self.data_baseline})")
+
+            #Now create a dynamic patch for the shutdown condition
+            os.makedirs(self.dynamic_patch_dir, exist_ok=True)
+            new_patch_path = os.path.join(self.dynamic_patch_dir, "www_fetcher_shutdown.yaml")
+            new_patch = {"plugins": {"www_fetcher": {"enabled": True, "depends_on": "vpn",
+                                                     "shutdown_dict": self.data_baseline}}}
+            with open(new_patch_path, "w") as f:
+                yaml.dump(new_patch, f)
 
         # Great - we have a valid baseline. Now let's figure out if any pseudofile patches are irrelevant.
         # Look at output/pseudofiles_modeled.yaml - the keys here are the pseudofiles that were modeled, everything else is irrelevant
