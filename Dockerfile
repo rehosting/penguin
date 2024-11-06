@@ -15,7 +15,7 @@ ARG GUM_VERSION="0.14.5"
 ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
 ARG LTRACE_PROTOTYPES_HASH="9db3bdee7cf3e11c87d8cc7673d4d25b"
 ARG MUSL_VERSION="1.2.5"
-ARG VHOST_DEVICE_VERSION="vhost-device-vsock-v0.1.0"
+ARG VHOST_DEVICE_VERSION="vhost-device-vsock-v0.2.0"
 
 FROM rust as vhost_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
