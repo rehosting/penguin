@@ -577,6 +577,45 @@ class DynamicExploration(PatchGenerator):
             }
         }
 
+class SingleShotFICD(PatchGenerator):
+    '''
+    We are doing a single-shot, automated evaluation. Disable root shell,
+    but keep VPN on and measure FICD
+    '''
+    def __init__(self):
+        self.patch_name = "single_shot_ficd"
+        self.enabled = True
+
+    def generate(self, patches):
+        return {
+            "core": {
+                "root_shell": False,
+            },
+            "plugins": {
+                "nmap": {
+                    "enabled": False,
+                },
+                "coverage": {
+                    "enabled": False,
+                },
+                "vpn": {
+                    "enabled": True,
+                    "depends_on": "netbinds",
+                },
+                "netbinds":
+                {
+                    "enabled": True,
+                    "shutdown_on_www": False, # We want ficd to do the shutdown
+                },
+                "ficd": {
+                    "enabled": True,
+                    "stop_on_if": True,
+                },
+            }
+        }
+
+
+
 class SingleShot(PatchGenerator):
     '''
     We are doing a single-shot, automated evaluation. Disable root shell,
