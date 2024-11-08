@@ -9,7 +9,7 @@ class FICD(PyPlugin):
     FICD metric based on Pandawan, see https://github.com/BUseclab/Pandawan/blob/main/plugins/pandawan/ficd.py
     The goal here is to produce a faithful representation of that metric in PENGUIN
 
-    "To this end, FICD considers that a firmware image reached If in if no previously unseen (i.e., unique) tasks are launched within tf seconds. We refer to tf as the time frame parameter"
+    "To this end, FICD considers that a firmware image reached Ifin in if no previously unseen (i.e., unique) tasks are launched within tf seconds. We refer to tf as the time frame parameter"
     "In our re-hosting experiments we use three (Py)PANDA plugins (coverage, syscalls_logger, and SyscallToKmodTracer) along with the FICD plugin, which results in the optimal tf = 220sec and tf = 300sec"
     """
     def __init__(self, panda):
@@ -19,7 +19,7 @@ class FICD(PyPlugin):
         self.unique_proc_times = {}
         self.seen_procs = set()
         self.prev_time = time.time()
-        self.if_reached = False
+        self.ifin_reached = False
         self.measured_tf = 0
         self.last_proc_time = 0
         self.outfile = path.join(self.get_arg("outdir"), "ficd.yaml")
@@ -57,7 +57,7 @@ class FICD(PyPlugin):
             self.on_exec(fname + " " + " ".join(argv))
 
     def reset(self):
-        self.if_reached = False
+        self.ifin_reached = False
         self.init_time = time.time()
 
     def on_exec(self, newproc):
@@ -69,16 +69,17 @@ class FICD(PyPlugin):
                 self.unique_proc_times[newproc] = [round(self.prev_time - self.init_time, 2), "Not Unique"]
                 measured_tf = self.prev_time - self.last_proc_time
                 if measured_tf > self.time_frame:
-                    self.if_reached = True
+                    self.ifin_reached = True
                     self.measured_tf = measured_tf
-                    self.logger.info(f"FICD If reached on exec occuring {self.prev_time - self.init_time} after start")
+                    self.ifin_time = self.prev_time-self.init_time
+                    self.logger.info(f"FICD Ifin reached on exec occuring {self.prev_time - self.init_time} after start")
                     if self.stop_on_if:
-                        self.logger.warning(f"Stopping on If reached...")
+                        self.logger.warning(f"Stopping on Ifin reached...")
                         self.panda.end_analysis()
                 return
 
-        if self.if_reached:
-            self.logger.warning(f"Warning! FICD If reached but new exec {newproc} was seen at time {self.prev_time - self.init_time}. System is likely being exercised.")
+        if self.ifin_reached:
+            self.logger.warning(f"Warning! FICD Ifin reached but new exec {newproc} was seen at time {self.prev_time - self.init_time}. System is likely being exercised.")
         self.last_proc_time = self.prev_time
         self.seen_procs.add(newproc)
         self.unique_proc_times[newproc] = [round(self.prev_time - self.init_time, 2), "Unique"]
@@ -86,12 +87,14 @@ class FICD(PyPlugin):
     def uninit(self):
         prev_time = time.time()
         with open(self.outfile, "w") as f:
-            f.write(f"if_reached: {self.if_reached}\n")
+            f.write(f"ifin_reached: {self.ifin_reached}\n")
+            if self.ifin_reached:
+                f.write(f"ifin_time: {self.ifin_time}\n")
             f.write(f"boot_time: {self.boot_time}\n")
             f.write(f"init_time: {self.init_time}\n")
             f.write(f"measured_tf: {self.measured_tf}\n")
             f.write(f"last_proc_start: {self.last_proc_time - self.init_time}\n")
             f.write(f"total_execution_time: {prev_time - self.init_time}\n")
-            f.write(f"time_past_tf: {measured_tf - self.time_frame}\n")
+            f.write(f"time_past_tf: {self.measured_tf - self.time_frame}\n")
 
 
