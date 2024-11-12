@@ -195,6 +195,15 @@ class Core(BaseModel):
             examples=[False, True],
         ),
     ]
+    extra_qemu_args: Annotated[
+        Optional[str],
+        Field(
+            None,
+            title="Extra QEMU arguments",
+            description="A list of additional QEMU command-line arguments to use when booting the guest",
+            examples=["-vnc :0 -vga std -device usb-kbd -device usb-tablet"],
+        ),
+    ]
 
 
 EnvVal = _newtype(
