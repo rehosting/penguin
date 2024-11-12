@@ -4,10 +4,6 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - src/penguin/penguin_config
-      - .github/workflows/test_schema.yaml
-      - docs/schema_doc.md
 
 jobs:
   upload_config_schema:

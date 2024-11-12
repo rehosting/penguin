@@ -10,7 +10,7 @@ Core configuration options for this rehosting
 
 |||
 |-|-|
-|__Type__|`"armel"` or `"aarch64"` or `"mipsel"` or `"mipseb"` or `"mips64eb"` or `"intel64"`|
+|__Type__|`"armel"` or `"aarch64"` or `"mipsel"` or `"mipseb"` or `"mips64el"` or `"mips64eb"` or `"intel64"` or null|
 
 
 ```yaml
@@ -27,6 +27,10 @@ mipsel
 
 ```yaml
 mipseb
+```
+
+```yaml
+mips64el
 ```
 
 ```yaml
@@ -58,6 +62,10 @@ intel64
 
 ```yaml
 /igloo_static/kernels/vmlinux.mipseb
+```
+
+```yaml
+/igloo_static/kernels/vmlinux.mips64el
 ```
 
 ```yaml
