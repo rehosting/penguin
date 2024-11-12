@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -411,6 +412,9 @@ def run_config(
 
     # Add vsock args
     args += vsock_args
+
+    # Add args from config
+    args += shlex.split(conf["core"].get("extra_qemu_args", ""))
 
     # Disable audio (allegedly speeds up emulation by avoiding running another thread)
     os.environ["QEMU_AUDIO_DRV"] = "none"

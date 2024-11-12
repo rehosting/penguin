@@ -278,6 +278,19 @@ false
 true
 ```
 
+### `core.extra_qemu_args` Extra QEMU arguments
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+A list of additional QEMU command-line arguments to use when booting the guest
+
+```yaml
+-vnc :0 -vga std -device usb-kbd -device usb-tablet
+```
+
 ## `patches` Patches
 
 |||
