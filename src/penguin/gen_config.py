@@ -247,7 +247,147 @@ def initialize_and_build_config(fs, out=None, artifacts_dir=None):
     if out is None:
         out = os.path.join(*[output_dir, "base", "config.yaml"])
 
-    # Ensure created files (e.g., base/*.yaml, output/*.yaml), are
+    if arch is None:
+        logger.error(f"Architecture {arch_identified} not supported ({arch}, {end})")
+        return
+
+    kernel = get_kernel_path(arch, end, static_dir)
+
+    base_dir = Path(output_dir, "base")
+    base_dir.mkdir(exist_ok=True, parents=True)
+    base_fs = Path(base_dir, "fs.tar.gz")
+    shutil.copy(fs, base_fs)
+
+    data = {}
+    data["core"] = {
+        "arch": arch if arch in ["aarch64", "intel64"] else arch + end,
+        "kernel": kernel,
+        "fs": "./base/fs.tar.gz",
+        "root_shell": True,
+        "show_output": False,
+        "strace": False,
+        "ltrace": False,
+        "version": default_version,
+        "auto_patching": True,
+        "guest_cmd": False,
+    }
+
+    data["blocked_signals"] = []
+    data["netdevs"] = default_netdevs
+
+    data["env"] = {}
+    data["pseudofiles"] = default_pseudofiles
+    data["lib_inject"] = {"aliases": default_lib_aliases}
+
+    data["static_files"] = {
+        "/igloo": {
+            "type": "dir",
+            "mode": 0o755,
+        },
+        "/igloo/init": {
+            "type": "inline_file",
+            "contents": default_init_script,
+            "mode": 0o111,
+        },
+        "/igloo/utils/sh": {
+            "type": "symlink",
+            "target": "/igloo/utils/busybox",
+        },
+        "/igloo/utils/sleep": {
+            "type": "symlink",
+            "target": "/igloo/utils/busybox",
+        },
+    }
+
+    # Copy over the scripts that /igloo/init sources so that users can modify them
+    source_d_dir = join(*[dirname(dirname(__file__)), "resources", "source.d"])
+    for f in os.listdir(source_d_dir):
+        data["static_files"][f"/igloo/source.d/{f}"] = {
+            "type": "inline_file",
+            "contents": open(os.path.join(source_d_dir, f)).read(),
+            "mode": 0o755,
+        }
+
+    data["static_files"]["/igloo/keys/*"] = {
+        "type": "host_file",
+        "mode": 0o444,
+        "host_path": join(*[dirname(dirname(__file__)), "resources", "static_keys", "*"])
+    }
+
+    # Add ltrace prototype files.
+    #
+    # They to go in `/igloo/ltrace`, because `/igloo` is treated as ltrace's
+    # `/usr/share`, and the files are normally in `/usr/share/ltrace`.
+    data["static_files"]["/igloo/ltrace/*"] = {
+        "type": "host_file",
+        "mode": 0o444,
+        "host_path": join(*[static_dir, "ltrace", "*"]),
+    }
+
+    dylib_dir = join(static_dir, "dylibs", arch + end)
+    utils_dir = join(static_dir, arch + end)
+    if arch == "aarch64":
+        # TODO: We should use a consistent name here. Perhaps aarch64eb?
+        dylib_dir = join(static_dir, "dylibs", "arm64")
+        utils_dir = join(static_dir, "arm64")
+    elif arch == "intel64":
+        dylib_dir = join(static_dir, "dylibs", "x86_64")
+        utils_dir = join(static_dir, "x86_64")
+
+    # Add dynamic libraries
+    data["static_files"]["/igloo/dylibs/*"] = {
+        "type": "host_file",
+        "mode": 0o755,
+        "host_path": join(dylib_dir, "*"),
+    }
+    data["static_files"]["/igloo/utils/*"] = {
+        "type": "host_file",
+        "mode": 0o755,
+        "host_path": join(utils_dir, "*"),
+    }
+    data["static_files"]["/igloo/utils"] = {
+        "type": "dir",
+        "mode": 0o755,
+    }
+    data["static_files"]["/igloo/"] = {
+        "type": "dir",
+        "mode": 0o755,
+    }
+
+    # Add executable binaries, can't use a full directory copy here because we rename things
+
+    data["plugins"] = default_plugins
+
+    if settings.get("coverage"):
+        data["plugins"]["coverage"]["enabled"] = True
+
+    # Explicitly placing this at the end
+    data["nvram"] = {}
+
+    if auto_explore:
+        # If auto_explore, we'll enable extra plugins to generate coverage - unless we're told the VPN is disabled.
+        if "vpn" in data["plugins"] and data["plugins"]["vpn"].get("enabled", True):
+            # If we have VPN (which we will if we have vsock), turn on zap and nmap
+            for p in ["nmap"]:
+                if p in data["plugins"]:
+                    data["plugins"][p]["enabled"] = True
+
+        # Also disable root shell and set timeout to 5 minutes (unless told otherwise)
+        data["core"]["root_shell"] = False
+        data["plugins"]["core"]["timeout"] = timeout if timeout else 300
+    else:
+        # Interactive, let's enable root shell and fully delete some plugins
+        data["core"]["root_shell"] = True
+        for p in ["zap", "nmap" "coverage"]:
+            if p in data["plugins"]:
+                del data["plugins"][p]
+
+    # Make sure we have a base directory to store config
+    # and static results in.
+    if not os.path.isdir(os.path.join(output_dir, "base")):
+        os.makedirs(os.path.join(output_dir, "base"))
+
+    # If we create files (e.g., base/*.yaml, output/*.yaml), we want them to be
     # readable/writable by everyone since non-container users will want to access them
     os.umask(0o000)
 
