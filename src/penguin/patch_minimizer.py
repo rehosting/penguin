@@ -71,10 +71,10 @@ class PatchMinimizer():
         required_patches = ["base", "lib_inject.core"]
 
         if self.minimization_target == "webserver_start":
-            ignore_patches.append("auto_explore")
-            this_required = "single_shot"
+            ignore_patches.extend(["auto_explore","single_shot"])
+            this_required = "single_shot_ficd"
         else:
-            ignore_patches.append("single_shot")
+            ignore_patches.append("single_shot_ficd","single_shot")
             this_required = "auto_explore"
 
         required_patches.append(this_required)
@@ -97,14 +97,15 @@ class PatchMinimizer():
             assert (any([patch.startswith("static_patches") for patch in self.patches_to_test])), "No static_patches dir in patches - not sure how to add auto_explore"
             self.base_config["patches"].append(f"static_patches/{this_required}.yaml")
 
+        #Patches can override options in previous patches
+        #this can cause serious issues with our minimization algorithm since we assume patches are orthoganal
+        self.original_patched_config = load_config(self.proj_dir, config_path)
+        self.remove_shadowed_options()
         self.split_overlapping_patches()
 
         self.run_base = os.path.join(output_dir, "runs")
         os.makedirs(self.run_base, exist_ok=True)
         dump_config(self.base_config, os.path.join(output_dir, "base_config.yaml"))
-
-        # Parse the config we just dumped, this renders the patches into our dict
-        self.original_patched_config = load_config(self.proj_dir, os.path.join(output_dir, "base_config.yaml"))
 
         self.logger.setLevel("DEBUG" if verbose else "INFO")
         self.logger.info(f"Loaded {len(self.patches_to_test)} patches to test")
@@ -163,11 +164,69 @@ class PatchMinimizer():
 
         return diff
 
+    @staticmethod
+    def filter_conflicts(final_dict, patch, path=""):
+        """
+        Filter out any keys that are in the final_dict but with a different value
+
+        This will need to get changed if patches start extending lists of instead of replacing them
+        """
+        filtered_patch = {}
+        conflicts = []
+
+        for key, value in patch.items():
+            current_path = f"{path}.{key}" if path else key
+
+            if key in final_dict:
+                if isinstance(value, dict) and isinstance(final_dict[key], dict):
+                    nested_filtered, nested_conflicts = PatchMinimizer.filter_conflicts(final_dict[key], value, current_path)
+                    if nested_filtered:
+                        filtered_patch[key] = nested_filtered
+                    conflicts.extend(nested_conflicts)
+                else:
+                    if final_dict[key] != value:
+                        conflicts.append((current_path, value, final_dict[key]))
+                    else:
+                        filtered_patch[key] = value
+            else:
+                filtered_patch[key] = value
+
+        return filtered_patch, conflicts
+
+    def remove_shadowed_options(self):
+        """
+        walk through each patch and remove any options that the unpatched config would overwrite
+        we remove the old patch and generate a new one
+        """
+        for patch in deepcopy(self.patches_to_test):
+            #load the patch
+            with open(os.path.join(self.proj_dir, patch), "r") as f:
+                loaded_patch = yaml.load(f, Loader=yaml.FullLoader)
+            #get the differences between the patched and unpatched config
+            new_patch, conflicts = self.__class__.filter_conflicts(self.original_patched_config, loaded_patch)
+
+            if conflicts:
+                self.patches_to_test.remove(patch)
+                if new_patch:
+                    os.makedirs(self.dynamic_patch_dir, exist_ok=True)
+                    new_patch_path = os.path.join(self.dynamic_patch_dir,
+                                                  f"unshadow_{patch.replace('/', '_')}_{hash_yaml_config(new_patch)[-6:]}.yaml")
+                    with open(new_patch_path, "w") as f:
+                        yaml.dump(new_patch, f)
+                    self.patches_to_test.append(new_patch_path.replace(self.proj_dir, ""))
+                    self.logger.info(f"Patch {patch} had options shadowed by final config, created a new patch without those options: {new_patch_path}")
+                else:
+                    self.logger.info(f"Patch {patch} had all options shadowed by final config, patch removed")
+                self.logger.debug(f"conflicts were in the following options: {conflicts}")
+            else:
+                self.logger.info(f"Patch {patch} is free of options shadowed by final config")
+
     def split_overlapping_patches(self):
         """
         If we have overlapping patches, we attempt to preserve orthoganality by splitting them
         Ensuring that each unique configuration option is in only one patch
-        Not fully tested on three-way overlaps
+        However, in a real config only the last option is considered. So we should throw away 
+        options that are not the last one.
         """
         overlapping = dict()
         for patch in self.patches_to_test:
