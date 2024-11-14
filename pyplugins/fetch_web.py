@@ -58,7 +58,7 @@ class FetchWeb(PyPlugin):
                     break
 
             except queue.Empty:
-                if first:
+                if first and self.shutdown_after_www:
                     self.logger.info("No responsive servers found.")
                     break
                 # Continue checking for new tasks until we shut down

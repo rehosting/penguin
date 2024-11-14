@@ -611,6 +611,11 @@ class SingleShotFICD(PatchGenerator):
                     "enabled": True,
                     "stop_on_if": True,
                 },
+                "fetch_web": {
+                    "depends_on": "vpn",
+                    "enabled": True,
+                    "shutdown_after_www": False,  # We want ficd to do the shutdown
+                },
             }
         }
 
