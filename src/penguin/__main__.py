@@ -9,6 +9,7 @@ import glob
 from os.path import dirname, join
 from pathlib import Path
 import sys
+import hashlib
 
 import art
 
@@ -539,6 +540,17 @@ def penguin_explore(args):
         verbose=args.verbose
     )
 
+# Function to calculate the SHA-256 hash of a file
+def get_file_hash(filename):
+    sha256 = hashlib.sha256()
+    try:
+        with open(filename, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256.update(chunk)
+    except FileNotFoundError:
+        print(f"Error: File '{filename}' not found.")
+        exit(1)
+    return sha256.hexdigest()
 
 def main():
     parser = argparse.ArgumentParser(
@@ -648,6 +660,21 @@ contains details on the configuration file format and options.
         logger.debug("Verbose logging enabled")
 
     logger.info("penguin %s", VERSION)
+
+    penguin_hash_env = os.getenv("PENGUIN_HASH")
+    if penguin_hash_env is None:
+        logger.error("PENGUIN_HASH environment variable is not set.")
+    penguin_file = "/usr/local/src/penguin_wrapper"
+    penguin_hash = get_file_hash(penguin_file)
+
+    if penguin_hash != penguin_hash_env:
+        logger.error(
+            "Current penguin file does not match /usr/local/src/penguin_wrapper."
+        )
+        logger.error(
+            'Rebuild penguin container or reinstall penguin from container with "docker run rehosting/penguin penguin_install | sudo sh"'
+        )
+
     if args.cmd == "init":
         penguin_init(args)
     elif args.cmd == "run":
