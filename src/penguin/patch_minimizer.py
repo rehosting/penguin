@@ -71,10 +71,10 @@ class PatchMinimizer():
         required_patches = ["base", "lib_inject.core"]
 
         if self.minimization_target == "webserver_start":
-            ignore_patches.extend(["auto_explore","single_shot_ficd"])
-            this_required = "single_shot"
+            ignore_patches.extend(["auto_explore","single_shot"])
+            this_required = "single_shot_ficd"
         else:
-            ignore_patches.append("single_shot","single_shot_ficd")
+            ignore_patches.append("single_shot_ficd","single_shot")
             this_required = "auto_explore"
 
         required_patches.append(this_required)
