@@ -426,6 +426,10 @@ class PatchMinimizer():
                 self.logger.warning(f"On run {run_index}, port {port} produces traffic not seen in baseline. Ignoring")
                 continue
 
+            if self.data_baseline[port]['first_length'] == 0:
+                #if we baseline didn't respond, we shouldn't expect one
+                continue
+
             # IF ENTROPY - how does the entropy of the response compare to the baseline? We want it to be similar
             # First assert that the baseline has entropy
             if self.minimization_target == "network_entropy":
@@ -590,6 +594,7 @@ class PatchMinimizer():
         # Score for baseline goes in self.scores (coverage) and data_baseline stores network data (entropy, bytes)
         self.scores[0] = score
         self.data_baseline = self.calculate_network_data(0)
+        self.logger.debug(f"data_baseline: {self.data_baseline}")
 
         assert(self.data_baseline), "Baseline data not established"
 
