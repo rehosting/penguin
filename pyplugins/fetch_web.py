@@ -4,6 +4,7 @@ import threading
 import queue
 from collections import Counter
 import math
+import time
 
 from pandare import PyPlugin
 from penguin import getColoredLogger
@@ -27,6 +28,7 @@ class FetchWeb(PyPlugin):
         self.worker_thread = threading.Thread(target=self.worker)
         self.worker_thread.daemon = True
         self.worker_thread.start()
+        self.start_time = time.time()
 
     def fetchweb_on_bind(self, proto, guest_ip, guest_port, host_port, host_ip, procname):
         """
@@ -42,40 +44,50 @@ class FetchWeb(PyPlugin):
         """
         Worker thread that processes fetch tasks one at a time.
         """
+        success = False #track if we've had a successful response (for quitting)
+        first = False #track if we've had a task yet
         while not self.shutting_down:
             try:
-                # Wait for a task
-                guest_ip, host_ip, guest_port, host_port, log_file_name = self.task_queue.get(timeout=1)
-                self.fetch(guest_ip, host_ip, guest_port, host_port, log_file_name)
+                # Wait for a task, sleeping 5s between every check
+                guest_ip, host_ip, guest_port, host_port, log_file_name = self.task_queue.get(timeout=5)
+                success = self.fetch(guest_ip, host_ip, guest_port, host_port, log_file_name)
                 self.task_queue.task_done()
+                first = True
 
-                if self.shutdown_after_www:
-                    self.shutting_down = True
-                    self.logger.info(f"Shutting down after fetching {guest_ip}:{guest_port}")
-                    self.panda.end_analysis()
+                if success and self.shutdown_after_www:
                     break
 
             except queue.Empty:
+                if first:
+                    self.logger.info("No responsive servers found.")
+                    break
                 # Continue checking for new tasks until we shut down
                 continue
+
+        if self.shutdown_after_www:
+            self.shutting_down = True
+            self.logger.info(f"Shutting down after fetching {guest_ip}:{guest_port}")
+            self.panda.end_analysis()
 
     def fetch(self, guest_ip, host_ip, guest_port, host_port, log_file_name):
         if os.path.isfile(log_file_name):
             log_file_name += ".alt"
 
+        time.sleep(20)  # Give service plenty of time to start
         cmd = ["wget", "-q", f"https://{host_ip}:{host_port}" if guest_port == 443 else f"http://{host_ip}:{host_port}", 
                "--no-check-certificate", "-O", log_file_name]
-        
+        timestamp = f"{(time.time() - self.start_time):.02f}s"
         try:
             subprocess.check_output(cmd, timeout=30)
         except subprocess.CalledProcessError as e:
-            self.logger.warning(f"Error running wget: {e}")
-            return
+            self.logger.warning(f"{timestamp}: Error running wget: {e}")
+            return False
         except subprocess.TimeoutExpired:
-            self.logger.warning(f"No response to wget for {host_ip}:{host_port} after 30s")
-            return
+            self.logger.warning(f"{timestamp}: No response to wget for {host_ip}:{host_port} after 30s")
+            return False
 
         with open(log_file_name, "rb") as f:
             buffer = f.read()
             entropy = calculate_entropy(buffer)
             self.logger.info(f"Service on {guest_ip}:{guest_port} responds with {len(buffer)} bytes, entropy {entropy:.02f}")
+        return True
