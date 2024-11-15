@@ -79,8 +79,10 @@ def patch_config(base_config, patch):
                 # Recursive update to handle nested dictionaries
                 base_config[key] = _recursive_update(base_config.get(key, {}), value)
             elif isinstance(value, list):
-                # Replace the list with the incoming list
-                base_config[key] = value
+                # Merge lists
+                seen = set()
+                combined = base_config[key] + value
+                base_config[key] = [x for x in combined if not (x in seen or seen.add(x))]
             else:
                 # Replace the base value with the incoming value
                 base_config[key] = value
