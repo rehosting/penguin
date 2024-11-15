@@ -540,6 +540,7 @@ def penguin_explore(args):
         verbose=args.verbose
     )
 
+
 # Function to calculate the SHA-256 hash of a file
 def get_file_hash(filename):
     sha256 = hashlib.sha256()
@@ -551,6 +552,7 @@ def get_file_hash(filename):
         print(f"Error: File '{filename}' not found.")
         exit(1)
     return sha256.hexdigest()
+
 
 def main():
     parser = argparse.ArgumentParser(
