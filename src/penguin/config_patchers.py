@@ -605,7 +605,7 @@ class SingleShotFICD(PatchGenerator):
                 "netbinds":
                 {
                     "enabled": True,
-                    "shutdown_on_www": False, # We want ficd to do the shutdown
+                    "shutdown_on_www": False, # FICD or www success results in shutdown
                 },
                 "ficd": {
                     "enabled": True,
@@ -614,7 +614,7 @@ class SingleShotFICD(PatchGenerator):
                 "fetch_web": {
                     "depends_on": "vpn",
                     "enabled": True,
-                    "shutdown_after_www": False,  # We want ficd to do the shutdown
+                    "shutdown_after_www": True,  # FICD or www success results in shutdown
                 },
             }
         }
