@@ -74,14 +74,16 @@ class V2:
     fix_guide = """
     In `lib_inject.aliases`,
 
-    1. Add the `libinject_` prefix to names of libnvram functions.
-
-    2. Change `'true'` to `libinject_ret_1`,
+    1. Change `'true'` to `libinject_ret_1`,
     `'false'` to `libinject_ret_0`,
     `'true1'` to `libinject_ret_1_arg`,
     and `'false1'` to `libinject_ret_0_arg`.
 
-    3. Add aliases of the form `X: libinject_X` for all the prefixed functions.
+    2. Replace `nvram_loaddefault` in the right side with `libinject_ret_1`.
+
+    3. Add the `libinject_` prefix to names of libnvram functions.
+
+    4. Add aliases of the form `X: libinject_X` for all the prefixed functions.
     https://github.com/rehosting/libnvram/commit/5cdd5156c777f497361d86c1c7f166ed9005a6f3
     """
 
@@ -109,6 +111,8 @@ class V2:
                     aliases[k] = "libinject_ret_1_arg"
                 case "false1":
                     aliases[k] = "libinject_ret_0_arg"
+                case "nvram_loaddefault":
+                    aliases[k] = "libinject_ret_1"
                 case _:
                     aliases[k] = f"libinject_{v}"
 
