@@ -20,6 +20,7 @@ class FetchWeb(PyPlugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.shutdown_after_www = self.get_arg_bool("shutdown_after_www")
+        self.shutdown_on_failure = self.get_arg_bool("shutdown_on_failure")
         self.task_queue = queue.Queue()
         self.ppp.VsockVPN.ppp_reg_cb("on_bind", self.fetchweb_on_bind)
         self.logger = getColoredLogger("plugins.fetch_web")
@@ -58,15 +59,16 @@ class FetchWeb(PyPlugin):
                     break
 
             except queue.Empty:
-                if first and self.shutdown_after_www:
+                if first and self.shutdown_on_failure:
                     self.logger.info("No responsive servers found.")
                     break
                 # Continue checking for new tasks until we shut down
                 continue
 
-        if self.shutdown_after_www:
+        if self.shutdown_after_www or self.shutdown_on_failure:
             self.shutting_down = True
-            self.logger.info(f"Shutting down after fetching {guest_ip}:{guest_port}")
+            timestamp = f"{(time.time() - self.start_time):.02f}s"
+            self.logger.info(f"Shutting down after fetching {guest_ip}:{guest_port} ({timestamp} after boot)")
             self.panda.end_analysis()
 
     def fetch(self, guest_ip, host_ip, guest_port, host_port, log_file_name):
