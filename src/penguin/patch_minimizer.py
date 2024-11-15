@@ -100,6 +100,7 @@ class PatchMinimizer():
         #Patches can override options in previous patches
         #this can cause serious issues with our minimization algorithm since we assume patches are orthoganal
         self.original_patched_config = load_config(self.proj_dir, config_path)
+        dump_config(self.original_patched_config, os.path.join(output_dir, "patched_config.yaml"))
         self.remove_shadowed_options()
         self.split_overlapping_patches()
 
@@ -168,8 +169,6 @@ class PatchMinimizer():
     def filter_conflicts(final_dict, patch, path=""):
         """
         Filter out any keys that are in the final_dict but with a different value
-
-        This will need to get changed if patches start extending lists of instead of replacing them
         """
         filtered_patch = {}
         conflicts = []
@@ -183,6 +182,10 @@ class PatchMinimizer():
                     if nested_filtered:
                         filtered_patch[key] = nested_filtered
                     conflicts.extend(nested_conflicts)
+                elif isinstance(value, list) and isinstance(final_dict[key], list):
+                    templist = [item for item in value if item in final_dict[key]]
+                    if templist:
+                        filtered_patch[key] = templist
                 else:
                     if final_dict[key] != value:
                         conflicts.append((current_path, value, final_dict[key]))
@@ -264,7 +267,9 @@ class PatchMinimizer():
                     #we might've emptied a patch
                     new_patches.append((diff_path, diff))
                 self.logger.debug(f"Removing {old_patch} from consideration due to overlap")
-                self.patches_to_test.remove(old_patch)
+                if old_patch in self.patches_to_test:
+                    # We may have already removed it from a three-way conflict
+                    self.patches_to_test.remove(old_patch)
 
             for path, new_patch in new_patches:
                 self.logger.info(f"Creating new patch {path} to preserve orthoganality")
