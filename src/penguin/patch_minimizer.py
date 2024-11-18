@@ -11,7 +11,7 @@ from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from penguin.common import getColoredLogger, yaml, frozenset_to_dict, dict_to_frozenset
-from .penguin_config import dump_config, hash_yaml_config, load_config, load_unpatched_config
+from .penguin_config.structure import dump_config, hash_yaml_config, load_config, load_unpatched_config
 from .manager import PandaRunner, calculate_score
 
 def calculate_entropy(buffer: bytes) -> float:

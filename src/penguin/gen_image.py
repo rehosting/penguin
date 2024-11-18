@@ -16,7 +16,7 @@ from penguin import getColoredLogger
 gen_image can be run as a separate script if this is loaded at the module
 level. This makes it easier to profile.
 """
-from penguin.penguin_config import load_config
+from penguin.penguin_config.structure import load_config
 
 """
 This class wrapped what used to be a libguestfs interface
@@ -329,32 +329,7 @@ def _modify_guestfs(g, file_path, file, project_dir):
             g.mkdir_p(dirname)
 
         elif action == "symlink":
-<<<<<<< HEAD
             _symlink_modify_guestfs(g, file_path, file)
-=======
-            # file['target'] is what we point to
-            linkpath = file_path  # This is what we create
-            # Delete linkpath AND CONTENTS if it already exists
-            if g.exists(linkpath):
-                try:
-                    g.rm_rf(linkpath)
-                except RuntimeError as e:
-                    # If directory is like /asdf/. guestfs gets mad. Just warn.
-                    logger.warning(
-                        f"could not delete existing symlink {linkpath} to recreate it: {e}"
-                    )
-                    return
-
-            # If target doesn't exist, we can't symlink
-            if not g.exists(file["target"]):
-                raise ValueError(
-                    f"Can't add symlink to {file['target']} as it doesn't exist in requested symlink from {linkpath}"
-                )
-
-            g.ln_s(file["target"], linkpath)
-            # Chmod the symlink to be 777 always
-            g.chmod(0o777, linkpath)
->>>>>>> 2fd31ce... fix(gen_image): resolve symlinks as necessary
 
         elif action == "dev":
             major = file["major"]
