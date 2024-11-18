@@ -674,7 +674,10 @@ contains details on the configuration file format and options.
             "Current penguin file does not match /usr/local/src/penguin_wrapper."
         )
         logger.error(
-            'Rebuild penguin container or reinstall penguin from container with "docker run rehosting/penguin penguin_install | sudo sh"'
+            'Reinstall global penguin from container with "docker run rehosting/penguin penguin_install | sudo sh"'
+        )
+        logger.error(
+            'Reinstall local penguin from container with "docker run rehosting/penguin penguin_install.local | sudo sh"'
         )
 
     if args.cmd == "init":
