@@ -17,7 +17,7 @@ from penguin import VERSION, getColoredLogger
 from .common import get_inits_from_proj
 from .gen_config import fakeroot_gen_config
 from .manager import PandaRunner, calculate_score
-from .penguin_config import load_config
+from .penguin_config.structure import load_config
 
 from .genetic import ga_search
 from .graph_search import graph_search

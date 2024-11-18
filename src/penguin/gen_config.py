@@ -33,7 +33,7 @@ from .defaults import (
     default_version as DEFAULT_VERSION,
     static_dir as STATIC_DIR
 )
-from .penguin_config import dump_config
+from .penguin_config.structure import dump_config
 
 logger = getColoredLogger("penguin.gen_config")
 

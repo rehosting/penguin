@@ -10,7 +10,7 @@ from copy import deepcopy
 from penguin import getColoredLogger
 from .common import yaml, get_inits_from_proj
 from .graphs import Configuration, ConfigurationManager, Failure, Mitigation
-from .penguin_config import dump_config, hash_yaml_config, load_config
+from .penguin_config.structure import dump_config, hash_yaml_config, load_config
 from .utils import AtomicCounter, get_mitigation_providers
 from .manager import PandaRunner, calculate_score
 
