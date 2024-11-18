@@ -673,11 +673,11 @@ contains details on the configuration file format and options.
         logger.error(
             "Current penguin file does not match /usr/local/src/penguin_wrapper."
         )
-        logger.error(
+        print(
             'Reinstall global penguin from container with "docker run rehosting/penguin penguin_install | sudo sh"'
         )
-        logger.error(
-            'Reinstall local penguin from container with "docker run rehosting/penguin penguin_install.local | sudo sh"'
+        print(
+            'Reinstall local penguin from container with "docker run rehosting/penguin penguin_install.local | sh"'
         )
 
     if args.cmd == "init":
