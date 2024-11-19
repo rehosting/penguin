@@ -1,8 +1,6 @@
 import os
 import shutil
-from time import sleep
 
-from typing import List
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
