@@ -3,6 +3,7 @@ from os import path
 from pandare import PyPlugin
 from penguin import getColoredLogger
 
+
 class Health(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
@@ -142,7 +143,7 @@ class Health(PyPlugin):
         #    for cls, details in self.events.items():
         #        f.write(f"  {cls}: {details[-1][1]}\n")
 
-        #In case we are first, make sure outdir exists
+        # In case we are first, make sure outdir exists
         if not path.exists(self.outdir):
             path.makedirs(self.outdir)
         with open(f"{self.outdir}/health_final.yaml", "w") as f:

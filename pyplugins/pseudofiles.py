@@ -125,7 +125,7 @@ class FileFailures(PyPlugin):
         self.logger = getColoredLogger("plugins.pseudofiles")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel(logging.DEBUG)
-        self.did_mtd_warn = False # Set if we've warned about misconfigured MTD devices
+        self.did_mtd_warn = False  # Set if we've warned about misconfigured MTD devices
 
         # XXX: It has seemed like this should be 1 for some architectures, but that can't be right?
         self.ENOENT = 2
@@ -1116,7 +1116,7 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         "action": "add_group",
                         "weight": 100 + len(new_paths),
                     },
-                    failure_name = failure.friendly_name
+                    failure_name=failure.friendly_name
                 )
             ]
 
@@ -1166,8 +1166,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                 "write": {
                                     "model": "discard"
                                 }
-                                }}},
-                            failure_name = failure.friendly_name
+                            }}},
+                            failure_name=failure.friendly_name
                         )
                     ]
                 elif failure.info["type"] == "mtd":
@@ -1191,8 +1191,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                 "write": {
                                     "model": "discard"
                                 }
-                                }}},
-                            failure_name = failure.friendly_name
+                            }}},
+                            failure_name=failure.friendly_name
                         )
                     ]
 
@@ -1217,8 +1217,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                     "model": "discard"
                                 }
                                 # no IOCTL for procfs
-                                }}},
-                            failure_name = failure.friendly_name
+                            }}},
+                            failure_name=failure.friendly_name
                         )
                     ]
 
@@ -1243,8 +1243,8 @@ class FileFailuresAnalysis(PenguinAnalysis):
                                     "model": "discard"
                                 }
                                 # no IOCTL for sysfs
-                                }}},
-                            failure_name = failure.friendly_name
+                            }}},
+                            failure_name=failure.friendly_name
                         )
                     ]
 
@@ -1262,24 +1262,24 @@ class FileFailuresAnalysis(PenguinAnalysis):
                     self.ANALYSIS_TYPE,
                     {"path": path, "action": "add", "weight": 100},
                     patch={
-                            "pseudofiles": {
-                                path: {
-                                    "read": {
-                                        "model": "zero"
-                                    },
-                                    "write": {
-                                        "model": "discard"
-                                    },
-                                    "ioctl": {
-                                        "*": {
-                                            "model": "return_const",
-                                            "val": 0
-                                        }
+                        "pseudofiles": {
+                            path: {
+                                "read": {
+                                    "model": "zero"
+                                },
+                                "write": {
+                                    "model": "discard"
+                                },
+                                "ioctl": {
+                                    "*": {
+                                        "model": "return_const",
+                                        "val": 0
                                     }
                                 }
                             }
-                        },
-                    failure_name = failure.friendly_name
+                        }
+                    },
+                    failure_name=failure.friendly_name
                 )
             ]
 
@@ -1311,16 +1311,16 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         "model": "zero",
                         "weight": 5,
                     },
-                    patch={ # XXX: We're adding read model 0 by default above - should this matter?
-                            "pseudofiles": {
-                                path: {
-                                    "read": {
-                                        "model": "zero"
-                                    },
-                                }
+                    patch={  # XXX: We're adding read model 0 by default above - should this matter?
+                        "pseudofiles": {
+                            path: {
+                                "read": {
+                                    "model": "zero"
+                                },
                             }
-                        },
-                    failure_name = failure.friendly_name
+                        }
+                    },
+                    failure_name=failure.friendly_name
                 )
             ]
 
@@ -1339,16 +1339,16 @@ class FileFailuresAnalysis(PenguinAnalysis):
                         "model": "discard",
                         "weight": 5,
                     },
-                    patch={ # XXX: We're adding read model 0 by default above - should this matter?
-                            "pseudofiles": {
-                                path: {
-                                    "read": {
-                                        "model": "discard"
-                                    },
-                                }
+                    patch={  # XXX: We're adding read model 0 by default above - should this matter?
+                        "pseudofiles": {
+                            path: {
+                                "read": {
+                                    "model": "discard"
+                                },
                             }
-                        },
-                failure_name = failure.friendly_name
+                        }
+                    },
+                    failure_name=failure.friendly_name
                 )
             ]
 
@@ -1382,19 +1382,19 @@ class FileFailuresAnalysis(PenguinAnalysis):
                             ),  # We want to use these symex results! Zero more likely to be correct?
                             "val": val,
                         },
-                        patch={ # XXX: We're adding ioctl model above - todo update?
-                                "pseudofiles": {
-                                    path: {
-                                        "ioctl": {
-                                            cmd: {
-                                                "model": "return_const",
-                                                "val": val,
-                                            }
-                                        },
-                                    }
+                        patch={  # XXX: We're adding ioctl model above - todo update?
+                            "pseudofiles": {
+                                path: {
+                                    "ioctl": {
+                                        cmd: {
+                                            "model": "return_const",
+                                            "val": val,
+                                        }
+                                    },
                                 }
-                            },
-                        failure_name = failure.friendly_name
+                            }
+                        },
+                        failure_name=failure.friendly_name
                     )
                     for val in failure.info["symex_results"]
                 ]
@@ -1413,18 +1413,18 @@ class FileFailuresAnalysis(PenguinAnalysis):
                             "model": "symex",
                         },
                         exclusive=self.ANALYSIS_TYPE,
-                        patch={ # XXX: We're adding ioctl model above - todo update?
-                                "pseudofiles": {
-                                    path: {
-                                        "ioctl": {
-                                            cmd: { # xxx should cmd be string?
+                        patch={  # XXX: We're adding ioctl model above - todo update?
+                            "pseudofiles": {
+                                path: {
+                                    "ioctl": {
+                                        cmd: {  # xxx should cmd be string?
                                                 "model": "symex",
-                                            },
-                                        }
+                                        },
                                     }
                                 }
+                            }
                         },
-                        failure_name = failure.friendly_name
+                        failure_name=failure.friendly_name
                     )
                 ]
 
