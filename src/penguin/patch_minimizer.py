@@ -4,7 +4,6 @@ import csv
 import re
 import statistics
 import math
-from time import sleep
 
 from collections import Counter
 from typing import List
@@ -231,7 +230,7 @@ class PatchMinimizer():
         """
         If we have overlapping patches, we attempt to preserve orthoganality by splitting them
         Ensuring that each unique configuration option is in only one patch
-        However, in a real config only the last option is considered. So we should throw away 
+        However, in a real config only the last option is considered. So we should throw away
         options that are not the last one.
         """
         overlapping = dict()
