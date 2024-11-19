@@ -52,7 +52,7 @@ def run_test(kernel, arch, image):
     base_config["patches"].append(f"patches/arches/{arch}-{kernel}.yaml")
 
     with open(new_config, "w") as file:
-        yaml.dump(base_config, file)
+        yaml.dump(base_config, file, sort_keys=False)
 
     logger.info("Created new config file at " + new_config)
     penguin_run(new_config, image)
