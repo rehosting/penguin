@@ -1,7 +1,7 @@
 import socket
 import struct
 import time
-from os.path import join, dirname
+from os.path import join
 
 from pandare import PyPlugin
 

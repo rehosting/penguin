@@ -76,7 +76,7 @@ class FICD(PyPlugin):
                     self.ifin_time = self.prev_time-self.init_time
                     self.logger.info(f"FICD Ifin reached on exec occuring {self.prev_time - self.init_time} after start")
                     if self.stop_on_if:
-                        self.logger.warning(f"Stopping on Ifin reached...")
+                        self.logger.warning("Stopping on Ifin reached...")
                         self.panda.end_analysis()
                 return
 
