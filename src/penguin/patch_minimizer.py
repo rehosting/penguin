@@ -765,7 +765,6 @@ class PatchMinimizer():
         # TODO: force overwrite of this when --force
         if not os.path.exists(output_file):
             self.logger.info(f"Writing minimized config to {output_file} (note: this may include auto_explore.yaml)")
-            patched_config = deepcopy(self.base_config)
             self.base_config["patches"].extend(self.patches_to_test)
             with open(output_file, "w") as f:
                 yaml.dump(self.base_config, f)
