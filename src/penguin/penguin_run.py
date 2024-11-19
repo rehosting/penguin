@@ -148,6 +148,27 @@ def redirect_stdout_stderr(stdout_path, stderr_path):
             print("stdout or stderr is None - cannot restore")
 
 
+def find_plugin_by_name(plugin_name, proj_dir, plugin_path):
+
+    def check_plugin_path(path, plugin):
+        p = os.path.join(path, plugin)
+        if os.path.isfile(p):
+            return p
+
+    if path := check_plugin_path(plugin_path, plugin_name):
+        return path, False
+    elif path := check_plugin_path(plugin_path, plugin_name + ".py"):
+        return path, False
+    elif path := check_plugin_path(proj_dir, plugin_name):
+        return path, True
+    elif path := check_plugin_path(proj_dir, plugin_name + ".py"):
+        return path, True
+    else:
+        raise ValueError(
+            f"Plugin not found: {path} with name={plugin_name} and plugin_path={plugin_path}"
+        )
+
+
 def run_config(
     proj_dir,
     conf_yaml,
@@ -493,16 +514,7 @@ def run_config(
             # Pass along special args from earlier - socket_path, uds_path
             args.update(vpn_args)
 
-        local_plugin = False
-        path = os.path.join(plugin_path, plugin_name + ".py")
-        if not os.path.isfile(path):
-            path = os.path.join(proj_dir, plugin_name + ".py")
-            if not os.path.isfile(path):
-                raise ValueError(
-                    f"Plugin not found: {path} with name={plugin_name} and plugin_path={plugin_path}"
-                )
-            else:
-                local_plugin = True
+        path, local_plugin = find_plugin_by_name(plugin_name, proj_dir, plugin_path)
         try:
             if len(panda.pyplugins.load_all(path, args)) == 0:
                 with open(os.path.join(out_dir, "plugin_errors.txt"), "a") as f:
