@@ -11,6 +11,7 @@ Core configuration options for this rehosting
 |||
 |-|-|
 |__Type__|`"armel"` or `"aarch64"` or `"mipsel"` or `"mipseb"` or `"mips64el"` or `"mips64eb"` or `"intel64"` or null|
+|__Default__|`null`|
 
 
 ```yaml
@@ -45,7 +46,8 @@ intel64
 
 |||
 |-|-|
-|__Type__|string|
+|__Type__|string or null|
+|__Default__|`null`|
 
 
 ```yaml
@@ -80,7 +82,7 @@ intel64
 
 
 ```yaml
-base/fs.tar
+base/fs.tar.gz
 ```
 
 ### `core.plugin_path` Path to search for PyPlugins
