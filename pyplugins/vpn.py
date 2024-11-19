@@ -7,7 +7,6 @@ from contextlib import closing
 from os import environ as env
 from os import geteuid
 from os.path import join
-from pathlib import Path
 
 from pandare import PyPlugin
 
