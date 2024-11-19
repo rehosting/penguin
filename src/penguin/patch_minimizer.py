@@ -2,7 +2,8 @@ import os
 import shutil
 import csv
 import re
-import statistics, math
+import statistics
+import math
 from time import sleep
 
 from collections import Counter
@@ -13,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from penguin.common import getColoredLogger, yaml, frozenset_to_dict, dict_to_frozenset
 from .penguin_config.structure import dump_config, hash_yaml_config, load_config, load_unpatched_config
 from .manager import PandaRunner, calculate_score
+
 
 def calculate_entropy(buffer: bytes) -> float:
     # Count the frequency of each byte value
@@ -29,6 +31,7 @@ def calculate_entropy(buffer: bytes) -> float:
 
 
 VALID_TARGETS = ["webserver_start", "coverage", "network_traffic", "network_entropy"]
+
 
 class PatchMinimizer():
     def __init__(self, proj_dir, config_path, output_dir, timeout,
@@ -54,10 +57,10 @@ class PatchMinimizer():
         self.original_config = base_config
         self.base_config = deepcopy(base_config)
         self.run_count = 0
-        self.scores = dict() #run_index -> score
-        self.runmap = dict() #run_index -> patchset
+        self.scores = dict()  # run_index -> score
+        self.runmap = dict()  # run_index -> patchset
 
-        #TODO: use FICD to set timeout if timeout parameter. Warn if FICD not reached
+        # TODO: use FICD to set timeout if timeout parameter. Warn if FICD not reached
         #      add an FICD option to run until FICD (which might have to do the baseline single-threaded)
 
         # Gather all the candidate patches and our base config to include patches we need for exploration
@@ -71,10 +74,10 @@ class PatchMinimizer():
         required_patches = ["base", "lib_inject.core"]
 
         if self.minimization_target == "webserver_start":
-            ignore_patches.extend(["auto_explore","single_shot"])
+            ignore_patches.extend(["auto_explore", "single_shot"])
             this_required = "single_shot_ficd"
         else:
-            ignore_patches.append("single_shot_ficd","single_shot")
+            ignore_patches.append("single_shot_ficd", "single_shot")
             this_required = "auto_explore"
 
         required_patches.append(this_required)
@@ -97,8 +100,8 @@ class PatchMinimizer():
             assert (any([patch.startswith("static_patches") for patch in self.patches_to_test])), "No static_patches dir in patches - not sure how to add auto_explore"
             self.base_config["patches"].append(f"static_patches/{this_required}.yaml")
 
-        #Patches can override options in previous patches
-        #this can cause serious issues with our minimization algorithm since we assume patches are orthoganal
+        # Patches can override options in previous patches
+        # this can cause serious issues with our minimization algorithm since we assume patches are orthoganal
         self.original_patched_config = load_config(self.proj_dir, config_path)
         dump_config(self.original_patched_config, os.path.join(output_dir, "patched_config.yaml"))
         self.remove_shadowed_options()
@@ -202,10 +205,10 @@ class PatchMinimizer():
         we remove the old patch and generate a new one
         """
         for patch in deepcopy(self.patches_to_test):
-            #load the patch
+            # load the patch
             with open(os.path.join(self.proj_dir, patch), "r") as f:
                 loaded_patch = yaml.load(f, Loader=yaml.FullLoader)
-            #get the differences between the patched and unpatched config
+            # get the differences between the patched and unpatched config
             new_patch, conflicts = self.__class__.filter_conflicts(self.original_patched_config, loaded_patch)
 
             if conflicts:
@@ -251,7 +254,7 @@ class PatchMinimizer():
             overlap_dict = frozenset_to_dict(overlap)
             new_patch_path = os.path.join(self.dynamic_patch_dir,
                                           f"overlap_{'_'.join(overlap_dict.keys())}_{hash_yaml_config(overlap_dict)[-6:]}.yaml")
-            new_patches = [(new_patch_path,frozenset_to_dict(overlap))]
+            new_patches = [(new_patch_path, frozenset_to_dict(overlap))]
             self.logger.info(f"Option {overlap_dict} is in multiple patches: {patches}")
             for old_patch in patches:
                 old_patch_path = os.path.join(self.proj_dir, old_patch)
@@ -260,11 +263,11 @@ class PatchMinimizer():
                 diff = PatchMinimizer.diff_dicts(new_patch, frozenset_to_dict(overlap))
 
                 old_patch_path = os.path.join(self.proj_dir, old_patch)
-                #Create the diff patch in dynamic dir still (originally used original dir, but would be misleading for static
+                # Create the diff patch in dynamic dir still (originally used original dir, but would be misleading for static
                 diff_path = os.path.join(self.dynamic_patch_dir,
                                          f"diff_{hash_yaml_config(diff)[-6:]}_{os.path.basename(old_patch_path)}")
                 if diff:
-                    #we might've emptied a patch
+                    # we might've emptied a patch
                     new_patches.append((diff_path, diff))
                 self.logger.debug(f"Removing {old_patch} from consideration due to overlap")
                 if old_patch in self.patches_to_test:
@@ -337,7 +340,7 @@ class PatchMinimizer():
                     self.scores[index] = score
                 except Exception as e:
                     print(f"Thread raised an exception: {e}")
-                    self.logger.exception(e) # Show the full traceback
+                    self.logger.exception(e)  # Show the full traceback
                     # Bail
                     executor.shutdown(wait=False)
                     break
@@ -363,11 +366,11 @@ class PatchMinimizer():
             self.logger.error(f"Run {run_index} did not complete. This is unexpected")
             return
 
-        default_data = {'to_guest':[], 'from_guest':[], 'entropy': 0.0, # Populated based on vpn logs
-                        'first_length': 0, 'first_entropy': 0.0} # Populated based on fetch_web logs
+        default_data = {'to_guest': [], 'from_guest': [], 'entropy': 0.0,  # Populated based on vpn logs
+                        'first_length': 0, 'first_entropy': 0.0}  # Populated based on fetch_web logs
 
         for file in os.listdir(output_dir):
-            #and extract the port number:
+            # and extract the port number:
             if m := pattern.match(file):
                 # Looking at a log of data amounts
                 sublist = ([], [])
@@ -417,22 +420,22 @@ class PatchMinimizer():
         '''
         Given the results of a run, determine if it's still viable based on network traffic as compared to the baseline
         '''
-        assert(self.data_baseline), "Baseline data not established"
+        assert (self.data_baseline), "Baseline data not established"
         target_ports = [80, 443]
 
         total_data = self.calculate_network_data(run_index)
 
-        #Look at the bytes received from the guest
+        # Look at the bytes received from the guest
         for port, data in total_data.items():
             if len(target_ports) and port not in target_ports:
-                continue # Skip non-target ports
+                continue  # Skip non-target ports
 
             if port not in self.data_baseline.keys():
                 self.logger.warning(f"On run {run_index}, port {port} produces traffic not seen in baseline. Ignoring")
                 continue
 
             if self.data_baseline[port]['first_length'] == 0:
-                #if we baseline didn't respond, we shouldn't expect one
+                # if we baseline didn't respond, we shouldn't expect one
                 continue
 
             # IF ENTROPY - how does the entropy of the response compare to the baseline? We want it to be similar
@@ -472,16 +475,16 @@ class PatchMinimizer():
         '''
         Given the results of a run, determine if it's still viable based on coverage as compared to the baseline
         '''
-        #First, see if we dropped the number of network binds
+        # First, see if we dropped the number of network binds
         if self.scores[run_index]["bound_sockets"] < self.scores[0]["bound_sockets"]:
             self.logger.info(f"Run {run_index} has fewer bound sockets than baseline. Not viable")
             return False
 
-        #Run 0 is always our baseline
+        # Run 0 is always our baseline
         baseline = self.scores[0]["blocks_covered"]
 
-        #Then, is overall health within 95% of the baseline?
-        #our_score = sum(self.scores[run_index].values())
+        # Then, is overall health within 95% of the baseline?
+        # our_score = sum(self.scores[run_index].values())
         our_score = self.scores[run_index]["blocks_covered"]
         fraction_baseline = our_score / baseline
         self.logger.info(f"Blocks covered for {run_index}: {our_score} (baseline: {baseline}), our_score/baseline: {fraction_baseline}")
@@ -489,7 +492,6 @@ class PatchMinimizer():
             self.logger.warning(f"Run {run_index} has more blocks >=10% more blocks covered than baseline. Are you sure baseline is optimized?")
 
         return fraction_baseline >= 0.95
-
 
     def verify_www_started(self, run_index):
         '''
@@ -590,18 +592,18 @@ class PatchMinimizer():
         if (self.minimization_target in ['network_traffic', 'network_entropy']) and not self.original_patched_config.get('plugins', {}).get('vpn', {}).get('log', False):
             raise ValueError(f"Config does not have plugins.vpn.log set, required for search mode {self.minimization_target}")
 
-        assert(self.run_count == 0), f"Establish baseline should be run first not {self.run_count}"
+        assert (self.run_count == 0), f"Establish baseline should be run first not {self.run_count}"
 
         patchset = self.patches_to_test
         _, score = self.run_config(patchset, 0)
-        self.run_count += 1 # Bump run_count so we don't re-run baseline
+        self.run_count += 1  # Bump run_count so we don't re-run baseline
 
         # Score for baseline goes in self.scores (coverage) and data_baseline stores network data (entropy, bytes)
         self.scores[0] = score
         self.data_baseline = self.calculate_network_data(0)
         self.logger.debug(f"data_baseline: {self.data_baseline}")
 
-        assert(self.data_baseline), "Baseline data not established"
+        assert (self.data_baseline), "Baseline data not established"
 
         self.config_still_viable(0)
 
@@ -640,7 +642,6 @@ class PatchMinimizer():
                 # If data was non-zero I think entropy must also be non-zero - probably redundant
                 if sum([data['entropy'] for data in self.data_baseline.values()]) == 0:
                     raise ValueError(f"Baseline run had no network entropy. Invalid for mode {self.minimization_target}")
-
 
         # Great - we have a valid baseline. Now let's figure out if any pseudofile patches are irrelevant.
         # Look at output/pseudofiles_modeled.yaml - the keys here are the pseudofiles that were modeled, everything else is irrelevant
@@ -684,20 +685,19 @@ class PatchMinimizer():
                 else:
                     self.logger.info(f"Removing patch {patch} entirely as it  only provides {len(irrelevant_pseudofiles)} irrelevant pseudofiles")
 
-
     def run(self):
-        #First, establish a baseline score by running the base config.
-        #We're going to do a binary search, so might as well run the other two halves as well
+        # First, establish a baseline score by running the base config.
+        # We're going to do a binary search, so might as well run the other two halves as well
 
-        #It is assumed by other code that run 0 is the baseline
+        # It is assumed by other code that run 0 is the baseline
 
         self.logger.info("Establishing baseline")
         self.establish_baseline()
         slow_mode = not self.binary_search
 
-        patchsets=[] # Start with an empty list, we'll add our halves later
+        patchsets = []  # Start with an empty list, we'll add our halves later
 
-        #Now, do the binary search. This is fairly optimistic, but can save a bunch of time when it works
+        # Now, do the binary search. This is fairly optimistic, but can save a bunch of time when it works
         if not slow_mode:
             while self.run_count < self.max_iters:
                 self.logger.info(f"{len(self.patches_to_test)} patches remaining")
@@ -711,7 +711,7 @@ class PatchMinimizer():
 
                 self.run_configs(patchsets)
 
-                #We need to record run 0's stats
+                # We need to record run 0's stats
                 if not self.data_baseline:
                     raise ValueError("Baseline data not established")
 
@@ -740,8 +740,8 @@ class PatchMinimizer():
                     break
 
         if slow_mode:
-            #Assuming orthoganality of patches, we'll generate a config without each patch
-            #Greater than 2 since if we have two left binary search would've tested them both
+            # Assuming orthoganality of patches, we'll generate a config without each patch
+            # Greater than 2 since if we have two left binary search would've tested them both
             if len(self.patches_to_test) > 2 or not self.binary_search:
                 run_tracker = dict()
                 for i, patch in enumerate(self.patches_to_test, start=self.run_count):
@@ -763,7 +763,7 @@ class PatchMinimizer():
                         self.logger.info(f"Keeping {patch} since run {i} was not viable without it")
 
         output_file = os.path.join(self.proj_dir, "minimized.yaml")
-        #TODO: force overwrite of this when --force
+        # TODO: force overwrite of this when --force
         if not os.path.exists(output_file):
             self.logger.info(f"Writing minimized config to {output_file} (note: this may include auto_explore.yaml)")
             patched_config = deepcopy(self.base_config)
@@ -774,8 +774,9 @@ class PatchMinimizer():
             self.logger.info(f"Config already exists at {output_file}, not overwriting")
         return self.patches_to_test
 
+
 def minimize(proj_dir, config_path, output_dir, timeout, max_iters=1000,
-                 nworkers=1, verbose=False):
+             nworkers=1, verbose=False):
     pm = PatchMinimizer(proj_dir, config_path, output_dir, timeout, max_iters, nworkers, verbose)
     pm.run()
     print(f"{len(pm.patches_to_test)} required patches: {pm.patches_to_test}")

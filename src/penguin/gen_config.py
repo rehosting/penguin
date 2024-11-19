@@ -1,23 +1,13 @@
 import click
-import csv
-import elftools
 import logging
 import os
-import re
 import shutil
-import stat
-import struct
 import subprocess
 import sys
-import tarfile
 import tempfile
 import yaml
 
-from collections import Counter, defaultdict
-from copy import deepcopy
-from elftools.common.exceptions import ELFError
-from elftools.elf.elffile import ELFFile
-from os.path import dirname, join
+from collections import defaultdict
 from pathlib import Path
 from penguin import getColoredLogger
 
@@ -25,17 +15,12 @@ from .config_patchers import *
 from .static_analyses import *
 
 from .defaults import (
-    DEFAULT_KERNEL,
-    default_init_script,
-    default_lib_aliases,
-    default_netdevs,
-    default_plugins,
     default_version as DEFAULT_VERSION,
-    static_dir as STATIC_DIR
 )
 from .penguin_config.structure import dump_config
 
 logger = getColoredLogger("penguin.gen_config")
+
 
 class ConfigBuilder:
     '''
@@ -84,7 +69,7 @@ class ConfigBuilder:
         results_dir.mkdir(exist_ok=True, parents=True)
 
         # Collect a list of all files in advance so we don't regenerate
-        #archive_files = TarHelper.get_all_members(fs_archive)
+        # archive_files = TarHelper.get_all_members(fs_archive)
 
         # Ordered list of static analyses to run (from static_analyses.py)
         # Each has an init method that can return results
@@ -113,7 +98,6 @@ class ConfigBuilder:
 
         return results
 
-
     def render_patches(self, output_dir, patches):
         '''
         Given a dictionary of patches, render them into output_dir / patches
@@ -125,7 +109,7 @@ class ConfigBuilder:
         patch_dir.mkdir(exist_ok=True, parents=True)
 
         def _convert_to_dict(data):
-            # Recursively convert defaultdict to dict so we can yaml-ize it 
+            # Recursively convert defaultdict to dict so we can yaml-ize it
             if isinstance(data, defaultdict):
                 return {k: _convert_to_dict(v) for k, v in data.items()}
             elif isinstance(data, dict):
@@ -145,7 +129,6 @@ class ConfigBuilder:
 
             with open(patch_dir / f"{name}.yaml", "w") as f:
                 yaml.dump(data, f, default_flow_style=False)
-
 
     def generate_initial_config(self, patches):
 
@@ -175,7 +158,6 @@ class ConfigBuilder:
             "nvram": {},
         }
 
-
     def create_patches(self, fs_archive, static_results, extract_dir):
         """
         Generate a patch that ensures we have all directories in a fixed list.
@@ -190,7 +172,7 @@ class ConfigBuilder:
             BasePatch(static_results['ArchId'], static_results['InitFinder']),
             RootShell(),
             DynamicExploration(),
-            #SingleShot(),
+            # SingleShot(),
             SingleShotFICD(),
             ManualInteract(),
             NetdevsDefault(),
@@ -213,7 +195,7 @@ class ConfigBuilder:
             ShimNoModules(archive_files),
             ShimBusybox(archive_files),
             ShimCrypto(archive_files),
-            #ShimFwEnv(archive_files),
+            # ShimFwEnv(archive_files),
             NvramFirmAEFileSpecific(extract_dir),
             NvramDefaults(),
             NvramConfigRecoveryWild(extract_dir),
@@ -321,7 +303,7 @@ def main(fs, out, artifacts, verbose):
             os.makedirs(result_dir)
         with open(os.path.join(result_dir, "result"), "w") as f:
             f.write(str(e)+"\n")
-        logger.error(e) # Here we use .error to print the message without the traceback
+        logger.error(e)  # Here we use .error to print the message without the traceback
         return None
     except Exception as e:
         # Otherwise log error to results directory and with logger
@@ -333,7 +315,7 @@ def main(fs, out, artifacts, verbose):
         with open(os.path.join(result_dir, "result"), "w") as f:
             f.write(str(e)+"\n")
         logger.error(f"Error! Could not generate config for {fs}")
-        logger.exception(e) # Full traceback
+        logger.exception(e)  # Full traceback
         return None
 
 

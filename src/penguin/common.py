@@ -144,6 +144,7 @@ def getColoredLogger(name):
 
     return logger
 
+
 def get_inits_from_proj(proj_dir):
     '''
     Given a project directory, find a default init from
@@ -158,6 +159,7 @@ def get_inits_from_proj(proj_dir):
             options = yaml.safe_load(f)
             return options
 
+
 def dict_to_frozenset(d):
     # Recursively convert dictionaries and lists to frozensets and tuples
     if isinstance(d, dict):
@@ -166,6 +168,7 @@ def dict_to_frozenset(d):
         return tuple(dict_to_frozenset(item) for item in d)
     else:
         return d
+
 
 def frozenset_to_dict(fs):
     # Recursively convert frozensets and tuples back to dictionaries and lists

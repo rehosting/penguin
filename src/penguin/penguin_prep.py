@@ -181,7 +181,6 @@ def add_lib_inject_for_abi(config, abi):
         print("FATAL: Failed to build lib_inject. Did your config specify an invalid alias target in libinject.aliases? Did you create a new function in libinject.extra with a syntax error?")
         raise Exception("Failed to build lib_inject")
 
-
     config["static_files"][f"/igloo/lib_inject_{abi}.so"] = dict(
         type="inline_file",
         contents=p.stdout,

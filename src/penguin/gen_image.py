@@ -34,6 +34,7 @@ def get_mount_type(path):
     except subprocess.CalledProcessError:
         return None
 
+
 class LocalGuestFS:
     def __init__(self, base):
         self.base = base
@@ -525,8 +526,8 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
 
     # Decompress the archive and store in artifacts/fs_orig.tar
     # XXX: Why do we do this?
-    #ORIGINAL_DECOMP_FS = Path(ARTIFACTS, f"fs_orig.tar")
-    #check_output(f'gunzip -c "{IN_TARBALL}" > "{ORIGINAL_DECOMP_FS}"', shell=True)
+    # ORIGINAL_DECOMP_FS = Path(ARTIFACTS, f"fs_orig.tar")
+    # check_output(f'gunzip -c "{IN_TARBALL}" > "{ORIGINAL_DECOMP_FS}"', shell=True)
 
     project_dir = os.path.dirname(os.path.realpath(config_path))
 
@@ -568,18 +569,18 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
         IMAGE = Path(work_dir, "image.raw")
         check_output(["truncate", "-s", str(FILESYSTEM_SIZE), IMAGE])
         subprocess.run([
-                "genext2fs",
-                "--faketime",
-                "-N",
-                str(NUMBER_OF_INODES),
-                "-b",
-                str(REQUIRED_BLOCKS),
-                "-B",
-                str(BLOCK_SIZE),
-                "-a",
-                TARBALL,
-                IMAGE,
-            ],
+            "genext2fs",
+            "--faketime",
+            "-N",
+            str(NUMBER_OF_INODES),
+            "-b",
+            str(REQUIRED_BLOCKS),
+            "-B",
+            str(BLOCK_SIZE),
+            "-a",
+            TARBALL,
+            IMAGE,
+        ],
             stderr=subprocess.DEVNULL,
             check=True
         )

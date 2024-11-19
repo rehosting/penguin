@@ -8,12 +8,13 @@ from abc import ABC
 from elftools.common.exceptions import ELFError, ELFParseError
 from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import SymbolTableSection
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 from penguin import getColoredLogger
 
 from .arch import arch_filter, arch_end
 logger = getColoredLogger("penguin.static_analyses")
+
 
 class FileSystemHelper:
     @staticmethod
@@ -68,6 +69,7 @@ class StaticAnalysis(ABC):
     def run(self, extract_dir, prior_results):
         pass
 
+
 class ArchId(StaticAnalysis):
     def run(self, extracted_fs, prior_results):
         '''
@@ -100,7 +102,7 @@ class ArchId(StaticAnalysis):
                             continue
                         info = arch_filter(ef)
                     if info.bits is None or info.arch is None:
-                        arch_counts["unknown"]+= 1
+                        arch_counts["unknown"] += 1
                     else:
                         arch_counts[info.bits][info.arch] += 1
 
@@ -142,7 +144,6 @@ class ArchId(StaticAnalysis):
             logger.info(f"Unknown architecture count: {arch_counts['unknown']}")
             raise ValueError(f"Failed to determine architecture of filesystem")
 
-
         logger.debug(f"Identified architecture: {best}")
         return best
 
@@ -157,10 +158,12 @@ class ArchId(StaticAnalysis):
             ".so." in name or \
             name.endswith("busybox")
 
+
 class InitFinder(StaticAnalysis):
     '''
     Given an extracted filesystem, find potential init scripts and binaries
     '''
+
     def run(self, filesystem_root_path, prior_results):
         '''
         Search the filesystem, find any binaries that might be inits. Return
@@ -300,7 +303,7 @@ class EnvFinder(StaticAnalysis):
             known_vals = None
             pattern = re.compile(k + r"=([A-Za-z0-9_]+)", re.MULTILINE)
             potential_vals = FileSystemHelper.find_regex(pattern, extract_dir,
-                                              ignore=self.BORING_VARS).keys()
+                                                         ignore=self.BORING_VARS).keys()
 
             if len(potential_vals):
                 known_vals = list(potential_vals)
@@ -309,139 +312,140 @@ class EnvFinder(StaticAnalysis):
 
         return potential_env
 
+
 class PseudofileFinder(StaticAnalysis):
-    IGLOO_ADDED_DEVICES = [ "autofs", "btrfs-control", "cfs0", "cfs1", "cfs2","cfs3",
-                            "cfs4", "console", "cpu_dma_latency", "full", "fuse", "input", "kmsg",
-                            "loop-control", "loop0", "loop1", "loop2", "loop3", "loop4",
-                            "loop5", "loop6", "loop7", "mem", "memory_bandwidth", "mice", "net",
-                            "network_latency", "network_throughput", "null", "port", "ppp",
-                            "psaux", "ptmx", "pts", "ptyp0", "ptyp1", "ptyp2", "ptyp3", "ptyp4",
-                            "ptyp5", "ptyp6", "ptyp7", "ptyp8", "ptyp9", "ptypa", "ptypb",
-                            "ptypc", "ptypd", "ptype", "ptypf", "ram", "ram0", "ram1", "ram10",
-                            "ram11", "ram12", "ram13", "ram14", "ram15", "ram2", "ram3",
-                            "ram4", "ram5", "ram6", "ram7", "ram8", "ram9", "random", "root",
-                            "tty", "tty0", "tty1", "tty10", "tty11", "tty12", "tty13",
-                            "tty14", "tty15", "tty16", "tty17", "tty18", "tty19", "tty2",
-                            "tty20", "tty21", "tty22", "tty23", "tty24", "tty25", "tty26",
-                            "tty27", "tty28", "tty29", "tty3", "tty30", "tty31", "tty32",
-                            "tty33", "tty34", "tty35", "tty36", "tty37", "tty38", "tty39",
-                            "tty4", "tty40", "tty41", "tty42", "tty43", "tty44", "tty45",
-                            "tty46", "tty47", "tty48", "tty49", "tty5", "tty50", "tty51",
-                            "tty52", "tty53", "tty54", "tty55", "tty56", "tty57", "tty58",
-                            "tty59", "tty6", "tty60", "tty61", "tty62", "tty63", "tty7",
-                            "tty8", "tty9",
-                            "ttyS0", "ttyS1", "ttyS2", "ttyS3",
-                            "ttyp0",
-                            "ttyp1", "ttyp2", "ttyp3", "ttyp4", "ttyp5", "ttyp6", "ttyp7",
-                            "ttyp8", "ttyp9", "ttypa", "ttypb", "ttypc", "ttypd", "ttype",
-                            "ttypf", "tun", "urandom", "vcs", "vcs1", "vcsa", "vcsa1", "vda",
-                             "vga_arbiter", "vsock", "zero",
-                            "root", "pts", # Added in init
-                            "ttyAMA0", "ttyAMA1", # ARM
-                            "stdin", "stdout", "stderr", # Symlinks to /proc/self/fd/X
-                            ]
+    IGLOO_ADDED_DEVICES = ["autofs", "btrfs-control", "cfs0", "cfs1", "cfs2", "cfs3",
+                           "cfs4", "console", "cpu_dma_latency", "full", "fuse", "input", "kmsg",
+                           "loop-control", "loop0", "loop1", "loop2", "loop3", "loop4",
+                           "loop5", "loop6", "loop7", "mem", "memory_bandwidth", "mice", "net",
+                           "network_latency", "network_throughput", "null", "port", "ppp",
+                           "psaux", "ptmx", "pts", "ptyp0", "ptyp1", "ptyp2", "ptyp3", "ptyp4",
+                           "ptyp5", "ptyp6", "ptyp7", "ptyp8", "ptyp9", "ptypa", "ptypb",
+                           "ptypc", "ptypd", "ptype", "ptypf", "ram", "ram0", "ram1", "ram10",
+                           "ram11", "ram12", "ram13", "ram14", "ram15", "ram2", "ram3",
+                           "ram4", "ram5", "ram6", "ram7", "ram8", "ram9", "random", "root",
+                           "tty", "tty0", "tty1", "tty10", "tty11", "tty12", "tty13",
+                           "tty14", "tty15", "tty16", "tty17", "tty18", "tty19", "tty2",
+                           "tty20", "tty21", "tty22", "tty23", "tty24", "tty25", "tty26",
+                           "tty27", "tty28", "tty29", "tty3", "tty30", "tty31", "tty32",
+                           "tty33", "tty34", "tty35", "tty36", "tty37", "tty38", "tty39",
+                           "tty4", "tty40", "tty41", "tty42", "tty43", "tty44", "tty45",
+                           "tty46", "tty47", "tty48", "tty49", "tty5", "tty50", "tty51",
+                           "tty52", "tty53", "tty54", "tty55", "tty56", "tty57", "tty58",
+                           "tty59", "tty6", "tty60", "tty61", "tty62", "tty63", "tty7",
+                           "tty8", "tty9",
+                           "ttyS0", "ttyS1", "ttyS2", "ttyS3",
+                           "ttyp0",
+                           "ttyp1", "ttyp2", "ttyp3", "ttyp4", "ttyp5", "ttyp6", "ttyp7",
+                           "ttyp8", "ttyp9", "ttypa", "ttypb", "ttypc", "ttypd", "ttype",
+                           "ttypf", "tun", "urandom", "vcs", "vcs1", "vcsa", "vcsa1", "vda",
+                           "vga_arbiter", "vsock", "zero",
+                           "root", "pts",  # Added in init
+                           "ttyAMA0", "ttyAMA1",  # ARM
+                           "stdin", "stdout", "stderr",  # Symlinks to /proc/self/fd/X
+                           ]
 
     IGLOO_PROCFS = [
-                    "buddyinfo",
-                    "cgroups",
-                    "cmdline",
-                    "config.gz",
-                    "consoles",
-                    "cpuinfo",
-                    "crypto",
-                    "devices",
-                    "diskstats",
-                    "execdomains",
-                    "fb",
-                    "filesystems",
-                    "interrupts",
-                    "iomem",
-                    "ioports",
-                    "kallsyms",
-                    "key-users",
-                    "keys",
-                    "kmsg",
-                    "kpagecount",
-                    "kpageflags",
-                    "loadavg",
-                    "locks",
-                    "meminfo",
-                    "misc",
-                    "modules",
-                    "mounts",
-                    "mtd", # We might shadow this later intentionally, but not by default
-                    "net",
-                    "pagetypeinfo",
-                    "partitions",
-                    "penguin_net", # This is custom and unique but we shouldn't ever shadow it
-                    "sched_debug",
-                    "slabinfo",
-                    "softirqs",
-                    "stat",
-                    "swaps",
-                    "sysrq-trigger",
-                    "thread-self",
-                    "timer_list",
-                    "uptime",
-                    "version",
-                    "vmallocinfo",
-                    "vmstat",
-                    "zoneinfo",
+        "buddyinfo",
+        "cgroups",
+        "cmdline",
+        "config.gz",
+        "consoles",
+        "cpuinfo",
+        "crypto",
+        "devices",
+        "diskstats",
+        "execdomains",
+        "fb",
+        "filesystems",
+        "interrupts",
+        "iomem",
+        "ioports",
+        "kallsyms",
+        "key-users",
+        "keys",
+        "kmsg",
+        "kpagecount",
+        "kpageflags",
+        "loadavg",
+        "locks",
+        "meminfo",
+        "misc",
+        "modules",
+        "mounts",
+        "mtd",  # We might shadow this later intentionally, but not by default
+        "net",
+        "pagetypeinfo",
+        "partitions",
+        "penguin_net",  # This is custom and unique but we shouldn't ever shadow it
+        "sched_debug",
+        "slabinfo",
+        "softirqs",
+        "stat",
+        "swaps",
+        "sysrq-trigger",
+        "thread-self",
+        "timer_list",
+        "uptime",
+        "version",
+        "vmallocinfo",
+        "vmstat",
+        "zoneinfo",
 
-                    # Directories
-                    "bus",
-                    "bus/pci",
-                    "bus/pci/00",
-                    "bus/pci/00/00.0",
-                    "bus/pci/00/0a.0",
-                    "bus/pci/00/0a.1 ",
-                    "bus/pci/00/0a.2 ",
-                    "bus/pci/00/0a.3 ",
-                    "bus/pci/00/0b.0 ",
-                    "bus/pci/00/12.0 ",
-                    "bus/pci/00/13.0 ",
-                    "bus/pci/00/14.0 ",
-                    "bus/pci/devices ",
-                    "bus/input",
-                    "bus/input/devices",
-                    "bus/input/handlers",
+        # Directories
+        "bus",
+        "bus/pci",
+        "bus/pci/00",
+        "bus/pci/00/00.0",
+        "bus/pci/00/0a.0",
+        "bus/pci/00/0a.1 ",
+        "bus/pci/00/0a.2 ",
+        "bus/pci/00/0a.3 ",
+        "bus/pci/00/0b.0 ",
+        "bus/pci/00/12.0 ",
+        "bus/pci/00/13.0 ",
+        "bus/pci/00/14.0 ",
+        "bus/pci/devices ",
+        "bus/input",
+        "bus/input/devices",
+        "bus/input/handlers",
 
-                    "cpu",
-                    "cpu/alignment",
+        "cpu",
+        "cpu/alignment",
 
-                    "driver",
-                    "driver/rtc",
+        "driver",
+        "driver/rtc",
 
-                    "fs",
-                    "fs/afs",
-                    "fs/afs/cells",
-                    "fs/afs/rootcell",
-                    "fs/ext4",
-                    "fs/f2fs",
-                    "fs/jbd2",
-                    "fs/nfsd",
-                    "fs/lockd",
-                    "fs/lockd/nlm_end_grace",
-                    "fs/nfsfs",
-                    "fs/nfsfs/servers",
-                    "fs/nfsfs/volumes",
+        "fs",
+        "fs/afs",
+        "fs/afs/cells",
+        "fs/afs/rootcell",
+        "fs/ext4",
+        "fs/f2fs",
+        "fs/jbd2",
+        "fs/nfsd",
+        "fs/lockd",
+        "fs/lockd/nlm_end_grace",
+        "fs/nfsfs",
+        "fs/nfsfs/servers",
+        "fs/nfsfs/volumes",
 
-                    # Sys is special, loaded dynamically
+        # Sys is special, loaded dynamically
 
 
-                    # sysvipc, driver (empty), scsi, tty, sys (big), irq (numbers), bus, fs
-                    "sysvipc/shm",
-                    "sysvipc/sem",
-                    "sysvipc/msg",
+        # sysvipc, driver (empty), scsi, tty, sys (big), irq (numbers), bus, fs
+        "sysvipc/shm",
+        "sysvipc/sem",
+        "sysvipc/msg",
 
-                    "scsi/device_info",
-                    "scsi/scsi",
+        "scsi/device_info",
+        "scsi/scsi",
 
-                    "tty/drivers",
-                    "tty/ldisc",
-                    "tty/driver",
-                    "tty/driver/serial",
-                    "tty/ldisc",
+        "tty/drivers",
+        "tty/ldisc",
+        "tty/driver",
+        "tty/driver/serial",
+        "tty/ldisc",
     ]
 
     # Directories that we want to just ignore entirely - don't create any entries
@@ -468,24 +472,24 @@ class PseudofileFinder(StaticAnalysis):
         found_files = list(FileSystemHelper.find_regex(pattern, extract_dir).keys())
 
         # Apply ignore filters: these are paths we'll ignore entirely
-        #filtered_files = [
+        # filtered_files = [
         #    f for f in found_files if not any(f == ignored or f.startswith(ignored +"/") for ignored in ignore_list)
-        #]
+        # ]
         filtered_files = []
         for x in found_files:
             for f in ignore_list:
                 if x == f or x.startswith(f + "/"):
-                    #print(f"Ignoring {x}")
+                    # print(f"Ignoring {x}")
                     break
             else:
                 filtered_files.append(x)
 
         # Remove items from remove_list (like IGLOO_ADDED_DEVICES or IGLOO_PROCFS)
-        #filtered_files = [f for f in filtered_files if \
+        # filtered_files = [f for f in filtered_files if \
         #                  f not in remove_list]
         for f in remove_list:
             if f in filtered_files:
-                #print(f"Removing {f}")
+                # print(f"Removing {f}")
                 filtered_files.remove(f)
 
         # Remove directories that have subpaths
@@ -536,6 +540,7 @@ class PseudofileFinder(StaticAnalysis):
 
         return results
 
+
 class InterfaceFinder(StaticAnalysis):
     def run(self, extract_dir, prior_results):
         """
@@ -546,7 +551,7 @@ class InterfaceFinder(StaticAnalysis):
         sys_net_ifaces = FileSystemHelper.find_regex(pattern, extract_dir).keys()
 
         # Filter out the default network interfaces
-        sys_net_ifaces = [i for i in sys_net_ifaces if not i.startswith("veth") and not i.startswith("br") \
+        sys_net_ifaces = [i for i in sys_net_ifaces if not i.startswith("veth") and not i.startswith("br")
                           and not i == "lo"]
 
         # Now search for references to standard network commands: ifconfig, ip, brctl
@@ -576,12 +581,12 @@ class InterfaceFinder(StaticAnalysis):
 
         bad_prefixes = ["veth", "br"]
         bad_vals = ["lo", "set", "add", "del", "route", "show", "addr", "link", "up", "down",
-                     "flush", "help", "default"]
+                    "flush", "help", "default"]
 
         # Filter out the default network interfaces
-        interfaces = [iface for iface in interfaces if \
-                      not any([x in iface for x in bad_vals]) and \
-                      not any([iface.startswith(x) for x in bad_prefixes]) and \
+        interfaces = [iface for iface in interfaces if
+                      not any([x in iface for x in bad_vals]) and
+                      not any([iface.startswith(x) for x in bad_prefixes]) and
                       not iface.isnumeric()]
 
         result = {}
@@ -594,10 +599,12 @@ class InterfaceFinder(StaticAnalysis):
         if len(result):
             return result
 
+
 class ClusterCollector(StaticAnalysis):
     '''
     Collect summary statistics for this filesystem to help us later identify clusters
     '''
+
     def run(self, extract_dir, prior_results):
         # Collect the basename + hash of every executable file in the system
         all_files = set()
@@ -617,12 +624,11 @@ class ClusterCollector(StaticAnalysis):
                     hash_value = self.compute_file_hash(file_path)
                     executable_hashes.add(hash_value)
 
-
         return {
-                'files': list(all_files),
-                'executables': list(executables),
-                'executable_hashes': list(executable_hashes)
-            }
+            'files': list(all_files),
+            'executables': list(executables),
+            'executable_hashes': list(executable_hashes)
+        }
 
     @staticmethod
     def compute_file_hash(file_path):
@@ -635,6 +641,7 @@ class ClusterCollector(StaticAnalysis):
             # Handle cases where file cannot be read (e.g., permissions issues)
             return None
         return sha256.hexdigest()
+
 
 class LibrarySymbols(StaticAnalysis):
     """
@@ -655,7 +662,7 @@ class LibrarySymbols(StaticAnalysis):
 
         symbols = {}
         nvram = {}
-        sym_paths = {} # path -> symbol names
+        sym_paths = {}  # path -> symbol names
 
         # Now let's examine each extracted library
         for root, _, files in os.walk(self.extract_dir):

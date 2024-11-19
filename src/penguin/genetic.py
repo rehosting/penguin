@@ -5,25 +5,23 @@ import logging
 import shutil
 import yaml
 import traceback
-from types import SimpleNamespace
 from penguin import getColoredLogger
-from threading import Lock, RLock
+from threading import RLock
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from copy import deepcopy
 
 from .common import get_inits_from_proj, patch_config, frozenset_to_dict, dict_to_frozenset
 from .penguin_config.structure import dump_config, load_config, load_unpatched_config, hash_yaml_config
-from .utils import AtomicCounter, get_mitigation_providers, hash_image_inputs
+from .utils import AtomicCounter, hash_image_inputs
 from .manager import PandaRunner, calculate_score
 from .graphs import Failure, Mitigation
 
 from .search_utils import ConfigSearch
 
-from penguin.analyses import PenguinAnalysis
 
 from dataclasses import dataclass
-from typing import Optional, Callable, Tuple, List, Set
+from typing import Tuple, List, Set
 
 """
 Genetic Algorithm Configuration Search
@@ -35,6 +33,7 @@ Overall idea:
 - The fitness function is the health score
 - We'll support all the usual GA operations: crossover, mutation, selection
 """
+
 
 def ga_search(
     proj_dir, config_path, output_dir, timeout, max_iters=1000, nthreads=1,
@@ -53,7 +52,6 @@ def ga_search(
     logger.info(f"  Population size: {pop_size}")
     logger.info(f"  Number of genes to mutate per mutation: {nmuts}")
 
-
     patch_dir = os.path.join(proj_dir, "dynamic_patches")
     os.makedirs(patch_dir, exist_ok=True)
 
@@ -61,24 +59,24 @@ def ga_search(
     os.makedirs(run_base, exist_ok=True)
     dump_config(base_config, os.path.join(output_dir, "base_config.yaml"))
 
-    #Our first gene are the init options, do this outside of the population class
+    # Our first gene are the init options, do this outside of the population class
     population = ConfigPopulation(proj_dir, base_config, run_base, logger,
                                   pop_size, timeout, max_iters, verbose=verbose)
     init_gene = create_init_gene(base_config, proj_dir, patch_dir)
     population.extend_genome(None, init_gene)
-    learned_failures = set() #store the names of failures we've tried learning about
+    learned_failures = set()  # store the names of failures we've tried learning about
     generation = 0
 
     while population.run_index.get() < max_iters:
         logger.info(f"Starting generation {generation} with {len(population.chromosomes)} configurations, {len(population.pool.genes)} genes, and {nthreads} workers")
 
-        #we'll store a dict of {chromosome: {failures: [], scores: dict, fitness: float}}
+        # we'll store a dict of {chromosome: {failures: [], scores: dict, fitness: float}}
         results = population.run_configs(nthreads, population.chromosomes)
 
-        #at this point, results contains the fitness and failures for each chromosome
-        #now, go through and record the fitnesses, and update mitigations based on failures
+        # at this point, results contains the fitness and failures for each chromosome
+        # now, go through and record the fitnesses, and update mitigations based on failures
         mitigations = set()
-        learning_configs=set() #mitigations we'll use to learn more (exclusive in the graph paralence)
+        learning_configs = set()  # mitigations we'll use to learn more (exclusive in the graph paralence)
         for config in population.chromosomes:
             if config.hash not in results:
                 logger.warning(f"Missing results for {config}, did we finish all runs?")
@@ -91,9 +89,9 @@ def ga_search(
             full_config = population.get_patched_config(config)
             for f in result["failures"]:
                 for m in population.find_mitigations(f, full_config):
-                    #m in this case in a Configuration(GraphNode), which is a full configuration
+                    # m in this case in a Configuration(GraphNode), which is a full configuration
                     if m.exclusive:
-                        #we'll add a new config based on this config with the exclusive mitigation
+                        # we'll add a new config based on this config with the exclusive mitigation
                         if f.friendly_name not in learned_failures:
                             patch_name = f"learning_{f.friendly_name.replace('/', '_')}.yaml"
                             patch_path = os.path.join(patch_dir, patch_name)
@@ -104,17 +102,17 @@ def ga_search(
                                                                                        dict_to_frozenset({'patches': [patch_path]})))
                             learning_configs.add(learning_config)
                             logger.info(f"Adding learning config for {f.friendly_name}")
-                            learned_failures.add(f.friendly_name) #only queue learning once
+                            learned_failures.add(f.friendly_name)  # only queue learning once
                     else:
                         mitigations.add(m)
 
         logger.info(f"Starting learning with {len(learning_configs)} configurations")
-        #at this point we run all the learning configs, and process results again - FIXME refactor
+        # at this point we run all the learning configs, and process results again - FIXME refactor
         learning_results = population.run_configs(nthreads, learning_configs)
 
-        #and we need to now process those mitigations, almost the same as above but we won't track
-        #score since these were theoretically no different than before - just with learning stuff
-        #(might want to account into some aggregate score later)
+        # and we need to now process those mitigations, almost the same as above but we won't track
+        # score since these were theoretically no different than before - just with learning stuff
+        # (might want to account into some aggregate score later)
         for l in learning_configs:
             full_config = population.get_patched_config(l)
             if l.hash not in learning_results:
@@ -123,7 +121,7 @@ def ga_search(
             result = learning_results[l.hash]
             for f in result["failures"]:
                 for m in population.find_mitigations(f, full_config):
-                    #m in this case in a Configuration(GraphNode), which is a full configuration
+                    # m in this case in a Configuration(GraphNode), which is a full configuration
                     if m.exclusive:
                         logger.warning("Shouldn't get here! Exclusive mitigations not supported in learning step")
                     else:
@@ -131,13 +129,13 @@ def ga_search(
                         assert m.failure_name, "Mitigation must have a failure name: check {m.type}"
                         mitigations.add(m)
 
-        #TODO: did we want to run any new mitigations to get some fitness data on them before we used them?
+        # TODO: did we want to run any new mitigations to get some fitness data on them before we used them?
 
-        #at this point, we've processed all configs and ran a learning step. we now have
+        # at this point, we've processed all configs and ran a learning step. we now have
         #  * a set of mitigations from our population
         #  * fitnesses for each configuration in our population
 
-        #First, we update the gene pool with mitigations we've learned and create patch files for them
+        # First, we update the gene pool with mitigations we've learned and create patch files for them
         for m in mitigations:
             if m is None:
                 continue
@@ -158,18 +156,17 @@ def ga_search(
             population.pool.update(m)
             logger.debug(f"Pool is now: {population.pool.get_names()}")
 
-        #select half of the exsiting configs to move on as parents of the next generation
-        #if the population is less than the number of parents expect, we'll add them all and duplicate
+        # select half of the exsiting configs to move on as parents of the next generation
+        # if the population is less than the number of parents expect, we'll add them all and duplicate
         population.selection(pop_size/2)
 
-        #we now have parents, do crossover, we'll do a 50-50 mix
+        # we now have parents, do crossover, we'll do a 50-50 mix
         population.crossover(0.5)
 
-        #and mutation, for now we'll do one gene
+        # and mutation, for now we'll do one gene
         population.mutation(nmuts)
 
         generation += 1
-
 
     # Below is to give results comparable to the graph search
     # We're all done! In the .finished file we'll write the final run_index
@@ -180,10 +177,10 @@ def ga_search(
     # Let's also write a best.txt file with run index of the best run
     # TODO: implement this
 
-    #Look through all the run dirs and find the latest fitness.txt (float)
-    #Then, find the highest one
-    #Write that to best.txt
-    #If we have a tie, we'll just pick the first one
+    # Look through all the run dirs and find the latest fitness.txt (float)
+    # Then, find the highest one
+    # Write that to best.txt
+    # If we have a tie, we'll just pick the first one
     best_fitness = 0.0
     best_run = 0
     for run in os.listdir(run_base):
@@ -197,7 +194,6 @@ def ga_search(
     with open(os.path.join(output_dir, "best.txt"), "w") as f:
         f.write(str(best_run))
     logger.info(f"Best run: {best_run} with fitness {best_fitness}")
-
 
 
 def create_init_gene(base_config, proj_dir, patch_dir):
@@ -241,8 +237,8 @@ def create_init_gene(base_config, proj_dir, patch_dir):
             this_init_mit = dict_to_frozenset({'patches': [patch_path]})
             init_mitigations.add(this_init_mit)
     else:
-        #If we already have an init defined, we'll just use that
-        patch_fname = f"init_init.yaml"
+        # If we already have an init defined, we'll just use that
+        patch_fname = "init_init.yaml"
         patch_path = os.path.join(patch_dir, patch_fname)
         with open(patch_path, "w") as f:
             yaml.dump({"env": {"igloo_init": init}}, f)
@@ -251,8 +247,8 @@ def create_init_gene(base_config, proj_dir, patch_dir):
     return MitigationAlleleSet("init", frozenset(init_mitigations))
 
 
-#This is absolutely horrible, but thing we need it for the bolt on approach to testing out this new search
-#Note: this does not support keys that were *removed)
+# This is absolutely horrible, but thing we need it for the bolt on approach to testing out this new search
+# Note: this does not support keys that were *removed)
 def diff_configs(new, old):
     diff = {}
 
@@ -268,13 +264,15 @@ def diff_configs(new, old):
 
     return diff
 
+
 @dataclass(frozen=True, eq=True)
 class MitigationPatch:
     """
     This class represents a single mitigation and the patch to apply
     """
     failure_name: str
-    patch: frozenset #probably not frozen or do we do a new set?
+    patch: frozenset  # probably not frozen or do we do a new set?
+
 
 @dataclass(frozen=True, eq=True)
 class MitigationAlleleSet:
@@ -283,15 +281,17 @@ class MitigationAlleleSet:
     In the biology analogy, each mitigation would be an allele
     """
     failure_name: str
-    mitigations: frozenset #probably not frozen or do we do a new set?
+    mitigations: frozenset  # probably not frozen or do we do a new set?
+
 
 class GenePool:
     """
     The gene pool tracks the set of possible mitigations for a given failure
     """
+
     def __init__(self):
         self.genes = dict()
-        #TODO look into the data structure for indexing failures here
+        # TODO look into the data structure for indexing failures here
 
     def update(self, new_gene):
         if new_gene is None:
@@ -305,7 +305,7 @@ class GenePool:
         elif isinstance(new_gene, Mitigation):
             new_mits = frozenset([dict_to_frozenset(new_gene.patch)])
         else:
-            raise(RuntimeError(f"Unexpected datatype for new_gene {new_gene}: {type(new_gene)}"))
+            raise (RuntimeError(f"Unexpected datatype for new_gene {new_gene}: {type(new_gene)}"))
 
         if failure_name not in self.genes:
             self.genes[failure_name] = new_mits
@@ -323,21 +323,23 @@ class GenePool:
         return self.genes.get(failure_name, frozenset())
 
     def failure_to_genename(failure: Failure):
-        #HACK: interfaces return overly unique names so they wouldn't be considered the same gene
+        # HACK: interfaces return overly unique names so they wouldn't be considered the same gene
         return failure.friendly_name
 
     def get_names(self):
         return self.genes.keys()
 
+
 class ConfigChromosome:
-    #At the end of the day, each "chromosome" is going to be a configuration. Which is set of mitigations
-    #We are using a frozenset since each chromosome will be unique
+    # At the end of the day, each "chromosome" is going to be a configuration. Which is set of mitigations
+    # We are using a frozenset since each chromosome will be unique
     genes: frozenset[MitigationPatch]
     hash: int
-    def __init__(self, parent: 'ConfigChromosome' = None, new_gene = None):
+
+    def __init__(self, parent: 'ConfigChromosome' = None, new_gene=None):
         self.genes = frozenset()
         if parent is None:
-            parent = self #weird
+            parent = self  # weird
         """
         elif not new_gene.failure_name.startswith("init"):
             try:
@@ -351,14 +353,14 @@ class ConfigChromosome:
         if isinstance(new_gene, Mitigation):
             new_gene = MitigationPatch(new_gene.failure_name, dict_to_frozenset(new_gene.patch))
         if isinstance(new_gene, MitigationPatch):
-            old_genes = parent.genes #faded and with lots of holes
+            old_genes = parent.genes  # faded and with lots of holes
             if old_gene := parent.get_mitigation(new_gene.failure_name):
-                #If we had this gene, replace it with the new one. This is for mutations
+                # If we had this gene, replace it with the new one. This is for mutations
                 old_genes = old_genes.difference({old_gene})
             self.genes = frozenset(old_genes.union({new_gene}))
         elif isinstance(new_gene, frozenset):
             self.genes = new_gene
-        #cache the unsigned hash of genes, not sure how much this actually buys us
+        # cache the unsigned hash of genes, not sure how much this actually buys us
         self.hash = hash(self.genes) & (1 << sys.hash_info.width) - 1
 
     def __str__(self):
@@ -366,7 +368,7 @@ class ConfigChromosome:
 
     def to_dict(self):
         config_dict = {}
-        #TODO: should we do some validation to make sure our config doesn't have conflicting options?
+        # TODO: should we do some validation to make sure our config doesn't have conflicting options?
         for m in self.genes:
             sub_dict = frozenset_to_dict(m.patch)
             for k, v in sub_dict.items():
@@ -376,16 +378,16 @@ class ConfigChromosome:
                     elif isinstance(config_dict[k], dict):
                         config_dict[k].update(v)
                     else:
-                        raise(RuntimeError(f"Unexpected type for config key {k}: {type(config_dict[k])}"))
+                        raise (RuntimeError(f"Unexpected type for config key {k}: {type(config_dict[k])}"))
                 else:
                     config_dict[k] = v
         return config_dict
 
     def get_mitigation(self, failure_name):
         if failure_name is None:
-            #happens with learning configs
+            # happens with learning configs
             return None
-        assert(isinstance(failure_name, str)), "Failure name must be a string"
+        assert (isinstance(failure_name, str)), "Failure name must be a string"
         for m in self.genes:
             if m.failure_name == failure_name:
                 return m
@@ -394,34 +396,35 @@ class ConfigChromosome:
     def mitigations_to_str(self):
         return "\n".join(f"{m.failure_name}: {m.patch}" for m in self.genes)
 
+
 class ConfigPopulation(ConfigSearch):
     def __init__(self, proj_dir, base_config, run_base, logger, pop_size,
                  timeout, max_runs, nelites=1, verbose=False):
         self.proj_dir = proj_dir
-        self.base_config = deepcopy(base_config) #store the base configuration, assumes it is immutable
+        self.base_config = deepcopy(base_config)  # store the base configuration, assumes it is immutable
         self.chromosomes = set()
-        self.attempted_configs = set() #store the configurations we've already tried - do we need this with the cache?
-        self.pool = GenePool() #store the pool of all possible mitigations
-        self.work_queue = Queue() #store the work queue of configurations to run
-        self.run_index = AtomicCounter(-1) #store the run index, start at -1 since we increment before using
+        self.attempted_configs = set()  # store the configurations we've already tried - do we need this with the cache?
+        self.pool = GenePool()  # store the pool of all possible mitigations
+        self.work_queue = Queue()  # store the work queue of configurations to run
+        self.run_index = AtomicCounter(-1)  # store the run index, start at -1 since we increment before using
         self.logger = logger
         self.run_base = run_base
-        self.lock = RLock() #lock for shared state
-        self.fitnesses = dict() #cache the fitness of each configuration
+        self.lock = RLock()  # lock for shared state
+        self.fitnesses = dict()  # cache the fitness of each configuration
         self.pop_size = pop_size
         self.parents = []
         self.timeout = timeout
-        self.nelites = nelites #number of elites to keep in the next generation
+        self.nelites = nelites  # number of elites to keep in the next generation
         self.verbose = verbose
         self.max_runs = max_runs
 
-    #This is where the biology breaks down a bit. We'll add a new chromosome to the population based on an observed failure
+    # This is where the biology breaks down a bit. We'll add a new chromosome to the population based on an observed failure
     def extend_genome(self, parent: ConfigChromosome, new_gene: MitigationAlleleSet):
-        #First, check to see if we have existing mitigations for this failure
+        # First, check to see if we have existing mitigations for this failure
         old_mitigations = self.pool.get_mitigations(new_gene.failure_name)
-        self.pool.update(new_gene) #our pool contains all possible mitigations for a given failure
-        #If we have new mitigations, add them as children to this config
-        #In the biology analogy, these things would be alleles
+        self.pool.update(new_gene)  # our pool contains all possible mitigations for a given failure
+        # If we have new mitigations, add them as children to this config
+        # In the biology analogy, these things would be alleles
         for m in new_gene.mitigations.difference(old_mitigations):
             self.chromosomes.add(ConfigChromosome(parent, MitigationPatch(new_gene.failure_name, m)))
 
@@ -448,11 +451,11 @@ class ConfigPopulation(ConfigSearch):
         return results
 
     def run_worker(self,
-        id: int,
-        results: dict
-    ):
+                   id: int,
+                   results: dict
+                   ):
         while True:
-            #A unit of work is a configuration to run along with the run index
+            # A unit of work is a configuration to run along with the run index
             self.logger.info(f"[thread {id}]: Getting work from queue")
 
             task = self.work_queue.get()
@@ -486,7 +489,7 @@ class ConfigPopulation(ConfigSearch):
         for _ in range(nworkers):
             self.work_queue.put(None)
 
-    def join_workers(self,nworkers=1):
+    def join_workers(self, nworkers=1):
         self.logger.info(f"Joining workers...")
         self.work_queue.join()
         self.logger.info(f"Joined workers")
@@ -496,8 +499,8 @@ class ConfigPopulation(ConfigSearch):
         Given a configuration, return the full configuration (base_config+config)
         """
         combined_config = deepcopy(self.base_config)
-        #FIXME: we only do patches now! Is that good?
-        #we apply our configs last so they should override the base config...
+        # FIXME: we only do patches now! Is that good?
+        # we apply our configs last so they should override the base config...
         combined_config['patches'].extend(config.to_dict()['patches'])
         return combined_config
 
@@ -505,7 +508,7 @@ class ConfigPopulation(ConfigSearch):
         patched_config = self.get_full_config(config)
         for p in patched_config.get("patches", []):
             # kinda funny how the names wound up...
-            p_yaml =  load_unpatched_config(os.path.join(self.proj_dir, p))
+            p_yaml = load_unpatched_config(os.path.join(self.proj_dir, p))
             patched_config = patch_config(patched_config, p_yaml)
         return patched_config
 
@@ -517,7 +520,7 @@ class ConfigPopulation(ConfigSearch):
 
         We also tack on the base config, so watch out for that.
         """
-        failures = [] #TODO: should we track only new failures?
+        failures = []  # TODO: should we track only new failures?
         score = {"empty": 0.0}
 
         if self.get_fitness(config) != False:
@@ -539,15 +542,13 @@ class ConfigPopulation(ConfigSearch):
         # Run the configuration
         conf_yaml = os.path.join(run_dir, "config.yaml")
 
-
         self.logger.debug(f"Config {config} has image_inputs hash {hash_image_inputs(self.proj_dir, full_config)}")
-
 
         out_dir = os.path.join(run_dir, "output")
         os.makedirs(out_dir, exist_ok=True)
-        #Stash genes in the run directory
+        # Stash genes in the run directory
         with open(os.path.join(run_dir, "genes.txt"), "w") as f:
-            output=f"Config: {config.hash}\n"
+            output = f"Config: {config.hash}\n"
             f.write(output+config.mitigations_to_str())
         try:
             PandaRunner().run(conf_yaml, self.proj_dir, out_dir,
@@ -558,7 +559,7 @@ class ConfigPopulation(ConfigSearch):
             self.logger.error(f"Could not run {run_dir}: {e}")
             return [], 0, None
 
-        #Now, get the score and failures
+        # Now, get the score and failures
         score = calculate_score(out_dir)
         with open(os.path.join(run_dir, "fitness.txt"), "w") as f:
             total = float(sum(score.values()))
@@ -574,8 +575,8 @@ class ConfigPopulation(ConfigSearch):
         if config.hash not in self.fitnesses:
             self.fitnesses[config.hash] = fitness
         else:
-            #If we decide to really hold on to an elite, could wind up here
-            #But with the large number of possibilities we shouldn't end up here
+            # If we decide to really hold on to an elite, could wind up here
+            # But with the large number of possibilities we shouldn't end up here
             self.logger.info(f"Double record! Fitness for {config.hash} already recorded")
 
     def get_fitness(self, config: ConfigChromosome):
@@ -591,19 +592,19 @@ class ConfigPopulation(ConfigSearch):
         By default, hold on to the highest fitness config (nelites=1)
         """
         self.parents = []
-        #get current population, sorted by fitness, higher is better (e.g., 6/6 is better than 5/6)
+        # get current population, sorted by fitness, higher is better (e.g., 6/6 is better than 5/6)
         if len(self.chromosomes) == 0:
             sorted_configs = []
         else:
             sorted_configs = sorted(self.chromosomes, key=lambda c: self.get_fitness(c))
 
-        #probability of a selecting each config, weighted rank based selection
+        # probability of a selecting each config, weighted rank based selection
         n = len(sorted_configs)
         norm = n*(n+1)/2
-        probs = [(i+1)/norm for i in range(0,n)]
+        probs = [(i+1)/norm for i in range(0, n)]
 
-        #select nparents based on the probabilities
-        #first, if we have duplicates, we'll just add them
+        # select nparents based on the probabilities
+        # first, if we have duplicates, we'll just add them
         if n < nparents:
             self.parents = sorted_configs
 
@@ -624,28 +625,27 @@ class ConfigPopulation(ConfigSearch):
         self.logger.info(f"Selected {len(self.parents)} parents from {n} configs")
         self.logger.debug(f"parents:\n {self.print_chromosomes(self.parents)}")
 
-
     def crossover(self, p1_prob=0.5):
         """
         Perform crossover on the parents to create new children, choose from p1 with probability p1_prob
         """
 
-        #Pass elites through unscathed
+        # Pass elites through unscathed
         self.chromosomes = set(self.parents[:self.nelites])
         self.parents = self.parents[self.nelites:]
 
-        #cross over neighbors in the parent list
-        for i in range(0,len(self.parents),2):
+        # cross over neighbors in the parent list
+        for i in range(0, len(self.parents), 2):
             try:
                 p1 = self.parents[i]
                 p2 = self.parents[i+1]
             except IndexError:
-                #lazily handle odd number of parents
+                # lazily handle odd number of parents
                 break
             child = ConfigChromosome()
             for gene in self.pool.get_names():
-                #get the set of known mitigations for this gene
-                #cross over the two parents, grabbing a mitigation from each
+                # get the set of known mitigations for this gene
+                # cross over the two parents, grabbing a mitigation from each
                 if random.random() < p1_prob:
                     m1 = p1.get_mitigation(gene)
                     if m1:
@@ -663,13 +663,13 @@ class ConfigPopulation(ConfigSearch):
                         if m1:
                             child = ConfigChromosome(child, m1)
 
-            #Only add this child if it is unique and has not been tried before
-            #Since the population is a set, we don't have to check for duplicates
+            # Only add this child if it is unique and has not been tried before
+            # Since the population is a set, we don't have to check for duplicates
             if not self.get_fitness(child) and len(child.genes) > 0:
                 try:
-                    assert(child.get_mitigation("init_init")), "Missing init gene"
+                    assert (child.get_mitigation("init_init")), "Missing init gene"
                     if not self.config_in_pop(child):
-                        #Unfortunately, using sets didn't get us this diversity automagically
+                        # Unfortunately, using sets didn't get us this diversity automagically
                         self.chromosomes.add(child)
                 except AssertionError as e:
                     self.logger.error(f"Error in crossover: {e}")
@@ -683,15 +683,15 @@ class ConfigPopulation(ConfigSearch):
 
         Our mutation here is essentially "try a different mitigation". Elites will get modified here
         """
-        #At this point, we have parents and a starter population with children from crossover, make new configs until are population is full
+        # At this point, we have parents and a starter population with children from crossover, make new configs until are population is full
         failed = 0
         while len(self.chromosomes) < self.pop_size:
-            #Originally did a growing configchromosome, but that was buggy and inefficient
+            # Originally did a growing configchromosome, but that was buggy and inefficient
             genes = random.choice(self.parents).genes
             gene_names = [g.failure_name for g in genes]
 
-            #First, make sure we have all genes in this chromosome (with a possibility of no mitigation)
-            #this allows us to get a bunch of diversity from learning configs
+            # First, make sure we have all genes in this chromosome (with a possibility of no mitigation)
+            # this allows us to get a bunch of diversity from learning configs
             print(f"Gene names: {gene_names}")
             print(f"Pool names: {self.pool.get_names()}")
             for g in self.pool.get_names():
@@ -699,7 +699,7 @@ class ConfigPopulation(ConfigSearch):
                     self.logger.debug(f"Adding missing gene {g}")
                     choices = self.pool.get_mitigations(g)
                     if not g.startswith("init"):
-                        #init is special, don't allow that to be None. otherwise maybe "no mitigation" is what we'd like?
+                        # init is special, don't allow that to be None. otherwise maybe "no mitigation" is what we'd like?
                         choices = choices.union({None})
                     m = random.choice(list(choices))
                     if m and m is not None:
@@ -715,13 +715,13 @@ class ConfigPopulation(ConfigSearch):
                 self.logger.debug(f"Mutation: {m}")
                 self.logger.debug(f"Before mutation: {genes}")
                 if gene in [g.failure_name for g in genes]:
-                    #if we already have this gene, remove it
+                    # if we already have this gene, remove it
                     genes = genes.difference({g for g in genes if g.failure_name == gene})
                 child = ConfigChromosome(None, genes.union({MitigationPatch(gene, m)}))
                 self.logger.debug(f"After mutation: {child.genes}")
 
             if child and not self.get_fitness(child) and not self.config_in_pop(child):
-                #If we have exhausted our configuration space, this will cause an infinite loop...
+                # If we have exhausted our configuration space, this will cause an infinite loop...
                 self.chromosomes.add(child)
                 failed = 0
             else:

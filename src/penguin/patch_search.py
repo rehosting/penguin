@@ -10,7 +10,7 @@ from penguin.common import getColoredLogger, yaml
 from .penguin_config.structure import dump_config, hash_yaml_config, load_config, load_unpatched_config
 from .manager import PandaRunner, calculate_score
 from .search_utils import MABWeightedSet, ConfigSearch
-#from .graphs import Failure, Mitigation # We pass these objects around but don't use directly
+# from .graphs import Failure, Mitigation # We pass these objects around but don't use directly
 
 
 class PatchSearch(ConfigSearch):
@@ -29,7 +29,7 @@ class PatchSearch(ConfigSearch):
         # applied)
         self.base_config = load_unpatched_config(config_path)
         self.seen_configs = set()
-        self.weights = MABWeightedSet() # Track failures -> [solutions] with weights
+        self.weights = MABWeightedSet()  # Track failures -> [solutions] with weights
 
         self.patch_dir = os.path.join(self.proj_dir, "dynamic_patches")
         os.makedirs(self.patch_dir, exist_ok=True)
@@ -73,7 +73,6 @@ class PatchSearch(ConfigSearch):
                     mit_path = mit_path[1:]
                 self.weights.add_solution(failure_name, mit_path)
 
-
     def generate_new_config(self, tries=10):
         '''
         Generate a unique config probabilistically
@@ -111,7 +110,7 @@ class PatchSearch(ConfigSearch):
                     future.result()  # Optionally handle exceptions here
                 except Exception as e:
                     print(f"Thread raised an exception: {e}")
-                    self.logger.exception(e) # Show the full traceback
+                    self.logger.exception(e)  # Show the full traceback
                     # Bail
                     executor.shutdown(wait=False)
                     break
@@ -132,16 +131,16 @@ class PatchSearch(ConfigSearch):
         # Select config immediately prior to running (so we're not queuing up stale ones)
         config, selection = self.generate_new_config()
         if not config:
-            #for _ in range(10):
+            # for _ in range(10):
             #    # XXX: How to shutdown better? We want to see if we get a new config
             #    # after currently-running ones finish
             #    sleep(30)
             #    config, selection = self.generate_new_config()
-            #if not config:
+            # if not config:
             self.logger.info(f"Idx {run_index} no new config - done?")
             return
 
-        self.logger.info(f"Starting iteration {run_index}")# with patches: {config['patches']}")
+        self.logger.info(f"Starting iteration {run_index}")  # with patches: {config['patches']}")
 
         run_dir = os.path.join(self.run_base, str(run_index))
         if os.path.isdir(run_dir):
@@ -187,7 +186,7 @@ class PatchSearch(ConfigSearch):
         patched_config = load_config(self.proj_dir, conf_yaml)
 
         failures = self.analyze_failures(patched_config, run_dir)
-        #for f in failures:
+        # for f in failures:
         #    self.logger.info(f"\tRun {run_index} sees failure: {f} with patch_name {f.patch_name}")
 
         # Report on failures. TODO: do we want to write these down or just log?
@@ -201,11 +200,11 @@ class PatchSearch(ConfigSearch):
             try:
                 self.weights.add_failure(failure.patch_name)
                 is_new = True
-                #self.logger.info("\tNew failure: " + failure.patch_name)
+                # self.logger.info("\tNew failure: " + failure.patch_name)
             except ValueError:
                 # It's already in there. Can't just check first, because we need lock
                 # TODO: how should we prioritize the weight of new failures?
-                #self.logger.info("\tExisting failure: " + failure.patch_name)
+                # self.logger.info("\tExisting failure: " + failure.patch_name)
                 pass
 
             # Now let's add potential solutions
@@ -223,12 +222,12 @@ class PatchSearch(ConfigSearch):
                 # patches dir
                 hsh = hash_yaml_config(mitigation.patch)[:6]
                 mit_path = os.path.join(self.patch_dir,
-                                              f"{failure.type}_{failure.patch_name}_{hsh}.yaml")
+                                        f"{failure.type}_{failure.patch_name}_{hsh}.yaml")
 
                 if not os.path.isfile(mit_path):
                     with open(mit_path, "w") as f:
                         yaml.dump(mitigation.patch, f)
-                    self.logger.info(f"\t\tFound new potential {mitigation}") # XXX cached state between runs will make this rare
+                    self.logger.info(f"\t\tFound new potential {mitigation}")  # XXX cached state between runs will make this rare
 
                 # Make it a relative path to proj_dir
                 mit_path = mit_path.replace(self.proj_dir, "")
@@ -249,12 +248,10 @@ class PatchSearch(ConfigSearch):
             f.write(str(self.weights))
 
 
-
-
 # Entrypoint for __main__
 def patch_search(proj_dir, config_path, output_dir, timeout, max_iters=1000,
                  nworkers=1, verbose=False):
     p = PatchSearch(proj_dir, config_path, output_dir, timeout,
-                       max_iters, nworkers, verbose)
+                    max_iters, nworkers, verbose)
     p.run()
     print(p.weights)
