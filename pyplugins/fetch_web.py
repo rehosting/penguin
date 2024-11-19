@@ -9,11 +9,13 @@ import time
 from pandare import PyPlugin
 from penguin import getColoredLogger
 
+
 def calculate_entropy(buffer: bytes) -> float:
     byte_counts = Counter(buffer)
     total_bytes = len(buffer)
     entropy = -sum((count / total_bytes) * math.log2(count / total_bytes) for count in byte_counts.values())
     return entropy
+
 
 class FetchWeb(PyPlugin):
     def __init__(self, panda):
@@ -45,8 +47,8 @@ class FetchWeb(PyPlugin):
         """
         Worker thread that processes fetch tasks one at a time.
         """
-        success = False #track if we've had a successful response (for quitting)
-        first = False #track if we've had a task yet
+        success = False  # track if we've had a successful response (for quitting)
+        first = False  # track if we've had a task yet
         while not self.shutting_down:
             try:
                 # Wait for a task, sleeping 5s between every check
@@ -76,7 +78,7 @@ class FetchWeb(PyPlugin):
             log_file_name += ".alt"
 
         time.sleep(20)  # Give service plenty of time to start
-        cmd = ["wget", "-q", f"https://{host_ip}:{host_port}" if guest_port == 443 else f"http://{host_ip}:{host_port}", 
+        cmd = ["wget", "-q", f"https://{host_ip}:{host_port}" if guest_port == 443 else f"http://{host_ip}:{host_port}",
                "--no-check-certificate", "-O", log_file_name]
         timestamp = f"{(time.time() - self.start_time):.02f}s"
         try:

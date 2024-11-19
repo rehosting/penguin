@@ -4,6 +4,7 @@ from pandare import PyPlugin
 from penguin import getColoredLogger
 import Levenshtein as lv
 
+
 class FICD(PyPlugin):
     """
     FICD metric based on Pandawan, see https://github.com/BUseclab/Pandawan/blob/main/plugins/pandawan/ficd.py
@@ -12,8 +13,9 @@ class FICD(PyPlugin):
     "To this end, FICD considers that a firmware image reached Ifin in if no previously unseen (i.e., unique) tasks are launched within tf seconds. We refer to tf as the time frame parameter"
     "In our re-hosting experiments we use three (Py)PANDA plugins (coverage, syscalls_logger, and SyscallToKmodTracer) along with the FICD plugin, which results in the optimal tf = 220sec and tf = 300sec"
     """
+
     def __init__(self, panda):
-        self.time_frame = 300 #set up as arg at some point
+        self.time_frame = 300  # set up as arg at some point
         self.init_time = time.time()
         self.boot_time = self.init_time
         self.unique_proc_times = {}
@@ -96,5 +98,3 @@ class FICD(PyPlugin):
             f.write(f"last_proc_start: {self.last_proc_time - self.init_time}\n")
             f.write(f"total_execution_time: {prev_time - self.init_time}\n")
             f.write(f"time_past_tf: {self.measured_tf - self.time_frame}\n")
-
-

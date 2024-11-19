@@ -43,12 +43,11 @@ class VsockVPN(PyPlugin):
 
         self.outdir = self.get_arg("outdir")
 
-        #TODO: add option on whether or not to pass -o to host vpn
+        # TODO: add option on whether or not to pass -o to host vpn
         self.launch_host_vpn(self.get_arg("CID"),
                              self.get_arg("socket_path"),
                              self.get_arg("uds_path"),
                              self.get_arg_bool("log"))
-
 
         port_maps = self.get_arg("IGLOO_VPN_PORT_MAPS")
         self.seen_ips = set()  # IPs we've seen
@@ -124,15 +123,15 @@ class VsockVPN(PyPlugin):
         # Launch VPN on host as panda starts. Init in the guest will launch the VPN in the guest
         self.event_file = tempfile.NamedTemporaryFile(prefix=f"/tmp/vpn_events_{CID}_")
         host_vpn_cmd = [
-                join(static_dir, "vpn/vpn.x86_64"),
-                "host",
-                "-e",
-                self.event_file.name,
-                "-c",
-                str(CID),
-                "-u",
-                uds_path,
-            ]
+            join(static_dir, "vpn/vpn.x86_64"),
+            "host",
+            "-e",
+            self.event_file.name,
+            "-c",
+            str(CID),
+            "-u",
+            uds_path,
+        ]
         if log:
             host_vpn_cmd.extend(["-o", self.outdir])
         self.host_vpn = subprocess.Popen(host_vpn_cmd, stdout=subprocess.DEVNULL)
@@ -165,7 +164,7 @@ class VsockVPN(PyPlugin):
                     self.ppp_run_cb(
                         "on_bind", sock_type, seen_ip, port, host_port, self.exposed_ip, procname
                     )
-                return # Skip the final call to bridge / trigger ppp callback
+                return  # Skip the final call to bridge / trigger ppp callback
 
             elif ip not in self.seen_ips:
                 # Find all wild_ips, log this IP
@@ -175,7 +174,7 @@ class VsockVPN(PyPlugin):
                 for sock_type, seen_port, seen_procname in self.wild_ips:
                     host_port = self.bridge(
                         sock_type, ip, seen_port, seen_procname, ipvn
-                    ) # If unsupported or guest-host ports actually match, we skip this
+                    )  # If unsupported or guest-host ports actually match, we skip this
                     self.ppp_run_cb(
                         "on_bind", sock_type, ip, seen_port, host_port, self.exposed_ip, procname
                     )

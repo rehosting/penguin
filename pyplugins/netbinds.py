@@ -10,6 +10,7 @@ from penguin import getColoredLogger
 BINDS_FILE = "netbinds.csv"
 SUMMARY_BINDS_FILE = "netbinds_summary.csv"
 
+
 class NetBinds(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
@@ -111,7 +112,7 @@ class NetBinds(PyPlugin):
             return
         self.seen_binds.add((procname, ipvn, sock_type, ip, port))
 
-		# Log details to disk
+        # Log details to disk
         self.report_bind_info(time_delta, procname, ipvn, sock_type, ip, port)
 
         self.track_bind(procname, ipvn, sock_type, ip, port, time_delta)
@@ -126,13 +127,13 @@ class NetBinds(PyPlugin):
 
     def track_bind(self, procname, ipvn, sock_type, ip, port, time):
         add_dict = {
-                "Process Name": procname,
-                "IPvN": ipvn,
-                "Socket Type": sock_type,
-                "IP": ip,
-                "Port": port,
-                "Time": time
-                }
+            "Process Name": procname,
+            "IPvN": ipvn,
+            "Socket Type": sock_type,
+            "IP": ip,
+            "Port": port,
+            "Time": time
+        }
         self.bind_list.append(add_dict)
 
     def remove_bind(self, ip, port, sock_type):
@@ -143,7 +144,7 @@ class NetBinds(PyPlugin):
         return self.bind_list
 
     def report_bind_info(self, time_delta, procname, ipvn, sock_type, ip, port):
-		# Collect summary stats at this time (unique processes, total binds, bound_www, time)
+        # Collect summary stats at this time (unique processes, total binds, bound_www, time)
         n_sockets = 0
         procs = set()
         bound_www = False
@@ -162,6 +163,6 @@ class NetBinds(PyPlugin):
                 bound_www = True
         n_procs = len(procs)
 
-		# Report summary stats
+        # Report summary stats
         with open(join(self.outdir, SUMMARY_BINDS_FILE), "a") as f:
             f.write(f"{n_procs},{n_sockets},{bound_www},{time_delta:.3f}\n")
