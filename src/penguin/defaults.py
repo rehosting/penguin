@@ -6,7 +6,7 @@ from os.path import dirname
 
 default_version = 2
 static_dir = "/igloo_static/"
-DEFAULT_KERNEL = "4.10" # XXX in config_patchers we append .0 to this - may need to update
+DEFAULT_KERNEL = "4.10"  # XXX in config_patchers we append .0 to this - may need to update
 
 # Where are plugins in the filesystem. These are our standard pyplugins
 # that we use for env, pseudofiles, etc.
@@ -91,11 +91,11 @@ _default_dev_model["ioctl"] = {
 # Hardcoded ioctl models for some devices from FirmAE
 _dev_acos_pseudo_model = deepcopy(_default_dev_model)
 _dev_acos_pseudo_model["ioctl"].update({
-        0x40046431: {"model": "return_const", "val": 1},
-        0x80046431: {"model": "return_const", "val": 1},
-        0x40046432: {"model": "return_const", "val": 1},
-        0x80046432: {"model": "return_const", "val": 1},
-    })
+    0x40046431: {"model": "return_const", "val": 1},
+    0x80046431: {"model": "return_const", "val": 1},
+    0x40046432: {"model": "return_const", "val": 1},
+    0x80046432: {"model": "return_const", "val": 1},
+})
 
 expert_knowledge_pseudofiles = {
     # Reasonable generic /dev entries
@@ -136,7 +136,7 @@ expert_knowledge_pseudofiles = {
     "/proc/rt3052/mii/data": _default_pseudo_model,
 }
 
-#### LIB INJECT MAPPINGS
+# LIB INJECT MAPPINGS
 default_libinject_string_introspection = {
     "strcmp": "libinject_strcmp",
     "strncmp": "libinject_strncmp",

@@ -214,7 +214,7 @@ class PandaRunner:
 
         start = time.time()
         try:
-            p = subprocess.Popen(cmd) # Without stdout argument, the output will be printed to the console - great
+            p = subprocess.Popen(cmd)  # Without stdout argument, the output will be printed to the console - great
             p.wait(timeout=timeout_s + 180 if timeout_s else None)
         except subprocess.TimeoutExpired:
             self.logger.info(

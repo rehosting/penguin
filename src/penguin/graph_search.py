@@ -25,7 +25,6 @@ cache_dir = "/cache"
 caches = {}  # config hash -> output directory with .run.
 
 
-
 class Worker:
     def __init__(
         self,
@@ -514,6 +513,7 @@ def report_best_results(best_idx, best_output, output_dir):
                 f"{len(net_procnames)} unique processes bound to {net_count} network sockets\n"
             )
 
+
 def graph_search(
     proj_dir, initial_config, output_dir, timeout, max_iters=1000,
     nthreads=1, init=None, verbose=False
@@ -606,6 +606,7 @@ def graph_search(
             os.path.join(*[run_base, str(best.run_idx), "output"]),
             output_dir,
         )
+
 
 def main():
     import sys

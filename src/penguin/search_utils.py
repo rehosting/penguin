@@ -1,13 +1,12 @@
 import random
 import threading
-from collections import defaultdict
 import numpy as np
 from .graphs import Failure, Mitigation
 from .utils import get_mitigation_providers
 from typing import List
 import os
 from copy import deepcopy
-from .utils import get_mitigation_providers
+
 
 class MABWeightedSet:
     '''
@@ -28,7 +27,7 @@ class MABWeightedSet:
         self.beta_init = beta    # Initial beta value for the Beta distribution
         self.observed_scores = []  # Track all observed scores
         self.selections = []
-        self.learning_queue = {} # failure name -> {config: config, exclusive: provider}
+        self.learning_queue = {}  # failure name -> {config: config, exclusive: provider}
         self.already_learned = set()
 
         self.lock = threading.Lock()
@@ -59,7 +58,6 @@ class MABWeightedSet:
                 "patches": deepcopy(config['patches']) + [mitigation],
                 "exclusive": exclusive,
             }
-
 
     def add_solution(self, failure_name, solution, exclusive=None):
         """Add a potential solution to an existing failure."""
@@ -92,7 +90,6 @@ class MABWeightedSet:
 
                 return [(f"exclusive_{failure_name}_{soln['exclusive']}", patch) for patch in soln['patches']]
 
-
         for _ in range(1000):  # Limiting to 100 tries for fairness
             selected_failures = []  # (failure_name, solution)
             have_exclusive = False
@@ -101,7 +98,7 @@ class MABWeightedSet:
             with self.lock:
                 # TODO: should we order failures randomly here to ensure we don't bias towards early exclusive choices?
                 for failure_name, failure_data in self.failures.items():
-                    #print("Selecting solution for:", failure_name)
+                    # print("Selecting solution for:", failure_name)
                     if not failure_data["solutions"]:
                         print("\tNo solutions available for:", failure_name)
                         continue
@@ -109,20 +106,20 @@ class MABWeightedSet:
                     # With probability epsilon, explore a random solution
                     soln = None
                     if random.random() < epsilon:
-                        #print("\tSelecting random solution for:", failure_name)
-                        soln = self._select_solution_random(failure_name, can_be_exclusive=not have_exclusive) # returns (solution, exclusive)
+                        # print("\tSelecting random solution for:", failure_name)
+                        soln = self._select_solution_random(failure_name, can_be_exclusive=not have_exclusive)  # returns (solution, exclusive)
 
                     if not soln:
-                        #print("\tSelecting Thompson Sampled solution for:", failure_name)
+                        # print("\tSelecting Thompson Sampled solution for:", failure_name)
                         # If not randomly picking (or if random failed)
                         # Select one solution for the chosen failure using Thompson Sampling
-                        soln = self._select_solution(failure_name, can_be_exclusive=not have_exclusive) # returns (solution, exclusive)
+                        soln = self._select_solution(failure_name, can_be_exclusive=not have_exclusive)  # returns (solution, exclusive)
 
                     if soln is not None and soln[0] is not None:
-                        #print("\tSelected solution:", soln[0])
-                        #print("\tExclusive:", soln[1])
+                        # print("\tSelected solution:", soln[0])
+                        # print("\tExclusive:", soln[1])
                         selected_failures.append((failure_name, soln[0]))  # (failure_name, solution)
-                        assert (soln[1] is not False) # Sanity check - was previously bool but is not Optional[str]
+                        assert (soln[1] is not False)  # Sanity check - was previously bool but is not Optional[str]
 
                         have_exclusive |= (soln[1] is not None)
 
@@ -132,11 +129,11 @@ class MABWeightedSet:
             print("Failed to find any solutions?")
 
     def _select_solution_random(self, failure_name, can_be_exclusive=True):
-        solutions = [x for x in self.failures[failure_name]["solutions"] \
+        solutions = [x for x in self.failures[failure_name]["solutions"]
                      if not x["exclusive"] or can_be_exclusive]
 
-        #print("\tPotential solutions for", failure_name, ":")
-        #for s in solutions:
+        # print("\tPotential solutions for", failure_name, ":")
+        # for s in solutions:
         #    print("\t\t", s)
 
         if solutions:
@@ -147,10 +144,10 @@ class MABWeightedSet:
 
     def _select_solution(self, failure_name, can_be_exclusive=True):
         """Select a solution for a given failure using Thompson Sampling."""
-        solutions = [x for x in self.failures[failure_name]["solutions"] \
+        solutions = [x for x in self.failures[failure_name]["solutions"]
                      if not x["exclusive"] or can_be_exclusive]
-        #print("\tPotential solutions for", failure_name, ":")
-        #for s in solutions:
+        # print("\tPotential solutions for", failure_name, ":")
+        # for s in solutions:
         #    print("\t", s)
 
         if solutions:
@@ -161,9 +158,9 @@ class MABWeightedSet:
             is_exclusive = solutions[solution_idx]["exclusive"]
             return selected_solution, is_exclusive
 
-        #print("No valid solutions found for", failure_name)
-        #print(self.failures[failure_name]["solutions"])
-        #print()
+        # print("No valid solutions found for", failure_name)
+        # print(self.failures[failure_name]["solutions"])
+        # print()
         return None
 
     def report_result(self, selected_failures, final_score):
@@ -213,12 +210,14 @@ class MABWeightedSet:
                 output += f"  - Solution: {sol['solution']} (Alpha: {sol['alpha']:.02f}, Beta: {sol['beta']:.02f}" + (" Exclusive" if sol['exclusive'] else "") + ")\n"
         return output
 
+
 class ConfigSearch:
     """
     This class contains logic that would be shared across various configuration search algorithms.
     """
+
     def __init__(self):
-        #We expect children to set up their own logger
+        # We expect children to set up their own logger
         pass
 
     def find_mitigations(self, failure: Failure, config) -> List[Mitigation]:
@@ -272,6 +271,7 @@ class ConfigSearch:
         # We might have duplicate failures, but that's okay, caller will dedup?
         return fails
 
+
 if __name__ == "__main__":
     # Unit testing
     def generate_ground_truth(N=5, M=5, min_weight=-100, max_weight=100, scale=1.2):
@@ -279,13 +279,13 @@ if __name__ == "__main__":
         Generate synthetic ground truth for testing. Create N distinct failures with between 1 and M solutions each.
         Each solution has a weight from scale**(min_weight to max_weight).
         """
-        ground_truth = { }
+        ground_truth = {}
 
         # Add N failures with a random number 2, M solutions with random weights
         N = 5
         M = 5
         for i in range(N):
-            ground_truth[f"failure{i}"] = {f"solution{j}": round((scale)**random.randint(min_weight, max_weight), 2) for j in range(random.randint(1,M))}
+            ground_truth[f"failure{i}"] = {f"solution{j}": round((scale)**random.randint(min_weight, max_weight), 2) for j in range(random.randint(1, M))}
 
         for f in ground_truth.keys():
             ground_truth[f][None] = 0
@@ -345,7 +345,7 @@ if __name__ == "__main__":
         print("========= RESULTS ========")
         print(mab)
 
-        best = {} # failure -> best
+        best = {}  # failure -> best
         for fail, solns in ground_truth.items():
             best[fail] = max(solns, key=lambda x: solns[x])
             print(f"Failure: {fail}")

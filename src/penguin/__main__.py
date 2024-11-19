@@ -26,6 +26,7 @@ from .patch_minimizer import minimize
 
 logger = getColoredLogger("penguin")
 
+
 def _validate_project(proj_dir, config_path):
     if not os.path.isdir(proj_dir):
         raise RuntimeError(f"Project directory not found: {proj_dir}")
@@ -47,7 +48,7 @@ def _validate_project(proj_dir, config_path):
 
     # XXX: Should we put this in results somewhere?
     # from .penguin_config import load_config
-    #dump_config(config, config_path+".realized")
+    # dump_config(config, config_path+".realized")
     return config
 
 
@@ -76,7 +77,7 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
             specified_init = options[0]
         else:
             raise RuntimeError(
-                f"Static analysis failed to identify an init script. Please specify one in your config under env.igloo_init"
+                "Static analysis failed to identify an init script. Please specify one in your config under env.igloo_init"
             )
 
     PandaRunner().run(
@@ -105,9 +106,10 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
         total_score = sum(best_scores.values())
         f.write(f"{total_score:.02f}\n")
 
+
 def explore_from_config(
     explore_type, proj_dir, config_path, output_dir, niters, timeout,
-    nworkers=1, verbose=False, 
+    nworkers=1, verbose=False,
 ):
     config = _validate_project(proj_dir, config_path)
 
@@ -139,6 +141,7 @@ def explore_from_config(
         )
 
     raise ValueError(f"Invalid explore_type: {explore_type}")
+
 
 def add_common_arguments(parser):
     """
@@ -347,7 +350,7 @@ def penguin_run(args):
     if os.path.isfile(args.project_dir) or args.project_dir.endswith("/config.yaml"):
         # Backwards compatability: if we have a config file in project_dir, take
         # the directory of it as project_dir and set config to the config file
-        args.config = args.project_dir # Full path to config
+        args.config = args.project_dir  # Full path to config
         args.project_dir = os.path.dirname(args.config)
 
     if args.force and os.path.isdir(args.output):
@@ -472,6 +475,7 @@ def add_explore_arguments(parser):
         default=False,
         help="Forcefully delete output directory if it exists.",
     )
+
 
 def add_ga_explore_arguments(parser):
     add_explore_arguments(parser)
