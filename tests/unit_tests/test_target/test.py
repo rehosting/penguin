@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 import logging
 import os
-import shutil
 import sys
 from pathlib import Path
 import click
 import subprocess
 import yaml
-import tempfile
 
 logging.basicConfig(
     level=logging.INFO,
@@ -20,6 +18,7 @@ SCRIPT_PATH = Path(__file__).resolve().parent.parent  # Script's directory
 TEST_DIR = Path(__file__).resolve().parent
 
 proj_dir = Path(__file__).resolve().parent
+
 
 def penguin_run(config, image):
     try:
