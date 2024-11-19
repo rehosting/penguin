@@ -2,7 +2,6 @@
 import os
 import shutil
 import shlex
-import subprocess
 import sys
 import tempfile
 import socket
@@ -464,7 +463,7 @@ def run_config(
     logger.info("Loading plugins")
     for plugin_name in _sort_plugins_by_dependency(conf_plugins):
         details = conf_plugins[plugin_name]
-        if details.get("enabled", True) == False:
+        if not details.get("enabled", True):
             continue  # Special arg "enabled" - if set & false we skip
         logger.debug(f"Loading plugin: {plugin_name}")
 

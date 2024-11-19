@@ -11,8 +11,8 @@ from collections import defaultdict
 from pathlib import Path
 from penguin import getColoredLogger
 
-from .config_patchers import *
-from .static_analyses import *
+from . import config_patchers as CP
+from . import static_analyses as STATIC
 
 from .defaults import (
     default_version as DEFAULT_VERSION,
@@ -76,13 +76,13 @@ class ConfigBuilder:
         # If any raises an exception, it will be fatal to config generation and shown
         # to a user
         static_analyses = [
-            ArchId,
-            InitFinder,
-            EnvFinder,
-            PseudofileFinder,
-            InterfaceFinder,
-            ClusterCollector,
-            LibrarySymbols,
+            STATIC.ArchId,
+            STATIC.InitFinder,
+            STATIC.EnvFinder,
+            STATIC.PseudofileFinder,
+            STATIC.InterfaceFinder,
+            STATIC.ClusterCollector,
+            STATIC.LibrarySymbols,
         ]
 
         results = {}
@@ -164,43 +164,43 @@ class ConfigBuilder:
         """
 
         # Collect a list of all files in advance so we don't regenerate
-        archive_files = TarHelper.get_all_members(fs_archive)
+        archive_files = CP.TarHelper.get_all_members(fs_archive)
 
         # Instantiate and apply patch generators
         # Later patches will override earlier ones
         patch_generators = [
-            BasePatch(static_results['ArchId'], static_results['InitFinder']),
-            RootShell(),
-            DynamicExploration(),
+            CP.BasePatch(static_results['ArchId'], static_results['InitFinder']),
+            CP.RootShell(),
+            CP.DynamicExploration(),
             # SingleShot(),
-            SingleShotFICD(),
-            ManualInteract(),
-            NetdevsDefault(),
-            NetdevsTailored(static_results['InterfaceFinder']),
-            PseudofilesExpert(),
-            PseudofilesTailored(static_results['PseudofileFinder']),
-            LibInjectSymlinks(extract_dir),
-            LibInjectStringIntrospection(static_results['LibrarySymbols']),
-            LibInjectTailoredAliases(static_results['LibrarySymbols']),
-            LibInjectFixedAliases(),
-            ForceWWW(extract_dir),
-            GenerateMissingDirs(fs_archive, archive_files),
-            GenerateReferencedDirs(extract_dir),
-            GenerateShellMounts(extract_dir, archive_files),
-            GenerateMissingFiles(extract_dir),
-            DeleteFiles(extract_dir),
-            LinksysHack(extract_dir),
-            KernelModules(extract_dir),
-            ShimStopBins(archive_files),
-            ShimNoModules(archive_files),
-            ShimBusybox(archive_files),
-            ShimCrypto(archive_files),
+            CP.SingleShotFICD(),
+            CP.ManualInteract(),
+            CP.NetdevsDefault(),
+            CP.NetdevsTailored(static_results['InterfaceFinder']),
+            CP.PseudofilesExpert(),
+            CP.PseudofilesTailored(static_results['PseudofileFinder']),
+            CP.LibInjectSymlinks(extract_dir),
+            CP.LibInjectStringIntrospection(static_results['LibrarySymbols']),
+            CP.LibInjectTailoredAliases(static_results['LibrarySymbols']),
+            CP.LibInjectFixedAliases(),
+            CP.ForceWWW(extract_dir),
+            CP.GenerateMissingDirs(fs_archive, archive_files),
+            CP.GenerateReferencedDirs(extract_dir),
+            CP.GenerateShellMounts(extract_dir, archive_files),
+            CP.GenerateMissingFiles(extract_dir),
+            CP.DeleteFiles(extract_dir),
+            CP.LinksysHack(extract_dir),
+            CP.KernelModules(extract_dir),
+            CP.ShimStopBins(archive_files),
+            CP.ShimNoModules(archive_files),
+            CP.ShimBusybox(archive_files),
+            CP.ShimCrypto(archive_files),
             # ShimFwEnv(archive_files),
-            NvramFirmAEFileSpecific(extract_dir),
-            NvramDefaults(),
-            NvramConfigRecoveryWild(extract_dir),
-            NvramConfigRecovery(extract_dir),
-            NvramLibraryRecovery(static_results['LibrarySymbols']),
+            CP.NvramFirmAEFileSpecific(extract_dir),
+            CP.NvramDefaults(),
+            CP.NvramConfigRecoveryWild(extract_dir),
+            CP.NvramConfigRecovery(extract_dir),
+            CP.NvramLibraryRecovery(static_results['LibrarySymbols']),
         ]
 
         # collect patches in patches[patchfile_name] -> {section -> {key -> value}}
@@ -253,7 +253,7 @@ def initialize_and_build_config(fs, out=None, artifacts_dir=None):
     os.umask(0o000)
 
     # Generate our config and patches
-    config = ConfigBuilder(fs, output_dir)
+    ConfigBuilder(fs, output_dir)
 
     outfile = os.path.join(output_dir, "config.yaml")
 

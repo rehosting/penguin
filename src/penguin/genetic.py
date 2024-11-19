@@ -113,12 +113,12 @@ def ga_search(
         # and we need to now process those mitigations, almost the same as above but we won't track
         # score since these were theoretically no different than before - just with learning stuff
         # (might want to account into some aggregate score later)
-        for l in learning_configs:
-            full_config = population.get_patched_config(l)
-            if l.hash not in learning_results:
-                logger.warning(f"Missing results for {l}, did we finish all runs?")
+        for lc in learning_configs:
+            full_config = population.get_patched_config(lc)
+            if lc.hash not in learning_results:
+                logger.warning(f"Missing results for {lc}, did we finish all runs?")
                 continue
-            result = learning_results[l.hash]
+            result = learning_results[lc.hash]
             for f in result["failures"]:
                 for m in population.find_mitigations(f, full_config):
                     # m in this case in a Configuration(GraphNode), which is a full configuration
@@ -315,7 +315,7 @@ class GenePool:
 
     def get_mitigations(self, failure):
         if isinstance(failure, Failure):
-            failure_name = failure_to_genename(failure)
+            failure_name = self.failure_to_genename(failure)
         elif isinstance(failure, str):
             failure_name = failure
         else:
@@ -490,9 +490,9 @@ class ConfigPopulation(ConfigSearch):
             self.work_queue.put(None)
 
     def join_workers(self, nworkers=1):
-        self.logger.info(f"Joining workers...")
+        self.logger.info("Joining workers...")
         self.work_queue.join()
-        self.logger.info(f"Joined workers")
+        self.logger.info("Joined workers")
 
     def get_full_config(self, config: ConfigChromosome):
         """
@@ -523,7 +523,7 @@ class ConfigPopulation(ConfigSearch):
         failures = []  # TODO: should we track only new failures?
         score = {"empty": 0.0}
 
-        if self.get_fitness(config) != False:
+        if not self.get_fitness(config):
             self.logger.info(f"Skipping config {config} since it has already been tried")
             return failures, {"previous_run": self.get_fitness(config)}
 
@@ -727,7 +727,7 @@ class ConfigPopulation(ConfigSearch):
             else:
                 failed += 1
                 if failed > 100:
-                    self.logger.warn(f"Failed to generate a new configuration 100 times in a row, giving up")
+                    self.logger.warn("Failed to generate a new configuration 100 times in a row, giving up")
                     break
 
         self.logger.info(f"Population size after mutation is: {len(self.chromosomes)}")
@@ -780,7 +780,6 @@ def main():
         help="Number of mutations to perform per iteration. Default is 1",
     )
     args = parser.parse_args()
-    proj_dir = os.path.dirname(args.config)
     ga_search(os.path.dirname(args.config), args.config, args.outdir, args.timeout, args.niters, args.nworkers, args.nmuts)
 
 

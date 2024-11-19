@@ -129,7 +129,7 @@ class ArchId(StaticAnalysis):
             best = best_32[0][0]
             best_count = best_32[0][1]
         else:
-            raise ValueError(f"Failed to determine architecture of filesystem")
+            raise ValueError("Failed to determine architecture of filesystem")
 
         # If unknown is the most common, we'll raise an error
         if arch_counts["unknown"] > best_count:
@@ -142,7 +142,7 @@ class ArchId(StaticAnalysis):
 
             # Finally, report unknown count
             logger.info(f"Unknown architecture count: {arch_counts['unknown']}")
-            raise ValueError(f"Failed to determine architecture of filesystem")
+            raise ValueError("Failed to determine architecture of filesystem")
 
         logger.debug(f"Identified architecture: {best}")
         return best
