@@ -10,10 +10,14 @@ from yamlcore import CoreLoader
 import sys
 from pathlib import Path
 import os
-from penguin.common import patch_config
-from penguin.utils import construct_empty_fs
 from copy import deepcopy
 import hashlib
+
+'''
+We cannot import anything from penguin here as its used to generate the schema
+in a self-contained context. If you need things from penguin import them in the
+functions that use them.
+'''
 
 ENV_MAGIC_VAL = "DYNVALDYNVALDYNVAL"
 
@@ -772,6 +776,7 @@ def load_config(proj_dir, path, validate=True):
             if patch_relocated.exists():
                 # TODO: If we're missing a patch we should warn, but this happens 3-4x
                 # and that's too verbose.
+                from penguin.common import patch_config
                 config = patch_config(config, patch_relocated)
     # when loading a patch we don't need a completely valid config
     if validate:
@@ -786,6 +791,7 @@ def load_config(proj_dir, path, validate=True):
             config["core"]["fs"] = "./base/empty_fs.tar.gz"
             empty_fs_path = os.path.join(proj_dir, "./base/empty_fs.tar.gz")
             if not os.path.exists(empty_fs_path):
+                from penguin.utils import construct_empty_fs
                 construct_empty_fs(empty_fs_path)
     return config
 
