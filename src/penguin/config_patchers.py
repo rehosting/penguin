@@ -1381,7 +1381,7 @@ class ShimBinaries:
                     "type": "shim",
                     "target": f"/igloo/utils/{shim_targets[basename]}",
                 }
-        return {'static_files': result}
+        return result
 
 
 class ShimStopBins(ShimBinaries, PatchGenerator):
