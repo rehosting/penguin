@@ -16,6 +16,6 @@ jobs:
     # Ensure generated schema_doc.md matches the one in the repo at docs/schema_doc.md
     - run: |
         if ! diff schema_doc.md docs/schema_doc.md; then
-          echo "Config schema is out of date. Please run 'python3 src/penguin/penguin_config.py docs > docs/schema_doc.md && git add docs/schema_doc.md' and push a commit with the updated schema."
+          echo "Config schema is out of date. Please run 'python3 src/penguin/penguin_config/gen_docs.py docs > docs/schema_doc.md && git add docs/schema_doc.md' and push a commit with the updated schema."
           exit 1
         fi
