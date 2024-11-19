@@ -10,7 +10,7 @@ from os.path import join, exists
 @click.option(
     "--results",
     default="./results/latest",
-    help="Path to results folder (default is ./results/)",
+    help="Path to results folder (default is ./results/latest/)",
 )
 @click.option(
     "--output", default="/dev/stdout", help="Output to file instead of stdout"
