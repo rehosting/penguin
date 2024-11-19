@@ -36,11 +36,12 @@ KNOWN_PATHS = [
 try:
     from penguin import yaml
     from penguin.analyses import PenguinAnalysis
-    from penguin.gen_config import arch_end
+    from penguin.arch import arch_end
     from penguin.graphs import Configuration, Failure, Mitigation
 except ImportError:
     # We can still run as a PyPlugin, but we can't do post-run analysis
     PenguinAnalysis = object
+    Failure = object
     import yaml
 
 # Missing files go into our first log
