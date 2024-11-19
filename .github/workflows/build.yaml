@@ -81,7 +81,7 @@ jobs:
       - name: Install dependencies and label git workspace safe
         run: |
           sudo apt-get update && sudo apt-get -y install python3-pip git curl gzip tmux
-          python3 -m pip install click
+          python3 -m pip install click pyyaml
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Checkout code
         uses: actions/checkout@v4
