@@ -2,13 +2,13 @@
 ARG BASE_IMAGE="ubuntu:22.04"
 ARG DOWNLOAD_TOKEN="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"
 ARG PANDA_VERSION="1.8.54"
-ARG BUSYBOX_VERSION="0.0.6"
+ARG BUSYBOX_VERSION="0.0.8"
 ARG LINUX_VERSION="2.4.9"
 ARG LIBNVRAM_VERSION="0.0.15"
-ARG CONSOLE_VERSION="1.0.4"
+ARG CONSOLE_VERSION="1.0.5"
 ARG PENGUIN_PLUGINS_VERSION="1.5.15"
-ARG VPN_VERSION="1.0.16"
-ARG HYPERFS_VERSION="0.0.33"
+ARG VPN_VERSION="1.0.18"
+ARG HYPERFS_VERSION="0.0.34"
 ARG GUESTHOPPER_VERSION="1.0.4"
 ARG GLOW_VERSION="1.5.1"
 ARG GUM_VERSION="0.14.5"
@@ -118,7 +118,7 @@ RUN /get_release.sh rehosting vpnguin ${VPN_VERSION} ${DOWNLOAD_TOKEN} | \
 ARG HYPERFS_VERSION
 RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} | \
   tar xzf - -C / && \
-  mv /result/utils/* /igloo_static/ && \
+  cp -r /result/utils/* /igloo_static/ && \
   mv /result/dylibs /igloo_static/dylibs && \
   rm -rf /result
 
@@ -167,7 +167,7 @@ RUN cd / && \
   wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h && \
   mipseb-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/mipseb/send_hypercall && \
   mips64eb-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/mips64eb/send_hypercall  && \
-  mips64el-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/mips64el/send_hypercall.mips64el  && \
+  mips64el-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/mips64el/send_hypercall  && \
   mipsel-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/mipsel/send_hypercall && \
   arm-linux-musleabi-gcc -s -static send_hypercall.c -o out/armel/send_hypercall && \
   aarch64-linux-musl-gcc -s -static send_hypercall.c -o out/aarch64/send_hypercall && \
@@ -471,10 +471,15 @@ RUN if [ -d /tmp/local_packages ]; then \
             pip install /tmp/local_packages/pandare-*.whl; \
         fi; \
     fi
-RUN  cd /igloo_static && mv arm64/* aarch64/ && rm -rf arm64 && mv mips/* mipsel/  && rm -rf mips && mv mips64/* mips64eb/  && rm -rf mips64 && mv arm/* armel/ && rm -rf arm && mkdir -p utils.bin && \
-    for arch in "aarch64" "armel" "mipsel" "mips64eb" "mipseb" "x86_64"; do \
+RUN  cd /igloo_static && mv arm64/* aarch64/ && rm -rf arm64 && mkdir -p utils.bin && \
+    for arch in "aarch64" "armel" "mipsel" "mips64eb" "mips64el" "mipseb" "x86_64"; do \
+        mkdir -p /igloo_static/vpn; \
         for file in /igloo_static/"$arch"/* ; do \
-            ln -s "$file" /igloo_static/utils.bin/"$(basename "$file")"."$arch"; \
+            if [ $(basename "$file") = *"vpn"* ]; then \
+                ln -s "$file" /igloo_static/vpn/vpn."$arch"; \
+            else \
+                ln -s "$file" /igloo_static/utils.bin/"$(basename "$file")"."$arch"; \
+            fi; \
         done \
     done
 RUN date +%s%N > /igloo_static/container_timestamp.txt
