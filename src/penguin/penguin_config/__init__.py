@@ -123,8 +123,9 @@ def _validate_config(config):
     _validate_config_options(config)
 
 def _set_defaults(config):
+    arch = config["core"]["arch"]
     if config["core"].get("kernel", None) is None:
-        config["core"]["kernel"] = "/igloo_static/kernels/4.10/zImage.armel"
+        config["core"]["kernel"] = "/igloo_static/kernels/4.10/zImage.{arch}"
     if config["core"].get("fs", None) is None:
         config["core"]["fs"] = "./base/fs.tar.gz"
 
