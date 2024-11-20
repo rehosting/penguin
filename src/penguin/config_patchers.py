@@ -25,6 +25,8 @@ from .defaults import (
 
 logger = getColoredLogger("penguin.config_patchers")
 
+RESOURCES = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources")
+
 
 class PatchGenerator(ABC):
     def __init__(self):
@@ -434,10 +436,6 @@ class BasePatch(PatchGenerator):
                 }
             },
             "static_files": {
-                "/igloo": {
-                    "type": "dir",
-                    "mode": 0o755,
-                },
                 "/igloo/init": {
                     "type": "inline_file",
                     "contents": default_init_script,
@@ -475,10 +473,12 @@ class BasePatch(PatchGenerator):
                     "mode": 0o755,
                     "host_path": os.path.join(self.dylib_dir, "*"),
                 },
-
-                "/igloo/utils": {
-                    "type": "dir",
+                
+                # Startup scripts
+                "/igloo/source.d/*": {
+                    "type": "host_file",
                     "mode": 0o755,
+                    "host_path": os.path.join(*[RESOURCES, "source.d", "*"]),
                 },
 
                 # Add serial device in pseudofiles
@@ -1430,7 +1430,6 @@ class ShimCrypto(ShimBinaries, PatchGenerator):
         self.enabled = False
 
     def generate(self, patches):
-        resources = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources")
 
         result = self.make_shims({
             "openssl": "openssl",
@@ -1444,7 +1443,7 @@ class ShimCrypto(ShimBinaries, PatchGenerator):
         result["static_files"]["/igloo/keys/*"] = {
             "type": "host_file",
             "mode": 0o444,
-            "host_path": os.path.join(*[resources, "static_keys", "*"])
+            "host_path": os.path.join(*[RESOURCES, "static_keys", "*"])
         }
 
         return result
