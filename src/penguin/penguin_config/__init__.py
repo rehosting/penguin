@@ -122,12 +122,14 @@ def _validate_config(config):
     _validate_config_schema(config)
     _validate_config_options(config)
 
+
 def _set_defaults(config):
     arch = config["core"]["arch"]
     if config["core"].get("kernel", None) is None:
-        config["core"]["kernel"] = "/igloo_static/kernels/4.10/zImage.{arch}"
+        config["core"]["kernel"] = f"/igloo_static/kernels/4.10/zImage.{arch}"
     if config["core"].get("fs", None) is None:
         config["core"]["fs"] = "./base/fs.tar.gz"
+
 
 def load_config(path, validate=True):
     """Load penguin config from path"""
