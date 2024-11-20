@@ -670,13 +670,13 @@ contains details on the configuration file format and options.
     penguin_hash = get_file_hash(penguin_file)
 
     if penguin_hash != penguin_hash_env:
-        logger.error(
+        logger.warning(
             "Current penguin file does not match /usr/local/src/penguin_wrapper."
         )
-        print(
+        logger.warning(
             'Reinstall global penguin from container with "docker run rehosting/penguin penguin_install | sudo sh"'
         )
-        print(
+        logger.warning(
             'Reinstall local penguin from container with "docker run rehosting/penguin penguin_install.local | sh"'
         )
 
