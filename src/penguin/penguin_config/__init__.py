@@ -46,6 +46,7 @@ def _jsonify_dict(d):
 def _validate_config_schema(config):
     """Validate config with Pydantic"""
     structure.Main(**config).model_dump()
+
     jsonschema.validate(
         instance=_jsonify_dict(config),
         schema=structure.Main.model_json_schema(),
@@ -121,6 +122,11 @@ def _validate_config(config):
     _validate_config_schema(config)
     _validate_config_options(config)
 
+def _set_defaults(config):
+    if config["core"].get("kernel", None) is None:
+        config["core"]["kernel"] = "/igloo_static/kernels/4.10/zImage.armel"
+    if config["core"].get("fs", None) is None:
+        config["core"]["fs"] = "./base/fs.tar.gz"
 
 def load_config(path, validate=True):
     """Load penguin config from path"""
@@ -156,15 +162,13 @@ def load_config(path, validate=True):
             mode=0o755,
         )
 
+    _set_defaults(config)
+
     # when loading a patch we don't need a completely valid config
     if validate:
         _validate_config(config)
         _validate_config_version(config, path)
-        if config["core"].get("fs", None) is None:
-            config["core"]["fs"] = "./base/empty_fs.tar.gz"
-            empty_fs_path = os.path.join(config_folder, "./base/empty_fs.tar.gz")
-            if not os.path.exists(empty_fs_path):
-                construct_empty_fs(empty_fs_path)
+
     return config
 
 
