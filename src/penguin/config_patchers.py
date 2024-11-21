@@ -473,7 +473,7 @@ class BasePatch(PatchGenerator):
                     "mode": 0o755,
                     "host_path": os.path.join(self.dylib_dir, "*"),
                 },
-                
+
                 # Startup scripts
                 "/igloo/source.d/*": {
                     "type": "host_file",
