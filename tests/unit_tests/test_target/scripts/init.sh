@@ -12,15 +12,6 @@ done
 /igloo/utils/busybox mkdir -p /igloo/pfs/fake
 /igloo/utils/busybox rm -rf /dev # Remove /dev provided by firmware
 /igloo/utils/busybox ln -s /igloo/pfs/real/dev /dev # Temp /dev symlink for FUSE
-/igloo/utils/hyperfs /igloo/pfs/fake -o dev,allow_other --passthrough-path=/igloo/pfs/real
-/igloo/utils/busybox rm /dev
-
-# Bind /sys,/proc,/dev to fake dirs
-for f in sys proc dev; do
-    /igloo/utils/busybox mkdir -p /$f
-    /igloo/utils/busybox mount --bind /igloo/pfs/fake/$f /$f
-done
-
 for p in /run /tmp /igloo/libnvram_tmpfs; do
   if [ ! -d $p ]; then
     # If directory doesn't exist, create it
@@ -59,6 +50,15 @@ if [ ! -z "${SHARED_DIR}" ]; then
   /igloo/utils/busybox echo '/igloo/shared/core_dumps/core_%e.%p' > /igloo/pfs/real/proc/sys/kernel/core_pattern
   ulimit -c unlimited
 fi
+
+/igloo/utils/hyperfs /igloo/pfs/fake -o dev,allow_other --passthrough-path=/igloo/pfs/real
+/igloo/utils/busybox rm /dev
+
+# Bind /sys,/proc,/dev to fake dirs
+for f in sys proc dev; do
+    /igloo/utils/busybox mkdir -p /$f
+    /igloo/utils/busybox mount --bind /igloo/pfs/fake/$f /$f
+done
 
 if [ ! -z "${ROOT_SHELL}" ]; then
   echo '[IGLOO INIT] Launching root shell';
