@@ -122,16 +122,29 @@ def _validate_config(config):
     _validate_config_schema(config)
     _validate_config_options(config)
 
+def get_kernel_path(arch, static_dir):
+    if arch == "armel":
+        return static_dir + f"kernels/4.10/zImage.{arch}"
+    elif arch == "aarch64":
+        return static_dir + "kernels/4.10/zImage.arm64"
+    elif arch == "intel64":
+        return static_dir + "kernels/4.10/bzImage.x86_64"
+    else:
+        return static_dir + "kernels/4.10/" + "vmlinux" + f".{arch}"
 
 def _set_defaults(config):
-    arch = config["core"]["arch"]
+    arch = config["core"].get("arch", None)
+    if arch is None:
+        return
+
     if config["core"].get("kernel", None) is None:
-        config["core"]["kernel"] = f"/igloo_static/kernels/4.10/zImage.{arch}"
+        config["core"]["kernel"] = get_kernel_path(arch, "/igloo_static/")
+
     if config["core"].get("fs", None) is None:
         config["core"]["fs"] = "./base/fs.tar.gz"
 
 
-def load_config(path, validate=True):
+def load_config(path, validate=True, is_patch=False):
     """Load penguin config from path"""
     with open(path, "r") as f:
         config = yaml.load(f, Loader=CoreLoader)
@@ -164,8 +177,9 @@ def load_config(path, validate=True):
             contents="RUST_LOG=info /igloo/utils/guesthopper &",
             mode=0o755,
         )
-
-    _set_defaults(config)
+    
+    if not is_patch:
+        _set_defaults(config)
 
     # when loading a patch we don't need a completely valid config
     if validate:
