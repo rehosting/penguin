@@ -172,7 +172,6 @@ class ConfigBuilder:
             CP.BasePatch(static_results['ArchId'], static_results['InitFinder']),
             CP.RootShell(),
             CP.DynamicExploration(),
-            # SingleShot(),
             CP.SingleShotFICD(),
             CP.ManualInteract(),
             CP.NetdevsDefault(),
