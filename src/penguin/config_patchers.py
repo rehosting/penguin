@@ -579,7 +579,7 @@ class SingleShotFICD(PatchGenerator):
 
     def __init__(self):
         self.patch_name = "single_shot_ficd"
-        self.enabled = True
+        self.enabled = False
 
     def generate(self, patches):
         return {
@@ -664,7 +664,7 @@ class ManualInteract(PatchGenerator):
 
     def __init__(self):
         self.patch_name = "manual"
-        self.enabled = False
+        self.enabled = True
 
     def generate(self, patches):
         return {
