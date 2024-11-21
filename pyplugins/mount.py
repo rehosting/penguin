@@ -30,35 +30,45 @@ class MountTracker(PyPlugin):
         self.outdir = self.get_arg("outdir")
         self.ppp.Health.ppp_reg_cb("igloo_exec", self.find_mount)
         self.mounts = set()
+        self.fake_mounts = self.get_arg("fake_mounts") or []
+        self.all_succeed = self.get_arg("all_succeed") or False
         self.logger = getColoredLogger("plugins.mount")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
 
-        @self.panda.ppp("syscalls2", "on_sys_mount_return")
-        def post_mount(cpu, pc, source, target, fs_type, flags, data):
-            retval = panda.arch.get_retval(cpu, convention="syscall")
-            results = {
-                "source": source,
-                "target": target,
-                "fs_type": fs_type,
-            }
+        self.panda.ppp("syscalls2", "on_sys_mount_return")(self.post_mount)
 
-            for k, v in results.items():
-                try:
-                    results[k] = self.panda.read_str(cpu, v)
-                except ValueError:
-                    results[k] = "[unknown]"
+    def read_mount_args(self, cpu, source, target, fs_type):
+        results = {
+            "source": source,
+            "target": target,
+            "fs_type": fs_type,
+        }
 
-            # print(f"Mount returns {retval} for: mount -t {results['fs_type']} {results['source']} {results['target']}")
-            self.log_mount(retval, results)
+        for k, v in results.items():
+            try:
+                results[k] = self.panda.read_str(cpu, v)
+            except ValueError:
+                results[k] = "[unknown]"
+        return results
 
-            if retval == -16:  # EBUSY
-                # Already mounted - we could perhaps use this info to drop the mount from our init script?
-                # Just pretend it was a success
-                panda.arch.set_retval(cpu, 0, failure=False, convention="syscall")
+    def post_mount(self, cpu, pc, source, target, fs_type, flags, data):
+        results = self.read_mount_args(cpu, source, target, fs_type)
+        retval = self.panda.arch.get_retval(cpu, convention="syscall")
+        self.log_mount(retval, results)
+        if retval == -16:  # EBUSY
+            # Already mounted - we could perhaps use this info to drop the mount from our init script?
+            # Just pretend it was a success
+            self.panda.arch.set_retval(cpu, 0, failure=False, convention="syscall")
 
+        elif retval < 0:
+            if results["target"] in self.fake_mounts:
+                self.logger.debug(f"Fake mount: {results['target']}")
+                self.panda.arch.set_retval(cpu, 0, failure=False, convention="syscall")
+
+        if self.all_succeed:
             # Always pretend it was a success?
-            # panda.arch.set_retval(cpu, 0, failure=False, convention='syscall')
+            self.panda.arch.set_retval(cpu, 0, failure=False, convention='syscall')
 
     def find_mount(self, cpu, fname, argv):
         if fname == "/bin/mount":
