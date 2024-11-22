@@ -1,0 +1,3 @@
+[submodule "fw2tar"]
+	path = fw2tar
+	url = https://github.com/rehosting/fw2tar
