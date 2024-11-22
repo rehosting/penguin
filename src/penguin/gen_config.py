@@ -146,6 +146,7 @@ class ConfigBuilder:
                 "strace": False,
                 "ltrace": False,
                 "version": DEFAULT_VERSION,
+                "auto_patching": True,
             },
             "patches": patch_filenames,
             "env": {},
