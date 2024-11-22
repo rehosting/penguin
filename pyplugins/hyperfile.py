@@ -136,18 +136,14 @@ class HyperFile(PyPlugin):
                 return
 
     def handle_file_op(self, cpu):
-        buf_addr_addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
-        num_ptrs = self.panda.arch.get_arg(cpu, 3, convention="syscall")
-        assert num_ptrs == 1
-
         header_fmt = f"{self.endian} i {self.u_word}"
         read_fmt = write_fmt = f"{self.endian} {self.u_word} {self.u_word} q"
         ioctl_fmt = f"{self.endian} I {self.u_word}"
         getattr_fmt = f"{self.endian} {self.u_word}"
         hyperfs_data_size = struct.calcsize(header_fmt) + max(struct.calcsize(fmt) for fmt in (read_fmt, write_fmt, ioctl_fmt))
 
+        buf_addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
         try:
-            buf_addr = self.panda.virtual_memory_read(cpu, buf_addr_addr, self.arch_bytes, fmt="int")
             buf = self.panda.virtual_memory_read(cpu, buf_addr, hyperfs_data_size, fmt="bytearray")
         except ValueError:
             # Memory read failed - tell guest to retry
