@@ -9,7 +9,7 @@ from os.path import join as pjoin
 from sys import path as syspath
 from typing import List
 from pandare import PyPlugin
-from penguin import getColoredLogger
+from penguin import getColoredLogger, plugins
 
 syspath.append(dirname(__file__))
 
@@ -255,15 +255,14 @@ class FileFailures(PyPlugin):
         with open("/igloo_static/syscall_info_table.pkl", "rb") as f:
             self.syscall_info_table = pickle.load(f)
 
-        self.ppp.Events.listen("igloo_syscall", self.on_syscall)
+        plugins.subscribe(plugins.Events, "igloo_syscall", self.on_syscall)
 
         # Open/openat is a special case with hypercalls helping us out
         # because openat requires guest introspection to resolve the dfd, but we just
         # did it in the kernel
-        self.ppp.Events.listen("igloo_open", self.fail_detect_opens)
-        self.ppp.Events.listen("igloo_ioctl", self.fail_detect_ioctl)
-
-        self.ppp.Events.listen('igloo_proc_mtd', self.proc_mtd_check)
+        plugins.subscribe(plugins.Events, "igloo_open", self.fail_detect_opens)
+        plugins.subscribe(plugins.Events, "igloo_ioctl", self.fail_detect_ioctl)
+        plugins.subscribe(plugins.Events, 'igloo_proc_mtd', self.proc_mtd_check)
 
         # On ioctl return we might want to start symex. We detect failures with a special handler though
         if need_ioctl_hooks:

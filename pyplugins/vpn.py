@@ -10,7 +10,7 @@ from os.path import join
 
 from pandare import PyPlugin
 
-from penguin import getColoredLogger
+from penguin import getColoredLogger, plugins
 
 static_dir = "/igloo_static/"
 
@@ -31,14 +31,14 @@ BRIDGE_FILE = "vpn_bridges.csv"
 # e.g., IGLOO_VPN_PORT_MAPS="TCP:80:192.168.0.1:80,udp:20002:192.168.0.1:20002"
 
 
-class VsockVPN(PyPlugin):
+class VPN(PyPlugin):
     def __init__(self, panda):
         if "vhost-vsock" not in str(panda.panda_args) and "vhost-user-vsock" not in str(
             panda.panda_args
         ):
             raise ValueError("VsockVPN error: PANDA running without vsock")
 
-        self.ppp_cb_boilerplate("on_bind")
+        plugins.register(self, "on_bind")
 
         self.outdir = self.get_arg("outdir")
 
@@ -98,7 +98,7 @@ class VsockVPN(PyPlugin):
             f.write("procname,ipvn,domain,guest_ip,guest_port,host_port\n")
 
         # Whenever NetLog detects a bind, we'll set up bridges
-        self.ppp.NetBinds.ppp_reg_cb("on_bind", self.on_bind)
+        plugins.subscribe(plugins.NetBinds, "on_bind", self.on_bind)
 
     def launch_host_vpn(self, CID, socket_path, uds_path, log=False):
         '''
@@ -152,7 +152,7 @@ class VsockVPN(PyPlugin):
             if ip == "0.0.0.0":
                 # First run normal callback with 0.0.0.0 IP
                 host_port = self.bridge(sock_type, ip, port, procname, ipvn)
-                self.ppp_run_cb("on_bind", sock_type, ip, port, host_port, self.exposed_ip, procname)
+                plugins.publish(self, "on_bind", sock_type, ip, port, host_port, self.exposed_ip, procname)
 
                 # Add wild_ips
                 self.wild_ips.add((sock_type, port, procname))
@@ -160,9 +160,7 @@ class VsockVPN(PyPlugin):
                 # Bridge for each previously seen ip
                 for seen_ip in self.seen_ips:
                     host_port = self.bridge(sock_type, seen_ip, port, procname, ipvn)
-                    self.ppp_run_cb(
-                        "on_bind", sock_type, seen_ip, port, host_port, self.exposed_ip, procname
-                    )
+                    plugins.publish(self, "on_bind", sock_type, seen_ip, port, host_port, self.exposed_ip, procname)
                 return  # Skip the final call to bridge / trigger ppp callback
 
             elif ip not in self.seen_ips:
@@ -174,12 +172,10 @@ class VsockVPN(PyPlugin):
                     host_port = self.bridge(
                         sock_type, ip, seen_port, seen_procname, ipvn
                     )  # If unsupported or guest-host ports actually match, we skip this
-                    self.ppp_run_cb(
-                        "on_bind", sock_type, ip, seen_port, host_port, self.exposed_ip, procname
-                    )
+                    plugins.publish(self, "on_bind", sock_type, ip, seen_port, host_port, self.exposed_ip, procname)
 
         host_port = self.bridge(sock_type, ip, port, procname, ipvn)
-        self.ppp_run_cb("on_bind", sock_type, ip, port, host_port, self.exposed_ip, procname)
+        plugins.publish(self, "on_bind", sock_type, ip, port, host_port, self.exposed_ip, procname)
 
     def map_bound_socket(self, sock_type, ip, guest_port, procname):
         host_port = guest_port
@@ -233,7 +229,7 @@ class VsockVPN(PyPlugin):
         e.g. 80 -> 1080, 443 -> 2443, 8080 -> 18080, 65535 -> 1000
         '''
         for offset in range(1000, 65535, 1000):
-            if VsockVPN.is_port_open(offset + port):
+            if VPN.is_port_open(offset + port):
                 return offset + port
 
         """

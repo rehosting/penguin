@@ -7,7 +7,7 @@ from typing import List
 
 from pandare import PyPlugin
 
-from penguin import getColoredLogger
+from penguin import getColoredLogger, plugins
 
 try:
     from penguin import yaml
@@ -74,9 +74,8 @@ class EnvTracker(PyPlugin):
         if "env" in self.conf:
             # Track the set env variables so we know they're set
             self.default_env_vars += list(self.conf["env"].keys())
-
-        self.ppp.Events.listen("igloo_getenv", self.on_getenv)
-        self.ppp.Events.listen("igloo_strstr", self.on_strstr)
+        plugins.subscribe(plugins.Events, "igloo_getenv", self.on_getenv)
+        plugins.subscribe(plugins.Events, "igloo_strstr", self.on_strstr)
 
     def on_strstr(self, cpu, s1, s2):
         # /proc/cmdline check. If we see match in one, target is the other
@@ -260,7 +259,7 @@ class TargetCmp(PyPlugin):
             },
         )
 
-        self.ppp.Events.listen("igloo_string_cmp", self.on_string_compare)
+        plugins.subscribe(plugins.Events, "igloo_string_cmp", self.on_string_compare)
 
     def on_string_compare(self, cpu, s):
         """

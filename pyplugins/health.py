@@ -1,7 +1,7 @@
 import time
 from os import path
 from pandare import PyPlugin
-from penguin import getColoredLogger
+from penguin import getColoredLogger, plugins
 
 
 class Health(PyPlugin):
@@ -33,13 +33,13 @@ class Health(PyPlugin):
         self.procs_args = set()
         self.devs = set()
 
-        self.ppp_cb_boilerplate("igloo_exec")
+        plugins.register(self, "igloo_exec")
 
         # panda.load_plugin("coverage", {"filename": self.outdir+"/cov.csv", "mode": "osi-block",
         #                               "summary": 'true'})
-        self.ppp.Events.listen("igloo_ipv4_bind", self.on_ipv4_bind)
-        self.ppp.Events.listen("igloo_ipv6_bind", self.on_ipv6_bind)
-        self.ppp.Events.listen("igloo_open", self.health_detect_opens)
+        plugins.subscribe(plugins.Events, "igloo_ipv4_bind", self.on_ipv4_bind)
+        plugins.subscribe(plugins.Events, "igloo_ipv6_bind", self.on_ipv6_bind)
+        plugins.subscribe(plugins.Events, "igloo_open",      self.health_detect_opens)
 
         # TODO: replace with hypercall mechanism
         @panda.ppp("syscalls2", "on_sys_execve_enter")
@@ -74,7 +74,7 @@ class Health(PyPlugin):
                     argv.append(f"(error: 0x{ptr:x})")
                     nullable_argv.append(None)
             try:
-                self.ppp_run_cb("igloo_exec", cpu, fname, nullable_argv)
+                plugins.publish(self, "igloo_exec", cpu, fname, argv)
             except Exception as e:
                 self.logger.error("Exn in health.igloo_exec")
                 self.logger.exception(e)

@@ -24,7 +24,6 @@ class DB(PyPlugin):
             session.commit()
         self.queued_events.clear()
 
-    @PyPlugin.ppp_export
     def add_event(self, event, proc_info=True):
         if proc_info and (event.procname is None or event.proc_id is None):
             panda = self.panda

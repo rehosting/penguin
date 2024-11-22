@@ -11,7 +11,7 @@ from time import sleep
 
 from pandare import Panda
 
-from penguin import getColoredLogger
+from penguin import getColoredLogger, plugins
 
 from .common import yaml
 from .defaults import default_plugin_path
@@ -461,58 +461,22 @@ def run_config(
     os.makedirs(out_dir, exist_ok=True)
 
     logger.info("Loading plugins")
-    for plugin_name in _sort_plugins_by_dependency(conf_plugins):
-        details = conf_plugins[plugin_name]
-        if not details.get("enabled", True):
-            continue  # Special arg "enabled" - if set & false we skip
-        logger.debug(f"Loading plugin: {plugin_name}")
-
-        args = {
+    args = {
             "plugins": conf_plugins,
             "conf": conf,
             "proj_name": os.path.basename(proj_dir).replace("host_", ""),
             "proj_dir": proj_dir,
+            "plugin_path": plugin_path,
             "fs": config_fs,
             "fw": config_image,
             "outdir": out_dir,
             "verbose": verbose,
             "telnet_port": telnet_port,
-        }
-        for k, v in details.items():
-            # Extend the args with everything from the config that isn't in our special args
-            if k in ["depends_on", "enabled"]:
-                continue
-            if k in args.keys():
-                if args[k] != v:
-                    raise ValueError(f"Config for {plugin_name} overwrites argument {k} {args[k]} -> {v}")
-                continue
-            logger.debug(f"Setting {plugin_name} arg: {k} to {v}")
-            args[k] = v
-
-        if plugin_name == "vpn":
-            # Pass along special args from earlier - socket_path, uds_path
-            args.update(vpn_args)
-
-        local_plugin = False
-        path = os.path.join(plugin_path, plugin_name + ".py")
-        if not os.path.isfile(path):
-            path = os.path.join(proj_dir, plugin_name + ".py")
-            if not os.path.isfile(path):
-                raise ValueError(
-                    f"Plugin not found: {path} with name={plugin_name} and plugin_path={plugin_path}"
-                )
-            else:
-                local_plugin = True
-        try:
-            if len(panda.pyplugins.load_all(path, args)) == 0:
-                with open(os.path.join(out_dir, "plugin_errors.txt"), "a") as f:
-                    f.write(f"Failed to load plugin: {plugin_name}")
-                raise ValueError(f"Failed to load plugin: {plugin_name}")
-        except SyntaxError as e:
-            logger.error(f"Syntax error loading pyplugin: {e}")
-            raise ValueError(f"Failed to load plugin: {plugin_name}") from e
-        if local_plugin:
-            shutil.copy2(path, out_dir)
+    }
+    args.update(vpn_args)
+    plugins.initialize(panda, args)
+    plugins.load_plugins(conf_plugins)
+    
     # XXX HACK: normally panda args are set at the constructor. But we want to load
     # our plugins first and these need a handle to panda. So after we've constructed
     # our panda object, we'll directly insert our args into panda.panda_args in

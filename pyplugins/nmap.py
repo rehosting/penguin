@@ -4,13 +4,14 @@ import threading
 from threading import Lock
 
 from pandare import PyPlugin
+from penguin import plugins
 
 
 class Nmap(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
-        self.ppp.VsockVPN.ppp_reg_cb("on_bind", self.nmap_on_bind)
+        plugins.subscribe(plugins.VPN, "on_bind", self.nmap_on_bind)
         self.subprocesses = []
         self.lock = Lock()
         self.custom_nmap = os.path.isfile("/usr/local/etc/nmap/.custom")
