@@ -1,5 +1,5 @@
 from typing import Annotated, Dict, List, Literal, Optional, Union, Any
-from pydantic import BaseModel, Field, RootModel, root_validator
+from pydantic import BaseModel, Field, RootModel, model_validator
 from pydantic.config import ConfigDict
 from pydantic_core import PydanticUndefinedType, PydanticUndefined
 import dataclasses
@@ -97,8 +97,8 @@ class Core(BaseModel):
             ],
         ),
     ]
-    
-    @root_validator(pre=True)
+
+    @model_validator(mode="before")
     def set_kernel_default(cls, values):
         arch = values.get("arch")
         kernel = values.get("kernel")
@@ -106,11 +106,11 @@ class Core(BaseModel):
             if arch == "armel":
                 values["kernel"] = "/igloo_static/kernels/4.10/zImage.armel"
             elif arch == "aarch64":
-                values["kernel"] =  "/igloo_static/kernels/4.10/zImage.arm64"
+                values["kernel"] = "/igloo_static/kernels/4.10/zImage.arm64"
             elif arch == "intel64":
-                values["kernel"] =  "/igloo_static/kernels/4.10/bzImage.x86_64"
+                values["kernel"] = "/igloo_static/kernels/4.10/bzImage.x86_64"
             else:
-                values["kernel"] =  f"/igloo_static/kernels/4.10/vmlinux.{arch}"
+                values["kernel"] = f"/igloo_static/kernels/4.10/vmlinux.{arch}"
         return values
 
     fs: Annotated[
@@ -473,7 +473,7 @@ class Pseudofile(BaseModel):
     read: Optional[Read] = None
     write: Optional[Write] = None
     ioctl: Optional[Ioctls] = None
-   
+
 
 Pseudofiles = _newtype(
     class_name="Pseudofiles",
@@ -691,7 +691,7 @@ class Plugin(BaseModel):
     model_config = ConfigDict(title="Plugin", extra="allow")
 
     description: Annotated[Optional[str], Field(None, title="Plugin description")]
-    depends_on: Annotated[Union[str, list], Field([], title="Plugin dependency")]
+    depends_on: Annotated[str, Field(None, title="Plugin dependency")]
     enabled: Annotated[
         bool,
         Field(
@@ -738,7 +738,7 @@ def _validate_config_schema(config, is_dump):
     validated_model = Main(**config)
 
     if is_dump:
-        validated_model.model_dump(exclude_unset=True)
+        validated_model.model_dump(exclude_none=True)
     else:
         config.clear()
         config.update(validated_model.model_dump(exclude_none=True))
