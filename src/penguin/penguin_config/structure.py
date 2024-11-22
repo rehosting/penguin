@@ -1,5 +1,5 @@
 from typing import Annotated, Dict, List, Literal, Optional, Union, Any
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field, RootModel, root_validator
 from pydantic.config import ConfigDict
 from pydantic_core import PydanticUndefinedType, PydanticUndefined
 import dataclasses
@@ -83,7 +83,7 @@ class Core(BaseModel):
         ),
     ]
     kernel: Annotated[
-        Optional[Union[str]],
+        Optional[str],
         Field(
             None,
             title="Path to kernel image",
@@ -97,9 +97,26 @@ class Core(BaseModel):
             ],
         ),
     ]
+    
+    @root_validator(pre=True)
+    def set_kernel_default(cls, values):
+        arch = values.get("arch")
+        kernel = values.get("kernel")
+        if kernel is None:
+            if arch == "armel":
+                values["kernel"] = "/igloo_static/kernels/4.10/zImage.armel"
+            elif arch == "aarch64":
+                values["kernel"] =  "/igloo_static/kernels/4.10/zImage.arm64"
+            elif arch == "intel64":
+                values["kernel"] =  "/igloo_static/kernels/4.10/bzImage.x86_64"
+            else:
+                values["kernel"] =  f"/igloo_static/kernels/4.10/vmlinux.{arch}"
+        return values
+
     fs: Annotated[
-        Union[str, None],
+        Optional[str],
         Field(
+            "./base/fs.tar.gz",
             title="Project-relative path to filesystem tarball",
             examples=["base/fs.tar.gz"],
         ),
@@ -456,7 +473,7 @@ class Pseudofile(BaseModel):
     read: Optional[Read] = None
     write: Optional[Write] = None
     ioctl: Optional[Ioctls] = None
-
+   
 
 Pseudofiles = _newtype(
     class_name="Pseudofiles",
@@ -673,17 +690,17 @@ class StaticFiles(RootModel):
 class Plugin(BaseModel):
     model_config = ConfigDict(title="Plugin", extra="allow")
 
-    description: Annotated[str, Field(None, title="Plugin description")]
-    depends_on: Annotated[str, Field(None, title="Plugin dependency")]
+    description: Annotated[Optional[str], Field(None, title="Plugin description")]
+    depends_on: Annotated[Union[str, list], Field([], title="Plugin dependency")]
     enabled: Annotated[
         bool,
         Field(
-            None,
+            True,
             title="Enable plugin",
             description="Whether to enable this plugin (default depends on plugin)",
         ),
     ]
-    version: Annotated[str, Field(None, title="Plugin version")]
+    version: Annotated[Optional[str], Field(None, title="Plugin version")]
 
 
 class Main(BaseModel):
@@ -718,7 +735,11 @@ def _jsonify_dict(d):
 
 def _validate_config_schema(config):
     """Validate config with Pydantic"""
-    Main(**config).model_dump()
+    validated_model = Main(**config)
+
+    config.clear()
+    config.update(validated_model.model_dump(exclude_none=True))
+
     jsonschema.validate(
         instance=_jsonify_dict(config),
         schema=Main.model_json_schema(),
@@ -787,8 +808,7 @@ def load_config(proj_dir, path, validate=True):
         if config["core"].get("kernel", None) is None:
             raise ValueError("No core.kernel specified in config")
 
-        if config["core"].get("fs", None) is None:
-            config["core"]["fs"] = "./base/empty_fs.tar.gz"
+        if config["core"]["fs"] == "./base/empty_fs.tar.gz":
             empty_fs_path = os.path.join(proj_dir, "./base/empty_fs.tar.gz")
             if not os.path.exists(empty_fs_path):
                 from penguin.utils import construct_empty_fs
