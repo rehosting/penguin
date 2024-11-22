@@ -1,6 +1,6 @@
 from os.path import join as pjoin
 from pandare import PyPlugin
-from penguin import getColoredLogger
+from penguin import getColoredLogger, plugins
 
 mount_log = "mounts.csv"
 
@@ -28,7 +28,7 @@ class MountTracker(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
-        self.ppp.Health.ppp_reg_cb("igloo_exec", self.find_mount)
+        plugins.subscribe(plugins.Health, "igloo_exec", self.find_mount)
         self.mounts = set()
         self.fake_mounts = self.get_arg("fake_mounts") or []
         self.all_succeed = self.get_arg("all_succeed") or False

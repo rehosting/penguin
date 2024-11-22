@@ -1,4 +1,5 @@
 from pandare import PyPlugin
+from penguin import plugins
 
 RETRY = 0xDEADBEEF
 NO_CHANGE = 0xABCDABCD
@@ -16,7 +17,7 @@ class KernelVersion(PyPlugin):
         self.machine = self.get_arg("machine")
         self.domainname = self.get_arg("domainname")
 
-        self.ppp.Events.listen("igloo_uname", self.change_uname)
+        plugins.subscribe(plugins.Events, "igloo_uname", self.change_uname)
 
     def create_string(self):
         uname_str = ""

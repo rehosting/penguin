@@ -7,6 +7,7 @@ import re
 from pandare import PyPlugin
 
 from penguin import getColoredLogger, yaml
+from penguin import plugins
 from penguin.analyses import PenguinAnalysis
 from penguin.graphs import Configuration, Failure, Mitigation
 
@@ -38,7 +39,7 @@ class Interfaces(PyPlugin):
         self.failed_ioctls = set()
 
         self.panda.ppp("syscalls2", "on_sys_ioctl_return")(self.after_ioctl)
-        self.ppp.Health.ppp_reg_cb("igloo_exec", self.iface_on_exec)
+        plugins.subscribe(plugins.Health, "igloo_exec", self.iface_on_exec)
 
     def handle_interface(self, iface):
         if iface is None or not len(iface):

@@ -12,6 +12,7 @@ from time import sleep
 
 import requests
 from pandare import PyPlugin
+from penguin import plugins
 from python_hosts import Hosts, HostsEntry
 from zapv2 import ZAPv2
 
@@ -133,9 +134,7 @@ class Zap(PyPlugin):
             self.logger.error("Failed to start zap. Not scanning web apps.")
             return
 
-        self.ppp.VsockVPN.ppp_reg_cb("on_bind", self.zap_on_bind)
-        # self.ppp.SyscallProxy.ppp_reg_cb('on_pbind', self.zap_on_bind)
-        # self.ppp.SyscallProxy2.ppp_reg_cb('on_pbind', self.zap_on_bind)
+        plugins.subscribe(plugins.VPN, "on_bind", self.zap_on_bind)
 
     @property
     def output_file(self):

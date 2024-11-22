@@ -1,5 +1,6 @@
 from pandare import PyPlugin
 from events import Exec
+from penguin import plugins
 
 
 def get_calltree(panda):
@@ -34,7 +35,7 @@ class ExecLog(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
-        self.DB = self.ppp.DB
+        self.DB = plugins.DB
 
         panda.ppp("proc_start_linux", "on_rec_auxv")(self.rec_auxv)
 
