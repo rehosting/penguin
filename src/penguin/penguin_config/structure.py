@@ -759,7 +759,7 @@ def load_config(proj_dir, path, validate=True):
         config = yaml.load(f, Loader=CoreLoader)
     # look for files called patch_*.yaml in the same directory as the config file
     if config["core"].get("auto_patching", False) is True:
-        patch_files = list(proj_dir.glob("patch_*.yaml"))
+        patch_files = list(Path(proj_dir).glob("patch_*.yaml"))
         patches_dir = Path(proj_dir, "patches")
         if patches_dir.exists():
             patch_files += list(patches_dir.glob("*.yaml"))
