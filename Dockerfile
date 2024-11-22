@@ -45,7 +45,7 @@ RUN apt-get update && \
              /igloo_static/syscalls \
              /panda_plugins
 
-COPY ./utils/get_release.sh /get_release.sh
+COPY ./get_release.sh /get_release.sh
 
 # 1) Get external resources
 # Download ZAP into /zap
@@ -161,7 +161,7 @@ RUN cd /tmp && \
 
 #### CROSS BUILDER: Build send_hypercall ###
 FROM ghcr.io/rehosting/embedded-toolchains:latest as cross_builder
-COPY ./utils/send_hypercall.c /
+COPY ./guest-utils/native/send_hypercall.c /
 RUN cd / && \
   mkdir -p out/mipseb out/mips64eb out/mipsel out/mips64el  out/armel out/aarch64 out/x86_64 && \
   wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h && \
@@ -376,10 +376,9 @@ COPY --from=nmap_builder /build/nmap /usr/local/
 
 COPY --from=downloader /tmp/ltrace /igloo_static/ltrace
 
-# Copy utils.source (scripts) and utils.bin (binaries) from host
-# Files are named util.[arch] or util.all
+# Copy source and binaries from host
 COPY --from=cross_builder /out /igloo_static/
-COPY utils/* /igloo_static/utils.source/
+COPY guest-utils /igloo_static/guest-utils
 COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
 
 # Generate syscall table

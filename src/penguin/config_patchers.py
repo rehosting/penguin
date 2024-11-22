@@ -363,7 +363,7 @@ class BasePatch(PatchGenerator):
     def set_arch_info(self, arch_identified):
         '''
         Our naming convention for architectures is a bit inconsistent. This function
-        handles that by settings self.{arch_name,arch_suffix,dylib_dir}.
+        handles that by settings self.{arch_name,arch_dir}.
         '''
 
         # TODO: should we allow a config to be generated for an unsupported architecture?
@@ -375,18 +375,15 @@ class BasePatch(PatchGenerator):
         if arch == "aarch64":
             # TODO: We should use a consistent name here. Perhaps aarch64eb?
             self.arch_name = "aarch64"
-            self.arch_suffix = ".aarch64"
-            self.dylib_dir = os.path.join(STATIC_DIR, "dylibs", "arm64")
+            self.arch_dir = "arm64"
             self.kernel_name = "zImage.arm64"
         elif arch == "intel64":
             self.arch_name = "intel64"
-            self.arch_suffix = ".x86_64"
-            self.dylib_dir = os.path.join(STATIC_DIR, "dylibs", "x86_64")
+            self.arch_dir = "x86_64"
             self.kernel_name = "bzImage.x86_64"
         else:
             self.arch_name = arch + endian
-            self.arch_suffix = f".{arch}{endian}"
-            self.dylib_dir = os.path.join(STATIC_DIR, "dylibs", arch + endian)
+            self.arch_dir = f"{arch}{endian}"
             if arch == "arm":
                 self.kernel_name = f"zImage.{arch}{endian}"
             else:
@@ -471,7 +468,7 @@ class BasePatch(PatchGenerator):
                 "/igloo/dylibs/*": {
                     "type": "host_file",
                     "mode": 0o755,
-                    "host_path": os.path.join(self.dylib_dir, "*"),
+                    "host_path": os.path.join(STATIC_DIR, "dylibs", self.arch_dir, "*"),
                 },
 
                 # Startup scripts
@@ -495,19 +492,20 @@ class BasePatch(PatchGenerator):
             "plugins": default_plugins,
         }
 
-        # Always add our utilities into static files. Note that we can't currently use
-        # a full directory copy since we're doing some renaming.
-        # TODO: Refactor utility paths in container so we can just copy the whole directory
-        # for a given architecture.
-        for util_dir in ["console", "libnvram", "utils.bin", "utils.source", "vpn"]:
-            for f in os.listdir(os.path.join(STATIC_DIR, util_dir)):
-                if f.endswith(self.arch_suffix) or f.endswith(".all"):
-                    out_name = f.replace(self.arch_suffix, "").replace(".all", "")
-                    result["static_files"][f"/igloo/utils/{out_name}"] = {
-                        "type": "host_file",
-                        "host_path": f"/igloo_static/{util_dir}/{f}",
-                        "mode": 0o755,
-                    }
+        # Always add our utilities into static files
+        guest_scripts_dir = os.path.join(STATIC_DIR, "guest-utils", "scripts")
+        for f in os.listdir(guest_scripts_dir):
+            result["static_files"][f"/igloo/utils/{f}"] = {
+                "type": "host_file",
+                "host_path": f"{guest_scripts_dir}/{f}",
+                "mode": 0o755,
+            }
+        result["static_files"][f"/igloo/utils/*"] = {
+            "type": "host_file",
+            "host_path": f"{STATIC_DIR}/{self.arch_dir}/*",
+            "mode": 0o755,
+        }
+
         return result
 
 
