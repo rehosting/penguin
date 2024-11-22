@@ -111,14 +111,16 @@ def ignore_ioctl_path(path):
     return False
 
 
+# Closure so we can pass details through
+def make_rwif(details, fn_ref):
+    def rwif(*args):
+        return fn_ref(*args, details)
+
+    return rwif
+
+
 class FileFailures(PyPlugin):
     def __init__(self, panda):
-        # XXX We need this import in here, otherwise when we load psueodfiles with panda.load_plugin /path/to/pseudofiles.py
-        # it sees both FileFailures AND HyperFile. But we only want hyperfile to be loaded by us here, not by our caller.
-        # we are not currently using HYPER_WRITE so we do not import it
-        from hyperfile import (HYPER_IOCTL, HYPER_READ, HyperFile,
-                               hyper)
-
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.proj_dir = self.get_arg("proj_dir")
@@ -127,7 +129,6 @@ class FileFailures(PyPlugin):
         if self.get_arg_bool("verbose"):
             self.logger.setLevel(logging.DEBUG)
         self.did_mtd_warn = False  # Set if we've warned about misconfigured MTD devices
-
         # XXX: It has seemed like this should be 1 for some architectures, but that can't be right?
         self.ENOENT = 2
         self.warned = set()  # Syscalls we don't know about that we've seen
@@ -141,26 +142,88 @@ class FileFailures(PyPlugin):
             raise ValueError("No 'pseudofiles' in config: {self.get_arg('conf')}")
 
         self.config = self.get_arg("conf")
-        # Expect filename: {'read': 'default' OR 'zero' or 'one'
-        #                   'write': 'default' OR 'discard',
-        #                   'ioctl': {
-        #                               '*' OR num: {'model': 'X', 'val': Y}
-        #                               }
-
         self.devfs = []
         self.procfs = []
         self.sysfs = []
         # self.last_symex = None
         self.warned = set()
-        need_ioctl_hooks = False
+        self.need_ioctl_hooks = False
+        self.hf_config = self.populate_hf_config()
 
-        # Closure so we can pass details through
-        def make_rwif(details, fn_ref):
-            def rwif(*args):
-                return fn_ref(*args, details)
 
-            return rwif
+        self.logger.debug("Registered pseudofiles:")
+        for filename, details in self.hf_config.items():
+            self.logger.debug(f"  {filename}")
 
+        # filename -> {read: model, write: model, ioctls: model}
+        # Coordinates with hyperfile for modeling behavior!
+        # Can we just pass our config straight over and load both?
+        # Need to implement read, write, and IOCTLs
+        # IOCTLs with symex gets scary, others are easy though?
+        from hyperfile import HyperFile
+        panda.pyplugins.load(
+            HyperFile,
+            {
+                "models": self.hf_config,
+                "log_file": pjoin(self.outdir, outfile_models),
+                "logger": self.logger,
+            },
+        )
+        # Clear results file - we'll update it as we go
+        self.dump_results()
+
+        with open("/igloo_static/syscall_info_table.pkl", "rb") as f:
+            self.syscall_info_table = pickle.load(f)
+
+        plugins.subscribe(plugins.Events, "igloo_syscall", self.on_syscall)
+
+        # Open/openat is a special case with hypercalls helping us out
+        # because openat requires guest introspection to resolve the dfd, but we just
+        # did it in the kernel
+        plugins.subscribe(plugins.Events, "igloo_open", self.fail_detect_opens)
+        plugins.subscribe(plugins.Events, "igloo_ioctl", self.fail_detect_ioctl)
+        plugins.subscribe(plugins.Events, 'igloo_proc_mtd', self.proc_mtd_check)
+
+        # On ioctl return we might want to start symex. We detect failures with a special handler though
+        if self.need_ioctl_hooks:
+            panda.ppp("syscalls2", "on_sys_ioctl_return")(self.symex_ioctl_return)
+    
+    def gen_hyperfile_function(self, filename, details, ftype):
+        if ftype not in details or "model" not in details[ftype]:
+            model = "default"  # default is default
+        else:
+            model = details[ftype]["model"]
+
+        if hasattr(self, f"{ftype}_{model}"):
+            # Have a model specified
+            fn = getattr(self, f"{ftype}_{model}")
+        elif model == "from_plugin":
+            plugin_name = details[ftype]["plugin"]
+            plugin = getattr(plugins, plugin_name)
+            func = details[ftype].get("function", ftype)
+            if hasattr(plugin, func):
+                fn = getattr(plugin, func)
+            else:
+                raise ValueError(f"Hyperfile {filename} depends on plugin {plugin} which does not have function {func}")
+        else:
+            if ftype == "ioctl":
+                guess = {"pseudofiles": {filename: {"*": details}}}
+                raise ValueError(
+                    f"Invalid ioctl settings. Must specify ioctl number (or '*') within ioctl dictionary, then map each to a model. Did you mean: {guess}"
+                )
+            raise ValueError(
+                f"Unsupported hyperfile {ftype}_{model} for {filename}: {details[ftype] if ftype in details else None}"
+            )
+        return make_rwif(
+                    details[ftype] if ftype in details else {}, fn
+                )
+        
+    
+    def populate_hf_config(self):
+        # XXX We need this import in here, otherwise when we load psueodfiles with panda.load_plugin /path/to/pseudofiles.py
+        # it sees both FileFailures AND HyperFile. But we only want hyperfile to be loaded by us here, not by our caller.
+        # we are not currently using HYPER_WRITE so we do not import it
+        from hyperfile import (HYPER_IOCTL, HYPER_READ, HyperFile, hyper)
         hf_config = {}
         for filename, details in self.config["pseudofiles"].items():
             hf_config[filename] = {}
@@ -186,35 +249,16 @@ class FileFailures(PyPlugin):
                 )
 
             for ftype in "read", "write", "ioctl":
-                if ftype not in details or "model" not in details[ftype]:
-                    model = "default"  # default is default
-                else:
-                    model = details[ftype]["model"]
-
-                if not hasattr(self, f"{ftype}_{model}"):
-                    if ftype == "ioctl":
-                        guess = {"pseudofiles": {filename: {"*": details}}}
-                        raise ValueError(
-                            f"Invalid ioctl settings. Must specify ioctl number (or '*') within ioctl dictionary, then map each to a model. Did you mean: {guess}"
-                        )
-                    raise ValueError(
-                        f"Unsupported hyperfile {ftype}_{model} for {filename}: {details[ftype] if ftype in details else None}"
-                    )
-                # Have a model specified
-                fn = getattr(self, f"{ftype}_{model}")
-
-                hf_config[filename][hyper(ftype)] = make_rwif(
-                    details[ftype] if ftype in details else {}, fn
-                )
-
+                hf_config[filename][hyper(ftype)] = self.gen_hyperfile_function(filename, details, ftype)
                 if (
                     ftype == "ioctl"
                     and ftype in details
+                    and "model" not in details[ftype]
                     and any([x["model"] == "symex" for x in details[ftype].values()])
                 ):
                     # If we have a symex model we'll need to enable some extra introspection
-                    need_ioctl_hooks = True
-
+                    self.need_ioctl_hooks = True
+        
         if len(self.get_arg("conf").get("netdevs", [])):
             # If we have netdevs in our config, we'll make the /proc/penguin_net pseudofile with the contents of it
             # Here we'll use our make_rwif closure
@@ -230,83 +274,48 @@ class FileFailures(PyPlugin):
             HYPER_IOCTL: HyperFile.ioctl_unhandled,
             "size": 0,
         }
+        return hf_config
+    
+    
+    def symex_ioctl_return(self, cpu, pc, fd, cmd, arg):
+        # We'll return -999 as a magic placeholder value that indicates we should
+        # Start symex. Is this a terrible hack. You betcha!
+        rv = self.panda.arch.get_retval(cpu, convention="syscall")
+        rv = self.panda.from_unsigned_guest(rv)  # Unnecessary?
 
-        self.logger.debug("Registered pseudofiles:")
-        for filename, details in hf_config.items():
-            self.logger.debug(f"  {filename}")
+        if rv != MAGIC_SYMEX_RETVAL:
+            return
 
-        # filename -> {read: model, write: model, ioctls: model}
-        # Coordinates with hyperfile for modeling behavior!
-        # Can we just pass our config straight over and load both?
-        # Need to implement read, write, and IOCTLs
-        # IOCTLs with symex gets scary, others are easy though?
+        if not hasattr(self, "symex"):
+            # Initialize symex on first use
+            from symex import PathExpIoctl
 
-        panda.pyplugins.load(
-            HyperFile,
-            {
-                "models": hf_config,
-                "log_file": pjoin(self.outdir, outfile_models),
-                "logger": self.logger,
-            },
-        )
-        # Clear results file - we'll update it as we go
-        self.dump_results()
+            self.symex = PathExpIoctl(self.outdir, self.config["core"]["fs"])
 
-        with open("/igloo_static/syscall_info_table.pkl", "rb") as f:
-            self.syscall_info_table = pickle.load(f)
+        # Look through our config and find the filename with a symex model
+        # XXX: This is a bit of a hack - we're assuming we only have one symex model
+        filename = None
+        for fname, file_model in self.config["pseudofiles"].items():
+            if "ioctl" in file_model:
+                for _, model in file_model["ioctl"].items():
+                    if model["model"] == "symex":
+                        filename = fname
+                        break
 
-        plugins.subscribe(plugins.Events, "igloo_syscall", self.on_syscall)
+        if filename is None:
+            raise ValueError(
+                "No filename with symex model found in config, but we got a symex ioctl. Unexpected"
+            )
 
-        # Open/openat is a special case with hypercalls helping us out
-        # because openat requires guest introspection to resolve the dfd, but we just
-        # did it in the kernel
-        plugins.subscribe(plugins.Events, "igloo_open", self.fail_detect_opens)
-        plugins.subscribe(plugins.Events, "igloo_ioctl", self.fail_detect_ioctl)
-        plugins.subscribe(plugins.Events, 'igloo_proc_mtd', self.proc_mtd_check)
+        # It's time to launch symex!
+        self.symex.do_symex(self.panda, cpu, pc, filename, cmd)
 
-        # On ioctl return we might want to start symex. We detect failures with a special handler though
-        if need_ioctl_hooks:
+        # We write down the "failure" so we can see that it happened (and know to query symex
+        # to get results)
+        self.log_ioctl_failure(filename, cmd)
 
-            @panda.ppp("syscalls2", "on_sys_ioctl_return")
-            def symex_ioctl_return(cpu, pc, fd, cmd, arg):
-                # We'll return -999 as a magic placeholder value that indicates we should
-                # Start symex. Is this a terrible hack. You betcha!
-                rv = panda.arch.get_retval(cpu, convention="syscall")
-                rv = panda.from_unsigned_guest(rv)  # Unnecessary?
-
-                if rv != MAGIC_SYMEX_RETVAL:
-                    return
-
-                if not hasattr(self, "symex"):
-                    # Initialize symex on first use
-                    from symex import PathExpIoctl
-
-                    self.symex = PathExpIoctl(self.outdir, self.config["core"]["fs"])
-
-                # Look through our config and find the filename with a symex model
-                # XXX: This is a bit of a hack - we're assuming we only have one symex model
-                filename = None
-                for fname, file_model in self.config["pseudofiles"].items():
-                    if "ioctl" in file_model:
-                        for _, model in file_model["ioctl"].items():
-                            if model["model"] == "symex":
-                                filename = fname
-                                break
-
-                if filename is None:
-                    raise ValueError(
-                        "No filename with symex model found in config, but we got a symex ioctl. Unexpected"
-                    )
-
-                # It's time to launch symex!
-                self.symex.do_symex(self.panda, cpu, pc, filename, cmd)
-
-                # We write down the "failure" so we can see that it happened (and know to query symex
-                # to get results)
-                self.log_ioctl_failure(filename, cmd)
-
-                # set retval to 0 with no error.
-                panda.arch.set_retval(cpu, 0, convention="syscall", failure=False)
+        # set retval to 0 with no error.
+        self.panda.arch.set_retval(cpu, 0, convention="syscall", failure=False)
 
     def on_syscall(self, cpu, buf_addr):
         # TODO: if we end up using this in multiple places we should centralize the unpacking
