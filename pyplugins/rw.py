@@ -1,4 +1,5 @@
 from pandare import PyPlugin
+from penguin import plugins
 from events.types import Read, Write
 
 
@@ -6,7 +7,7 @@ class RWLog(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
-        self.DB = self.ppp.DB
+        self.DB = plugins.DB
         panda.ppp("syscalls2", "on_sys_write_return")(self.write)
         panda.ppp("syscalls2", "on_sys_read_return")(self.read)
 

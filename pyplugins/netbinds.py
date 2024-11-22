@@ -5,7 +5,7 @@ from os.path import join
 
 from pandare import PyPlugin
 
-from penguin import getColoredLogger
+from penguin import getColoredLogger, plugins
 
 BINDS_FILE = "netbinds.csv"
 SUMMARY_BINDS_FILE = "netbinds_summary.csv"
@@ -25,7 +25,8 @@ class NetBinds(PyPlugin):
         # Don't be confused by the vpn on_bind callback that happens
         # after the VPN bridges a connection. This one has the better name
         # but that one is more of a pain to change.
-        self.ppp_cb_boilerplate("on_bind")
+        
+        plugins.register(self, "on_bind")
 
         with open(join(self.outdir, BINDS_FILE), "w") as f:
             f.write("procname,ipvn,domain,guest_ip,guest_port,time\n")
@@ -33,12 +34,12 @@ class NetBinds(PyPlugin):
         with open(join(self.outdir, SUMMARY_BINDS_FILE), "w") as f:
             f.write("n_procs,n_sockets,bound_www,time\n")
 
-        self.ppp.Events.listen("igloo_ipv4_bind", self.on_ipv4_bind)
-        self.ppp.Events.listen("igloo_ipv6_bind", self.on_ipv6_bind)
-        self.ppp.Events.listen("igloo_ipv4_setup", self.on_ipv4_setup)
-        self.ppp.Events.listen("igloo_ipv6_setup", self.on_ipv6_setup)
-        self.ppp.Events.listen("igloo_ipv4_release", self.on_ipv4_release)
-        self.ppp.Events.listen("igloo_ipv6_release", self.on_ipv6_release)
+        plugins.subscribe(plugins.Events, "igloo_ipv4_bind", self.on_ipv4_bind)
+        plugins.subscribe(plugins.Events, "igloo_ipv6_bind", self.on_ipv6_bind)
+        plugins.subscribe(plugins.Events, "igloo_ipv4_setup", self.on_ipv4_setup)
+        plugins.subscribe(plugins.Events, "igloo_ipv6_setup", self.on_ipv6_setup)
+        plugins.subscribe(plugins.Events, "igloo_ipv4_release", self.on_ipv4_release)
+        plugins.subscribe(plugins.Events, "igloo_ipv6_release", self.on_ipv6_release)
         self.pending_procname = None
         self.pending_sinaddr = None
 
@@ -118,7 +119,7 @@ class NetBinds(PyPlugin):
         self.track_bind(procname, ipvn, sock_type, ip, port, time_delta)
 
         # Trigger our callback
-        self.ppp_run_cb("on_bind", sock_type, ipvn, ip, port, procname)
+        plugins.publish(self, "on_bind", sock_type, ipvn, ip, port, procname)
 
         # If bind is 80 and we have shutdown_www option, end the emulation
         if port == 80 and self.shutdown_on_www:
@@ -139,7 +140,6 @@ class NetBinds(PyPlugin):
     def remove_bind(self, ip, port, sock_type):
         self.bind_list[:] = [bind for bind in self.bind_list if not (bind["IP"] == ip and bind["Port"] == int(port) and bind["Socket Type"] == sock_type)]
 
-    @PyPlugin.ppp_export
     def give_list(self):
         return self.bind_list
 

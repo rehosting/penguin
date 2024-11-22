@@ -7,7 +7,7 @@ import math
 import time
 
 from pandare import PyPlugin
-from penguin import getColoredLogger
+from penguin import getColoredLogger, plugins
 
 
 def calculate_entropy(buffer: bytes) -> float:
@@ -24,7 +24,7 @@ class FetchWeb(PyPlugin):
         self.shutdown_after_www = self.get_arg_bool("shutdown_after_www")
         self.shutdown_on_failure = self.get_arg_bool("shutdown_on_failure")
         self.task_queue = queue.Queue()
-        self.ppp.VsockVPN.ppp_reg_cb("on_bind", self.fetchweb_on_bind)
+        plugins.subscribe(plugins.VPN, "on_bind", self.fetchweb_on_bind)
         self.logger = getColoredLogger("plugins.fetch_web")
         self.shutting_down = False
 

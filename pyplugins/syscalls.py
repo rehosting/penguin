@@ -3,6 +3,7 @@ import re
 from pandare import PyPlugin
 from os.path import join, dirname
 from events.types import Syscall
+from penguin import plugins
 
 """
 This code acquires the error numbers from linux to map in the syscall plugin
@@ -54,8 +55,8 @@ class PyPandaSysLog(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
-        self.DB = self.ppp.DB
         self.saved_syscall_info = {}
+        self.DB = plugins.DB
 
         if panda.arch_name in ["mips", "mipsel"]:
             self.errcode_to_errname = errcode_to_errname_mips
