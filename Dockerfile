@@ -2,13 +2,13 @@
 ARG BASE_IMAGE="ubuntu:22.04"
 ARG DOWNLOAD_TOKEN="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"
 ARG PANDA_VERSION="1.8.54"
-ARG BUSYBOX_VERSION="0.0.6"
+ARG BUSYBOX_VERSION="0.0.8"
 ARG LINUX_VERSION="2.4.9"
 ARG LIBNVRAM_VERSION="0.0.15"
-ARG CONSOLE_VERSION="1.0.4"
+ARG CONSOLE_VERSION="1.0.5"
 ARG PENGUIN_PLUGINS_VERSION="1.5.15"
-ARG VPN_VERSION="1.0.16"
-ARG HYPERFS_VERSION="0.0.33"
+ARG VPN_VERSION="1.0.18"
+ARG HYPERFS_VERSION="0.0.34"
 ARG GUESTHOPPER_VERSION="1.0.4"
 ARG GLOW_VERSION="1.5.1"
 ARG GUM_VERSION="0.14.5"
@@ -45,7 +45,7 @@ RUN apt-get update && \
              /igloo_static/syscalls \
              /panda_plugins
 
-COPY ./utils/get_release.sh /get_release.sh
+COPY ./get_release.sh /get_release.sh
 
 # 1) Get external resources
 # Download ZAP into /zap
@@ -83,9 +83,7 @@ RUN /get_release.sh rehosting linux_builder ${LINUX_VERSION} ${DOWNLOAD_TOKEN} |
 ARG BUSYBOX_VERSION
 RUN /get_release.sh rehosting busybox ${BUSYBOX_VERSION} ${DOWNLOAD_TOKEN} | \
     tar xzf - -C /igloo_static/ && \
-    mv /igloo_static/build/ /igloo_static/utils.bin && \
-    for file in /igloo_static/utils.bin/busybox.*-linux*; do mv "$file" "${file%-linux-*}"; done && \
-    mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel
+    mv /igloo_static/build/* /igloo_static/
 
 # Get panda provided console from CI. Populate /igloo_static/console
 ARG CONSOLE_VERSION
@@ -120,10 +118,9 @@ RUN /get_release.sh rehosting vpnguin ${VPN_VERSION} ${DOWNLOAD_TOKEN} | \
 ARG HYPERFS_VERSION
 RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} | \
   tar xzf - -C / && \
-  mv /result/utils/* /igloo_static/utils.bin/ && \
+  cp -r /result/utils/* /igloo_static/ && \
   mv /result/dylibs /igloo_static/dylibs && \
-  rm -rf /result && \
-  for f in  /igloo_static/utils.bin/*.arm64; do mv -- "$f" "${f%.arm64}.aarch64"; done
+  rm -rf /result
 
 # Download guesthopper from CI. Populate /igloo_static/guesthopper
 ARG GUESTHOPPER_VERSION
@@ -164,17 +161,17 @@ RUN cd /tmp && \
 
 #### CROSS BUILDER: Build send_hypercall ###
 FROM ghcr.io/rehosting/embedded-toolchains:latest as cross_builder
-COPY ./utils/send_hypercall.c /
+COPY ./guest-utils/native/send_hypercall.c /
 RUN cd / && \
-  mkdir out && \
+  mkdir -p out/mipseb out/mips64eb out/mipsel out/mips64el  out/armel out/aarch64 out/x86_64 && \
   wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h && \
-  mipseb-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipseb && \
-  mips64eb-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/send_hypercall.mips64eb  && \
-  mips64el-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/send_hypercall.mips64el  && \
-  mipsel-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/send_hypercall.mipsel && \
-  arm-linux-musleabi-gcc -s -static send_hypercall.c -o out/send_hypercall.armel && \
-  aarch64-linux-musl-gcc -s -static send_hypercall.c -o out/send_hypercall.aarch64 && \
-  x86_64-linux-musl-gcc -s -static send_hypercall.c -o out/send_hypercall.x86_64
+  mipseb-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/mipseb/send_hypercall && \
+  mips64eb-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/mips64eb/send_hypercall  && \
+  mips64el-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/mips64el/send_hypercall  && \
+  mipsel-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/mipsel/send_hypercall && \
+  arm-linux-musleabi-gcc -s -static send_hypercall.c -o out/armel/send_hypercall && \
+  aarch64-linux-musl-gcc -s -static send_hypercall.c -o out/aarch64/send_hypercall && \
+  x86_64-linux-musl-gcc -s -static send_hypercall.c -o out/x86_64/send_hypercall
 
 #### QEMU BUILDER: Build qemu-img ####
 FROM $BASE_IMAGE as qemu_builder
@@ -379,10 +376,9 @@ COPY --from=nmap_builder /build/nmap /usr/local/
 
 COPY --from=downloader /tmp/ltrace /igloo_static/ltrace
 
-# Copy utils.source (scripts) and utils.bin (binaries) from host
-# Files are named util.[arch] or util.all
-COPY --from=cross_builder /out/send_hypercall.* /igloo_static/utils.bin
-COPY utils/* /igloo_static/utils.source/
+# Copy source and binaries from host
+COPY --from=cross_builder /out /igloo_static/
+COPY guest-utils /igloo_static/guest-utils
 COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
 
 # Generate syscall table
@@ -434,7 +430,6 @@ COPY ./local_package[s] /tmp/local_packages
 
 RUN if [ -d /tmp/local_packages ]; then \
         if [ -f /tmp/local_packages/console.tar.gz ]; then \
-            rm -rf /igloo_static/console && \
             tar xvf /tmp/local_packages/console.tar.gz -C /igloo_static/; \
         fi; \
         if [ -f /tmp/local_packages/penguin_plugins.tar.gz ]; then \
@@ -456,22 +451,16 @@ RUN if [ -d /tmp/local_packages ]; then \
             dpkg -i /tmp/local_packages/pandare_22.04.deb; \
         fi; \
         if [ -f /tmp/local_packages/vpn.tar.gz ]; then \
-            rm -rf /igloo_static/vpn && \
             tar xzf /tmp/local_packages/vpn.tar.gz -C /igloo_static; \
         fi; \
         if [ -f /tmp/local_packages/busybox-latest.tar.gz ]; then \
-            rm -rf /igloo_static/utils.bin/busybox.* && \
-            tar xvf /tmp/local_packages/busybox-latest.tar.gz -C /igloo_static/ && \
-            mv /igloo_static/build/* /igloo_static/utils.bin/ && \
-            for file in /igloo_static/utils.bin/busybox.*-linux*; do mv "$file" "${file%-linux-*}"; done && \
-            mv /igloo_static/utils.bin/busybox.arm /igloo_static/utils.bin/busybox.armel; \
+            tar xvf /tmp/local_packages/busybox-latest.tar.gz -C /igloo_static/;  \
         fi; \
         if [ -f /tmp/local_packages/hyperfs.tar.gz ]; then \
             tar xzf /tmp/local_packages/hyperfs.tar.gz -C / && \
-            mv /result/utils/* /igloo_static/utils.bin/ && \
+            cp -rv /result/utils/* /igloo_static/ && \
             mv /result/dylibs /igloo_static/dylibs && \
-            rm -rf /result && \
-            for f in  /igloo_static/utils.bin/*.arm64; do mv -- "$f" "${f%.arm64}.aarch64"; done; \
+            rm -rf /result; \
         fi; \
         if [ -f /tmp/local_packages/libnvram-latest.tar.gz ]; then \
             rm -rf /igloo_static/libnvram; \
@@ -481,5 +470,15 @@ RUN if [ -d /tmp/local_packages ]; then \
             pip install /tmp/local_packages/pandare-*.whl; \
         fi; \
     fi
-
+RUN  cd /igloo_static && mv arm64/* aarch64/ && rm -rf arm64 && mkdir -p utils.bin && \
+    for arch in "aarch64" "armel" "mipsel" "mips64eb" "mips64el" "mipseb" "x86_64"; do \
+        mkdir -p /igloo_static/vpn; \
+        for file in /igloo_static/"$arch"/* ; do \
+            if [ $(basename "$file") = *"vpn"* ]; then \
+                ln -s "$file" /igloo_static/vpn/vpn."$arch"; \
+            else \
+                ln -s "$file" /igloo_static/utils.bin/"$(basename "$file")"."$arch"; \
+            fi; \
+        done \
+    done
 RUN date +%s%N > /igloo_static/container_timestamp.txt

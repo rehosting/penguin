@@ -247,7 +247,7 @@ def initialize_and_build_config(fs, out=None, artifacts_dir=None):
     if out is None:
         out = os.path.join(*[output_dir, "base", "config.yaml"])
 
-    # Ensure created files (e.g., base/*.yaml, output/*.yaml), are
+    # If we create files (e.g., base/*.yaml, output/*.yaml), we want them to be
     # readable/writable by everyone since non-container users will want to access them
     os.umask(0o000)
 
