@@ -500,7 +500,7 @@ class BasePatch(PatchGenerator):
                 "host_path": f"{guest_scripts_dir}/{f}",
                 "mode": 0o755,
             }
-        result["static_files"][f"/igloo/utils/*"] = {
+        result["static_files"]["/igloo/utils/*"] = {
             "type": "host_file",
             "host_path": f"{STATIC_DIR}/{self.arch_dir}/*",
             "mode": 0o755,
