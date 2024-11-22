@@ -376,27 +376,18 @@ class BasePatch(PatchGenerator):
             # TODO: We should use a consistent name here. Perhaps aarch64eb?
             self.arch_name = "aarch64"
             self.arch_dir = "arm64"
-            self.kernel_name = "zImage.arm64"
         elif arch == "intel64":
             self.arch_name = "intel64"
             self.arch_dir = "x86_64"
-            self.kernel_name = "bzImage.x86_64"
         else:
             self.arch_name = arch + endian
             self.arch_dir = f"{arch}{endian}"
-            if arch == "arm":
-                self.kernel_name = f"zImage.{arch}{endian}"
-            else:
-                self.kernel_name = f"vmlinux.{arch}{endian}"
 
-    def get_kernel_path(self):
-        return os.path.join(*[STATIC_DIR, "kernels", DEFAULT_KERNEL, self.kernel_name])
 
     def generate(self, patches):
         result = {
             "core": {
                 "arch": self.arch_name,
-                "kernel": self.get_kernel_path(),
             },
             "env": {
                 "igloo_init": self.igloo_init,

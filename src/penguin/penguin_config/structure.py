@@ -102,7 +102,7 @@ class Core(BaseModel):
     def set_kernel_default(cls, values):
         arch = values.get("arch")
         kernel = values.get("kernel")
-        if kernel is None:
+        if kernel is None and arch is not None:
             if arch == "armel":
                 values["kernel"] = "/igloo_static/kernels/4.10/zImage.armel"
             elif arch == "aarch64":
@@ -733,12 +733,16 @@ def _jsonify_dict(d):
     }
 
 
-def _validate_config_schema(config):
+def _validate_config_schema(config, is_dump):
     """Validate config with Pydantic"""
     validated_model = Main(**config)
 
-    config.clear()
-    config.update(validated_model.model_dump(exclude_none=True))
+    if is_dump:
+        validated_model.model_dump(exclude_unset=True)
+    else:
+        config.clear()
+        config.update(validated_model.model_dump(exclude_none=True))
+        config.update(validated_model.model_dump(exclude_none=True))
 
     jsonschema.validate(
         instance=_jsonify_dict(config),
@@ -760,8 +764,8 @@ def _validate_config_options(config):
         sys.exit(1)
 
 
-def _validate_config(config):
-    _validate_config_schema(config)
+def _validate_config(config, is_dump=False):
+    _validate_config_schema(config, is_dump)
     _validate_config_options(config)
 
 
@@ -805,8 +809,6 @@ def load_config(proj_dir, path, validate=True):
         # Not required in schema as to allow for patches, but these really are required
         if config["core"].get("arch", None) is None:
             raise ValueError("No core.arch specified in config")
-        if config["core"].get("kernel", None) is None:
-            raise ValueError("No core.kernel specified in config")
 
         if config["core"]["fs"] == "./base/empty_fs.tar.gz":
             empty_fs_path = os.path.join(proj_dir, "./base/empty_fs.tar.gz")
@@ -823,7 +825,7 @@ def dump_config(config, path):
     For now we allow empty arch and kernel with patches filling them in later, but
     validation doesn't check this
     """
-    _validate_config(config)
+    _validate_config(config, True)
     with open(path, "w") as f:
         f.write(
             "# yaml-language-server: $schema=https://rehosti.ng/igloo/config_schema.yaml\n"

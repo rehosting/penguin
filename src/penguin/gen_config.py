@@ -140,7 +140,6 @@ class ConfigBuilder:
 
         return {
             "core": {
-                "fs": "./base/fs.tar.gz",
                 "root_shell": False,
                 "show_output": False,
                 "strace": False,
