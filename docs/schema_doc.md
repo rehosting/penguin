@@ -79,6 +79,7 @@ intel64
 |||
 |-|-|
 |__Type__|string or null|
+|__Default__|`./base/fs.tar.gz`|
 
 
 ```yaml
@@ -961,7 +962,7 @@ Copy a file from the host into the guest
 
 |||
 |-|-|
-|__Type__|string|
+|__Type__|string or null|
 |__Default__|`null`|
 
 
@@ -978,7 +979,7 @@ Copy a file from the host into the guest
 |||
 |-|-|
 |__Type__|boolean|
-|__Default__|`null`|
+|__Default__|`true`|
 
 Whether to enable this plugin (default depends on plugin)
 
@@ -986,7 +987,7 @@ Whether to enable this plugin (default depends on plugin)
 
 |||
 |-|-|
-|__Type__|string|
+|__Type__|string or null|
 |__Default__|`null`|
 
 

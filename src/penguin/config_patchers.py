@@ -383,7 +383,6 @@ class BasePatch(PatchGenerator):
             self.arch_name = arch + endian
             self.arch_dir = f"{arch}{endian}"
 
-
     def generate(self, patches):
         result = {
             "core": {
