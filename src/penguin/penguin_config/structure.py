@@ -357,6 +357,15 @@ Read = _union(
             fields=(("filename", str, Field(title="Path to host file")),),
         ),
         dict(
+            discrim_val="from_plugin",
+            title="Read from a custom PyPlugin",
+            description=None,
+            fields=(
+                ("plugin", str, Field(title="Name of the loaded PyPlugin")),
+                ("function", Optional[str], Field(title="Function to call", default="read")),
+            ),
+        ),
+        dict(
             discrim_val="default",
             title="Default",
             description=None,
@@ -378,6 +387,15 @@ Write = _union(
             title="Write to host file",
             description=None,
             fields=(("filename", str, Field(title="Path to host file")),),
+        ),
+        dict(
+            discrim_val="from_plugin",
+            title="Read from a custom PyPlugin",
+            description=None,
+            fields=(
+                ("plugin", str, Field(title="Name of the loaded PyPlugin")),
+                ("function", Optional[str], Field(title="Function to call", default="read")),
+            ),
         ),
         dict(
             discrim_val="discard",
@@ -420,10 +438,28 @@ IoctlCommand = _union(
 
 Star = Literal["*"]
 
+IoctlModel = _union(
+    class_name="Ioctl",
+    title="Ioctl",
+    description="How to handle ioctls on the file",
+    discrim_key="model",
+    discrim_title="ioctl modeling",
+    variants=(
+        dict(
+            discrim_val="from_plugin",
+            title="Read from a custom PyPlugin",
+            description=None,
+            fields=(
+                ("plugin", str, Field(title="Name of the loaded PyPlugin")),
+                ("function", Optional[str], Field(title="Function to call", default="read")),
+            ),
+        ),
+    ),
+)
 
 Ioctls = _newtype(
     class_name="Ioctls",
-    type_=Dict[Union[int, Star], IoctlCommand],
+    type_=Union[IoctlModel, Dict[Union[int, Star], IoctlCommand]],
     title="ioctl",
     description="How to handle ioctl() calls",
     default=dict(),
@@ -442,6 +478,11 @@ Ioctls = _newtype(
             "*": dict(
                 model="return_const",
             ),
+        },
+        {
+            "model": "from_plugin",
+            "plugin": "my_plugin",
+            "function": "ioctl_handler",
         },
     ],
 )
