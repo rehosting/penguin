@@ -470,6 +470,10 @@ RUN if [ -d /tmp/local_packages ]; then \
             pip install /tmp/local_packages/pandare-*.whl; \
         fi; \
     fi
+RUN mkdir /igloo_static/utils.source && \
+    for file in /igloo_static/guest-utils/scripts/*; do \
+        ln -s "$file" /igloo_static/utils.source/"$(basename "$file")".all; \
+    done
 RUN  cd /igloo_static && mv arm64/* aarch64/ && rm -rf arm64 && mkdir -p utils.bin && \
     for arch in "aarch64" "armel" "mipsel" "mips64eb" "mips64el" "mipseb" "x86_64"; do \
         mkdir -p /igloo_static/vpn; \
