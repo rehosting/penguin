@@ -23,6 +23,7 @@ EVENTS = {
     205:        ('igloo_ipv6_release',    (str, int)),
     300:        ('igloo_uname',           (int, int)),
     0x6408400B: ('igloo_syscall',         (int,)),
+    0xB335A535: ('igloo_send_hypercall',  (int, int)),
 }
 
 
@@ -32,7 +33,7 @@ class Events(PyPlugin):
         # MAGIC -> [fn1, fn2, fn3,...]
         self.callbacks = {}
         self.logger = getColoredLogger("plugins.events")
-        
+ 
         for event_num, (name, args) in EVENTS.items():
             plugins.register(self, name, register_notify=self.register_notify)
 
@@ -70,7 +71,6 @@ class Events(PyPlugin):
                 if self.callbacks.get(magic, None) is None:
                     self._setup_hypercall_handler(magic, arg_types)
                     self.callbacks[magic] = []
-                # self.callbacks[magic].append(callback)
                 self.callbacks[magic] = name
                 return
         raise ValueError(f"Events has no event {name}")
