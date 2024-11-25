@@ -718,6 +718,15 @@ class FileFailures(PyPlugin):
             # raise NotImplementedError("Uhhhh nested symex")
             # self.last_symex = filename
             return MAGIC_SYMEX_RETVAL  # We'll detect this on the return and know what to do. I think?
+        elif model == "from_plugin":
+            plugin_name = cmd_details["plugin"]
+            plugin = getattr(plugins, plugin_name)
+            func = cmd_details.get("function", "ioctl")
+            if hasattr(plugin, func):
+                fn = getattr(plugin, func)
+            else:
+                raise ValueError(f"Hyperfile {filename} depends on plugin {plugin} which does not have function {func}")
+            return fn(filename, cmd, arg, cmd_details)
         else:
             # This is an actual error - config is malformed. Bail
             raise ValueError(f"Unsupported ioctl model {model} for cmd {cmd}")
