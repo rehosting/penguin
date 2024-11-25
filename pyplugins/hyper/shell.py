@@ -3,10 +3,7 @@ from os.path import join
 
 from pandare import PyPlugin
 
-from penguin import getColoredLogger
-
-# crc32("busybox")
-EXPECTED_MAGIC = 0x8507FAE1
+from penguin import getColoredLogger, plugins
 
 HC_CMD_LOG_LINENO = 0
 HC_CMD_LOG_ENV_ARGS = 1
@@ -41,33 +38,30 @@ class BBCov(PyPlugin):
         with open(join(self.outdir, outfile_env), "w") as f:
             f.write("filename,lineno,pid,envs\n")
 
-        seen_unknown = set()
+        self.seen_unknown = set()
+        plugins.subscribe(plugins.Events, "igloo_shell", self.igloo_shell_cb)
 
-        @self.panda.hypercall(EXPECTED_MAGIC)
-        def cb_hypercall(cpu):
-            hc_type = self.panda.arch.get_arg(cpu, 1, convention="syscall")
-            argptr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
-            length = self.panda.arch.get_arg(cpu, 3, convention="syscall")
-            hc_type = hc_type & 0xFFFFFFFF
-            length = length & 0xFFFFFFFF
+    def igloo_shell_cb(self, cpu, hc_type, argptr, length):
+        hc_type = hc_type & 0xFFFFFFFF
+        length = length & 0xFFFFFFFF
 
-            try:
-                argv = self.panda.virtual_memory_read(
-                    cpu, argptr, self.pointer_size * length, fmt="ptrlist"
-                )
-            except ValueError:
-                argv = []
+        try:
+            argv = self.panda.virtual_memory_read(
+                cpu, argptr, self.pointer_size * length, fmt="ptrlist"
+            )
+        except ValueError:
+            argv = []
 
-            if hc_type == HC_CMD_LOG_LINENO:
-                self.log_line_no(cpu, argv)
-                return
-            elif hc_type == HC_CMD_LOG_ENV_ARGS:
-                self.log_env_args(cpu, argv)
-                return
+        if hc_type == HC_CMD_LOG_LINENO:
+            self.log_line_no(cpu, argv)
+            return
+        elif hc_type == HC_CMD_LOG_ENV_ARGS:
+            self.log_env_args(cpu, argv)
+            return
 
-            if hc_type not in seen_unknown:
-                seen_unknown.add(hc_type)
-                self.logger.debug(f"Shell: unknown hc_type : {hc_type:x}")
+        if hc_type not in self.seen_unknown:
+            self.seen_unknown.add(hc_type)
+            self.logger.debug(f"Shell: unknown hc_type : {hc_type:x}")
 
     def log_line_no(self, cpu, argv):
         if len(argv) != 3:

@@ -12,15 +12,15 @@ This code acquires the error numbers from linux to map in the syscall plugin
 errcode_to_errname = {}
 errcode_to_explanation = {}
 
-RESOURCES = join(dirname(__file__), "errno")
+errno = join(plugins.resources, "errno")
 
-with open(join(RESOURCES, "errno-base.h")) as f:
+with open(join(errno, "errno-base.h")) as f:
     errno_base = f.read()
 
-with open(join(RESOURCES, "generic.h")) as f:
+with open(join(errno, "generic.h")) as f:
     errno = errno_base + "\n" + f.read()
 
-with open(join(RESOURCES, "mips.h")) as f:
+with open(join(errno, "mips.h")) as f:
     errno_mips = errno_base + "\n" + f.read()
 
 matches = re.findall(

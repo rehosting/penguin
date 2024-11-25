@@ -1,5 +1,5 @@
 from pandare import PyPlugin
-from events import Exec
+from pyplugins.hyper.events import Exec
 from penguin import plugins
 
 
