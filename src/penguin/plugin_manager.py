@@ -1,28 +1,51 @@
-from os.path import join, isfile
+from os.path import join, isfile, basename, splitext
 from penguin import getColoredLogger
 from pandare import PyPlugin, Panda
 import shutil
 from typing import List, Dict, Union, Callable
+import glob, re
 
-def find_plugin_by_name(plugin_name: str, proj_dir: str, plugin_path: str):
+def gen_search_locations(plugin_name: str, proj_dir: str, plugin_path: str):
     search_locations = [
-        join(plugin_path, plugin_name),
-        join(plugin_path, plugin_name + ".py"),
-        join(plugin_path, plugin_name.lower()),
-        join(plugin_path, plugin_name.lower() + ".py"),
+        join(plugin_path, '**', plugin_name),
+        join(plugin_path, '**', plugin_name + ".py"),
         join(proj_dir, plugin_name),
         join(proj_dir, plugin_name + ".py"),
-        join(proj_dir, plugin_name.lower()),
-        join(proj_dir, plugin_name.lower() + ".py"),
         join(proj_dir, "plugins", plugin_name),
         join(proj_dir, "plugins", plugin_name + ".py"),
-        join(proj_dir, "plugins", plugin_name.lower()),
-        join(proj_dir, "plugins", plugin_name.lower() + ".py"),
     ]
+    return search_locations
+
+def camel_to_snake(name):
+    # Convert CamelCase to snake_case
+    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
     
-    for p in search_locations:
-        if isfile(p):
-            return p, p.startswith(proj_dir)
+def snake_to_camel(name):
+    # Convert snake_case to CamelCase
+    return ''.join(word.capitalize() for word in name.split('_'))
+
+def find_plugin_by_name(plugin_name: str, proj_dir: str, plugin_path: str):
+
+    def find_file(g):
+        for f in g:
+            if '*' in f:
+                p = glob.glob(f, recursive=True)
+                if len(p) == 1:
+                    return p[0]
+            else:
+                if isfile(f):
+                    return f
+    
+            
+    plugin_name_possibilities = [plugin_name, 
+                                 plugin_name.lower(), 
+                                camel_to_snake(plugin_name)]
+    if '_' in plugin_name:
+        plugin_name_possibilities.append(snake_to_camel(plugin_name))
+    for pn in plugin_name_possibilities:
+        if o := find_file(gen_search_locations(pn, proj_dir, plugin_path)):
+            return o, o.startswith(proj_dir)
 
     raise ValueError(
         f"Plugin not found: with name={plugin_name} and plugin_path={plugin_path}"
@@ -42,6 +65,7 @@ class IGLOOPluginManager:
         
         self.plugin_cbs = {}
         self.registered_cbs = {}
+        self.aliases = {}
         
     def load_plugin(self, plugin_name: str):
         if self.get_plugin_by_name(plugin_name):
@@ -69,13 +93,20 @@ class IGLOOPluginManager:
             args[k] = v
 
         try:
-            if len(self.panda.pyplugins.load_all(path, args)) == 0:
-                with open(join(self.args["outdir"], "plugin_errors.txt"), "a") as f:
-                    f.write(f"Failed to load plugin: {plugin_name}")
-                raise ValueError(f"Failed to load plugin: {plugin_name}")
+            plugins_loaded = self.panda.pyplugins.load_all(path, args)
         except SyntaxError as e:
             self.logger.error(f"Syntax error loading pyplugin: {e}")
             raise ValueError(f"Failed to load plugin: {plugin_name}") from e
+        if len(plugins_loaded) == 0:
+            with open(join(self.args["outdir"], "plugin_errors.txt"), "a") as f:
+                f.write(f"Failed to load plugin: {plugin_name}")
+            raise ValueError(f"Failed to load plugin: {plugin_name}")
+        if len(plugins_loaded) == 1:
+            # If the plugin name is different from the file name, add an alias
+            loaded_plugin_name = plugins_loaded[0]
+            base_fname = splitext(basename(path))[0]
+            if base_fname != loaded_plugin_name:
+                self.aliases[base_fname] = loaded_plugin_name
         if local_plugin:
             shutil.copy2(path, self.args["outdir"])
     
@@ -84,6 +115,8 @@ class IGLOOPluginManager:
             self.load_plugin(plugin)
                 
     def get_plugin_by_name(self, plugin_name: str) -> Union[PyPlugin, None]:
+        if plugin_name in self.aliases:
+            plugin_name = self.aliases[plugin_name]
         for p, i in self.panda.pyplugins.plugins.items():
             if plugin_name.lower() == p.lower():
                 return i
