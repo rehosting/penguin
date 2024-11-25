@@ -1,7 +1,7 @@
 import struct
 from pandare import PyPlugin
-from penguin import getColoredLogger
-from typing import Callable, Union
+from penguin import getColoredLogger, plugins
+from typing import Callable, Union, Tuple
 
 
 class SendHypercall(PyPlugin):
@@ -12,13 +12,14 @@ class SendHypercall(PyPlugin):
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
         self.registered_events = {}
+        plugins.subscribe(plugins.Events, "igloo_send_hypercall", self.on_send_hypercall)
 
-    def subscribe(self, event, callback: Callable[..., (int, Union[str, bytes])]):
+    def subscribe(self, event, callback: Callable[..., Tuple[int, Union[str, bytes]]]):
         if event in self.registered_events:
             raise ValueError(f"Already subscribed to event {event}")
         self.registered_events[event] = callback
 
-    def on_send_hypercall(self, cpu, buf_addr, buf_num_ptrs):
+    def on_send_hypercall(self, cpu, buf_addr: int, buf_num_ptrs: int):
         arch_bytes = self.panda.bits // 8
 
         # Read list of pointers
