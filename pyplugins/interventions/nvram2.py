@@ -1,5 +1,4 @@
 from pandare import PyPlugin
-
 from penguin import getColoredLogger, plugins
 
 log = "nvram.csv"
@@ -17,10 +16,10 @@ class Nvram2(PyPlugin):
         # Even at debug level, logging every nvram get/clear can be very verbose.
         # As such, we only debug log nvram sets
 
-        plugins.subscribe(plugins.Events,'igloo_nvram_get_hit', self.on_nvram_get_hit)
-        plugins.subscribe(plugins.Events,'igloo_nvram_get_miss', self.on_nvram_get_miss)
-        plugins.subscribe(plugins.Events,'igloo_nvram_set', self.on_nvram_set)
-        plugins.subscribe(plugins.Events,'igloo_nvram_clear', self.on_nvram_clear)
+        plugins.subscribe(plugins.Events, 'igloo_nvram_get_hit', self.on_nvram_get_hit)
+        plugins.subscribe(plugins.Events, 'igloo_nvram_get_miss', self.on_nvram_get_miss)
+        plugins.subscribe(plugins.Events, 'igloo_nvram_set', self.on_nvram_set)
+        plugins.subscribe(plugins.Events, 'igloo_nvram_clear', self.on_nvram_clear)
 
         with open(f"{self.outdir}/{log}", "w") as f:
             f.write("key,access,value\n")
