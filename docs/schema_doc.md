@@ -91,11 +91,11 @@ base/fs.tar.gz
 |||
 |-|-|
 |__Type__|string|
-|__Default__|`/pandata`|
+|__Default__|`/pyplugins`|
 
 
 ```yaml
-/pandata
+/pyplugins
 ```
 
 ### `core.root_shell` Enable root shell
@@ -527,6 +527,31 @@ When this is a list of integers, it treated as a byte array. When this is a list
 |__Type__|string|
 
 
+##### `pseudofiles.<string>.read.<model=from_plugin>` Read from a custom PyPlugin
+
+
+###### `pseudofiles.<string>.read.<model=from_plugin>.model` Read modelling method (read from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.read.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.read.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`read`|
+
+
 ##### `pseudofiles.<string>.read.<model=default>` Default
 
 
@@ -560,6 +585,31 @@ How to handle writes to the file
 |||
 |-|-|
 |__Type__|string|
+
+
+##### `pseudofiles.<string>.write.<model=from_plugin>` Read from a custom PyPlugin
+
+
+###### `pseudofiles.<string>.write.<model=from_plugin>.model` Write modelling method (read from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.write.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.write.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`read`|
 
 
 ##### `pseudofiles.<string>.write.<model=discard>` Discard write
@@ -604,6 +654,12 @@ How to handle ioctl() calls
   model: return_const
 ```
 
+```yaml
+function: ioctl_handler
+model: from_plugin
+plugin: my_plugin
+```
+
 ##### `pseudofiles.<string>.ioctl.<integer or "*">` Ioctl
 
 |||
@@ -636,6 +692,31 @@ How to handle ioctl() calls
 |||
 |-|-|
 |__Type__|`"symex"`|
+
+
+###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>` ioctl from a custom PyPlugin
+
+
+####### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>.model` ioctl modelling method (ioctl from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+####### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+####### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`read`|
 
 
 ## `nvram` NVRAM
