@@ -462,21 +462,21 @@ def run_config(
 
     logger.info("Loading plugins")
     args = {
-            "plugins": conf_plugins,
-            "conf": conf,
-            "proj_name": os.path.basename(proj_dir).replace("host_", ""),
-            "proj_dir": proj_dir,
-            "plugin_path": plugin_path,
-            "fs": config_fs,
-            "fw": config_image,
-            "outdir": out_dir,
-            "verbose": verbose,
-            "telnet_port": telnet_port,
+        "plugins": conf_plugins,
+        "conf": conf,
+        "proj_name": os.path.basename(proj_dir).replace("host_", ""),
+        "proj_dir": proj_dir,
+        "plugin_path": plugin_path,
+        "fs": config_fs,
+        "fw": config_image,
+        "outdir": out_dir,
+        "verbose": verbose,
+        "telnet_port": telnet_port,
     }
     args.update(vpn_args)
     plugins.initialize(panda, args)
     plugins.load_plugins(conf_plugins)
-    
+
     # XXX HACK: normally panda args are set at the constructor. But we want to load
     # our plugins first and these need a handle to panda. So after we've constructed
     # our panda object, we'll directly insert our args into panda.panda_args in
