@@ -156,6 +156,10 @@ class IGLOOPluginManager:
             raise Exception(f"Attempt to publish to unregistered event: {event} for plugin {plugin}")
         for cb in self.plugin_cbs[plugin][event]:
             cb(*args, **kwargs)
+    
+    @property
+    def resources(self):
+        return join(self.args["plugin_path"], "resources")
         
     
 # singleton pattern for the plugin manager
