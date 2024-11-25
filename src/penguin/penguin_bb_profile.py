@@ -44,7 +44,7 @@ def _build_bb_profile(config, outdir, bb_path):
         }
     )
 
-    newconfig["pyplugins"] = ["/pandata/findcmp"]
+    newconfig["pyplugins"] = ["/pyplugins/findcmp"]
 
     # We want to replace init=anything with init=/igloo/init_test, but we might not have an append at all
     if "append" not in newconfig:

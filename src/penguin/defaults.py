@@ -10,7 +10,7 @@ DEFAULT_KERNEL = "4.10"  # XXX in config_patchers we append .0 to this - may nee
 
 # Where are plugins in the filesystem. These are our standard pyplugins
 # that we use for env, pseudofiles, etc.
-default_plugin_path = "/pandata"
+default_plugin_path = "/pyplugins"
 
 default_netdevs = (
     [f"eth{x}" for x in range(6)]

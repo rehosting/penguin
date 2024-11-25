@@ -123,7 +123,7 @@ class Core(BaseModel):
     ]
     plugin_path: Annotated[
         str,
-        Field("/pandata", title="Path to search for PyPlugins", examples=["/pandata"]),
+        Field("/pyplugins", title="Path to search for PyPlugins", examples=["/pyplugins"]),
     ]
     root_shell: Annotated[
         bool,
