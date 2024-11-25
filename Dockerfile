@@ -382,8 +382,8 @@ COPY guest-utils /igloo_static/guest-utils
 COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
 
 # Generate syscall table
-COPY ./pyplugins/build_syscall_info_table.py /pandata/build_syscall_info_table.py
-RUN python3 /pandata/build_syscall_info_table.py
+COPY ./pyplugins/utils/build_syscall_info_table.py /pyplugins/utils/build_syscall_info_table.py
+RUN python3 /pyplugins/build_syscall_info_table.py
 
 # Copy wrapper script into container so we can copy out - note we don't put it on guest path
 COPY ./penguin /usr/local/src/penguin_wrapper
@@ -408,10 +408,10 @@ COPY ./src /pkg
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -e /pkg
 
-# Copy pyplugins into our the pandata directory. We might mount
+# Copy pyplugins into our the pyplugins directory. We might mount
 # this from the host during development. In the long term we'll
 # merge these into the main penguin module
-COPY ./pyplugins/ /pandata
+COPY ./pyplugins/ /pyplugins
 
 # Copy schema doc into LLM docs as is
 COPY ./docs/schema_doc.md /docs/llm_knowledge_base
