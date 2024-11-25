@@ -4,6 +4,7 @@ from penguin import getColoredLogger, plugins
 
 UBOOT_LOG = "uboot.log"
 
+
 class UBoot(PyPlugin):
     def __init__(self, panda):
         self.panda = panda

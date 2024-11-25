@@ -24,7 +24,7 @@ EVENTS = {
     300:        ('igloo_uname',           (int, int)),
     0x6408400B: ('igloo_syscall',         (int,)),
     0xB335A535: ('igloo_send_hypercall',  (int, int)),
-    0x8507FAE1: ('igloo_shell',           (int, int, int)), # crc32("busybox")
+    0x8507FAE1: ('igloo_shell',           (int, int, int)),  # crc32("busybox")
 }
 
 
@@ -34,7 +34,7 @@ class Events(PyPlugin):
         # MAGIC -> [fn1, fn2, fn3,...]
         self.callbacks = {}
         self.logger = getColoredLogger("plugins.events")
- 
+
         for event_num, (name, args) in EVENTS.items():
             plugins.register(self, name, register_notify=self.register_notify)
 

@@ -25,7 +25,7 @@ class NetBinds(PyPlugin):
         # Don't be confused by the vpn on_bind callback that happens
         # after the VPN bridges a connection. This one has the better name
         # but that one is more of a pain to change.
-        
+
         plugins.register(self, "on_bind")
 
         with open(join(self.outdir, BINDS_FILE), "w") as f:

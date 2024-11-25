@@ -1,9 +1,8 @@
-import csv
-import os
 import struct
 from pandare import PyPlugin
-from penguin import getColoredLogger 
+from penguin import getColoredLogger
 from typing import Callable, Union
+
 
 class SendHypercall(PyPlugin):
     def __init__(self, panda):
@@ -13,7 +12,7 @@ class SendHypercall(PyPlugin):
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
         self.registered_events = {}
-    
+
     def subscribe(self, event, callback: Callable[..., (int, Union[str, bytes])]):
         if event in self.registered_events:
             raise ValueError(f"Already subscribed to event {event}")
