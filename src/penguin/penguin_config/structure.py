@@ -415,34 +415,24 @@ IoctlCommand = _union(
             description=None,
             fields=(),
         ),
+        dict(
+            discrim_val="from_plugin",
+            title="ioctl from a custom PyPlugin",
+            description=None,
+            fields=(
+                ("plugin", str, Field(title="Name of the loaded PyPlugin")),
+                ("function", Optional[str], Field(title="Function to call", default="read")),
+            ),
+        )
     ),
 )
 
 
 Star = Literal["*"]
 
-IoctlModel = _union(
-    class_name="Ioctl",
-    title="Ioctl",
-    description="How to handle ioctls on the file",
-    discrim_key="model",
-    discrim_title="ioctl modeling",
-    variants=(
-        dict(
-            discrim_val="from_plugin",
-            title="Read from a custom PyPlugin",
-            description=None,
-            fields=(
-                ("plugin", str, Field(title="Name of the loaded PyPlugin")),
-                ("function", Optional[str], Field(title="Function to call", default="read")),
-            ),
-        ),
-    ),
-)
-
 Ioctls = _newtype(
     class_name="Ioctls",
-    type_=Union[IoctlModel, Dict[Union[int, Star], IoctlCommand]],
+    type_=Dict[Union[int, Star], IoctlCommand],
     title="ioctl",
     description="How to handle ioctl() calls",
     default=dict(),
