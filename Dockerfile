@@ -383,7 +383,7 @@ COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/rel
 
 # Generate syscall table
 COPY ./pyplugins/utils/build_syscall_info_table.py /pyplugins/utils/build_syscall_info_table.py
-RUN python3 /pyplugins/build_syscall_info_table.py
+RUN python3 /pyplugins/utils/build_syscall_info_table.py
 
 # Copy wrapper script into container so we can copy out - note we don't put it on guest path
 COPY ./penguin /usr/local/src/penguin_wrapper
