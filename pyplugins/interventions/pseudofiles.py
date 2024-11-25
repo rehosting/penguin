@@ -150,7 +150,6 @@ class FileFailures(PyPlugin):
         self.need_ioctl_hooks = False
         self.hf_config = self.populate_hf_config()
 
-
         self.logger.debug("Registered pseudofiles:")
         for filename, details in self.hf_config.items():
             self.logger.debug(f"  {filename}")
@@ -187,7 +186,7 @@ class FileFailures(PyPlugin):
         # On ioctl return we might want to start symex. We detect failures with a special handler though
         if self.need_ioctl_hooks:
             panda.ppp("syscalls2", "on_sys_ioctl_return")(self.symex_ioctl_return)
-    
+
     def gen_hyperfile_function(self, filename, details, ftype):
         if ftype not in details or "model" not in details[ftype]:
             model = "default"  # default is default
@@ -215,10 +214,9 @@ class FileFailures(PyPlugin):
                 f"Unsupported hyperfile {ftype}_{model} for {filename}: {details[ftype] if ftype in details else None}"
             )
         return make_rwif(
-                    details[ftype] if ftype in details else {}, fn
-                )
-        
-    
+            details[ftype] if ftype in details else {}, fn
+        )
+
     def populate_hf_config(self):
         # XXX We need this import in here, otherwise when we load psueodfiles with panda.load_plugin /path/to/pseudofiles.py
         # it sees both FileFailures AND HyperFile. But we only want hyperfile to be loaded by us here, not by our caller.
@@ -258,7 +256,7 @@ class FileFailures(PyPlugin):
                 ):
                     # If we have a symex model we'll need to enable some extra introspection
                     self.need_ioctl_hooks = True
-        
+
         if len(self.get_arg("conf").get("netdevs", [])):
             # If we have netdevs in our config, we'll make the /proc/penguin_net pseudofile with the contents of it
             # Here we'll use our make_rwif closure
@@ -275,8 +273,7 @@ class FileFailures(PyPlugin):
             "size": 0,
         }
         return hf_config
-    
-    
+
     def symex_ioctl_return(self, cpu, pc, fd, cmd, arg):
         # We'll return -999 as a magic placeholder value that indicates we should
         # Start symex. Is this a terrible hack. You betcha!

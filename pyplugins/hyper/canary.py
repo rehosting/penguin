@@ -2,6 +2,7 @@ import os
 from pandare import PyPlugin
 from penguin import getColoredLogger, plugins
 
+
 class Canary(PyPlugin):
     def __init__(self, panda):
         self.panda = panda

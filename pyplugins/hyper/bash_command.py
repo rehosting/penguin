@@ -3,6 +3,7 @@ import os
 from pandare import PyPlugin
 from penguin import getColoredLogger, plugins
 
+
 class BashCommand(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
@@ -18,7 +19,7 @@ class BashCommand(PyPlugin):
         csv.writer(self.bash_cov_csv).writerow(["filename", "lineno", "pid", "command"])
         self.bash_cov_csv.flush()
         plugins.SendHypercall.subscribe("bash_command", self.cmd_bash_command)
-    
+
     def cmd_bash_command(self, cmd, path, lineno, pid):
         csv.writer(self.bash_cov_csv).writerow([path, lineno, pid, cmd])
         self.bash_cov_csv.flush()
