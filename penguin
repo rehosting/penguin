@@ -342,6 +342,10 @@ penguin_run() {
         # Add env variable CONTAINER_IP=ip
         docker_cmd+=("-e" "CONTAINER_IP=$ip")
 
+	# Add env variable of penguin bash script hash
+        hash=$(sha256sum "$0" | awk '{print $1}')
+        docker_cmd+=("-e" "PENGUIN_HASH=$hash")
+
         # Add container name if set
         if [ -n "$container_name" ]; then
             docker_cmd+=("-e" "CONTAINER_NAME=$container_name")

@@ -7,7 +7,7 @@ echo "#!/bin/bash"
 echo "mkdir -p \$HOME/.local/bin"
 
 echo "cat << 'EOF' > ~/.local/bin/penguin"
-cat /usr/local/src/penguin_wrapper
+printf "%s" "$(cat /usr/local/src/penguin_wrapper)"
 echo
 echo "EOF"
 
