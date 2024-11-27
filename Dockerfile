@@ -17,7 +17,10 @@ ARG LTRACE_PROTOTYPES_HASH="9db3bdee7cf3e11c87d8cc7673d4d25b"
 ARG MUSL_VERSION="1.2.5"
 ARG VHOST_DEVICE_VERSION="vhost-device-vsock-v0.2.0"
 
-FROM rust AS vhost_builder
+# XXX: change this to be vX.X.X before merging to pin to a specific commit
+ARG FW2TAR_TAG="main"
+
+FROM rust as vhost_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
 ARG VHOST_DEVICE_VERSION
 RUN cd /root/vhost-device/ && \
@@ -511,7 +514,8 @@ COPY ./local_package[s] /tmp/local_packages
 
 # ====================== Finish setting up fw2tar ======================
 ARG DOWNLOAD_TOKEN
-RUN git clone --depth=1 https://${DOWNLOAD_TOKEN}:@github.com/rehosting/fw2tar.git /tmp/fw2tar
+ARG FW2TAR_TAG
+RUN git clone --depth=1 -b ${FW2TAR_TAG} https://${DOWNLOAD_TOKEN}:@github.com/rehosting/fw2tar.git /tmp/fw2tar
 
 # CramFS no longer in apt - needed by binwalk
 RUN git clone --depth=1 https://github.com/davidribyrne/cramfs.git /cramfs && \
