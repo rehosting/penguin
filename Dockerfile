@@ -510,6 +510,9 @@ CMD ["/usr/local/bin/banner.sh"]
 COPY ./local_package[s] /tmp/local_packages
 
 # ====================== Finish setting up fw2tar ======================
+ARG DOWNLOAD_TOKEN
+RUN git clone --depth=1 https://${DOWNLOAD_TOKEN}:@github.com/rehosting/fw2tar.git /tmp/fw2tar
+
 # CramFS no longer in apt - needed by binwalk
 RUN git clone --depth=1 https://github.com/davidribyrne/cramfs.git /cramfs && \
    cd /cramfs && make && make install
@@ -540,12 +543,12 @@ RUN --mount=type=ssh git clone git@github.com:rehosting/fakeroot.git /fakeroot &
 RUN curl "https://raw.githubusercontent.com/qkaiser/arpy/23faf88a88488c41fc4348ea2b70996803f84f40/arpy.py" -o /usr/local/lib/python3.10/dist-packages/arpy.py
 
 # Copy wrapper script into container so we can copy out - note we don't put it on guest path
-COPY ./fw2tar/fw2tar /usr/local/src/fw2tar_wrapper
+RUN cp /tmp/fw2tar/fw2tar /usr/local/src/fw2tar_wrapper
 # And add install helpers which generate shell commands to install it on host
-COPY ./fw2tar/src/resources/fw2tar_install ./fw2tar/src/resources/fw2tar_install.local /usr/local/bin/
+RUN cp /tmp/fw2tar/src/resources/fw2tar_install /tmp/fw2tar/src/resources/fw2tar_install.local /usr/local/bin/
 
 # fw2tar here is a simple shell wrapper to call fakeroot fw2tar.py
-COPY ./fw2tar/src/fw2tar ./fw2tar/src/fakeroot_fw2tar /usr/local/bin/
+RUN cp /tmp/fw2tar/src/fw2tar /tmp/fw2tar/src/fakeroot_fw2tar /usr/local/bin/
 # ======================================================================
 
 RUN if [ -d /tmp/local_packages ]; then \
