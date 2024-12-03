@@ -338,8 +338,10 @@ def run_config(
         ]  # ttyS1: root shell
 
     # If core config specifes immutable: False we'll run without snapshot
-    no_snapshot_drive = f"file={config_image},if=virtio"
-    snapshot_drive = no_snapshot_drive + ",cache=unsafe,snapshot=on"
+#    no_snapshot_drive = f"file={config_image},if=virtio"
+    no_snapshot_drive = f"file={config_image},if=none,format=qcow2,id=rootfs"
+    snapshot_drive = no_snapshot_drive
+#    snapshot_drive = no_snapshot_drive + ",cache=unsafe,snapshot=on"
     drive = snapshot_drive if conf["core"].get("immutable", True) else no_snapshot_drive
 
     args = [
@@ -353,6 +355,8 @@ def run_config(
         "none",
         "-drive",
         drive,
+        "-device",
+        "virtio-blk-device,drive=rootfs",
     ]
 
     args += ["-no-reboot"]
