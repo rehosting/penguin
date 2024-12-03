@@ -18,7 +18,7 @@ ARG MUSL_VERSION="1.2.5"
 ARG VHOST_DEVICE_VERSION="vhost-device-vsock-v0.2.0"
 
 # XXX: change this to be vX.X.X before merging to pin to a specific commit
-ARG FW2TAR_TAG="main"
+ARG FW2TAR_TAG="auto-fakeroot"
 
 FROM rust as vhost_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
@@ -551,8 +551,7 @@ RUN cp /tmp/fw2tar/fw2tar /usr/local/src/fw2tar_wrapper
 # And add install helpers which generate shell commands to install it on host
 RUN cp /tmp/fw2tar/src/resources/fw2tar_install /tmp/fw2tar/src/resources/fw2tar_install.local /usr/local/bin/
 
-# fw2tar here is a simple shell wrapper to call fakeroot fw2tar.py
-RUN cp /tmp/fw2tar/src/fw2tar /tmp/fw2tar/src/fakeroot_fw2tar /usr/local/bin/
+RUN cp /tmp/fw2tar/src/fw2tar /usr/local/bin/
 # ======================================================================
 
 RUN if [ -d /tmp/local_packages ]; then \
