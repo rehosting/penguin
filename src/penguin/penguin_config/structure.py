@@ -585,19 +585,25 @@ StaticFileAction = _union(
             fields=(
                 ("mode", int, Field(title="Permissions of file")),
                 ("host_path", str, Field(title="Host path")),
+                ("path", str, Field(title="Path")),
             ),
         ),
         dict(
             discrim_val="dir",
             title="Add directory",
             description=None,
-            fields=(("mode", int, Field(title="Permissions of directory")),),
+            fields=(
+                ("mode", int, Field(title="Permissions of directory")),
+                ("path", str, Field(title="Path")),
+                ),
         ),
         dict(
             discrim_val="symlink",
             title="Add symbolic link",
             description=None,
-            fields=(("target", str, Field(title="Target linked path")),),
+            fields=(
+                ("target", str, Field(title="Target linked path")),
+                ("path", str, Field(title="Path")),),
         ),
         dict(
             discrim_val="dev",
@@ -616,6 +622,7 @@ StaticFileAction = _union(
                     int,
                     Field(title="Permissions of device file", examples=[0o666]),
                 ),
+                ("path", str, Field(title="Path")),
             ),
         ),
         dict(
@@ -655,7 +662,7 @@ StaticFileAction = _union(
 class StaticFiles(RootModel):
     """Files to create in the guest filesystem"""
 
-    root: dict[str, StaticFileAction]
+    root:  StaticFileAction,
     model_config = ConfigDict(
         title="Static files",
         json_schema_extra=dict(
