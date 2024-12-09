@@ -9,8 +9,7 @@ plugins:
         type: file_contains
         file: env_cmp.txt
         string: target
-  send_hypercall:
-    depends_on: core
+  uboot: {}
 
 uboot_env:
   envvar: DYNVALDYNVALDYNVAL

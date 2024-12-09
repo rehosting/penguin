@@ -23,7 +23,7 @@ EVENTS = {
     205:        ('igloo_ipv6_release',    (str, int)),
     300:        ('igloo_uname',           (int, int)),
     0x6408400B: ('igloo_syscall',         (int,)),
-    0xB335A535: ('igloo_send_hypercall',  (int, int)),
+    0xB335A535: ('igloo_send_hypercall',  (None, int, int)),
     0x8507FAE1: ('igloo_shell',           (int, int, int)),  # crc32("busybox")
 }
 
@@ -59,6 +59,9 @@ class Events(PyPlugin):
                     args.append(s)
                 elif arg is bool:
                     args.append(argval != 0)
+                elif arg is None:
+                    # ignore this argument
+                    pass
                 else:
                     raise ValueError(f"Unknown argument type {arg}")
             plugins.publish(self, self.callbacks[magic], *args)
