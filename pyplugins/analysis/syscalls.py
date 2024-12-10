@@ -76,23 +76,65 @@ class PyPandaSysLog(PyPlugin):
         syscall_name = panda.ffi.string(info.name).decode()
         try_replace_args = {}
 
+        procname = panda.get_process_name(cpu)
+
+        args = []
+        for i in range(nargs):
+            try:
+                arg = panda.arch.get_arg(cpu, i + 1, convention="syscall")
+            except ValueError:
+                arg = 0
+                try_replace_args[i] = (0, "arg")
+            args.append(arg)
+
         def process_arg(type_, arg, argn, i):
             def read_type(type_, arg):
                 return panda.ffi.cast(f"{type_}_t", arg)
 
             t = "uint32" if panda.bits == 32 else "uint64"
             name = (
-                "?" if argn == self.panda.ffi.NULL else panda.ffi.string(argn).decode()
+                "?" if argn == panda.ffi.NULL else panda.ffi.string(argn).decode()
             )
+
+            argval = int(read_type(t, arg))
+
+            # Map syscalls to their sockaddr argument index
+            sockaddr_syscalls = {
+                'sys_bind': 1,
+                'sys_connect': 1,
+                'sys_accept4': 1,
+                'sys_sendto': 4,
+            }
+
+            # Check if current syscall expects a sockaddr at this argument index
+            if syscall_name in sockaddr_syscalls and i == sockaddr_syscalls[syscall_name]:
+                sockaddr_addr = argval
+                if syscall_name == 'sys_accept4':
+                    # For sys_accept4, addrlen is a pointer to size
+                    addrlen_ptr = args[2]
+                    addrlen = self.read_int_from_ptr(panda, cpu, addrlen_ptr)
+                elif syscall_name == 'sys_sendto':
+                    addrlen = args[5] if len(args) > 5 else 0
+                else:
+                    addrlen = args[2] if len(args) > 2 else 0
+                return self.process_sockaddr(panda, cpu, sockaddr_addr, addrlen)
+
+            if syscall_name == 'sys_socketpair' and i == 3:
+                fds_addr = argval
+                return self.process_socketpair_fds(panda, cpu, fds_addr)
+
+            if syscall_name in ['sys_sendmsg', 'sys_recvmsg'] and i == 1:
+                msghdr_addr = argval
+                return self.process_msghdr(panda, cpu, msghdr_addr)
+
             if name == "fd":
-                argval = int(read_type(t, arg))
                 fname = panda.get_file_name(cpu, argval)
                 return f"FD:{argval}({fname.decode('latin-1') if fname else 'None'})"
             elif name == "pathname":
                 try:
-                    return panda.read_str(cpu, arg)
+                    return panda.read_str(cpu, argval)
                 except ValueError:
-                    try_replace_args[i] = (arg, "STR")
+                    try_replace_args[i] = (argval, "STR")
                     return
 
             argtype = panda.ffi.string(panda.ffi.cast("syscall_argtype_t", type_))
@@ -106,7 +148,6 @@ class PyPandaSysLog(PyPlugin):
             }
             if argtype in lookup_cast_tbl:
                 return f"{int(read_type(lookup_cast_tbl[argtype], arg)):#x}"
-            argval = int(read_type(t, arg))
             if argtype.endswith("_PTR"):
                 try:
                     if "STR" in argtype:
@@ -119,22 +160,13 @@ class PyPandaSysLog(PyPlugin):
                 return f'{argval:#x}("{buf}")'
             elif "STRUCT" in argtype:
                 return f"{argval:#x} (struct)"
-            return hex(panda.arch.get_arg(cpu, argn + 1, convention="syscall"))
+            return hex(argval)
 
-        procname = panda.get_process_name(cpu)
 
-        args = []
-        # why? because it can read the stack and fail
-        for i in range(nargs):
-            try:
-                arg = panda.arch.get_arg(cpu, i + 1, convention="syscall")
-            except ValueError:
-                arg = 0
-                try_replace_args[i] = (0, "arg")
-            args.append(arg)
         args_repr = [
             process_arg(info.argt[i], args[i], info.argn[i], i) for i in range(nargs)
         ]
+
         func_args = {
             "name": syscall_name,
             "procname": procname,
@@ -157,12 +189,6 @@ class PyPandaSysLog(PyPlugin):
                 sysinfo, self.panda.arch.get_retval(cpu, convention="syscall")
             )
 
-    # def uninit(self):
-        # print("Called uninit...")
-        # while self.saved_syscall_info:
-        #     sysinfo = self.saved_syscall_info.popitem()
-        #     self.return_syscall(sysinfo, None)
-
     def add_syscall(
         self,
         name,
@@ -171,6 +197,7 @@ class PyPandaSysLog(PyPlugin):
         args=None,
         args_repr=None,
         retno_repr=None,
+        pid=None,
     ):
         if args is None:
             args = []
@@ -179,8 +206,9 @@ class PyPandaSysLog(PyPlugin):
         keys = {
             "name": name,
             "procname": procname or "[none]",
-            "retno": int(self.panda.ffi.cast("target_long", retno)) if retno else None,
+            "retno": int(self.panda.ffi.cast("target_long", retno)) if retno is not None else None,
             "retno_repr": retno_repr,
+            "pid": pid,  # store pid
         }
         for i in range(len(args)):
             keys[f"arg{i}"] = int(self.panda.ffi.cast("target_long", args[i]))
@@ -193,15 +221,12 @@ class PyPandaSysLog(PyPlugin):
         for i, (argval, ctype) in try_replace_args.items():
             panda, cpu = self.panda, self.panda.get_cpu()
             with contextlib.suppress(ValueError):
-                buf = (
-                    panda.read_str(cpu, argval) if argval != 0 else "[NULL]"
-                    if "STR" in ctype
-                    else (
-                        panda.arch.get_arg(cpu, i + 1, convention="syscall")
-                        if "arg" in ctype
-                        else panda.virtual_memory_read(panda.get_cpu(), argval, 20)
-                    )
-                )
+                if "STR" in ctype:
+                    buf = panda.read_str(cpu, argval) if argval != 0 else "[NULL]"
+                elif "arg" in ctype:
+                    buf = panda.arch.get_arg(cpu, i + 1, convention="syscall")
+                else:
+                    buf = panda.virtual_memory_read(cpu, argval, 20)
                 func_args["args_repr"][i] = f'{argval:#x}("{buf}")'
         if retval is not None:
             func_args["retno"] = int(self.panda.ffi.cast("target_long", retval))
@@ -214,3 +239,86 @@ class PyPandaSysLog(PyPlugin):
                 func_args["retno_repr"] = f"{func_args['retno']:#x}"
             retval = int(self.panda.ffi.cast("target_long", retval))
         self.add_syscall(**func_args)
+
+    def process_sockaddr(self, panda, cpu, sockaddr_addr, addrlen):
+        if sockaddr_addr == 0:
+            # Handle NULL sockaddr
+            return f'{sockaddr_addr:#x}("[NULL sockaddr]")'
+        try:
+            sin_family_bytes = panda.virtual_memory_read(cpu, sockaddr_addr, 2)
+            sin_family = int.from_bytes(sin_family_bytes, byteorder='little')
+        except Exception:
+            return f'{sockaddr_addr:#x}("[Invalid sockaddr]")'
+
+        if sin_family == 1:  # AF_UNIX
+            try:
+                path_len = addrlen - 2
+                if path_len <= 0:
+                    return f'{sockaddr_addr:#x}("[Invalid path length]")'
+                path_bytes = panda.virtual_memory_read(cpu, sockaddr_addr + 2, path_len)
+                socket_path = path_bytes.split(b'\x00', 1)[0].decode('utf-8', errors='replace')
+                return f'{sockaddr_addr:#x}("{socket_path}")'
+            except Exception:
+                return f'{sockaddr_addr:#x}("[Error reading AF_UNIX path]")'
+        elif sin_family == 2:  # AF_INET
+            try:
+                sin_port_bytes = panda.virtual_memory_read(cpu, sockaddr_addr + 2, 2)
+                sin_port = int.from_bytes(sin_port_bytes, byteorder='big')
+                sin_addr_bytes = panda.virtual_memory_read(cpu, sockaddr_addr + 4, 4)
+                sin_addr = '.'.join(map(str, sin_addr_bytes))
+                return f'{sockaddr_addr:#x}("AF_INET:{sin_addr}:{sin_port}")'
+            except Exception:
+                return f'{sockaddr_addr:#x}("[Error reading AF_INET address]")'
+        elif sin_family == 10:  # AF_INET6
+            try:
+                sin6_port_bytes = panda.virtual_memory_read(cpu, sockaddr_addr + 2, 2)
+                sin6_port = int.from_bytes(sin6_port_bytes, byteorder='big')
+                sin6_addr_bytes = panda.virtual_memory_read(cpu, sockaddr_addr + 8, 16)
+                sin6_addr = ':'.join('{:02x}{:02x}'.format(sin6_addr_bytes[i], sin6_addr_bytes[i+1])
+                                    for i in range(0, 16, 2))
+                return f'{sockaddr_addr:#x}("AF_INET6:[{sin6_addr}]:{sin6_port}")'
+            except Exception:
+                return f'{sockaddr_addr:#x}("[Error reading AF_INET6 address]")'
+        else:
+            return f'{sockaddr_addr:#x}("[Unknown AF {sin_family}]")'
+
+
+    def process_socketpair_fds(self, panda, cpu, fds_addr):
+        try:
+            fds_bytes = panda.virtual_memory_read(cpu, fds_addr, 8 if panda.bits == 32 else 16)
+            fd1 = int.from_bytes(fds_bytes[:4], byteorder='little')
+            fd2 = int.from_bytes(fds_bytes[4:8], byteorder='little')
+            return f'{fds_addr:#x}([FDs: {fd1}, {fd2}])'
+        except Exception:
+            return f'{fds_addr:#x}("[Error reading FDs]")'
+
+    def process_msghdr(self, panda, cpu, msghdr_addr):
+        try:
+            offset = 0
+            ptr_size = 4 if panda.bits == 32 else 8
+
+            msg_name_ptr_bytes = panda.virtual_memory_read(cpu, msghdr_addr + offset, ptr_size)
+            msg_name_ptr = int.from_bytes(msg_name_ptr_bytes, byteorder='little')
+            offset += ptr_size
+
+            msg_namelen_bytes = panda.virtual_memory_read(cpu, msghdr_addr + offset, ptr_size)
+            msg_namelen = int.from_bytes(msg_namelen_bytes, byteorder='little')
+            offset += ptr_size
+
+            # Process msg_name if present
+            if msg_name_ptr != 0 and msg_namelen > 0:
+                addr_str = self.process_sockaddr(panda, cpu, msg_name_ptr, msg_namelen)
+            else:
+                addr_str = 'None'
+
+            return f'{msghdr_addr:#x}(msg_name: {addr_str})'
+        except Exception:
+            return f'{msghdr_addr:#x}("[Error reading msghdr]")'
+
+    def read_int_from_ptr(self, panda, cpu, addr):
+        try:
+            int_size = 4 if panda.bits == 32 else 8
+            int_bytes = panda.virtual_memory_read(cpu, addr, int_size)
+            return int.from_bytes(int_bytes, byteorder='little')
+        except Exception:
+            return 0

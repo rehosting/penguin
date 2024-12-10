@@ -1,20 +1,60 @@
 import click
+from sqlalchemy import or_
 from events import Syscall
 from events.utils.util_base import wrapper
 
+def parse_comma_separated(ctx, param, value):
+    result = []
+    for val in value:
+        for item in val.split(','):
+            item = item.strip()
+            if item:
+                result.append(item)
+    return tuple(result)
 
-def syscall_filter(sess, procname, syscall, errors):
+def syscall_filter(sess, include_procname, exclude_procname, include_syscall, exclude_syscall, arg_search, errors, pid):
     query = sess.query(Syscall)
-    if procname:
-        query = query.filter(Syscall.procname.contains(procname))
-    if syscall:
-        if not syscall.startswith("sys_"):
-            syscall = "sys_" + syscall
-        query = query.filter(Syscall.name.contains(syscall))
-        # overrides all other run options
-        pass
+
+    if include_procname:
+        or_filter = [Syscall.procname.contains(p) for p in include_procname]
+        query = query.filter(or_(*or_filter))
+
+    # Exclude procnames
+    for p in exclude_procname:
+        query = query.filter(~Syscall.procname.contains(p))
+
+    # Include syscalls
+    if include_syscall:
+        processed_syscalls = []
+        for sc in include_syscall:
+            if not sc.startswith("sys_"):
+                sc = "sys_" + sc
+            processed_syscalls.append(sc)
+        or_filter = [Syscall.name.contains(sc) for sc in processed_syscalls]
+        query = query.filter(or_(*or_filter))
+
+    # Exclude syscalls
+    for sc in exclude_syscall:
+        if not sc.startswith("sys_"):
+            sc = "sys_" + sc
+        query = query.filter(~Syscall.name.contains(sc))
+
+    # Argument search: if specified, we look through argX_repr fields
+    if arg_search:
+        arg_fields = [f"arg{i}_repr" for i in range(6)]
+        or_filter = []
+        for field in arg_fields:
+            # getattr(Syscall, field) gets the column object for argX_repr
+            or_filter.append(getattr(Syscall, field).contains(arg_search))
+        query = query.filter(or_(*or_filter))
+
+    # Errors only
     if errors:
         query = query.filter(Syscall.retno < 0)
+    
+    if pid is not None:
+        query = query.filter(Syscall.pid == pid)
+
     return query
 
 
@@ -25,10 +65,23 @@ def syscall_filter(sess, procname, syscall, errors):
     help="Path to results folder (default is ./results/latest)",
 )
 @click.option(
-    "--procname", default=None, help="Process name to filter for (looks for substring)"
+    "--include-procname", multiple=True, callback=parse_comma_separated,
+    help="Process name(s) to include. Can be repeated or comma separated."
 )
 @click.option(
-    "--syscall", default=None, help="Syscall name to filter for (looks for substring)"
+    "--exclude-procname", multiple=True, callback=parse_comma_separated,
+    help="Process name(s) to exclude. Can be repeated or comma separated."
+)
+@click.option(
+    "--include-syscall", multiple=True, callback=parse_comma_separated,
+    help="Syscall name(s) to include. Can be repeated or comma separated."
+)
+@click.option(
+    "--exclude-syscall", multiple=True, callback=parse_comma_separated,
+    help="Syscall name(s) to exclude. Can be repeated or comma separated."
+)
+@click.option(
+    "--arg-search", default=None, help="Substring to search for in syscall arguments."
 )
 @click.option(
     "--errors",
@@ -42,11 +95,19 @@ def syscall_filter(sess, procname, syscall, errors):
 @click.option(
     "--output", default="/dev/stdout", help="Output to file instead of stdout"
 )
-def query_syscalls(results, procname, syscall, errors, follow, output):
-    print_procname = procname is None
-    args = (procname, syscall, errors)
-    wrapper(results, output, print_procname, follow, syscall_filter, args)
+@click.option(
+    "--print-procnames/--no-print-procnames", 
+    default=True, 
+    help="Toggle whether to print process names (default: True)."
+)
+@click.option(
+    "--pid", default=None, type=int, help="Filter by PID"
+)
+def query_syscalls(results, include_procname, exclude_procname, include_syscall, exclude_syscall, arg_search, errors, follow, output, print_procnames, pid):
+    args = (include_procname, exclude_procname, include_syscall, exclude_syscall, arg_search, errors, pid)
+    wrapper(results, output, print_procnames, follow, syscall_filter, args)
 
 
 if __name__ == "__main__":
     query_syscalls()
+

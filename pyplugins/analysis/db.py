@@ -36,6 +36,7 @@ class DB(PyPlugin):
                     else "[???]"
                 )
                 event.proc_id = proc.create_time
+                event.pid = proc.pid
         self.queued_events.append(event)
         if len(self.queued_events) >= self.buffer_size:
             self._flush_queue()

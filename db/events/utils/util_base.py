@@ -34,7 +34,7 @@ def wrapper(results, output, print_procname, follow, filter, args):
 
                 for event in query.all():
                     if print_procname:
-                        printer(f"({event.procname}) {event}", file=f)
+                        printer(f"({event.procname})[{event.pid}] {event}", file=f)
                     else:
                         printer(event, file=f)
                     highest_id = max(highest_id, event.id)
