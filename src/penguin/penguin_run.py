@@ -70,40 +70,6 @@ qemu_configs = {
 }
 
 
-def _sort_plugins_by_dependency(conf_plugins):
-    """
-    Sorts the plugins based on their dependencies.
-    """
-
-    def dfs(plugin_name, visited, stack):
-        """
-        Depth-First Search to sort plugins.
-        """
-        visited.add(plugin_name)
-        details = conf_plugins.get(plugin_name, {})
-        deps = details.get("depends_on", [])
-        # Allow depends_on to be a single string or a list of strings
-        if isinstance(deps, str):
-            deps = [deps]
-        for dep in deps:
-            if dep not in visited:
-                if dep not in conf_plugins:
-                    raise ValueError(
-                        f"Plugin {plugin_name} depends on {dep}, which is missing."
-                    )
-                dfs(dep, visited, stack)
-        stack.append(plugin_name)
-
-    sorted_plugins = []
-    visited = set()
-
-    for plugin_name in conf_plugins:
-        if plugin_name not in visited:
-            dfs(plugin_name, visited, sorted_plugins)
-
-    return sorted_plugins
-
-
 @contextmanager
 def print_to_log(out, err):
     original_stdout = sys.stdout  # Save the original stdout
