@@ -39,12 +39,11 @@ def syscall_filter(sess, include_procname, exclude_procname, include_syscall, ex
             sc = "sys_" + sc
         query = query.filter(~Syscall.name.contains(sc))
 
-    # Argument search: if specified, we look through argX_repr fields
+    # Argument search
     if arg_search:
         arg_fields = [f"arg{i}_repr" for i in range(6)]
         or_filter = []
         for field in arg_fields:
-            # getattr(Syscall, field) gets the column object for argX_repr
             or_filter.append(getattr(Syscall, field).contains(arg_search))
         query = query.filter(or_(*or_filter))
 
@@ -103,11 +102,16 @@ def syscall_filter(sess, include_procname, exclude_procname, include_syscall, ex
 @click.option(
     "--pid", default=None, type=int, help="Filter by PID"
 )
-def query_syscalls(results, include_procname, exclude_procname, include_syscall, exclude_syscall, arg_search, errors, follow, output, print_procnames, pid):
-    args = (include_procname, exclude_procname, include_syscall, exclude_syscall, arg_search, errors, pid)
+@click.option(
+    "--show-process-tree",
+    is_flag=True,
+    default=False,
+    help="Reconstruct and show the process tree and IPC signals."
+)
+def query_syscalls(results, include_procname, exclude_procname, include_syscall, exclude_syscall, arg_search, errors, follow, output, print_procnames, pid, show_process_tree):
+    args = (include_procname, exclude_procname, include_syscall, exclude_syscall, arg_search, errors, pid, show_process_tree)
     wrapper(results, output, print_procnames, follow, syscall_filter, args)
 
 
 if __name__ == "__main__":
     query_syscalls()
-
