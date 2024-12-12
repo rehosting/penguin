@@ -1,7 +1,11 @@
 import click
-from sqlalchemy import or_
-from events import Syscall
+from sqlalchemy import or_, asc, func
+from events import Syscall, Event
 from events.utils.util_base import wrapper
+from sqlalchemy.orm import Session
+from time import sleep
+from os.path import join, exists
+from rich import print as rprint
 
 def parse_comma_separated(ctx, param, value):
     result = []
@@ -55,7 +59,6 @@ def syscall_filter(sess, include_procname, exclude_procname, include_syscall, ex
         query = query.filter(Syscall.pid == pid)
 
     return query
-
 
 @click.command()
 @click.option(
@@ -111,6 +114,7 @@ def syscall_filter(sess, include_procname, exclude_procname, include_syscall, ex
 def query_syscalls(results, include_procname, exclude_procname, include_syscall, exclude_syscall, arg_search, errors, follow, output, print_procnames, pid, show_process_tree):
     args = (include_procname, exclude_procname, include_syscall, exclude_syscall, arg_search, errors, pid, show_process_tree)
     wrapper(results, output, print_procnames, follow, syscall_filter, args)
+
 
 
 if __name__ == "__main__":
