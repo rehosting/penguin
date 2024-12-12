@@ -71,6 +71,7 @@ class PyPandaSysLog(PyPlugin):
     def all_sys_enter(self, cpu, pc, info, ctx):
         if info == self.panda.ffi.NULL or ctx == self.panda.ffi.NULL:
             return
+
         nargs = info.nargs
         panda = self.panda
         syscall_name = panda.ffi.string(info.name).decode()
@@ -78,13 +79,14 @@ class PyPandaSysLog(PyPlugin):
 
         procname = panda.get_process_name(cpu)
 
+        # Collect syscall arguments
         args = []
         for i in range(nargs):
             try:
                 arg = panda.arch.get_arg(cpu, i + 1, convention="syscall")
             except ValueError:
-                arg = 0
-                try_replace_args[i] = (0, "arg")
+                arg = 0  # Default to 0 if an argument cannot be fetched
+                try_replace_args[i] = (0, "arg")  # Track this for potential replacement later
             args.append(arg)
 
         def process_arg(type_, arg, argn, i):
@@ -92,25 +94,19 @@ class PyPandaSysLog(PyPlugin):
                 return panda.ffi.cast(f"{type_}_t", arg)
 
             t = "uint32" if panda.bits == 32 else "uint64"
-            name = (
-                "?" if argn == panda.ffi.NULL else panda.ffi.string(argn).decode()
-            )
-
+            name = "?" if argn == panda.ffi.NULL else panda.ffi.string(argn).decode()
             argval = int(read_type(t, arg))
 
-            # Map syscalls to their sockaddr argument index
+            # Special handling for sockaddr-related syscalls
             sockaddr_syscalls = {
                 'sys_bind': 1,
                 'sys_connect': 1,
                 'sys_accept4': 1,
                 'sys_sendto': 4,
             }
-
-            # Check if current syscall expects a sockaddr at this argument index
             if syscall_name in sockaddr_syscalls and i == sockaddr_syscalls[syscall_name]:
                 sockaddr_addr = argval
                 if syscall_name == 'sys_accept4':
-                    # For sys_accept4, addrlen is a pointer to size
                     addrlen_ptr = args[2]
                     addrlen = self.read_int_from_ptr(panda, cpu, addrlen_ptr)
                 elif syscall_name == 'sys_sendto':
@@ -119,14 +115,15 @@ class PyPandaSysLog(PyPlugin):
                     addrlen = args[2] if len(args) > 2 else 0
                 return self.process_sockaddr(panda, cpu, sockaddr_addr, addrlen)
 
+            # Special handling for syscalls with custom structures
             if syscall_name == 'sys_socketpair' and i == 3:
                 fds_addr = argval
                 return self.process_socketpair_fds(panda, cpu, fds_addr)
-
             if syscall_name in ['sys_sendmsg', 'sys_recvmsg'] and i == 1:
                 msghdr_addr = argval
                 return self.process_msghdr(panda, cpu, msghdr_addr)
 
+            # Handle known argument names
             if name == "fd":
                 fname = panda.get_file_name(cpu, argval)
                 return f"FD:{argval}({fname.decode('latin-1') if fname else 'None'})"
@@ -137,6 +134,7 @@ class PyPandaSysLog(PyPlugin):
                     try_replace_args[i] = (argval, "STR")
                     return
 
+            # Determine argument type
             argtype = panda.ffi.string(panda.ffi.cast("syscall_argtype_t", type_))
             lookup_cast_tbl = {
                 "SYSCALL_ARG_U64": "uint64",
@@ -146,8 +144,23 @@ class PyPandaSysLog(PyPlugin):
                 "SYSCALL_ARG_S32": "int32",
                 "SYSCALL_ARG_S16": "int16",
             }
+
+            # If sys_kill pid argument (arg0) is a signed 32-bit value, handle carefully
+            # to avoid negative sign-extension issues if not intended.
+            if syscall_name == "sys_kill" and i == 0:
+                # Forcefully interpret as a signed 32-bit integer
+                masked_val = arg & 0xffffffff
+                casted_val = int(panda.ffi.cast("int32_t", masked_val))
+                print(f"SYS_KILL masked_val:{masked_val} casted_val:{casted_val}")
+                return f"{casted_val}({casted_val:#x})"
+
             if argtype in lookup_cast_tbl:
-                return f"{int(read_type(lookup_cast_tbl[argtype], arg)):#x}"
+                casted_val = int(read_type(lookup_cast_tbl[argtype], arg))
+                if argtype.startswith("SYSCALL_ARG_S"):
+                    return f"{casted_val}({casted_val:#x})"
+                else:
+                    return f"{casted_val:#x}"
+
             if argtype.endswith("_PTR"):
                 try:
                     if "STR" in argtype:
@@ -160,9 +173,11 @@ class PyPandaSysLog(PyPlugin):
                 return f'{argval:#x}("{buf}")'
             elif "STRUCT" in argtype:
                 return f"{argval:#x} (struct)"
+
+            # Default fallback
             return hex(argval)
 
-
+        # Process each argument once
         args_repr = [
             process_arg(info.argt[i], args[i], info.argn[i], i) for i in range(nargs)
         ]
@@ -174,6 +189,7 @@ class PyPandaSysLog(PyPlugin):
             "args": args,
             "args_repr": args_repr,
         }
+
         if info.noreturn:
             self.add_syscall(**func_args)
         else:
@@ -181,6 +197,7 @@ class PyPandaSysLog(PyPlugin):
             if asid in self.saved_syscall_info:
                 self.return_syscall(self.saved_syscall_info[asid], None)
             self.saved_syscall_info[asid] = (func_args, try_replace_args)
+
 
     def all_sys_ret(self, cpu, pc, callno):
         asid = self.panda.get_id(cpu)
@@ -203,23 +220,30 @@ class PyPandaSysLog(PyPlugin):
             args = []
         if args_repr is None:
             args_repr = []
+        
         keys = {
             "name": name,
             "procname": procname or "[none]",
-            "retno": int(self.panda.ffi.cast("target_long", retno)) if retno is not None else None,
+            "retno": retno,
             "retno_repr": retno_repr,
-            "pid": pid,  # store pid
+            "pid": pid,
         }
+
+        # Add arguments to the syscall record
         for i in range(len(args)):
             keys[f"arg{i}"] = int(self.panda.ffi.cast("target_long", args[i]))
         for i in range(len(args_repr)):
             keys[f"arg{i}_repr"] = args_repr[i]
+
         self.DB.add_event(Syscall(**keys))
+
 
     def return_syscall(self, syscall_info, retval):
         func_args, try_replace_args = syscall_info
+        panda, cpu = self.panda, self.panda.get_cpu()
+
+        # Replace arguments that couldn't be resolved earlier
         for i, (argval, ctype) in try_replace_args.items():
-            panda, cpu = self.panda, self.panda.get_cpu()
             with contextlib.suppress(ValueError):
                 if "STR" in ctype:
                     buf = panda.read_str(cpu, argval) if argval != 0 else "[NULL]"
@@ -228,17 +252,25 @@ class PyPandaSysLog(PyPlugin):
                 else:
                     buf = panda.virtual_memory_read(cpu, argval, 20)
                 func_args["args_repr"][i] = f'{argval:#x}("{buf}")'
+
+        # Handle return value
         if retval is not None:
-            func_args["retno"] = int(self.panda.ffi.cast("target_long", retval))
-            errnum = -func_args["retno"]
+            # Correctly cast return value to signed 32-bit integer
+            retno = int(self.panda.ffi.cast("int32_t", retval))
+            func_args["retno"] = retno
+
+            # Map errors to errno descriptions
+            errnum = -retno
             if errnum in self.errcode_to_errname:
-                func_args["retno_repr"] = (
-                    f"{self.errcode_to_errname[errnum]}({self.errcode_to_explanation[errnum]})"
-                )
+                func_args["retno_repr"] = f"{self.errcode_to_errname[errnum]}({self.errcode_to_explanation[errnum]})"
             else:
-                func_args["retno_repr"] = f"{func_args['retno']:#x}"
-            retval = int(self.panda.ffi.cast("target_long", retval))
+                func_args["retno_repr"] = f"{retno:#x}"
+        else:
+            func_args["retno"] = None
+            func_args["retno_repr"] = "None"
+
         self.add_syscall(**func_args)
+
 
     def process_sockaddr(self, panda, cpu, sockaddr_addr, addrlen):
         if sockaddr_addr == 0:
