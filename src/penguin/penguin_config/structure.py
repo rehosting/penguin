@@ -239,6 +239,15 @@ class Core(BaseModel):
             examples=["-vnc :0 -vga std -device usb-kbd -device usb-tablet"],
         ),
     ]
+    mem: Annotated[
+        Optional[str],
+        Field(
+            "2G",
+            title="Panda Memory Value",
+            description="Allows users to customize memory allocation for guest",
+            examples=["16K", "512M", "1G", "2G"],
+            ),
+    ]
 
 
 EnvVal = _newtype(

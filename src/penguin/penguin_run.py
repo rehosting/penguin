@@ -26,46 +26,39 @@ qemu_configs = {
         "qemu_machine": "virt",
         "arch": "arm",
         "kconf_group": "armel",
-        "mem_gb": "2",
     },
     "aarch64": {
         "qemu_machine": "virt",
         "arch": "aarch64",
         "kconf_group": "arm64",
-        "mem_gb": "2",
         "cpu": "cortex-a57",
     },
     "mipsel": {
         "qemu_machine": "malta",
         "arch": "mipsel",
         "kconf_group": "mipsel",
-        "mem_gb": "2",
     },
     "mipseb": {
         "qemu_machine": "malta",
         "arch": "mips",
         "kconf_group": "mipseb",
-        "mem_gb": "2",
     },
     "mips64el": {
         "qemu_machine": "malta",
         "arch": "mips64el",
         "kconf_group": "mips64el",
-        "mem_gb": "2",
         "cpu": "MIPS64R2-generic",
     },
     "mips64eb": {
         "qemu_machine": "malta",
         "arch": "mips64",
         "kconf_group": "mips64eb",
-        "mem_gb": "2",
         "cpu": "MIPS64R2-generic",
     },
     "intel64": {
         "qemu_machine": "pc",
         "arch": "x86_64",
         "kconf_group": "x86_64",
-        "mem_gb": "2",
     },
 }
 
@@ -271,7 +264,7 @@ def run_config(
 
         vsock_args = [
             "-object",
-            f'memory-backend-file,id=mem0,mem-path={mem_path},size={q_config["mem_gb"]}G,share=on',
+            f'memory-backend-file,id=mem0,mem-path={mem_path},size={conf["core"]["mem"]},share=on',
             "-numa",
             "node,memdev=mem0",
             "-chardev",
@@ -393,8 +386,8 @@ def run_config(
 
     with print_to_log(stdout_path, stderr_path):
         logger.debug(f"Preparing PANDA args: {args}")
-        logger.debug(f"Architecture: {q_config['arch']} Mem: {q_config['mem_gb']+'G'}")
-        panda = Panda(q_config["arch"], mem=q_config["mem_gb"] + "G", extra_args=args)
+        logger.debug(f"Architecture: {q_config['arch']} Mem: {conf['core']['mem']}")
+        panda = Panda(q_config["arch"], mem=conf["core"]["mem"], extra_args=args)
 
         if "64" in archend:
             panda.set_os_name("linux-64-generic")
