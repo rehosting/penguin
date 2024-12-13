@@ -294,6 +294,31 @@ A list of additional QEMU command-line arguments to use when booting the guest
 -vnc :0 -vga std -device usb-kbd -device usb-tablet
 ```
 
+### `core.mem` Panda Memory Value
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`2G`|
+
+Allows users to customize memory allocation for guest
+
+```yaml
+16K
+```
+
+```yaml
+512M
+```
+
+```yaml
+1G
+```
+
+```yaml
+2G
+```
+
 ## `patches` Patches
 
 |||
