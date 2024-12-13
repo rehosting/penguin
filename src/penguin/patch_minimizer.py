@@ -48,7 +48,7 @@ class PatchMinimizer():
         self.verbose = verbose
         self.minimization_target = minimization_target
         self.patches_to_test = list()
-        self.binary_search = True
+        self.binary_search = False
         self.dynamic_patch_dir = os.path.join(self.proj_dir, "dynamic_patches")
         self.data_baseline = dict()
 
@@ -58,6 +58,8 @@ class PatchMinimizer():
         self.run_count = 0
         self.scores = dict()  # run_index -> score
         self.runmap = dict()  # run_index -> patchset
+        self.max_attempts = 10
+        self.attempts = dict()
 
         # TODO: use FICD to set timeout if timeout parameter. Warn if FICD not reached
         #      add an FICD option to run until FICD (which might have to do the baseline single-threaded)
@@ -111,7 +113,7 @@ class PatchMinimizer():
         dump_config(self.base_config, os.path.join(output_dir, "base_config.yaml"))
 
         self.logger.setLevel("DEBUG" if verbose else "INFO")
-        self.logger.info(f"Loaded {len(self.patches_to_test)} patches to test")
+        self.logger.info(f"Loaded {len(self.patches_to_test)} patches to test with {self.nworkers} workers")
         self.logger.debug(f"Candidate patches: {self.patches_to_test}")
 
     @staticmethod
@@ -741,8 +743,10 @@ class PatchMinimizer():
         if slow_mode:
             # Assuming orthoganality of patches, we'll generate a config without each patch
             # Greater than 2 since if we have two left binary search would've tested them both
-            if len(self.patches_to_test) > 2 or not self.binary_search:
+            #if len(self.patches_to_test) > 2 or not self.binary_search:
+            for j in range(self.max_attempts):
                 run_tracker = dict()
+                patchsets.clear()
                 for i, patch in enumerate(self.patches_to_test, start=self.run_count):
                     if i >= self.max_iters:
                         self.logger.info("Hit max iterations. Stopping")
@@ -751,6 +755,10 @@ class PatchMinimizer():
                     patchset.remove(patch)
                     patchsets.append(patchset)
                     run_tracker[i] = patch
+                    if j == 0:
+                        self.attempts[patch] = 1
+                    else:
+                        self.attempts[patch] += 1
 
                 self.run_configs(patchsets)
 
@@ -759,17 +767,21 @@ class PatchMinimizer():
                         self.logger.info(f"After running {i} removing {patch} from consideration, appears unnecessary")
                         self.patches_to_test.remove(patch)
                     else:
-                        self.logger.info(f"Keeping {patch} since run {i} was not viable without it")
+                        self.logger.info(f"Patch-sweep {j}: keeping {patch} since run {i} was not viable without it")
 
         output_file = os.path.join(self.proj_dir, "minimized.yaml")
         # TODO: force overwrite of this when --force
-        if not os.path.exists(output_file):
-            self.logger.info(f"Writing minimized config to {output_file} (note: this may include auto_explore.yaml)")
-            self.base_config["patches"].extend(self.patches_to_test)
-            with open(output_file, "w") as f:
-                yaml.dump(self.base_config, f)
-        else:
-            self.logger.info(f"Config already exists at {output_file}, not overwriting")
+        #if not os.path.exists(output_file):
+        #if we got here and this was already ran, we've specified --force
+        self.logger.info(f"Writing minimized config to {output_file} (note: this may include auto_explore.yaml)")
+        self.base_config["patches"].extend(self.patches_to_test)
+        with open(output_file, "w") as f:
+            yaml.dump(self.base_config, f)
+        output_file = os.path.join(self.proj_dir, "minimize_attempts.yaml")
+        with open(output_file, "w") as f:
+            yaml.dump(self.attempts, f)
+        #else:
+        #    self.logger.info(f"Config already exists at {output_file}, not overwriting")
         return self.patches_to_test
 
 
