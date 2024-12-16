@@ -317,6 +317,7 @@ COPY --from=downloader /tmp/pandare.deb /tmp/
 COPY --from=downloader /tmp/glow.deb /tmp/
 COPY --from=downloader /tmp/gum.deb /tmp/
 COPY --from=capstone_builder /usr/lib/libcapstone* /usr/lib/
+COPY ./dependencies/* /tmp
 
 # We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
 # we'll fail because we get a distutils distribution of pycparser 2.19 that we can't
@@ -331,78 +332,10 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         "pycparser>=2.21"
 
 # fw2tar deps
-RUN apt-get update && \
-  apt-get install -q -y \
-    android-sdk-libsparse-utils \
-    arj \
-    automake \
-    build-essential \
-    bzip2 \
-    cabextract \
-    cpio \
-    cramfsswap \
-    curl \
-    default-jdk \
-    e2fsprogs \
-    fakeroot \
-    gcc \
-    git \
-    gzip \
-    lhasa \
-    libarchive-dev \
-    liblzma-dev \
-    liblzo2-dev \
-    libmagic1 \
-    locales \
-    lz4 \
-    lziprecover \
-    lzop \
-    mtd-utils \
-    openssh-client \
-    p7zip \
-    p7zip-full \
-    python3 \
-    python3-pip \
-    qtbase5-dev \
-    sleuthkit \
-    squashfs-tools \
-    srecord \
-    tar \
-    unar \
-    unrar-free \
-    unzip \
-    xz-utils \
-    zlib1g-dev \
-    zstd
+RUN apt-get update && apt-get install -q -y $(cat /tmp/fw2tar.txt)
 
 # Install apt dependencies - largely for binwalk, some for penguin
-RUN apt-get update && apt-get install -y \
-    fakeroot \
-    genext2fs \
-    graphviz \
-    graphviz-dev \
-    libarchive13 \
-    libgcc-s1 \
-    liblinear4 \
-    liblua5.3-0\
-    libpcap0.8 \
-    libpcre3 \
-    libssh2-1 \
-    libssl3 \
-    libstdc++6 \
-    libxml2 \
-    lua-lpeg \
-    nmap \
-    python3 \
-    python3-lxml \
-    python3-venv \
-    sudo \
-    telnet \
-    vim \
-    wget \
-    clang-11 \
-    lld-11 \
-    zlib1g && \
+RUN apt-get update && apt-get install -y $(cat /tmp/penguin.txt) && \
     apt install -yy -f /tmp/pandare.deb -f /tmp/glow.deb -f /tmp/gum.deb && \
     rm -rf /var/lib/apt/lists/* /tmp/*.deb
 
