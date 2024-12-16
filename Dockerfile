@@ -295,6 +295,29 @@ RUN if [ ! -z "${OVERRIDE_VERSION}" ]; then \
         echo "Generating version from git"; \
     fi;
 
+### Build fw2tar deps ahead of time ###
+FROM $BASE_IMAGE as fw2tar_dep_builder
+ENV DEBIAN_FRONTEND=noninteractive
+
+COPY ./dependencies/fw2tar.txt /tmp/fw2tar.txt
+RUN apt-get update && apt-get install -y -q git $(cat /tmp/fw2tar.txt)
+
+ARG DOWNLOAD_TOKEN
+ARG FW2TAR_TAG
+RUN git clone --depth=1 -b ${FW2TAR_TAG} https://${DOWNLOAD_TOKEN}:@github.com/rehosting/fw2tar.git /tmp/fw2tar
+RUN git clone --depth=1 https://github.com/davidribyrne/cramfs.git /cramfs && \
+    cd /cramfs && make
+RUN git clone --depth=1 https://github.com/rehosting/unblob.git /unblob
+
+RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts
+ARG SSH
+RUN --mount=type=ssh git clone git@github.com:rehosting/fakeroot.git /fakeroot && \
+    sed -i 's/^# deb-src/deb-src/' /etc/apt/sources.list && \
+    apt-get update && apt-get build-dep -y fakeroot && \
+    cd /fakeroot && ./bootstrap && ./configure && make || true
+
+# Create empty directory to copy if it doesn't exist
+RUN mkdir /fakeroot || true
 
 ### MAIN CONTAINER ###
 FROM $BASE_IMAGE AS penguin
@@ -437,16 +460,14 @@ CMD ["/usr/local/bin/banner.sh"]
 COPY ./local_package[s] /tmp/local_packages
 
 # ====================== Finish setting up fw2tar ======================
-ARG DOWNLOAD_TOKEN
-ARG FW2TAR_TAG
-RUN git clone --depth=1 -b ${FW2TAR_TAG} https://${DOWNLOAD_TOKEN}:@github.com/rehosting/fw2tar.git /tmp/fw2tar
+COPY --from=fw2tar_dep_builder /tmp/fw2tar /tmp/fw2tar
 
 # CramFS no longer in apt - needed by binwalk
-RUN git clone --depth=1 https://github.com/davidribyrne/cramfs.git /cramfs && \
-   cd /cramfs && make && make install
+COPY --from=fw2tar_dep_builder /cramfs /cramfs
+RUN cd /cramfs && make && make install
 
 # Clone unblob fork then install with poetry
-RUN git clone --depth=1 https://github.com/rehosting/unblob.git /unblob
+COPY --from=fw2tar_dep_builder /unblob /unblob
 RUN cd /unblob && poetry install --no-dev
 
 # Explicitly install unblob deps - mostly captured above, but some of the .debs get updated and installed via curl
@@ -459,12 +480,8 @@ RUN chmod -R 777 /root/
 # Try to install custom fakeroot. This is optional - we have regular fakeroot. If we're building
 # with host SSH keys, we can do this, otherwise we'll just skip it
 # Setup ssh keys for github.com
-RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts
-ARG SSH
-RUN --mount=type=ssh git clone git@github.com:rehosting/fakeroot.git /fakeroot && \
-    sed -i 's/^# deb-src/deb-src/' /etc/apt/sources.list && \
-    apt-get update && apt-get build-dep -y fakeroot && \
-    cd /fakeroot && ./bootstrap && ./configure && make && make install -k || true
+COPY --from=fw2tar_dep_builder /fakeroot /fakeroot
+RUN cd /fakeroot && make install -k || true
 
 # Patch to fix unblob #767 that hasn't yet been upstreamed. Pip install didn't work. I don't understand poetry
 #RUN pip install git+https://github.com/qkaiser/arpy.git
