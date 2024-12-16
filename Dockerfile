@@ -238,7 +238,7 @@ ARG PANDA_VERSION
 
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
-RUN apt-get update && apt-get install -y python3-pip git
+RUN apt-get update && apt-get install -y python3-pip git liblzo2-dev
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip wheel --no-cache-dir --wheel-dir /app/wheels \
       angr \
@@ -264,8 +264,23 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       sqlalchemy \
       yamlcore \
       junit-xml \
-      jc
-
+      jc \
+      git+http://github.com/jrspruitt/ubi_reader.git@v0.8.5-master \
+      git+https://github.com/rehosting/binwalk.git \
+      git+https://github.com/ahupp/python-magic \
+      git+https://github.com/devttys0/yaffshiv.git \
+      git+https://github.com/marin-m/vmlinux-to-elf \
+      jefferson \
+      gnupg \
+      poetry \
+      psycopg2-binary \
+      pycryptodome \
+      pylzma \
+      setuptools \
+      sqlalchemy \
+      telnetlib3 \
+      tk \
+      zstandard
 
 FROM python_builder AS version_generator
 ARG OVERRIDE_VERSION=""
@@ -391,41 +406,19 @@ RUN apt-get update && apt-get install -y \
     apt install -yy -f /tmp/pandare.deb -f /tmp/glow.deb -f /tmp/gum.deb && \
     rm -rf /var/lib/apt/lists/* /tmp/*.deb
 
-
-# fw2tar python deps
-# XXX: Should we be prebuilding these?
-RUN pip install --upgrade pip && \
-    python3 -m pip install \
-      git+http://github.com/jrspruitt/ubi_reader.git@v0.8.5-master \
-      git+https://github.com/rehosting/binwalk.git \
-      git+https://github.com/ahupp/python-magic \
-      git+https://github.com/devttys0/yaffshiv.git \
-      git+https://github.com/marin-m/vmlinux-to-elf \
-      jefferson \
-      gnupg \
-      poetry \
-      psycopg2-binary \
-      pycryptodome \
-      pylzma \
-      pyyaml \
-      setuptools \
-      sqlalchemy \
-      telnetlib3 \
-      tk \
-      lz4 \
-      zstandard \
-      pyelftools \
-      lief && \
-    python3 -m pip install python-lzo==1.14 && \
-    poetry config virtualenvs.create false
-
 # If we want to run in a venv, we can use this. System site packages means
 # we can still access the apt-installed python packages (e.g. guestfs) in our venv
 #RUN python3 -m venv --system-site-packages /venv
 #ENV PATH="/venv/bin:$PATH"
 # install prebuilt python packages
 COPY --from=python_builder /app/wheels /wheels
+
+# Remove python_lzo 1.0 to resolve depdency collision with vmlinux-to-elf
+RUN rm /wheels/python_lzo*
+
 RUN pip install --no-cache /wheels/*
+
+RUN poetry config virtualenvs.create false
 
 # ZAP setup
 #COPY --from=downloader /zap /zap
