@@ -16,7 +16,7 @@ from penguin import getColoredLogger
 gen_image can be run as a separate script if this is loaded at the module
 level. This makes it easier to profile.
 """
-from penguin.penguin_config.structure import load_config
+from penguin.penguin_config import load_config
 
 """
 This class wrapped what used to be a libguestfs interface

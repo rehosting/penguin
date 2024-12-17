@@ -17,7 +17,7 @@ from . import static_analyses as STATIC
 from .defaults import (
     default_version as DEFAULT_VERSION,
 )
-from .penguin_config.structure import dump_config
+from penguin.penguin_config import dump_config
 
 logger = getColoredLogger("penguin.gen_config")
 
