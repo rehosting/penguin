@@ -354,11 +354,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         pip \
         "pycparser>=2.21"
 
-# fw2tar deps
-RUN apt-get update && apt-get install -q -y $(cat /tmp/fw2tar.txt)
-
-# Install apt dependencies - largely for binwalk, some for penguin
-RUN apt-get update && apt-get install -y $(cat /tmp/penguin.txt) && \
+# Install apt dependencies - largely for binwalk, some for penguin, some for fw2tar
+RUN apt-get update && apt-get install -q -y $(cat /tmp/penguin.txt) $(cat /tmp/fw2tar.txt) && \
     apt install -yy -f /tmp/pandare.deb -f /tmp/glow.deb -f /tmp/gum.deb && \
     rm -rf /var/lib/apt/lists/* /tmp/*.deb
 
