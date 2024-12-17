@@ -5,7 +5,7 @@ from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from penguin.common import getColoredLogger, yaml
-from .penguin_config.structure import dump_config, hash_yaml_config, load_config, load_unpatched_config
+from penguin.penguin_config import dump_config, hash_yaml_config, load_config, load_unpatched_config
 from .manager import PandaRunner, calculate_score
 from .search_utils import MABWeightedSet, ConfigSearch
 # from .graphs import Failure, Mitigation # We pass these objects around but don't use directly

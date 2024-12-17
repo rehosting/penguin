@@ -15,7 +15,7 @@ from penguin import getColoredLogger, plugins
 
 from .common import yaml
 from .defaults import default_plugin_path
-from .penguin_config.structure import load_config
+from penguin.penguin_config import load_config
 from .utils import hash_image_inputs
 
 

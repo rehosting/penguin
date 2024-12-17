@@ -12,7 +12,7 @@ from queue import Queue
 from copy import deepcopy
 
 from .common import get_inits_from_proj, patch_config, frozenset_to_dict, dict_to_frozenset
-from .penguin_config.structure import dump_config, load_config, load_unpatched_config, hash_yaml_config
+from penguin.penguin_config import dump_config, load_config, load_unpatched_config, hash_yaml_config
 from .utils import AtomicCounter, hash_image_inputs
 from .manager import PandaRunner, calculate_score
 from .graphs import Failure, Mitigation
