@@ -352,7 +352,7 @@ class BasePatch(PatchGenerator):
         self.patch_name = "base"
         self.enabled = True
 
-        self.set_arch_info(arch_info)
+        self.set_arch_info(arch_info[0])
 
         if len(inits):
             self.igloo_init = inits[0]
@@ -1642,3 +1642,36 @@ class PseudofilesTailored(PatchGenerator):
 
         if len(results):
             return {'pseudofiles': results}
+
+
+class LinkerSymbolSearch(PatchGenerator):
+    '''
+    During static analysis the LibrarySymbols class collected
+    key->value mappings from libraries exporting some common nvram
+    defaults symbols ("Nvrams", "router_defaults") - add these to our
+    nvram config if we have any.
+
+    TODO: if we find multiple nvram source files here, we should generate multiple patches.
+    Then we should consider these during search. For now we just take non-conflicting values
+    from largest to smallest source files. More realistic might be to try each file individually.
+    '''
+
+    def __init__(self, library_info, archid):
+        self.library_info = library_info
+        self.patch_name = "ld.01_library"
+        self.linker_paths = archid[1]
+        self.enabled = True
+
+    def generate(self, patches):
+        sources = self.library_info.get("symbols", {})
+        if not len(sources):
+            return
+        linkers_without_preload = []
+        for file in sources.keys():
+            if file in self.linker_paths.keys():
+                self.linker_paths.pop('file')
+                if not ("_dl_preload" in sources[file] or "handle_ld_preload" in sources[file]):
+                    linkers_without_preload.append(file)
+        print(linkers_without_preload)
+            
+
