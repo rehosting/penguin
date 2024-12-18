@@ -596,15 +596,24 @@ class PatchMinimizer():
         assert (self.run_count == 0), f"Establish baseline should be run first not {self.run_count}"
 
         patchset = self.patches_to_test
-        _, score = self.run_config(patchset, 0)
-        self.run_count += 1  # Bump run_count so we don't re-run baseline
 
-        # Score for baseline goes in self.scores (coverage) and data_baseline stores network data (entropy, bytes)
-        self.scores[0] = score
-        self.data_baseline = self.calculate_network_data(0)
-        self.logger.debug(f"data_baseline: {self.data_baseline}")
+        for j in range(self.max_attempts):
+            _, score = self.run_config(patchset, 0)
+
+            # Score for baseline goes in self.scores (coverage) and data_baseline stores network data (entropy, bytes)
+            self.scores[0] = score
+            self.data_baseline = self.calculate_network_data(0)
+            self.logger.debug(f"data_baseline: {self.data_baseline}")
+
+            if self.data_baseline:
+                self.logger.info(f"Baseline established on attempt {j+1}/{self.max_attempts}")
+                break
+            else:
+                self.logger.info(f"Baseline still not established... re-running. This was attempt {j+1}/{self.max_attempts}")
 
         assert (self.data_baseline), "Baseline data not established"
+
+        self.run_count += 1  # Bump run_count so we don't re-run baseline
 
         self.config_still_viable(0)
 
