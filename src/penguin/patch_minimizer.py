@@ -86,6 +86,7 @@ class PatchMinimizer():
         for patch in base_config["patches"]:
             if any(patch.endswith(f"{x}.yaml") for x in ignore_patches):
                 self.logger.info(f"Ignoring {patch} to support automated minimization")
+                continue
 
             if any(patch.endswith(f"/{x}.yaml") for x in required_patches):
                 # Patches we just leave *always* enabled: base, auto_explore and lib_inject.core
@@ -98,7 +99,7 @@ class PatchMinimizer():
         if not any([patch.endswith(f"/{this_required}.yaml") for patch in self.base_config["patches"]]):
             self.logger.warning(f"Adding {this_required} patch to supported automated exploration to guide minimization")
             # Ensure static_patches dir is in at least one of the patches
-            assert (any([patch.startswith("static_patches") for patch in self.patches_to_test])), "No static_patches dir in patches - not sure how to add auto_explore"
+            assert (any([patch.startswith("static_patches") for patch in self.patches_to_test])), f"No static_patches dir in patches - not sure how to add {this_required}"
             self.base_config["patches"].append(f"static_patches/{this_required}.yaml")
 
         # Patches can override options in previous patches
