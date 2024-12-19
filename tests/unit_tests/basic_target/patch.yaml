@@ -1,0 +1,25 @@
+core:
+  shared_dir: ./shared
+
+env:
+  igloo_init: /init.sh
+
+plugins:
+  verifier:
+    conditions:
+      ran:
+        type: file_contains
+        file: shared/ran
+        string: "ran"
+
+static_files:
+  /init.sh:
+    type: inline_file
+    mode: 73
+    contents: |
+      #!/igloo/utils/sh
+      set -e
+      /busybox mkdir -p /igloo/shared/tests/ran.sh/
+      /busybox ls -la > /igloo/shared/tests/ran.sh/stdout 2> /igloo/shared/tests/ran.sh/stderr
+      /busybox echo "ran" > /igloo/shared/ran
+      return 1
