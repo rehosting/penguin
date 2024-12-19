@@ -372,10 +372,12 @@ class BasePatch(PatchGenerator):
         if arch is None:
             raise NotImplementedError(f"Architecture {arch_identified} not supported ({arch}, {endian})")
 
+        self.dylib_dir = None
         if arch == "aarch64":
             # TODO: We should use a consistent name here. Perhaps aarch64eb?
             self.arch_name = "aarch64"
-            self.arch_dir = "arm64"
+            self.arch_dir = "aarch64"
+            self.dylib_dir = "arm64"
         elif arch == "intel64":
             self.arch_name = "intel64"
             self.arch_dir = "x86_64"
@@ -446,7 +448,7 @@ class BasePatch(PatchGenerator):
                 "/igloo/utils/guesthopper": {
                     "type": "host_file",
                     "mode": 0o755,
-                    "host_path": "/igloo_static/guesthopper/guesthopper."+self.arch_name
+                    "host_path": "/igloo_static/guesthopper/guesthopper."+self.arch_dir
                 },
                 "/igloo/init.d/guesthopper": {
                     "type": "inline_file",
@@ -458,7 +460,7 @@ class BasePatch(PatchGenerator):
                 "/igloo/dylibs/*": {
                     "type": "host_file",
                     "mode": 0o755,
-                    "host_path": os.path.join(STATIC_DIR, "dylibs", self.arch_dir, "*"),
+                    "host_path": os.path.join(STATIC_DIR, "dylibs", self.dylib_dir or self.arch_dir, "*"),
                 },
 
                 # Startup scripts
