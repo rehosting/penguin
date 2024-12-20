@@ -212,7 +212,7 @@ def penguin_init(args):
 
         if not os.path.exists(args.output_base):
             print("Creating output_base:", args.output_base)
-            os.makedirs(args.output_base)
+            os.makedirs(args.output_base, exist_ok=True)
 
         args.output = args.output_base + "/" + basename_stem
         output_type = "generated"
@@ -234,8 +234,7 @@ def penguin_init(args):
             )
 
     # Ensure output parent directory exists
-    if not os.path.exists(os.path.dirname(args.output)):
-        os.makedirs(os.path.dirname(args.output))
+    os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
     out_config_path = Path(args.output, "config.yaml")
     config = fakeroot_gen_config(
