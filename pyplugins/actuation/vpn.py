@@ -229,7 +229,7 @@ class VPN(PyPlugin):
         e.g. 80 -> 1080, 443 -> 2443, 8080 -> 18080, 65535 -> 1000
         '''
         for offset in range(1000, 65535, 1000):
-            if VPN.is_port_open(offset + port):
+            if (offset+port) <= 65535 and VPN.is_port_open(offset + port):
                 return offset + port
 
         """
