@@ -326,7 +326,10 @@ def run_config(
 
     if "show_output" in conf["core"] and conf["core"]["show_output"]:
         logger.info("Logging console output to stdout")
-        console_out = ["-serial", "mon:stdio"]
+        console_out = [
+                "-chardev", f"stdio,id=char1,logfile={out_dir}/console.log,signal=off",
+                "-serial", "chardev:char1"
+                ]
     else:
         logger.info(f"Logging console output to {out_dir}/console.log")
         console_out = [
