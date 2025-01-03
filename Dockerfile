@@ -9,7 +9,7 @@ ARG CONSOLE_VERSION="1.0.5"
 ARG PENGUIN_PLUGINS_VERSION="1.5.15"
 ARG VPN_VERSION="1.0.18"
 ARG HYPERFS_VERSION="0.0.37"
-ARG GUESTHOPPER_VERSION="1.0.6"
+ARG GUESTHOPPER_VERSION="1.0.9"
 ARG GLOW_VERSION="1.5.1"
 ARG GUM_VERSION="0.14.5"
 ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
@@ -468,6 +468,10 @@ RUN if [ -d /tmp/local_packages ]; then \
         fi; \
         if [ -f /tmp/local_packages/pandare-*.whl ]; then \
             pip install /tmp/local_packages/pandare-*.whl; \
+        fi; \
+        if [ -f /tmp/local_packages/guesthopper.tar.gz ]; then \
+            rm -rf /igloo_static/guesthopper; \
+            tar xzf /tmp/local_packages/guesthopper.tar.gz -C /igloo_static; \
         fi; \
     fi
 RUN mkdir /igloo_static/utils.source && \
