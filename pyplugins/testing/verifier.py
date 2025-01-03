@@ -68,7 +68,10 @@ class Verifier(PyPlugin):
         if "+" in name:
             name = name.split("+")[0]
         testcase_outdir = join(self.outdir, f"shared/tests/{name}.sh/")
-        val = open(join(testcase_outdir, kind)).read()
+        kind_f = join(testcase_outdir, kind)
+        val = ""
+        if exists(kind_f):
+            val = open(kind_f).read()
         return val
 
     def uninit(self):
