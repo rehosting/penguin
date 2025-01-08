@@ -7,13 +7,41 @@ from penguin import getColoredLogger
 from os.path import join, exists
 import yaml
 from junit_xml import TestSuite, TestCase
+import threading
+import time
 
 
 class Verifier(PyPlugin):
-    def __init__(self, _panda):
+    def __init__(self, panda):
+        self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.conditions = self.get_arg("conditions")
         self.logger = getColoredLogger("plugins.verifier")
+
+        self.continuous_eval = self.get_arg("continuous_eval") or False
+
+        if self.continuous_eval:
+            self.logger.info("Continuous evaluation enabled")
+            self.shutdown_event = threading.Event()
+            self.eval_thread = threading.Thread(
+                target=self.eval_thread,
+            )
+            self.eval_thread.start()
+
+    def eval_thread(self):
+        while True:
+            if self.shutdown_event.is_set():
+                return
+            _, results = self.check_test_cases()
+            if all(results.values()):
+                self.logger.info("Verifier: ALL tests passed")
+                self.shutdown_event.set()
+                self.panda.end_analysis()
+                return
+            else:
+                self.logger.debug(
+                    "Some tests failed, waiting 10s before re-evaluating")
+            time.sleep(10)
 
     def test_file_contains(self, name, test_case):
         f = join(self.outdir, test_case["file"])
@@ -74,9 +102,8 @@ class Verifier(PyPlugin):
             val = open(kind_f).read()
         return val
 
-    def uninit(self):
-        self.logger.info("Running verifier")
-        self.results = {}
+    def check_test_cases(self):
+        results = {}
         test_cases = []
         for name in self.conditions:
             test_type = self.conditions[name]["type"]
@@ -86,14 +113,7 @@ class Verifier(PyPlugin):
                 continue
             test_passed = test(name, self.conditions[name])
 
-            GREEN = "\x1b[32m"
-            RED = "\x1b[31m"
-            END = "\x1b[0m"
-            PASSED = f"{GREEN}passed{END}"
-            FAILED = f"{RED}failed{END}"
-
-            self.logger.info(f"Test {name} {PASSED if test_passed else FAILED}")
-            self.results[name] = test_passed
+            results[name] = test_passed
             tc = TestCase(
                 name=name,
                 stdout=self.get_test_case_output(name, "stdout"),
@@ -102,7 +122,31 @@ class Verifier(PyPlugin):
             if not test_passed:
                 tc.add_failure_info("Failed")
             test_cases.append(tc)
+        return test_cases, results
+
+    def uninit(self):
+        if hasattr(self, "shutdown_event"):
+            self.shutdown_event.set()
+        self.logger.info("Running verifier")
+        test_cases, results = self.check_test_cases()
+
+        for tc in test_cases:
+            GREEN = "\x1b[32m"
+            RED = "\x1b[31m"
+            END = "\x1b[0m"
+            PASSED = f"{GREEN}passed{END}"
+            FAILED = f"{RED}failed{END}"
+            test_passed = results[tc.name]
+            self.logger.info(
+                f"Test {tc.name} {PASSED if test_passed else FAILED}")
+            self.logger.info(f"STDOUT: {tc.stdout}")
+            self.logger.info(f"STDERR: {tc.stderr}")
+
         ts = TestSuite("verifier", test_cases)
         with open(join(self.outdir, "verifier.xml"), "w") as f:
             TestSuite.to_file(f, [ts])
-        self.logger.info(f"Verified output written to {join(self.outdir, 'verifier.xml')}")
+        self.logger.info(
+            f"Verified output written to {join(self.outdir, 'verifier.xml')}")
+
+        if all(results.values()):
+            self.logger.info("Verifier: ALL tests passed")
