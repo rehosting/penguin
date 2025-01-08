@@ -17,7 +17,7 @@ ARG LTRACE_PROTOTYPES_HASH="9db3bdee7cf3e11c87d8cc7673d4d25b"
 ARG MUSL_VERSION="1.2.5"
 ARG VHOST_DEVICE_VERSION="vhost-device-vsock-v0.2.0"
 
-FROM rust as vhost_builder
+FROM rust AS vhost_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
 ARG VHOST_DEVICE_VERSION
 RUN cd /root/vhost-device/ && \
@@ -28,7 +28,7 @@ RUN cd /root/vhost-device/ && \
 ### DOWNLOADER ###
 # Fetch and extract our various dependencies. Roughly ordered on
 # least-frequently changing to most-frequently changing
-FROM $BASE_IMAGE as downloader
+FROM $BASE_IMAGE AS downloader
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y \
@@ -148,7 +148,7 @@ RUN /get_release.sh rehosting penguin_plugins ${PENGUIN_PLUGINS_VERSION} ${DOWNL
     tar xzf - -C /panda_plugins
 
 # Build capstone v5 libraries for panda callstack_instr to improve arch support
-FROM $BASE_IMAGE as capstone_builder
+FROM $BASE_IMAGE AS capstone_builder
 ENV DEBIAN_FRONTEND=noninteractive
 RUN sed -Ei 's/^# deb-src /deb-src /' /etc/apt/sources.list
 RUN apt-get update && apt-get build-dep -y libcapstone-dev && \
@@ -160,7 +160,7 @@ RUN cd /tmp && \
     rm -rf /tmp/capstone
 
 #### CROSS BUILDER: Build send_hypercall ###
-FROM ghcr.io/rehosting/embedded-toolchains:latest as cross_builder
+FROM ghcr.io/rehosting/embedded-toolchains:latest AS cross_builder
 COPY ./guest-utils/native/send_hypercall.c /
 RUN cd / && \
   mkdir -p out/mipseb out/mips64eb out/mipsel out/mips64el  out/armel out/aarch64 out/x86_64 && \
@@ -174,7 +174,7 @@ RUN cd / && \
   x86_64-linux-musl-gcc -s -static send_hypercall.c -o out/x86_64/send_hypercall
 
 #### QEMU BUILDER: Build qemu-img ####
-FROM $BASE_IMAGE as qemu_builder
+FROM $BASE_IMAGE AS qemu_builder
 ENV DEBIAN_FRONTEND=noninteractive
 # Enable source repos
 RUN sed -Ei 's/^# deb-src /deb-src /' /etc/apt/sources.list
@@ -193,7 +193,7 @@ RUN mkdir /src/build && cd /src/build && ../configure \
     && make -j$(nproc)
 
 #### NMAP BUILDER: Build nmap ####
-FROM $BASE_IMAGE as nmap_builder
+FROM $BASE_IMAGE AS nmap_builder
 ENV DEBIAN_FRONTEND=noninteractive
 ARG SSH
 
@@ -232,7 +232,7 @@ RUN if [ -f /tmp/local_packages/nmap.tar.gz ]; then \
     fi
 
 ### Python Builder: Build all wheel files necessary###
-FROM $BASE_IMAGE as python_builder
+FROM $BASE_IMAGE AS python_builder
 ARG PANDA_VERSION
 
 ENV PYTHONDONTWRITEBYTECODE 1
@@ -265,7 +265,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       junit-xml
 
 
-FROM python_builder as version_generator
+FROM python_builder AS version_generator
 ARG OVERRIDE_VERSION=""
 COPY .git /app/.git
 RUN if [ ! -z "${OVERRIDE_VERSION}" ]; then \
@@ -280,7 +280,7 @@ RUN if [ ! -z "${OVERRIDE_VERSION}" ]; then \
 
 
 ### MAIN CONTAINER ###
-FROM $BASE_IMAGE as penguin
+FROM $BASE_IMAGE AS penguin
 # Environment setup
 ENV PIP_ROOT_USER_ACTION=ignore
 ENV DEBIAN_FRONTEND=noninteractive
