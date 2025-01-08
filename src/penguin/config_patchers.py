@@ -1650,10 +1650,6 @@ class LinkerSymbolSearch(PatchGenerator):
     key->value mappings from libraries exporting some common nvram
     defaults symbols ("Nvrams", "router_defaults") - add these to our
     nvram config if we have any.
-
-    TODO: if we find multiple nvram source files here, we should generate multiple patches.
-    Then we should consider these during search. For now we just take non-conflicting values
-    from largest to smallest source files. More realistic might be to try each file individually.
     '''
 
     def __init__(self, library_info, archid):
@@ -1667,11 +1663,17 @@ class LinkerSymbolSearch(PatchGenerator):
         if not len(sources):
             return
         linkers_without_preload = []
+        linkers = self.linker_paths.copy()
+
         for file in sources.keys():
             if file in self.linker_paths.keys():
-                self.linker_paths.pop('file')
+                self.linker_paths.pop(file)
                 if not ("_dl_preload" in sources[file] or "handle_ld_preload" in sources[file]):
                     linkers_without_preload.append(file)
-        print(linkers_without_preload)
-            
-
+                    for x in sources[file]:
+                        if "GLIBC_" in x:
+                            linkers_without_preload.remove(file)
+                            break
+        if not len(linkers_without_preload):
+            return
+        logger.critical(f"The following linkers are missing PRELOAD capabilites: {linkers_without_preload} out of {linkers.keys()}")

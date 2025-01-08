@@ -94,6 +94,8 @@ class ConfigBuilder:
             # If we have results, store on disk. Always store in results dict, even if empty
             if this_result:
                 with open(results_dir / f"{analysis.__name__}.yaml", "w") as f:
+                    if analysis == STATIC.ArchId:
+                        this_result = this_result[0]
                     yaml.dump(this_result, f)
 
         return results

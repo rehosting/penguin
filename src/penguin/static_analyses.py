@@ -102,15 +102,17 @@ class ArchId(StaticAnalysis):
                             logger.warning(f"Failed to parse ELF file {path}: {e}. Ignoring")
                             continue
                         info = arch_filter(ef)
+                        for segment in ef.iter_segments():
+                            try:
+                                name = segment.get_interp_name()
+                                if name is not None:
+                                    loaders[name] = loaders.get(name, 0) + 1
+                            except AttributeError:
+                                continue
                     if info.bits is None or info.arch is None:
                         arch_counts["unknown"] += 1
                     else:
                         arch_counts[info.bits][info.arch] += 1
-                    # Search for PT_INTERP
-                    for segment in ef.iter_segments(type=0x3):
-                        name = segment.get_interp_name()
-                        if name is not None:
-                            loaders[name] = loaders.get(name, 0) + 1
 
         # If there is at least one intel and non-intel arch,
         # filter out all the intel ones.
@@ -660,6 +662,7 @@ class LibrarySymbols(StaticAnalysis):
     def run(self, extract_dir, prior_results):
         self.extract_dir = extract_dir
         self.archend = arch_end(prior_results['ArchId'][0])
+        self.linkers = prior_results['ArchId'][1]
 
         if any([x is None for x in self.archend]):
             self.enabled = False
@@ -755,6 +758,7 @@ class LibrarySymbols(StaticAnalysis):
 
         symbols = {}  # Symbol name -> relative(?) address
         nvram_data = {}  # key -> value (may be empty string)
+
         def _is_elf(filename):
             try:
                 with open(filename, "rb") as f:
