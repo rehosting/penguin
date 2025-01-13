@@ -1159,7 +1159,7 @@ class GenerateShellMounts(PatchGenerator):
 
 class GenerateMissingFiles(PatchGenerator):
     '''
-    Ensure we have /bin/sh, /etc/TZ, /var/run/libnvram.pid.
+    Ensure we have /bin/sh, /etc/TZ, /var/run/nvramd.pid.
     Ensure /etc/hosts has an entry for localhost
     '''
 
@@ -1176,16 +1176,22 @@ class GenerateMissingFiles(PatchGenerator):
         result = defaultdict(dict)
 
         model = {
+            # Ensure /bin/sh exists if not already present
             "/bin/sh": {
                 "type": "symlink",
                 "target": "/igloo/utils/busybox"
             },
+
+            # Set timezone to EST
             "/etc/TZ": {
                 "type": "inline_file",
                 "contents": "EST5EDT",
                 "mode": 0o755,
             },
-            "/var/run/libnvram.pid": {
+
+            # Needed for Ralink and D-Link
+            # See https://github.com/firmadyne/libnvram/blob/e33692277d475d61a03e0772efeef5c829872f34/nvram.c#L189
+            "/var/run/nvramd.pid": {
                 "type": "inline_file",
                 "contents": "",
                 "mode": 0o644,
