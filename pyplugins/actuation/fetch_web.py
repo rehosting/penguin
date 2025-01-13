@@ -5,6 +5,7 @@ import queue
 from collections import Counter
 import math
 import time
+import requests
 
 from pandare import PyPlugin
 from penguin import getColoredLogger, plugins
@@ -78,15 +79,17 @@ class FetchWeb(PyPlugin):
             log_file_name += ".alt"
 
         time.sleep(20)  # Give service plenty of time to start
-        cmd = ["wget", "-q", f"https://{host_ip}:{host_port}" if guest_port == 443 else f"http://{host_ip}:{host_port}",
-               "--no-check-certificate", "-O", log_file_name]
+        url = f"https://{host_ip}:{host_port}" if guest_port == 443 else f"http://{host_ip}:{host_port}"
         timestamp = f"{(time.time() - self.start_time):.02f}s"
         try:
-            subprocess.check_output(cmd, timeout=30)
-        except subprocess.CalledProcessError as e:
-            self.logger.warning(f"{timestamp}: Error running wget: {e}")
+           response = requests.get(url, verify=False, timeout=30)
+           with open(log_file_name, 'wb') as log_file:
+               log_file.write(response.content)
+
+        except requests.RequestException as e:
+            self.logger.warning(f"{timestamp}: Error running fetching HTTP: {e}")
             return False
-        except subprocess.TimeoutExpired:
+        except requests.Timeout:
             self.logger.warning(f"{timestamp}: No response to wget for {host_ip}:{host_port} after 30s")
             return False
 

@@ -48,7 +48,7 @@ class PatchMinimizer():
         self.verbose = verbose
         self.minimization_target = minimization_target
         self.patches_to_test = list()
-        self.binary_search = True
+        self.binary_search = False
         self.dynamic_patch_dir = os.path.join(self.proj_dir, "dynamic_patches")
         self.data_baseline = dict()
 
@@ -58,6 +58,8 @@ class PatchMinimizer():
         self.run_count = 0
         self.scores = dict()  # run_index -> score
         self.runmap = dict()  # run_index -> patchset
+        self.max_attempts = 10
+        self.attempts = dict()
 
         # TODO: use FICD to set timeout if timeout parameter. Warn if FICD not reached
         #      add an FICD option to run until FICD (which might have to do the baseline single-threaded)
@@ -84,6 +86,7 @@ class PatchMinimizer():
         for patch in base_config["patches"]:
             if any(patch.endswith(f"{x}.yaml") for x in ignore_patches):
                 self.logger.info(f"Ignoring {patch} to support automated minimization")
+                continue
 
             if any(patch.endswith(f"/{x}.yaml") for x in required_patches):
                 # Patches we just leave *always* enabled: base, auto_explore and lib_inject.core
@@ -96,7 +99,7 @@ class PatchMinimizer():
         if not any([patch.endswith(f"/{this_required}.yaml") for patch in self.base_config["patches"]]):
             self.logger.warning(f"Adding {this_required} patch to supported automated exploration to guide minimization")
             # Ensure static_patches dir is in at least one of the patches
-            assert (any([patch.startswith("static_patches") for patch in self.patches_to_test])), "No static_patches dir in patches - not sure how to add auto_explore"
+            assert (any([patch.startswith("static_patches") for patch in self.patches_to_test])), f"No static_patches dir in patches - not sure how to add {this_required}"
             self.base_config["patches"].append(f"static_patches/{this_required}.yaml")
 
         # Patches can override options in previous patches
@@ -111,7 +114,7 @@ class PatchMinimizer():
         dump_config(self.base_config, os.path.join(output_dir, "base_config.yaml"))
 
         self.logger.setLevel("DEBUG" if verbose else "INFO")
-        self.logger.info(f"Loaded {len(self.patches_to_test)} patches to test")
+        self.logger.info(f"Loaded {len(self.patches_to_test)} patches to test with {self.nworkers} workers")
         self.logger.debug(f"Candidate patches: {self.patches_to_test}")
 
     @staticmethod
@@ -594,15 +597,24 @@ class PatchMinimizer():
         assert (self.run_count == 0), f"Establish baseline should be run first not {self.run_count}"
 
         patchset = self.patches_to_test
-        _, score = self.run_config(patchset, 0)
-        self.run_count += 1  # Bump run_count so we don't re-run baseline
 
-        # Score for baseline goes in self.scores (coverage) and data_baseline stores network data (entropy, bytes)
-        self.scores[0] = score
-        self.data_baseline = self.calculate_network_data(0)
-        self.logger.debug(f"data_baseline: {self.data_baseline}")
+        for j in range(self.max_attempts):
+            _, score = self.run_config(patchset, 0)
+
+            # Score for baseline goes in self.scores (coverage) and data_baseline stores network data (entropy, bytes)
+            self.scores[0] = score
+            self.data_baseline = self.calculate_network_data(0)
+            self.logger.debug(f"data_baseline: {self.data_baseline}")
+
+            if self.data_baseline:
+                self.logger.info(f"Baseline established on attempt {j+1}/{self.max_attempts}")
+                break
+            else:
+                self.logger.info(f"Baseline still not established... re-running. This was attempt {j+1}/{self.max_attempts}")
 
         assert (self.data_baseline), "Baseline data not established"
+
+        self.run_count += 1  # Bump run_count so we don't re-run baseline
 
         self.config_still_viable(0)
 
@@ -741,8 +753,10 @@ class PatchMinimizer():
         if slow_mode:
             # Assuming orthoganality of patches, we'll generate a config without each patch
             # Greater than 2 since if we have two left binary search would've tested them both
-            if len(self.patches_to_test) > 2 or not self.binary_search:
+            #if len(self.patches_to_test) > 2 or not self.binary_search:
+            for j in range(self.max_attempts):
                 run_tracker = dict()
+                patchsets.clear()
                 for i, patch in enumerate(self.patches_to_test, start=self.run_count):
                     if i >= self.max_iters:
                         self.logger.info("Hit max iterations. Stopping")
@@ -751,6 +765,10 @@ class PatchMinimizer():
                     patchset.remove(patch)
                     patchsets.append(patchset)
                     run_tracker[i] = patch
+                    if j == 0:
+                        self.attempts[patch] = 1
+                    else:
+                        self.attempts[patch] += 1
 
                 self.run_configs(patchsets)
 
@@ -759,17 +777,21 @@ class PatchMinimizer():
                         self.logger.info(f"After running {i} removing {patch} from consideration, appears unnecessary")
                         self.patches_to_test.remove(patch)
                     else:
-                        self.logger.info(f"Keeping {patch} since run {i} was not viable without it")
+                        self.logger.info(f"Patch-sweep {j}: keeping {patch} since run {i} was not viable without it")
 
         output_file = os.path.join(self.proj_dir, "minimized.yaml")
         # TODO: force overwrite of this when --force
-        if not os.path.exists(output_file):
-            self.logger.info(f"Writing minimized config to {output_file} (note: this may include auto_explore.yaml)")
-            self.base_config["patches"].extend(self.patches_to_test)
-            with open(output_file, "w") as f:
-                yaml.dump(self.base_config, f)
-        else:
-            self.logger.info(f"Config already exists at {output_file}, not overwriting")
+        #if not os.path.exists(output_file):
+        #if we got here and this was already ran, we've specified --force
+        self.logger.info(f"Writing minimized config to {output_file} (note: this may include auto_explore.yaml)")
+        self.base_config["patches"].extend(self.patches_to_test)
+        with open(output_file, "w") as f:
+            yaml.dump(self.base_config, f)
+        output_file = os.path.join(self.proj_dir, "minimize_attempts.yaml")
+        with open(output_file, "w") as f:
+            yaml.dump(self.attempts, f)
+        #else:
+        #    self.logger.info(f"Config already exists at {output_file}, not overwriting")
         return self.patches_to_test
 
 

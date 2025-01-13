@@ -454,8 +454,8 @@ def add_explore_arguments(parser):
     parser.add_argument(
         "--nworkers",
         type=int,
-        default=4,
-        help="Number of workers to run in parallel. Default is 4",
+        default=1,
+        help="Number of workers to run in parallel. Default is 1",
     )
     parser.add_argument(
         "--timeout",
