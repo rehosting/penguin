@@ -102,11 +102,18 @@ class ArchId(StaticAnalysis):
                             logger.warning(f"Failed to parse ELF file {path}: {e}. Ignoring")
                             continue
                         info = arch_filter(ef)
-                        for segment in ef.iter_segments():
+                        for segment in ef.iter_segments(type='PT_INTERP'):
                             try:
                                 name = segment.get_interp_name()
                                 if name is not None:
-                                    loaders[name] = loaders.get(name, 0) + 1
+                                    # handle non path loaders might be a problem on certain version where loader path is handled with an env var
+                                    if '/' not in name:
+                                        for loader in loaders.keys():
+                                            if name in loader:
+                                                loaders[loader] = loaders.get(loader, 0) + 1
+                                                break
+                                    else:
+                                        loaders[name] = loaders.get(name, 0) + 1
                             except AttributeError:
                                 continue
                     if info.bits is None or info.arch is None:
