@@ -1,0 +1,26 @@
+plugins:
+  verifier:
+    conditions:
+      devfs_passthrough:
+        type: file_contains
+        file: console.log
+        string: "/tests/devfs_passthrough.sh PASS"
+
+
+static_files:
+  /tests/devfs_passthrough.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      /igloo/utils/busybox mkdir /dev/dir_test
+      [ -d /dev/dir_test ]
+
+      /igloo/utils/busybox ln -s /symlink/target/path /dev/symlink_test
+      [ "$(/igloo/utils/busybox readlink /dev/symlink_test)" == "/symlink/target/path" ]
+
+      /igloo/utils/busybox rmdir /dev/dir_test
+      /igloo/utils/busybox rm -f /dev/symlink_test
+
+    mode: 73
