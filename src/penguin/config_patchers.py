@@ -1647,9 +1647,7 @@ class PseudofilesTailored(PatchGenerator):
 class LinkerSymbolSearch(PatchGenerator):
     '''
     During static analysis the LibrarySymbols class collected
-    key->value mappings from libraries exporting some common nvram
-    defaults symbols ("Nvrams", "router_defaults") - add these to our
-    nvram config if we have any.
+    key->value mappings from libraries exporting symbols. Check these symbols for compatibility with our preload strategy.
     '''
 
     def __init__(self, library_info, archid):
