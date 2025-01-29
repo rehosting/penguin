@@ -95,11 +95,8 @@ class HyperFile(PyPlugin):
                 self.handle_get_hyperfile_paths(cpu)
 
     def handle_get_num_hyperfiles(self, cpu):
-        num_hyperfiles_addr_addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
-        num_ptrs = self.panda.arch.get_arg(cpu, 3, convention="syscall")
-        assert num_ptrs == 1
+        num_hyperfiles_addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
         try:
-            num_hyperfiles_addr = self.panda.virtual_memory_read(cpu, num_hyperfiles_addr_addr, self.arch_bytes, fmt="int")
             self.panda.virtual_memory_write(
                 cpu,
                 num_hyperfiles_addr,
@@ -113,7 +110,6 @@ class HyperFile(PyPlugin):
     def handle_get_hyperfile_paths(self, cpu):
         hyperfile_paths_array_ptr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
         n = len(self.files)
-        assert n == self.panda.arch.get_arg(cpu, 3, convention="syscall")
         hyperfile_paths_ptrs = [None] * n
         for i in range(n):
             try:

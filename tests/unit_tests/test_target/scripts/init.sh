@@ -12,7 +12,7 @@ done
 /igloo/utils/busybox mkdir -p /igloo/pfs/fake
 /igloo/utils/busybox rm -rf /dev # Remove /dev provided by firmware
 /igloo/utils/busybox ln -s /igloo/pfs/real/dev /dev # Temp /dev symlink for FUSE
-/igloo/utils/hyperfs /igloo/pfs/fake -o dev,allow_other --passthrough-path=/igloo/pfs/real
+/igloo/utils/busybox mount -t hyperfs hyperfs /igloo/pfs/fake -o passthrough_path=/igloo/pfs/real
 /igloo/utils/busybox rm /dev
 
 # Bind /sys,/proc,/dev to fake dirs

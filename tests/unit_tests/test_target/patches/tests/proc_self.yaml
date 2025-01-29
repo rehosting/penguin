@@ -21,7 +21,7 @@ static_files:
       fi
 
       cd /proc/self
-      if [ "$(/igloo/utils/busybox readlink cwd)" != "/igloo/pfs/real/proc/$$" ]; then
+      if [ "$(/igloo/utils/busybox readlink cwd)" != "/proc/$$" ]; then
         echo "Readlink /proc/self/cwd wrong result"
         exit 1
       fi
