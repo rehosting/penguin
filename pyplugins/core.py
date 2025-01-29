@@ -87,10 +87,10 @@ class Core(PyPlugin):
         if conf["core"].get("shared_dir", False):
             conf["env"]["SHARED_DIR"] = "1"
 
-        if conf["core"].get("strace", False):
+        if conf["core"].get("strace", False) is True:
             conf["env"]["STRACE"] = "1"
 
-        if conf["core"].get("ltrace", False):
+        if conf["core"].get("ltrace", False) is True:
             conf["env"]["IGLOO_LTRACE"] = "1"
 
         if conf["core"].get("force_www", False):

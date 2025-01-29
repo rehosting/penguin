@@ -115,14 +115,14 @@ false
 true
 ```
 
-### `core.strace` Enable stracing init process
+### `core.strace` Enable strace
 
 |||
 |-|-|
-|__Type__|boolean|
+|__Type__|boolean or list of string|
 |__Default__|`false`|
 
-Whether to enable strace
+If true, run strace for entire system starting from init. If names of programs, enable strace only for those programs.
 
 ```yaml
 false
@@ -132,14 +132,18 @@ false
 true
 ```
 
-### `core.ltrace` Enable ltracing init process
+```yaml
+- lighttpd
+```
+
+### `core.ltrace` Enable ltrace
 
 |||
 |-|-|
-|__Type__|boolean|
+|__Type__|boolean or list of string|
 |__Default__|`false`|
 
-Whether to enable ltrace
+If true, run ltrace for entire system starting from init. If names of programs, enable ltrace only for those programs.
 
 ```yaml
 false
@@ -148,6 +152,34 @@ false
 ```yaml
 true
 ```
+
+```yaml
+- lighttpd
+```
+
+### `core.gdbserver` Programs to run through gdbserver
+
+|||
+|-|-|
+|__Default__|`{}`|
+
+Mapping between names of programs and ports for gdbserver. When a program in this mapping is run, it will start paused with gdbserver attached, listening on the specified port.
+
+```yaml
+{}
+```
+
+```yaml
+lighttpd: 9999
+```
+
+#### `core.gdbserver.<string>` Port
+
+|||
+|-|-|
+|__Type__|integer|
+|__Default__|`null`|
+
 
 ### `core.force_www` Try to force webserver start
 
