@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from os.path import join
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 from events import Base
 
 

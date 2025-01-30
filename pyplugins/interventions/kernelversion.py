@@ -1,4 +1,4 @@
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 from penguin import plugins
 
 RETRY = 0xDEADBEEF
