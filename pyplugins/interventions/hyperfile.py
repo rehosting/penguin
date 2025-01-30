@@ -1,5 +1,5 @@
 import struct
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 
 try:
     from penguin import yaml

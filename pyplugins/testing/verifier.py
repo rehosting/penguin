@@ -2,7 +2,7 @@
 Use this plugin for testing the results of a system run.
 """
 
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 from penguin import getColoredLogger
 from os.path import join, exists
 import yaml

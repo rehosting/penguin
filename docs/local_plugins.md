@@ -5,7 +5,7 @@ Pengiun supports local PyPlugins in the project directory. Add the filename of t
 Here is a test plugin that prints test on load and a message on unload.
 testplugin.py :
 ```python
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 import itertools
 import string
 import yaml
