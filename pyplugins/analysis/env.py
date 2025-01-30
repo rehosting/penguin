@@ -5,7 +5,7 @@ from os.path import isfile
 from os.path import join as pjoin
 from typing import List
 
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 
 from penguin import getColoredLogger, plugins
 

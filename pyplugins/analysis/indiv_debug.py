@@ -1,4 +1,4 @@
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 import subprocess
 import os
 import shlex

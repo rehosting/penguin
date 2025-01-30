@@ -4,7 +4,7 @@ import threading
 import time
 from copy import deepcopy
 
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 
 from penguin import getColoredLogger
 

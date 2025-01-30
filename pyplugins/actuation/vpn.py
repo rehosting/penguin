@@ -10,7 +10,7 @@ from os import environ as env
 from os import geteuid
 from os.path import join
 
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 
 from penguin import getColoredLogger, plugins
 
