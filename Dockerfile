@@ -17,6 +17,8 @@ ARG LTRACE_PROTOTYPES_HASH="9db3bdee7cf3e11c87d8cc7673d4d25b"
 ARG MUSL_VERSION="1.2.5"
 ARG VHOST_DEVICE_VERSION="vhost-device-vsock-v0.2.0"
 ARG FW2TAR_TAG="v2.0.1"
+ARG PANDA_VERSION="pandav0.0.23"
+ARG PANDANG_VERSION="0.0.10"
 ARG RIPGREP_VERSION="14.1.1"
 
 FROM rust:1.86 as rust_builder
@@ -75,7 +77,13 @@ COPY ./get_release.sh /get_release.sh
 # 2) Get PANDA resources
 # Get panda .deb
 ARG PANDA_VERSION
-RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
+ARG PANDANG_VERSION
+# RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
+RUN wget -O /tmp/pandare.deb \
+    https://github.com/panda-re/qemu/releases/download/${PANDA_VERSION}/pandare_22.04.deb && \
+    wget -O /tmp/pandare-plugins.deb \
+    https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare-plugins_22.04.deb
+# RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
 
 ARG RIPGREP_VERSION
 RUN wget -O /tmp/ripgrep.deb \
@@ -253,11 +261,13 @@ RUN if [ -f /tmp/local_packages/nmap.tar.gz ]; then \
 
 ### Python Builder: Build all wheel files necessary###
 FROM $BASE_IMAGE AS python_builder
-ARG PANDA_VERSION
+ARG PANDANG_VERSION
 
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
-RUN apt-get update && apt-get install -y python3-pip git liblzo2-dev
+RUN apt-get update && apt-get install -y python3-pip git wget liblzo2-dev
+RUN wget -O /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl \
+    https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare2-${PANDANG_VERSION}-py3-none-any.whl
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip wheel --no-cache-dir --wheel-dir /app/wheels \
       angr \
@@ -265,7 +275,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       coloredlogs \
       git+https://github.com/AndrewFasano/angr-targets.git@af_fixes \
       html5lib \
-      pandare==${PANDA_VERSION} \
+      /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl \
       ipdb \
       python-Levenshtein \
       lief  \
@@ -356,6 +366,7 @@ ENV HOME=/root
 RUN echo "#!/bin/sh\ntelnet localhost 4321" > /usr/local/bin/rootshell && chmod +x /usr/local/bin/rootshell
 
 COPY --from=downloader /tmp/pandare.deb /tmp/
+COPY --from=downloader /tmp/pandare-plugins.deb /tmp/
 COPY --from=downloader /tmp/glow.deb /tmp/
 COPY --from=downloader /tmp/gum.deb /tmp/
 COPY --from=downloader /tmp/ripgrep.deb /tmp/
@@ -376,7 +387,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Install apt dependencies - largely for binwalk, some for penguin, some for fw2tar
 RUN apt-get update && apt-get install -q -y $(cat /tmp/penguin.txt) $(cat /tmp/fw2tar.txt) && \
-    apt install -yy -f /tmp/pandare.deb -f /tmp/glow.deb -f /tmp/gum.deb -f /tmp/ripgrep.deb && \
+    apt install -yy -f /tmp/pandare.deb -f /tmp/pandare-plugins.deb \
+    -f /tmp/glow.deb -f /tmp/gum.deb -f /tmp/ripgrep.deb && \
     rm -rf /var/lib/apt/lists/* /tmp/*.deb
 
 # Binwalk v3 runtime dependencies
