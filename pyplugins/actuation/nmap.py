@@ -3,7 +3,7 @@ import subprocess
 import threading
 from threading import Lock
 
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 from penguin import plugins
 
 

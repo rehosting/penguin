@@ -1,6 +1,6 @@
 import contextlib
 import re
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 from os.path import join
 from events.types import Syscall
 from penguin import plugins

@@ -8,7 +8,7 @@ from os.path import dirname, isfile, isabs
 from os.path import join as pjoin
 from sys import path as syspath
 from typing import List
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 from penguin import getColoredLogger, plugins
 
 syspath.append(dirname(__file__))

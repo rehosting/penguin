@@ -4,7 +4,7 @@ from os.path import join as pjoin
 from typing import List
 import re
 
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 
 from penguin import getColoredLogger, yaml
 from penguin import plugins
@@ -73,9 +73,8 @@ class Interfaces(PyPlugin):
         with open(f"{self.outdir}/{ioctl_log}", "a") as f:
             f.write(f"{hex(ioctl)},{iface or '[?]'},{rv}\n")
 
-    def get_iface_from_ioctl(self, arg):
+    def get_iface_from_ioctl(self, cpu, arg):
         try:
-            cpu = self.panda.get_cpu()
             return self.panda.read_str(cpu, arg, max_length=16)
         except ValueError:
             return None
@@ -83,7 +82,7 @@ class Interfaces(PyPlugin):
     def after_ioctl(self, cpu, pc, fd, request, arg):
         if 0x8000 < request < 0x9000:
             rv = self.panda.arch.get_retval(cpu, convention="syscall")
-            iface = self.get_iface_from_ioctl(arg)
+            iface = self.get_iface_from_ioctl(cpu, arg)
 
             # try to catch missing interfaces
             if rv == -ENODEV:

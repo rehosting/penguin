@@ -11,7 +11,7 @@ from sys import stdout
 from time import sleep
 
 import requests
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 from penguin import plugins
 from python_hosts import Hosts, HostsEntry
 from zapv2 import ZAPv2
