@@ -1,6 +1,6 @@
 from os.path import join, isfile, basename, splitext
 from penguin import getColoredLogger
-from pandare import PyPlugin, Panda
+from pandare2 import PyPlugin, Panda
 import shutil
 from typing import List, Dict, Union, Callable
 import glob

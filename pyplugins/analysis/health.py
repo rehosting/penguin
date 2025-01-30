@@ -1,6 +1,6 @@
 import time
 from os import path
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 from penguin import getColoredLogger, plugins
 
 

@@ -1,5 +1,5 @@
 from penguin import getColoredLogger, plugins
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 
 
 EVENTS = {

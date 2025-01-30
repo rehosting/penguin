@@ -1,4 +1,4 @@
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 from penguin import plugins
 from events.types import Read, Write
 

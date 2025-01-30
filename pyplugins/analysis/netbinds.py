@@ -3,7 +3,7 @@ import struct
 import time
 from os.path import join
 
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 
 from penguin import getColoredLogger, plugins
 

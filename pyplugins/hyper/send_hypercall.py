@@ -1,5 +1,5 @@
 import struct
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 from penguin import getColoredLogger, plugins
 from typing import Callable, Union, Tuple
 
