@@ -15,7 +15,7 @@ plugins:
 Then, in your plugin, you can access the argument like this:
 
 ```python
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 
 class PluginA(PyPlugin):
     def __init__(self, config):
@@ -32,7 +32,7 @@ The Plugin Manager manages plugin lifecycle and inter-plugin interaction. It is 
 Plugins can interact with each other through the `penguin.plugins` object. This object is a dictionary that maps plugin names to plugin objects. For example, if you have a plugin named `pluginA` and a plugin named `pluginB`, you can access `pluginB` from `pluginA` like this:
 
 ```python
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 from penguin import plugins
 
 class PluginA(PyPlugin):
@@ -45,7 +45,7 @@ class PluginA(PyPlugin):
 As we saw in our previous example PluginA can interact with PluginB via the Plugin Manager. Additionally, we know that the plugin manager will load each plugin with the appropriate config. However, what happens if plugin A needs plugin B and plugin B is not specified in our config?
 
 ```python
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 from penguin import plugins
 
 class PluginA(PyPlugin):
@@ -60,7 +60,7 @@ In this case, the Plugin Manager will automatically load PluginB. Each reference
 Plugins can also interact with each other through a publish/subscribe model. This allows plugins to subscribe to events and publish events. This is useful for plugins that need to interact with each other but don't have a direct dependency. For example, if you have a plugin that needs to know when a new process is created, you can subscribe to the `process_created` event like this:
 
 ```python
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 from penguin import plugins
 
 class ProcessCreatedDetector(PyPlugin):
@@ -84,7 +84,7 @@ After creating the terms of its publication it does some analysis in `some_analy
 Next, we have a plugin that subscribes to the event "process_created":
 
 ```python
-from pandare import PyPlugin
+from pandare2 import PyPlugin
 from penguin import plugins
 
 class ProcessSubscriber(PyPlugin):
