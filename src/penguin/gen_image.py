@@ -45,7 +45,6 @@ class LocalGuestFS:
 
     # given a path, ensure that all containing folders exist
     def ensure_containing_folders_exists(self, path):
-        path = self.resolve_symlink(str(path))
         p = self.adjust_path(path)
 
         for i in p.parents:
@@ -96,8 +95,7 @@ class LocalGuestFS:
         # Create all parent directories (and resolve symlinks) as necessary
         # Then make the child directory requested
         self.ensure_containing_folders_exists(d)
-        path = self.resolve_symlink(d)
-        p = self.adjust_path(path)
+        p = self.adjust_path(d)
         p.mkdir(exist_ok=True)
 
     def readlink(self, path):
@@ -327,7 +325,7 @@ def _modify_guestfs(g, file_path, file, project_dir):
                     return
 
             # Note we ignore mode here?
-            dirname = file_path
+            dirname = g.resolve_symlink(file_path)
             g.mkdir_p(dirname)
 
         elif action == "symlink":
