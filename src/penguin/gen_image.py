@@ -51,7 +51,7 @@ class LocalGuestFS:
         for i in p.parents:
             if not i.exists():
                 # Can't be a symlink, because we already resolved (recursively)
-                i.mkdir(exist_ok=True)
+                i.mkdir(exist_ok=True, parents=True)
             else:
                 # stop once we hit a directory that exists
                 break
@@ -96,7 +96,8 @@ class LocalGuestFS:
         # Create all parent directories (and resolve symlinks) as necessary
         # Then make the child directory requested
         self.ensure_containing_folders_exists(d)
-        p = self.adjust_path(d)
+        path = self.resolve_symlink(d)
+        p = self.adjust_path(path)
         p.mkdir(exist_ok=True)
 
     def readlink(self, path):
