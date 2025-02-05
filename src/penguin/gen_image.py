@@ -45,13 +45,12 @@ class LocalGuestFS:
 
     # given a path, ensure that all containing folders exist
     def ensure_containing_folders_exists(self, path):
-        path = self.resolve_symlink(str(path))
         p = self.adjust_path(path)
 
         for i in p.parents:
             if not i.exists():
                 # Can't be a symlink, because we already resolved (recursively)
-                i.mkdir(exist_ok=True)
+                i.mkdir(exist_ok=True, parents=True)
             else:
                 # stop once we hit a directory that exists
                 break
@@ -326,7 +325,7 @@ def _modify_guestfs(g, file_path, file, project_dir):
                     return
 
             # Note we ignore mode here?
-            dirname = file_path
+            dirname = g.resolve_symlink(file_path)
             g.mkdir_p(dirname)
 
         elif action == "symlink":
