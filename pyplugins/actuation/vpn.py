@@ -3,6 +3,8 @@ import re
 import socket
 import subprocess
 import tempfile
+import jc
+import threading
 from contextlib import closing
 from os import environ as env
 from os import geteuid
@@ -21,6 +23,12 @@ def kill_vpn():
     for p in running_vpns:
         p.kill()
         p.wait()
+
+
+def guest_cmd(cmd):
+    result = subprocess.run(["python3", "/igloo_static/guesthopper/guest_cmd.py", cmd],
+                            capture_output=True)
+    return result
 
 
 atexit.register(kill_vpn)
@@ -93,6 +101,22 @@ class VPN(PyPlugin):
                 else:
                     raise ValueError(f"Couldn't parse port map: {arg}")
             self.logger.info(f"VPN loaded fixed port assingments: {self.fixed_maps}")
+
+        """
+        Source IP spoofing. E.g.,
+            spoof:
+              "tcp:192.168.1.1:5678":
+                source: 10.10.10.1
+                dev: eth1
+              "udp:192.168.1.1:12345":
+                source: 10.10.10.1
+                dev: eth1
+        """
+        self.spoof = self.get_arg("spoof")
+        if self.spoof and not self.get_arg("conf")["core"]["guest_cmd"]:
+            self.logger.error("guest_cmd is disabled!")
+            raise ValueError("Source address spoofing requires guest_cmd to be enabled")
+        self.lock = threading.Lock()
 
         with open(join(self.outdir, BRIDGE_FILE), "w") as f:
             f.write("procname,ipvn,domain,guest_ip,guest_port,host_port\n")
@@ -210,14 +234,50 @@ class VPN(PyPlugin):
 
         return host_port
 
+    def ensure_dev_has_ip(self, ip, dev, ipvn):
+        # No `ip addr` parser in jc, and ifconfig only shows multiple addresses when you assign an alias
+        cmd = "/igloo/utils/busybox ip route show"
+        result = guest_cmd(cmd)
+        parsed = jc.parse("ip-route", result.stdout.decode("latin-1"))
+        self.logger.debug(f"{cmd} exited with status {result.returncode}: {result.stderr}")
+        if result.returncode != 0:
+            self.logger.error(f"{cmd} exited with status {result.returncode}: {parsed}")
+            raise RuntimeError(f"Failed to query ip addresses with {cmd}")
+        for row in parsed:
+            if row["dev"] == dev and row["src"] == ip:
+                self.logger.debug(f"Device {dev} already has IP {ip}, skipping add")
+                return
+        self.logger.debug(f"Adding {ip} to {dev}")
+        cmd = f"/igloo/utils/busybox ip addr add {ip}/{24 if ipvn == 4 else 64} dev {dev}"
+        result = guest_cmd(cmd)
+        if result.returncode != 0:
+            self.logger.error(f"{cmd} exited with status {result.returncode}: {result.stderr}")
+            raise RuntimeError(f"Failed to add IP {ip} to device {dev}!")
+
+    def _do_bridge(self, sock_type, ip, guest_port, procname, ipvn, host_port):
+        guest_addr = f"{sock_type}:{ip}:{guest_port}"
+        source_ip = ip
+        with self.lock:
+            if self.spoof and (spoof := self.spoof.get(guest_addr)) is not None:
+                # If we have a source IP to spoof, make sure we have a device to spoof it on
+                source_ip = spoof["source"]
+                self.logger.debug(f"Will spoof source address for {guest_addr} with {source_ip}")
+                self.ensure_dev_has_ip(source_ip, spoof["dev"], ipvn)
+
+            with open(self.event_file.name, "a") as f:
+                f.write(f"{sock_type},{ip}:{guest_port},0.0.0.0:{host_port},{source_ip}:0\n")
+
+            with open(join(self.outdir, BRIDGE_FILE), "a") as f:
+                f.write(f"{procname},ipv{ipvn},{sock_type},{ip},{guest_port},{host_port}\n")
+
     def bridge(self, sock_type, ip, guest_port, procname, ipvn):
         host_port = self.map_bound_socket(sock_type, ip, guest_port, procname)
         self.mapped_ports.add(host_port)
-        with open(self.event_file.name, "a") as f:
-            f.write(f"{sock_type},{ip}:{guest_port},0.0.0.0:{host_port}\n")
 
-        with open(join(self.outdir, BRIDGE_FILE), "a") as f:
-            f.write(f"{procname},ipv{ipvn},{sock_type},{ip},{guest_port},{host_port}\n")
+        # Set up the event for the host vpn in the background - lets us run commands in the guest if we'd like
+        threading.Thread(
+            target=self._do_bridge, args=(sock_type, ip, guest_port, procname, ipvn, host_port)
+        ).start()
 
         return host_port
 
