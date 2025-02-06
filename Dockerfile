@@ -7,9 +7,9 @@ ARG LINUX_VERSION="2.4.19"
 ARG LIBNVRAM_VERSION="0.0.16"
 ARG CONSOLE_VERSION="1.0.5"
 ARG PENGUIN_PLUGINS_VERSION="1.5.15"
-ARG VPN_VERSION="1.0.18"
+ARG VPN_VERSION="1.0.19"
 ARG HYPERFS_VERSION="0.0.38"
-ARG GUESTHOPPER_VERSION="1.0.12"
+ARG GUESTHOPPER_VERSION="1.0.15"
 ARG GLOW_VERSION="1.5.1"
 ARG GUM_VERSION="0.14.5"
 ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
@@ -262,7 +262,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       setuptools \
       sqlalchemy \
       yamlcore \
-      junit-xml
+      junit-xml \
+      jc
 
 
 FROM python_builder AS version_generator
