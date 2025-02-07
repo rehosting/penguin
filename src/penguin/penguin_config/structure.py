@@ -58,6 +58,21 @@ def _union(class_name, title, description, discrim_key, discrim_title, variants)
     )
 
 
+GDBServerProgramPort = _newtype(class_name="GDBServerProgramPort", type_=int, title="Port")
+GDBServerPrograms = _newtype(
+    class_name="GDBServerPrograms",
+    type_=dict[str, GDBServerProgramPort],
+    title="Programs to run through gdbserver",
+    description=" ".join((
+        "Mapping between names of programs and ports for gdbserver.",
+        "When a program in this mapping is run,",
+        "it will start paused with gdbserver attached, listening on the specified port.",
+    )),
+    default=dict(),
+    examples=[dict(), dict(lighttpd=9999)],
+)
+
+
 class Core(BaseModel):
     """Core configuration options for this rehosting"""
 
@@ -124,23 +139,30 @@ class Core(BaseModel):
         ),
     ]
     strace: Annotated[
-        bool,
+        Union[bool, list[str]],
         Field(
             False,
-            title="Enable stracing init process",
-            description="Whether to enable strace",
-            examples=[False, True],
+            title="Enable strace",
+            description=" ".join((
+                "If true, run strace for entire system starting from init.",
+                "If names of programs, enable strace only for those programs.",
+            )),
+            examples=[False, True, ["lighttpd"]],
         ),
     ]
     ltrace: Annotated[
-        bool,
+        Union[bool, list[str]],
         Field(
             False,
-            title="Enable ltracing init process",
-            description="Whether to enable ltrace",
-            examples=[False, True],
+            title="Enable ltrace",
+            description=" ".join((
+                "If true, run ltrace for entire system starting from init.",
+                "If names of programs, enable ltrace only for those programs.",
+            )),
+            examples=[False, True, ["lighttpd"]],
         ),
     ]
+    gdbserver: Optional[GDBServerPrograms] = None
     force_www: Annotated[
         bool,
         Field(
@@ -278,7 +300,6 @@ BlockedSignalsField = Field(
     description="Signals numbers to block within the guest. Supported values are 6 (SIGABRT), 9 (SIGKILL), 15 (SIGTERM), and 17 (SIGCHLD).",
     example=[[9], [9, 15]],
 )
-
 
 ConstMapVal = _newtype(
     class_name="ConstMapVal",

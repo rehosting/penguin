@@ -8,6 +8,7 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 from types import NoneType
 import shutil
 import textwrap
+from collections import defaultdict
 
 import click
 import jsonschema
@@ -60,14 +61,62 @@ def _validate_config_schema(config, is_dump):
     )
 
 
+def _validate_config_ptrace(config):
+    """Check for ptrace-related conflicts, such as using multiple tools to debug the same process"""
+
+    err = False
+
+    fields = {
+        tool: config["core"].get(tool)
+        for tool in ("strace", "ltrace", "gdbserver")
+    }
+
+    is_init_strace = fields["strace"] is True
+    is_init_ltrace = fields["ltrace"] is True
+
+    fields = {
+        tool: info if isinstance(info, bool) else set(info)
+        for tool, info in fields.items()
+        if info
+    }
+
+    if is_init_strace and is_init_ltrace:
+        err = True
+        logger.error("core.strace and core.ltrace are mutually exclusive")
+
+    indiv_debug_procs = defaultdict(set)
+    for tool, info in fields.items():
+        if isinstance(info, set):
+            for proc in info:
+                indiv_debug_procs[proc].add(tool)
+
+    for proc, tools in indiv_debug_procs.items():
+        for tool in tools:
+            if not config["core"].get("guest_cmd"):
+                err = True
+                logger.error(f"debugging {proc} with core.{tool} requires core.guest_cmd")
+            if not config["core"].get("shared_dir"):
+                err = True
+                logger.error(f"debugging {proc} with core.{tool} requires core.shared_dir to store logs")
+            if is_init_strace or is_init_ltrace:
+                err = True
+                logger.error(f"debugging {proc} with core.{tool} is mutually exclusive with full-system strace/ltrace")
+        if len(tools) > 1:
+            err = True
+            logger.error(f"attempt to debug {proc} with more than one tool: {', '.join(tools)}")
+
+    if err:
+        sys.exit(1)
+
+
 def _validate_config_options(config):
     """Do custom checks for config option compatibility"""
 
-    if config["core"].get("ltrace", False) and config["core"]["arch"].startswith(
-        "mips64"
-    ):
+    if config["core"].get("ltrace", False) and config["core"]["arch"].startswith("mips64"):
         logger.error("ltrace does not support mips64")
         sys.exit(1)
+
+    _validate_config_ptrace(config)
 
 
 def _validate_config_version(config, path):
