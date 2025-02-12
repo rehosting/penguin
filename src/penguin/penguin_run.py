@@ -9,7 +9,7 @@ from contextlib import contextmanager, closing
 from pathlib import Path
 from time import sleep
 
-from pandare import Panda
+from pandare2 import Panda
 
 from penguin import getColoredLogger, plugins
 
@@ -23,12 +23,12 @@ from .utils import hash_image_inputs
 ROOTFS = "/dev/vda"  # Common to all
 qemu_configs = {
     "armel": {
-        "qemu_machine": "virt",
+        "qemu_machine": "virt-2.9",
         "arch": "arm",
         "kconf_group": "armel",
     },
     "aarch64": {
-        "qemu_machine": "virt",
+        "qemu_machine": "virt-2.9",
         "arch": "aarch64",
         "kconf_group": "arm64",
         "cpu": "cortex-a57",
@@ -265,13 +265,14 @@ def run_config(
         vsock_args = [
             "-object",
             f'memory-backend-file,id=mem0,mem-path={mem_path},size={conf["core"]["mem"]},share=on',
-            "-numa",
-            "node,memdev=mem0",
             "-chardev",
             f"socket,id=char0,reconnect=0,path={socket_path}",
             "-device",
             "vhost-user-vsock-pci,chardev=char0",
         ]
+
+        if "mips" not in q_config["arch"]:
+            vsock_args.extend(["-numa", "node,memdev=mem0",])
 
     append = f"root={ROOTFS} init=/igloo/init console=ttyS0 rw quiet panic=1"  # Required
     append += " rootfstype=ext2 norandmaps nokaslr"  # Nice to have
@@ -297,21 +298,35 @@ def run_config(
         ]  # ttyS1: root shell
 
     # If core config specifes immutable: False we'll run without snapshot
-    no_snapshot_drive = f"file={config_image},if=virtio"
+    no_snapshot_drive = f"file={config_image},id=hd0"
     snapshot_drive = no_snapshot_drive + ",cache=unsafe,snapshot=on"
     drive = snapshot_drive if conf["core"].get("immutable", True) else no_snapshot_drive
+    if vpn_enabled and "mips" in q_config["arch"]:
+        machine_args = q_config["qemu_machine"]+",memory-backend=mem0"
+    else:
+        machine_args = q_config["qemu_machine"]
+    if q_config["arch"] in ["arm", "aarch64"]:
+        drive += ",if=none"
+        drive_args = [
+            "-device", "virtio-blk-device,drive=hd0",
+            "-drive", drive,
+        ]
+    else:
+        drive += ",if=virtio"
+        drive_args = [
+            "-drive", drive,
+        ]
 
     args = [
         "-M",
-        q_config["qemu_machine"],
+        machine_args,
         "-kernel",
         kernel,
         "-append",
         append,
         "-display",
         "none",
-        "-drive",
-        drive,
+        *drive_args,
     ]
 
     args += ["-no-reboot"]
@@ -357,11 +372,7 @@ def run_config(
             ),
         ]
 
-    # ARM maps ttyS1 to the first listed device while MIPS maps ttyS0 to the first devie
-    if archend in ["mipsel", "mipseb", "mips64el", "mips64eb"]:
-        args = args + console_out + root_shell
-    else:
-        args = args + root_shell + console_out
+    args = args + console_out + root_shell
 
     if conf["core"].get("cpu", None):
         args += ["-cpu", conf["core"]["cpu"]]
@@ -482,9 +493,8 @@ def run_config(
         except Exception as e:
             logger.exception(e)
         finally:
-            panda.panda_finish()
             if vpn_enabled:
-                shutil.rmtree(vpn_tmpdir.name)
+                shutil.rmtree(vpn_tmpdir.name, ignore_errors=True)
 
     if show_output:
         _run()
