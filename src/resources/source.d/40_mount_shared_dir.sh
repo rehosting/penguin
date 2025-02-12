@@ -2,7 +2,7 @@ if [ ! -z "${SHARED_DIR}" ]; then
   unset SHARED_DIR
   /igloo/utils/busybox mkdir /igloo/shared
   echo '[IGLOO INIT] Mounting shared directory';
-  /igloo/utils/busybox mount -t 9p -o trans=virtio igloo_shared_dir /igloo/shared -oversion=9p2000.L
+  /igloo/utils/busybox mount -t 9p -o trans=virtio igloo_shared_dir /igloo/shared -oversion=9p2000.L,posixacl,msize=104857600
 
   # Set up core dumps
   #
