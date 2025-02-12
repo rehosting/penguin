@@ -47,19 +47,14 @@ plugins:
     depends_on: core
   shell:
     depends_on: core
-  env:
-    depends_on: core
+  # env:
+    # depends_on: core
   vpn:
     depends_on: netbinds
   pseudofiles:
     depends_on: core
 
 static_files:
-  /igloo/init:
-    type: host_file
-    host_path: ./scripts/init.sh
-    mode: 73
-
   /run_tests.sh:
     type: host_file
     host_path: ./scripts/run_tests.sh
@@ -68,3 +63,36 @@ static_files:
   /igloo/utils/sh:
     type: symlink
     target: /igloo/utils/busybox
+  
+  /igloo/source.d/*:
+    host_path: /pkg/resources/source.d/*
+    mode: 493
+    type: host_file
+  
+  /igloo/init:
+    contents: |
+      #!/igloo/utils/sh
+
+      # First, source all the scripts in /igloo/source.d
+      for f in /igloo/source.d/*; do
+        source $f
+      done
+
+      # Run user-supplied scripts in /igloo/init.d
+      if [ -d /igloo/init.d ]; then
+        for f in /igloo/init.d/*; do
+          if [ -x $f ]; then
+            echo "[IGLOO INIT] Running $f"
+            $f
+          fi
+        done
+      fi
+
+      if [ ! -z "${igloo_init}" ]; then
+        echo '[IGLOO INIT] Running specified init binary';
+        exec "${igloo_init}"
+      fi
+      echo "[IGLOO INIT] Fatal: no igloo_init specified in env. Abort"
+      exit 1
+    mode: 73
+    type: inline_file
