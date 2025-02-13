@@ -265,10 +265,10 @@ penguin_run() {
                     potential_name=$(basename "${cmd[$i]}")
                     # If potential name is config.yaml or starts with a number try up a level
                     # or config.yaml
-                    if [[ $potential_name =~ ^[0-9] ]] || [[ $potential_name =~ ^config.yaml ]]; then
+                    if [[ $potential_name =~ ^[0-9] ]] || [[ $potential_name =~ \.yaml$ ]]; then
                         # Take the dirname then basename
                         potential_name=$(basename "$(dirname "${cmd[$i]}")")
-                        if [[ $potential_name =~ ^[0-9] || $potential_name =~ ^config.yaml ]]; then
+                        if [[ $potential_name =~ ^[0-9] || $potential_name =~ \.yaml$ ]]; then
                             # Still bad - skip
                             continue
                         fi
