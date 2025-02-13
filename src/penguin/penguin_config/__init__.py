@@ -53,7 +53,6 @@ def _validate_config_schema(config, is_dump):
     else:
         config.clear()
         config.update(validated_model.model_dump(exclude_none=True))
-        config.update(validated_model.model_dump(exclude_none=True))
 
     jsonschema.validate(
         instance=_jsonify_dict(config),
