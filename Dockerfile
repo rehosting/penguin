@@ -1,7 +1,6 @@
 # versions of the various dependencies.
 ARG REGISTRY="docker.io"
 ARG BASE_IMAGE="${REGISTRY}/ubuntu:22.04"
-ARG DOWNLOAD_TOKEN="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"
 ARG VPN_VERSION="1.0.24"
 ARG BUSYBOX_VERSION="0.0.15"
 ARG LINUX_VERSION="3.3.3-beta"
@@ -94,20 +93,19 @@ RUN wget -qO /tmp/gum.deb https://github.com/charmbracelet/gum/releases/download
 
 # 3) Get penguin resources
 # Download kernels from CI. Populate /igloo_static/kernels
-ARG DOWNLOAD_TOKEN
 ARG LINUX_VERSION
-RUN /get_release.sh rehosting linux_builder ${LINUX_VERSION} ${DOWNLOAD_TOKEN} | \
+RUN /get_release.sh rehosting linux_builder ${LINUX_VERSION} kernels-latest.tar.gz | \
     tar xzf - -C /igloo_static
 
 # Populate /igloo_static/utils.bin/utils/busybox.*
 ARG BUSYBOX_VERSION
-RUN /get_release.sh rehosting busybox ${BUSYBOX_VERSION} ${DOWNLOAD_TOKEN} | \
+RUN /get_release.sh rehosting busybox ${BUSYBOX_VERSION} busybox-latest.tar.gz | \
     tar xzf - -C /igloo_static/ && \
     mv /igloo_static/build/* /igloo_static/
 
 # Get panda provided console from CI. Populate /igloo_static/console
 ARG CONSOLE_VERSION
-RUN /get_release.sh rehosting console ${CONSOLE_VERSION} ${DOWNLOAD_TOKEN} | \
+RUN /get_release.sh rehosting console ${CONSOLE_VERSION} console.tar.gz | \
     tar xzf - -C /igloo_static
 
 
@@ -132,11 +130,11 @@ RUN wget -qO- https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz | \
 
 # Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
 ARG VPN_VERSION
-RUN /get_release.sh rehosting vpnguin ${VPN_VERSION} ${DOWNLOAD_TOKEN} | \
+RUN /get_release.sh rehosting vpnguin ${VPN_VERSION} vpn.tar.gz | \
     tar xzf - -C /igloo_static
 
 ARG HYPERFS_VERSION
-RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} | \
+RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} hyperfs.tar.gz | \
   tar xzf - -C / && \
   /get_release.sh rehosting hyperfs 0.0.38 ${DOWNLOAD_TOKEN} | \
   tar xzf - -C / && \
@@ -146,7 +144,7 @@ RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} | \
 
 # Download guesthopper from CI. Populate /igloo_static/guesthopper
 ARG GUESTHOPPER_VERSION
-RUN /get_release.sh rehosting guesthopper ${GUESTHOPPER_VERSION} ${DOWNLOAD_TOKEN} | \
+RUN /get_release.sh rehosting guesthopper ${GUESTHOPPER_VERSION} guesthopper.tar.gz | \
     tar xzf - -C /igloo_static
 
 RUN wget https://github.com/wtdcode/DebianOnQEMU/releases/download/v2024.01.05/bios-loong64-8.1.bin -O /igloo_static/loongarch64/bios-loong64-8.1.bin
@@ -165,7 +163,6 @@ RUN wget -qO- https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-${LTRACE_PRO
 
 # Add libnvram ltrace prototype file
 COPY ./src/resources/ltrace_nvram.conf /tmp/ltrace/lib_inject.so.conf
-
 
 #### CROSS BUILDER: Build send_hypercall ###
 FROM ${REGISTRY}/rehosting/embedded-toolchains:latest AS cross_builder
