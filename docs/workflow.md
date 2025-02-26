@@ -6,7 +6,9 @@ router.
 
 After installing `penguin` and `fw2tar` as described in the README,
 download a copy of the target firmware from
-[panda.re/secret/stride.bin](https://panda.re/secret/stride.bin).
+[https://ftp.automationdirect.com/pub/stride_firmware_5.3.174.zip](https://ftp.automationdirect.com/pub/stride_firmware_5.3.174.zip).
+
+Rename `stride_firmware_5.3.174.zip` to `stride.bin` for convenience.
 
 ## Convert firmware blob to root filesystem archive
 
