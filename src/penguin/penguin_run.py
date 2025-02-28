@@ -506,6 +506,8 @@ def run_config(
     def _run():
         try:
             panda.run()
+            # think about this and maybe join on the thread
+            panda.pyplugins.unload_all()
         except KeyboardInterrupt:
             logger.info("\nStopping for ctrl-c\n")
         except Exception as e:
