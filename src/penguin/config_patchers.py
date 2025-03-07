@@ -1345,7 +1345,7 @@ class ShimBinaries:
     def make_shims(self, shim_targets):
         result = defaultdict(dict)
         for fname in self.files:
-            path = fname.path[1:]  # Trim leading .
+            path = fname.path.lstrip('.')  # Trim leading .
             basename = os.path.basename(path)
 
             if path.startswith("/igloo/utils/"):
@@ -1362,6 +1362,7 @@ class ShimBinaries:
 
             # Is the current file one we want to shim?
             if basename in shim_targets:
+                logger.debug(f"making shim for {basename}, full path: {path}, fname.path: {fname.path}")
                 result["static_files"][path] = {
                     "type": "shim",
                     "target": f"/igloo/utils/{shim_targets[basename]}",
