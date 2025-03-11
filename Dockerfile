@@ -465,7 +465,7 @@ RUN cd /cramfs && make && make install
 
 # Clone unblob fork then install with poetry
 COPY --from=fw2tar_dep_builder /unblob /unblob
-RUN cd /unblob && poetry install --no-dev
+RUN cd /unblob && poetry install --only main
 
 # Explicitly install unblob deps - mostly captured above, but some of the .debs get updated and installed via curl
 RUN sh -c /unblob/unblob/install-deps.sh
