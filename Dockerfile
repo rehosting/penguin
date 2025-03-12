@@ -490,6 +490,7 @@ RUN cp /tmp/fw2tar/fw2tar /usr/local/src/fw2tar_wrapper
 RUN cp /tmp/fw2tar/src/resources/fw2tar_install /tmp/fw2tar/src/resources/fw2tar_install.local /usr/local/bin/
 
 RUN cp /tmp/fw2tar/src/fw2tar /usr/local/bin/
+RUN ln -s /usr/local/bin/fw2tar /usr/local/bin/fakeroot_fw2tar
 # ======================================================================
 
 RUN if [ -d /tmp/local_packages ]; then \
