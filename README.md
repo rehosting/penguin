@@ -15,6 +15,18 @@ There are typically four phases to rehosting a system with Penguin:
 Before you start with Penguin, you'll need an archive of a firmware root filesystem. This is a tarball of the root
 filesystem with permissions and ownership preserved. You can generate this with the [fw2tar](https://github.com/rehosting/fw2tar) utility or by hand.
 
+To install fw2tar (once you have penguin installed):
+```
+docker image tag rehosting/penguin rehosting/fw2tar
+
+# global install
+docker run rehosting/fw2tar fw2tar_install | sudo sh
+
+# local install
+docker run rehosting/fw2tar fw2tar_install.local | sh
+```
+
+To use fw2tar:
 ```
 fw2tar your_fw.bin
 ```
