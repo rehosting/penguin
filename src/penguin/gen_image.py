@@ -535,7 +535,11 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
         MODIFIED_TARBALL = Path(ARTIFACTS, f"fs_out_{suffix}.tar")
         config = load_config(proj_dir, config_path)
         with tempfile.TemporaryDirectory() as TMP_DIR:
-            check_output(["tar", "xpsf", IN_TARBALL, "-C", TMP_DIR])
+            first_entry = check_output(["tar", "xvpsf", IN_TARBALL, "-C", TMP_DIR]).splitlines()[0]
+            if first_entry != b"./":
+                logger.warning("Filesystem tar does not have a leading ./")
+                logger.warning("You may encounter strange errors due to unexpected rootfs format!")
+                logger.warning("You can resolve this by running fw2tar on your filesystem.")
             from .penguin_prep import prep_config
 
             prep_config(config)
