@@ -535,8 +535,9 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
         MODIFIED_TARBALL = Path(ARTIFACTS, f"fs_out_{suffix}.tar")
         config = load_config(proj_dir, config_path)
         with tempfile.TemporaryDirectory() as TMP_DIR:
-            first_entry = check_output(["tar", "xvpsf", IN_TARBALL, "-C", TMP_DIR]).splitlines()[0]
-            if first_entry != b"./":
+            contents = check_output(["tar", "xvpsf", IN_TARBALL, "-C", TMP_DIR]).splitlines()
+            # Gracefully handle emptyfs
+            if contents and contents[0] != b"./":
                 logger.warning("Filesystem tar does not have a leading ./")
                 logger.warning("You may encounter strange errors due to unexpected rootfs format!")
                 logger.warning("You can resolve this by running fw2tar on your filesystem.")
