@@ -273,7 +273,9 @@ def run_config(
             "vhost-user-vsock-pci,chardev=char0",
         ]
 
-    append = f"root={ROOTFS} init=/igloo/init console=ttyS0 rw quiet panic=1"  # Required
+    append = f"root={ROOTFS} init=/igloo/init console=ttyS0 rw panic=1"  # Required
+    if "kernel_quiet" in conf["core"] and conf["core"]["kernel_quiet"]:
+        append += " quiet"
     append += " rootfstype=ext2 norandmaps nokaslr"  # Nice to have
     append += (
         " clocksource=jiffies nohz_full nohz=off no_timer_check"  # Improve determinism?

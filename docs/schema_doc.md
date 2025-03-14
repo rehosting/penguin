@@ -351,6 +351,23 @@ Allows users to customize memory allocation for guest
 2G
 ```
 
+### `core.kernel_quiet` Whether to include quiet flag in kernel command line
+
+|||
+|-|-|
+|__Type__|boolean|
+|__Default__|`true`|
+
+If true, the kernel command line will include the quiet flag, otherwise all kernel boot messages will be printed to the console
+
+```yaml
+false
+```
+
+```yaml
+true
+```
+
 ## `patches` Patches
 
 |||
