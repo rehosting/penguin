@@ -259,6 +259,15 @@ class Core(BaseModel):
             examples=["16K", "512M", "1G", "2G"],
             ),
     ]
+    kernel_quiet: Annotated[
+        bool,
+        Field(
+            True,
+            title="Whether to include quiet flag in kernel command line",
+            description="If true, the kernel command line will include the quiet flag, otherwise all kernel boot messages will be printed to the console",
+            examples=[False, True],
+        ),
+    ]
 
 
 EnvVal = _newtype(
