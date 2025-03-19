@@ -420,42 +420,6 @@ COPY ./src/resources/banner.sh ./src/resources/penguin_install ./src/resources/p
 # Warn on interactive shell sessions and provide instructions for install. Suppress with `docker run ... -e NOBANNER=1 ... bash`
 RUN echo '[ ! -z "$TERM" ] && [ -z "$NOBANNER" ] && /usr/local/bin/banner.sh' >> /etc/bash.bashrc
 
-# Install docs
-COPY ./docs /docs
-COPY ./README.md /docs/README.md
-
-# Add DB module
-COPY ./db /db
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -e /db
-
-# Now copy in our module and install it
-# penguin is editable so we can mount local copy for dev
-COPY --from=version_generator /app/version.txt /pkg/penguin/version.txt
-COPY ./src /pkg
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -e /pkg
-
-# Copy pyplugins into our the pyplugins directory. We might mount
-# this from the host during development. In the long term we'll
-# merge these into the main penguin module
-COPY ./pyplugins/ /pyplugins
-
-# Copy schema doc into LLM docs as is
-COPY ./docs/schema_doc.md /docs/llm_knowledge_base
-
-# Default command: echo install instructions
-CMD ["/usr/local/bin/banner.sh"]
-
-
-# If we have dependencies in ./local_packages, we'll copy these in at build-time
-# and replace the previously-installed version.
-
-# Supported packages filesnames are listed in docs/dev.md
-
-# The [s] allows the copy from local_packages to fail if the directory is missing
-COPY ./local_package[s] /tmp/local_packages
-
 # ====================== Finish setting up fw2tar ======================
 COPY --from=fw2tar_dep_builder /tmp/fw2tar /tmp/fw2tar
 
@@ -492,6 +456,42 @@ RUN cp /tmp/fw2tar/src/resources/fw2tar_install /tmp/fw2tar/src/resources/fw2tar
 RUN cp /tmp/fw2tar/src/fw2tar /usr/local/bin/
 RUN ln -s /usr/local/bin/fw2tar /usr/local/bin/fakeroot_fw2tar
 # ======================================================================
+
+# Install docs
+COPY ./docs /docs
+COPY ./README.md /docs/README.md
+
+# Add DB module
+COPY ./db /db
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -e /db
+
+# Now copy in our module and install it
+# penguin is editable so we can mount local copy for dev
+COPY --from=version_generator /app/version.txt /pkg/penguin/version.txt
+COPY ./src /pkg
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -e /pkg
+
+# Copy pyplugins into our the pyplugins directory. We might mount
+# this from the host during development. In the long term we'll
+# merge these into the main penguin module
+COPY ./pyplugins/ /pyplugins
+
+# Copy schema doc into LLM docs as is
+COPY ./docs/schema_doc.md /docs/llm_knowledge_base
+
+# Default command: echo install instructions
+CMD ["/usr/local/bin/banner.sh"]
+
+
+# If we have dependencies in ./local_packages, we'll copy these in at build-time
+# and replace the previously-installed version.
+
+# Supported packages filesnames are listed in docs/dev.md
+
+# The [s] allows the copy from local_packages to fail if the directory is missing
+COPY ./local_package[s] /tmp/local_packages
 
 RUN if [ -d /tmp/local_packages ]; then \
         if [ -f /tmp/local_packages/console.tar.gz ]; then \
