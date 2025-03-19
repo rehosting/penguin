@@ -602,7 +602,7 @@ class SingleShot(PatchGenerator):
 
     def __init__(self):
         self.patch_name = "single_shot"
-        self.enabled = True
+        self.enabled = False
 
     def generate(self, patches):
         return {
@@ -878,7 +878,7 @@ class ForceWWW(PatchGenerator):
     '''
 
     def __init__(self, fs_path):
-        self.enabled = True
+        self.enabled = False
         self.patch_name = 'force_www'
         self.fs_path = fs_path
 
