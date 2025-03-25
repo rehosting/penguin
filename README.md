@@ -13,18 +13,7 @@ There are typically four phases to rehosting a system with Penguin:
 ### Obtain target filesystem
 
 Before you start with Penguin, you'll need an archive of a firmware root filesystem. This is a tarball of the root
-filesystem with permissions and ownership preserved. You can generate this with the [fw2tar](https://github.com/rehosting/fw2tar) utility or by hand.
-
-To install fw2tar (once you have penguin installed):
-```
-docker image tag rehosting/penguin rehosting/fw2tar
-
-# global install
-docker run rehosting/fw2tar fw2tar_install | sudo sh
-
-# local install
-docker run rehosting/fw2tar fw2tar_install.local | sh
-```
+filesystem with permissions and ownership preserved. You can generate this with the [fw2tar](https://github.com/rehosting/fw2tar) utility or by hand. [Installing Penguin](#installation) will also install fw2tar without requiring an additional container. Updating from an old penguin version may require rerunning the installation script to install fw2tar.
 
 To use fw2tar:
 ```
@@ -118,18 +107,6 @@ docker run rehosting/penguin penguin_install.local | sh
 
 You can also build your penguin container from source and do local software development
 by following the instructions in [docs/dev.md](docs/dev.md)
-
-## Install `fw2tar` dependency
-
-You should also install [fw2tar](https://github.com/rehosting/fw2tar) so you can convert 
-firmware into the format penguin expects. This process is documented in the `fw2tar` repo,
-but is nearly identical to the steps shown above - just pull the container and follow the
-instructions shown when you run the container.
-
-```sh
-docker pull rehosting/fw2tar
-docker run rehosting/fw2tar # Follow the instructions shown
-```
 
 # Learn more about Penguin
 
