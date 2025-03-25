@@ -24,3 +24,6 @@ echo "echo \"  $ \${BOLD}source ~/.bashrc\${RESET}\""
 echo "echo"
 echo "echo \"Then run penguin, for example:\""
 echo "echo \"  $ \${BOLD}penguin --help\""
+
+echo echo
+/usr/local/bin/fw2tar_install.local
