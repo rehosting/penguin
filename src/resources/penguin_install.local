@@ -27,3 +27,5 @@ echo "echo \"  $ \${BOLD}penguin --help\""
 
 echo echo
 /usr/local/bin/fw2tar_install.local
+
+echo "docker image tag rehosting/penguin rehosting/fw2tar"
