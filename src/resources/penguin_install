@@ -13,3 +13,6 @@ echo "EOF"
 echo sudo chmod +x /usr/local/bin/penguin
 
 echo echo "Penguin installed successfully to /usr/local/bin/penguin"
+
+echo echo
+/usr/local/bin/fw2tar_install
