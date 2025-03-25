@@ -32,10 +32,10 @@ fi
 echo -e "${BOLD}${RED}${STARS}Step 1: Install ${GREEN}penguin${RESET}${STARS}\n"
 echo -e "To install ${GREEN}penguin${RESET} on your host machine, choose one of the following options:\n"
 
-echo -e "- ${BOLD}System-wide Installation:${RESET} This makes the ${GREEN}penguin${RESET} command available to all users:"
+echo -e "- ${BOLD}System-wide Installation:${RESET} This makes the ${GREEN}penguin${RESET} and ${GREEN}fw2tar${RESET} commands available to all users:"
 echo -e "  $ docker run rehosting/penguin penguin_install | sudo sh\n"
 
-echo -e "- ${BOLD}Local Installation:${RESET} This makes ${GREEN}penguin${RESET} command available to your user"
+echo -e "- ${BOLD}Local Installation:${RESET} This makes the ${GREEN}penguin${RESET} and ${GREEN}fw2tar${RESET} commands available to your user"
 echo -e "  $ docker run rehosting/penguin penguin_install.local | sh\n"
 
 echo -e "${BOLD}${RED}${STARS}Step 2: Run ${GREEN}penguin${RESET}${STARS}"
