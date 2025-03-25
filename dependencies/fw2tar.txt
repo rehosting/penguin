@@ -4,6 +4,7 @@ automake
 build-essential
 bzip2
 cabextract
+clang
 cpio
 cramfsswap
 curl
@@ -15,10 +16,14 @@ git
 gzip
 lhasa
 libarchive-dev
+libfontconfig1-dev
 libacl1-dev
 libcap-dev
 liblzma-dev
 liblzo2-dev
+liblz4-dev
+libbz2-dev
+libssl-dev
 libmagic1
 locales
 lz4
@@ -36,8 +41,11 @@ squashfs-tools
 srecord
 tar
 unar
+unrar
 unrar-free
+unyaffs
 unzip
+wget
 xz-utils
 zlib1g-dev
 zstd

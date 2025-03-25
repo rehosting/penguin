@@ -16,16 +16,30 @@ ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
 ARG LTRACE_PROTOTYPES_HASH="9db3bdee7cf3e11c87d8cc7673d4d25b"
 ARG MUSL_VERSION="1.2.5"
 ARG VHOST_DEVICE_VERSION="vhost-device-vsock-v0.2.0"
-ARG FW2TAR_TAG="v1.1.1"
+ARG FW2TAR_TAG="rust-rewrite"
 ARG RIPGREP_VERSION="14.1.1"
 
-FROM rust as vhost_builder
+FROM rust as rust_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
 ARG VHOST_DEVICE_VERSION
+ENV PATH="/root/.cargo/bin:$PATH"
+ENV CARGO_INSTALL_ROOT="/usr/local" 
+
+RUN apt-get update && apt-get install -y -q build-essential libfontconfig1-dev liblzma-dev
+
+RUN cargo install binwalk --target x86_64-unknown-linux-gnu
+
+ARG FW2TAR_TAG
+ARG DOWNLOAD_TOKEN
+RUN cargo install --target x86_64-unknown-linux-gnu \
+    --branch ${FW2TAR_TAG} \
+    --git https://${DOWNLOAD_TOKEN}:@github.com/rehosting/fw2tar.git
+
+ENV RUSTFLAGS="-C target-feature=+crt-static"
 RUN cd /root/vhost-device/ && \
   git fetch --depth 1 origin tag $VHOST_DEVICE_VERSION && \
   git checkout $VHOST_DEVICE_VERSION && \
-  RUSTFLAGS="-C target-feature=+crt-static" PATH="/root/.cargo/bin:${PATH}" cargo build --release --bin vhost-device-vsock --target x86_64-unknown-linux-gnu
+   cargo build --release --bin vhost-device-vsock --target x86_64-unknown-linux-gnu
 
 ### DOWNLOADER ###
 # Fetch and extract our various dependencies. Roughly ordered on
@@ -365,6 +379,11 @@ RUN apt-get update && apt-get install -q -y $(cat /tmp/penguin.txt) $(cat /tmp/f
     apt install -yy -f /tmp/pandare.deb -f /tmp/glow.deb -f /tmp/gum.deb -f /tmp/ripgrep.deb && \
     rm -rf /var/lib/apt/lists/* /tmp/*.deb
 
+# Binwalk v3 runtime dependencies
+RUN git clone --depth=1 https://github.com/ReFirmLabs/binwalk /binwalk && \
+    cd /binwalk/dependencies && \
+    sh -c ./ubuntu.sh
+
 # If we want to run in a venv, we can use this. System site packages means
 # we can still access the apt-installed python packages (e.g. guestfs) in our venv
 #RUN python3 -m venv --system-site-packages /venv
@@ -413,7 +432,7 @@ COPY --from=downloader /tmp/ltrace /igloo_static/ltrace
 # Copy source and binaries from host
 COPY --from=cross_builder /out /igloo_static/
 COPY guest-utils /igloo_static/guest-utils
-COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
+COPY --from=rust_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
 
 # Generate syscall table
 COPY ./pyplugins/utils/build_syscall_info_table.py /pyplugins/utils/build_syscall_info_table.py
@@ -427,6 +446,8 @@ COPY ./src/resources/banner.sh ./src/resources/penguin_install ./src/resources/p
 RUN echo '[ ! -z "$TERM" ] && [ -z "$NOBANNER" ] && /usr/local/bin/banner.sh' >> /etc/bash.bashrc
 
 # ====================== Finish setting up fw2tar ======================
+COPY --from=rust_builder /usr/local/bin/binwalk /usr/local/bin/binwalk
+COPY --from=rust_builder /usr/local/bin/fw2tar /usr/local/bin/fw2tar
 COPY --from=fw2tar_dep_builder /tmp/fw2tar /tmp/fw2tar
 
 # CramFS no longer in apt - needed by binwalk
@@ -459,8 +480,7 @@ RUN cp /tmp/fw2tar/fw2tar /usr/local/src/fw2tar_wrapper
 # And add install helpers which generate shell commands to install it on host
 RUN cp /tmp/fw2tar/src/resources/fw2tar_install /tmp/fw2tar/src/resources/fw2tar_install.local /usr/local/bin/
 
-RUN cp /tmp/fw2tar/src/fw2tar /usr/local/bin/
-RUN ln -s /usr/local/bin/fw2tar /usr/local/bin/fakeroot_fw2tar
+RUN cp /tmp/fw2tar/src/fakeroot_fw2tar /usr/local/bin/
 # ======================================================================
 
 # Install docs
