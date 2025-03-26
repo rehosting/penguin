@@ -533,6 +533,9 @@ RUN if [ -d /tmp/local_packages ]; then \
         if [ -f /tmp/local_packages/pandare_22.04.deb ]; then \
             dpkg -i /tmp/local_packages/pandare_22.04.deb; \
         fi; \
+        if [ -f /tmp/local_packages/pandare-plugins_22.04.deb ]; then \
+            dpkg -i /tmp/local_packages/pandare-plugins_22.04.deb; \
+        fi; \
         if [ -f /tmp/local_packages/vpn.tar.gz ]; then \
             tar xzf /tmp/local_packages/vpn.tar.gz -C /igloo_static; \
         fi; \
@@ -549,8 +552,14 @@ RUN if [ -d /tmp/local_packages ]; then \
             rm -rf /igloo_static/libnvram; \
             tar xzf /tmp/local_packages/libnvram-latest.tar.gz -C /igloo_static; \
         fi; \
-        if [ -f /tmp/local_packages/pandare-*.whl ]; then \
-            pip install /tmp/local_packages/pandare-*.whl; \
+        if [ -f /tmp/local_packages/plugins.tar.gz ]; then \
+            tar xvf /tmp/local_packages/plugins.tar.gz -C /usr/local/lib/panda/panda/; \
+        fi; \
+        if [ -f /tmp/local_packages/pandare2-*.whl ]; then \
+            pip install /tmp/local_packages/pandare2-*.whl; \
+        fi; \
+        if [ -f /tmp/local_packages/pandare2.tar.gz ]; then \
+            tar xvf /tmp/local_packages/pandare2.tar.gz -C /usr/local/lib/python3.10/dist-packages/; \
         fi; \
         if [ -f /tmp/local_packages/guesthopper.tar.gz ]; then \
             rm -rf /igloo_static/guesthopper; \
