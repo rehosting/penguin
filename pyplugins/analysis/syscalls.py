@@ -102,7 +102,7 @@ class PyPandaSysLog(PyPlugin):
     def all_sys_ret(self, cpu, proto, syscall, hook):
         if sysinfo := self.saved_syscall_info.pop(syscall.task, None):
             self.return_syscall(
-                sysinfo, syscall.retval 
+                sysinfo, syscall.retval
             )
 
     # def uninit(self):
@@ -152,7 +152,8 @@ class PyPandaSysLog(PyPlugin):
                 )
                 func_args["args_repr"][i] = f'{argval:#x}("{buf}")'
         if retval is not None:
-            func_args["retno"] = int(self.panda.ffi.cast("target_long", retval))
+            func_args["retno"] = int(
+                self.panda.ffi.cast("target_long", retval))
             errnum = -func_args["retno"]
             if errnum in self.errcode_to_errname:
                 func_args["retno_repr"] = (
