@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from os.path import join
 from pandare2 import PyPlugin
 from events import Base
+from threading import Lock
 
 
 class DB(PyPlugin):
@@ -14,14 +15,16 @@ class DB(PyPlugin):
         self.queued_events = []
         # number of events to queue before flushing to db
         self.buffer_size = self.get_arg("bufsize") or 10000
+        self.event_lock = Lock()
 
     def _flush_queue(self):
-        if not hasattr(self, "first"):
-            self.first = True
-            Base.metadata.create_all(self.engine)
-        with Session(self.engine) as session:
-            session.add_all(self.queued_events)
-            session.commit()
+        with self.event_lock:
+            if not hasattr(self, "first"):
+                self.first = True
+                Base.metadata.create_all(self.engine)
+            with Session(self.engine) as session:
+                session.add_all(self.queued_events)
+                session.commit()
         self.queued_events.clear()
 
     def add_event(self, event, proc_info=True):
