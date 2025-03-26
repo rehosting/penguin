@@ -33,7 +33,7 @@ class IndivDebug(PyPlugin):
             filename_ptr = panda.arch.get_arg(cpu, 1, convention="syscall")
             self.filename = panda.read_str(cpu, filename_ptr)
 
-        @panda.hypercall(0x0ae7babc)
+        @panda.hypercall(0xbae7babc)
         def indiv_debug_get_arg(cpu):
             arg_ptr = panda.arch.get_arg(cpu, 1, convention="syscall")
             i = panda.arch.get_arg(cpu, 2, convention="syscall")
