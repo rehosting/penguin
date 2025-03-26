@@ -42,8 +42,8 @@ class Health(PyPlugin):
         plugins.subscribe(plugins.Events, "igloo_open",      self.health_detect_opens)
 
         # TODO: replace with hypercall mechanism
-        @panda.ppp("syscalls2", "on_sys_execve_enter")
-        def health_execve(cpu, pc, fname_ptr, argv_ptr, envp):
+        @panda.hsyscall("on_sys_execve_enter")
+        def health_execve(cpu, proto, syscall, hook, fname_ptr, argv_ptr, envp):
             if self.exiting:
                 return
             try:

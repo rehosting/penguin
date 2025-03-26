@@ -8,10 +8,10 @@ class RWLog(PyPlugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.DB = plugins.DB
-        panda.ppp("syscalls2", "on_sys_write_return")(self.write)
-        panda.ppp("syscalls2", "on_sys_read_return")(self.read)
+        panda.hsyscall("on_sys_write_return")(self.write)
+        panda.hsyscall("on_sys_read_return")(self.read)
 
-    def write(self, cpu, pc, fd, buf, count):
+    def write(self, cpu, proto, syscall, hook, fd, buf, count):
         try:
             s = self.panda.read_str(cpu, buf, max_length=count)
         except ValueError:
@@ -27,7 +27,7 @@ class RWLog(PyPlugin):
             )
         )
 
-    def read(self, cpu, pc, fd, buf, count):
+    def read(self, cpu, proto, syscall, hook, fd, buf, count):
         try:
             s = self.panda.read_str(cpu, buf, max_length=count)
         except ValueError:
