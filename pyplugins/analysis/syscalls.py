@@ -65,61 +65,14 @@ class PyPandaSysLog(PyPlugin):
             self.errcode_to_errname = errcode_to_errname
             self.errcode_to_explanation = errcode_to_explanation
 
-        panda.ppp("syscalls2", "on_all_sys_enter2")(self.all_sys_enter)
-        panda.ppp("syscalls2", "on_all_sys_return")(self.all_sys_ret)
+        panda.hsyscall("on_all_sys_enter")(self.all_sys_enter)
+        panda.hsyscall("on_all_sys_return")(self.all_sys_ret)
 
-    def all_sys_enter(self, cpu, pc, info, ctx):
-        if info == self.panda.ffi.NULL or ctx == self.panda.ffi.NULL:
-            return
-        nargs = info.nargs
+    def all_sys_enter(self, cpu, proto, syscall, hook):
+        nargs = proto.nargs
         panda = self.panda
-        syscall_name = panda.ffi.string(info.name).decode()
+        syscall_name = panda.ffi.string(proto.name).decode()
         try_replace_args = {}
-
-        def process_arg(type_, arg, argn, i):
-            def read_type(type_, arg):
-                return panda.ffi.cast(f"{type_}_t", arg)
-
-            t = "uint32" if panda.bits == 32 else "uint64"
-            name = (
-                "?" if argn == self.panda.ffi.NULL else panda.ffi.string(argn).decode()
-            )
-            if name == "fd":
-                argval = int(read_type(t, arg))
-                fname = panda.get_file_name(cpu, argval)
-                return f"FD:{argval}({fname.decode('latin-1') if fname else 'None'})"
-            elif name == "pathname":
-                try:
-                    return panda.read_str(cpu, arg)
-                except ValueError:
-                    try_replace_args[i] = (arg, "STR")
-                    return
-
-            argtype = panda.ffi.string(panda.ffi.cast("syscall_argtype_t", type_))
-            lookup_cast_tbl = {
-                "SYSCALL_ARG_U64": "uint64",
-                "SYSCALL_ARG_U32": "uint32",
-                "SYSCALL_ARG_U16": "uint16",
-                "SYSCALL_ARG_S64": "int64",
-                "SYSCALL_ARG_S32": "int32",
-                "SYSCALL_ARG_S16": "int16",
-            }
-            if argtype in lookup_cast_tbl:
-                return f"{int(read_type(lookup_cast_tbl[argtype], arg)):#x}"
-            argval = int(read_type(t, arg))
-            if argtype.endswith("_PTR"):
-                try:
-                    if "STR" in argtype:
-                        buf = panda.read_str(cpu, argval) if argval != 0 else '[NULL]'
-                    else:
-                        buf = panda.virtual_memory_read(cpu, argval, 20)
-                except Exception:
-                    buf = "?"
-                    try_replace_args[i] = (argval, argtype)
-                return f'{argval:#x}("{buf}")'
-            elif "STRUCT" in argtype:
-                return f"{argval:#x} (struct)"
-            return hex(panda.arch.get_arg(cpu, argn + 1, convention="syscall"))
 
         procname = panda.get_process_name(cpu)
 
@@ -133,7 +86,7 @@ class PyPandaSysLog(PyPlugin):
                 try_replace_args[i] = (0, "arg")
             args.append(arg)
         args_repr = [
-            process_arg(info.argt[i], args[i], info.argn[i], i) for i in range(nargs)
+            syscall.args[i] for i in range(nargs)
         ]
         func_args = {
             "name": syscall_name,
@@ -142,19 +95,14 @@ class PyPandaSysLog(PyPlugin):
             "args": args,
             "args_repr": args_repr,
         }
-        if info.noreturn:
-            self.add_syscall(**func_args)
-        else:
-            asid = self.panda.get_id(cpu)
-            if asid in self.saved_syscall_info:
-                self.return_syscall(self.saved_syscall_info[asid], None)
-            self.saved_syscall_info[asid] = (func_args, try_replace_args)
+        if syscall.task in self.saved_syscall_info:
+            self.return_syscall(self.saved_syscall_info[syscall.task], None)
+        self.saved_syscall_info[syscall.task] = (func_args, try_replace_args)
 
-    def all_sys_ret(self, cpu, pc, callno):
-        asid = self.panda.get_id(cpu)
-        if sysinfo := self.saved_syscall_info.pop(asid, None):
+    def all_sys_ret(self, cpu, proto, syscall, hook):
+        if sysinfo := self.saved_syscall_info.pop(syscall.task, None):
             self.return_syscall(
-                sysinfo, self.panda.arch.get_retval(cpu, convention="syscall")
+                sysinfo, syscall.retval 
             )
 
     # def uninit(self):
