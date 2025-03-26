@@ -30,8 +30,8 @@ class FICD(PyPlugin):
         self.stop_on_if = self.get_arg_bool("stop_on_if")
         self.logger.info("Loading FICD plugin")
 
-        @panda.ppp("syscalls2", "on_sys_execve_enter")
-        def ficd_execve(cpu, pc, fname_ptr, argv_ptr, envp):
+        @panda.hsyscall("on_sys_execve_enter")
+        def ficd_execve(cpu, proto, syscall, hook, fname_ptr, argv_ptr, envp):
             try:
                 fname = self.panda.read_str(cpu, fname_ptr)
             except ValueError:

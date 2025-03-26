@@ -36,7 +36,7 @@ class MountTracker(PyPlugin):
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
 
-        self.panda.ppp("syscalls2", "on_sys_mount_return")(self.post_mount)
+        self.panda.hsyscall("on_sys_mount_return")(self.post_mount)
 
     def read_mount_args(self, cpu, source, target, fs_type):
         results = {
@@ -52,23 +52,23 @@ class MountTracker(PyPlugin):
                 results[k] = "[unknown]"
         return results
 
-    def post_mount(self, cpu, pc, source, target, fs_type, flags, data):
+    def post_mount(self, cpu, proto, syscall, hook, source, target, fs_type, flags, data):
         results = self.read_mount_args(cpu, source, target, fs_type)
-        retval = self.panda.arch.get_retval(cpu, convention="syscall")
+        retval = syscall.retval
         self.log_mount(retval, results)
         if retval == -16:  # EBUSY
             # Already mounted - we could perhaps use this info to drop the mount from our init script?
             # Just pretend it was a success
-            self.panda.arch.set_retval(cpu, 0, failure=False, convention="syscall")
+            syscall.retval = 0
 
         elif retval < 0:
             if results["target"] in self.fake_mounts:
                 self.logger.debug(f"Fake mount: {results['target']}")
-                self.panda.arch.set_retval(cpu, 0, failure=False, convention="syscall")
+                syscall.retval = 0
 
         if self.all_succeed:
             # Always pretend it was a success?
-            self.panda.arch.set_retval(cpu, 0, failure=False, convention='syscall')
+            syscall.retval = 0
 
     def find_mount(self, cpu, fname, argv):
         if fname == "/bin/mount":
