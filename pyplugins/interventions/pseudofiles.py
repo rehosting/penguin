@@ -185,7 +185,7 @@ class FileFailures(PyPlugin):
 
         # On ioctl return we might want to start symex. We detect failures with a special handler though
         if self.need_ioctl_hooks:
-            panda.ppp("syscalls2", "on_sys_ioctl_return")(self.symex_ioctl_return)
+            panda.hsyscall("on_sys_ioctl_return")(self.symex_ioctl_return)
 
     def gen_hyperfile_function(self, filename, details, ftype):
         if ftype not in details or "model" not in details[ftype]:
@@ -274,11 +274,10 @@ class FileFailures(PyPlugin):
         }
         return hf_config
 
-    def symex_ioctl_return(self, cpu, pc, fd, cmd, arg):
+    def symex_ioctl_return(self, cpu, proto, syscall, hook, fd, cmd, arg):
         # We'll return -999 as a magic placeholder value that indicates we should
         # Start symex. Is this a terrible hack. You betcha!
-        rv = self.panda.arch.get_retval(cpu, convention="syscall")
-        rv = self.panda.from_unsigned_guest(rv)  # Unnecessary?
+        rv = syscall.retval
 
         if rv != MAGIC_SYMEX_RETVAL:
             return
@@ -305,14 +304,14 @@ class FileFailures(PyPlugin):
             )
 
         # It's time to launch symex!
-        self.symex.do_symex(self.panda, cpu, pc, filename, cmd)
+        self.symex.do_symex(self.panda, cpu, syscall.pc, filename, cmd)
 
         # We write down the "failure" so we can see that it happened (and know to query symex
         # to get results)
         self.log_ioctl_failure(filename, cmd)
 
         # set retval to 0 with no error.
-        self.panda.arch.set_retval(cpu, 0, convention="syscall", failure=False)
+        syscall.retval = 0
 
     def on_syscall(self, cpu, buf_addr):
         # TODO: if we end up using this in multiple places we should centralize the unpacking
