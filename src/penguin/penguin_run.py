@@ -23,12 +23,12 @@ from .utils import hash_image_inputs
 ROOTFS = "/dev/vda"  # Common to all
 qemu_configs = {
     "armel": {
-        "qemu_machine": "virt-2.9",
+        "qemu_machine": "virt",
         "arch": "arm",
         "kconf_group": "armel",
     },
     "aarch64": {
-        "qemu_machine": "virt-2.9",
+        "qemu_machine": "virt",
         "arch": "aarch64",
         "kconf_group": "arm64",
         "cpu": "cortex-a57",
@@ -274,7 +274,7 @@ def run_config(
         if "mips" not in q_config["arch"]:
             vsock_args.extend(["-numa", "node,memdev=mem0",])
 
-    append = f"root={ROOTFS} init=/igloo/init console=ttyS0 rw quiet panic=1"  # Required
+    append = f"root={ROOTFS} init=/igloo/init console=ttyS0 rw panic=1"  # Required
     append += " rootfstype=ext2 norandmaps nokaslr"  # Nice to have
     append += (
         " clocksource=jiffies nohz_full nohz=off no_timer_check"  # Improve determinism?
@@ -408,7 +408,7 @@ def run_config(
         else:
             panda.set_os_name("linux-32-generic")
 
-        panda.load_plugin("syscalls2", args={"load-info": True})
+        panda.load_plugin("hypersyscalls")
 
         panda.load_plugin("osi", args={"disable-autoload": True})
         panda.load_plugin(
@@ -417,6 +417,7 @@ def run_config(
                 "kconf_file": os.path.join(os.path.dirname(kernel), "osi.config"),
                 "pagewalk": True,
                 "kconf_group": q_config["kconf_group"],
+                "hypercall": True,
             },
         )
 
