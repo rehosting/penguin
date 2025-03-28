@@ -25,34 +25,30 @@ qemu_configs = {
     "armel": {
         "qemu_machine": "virt",
         "arch": "arm",
-        "kconf_group": "armel",
     },
     "aarch64": {
         "qemu_machine": "virt",
-        "arch": "aarch64",
         "kconf_group": "arm64",
         "cpu": "cortex-a57",
     },
+    "loongarch64": {
+        "qemu_machine": "virt",
+        "cpu": "la464",
+    },
     "mipsel": {
         "qemu_machine": "malta",
-        "arch": "mipsel",
-        "kconf_group": "mipsel",
     },
     "mipseb": {
         "qemu_machine": "malta",
         "arch": "mips",
-        "kconf_group": "mipseb",
     },
     "mips64el": {
         "qemu_machine": "malta",
-        "arch": "mips64el",
-        "kconf_group": "mips64el",
         "cpu": "MIPS64R2-generic",
     },
     "mips64eb": {
         "qemu_machine": "malta",
         "arch": "mips64",
-        "kconf_group": "mips64eb",
         "cpu": "MIPS64R2-generic",
     },
     "intel64": {
@@ -243,6 +239,8 @@ def run_config(
 
     try:
         q_config = qemu_configs[archend]
+        q_config["kconf_group"] = q_config.get("kconf_group", archend)
+        q_config["arch"] = q_config.get("arch", archend)
     except KeyError:
         raise ValueError(f"Unknown architecture: {archend}")
 
@@ -330,6 +328,8 @@ def run_config(
         "none",
         *drive_args,
     ]
+    if q_config["arch"] == "loongarch64":
+        args += ["-bios", "/igloo_static/loongarch64/bios-loong64-8.1.bin"]
 
     args += ["-no-reboot"]
 
