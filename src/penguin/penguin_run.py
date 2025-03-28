@@ -392,6 +392,9 @@ def run_config(
     # Add args from config
     args += shlex.split(conf["core"].get("extra_qemu_args", ""))
 
+    if conf['core']['smp'] > 1:
+        args += ["-smp", str(conf['core']['smp'])]
+
     # Disable audio (allegedly speeds up emulation by avoiding running another thread)
     os.environ["QEMU_AUDIO_DRV"] = "none"
 
