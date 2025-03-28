@@ -79,7 +79,7 @@ class Core(BaseModel):
     model_config = ConfigDict(title="Core configuration options", extra="forbid")
 
     arch: Annotated[
-        Optional[Literal["armel", "aarch64", "mipsel", "mipseb", "mips64el", "mips64eb", "intel64"]],
+        Optional[Literal["armel", "aarch64", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc", "powerpc64", "powerpc64le", "riscv64", "loongarch64", "intel64"]],
         Field(
             None,
             title="Architecture of guest",
