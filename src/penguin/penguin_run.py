@@ -407,6 +407,8 @@ def run_config(
             args += shlex.split(arg_str)
             conf["env"]["IGLOO_EXT_MAC"] = mac
             logger.info(f"Starting external network on interface {mac}. Host is available on 10.0.2.2")
+    if conf['core']['smp'] > 1:
+        args += ["-smp", str(conf['core']['smp'])]
 
     # Disable audio (allegedly speeds up emulation by avoiding running another thread)
     os.environ["QEMU_AUDIO_DRV"] = "none"
