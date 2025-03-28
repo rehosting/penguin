@@ -268,6 +268,15 @@ class Core(BaseModel):
             examples=[False, True],
         ),
     ]
+    smp: Annotated[
+        Optional[int],
+        Field(
+            1,
+            title="Number of CPUs",
+            description="Number of CPUs to emulate in the guest (Warning: This can break things)",
+            examples=[1, 2, 4],
+        ),
+    ]
 
 
 EnvVal = _newtype(
