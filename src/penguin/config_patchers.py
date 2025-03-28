@@ -381,6 +381,9 @@ class BasePatch(PatchGenerator):
         elif arch == "intel64":
             self.arch_name = "intel64"
             self.arch_dir = "x86_64"
+        elif arch == "loongarch64":
+            self.arch_name = "loongarch64"
+            self.arch_dir = "loongarch64"
         else:
             self.arch_name = arch + endian
             self.arch_dir = f"{arch}{endian}"

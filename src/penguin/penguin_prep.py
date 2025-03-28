@@ -48,6 +48,50 @@ ARCH_ABI_INFO = dict(
             ),
         ),
     ),
+    powerpc=dict(
+        target_triple="powerpc-linux-musl",
+        libnvram_arch_name="ppc",
+        default_abi="default",
+        abis=dict(
+            default=dict(
+                musl_arch_name="powerpc",
+                m_flags=dict(),
+            ),
+        ),
+    ),
+    powerpc64=dict(
+        target_triple="powerpc64-linux-musl",
+        libnvram_arch_name="ppc64",
+        default_abi="default",
+        abis=dict(
+            default=dict(
+                musl_arch_name="powerpc64",
+                m_flags=dict(),
+            ),
+        ),
+    ),
+    powerpc64le=dict(
+        target_triple="powerpc64le-linux-musl",
+        libnvram_arch_name="ppc64le",
+        default_abi="default",
+        abis=dict(
+            default=dict(
+                musl_arch_name="powerpc64le",
+                m_flags=dict(),
+            ),
+        ),
+    ),
+    riscv64=dict(
+        target_triple="riscv64-linux-musl",
+        libnvram_arch_name="riscv64",
+        default_abi="default",
+        abis=dict(
+            default=dict(
+                musl_arch_name="riscv64",
+                m_flags=dict(),
+            ),
+        ),
+    ),
     mipsel=dict(
         target_triple="mipsel-linux-musl",
         libnvram_arch_name="mips",
@@ -125,6 +169,17 @@ ARCH_ABI_INFO = dict(
                 extra_flags=["-fPIC"]
             )
         )
+    ),
+    loongarch64=dict(
+        target_triple="loongarch64-unknown-linux-musl",
+        libnvram_arch_name="loongarch64",
+        default_abi="default",
+        abis=dict(
+            default=dict(
+                musl_arch_name="loongarch64",
+                m_flags=dict(),
+            ),
+        ),
     )
 )
 
@@ -143,7 +198,7 @@ def add_lib_inject_for_abi(config, abi):
     aliases = lib_inject.get("aliases", dict())
 
     args = (
-        ["clang-11", "-fuse-ld=lld", "-Oz", "-shared", "-nostdlib", "-nostdinc"]
+        ["clang-20", "-fuse-ld=lld", "-Oz", "-shared", "-nostdlib", "-nostdinc"]
         + [
             f"-m{key.replace('_', '-')}={value}"
             for key, value in abi_info["m_flags"].items()

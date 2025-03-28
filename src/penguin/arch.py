@@ -42,6 +42,15 @@ def arch_end(value):
     elif tmp.startswith("intel"):
         arch = "intel64"
         end = "el"
+    elif tmp.startswith("riscv64"):
+        arch = "riscv64"
+    elif tmp.startswith("ppc64"):
+        arch = "ppc64"
+    elif tmp.startswith("ppc"):
+        arch = "ppc"
+    elif tmp.startswith("loongarch64"):
+        arch = "loongarch64"
+        end = "el"
 
     if tmp.endswith("el"):
         end = "el"
@@ -179,6 +188,8 @@ def arch_filter(elf):
         "AARCH64": "aarch64",
         "PPC": "ppc",
         "PPC64": "ppc64",
+        "RISCV": "riscv",
+        "LOONGARCH": "loongarch64",
         # Additional processing required for these:
         "ARM": "arm",
         "MIPS": "mips",
