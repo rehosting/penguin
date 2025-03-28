@@ -3,7 +3,7 @@ ARG BASE_IMAGE="ubuntu:22.04"
 ARG DOWNLOAD_TOKEN="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"
 ARG PANDA_VERSION="1.8.57"
 ARG BUSYBOX_VERSION="0.0.8"
-ARG LINUX_VERSION="2.4.26"
+ARG LINUX_VERSION="2.4.23"
 ARG LIBNVRAM_VERSION="0.0.16"
 ARG CONSOLE_VERSION="1.0.5"
 ARG PENGUIN_PLUGINS_VERSION="1.5.15"
@@ -129,7 +129,7 @@ RUN wget -qO- https://github.com/rehosting/libnvram/archive/refs/tags/v${LIBNVRA
 ARG MUSL_VERSION
 RUN wget -qO- https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz | \
     tar xzf - && \
-    for arch in arm aarch64 mips mips64 mipsn32 x86_64 i386; do \
+    for arch in arm aarch64 mips mips64 mipsn32 ppc ppc64 ppc64el riscv32 riscv64 loongarch64 x86_64 i386; do \
         make -C musl-* \
             ARCH=$arch \
             DESTDIR=/ \
@@ -325,7 +325,7 @@ RUN if [ ! -z "${OVERRIDE_VERSION}" ]; then \
     fi;
 
 ### Build fw2tar deps ahead of time ###
-FROM $BASE_IMAGE as fw2tar_dep_builder
+FROM $BASE_IMAGE AS fw2tar_dep_builder
 ENV DEBIAN_FRONTEND=noninteractive
 
 COPY ./dependencies/fw2tar.txt /tmp/fw2tar.txt
@@ -384,6 +384,19 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       pip install --upgrade \
         pip \
         "pycparser>=2.21"
+
+
+# Update and install prerequisites
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
+    software-properties-common \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add the LLVM repository
+RUN wget https://apt.llvm.org/llvm.sh && \
+    chmod +x llvm.sh && \
+    ./llvm.sh 20
 
 # Install apt dependencies - largely for binwalk, some for penguin, some for fw2tar
 RUN apt-get update && apt-get install -q -y $(cat /tmp/penguin.txt) $(cat /tmp/fw2tar.txt) && \
@@ -603,4 +616,5 @@ RUN  cd /igloo_static && mv arm64/* aarch64/ && rm -rf arm64 && mkdir -p utils.b
             fi; \
         done \
     done
+RUN wget https://github.com/wtdcode/DebianOnQEMU/releases/download/v2024.01.05/bios-loong64-8.1.bin -O /igloo_static/loongarch64/bios-loong64-8.1.bin
 RUN date +%s%N > /igloo_static/container_timestamp.txt
