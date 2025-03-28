@@ -468,7 +468,7 @@ class BasePatch(PatchGenerator):
                 "/igloo/serial": {
                     "type": "dev",
                     "devtype": "char",
-                    "major": 4 if 'mips' in self.arch_name else 204,
+                    "major": 4 if 'mips' in self.arch_name or 'loongarch' in self.arch_name else 204,
                     "minor": 65,
                     "mode": 0o666,
                 }
