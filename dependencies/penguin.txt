@@ -21,7 +21,8 @@ sudo
 telnet
 vim
 wget
-clang-11
-lld-11
 zlib1g
 pigz
+clang-20
+lldb-20
+lld-20
