@@ -1,12 +1,10 @@
 # versions of the various dependencies.
 ARG BASE_IMAGE="ubuntu:22.04"
 ARG DOWNLOAD_TOKEN="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"
-ARG PANDA_VERSION="1.8.57"
-ARG BUSYBOX_VERSION="0.0.8"
+ARG BUSYBOX_VERSION="0.0.13"
 ARG LINUX_VERSION="2.4.23"
-ARG LIBNVRAM_VERSION="0.0.16"
-ARG CONSOLE_VERSION="1.0.5"
-ARG PENGUIN_PLUGINS_VERSION="1.5.15"
+ARG LIBNVRAM_VERSION="0.0.18"
+ARG CONSOLE_VERSION="1.0.7"
 ARG VPN_VERSION="1.0.21"
 ARG HYPERFS_VERSION="0.0.38"
 ARG GUESTHOPPER_VERSION="1.0.15"
@@ -17,8 +15,8 @@ ARG LTRACE_PROTOTYPES_HASH="9db3bdee7cf3e11c87d8cc7673d4d25b"
 ARG MUSL_VERSION="1.2.5"
 ARG VHOST_DEVICE_VERSION="vhost-device-vsock-v0.2.0"
 ARG FW2TAR_TAG="v1.1.1"
-ARG PANDA_VERSION="pandav0.0.29"
-ARG PANDANG_VERSION="0.0.16"
+ARG PANDA_VERSION="pandav0.0.30"
+ARG PANDANG_VERSION="0.0.17"
 ARG RIPGREP_VERSION="14.1.1"
 
 FROM rust AS vhost_builder
@@ -529,16 +527,16 @@ RUN if [ -d /tmp/local_packages ]; then \
             tar xvf /tmp/local_packages/console.tar.gz -C /igloo_static/; \
         fi; \
         if [ -f /tmp/local_packages/penguin_plugins.tar.gz ]; then \
-            mkdir -p /tmp/plug && \
-            tar xzf /tmp/local_packages/penguin_plugins.tar.gz -C /tmp/plug && \
-            mv /tmp/plug/arm/* /usr/local/lib/panda/arm && \
-            mv /tmp/plug/aarch64/* /usr/local/lib/panda/aarch64 && \
-            mv /tmp/plug/mips/* /usr/local/lib/panda/mips && \
-            mv /tmp/plug/mipsel/* /usr/local/lib/panda/mipsel && \
-            mv /tmp/plug/mips64/* /usr/local/lib/panda/mips64 && \
-            mv /tmp/plug/mips64el/* /usr/local/lib/panda/mips64el && \
-            mv /tmp/plug/x86_64/* /usr/local/lib/panda/x86_64; \
-        fi; \
+        mkdir -p /tmp/plug && \
+        tar xzf /tmp/local_packages/penguin_plugins.tar.gz -C /tmp/plug && \
+        mv /tmp/plug/arm/* /usr/local/lib/panda/arm && \
+        mv /tmp/plug/aarch64/* /usr/local/lib/panda/aarch64 && \
+        mv /tmp/plug/mips/* /usr/local/lib/panda/mips && \
+        mv /tmp/plug/mipsel/* /usr/local/lib/panda/mipsel && \
+        mv /tmp/plug/mips64/* /usr/local/lib/panda/mips64 && \
+        mv /tmp/plug/mips64el/* /usr/local/lib/panda/mips64el && \
+        mv /tmp/plug/x86_64/* /usr/local/lib/panda/x86_64; \
+    fi; \
         if [ -f /tmp/local_packages/kernels-latest.tar.gz ]; then \
             rm -rf /igloo_static/kernels && \
             tar xvf /tmp/local_packages/kernels-latest.tar.gz -C /igloo_static/; \
@@ -584,7 +582,7 @@ RUN mkdir /igloo_static/utils.source && \
         ln -s "$file" /igloo_static/utils.source/"$(basename "$file")".all; \
     done
 RUN  cd /igloo_static && mv arm64/* aarch64/ && rm -rf arm64 && mkdir -p utils.bin && \
-    for arch in "aarch64" "armel" "mipsel" "mips64eb" "mips64el" "mipseb" "x86_64"; do \
+    for arch in "aarch64" "armel" "mipsel" "mips64eb" "mips64el" "mipseb" "powerpc" "powerpcle" "powerpc64" "powerpc64l;e" "riscv32" "riscv64" "x86_64"; do \
         mkdir -p /igloo_static/vpn /igloo_static/console; \
         for file in /igloo_static/"$arch"/* ; do \
             if [ $(basename "$file") = *"vpn"* ]; then \
