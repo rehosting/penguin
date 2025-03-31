@@ -51,6 +51,9 @@ qemu_configs = {
         "arch": "mips64",
         "cpu": "MIPS64R2-generic",
     },
+    "riscv64": {
+        "qemu_machine": "virt",
+    },
     "intel64": {
         "qemu_machine": "pc",
         "arch": "x86_64",
