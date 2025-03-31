@@ -169,11 +169,6 @@ RUN wget -qO- https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-${LTRACE_PRO
 # Add libnvram ltrace prototype file
 COPY ./src/resources/ltrace_nvram.conf /tmp/ltrace/lib_inject.so.conf
 
-# Download custom panda plugins built from CI. Populate /panda_plugins
-ARG PENGUIN_PLUGINS_VERSION
-RUN /get_release.sh rehosting penguin_plugins ${PENGUIN_PLUGINS_VERSION} ${DOWNLOAD_TOKEN} | \
-    tar xzf - -C /panda_plugins
-
 # Build capstone v5 libraries for panda callstack_instr to improve arch support
 FROM $BASE_IMAGE AS capstone_builder
 ENV DEBIAN_FRONTEND=noninteractive
@@ -422,31 +417,12 @@ RUN pip install --no-cache /wheels/*
 
 RUN poetry config virtualenvs.create false
 
-# ZAP setup
-#COPY --from=downloader /zap /zap
-#RUN /zap/zap.sh -cmd -silent -addonupdate -addoninstallall && \
-#    cp /tmp/ZAP/plugin/*.zap /zapplugin/ || :
-#
-# Install JAVA for ZAP
-#ENV JAVA_HOME=/opt/java/openjdk
-#COPY --from=eclipse-temurin:11 $JAVA_HOME $JAVA_HOME
-#ENV PATH="${JAVA_HOME}/bin:${PATH}"
-
 
 # qemu-img
 COPY --from=qemu_builder /src/build/qemu-img /usr/local/bin/qemu-img
 
 # VPN, libnvram, kernels, console
 COPY --from=downloader /igloo_static/ /igloo_static/
-
-# Copy plugins into panda install. We want /panda_plugins/arch/foo to go into /usr/local/lib/panda/foo
-COPY --from=downloader /panda_plugins/arm/ /usr/local/lib/panda/arm/
-COPY --from=downloader /panda_plugins/aarch64/ /usr/local/lib/panda/aarch64/
-COPY --from=downloader /panda_plugins/mips/ /usr/local/lib/panda/mips/
-COPY --from=downloader /panda_plugins/mipsel/ /usr/local/lib/panda/mipsel/
-COPY --from=downloader /panda_plugins/mips64/ /usr/local/lib/panda/mips64/
-COPY --from=downloader /panda_plugins/mips64el/ /usr/local/lib/panda/mips64el/
-COPY --from=downloader /panda_plugins/x86_64/ /usr/local/lib/panda/x86_64/
 
 # Copy nmap build into /usr/local/bin
 COPY --from=nmap_builder /build/nmap /usr/local/
@@ -547,17 +523,6 @@ RUN if [ -d /tmp/local_packages ]; then \
         if [ -f /tmp/local_packages/console.tar.gz ]; then \
             tar xvf /tmp/local_packages/console.tar.gz -C /igloo_static/; \
         fi; \
-        if [ -f /tmp/local_packages/penguin_plugins.tar.gz ]; then \
-        mkdir -p /tmp/plug && \
-        tar xzf /tmp/local_packages/penguin_plugins.tar.gz -C /tmp/plug && \
-        mv /tmp/plug/arm/* /usr/local/lib/panda/arm && \
-        mv /tmp/plug/aarch64/* /usr/local/lib/panda/aarch64 && \
-        mv /tmp/plug/mips/* /usr/local/lib/panda/mips && \
-        mv /tmp/plug/mipsel/* /usr/local/lib/panda/mipsel && \
-        mv /tmp/plug/mips64/* /usr/local/lib/panda/mips64 && \
-        mv /tmp/plug/mips64el/* /usr/local/lib/panda/mips64el && \
-        mv /tmp/plug/x86_64/* /usr/local/lib/panda/x86_64; \
-    fi; \
         if [ -f /tmp/local_packages/kernels-latest.tar.gz ]; then \
             rm -rf /igloo_static/kernels && \
             tar xvf /tmp/local_packages/kernels-latest.tar.gz -C /igloo_static/; \
