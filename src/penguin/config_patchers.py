@@ -384,6 +384,9 @@ class BasePatch(PatchGenerator):
         elif arch == "loongarch64":
             self.arch_name = "loongarch64"
             self.arch_dir = "loongarch64"
+        elif arch == "riscv64":
+            self.arch_name = "riscv64"
+            self.arch_dir = "riscv64"
         else:
             self.arch_name = arch + endian
             self.arch_dir = f"{arch}{endian}"
@@ -468,7 +471,7 @@ class BasePatch(PatchGenerator):
                 "/igloo/serial": {
                     "type": "dev",
                     "devtype": "char",
-                    "major": 4 if 'mips' in self.arch_name or 'loongarch' in self.arch_name else 204,
+                    "major": 204 if self.arch_name in ['armel', 'aarch64'] else 4,
                     "minor": 65,
                     "mode": 0o666,
                 }
