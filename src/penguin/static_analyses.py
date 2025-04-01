@@ -901,12 +901,16 @@ class LibrarySymbols(StaticAnalysis):
                                       stderr=STDOUT):
                 for line in nm_out.decode("utf8", errors="ignore").split("\n"):
                     if line:
-                        addr, _, name = line.split()
-                        if '@' in name:
-                            name = name.split("@")[0]
-                        addr = int(addr, 16)
-                        if addr != 0:
-                            symbols[name] = addr
+                        parts = line.split()
+                        if len(parts) == 3:
+                            addr, _, name = parts
+                            if '@' in name:
+                                name = name.split("@")[0]
+                            addr = int(addr, 16)
+                            if addr != 0:
+                                symbols[name] = addr
+                        else:
+                            logger.warning(f"Unexpected nm output format: {line}")
         except CalledProcessError as e:
             if LibrarySymbols._is_elf(elf_path):
                 logger.error(f"Error running nm on {elf_path}: {e.output.decode('utf-8', errors='ignore')}")
