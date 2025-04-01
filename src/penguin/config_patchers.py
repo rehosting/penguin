@@ -352,7 +352,7 @@ class BasePatch(PatchGenerator):
         self.patch_name = "base"
         self.enabled = True
 
-        self.set_arch_info(arch_info)
+        self.set_arch_info(arch_info[0])
 
         if len(inits):
             self.igloo_init = inits[0]
@@ -1632,3 +1632,36 @@ class PseudofilesTailored(PatchGenerator):
 
         if len(results):
             return {'pseudofiles': results}
+
+
+class LinkerSymbolSearch(PatchGenerator):
+    '''
+    During static analysis the LibrarySymbols class collected
+    key->value mappings from libraries exporting symbols. Check these symbols for compatibility with our preload strategy.
+    '''
+
+    def __init__(self, library_info, archid):
+        self.library_info = library_info
+        self.patch_name = "ld.01_library"
+        self.linker_paths = archid[1]
+        self.enabled = True
+
+    def generate(self, patches):
+        sources = self.library_info.get("symbols", {})
+        if not len(sources):
+            return
+        linkers_without_preload = []
+        linkers = self.linker_paths.copy()
+
+        for file in sources.keys():
+            if file in self.linker_paths.keys():
+                self.linker_paths.pop(file)
+                if not ("_dl_preload" in sources[file] or "handle_ld_preload" in sources[file]):
+                    linkers_without_preload.append(file)
+                    for x in sources[file]:
+                        if "GLIBC_" in x:
+                            linkers_without_preload.remove(file)
+                            break
+        if not len(linkers_without_preload):
+            return
+        logger.critical(f"The following linkers are missing PRELOAD capabilites: {linkers_without_preload} out of {linkers.keys()}")

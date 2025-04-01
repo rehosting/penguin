@@ -37,7 +37,7 @@ class FileSystemHelper:
                 if filepath.startswith(os.path.join(extract_root, "igloo")):
                     continue
 
-                # skip non-regular files if `only_files` is true
+                # skip non-regular.. files if `only_files` is true
                 if only_files and not os.path.isfile(filepath):
                     continue
 
@@ -81,6 +81,7 @@ class ArchId(StaticAnalysis):
         '''
 
         arch_counts = {32: Counter(), 64: Counter(), "unknown": 0}
+        loaders = {}
         for root, _, files in os.walk(extracted_fs):
             for file_name in files:
                 path = os.path.join(root, file_name)
@@ -101,6 +102,20 @@ class ArchId(StaticAnalysis):
                             logger.warning(f"Failed to parse ELF file {path}: {e}. Ignoring")
                             continue
                         info = arch_filter(ef)
+                        for segment in ef.iter_segments(type='PT_INTERP'):
+                            try:
+                                name = segment.get_interp_name()
+                                if name is not None:
+                                    # handle non path loaders might be a problem on certain version where loader path is handled with an env var
+                                    if '/' not in name:
+                                        for loader in loaders.keys():
+                                            if name in loader:
+                                                loaders[loader] = loaders.get(loader, 0) + 1
+                                                break
+                                    else:
+                                        loaders[name] = loaders.get(name, 0) + 1
+                            except AttributeError:
+                                continue
                     if info.bits is None or info.arch is None:
                         arch_counts["unknown"] += 1
                     else:
@@ -145,7 +160,7 @@ class ArchId(StaticAnalysis):
             raise ValueError("Failed to determine architecture of filesystem")
 
         logger.debug(f"Identified architecture: {best}")
-        return best
+        return (best, loaders)
 
     @staticmethod
     def _binary_filter(fsbase, name):
@@ -653,7 +668,8 @@ class LibrarySymbols(StaticAnalysis):
 
     def run(self, extract_dir, prior_results):
         self.extract_dir = extract_dir
-        self.archend = arch_end(prior_results['ArchId'])
+        self.archend = arch_end(prior_results['ArchId'][0])
+        self.linkers = prior_results['ArchId'][1]
 
         if any([x is None for x in self.archend]):
             self.enabled = False
