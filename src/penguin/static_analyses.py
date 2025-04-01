@@ -2,7 +2,7 @@ import os
 import re
 import stat
 import struct
-import hashlib
+from subprocess import check_output, CalledProcessError, STDOUT, PIPE, SubprocessError
 
 from abc import ABC
 from elftools.common.exceptions import ELFError, ELFParseError
@@ -18,11 +18,65 @@ logger = getColoredLogger("penguin.static_analyses")
 
 class FileSystemHelper:
     @staticmethod
-    def find_regex(target_regex, extract_root, ignore=None, only_files=True):
+    def find_regex(target_regex, extract_root, ignore=None):
         """
         Given a regex pattern to match against, search the filesystem
-        and track matches + counts.
+        using ripgrep with subprocess.check_output for high performance.
         Returns a dict of {match: {count: int, files: [str]}
+        """
+        results = {}
+        if not ignore:
+            ignore = tuple()
+        elif isinstance(ignore, list):
+            ignore = tuple(ignore)
+
+        pattern_str = target_regex.pattern
+        extract_path_str = str(extract_root)
+
+        try:
+            # Get list of files containing matches
+            file_list_output = check_output(
+                f"rg --files-with-matches -a '{pattern_str}' '{extract_path_str}'",
+                stderr=PIPE,
+                shell=True,
+            )
+
+            # Process each file with Python's regex to extract actual matches
+            if file_list_output:
+                for filepath in file_list_output.decode().splitlines():
+                    if not os.path.isfile(filepath) or os.path.islink(filepath):
+                        continue
+
+                    # open the file and read the content
+                    try:
+                        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                            content = f.read()
+                    except Exception as e:
+                        logger.warning(f"failed to read file {filepath}: {e}")
+                        continue
+                    # apply regex pattern to find matches
+                    matches = target_regex.findall(content)
+                    for match in matches:
+                        if match in ignore:
+                            continue
+                        if match not in results:
+                            results[match] = {"count": 0, "files": set()}
+                        results[match]["count"] += 1
+                        results[match]["files"].add(filepath)
+        except (SubprocessError, FileNotFoundError) as e:
+            if e.returncode == 1:
+                return {}
+            else:
+                logger.warning(f"Failed to run ripgrep: {e} - falling back to pure Python regex")
+                return FileSystemHelper._find_regex_python(target_regex, extract_root, ignore)
+
+        return results
+
+    @staticmethod
+    def _find_regex_python(target_regex, extract_root, ignore=None):
+        """
+        Fallback implementation using Python's built-in regex.
+        Used when hyperscan fails to compile the pattern.
         """
         results = {}
         if not ignore:
@@ -38,7 +92,7 @@ class FileSystemHelper:
                     continue
 
                 # skip non-regular files if `only_files` is true
-                if only_files and not os.path.isfile(filepath):
+                if not os.path.isfile(filepath) or os.path.islink(filepath):
                     continue
 
                 # open the file and read the content
@@ -55,9 +109,9 @@ class FileSystemHelper:
                     if match in ignore:
                         continue
                     if match not in results:
-                        results[match] = {"count": 0, "files": []}
+                        results[match] = {"count": 0, "files": set()}
                     results[match]["count"] += 1
-                    results[match]["files"].append(filepath)
+                    results[match]["files"].add(filepath)
 
         return results
 
@@ -622,7 +676,8 @@ class ClusterCollector(StaticAnalysis):
                     executables.add(os.path.basename(f))
 
                     hash_value = self.compute_file_hash(file_path)
-                    executable_hashes.add(hash_value)
+                    if hash_value:
+                        executable_hashes.add(hash_value)
 
         return {
             'files': list(all_files),
@@ -632,15 +687,14 @@ class ClusterCollector(StaticAnalysis):
 
     @staticmethod
     def compute_file_hash(file_path):
-        sha256 = hashlib.sha256()
         try:
-            with open(file_path, 'rb') as f:
-                for chunk in iter(lambda: f.read(4096), b""):
-                    sha256.update(chunk)
-        except IOError:
-            # Handle cases where file cannot be read (e.g., permissions issues)
+            # Use the system's sha256sum binary for better performance
+            output = check_output(["sha256sum", file_path], stderr=STDOUT)
+            # sha256sum output format: '<hash>  <file_path>'
+            return output.decode('utf-8').split()[0]
+        except (CalledProcessError, FileNotFoundError, IOError) as e:
+            logger.debug(f"Failed to hash file {file_path}: {e}")
             return None
-        return sha256.hexdigest()
 
 
 class LibrarySymbols(StaticAnalysis):
@@ -679,7 +733,7 @@ class LibrarySymbols(StaticAnalysis):
                         )
                         continue
                     tmpless_path = str(file_path).replace(str(self.extract_dir), "")
-                    sym_paths[tmpless_path] = list(found_syms.keys())
+                    sym_paths[tmpless_path] = found_syms
                     for symname, offset in found_syms.items():
                         symbols[(tmpless_path, symname)] = offset
                     for key, value in found_nvram.items():
@@ -736,54 +790,29 @@ class LibrarySymbols(StaticAnalysis):
         return None
 
     @staticmethod
-    def _analyze_library(elf_path, archend):
-        """
-        Examine a single library. Is there anything we care about in here?
+    def _is_elf(filename):
+        try:
+            with open(filename, "rb") as f:
+                magic = f.read(4)
+            return magic == b"\x7fELF"
+        except IOError:
+            return False
 
-        1) look for exported tables: router_defaults and Nvrams to place in default nvram config
-        2) report all exported function names
-        """
-
+    @staticmethod
+    def get_nvram_info(elf_path, archend):
+        nvram_data = {}
         is_eb = "eb" in archend
         is_64 = "64" in archend
-
-        symbols = {}  # Symbol name -> relative(?) address
-        nvram_data = {}  # key -> value (may be empty string)
-
-        def _is_elf(filename):
-            try:
-                with open(filename, "rb") as f:
-                    magic = f.read(4)
-                return magic == b"\x7fELF"
-            except IOError:
-                return False
-
         with open(elf_path, "rb") as f:
             try:
                 elffile = ELFFile(f)
             except ELFError:
                 # elftools failed to parse our file. If it's actually an ELF, warn
-                if _is_elf(elf_path):
+                if LibrarySymbols._is_elf(elf_path):
                     logger.warning(
                         f"Failed to parse {elf_path} as an ELF file when analyzing libraries"
                     )
-                return nvram_data, symbols
-
-            try:
-                match = ".dynsym" in [s.name for s in elffile.iter_sections()]
-            except ELFParseError:
-                logger.warning(
-                    f"Failed to find .dynsym section in {elf_path} when analyzing libraries"
-                )
-                match = False
-
-            if match:
-                dynsym = elffile.get_section_by_name(".dynsym")
-                for symbol in dynsym.iter_symbols():
-
-                    # Filter for exported functions??
-                    if symbol["st_info"]["bind"] == "STB_GLOBAL":
-                        symbols[symbol.name] = symbol["st_value"]
+                return nvram_data
 
             # Check for nvram keys
             for nvram_key in LibrarySymbols.NVRAM_KEYS:
@@ -850,5 +879,37 @@ class LibrarySymbols(StaticAnalysis):
                         break
 
                     offset += pointer_size * 3
+            return nvram_data
+
+    @staticmethod
+    def _analyze_library(elf_path, archend):
+        """
+        Examine a single library. Is there anything we care about in here?
+
+        1) look for exported tables: router_defaults and Nvrams to place in default nvram config
+        2) report all exported function names
+        """
+
+        symbols = {}  # Symbol name -> relative(?) address
+        nvram_data = {}  # key -> value (may be empty string)
+        try:
+            if nm_out := check_output(f"nm -D --defined-only {elf_path}",
+                                      stderr=STDOUT,
+                                      shell=True):
+                for line in nm_out.decode("utf8", errors="ignore").split("\n"):
+                    if line:
+                        addr, _, name = line.split()
+                        if '@' in name:
+                            name = name.split("@")[0]
+                        addr = int(addr, 16)
+                        if addr != 0:
+                            symbols[name] = addr
+        except CalledProcessError as e:
+            if LibrarySymbols._is_elf(elf_path):
+                logger.error(f"Error running nm on {elf_path}: {e.output.decode('utf-8', errors='ignore')}")
+            return nvram_data, symbols
+
+        if any(sym in symbols for sym in LibrarySymbols.NVRAM_KEYS):
+            nvram_data = LibrarySymbols.get_nvram_info(elf_path, archend)
 
         return nvram_data, symbols

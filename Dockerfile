@@ -17,6 +17,7 @@ ARG LTRACE_PROTOTYPES_HASH="9db3bdee7cf3e11c87d8cc7673d4d25b"
 ARG MUSL_VERSION="1.2.5"
 ARG VHOST_DEVICE_VERSION="vhost-device-vsock-v0.2.0"
 ARG FW2TAR_TAG="v1.1.1"
+ARG RIPGREP_VERSION="14.1.1"
 
 FROM rust as vhost_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
@@ -61,6 +62,10 @@ COPY ./get_release.sh /get_release.sh
 # Get panda .deb
 ARG PANDA_VERSION
 RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
+
+ARG RIPGREP_VERSION
+RUN wget -O /tmp/ripgrep.deb \
+        https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/ripgrep_${RIPGREP_VERSION}-1_amd64.deb
 
 # Get syscall list from PANDA
 RUN for arch in arm arm64 mips mips64 x64; do \
@@ -339,6 +344,7 @@ RUN echo "#!/bin/sh\ntelnet localhost 4321" > /usr/local/bin/rootshell && chmod 
 COPY --from=downloader /tmp/pandare.deb /tmp/
 COPY --from=downloader /tmp/glow.deb /tmp/
 COPY --from=downloader /tmp/gum.deb /tmp/
+COPY --from=downloader /tmp/ripgrep.deb /tmp/
 COPY --from=capstone_builder /usr/lib/libcapstone* /usr/lib/
 COPY ./dependencies/* /tmp
 
@@ -356,7 +362,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Install apt dependencies - largely for binwalk, some for penguin, some for fw2tar
 RUN apt-get update && apt-get install -q -y $(cat /tmp/penguin.txt) $(cat /tmp/fw2tar.txt) && \
-    apt install -yy -f /tmp/pandare.deb -f /tmp/glow.deb -f /tmp/gum.deb && \
+    apt install -yy -f /tmp/pandare.deb -f /tmp/glow.deb -f /tmp/gum.deb -f /tmp/ripgrep.deb && \
     rm -rf /var/lib/apt/lists/* /tmp/*.deb
 
 # If we want to run in a venv, we can use this. System site packages means
