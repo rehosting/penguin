@@ -49,9 +49,11 @@ def arch_end(value):
         arch = "riscv64"
         end = "el"
     elif tmp.startswith("ppc64"):
-        arch = "ppc64"
+        arch = "powerpc64"
+        end = "eb"
     elif tmp.startswith("ppc"):
-        arch = "ppc"
+        arch = "powerpc"
+        end = "eb"  # it can be either so we give it eb
     elif tmp.startswith("loongarch64"):
         arch = "loongarch64"
         end = "el"
@@ -210,7 +212,11 @@ def arch_filter(elf):
     elif arch == "mips":
         return _identify_mips_arch(header)
     elif arch == "riscv":
-       return ArchInfo(arch=f"{arch}{_elf_bits(elf.header)}", bits=_elf_bits(elf.header)) 
+       return ArchInfo(arch=f"{arch}{_elf_bits(elf.header)}", bits=_elf_bits(elf.header))
+    elif arch == "ppc":
+        # same for big and little
+       return ArchInfo(arch="ppc", bits=_elf_bits(elf.header))
+    
     # Other architectures get eb suffix if big-endian. mips/arm are handled in their helpers
     if header.e_ident.get("EI_DATA", None) == "ELFDATA2MSB":
         arch += "eb"
