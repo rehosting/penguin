@@ -82,7 +82,7 @@ RUN wget -O /tmp/pandare.deb \
     https://github.com/panda-re/qemu/releases/download/${PANDA_VERSION}/pandare_22.04.deb && \
     wget -O /tmp/pandare-plugins.deb \
     https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare-plugins_22.04.deb
-# RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
+    # RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
 
 ARG RIPGREP_VERSION
 RUN wget -O /tmp/ripgrep.deb \
@@ -128,7 +128,7 @@ RUN wget -qO- https://github.com/rehosting/libnvram/archive/refs/tags/v${LIBNVRA
 ARG MUSL_VERSION
 RUN wget -qO- https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz | \
     tar xzf - && \
-    for arch in arm aarch64 mips mips64 mipsn32 ppc ppc64 ppc64el riscv32 riscv64 loongarch64 x86_64 i386; do \
+    for arch in arm aarch64 mips mips64 mipsn32 powerpc powerpc64 riscv32 riscv64 loongarch64 x86_64 i386; do \
         make -C musl-* \
             ARCH=$arch \
             DESTDIR=/ \
