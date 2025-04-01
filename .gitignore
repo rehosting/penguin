@@ -10,3 +10,6 @@ results/
 projects/
 tests/unit_tests/test_target/config.yaml
 penguin.sif
+fw
+db/events.*
+local_packages/*
