@@ -229,7 +229,7 @@ class InitFinder(StaticAnalysis):
         for root, dirs, files in os.walk(filesystem_root_path):
             for filename in files:
                 filepath = os.path.join(root, filename)
-                if self._is_init_script(filepath):
+                if self._is_init_script(filepath, filesystem_root_path):
                     inits.append("/" + os.path.relpath(filepath, filesystem_root_path))
 
         # Sort inits by length, shortest to longest.
@@ -287,7 +287,7 @@ class InitFinder(StaticAnalysis):
         return inits
 
     @staticmethod
-    def _is_init_script(filepath):
+    def _is_init_script(filepath, fsroot):
         '''
         Determine if a file is a potential init script.
         '''
@@ -308,7 +308,11 @@ class InitFinder(StaticAnalysis):
             # Handle symlinks: make sure the link target exists.
             if os.path.islink(filepath):
                 link_target = os.readlink(filepath)
-                if not os.path.exists(os.path.join(os.path.dirname(filepath), link_target)):
+                if os.path.isabs(link_target):
+                    result = os.path.join(fsroot, "./"+link_target)
+                else:
+                    result = os.path.join(os.path.dirname(filepath), link_target)
+                if not os.path.exists(result):
                     logger.warning(
                         f"Potential init '{filepath}' is a symlink to '{link_target}' which does not exist in the filesystem"
                     )
