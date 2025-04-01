@@ -893,9 +893,8 @@ class LibrarySymbols(StaticAnalysis):
         symbols = {}  # Symbol name -> relative(?) address
         nvram_data = {}  # key -> value (may be empty string)
         try:
-            if nm_out := check_output(f"nm -D --defined-only {elf_path}",
-                                      stderr=STDOUT,
-                                      shell=True):
+            if nm_out := check_output(["nm", "-D", "--defined-only", elf_path],
+                                      stderr=STDOUT):
                 for line in nm_out.decode("utf8", errors="ignore").split("\n"):
                     if line:
                         addr, _, name = line.split()
