@@ -387,6 +387,9 @@ class BasePatch(PatchGenerator):
         elif arch == "riscv64":
             self.arch_name = "riscv64"
             self.arch_dir = "riscv64"
+        elif arch == "powerpc":
+            self.arch_name = "powerpc"
+            self.arch_dir = "powerpc"
         else:
             self.arch_name = arch + endian
             self.arch_dir = f"{arch}{endian}"
