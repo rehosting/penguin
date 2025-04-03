@@ -337,6 +337,16 @@ def run_config(
         "none",
         *drive_args,
     ]
+    if conf["graphics"].get("enabled", False):
+        password = "IGLOOPassword!"
+        logger.info(f"Setting VNC password to {password}")
+        args += [
+            "-object", f"secret,id=vncpasswd,data=\"{password}\"",
+            "-vnc",    ":0,password-secret=vncpasswd",
+            "-device", "virtio-gpu",
+            "-device", "virtio-keyboard-pci",
+            "-device", "virtio-mouse-pci"
+        ]
     if q_config["arch"] == "loongarch64":
         args += ["-bios", "/igloo_static/loongarch64/bios-loong64-8.1.bin"]
 
