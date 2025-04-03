@@ -395,7 +395,7 @@ penguin_run() {
             exit 1
         fi
 
-        if [ ! -z "${SSH_AUTH_SOCK+x}" ]; then
+        if [ -n "${SSH_AUTH_SOCK}" ]; then
             # Build with ssh
             DOCKER_BUILDKIT=1 docker build --build-arg SSH=1 --ssh default -t $image -t rehosting/fw2tar .
         else
