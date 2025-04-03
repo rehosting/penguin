@@ -277,6 +277,15 @@ class Core(BaseModel):
             examples=[1, 2, 4],
         ),
     ]
+    graphics: Annotated[
+        bool,
+        Field(
+            False,
+            title="Enable graphics",
+            description="Whether to enable graphics in the guest",
+            examples=[False, True],
+        ),
+    ]
 
 
 EnvVal = _newtype(
