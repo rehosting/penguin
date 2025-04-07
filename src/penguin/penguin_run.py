@@ -337,7 +337,7 @@ def run_config(
         "none",
         *drive_args,
     ]
-    if conf["graphics"].get("enabled", False):
+    if conf["core"].get("graphics", False):
         password = "IGLOOPassword!"
         logger.info(f"Setting VNC password to {password}")
         args += [
