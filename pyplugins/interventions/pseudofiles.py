@@ -2,6 +2,7 @@ import logging
 import pickle
 import re
 import struct
+import threading
 from collections import Counter
 from copy import deepcopy
 from os.path import dirname, isfile, isabs
@@ -224,6 +225,7 @@ class FileFailures(PyPlugin):
         from hyperfile import (HYPER_IOCTL, HYPER_READ, HyperFile, hyper)
         hf_config = {}
         for filename, details in self.config["pseudofiles"].items():
+            self.logger.info(f"filename {filename} details {details}")
             hf_config[filename] = {}
 
             for targ, prefix in [
@@ -676,18 +678,7 @@ class FileFailures(PyPlugin):
         self.centralized_log(filename, "read")
         return (b"", -22)  # -EINVAL - we don't support reads
 
-    # IOCTL is more complicated than read/write.
-    # default is a bit of a misnomer, it's our default ioctl handler which
-    # implements default behavior (i.e., error) on issue of unspecified ioctls,
-    # but implements what it's told for others
-    def ioctl_default(self, filename, cmd, arg, ioctl_details):
-        """
-        Given a cmd and arg, return a value
-        filename is device path
-        ioctl_details is a dict of:
-            cmd -> {'model': 'return_const'|'symex',
-                     'val': X}
-        """
+    def do_ioctl(self, filename, cmd, ioctl_details):
         # Try to use cmd as our key, but '*' is a fallback
         # is_wildcard = False
         if cmd in ioctl_details:
@@ -697,13 +688,13 @@ class FileFailures(PyPlugin):
             # is_wildcard = True
         else:
             self.log_ioctl_failure(filename, cmd)
-            return -25  # -ENOTTY
+            return (None, -25)  # -ENOTTY
 
         model = cmd_details["model"]
 
         if model == "return_const":
             rv = cmd_details["val"]
-            return rv
+            return (cmd_details, rv)
 
         elif model == "symex":
             # Symex is tricky and different from normal models.
@@ -717,20 +708,68 @@ class FileFailures(PyPlugin):
             # ignore? But we probably could?
             # raise NotImplementedError("Uhhhh nested symex")
             # self.last_symex = filename
-            return MAGIC_SYMEX_RETVAL  # We'll detect this on the return and know what to do. I think?
+            return (cmd_details, MAGIC_SYMEX_RETVAL)  # We'll detect this on the return and know what to do. I think?
         elif model == "from_plugin":
             plugin_name = cmd_details["plugin"]
             plugin = getattr(plugins, plugin_name)
             func = cmd_details.get("function", "ioctl")
             if hasattr(plugin, func):
-                fn = getattr(plugin, func)
+                return (cmd_details, getattr(plugin, func))
             else:
                 raise ValueError(f"Hyperfile {filename} depends on plugin {plugin} which does not have function {func}")
-            return fn(filename, cmd, arg, cmd_details)
         else:
             # This is an actual error - config is malformed. Bail
             raise ValueError(f"Unsupported ioctl model {model} for cmd {cmd}")
-            # return -25 # -ENOTTY
+
+    # IOCTL is more complicated than read/write.
+    # default is a bit of a misnomer, it's our default ioctl handler which
+    # implements default behavior (i.e., error) on issue of unspecified ioctls,
+    # but implements what it's told for others
+    def ioctl_default(self, command_queue, response_queue, filename, cmd, arg, ioctl_details):
+        """
+        Given a cmd and arg, return a value
+        filename is device path
+        ioctl_details is a dict of:
+            cmd -> {'model': 'return_const'|'symex',
+                     'val': X}
+        """
+
+        cmd_details, res = self.do_ioctl(filename, cmd, ioctl_details)
+
+        class PseudofileIoctlContext:
+            def __init__(self, panda):
+                self.panda = panda
+
+            def read_bytes(self, addr, size):
+                chunk_size = 128
+                data = b""
+                for i in range((size + chunk_size - 1) // chunk_size):
+                    offset = i * chunk_size
+                    chunk_addr = addr + offset
+                    command_queue.put(("read", chunk_size, chunk_addr))
+                    resp_type, chunk = response_queue.get()
+                    assert resp_type == "read_response"
+                    data += chunk
+                data = data[:size]
+                return data
+
+            def write_bytes(self, addr, data):
+                chunk_size = 128
+                for i in range((len(data) + chunk_size - 1) // chunk_size):
+                    offset = i * chunk_size
+                    chunk_addr = addr + offset
+                    chunk_data = data[offset:offset + chunk_size]
+                    command_queue.put(("write", chunk_addr, chunk_data))
+
+        def thread_fn(*args):
+            status = res if isinstance(res, int) else res(*args)
+            command_queue.put(("ret", status))
+            assert response_queue.get() == ("end",)
+
+        threading.Thread(
+            target=thread_fn,
+            args=(PseudofileIoctlContext(self.panda), filename, cmd, arg, cmd_details),
+        ).start()
 
     def dump_results(self):
         # Dump all file failures to disk as yaml

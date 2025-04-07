@@ -422,7 +422,7 @@ Write = _union(
             description=None,
             fields=(
                 ("plugin", str, Field(title="Name of the loaded PyPlugin")),
-                ("function", Optional[str], Field(title="Function to call", default="read")),
+                ("function", Optional[str], Field(title="Function to call", default="write")),
             ),
         ),
         dict(
@@ -466,7 +466,7 @@ IoctlCommand = _union(
             description=None,
             fields=(
                 ("plugin", str, Field(title="Name of the loaded PyPlugin")),
-                ("function", Optional[str], Field(title="Function to call", default="read")),
+                ("function", Optional[str], Field(title="Function to call", default="ioctl")),
             ),
         )
     ),
