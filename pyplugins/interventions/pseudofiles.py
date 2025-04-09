@@ -171,17 +171,13 @@ class FileFailures(PyPlugin):
         # Clear results file - we'll update it as we go
         self.dump_results()
 
-        with open("/igloo_static/syscall_info_table.pkl", "rb") as f:
-            self.syscall_info_table = pickle.load(f)
-
-        plugins.subscribe(plugins.Events, "igloo_syscall", self.on_syscall)
+        plugins.subscribe(plugins.Events, "igloo_hyp_enoent", self.hyp_enoent)
 
         # Open/openat is a special case with hypercalls helping us out
         # because openat requires guest introspection to resolve the dfd, but we just
         # did it in the kernel
         plugins.subscribe(plugins.Events, "igloo_open", self.fail_detect_opens)
         plugins.subscribe(plugins.Events, "igloo_ioctl", self.fail_detect_ioctl)
-        plugins.subscribe(plugins.Events, 'igloo_proc_mtd', self.proc_mtd_check)
 
         # On ioctl return we might want to start symex. We detect failures with a special handler though
         if self.need_ioctl_hooks:
@@ -313,48 +309,9 @@ class FileFailures(PyPlugin):
         # set retval to 0 with no error.
         syscall.retval = 0
 
-    def on_syscall(self, cpu, buf_addr):
-        # TODO: if we end up using this in multiple places we should centralize the unpacking
-        # Also we might want to consider reducing the size of these buffers
-        format_str = f"!i6q{'4096s'*6}q"
-        buf_size = struct.calcsize(format_str)
-        buf = self.panda.virtual_memory_read(cpu, buf_addr, buf_size, fmt="bytearray")
-
-        # Unpack request with our dynamic format string
-        unpacked = struct.unpack_from(format_str, buf)
-
-        nr = unpacked[0]
-        # args = unpacked[1:1+6]
-        strings = unpacked[1 + 6: 1 + 6 + 6]
-        # ret = unpacked[1+6+6]
-
-        arch, _ = arch_end(self.config["core"]["arch"])
-        name, arg_names = self.syscall_info_table[arch].get(nr, (None, None))
-        if name is None:
-            if "aarch64" in arch:
-                name, arg_names = self.syscall_info_table["arm"].get(nr, (None, None))
-            elif "mips64eb" in arch:
-                name, arg_names = self.syscall_info_table["mipseb"].get(nr)
-            elif "mips64el" in arch:
-                name, arg_names = self.syscall_info_table["mipsel"].get(nr)
-
-            if name is None:
-                return
-        # assert(ret == -2), f"Unexpected return value {ret} from igloo_syscall"
-        # assert name not in ('open', 'openat', 'ioctl', 'close'), f"Unexpected syscall {name} in igloo_syscall"
-
-        # Use null terminator and interpret as latin-1
-        strings = [s.split(b"\0", 1)[0].decode("latin-1", errors="ignore") for s in strings]
-
-        fnames = (
-            strings[i]
-            for i, arg_name in enumerate(arg_names)
-            if arg_name in ("filename", "path", "pathname", "fd")
-            and len(strings[i]) > 0
-            and any(strings[i].startswith(x) for x in ("/dev/", "/proc/", "/sys/"))
-        )
-        for name in fnames:
-            self.centralized_log(name, "syscall")
+    def hyp_enoent(self, file):
+        if any(file.startswith(x) for x in ("/dev/", "/proc/", "/sys/")):
+            self.centralized_log(file, "syscall")
 
     #######################################
     def centralized_log(self, path, event, event_details=None):
