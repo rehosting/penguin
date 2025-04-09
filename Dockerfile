@@ -139,6 +139,8 @@ ARG GUESTHOPPER_VERSION
 RUN /get_release.sh rehosting guesthopper ${GUESTHOPPER_VERSION} ${DOWNLOAD_TOKEN} | \
     tar xzf - -C /igloo_static
 
+RUN wget https://github.com/wtdcode/DebianOnQEMU/releases/download/v2024.01.05/bios-loong64-8.1.bin -O /igloo_static/loongarch64/bios-loong64-8.1.bin
+
 # Download prototype files for ltrace.
 #
 # Download the tarball from Fedora, because ltrace.org doesn't store old
@@ -559,5 +561,4 @@ RUN  cd /igloo_static && mv arm64/* aarch64/ && rm -rf arm64 && mkdir -p utils.b
             fi; \
         done \
     done
-RUN wget https://github.com/wtdcode/DebianOnQEMU/releases/download/v2024.01.05/bios-loong64-8.1.bin -O /igloo_static/loongarch64/bios-loong64-8.1.bin
 RUN date +%s%N > /igloo_static/container_timestamp.txt
