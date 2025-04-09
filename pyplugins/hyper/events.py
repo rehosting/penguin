@@ -10,7 +10,6 @@ EVENTS = {
     103:        ('igloo_getenv',          (str,)),
     104:        ('igloo_strstr',          (str, str)),
     105:        ('igloo_ioctl',           (str, int)),
-    106:        ('igloo_proc_mtd',        (int, int)),
     107:        ('igloo_nvram_get_miss',  (str,)),
     108:        ('igloo_nvram_get_hit',   (str,)),
     109:        ('igloo_nvram_set',       (str, str)),
