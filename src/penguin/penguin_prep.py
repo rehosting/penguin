@@ -199,7 +199,8 @@ def add_lib_inject_for_abi(config, abi):
     aliases = lib_inject.get("aliases", dict())
 
     args = (
-        ["clang-20", "-fuse-ld=lld", "-Oz", "-shared", "-nostdlib", "-nostdinc"]
+        ["clang-20", "-fuse-ld=lld", "-Oz", "-shared", "-nostdlib", "-nostdinc", 
+         "-Wl,--hash-style=both"]
         + [
             f"-m{key.replace('_', '-')}={value}"
             for key, value in abi_info["m_flags"].items()
