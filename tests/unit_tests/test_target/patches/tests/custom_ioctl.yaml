@@ -1,0 +1,62 @@
+plugins:
+  ./pyplugins/custom_ioctl: {}
+  verifier:
+    conditions:
+      custom_ioctl:
+        type: file_contains
+        file: console.log
+        string: "/tests/custom_ioctl.sh PASS"
+
+pseudofiles:
+  /dev/my_custom_ioctl:
+    ioctl:
+      "*":
+        model: from_plugin
+        plugin: CustomIoctl
+
+lib_inject:
+  extra: |
+    #include <assert.h>
+    #include <sys/ioctl.h>
+    #include <fcntl.h>
+    #include <errno.h>
+    #include <string.h>
+    #include <stdio.h>
+
+    void libinject_custom_ioctl(void)
+    {
+      int fd, result;
+      char buf[128] = { 0 };
+
+      fd = open("/dev/my_custom_ioctl", O_RDONLY);
+      assert(fd >= 0);
+
+      result = ioctl(fd, _IO('f', 0x21), &(unsigned int){0x11223344});
+      assert(result == 0x11223344);
+
+      result = ioctl(fd, _IO('f', 0x21), NULL);
+      assert(result == -1);
+      assert(errno == EFAULT);
+
+      result = ioctl(fd, _IO('f', 0x22), &(char *){buf});
+      assert(result == 200);
+      assert(!strcmp(buf, "hello world"));
+
+      result = ioctl(fd, _IO('f', 0x23), NULL);
+      assert(result == -1);
+      assert(errno == 300);
+    }
+
+static_files:
+  /tests/custom_ioctl.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/micropython
+
+      import ffi
+
+      ffi.open("lib_inject.so").func("v", "libinject_custom_ioctl", "")()
+
+      print("tests pass")
+
+    mode: 73

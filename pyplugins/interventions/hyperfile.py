@@ -1,20 +1,34 @@
 import struct
+from queue import Queue
 from pandare import PyPlugin
+
 
 try:
     from penguin import yaml
 except ImportError:
     import yaml
 
+
 # Make sure these match hyperfs
+
 HYPER_MAGIC = 0x51EC3692
+
 HYPER_FILE_OP = 0
 HYPER_GET_NUM_HYPERFILES = 1
 HYPER_GET_HYPERFILE_PATHS = 2
+HYPER_IOCTL_OP = 3
+HYPER_IOCTL_END = 4
+HYPER_IOCTL_READ_RESPONSE = 5
+
 HYPER_READ = 0
 HYPER_WRITE = 1
 HYPER_IOCTL = 2
 HYPER_GETATTR = 3
+
+HYPER_IOCTL_OP_READ = 0
+HYPER_IOCTL_OP_WRITE = 1
+HYPER_IOCTL_OP_RETURN = 2
+
 RETRY = 0xDEADBEEF
 
 
@@ -49,6 +63,10 @@ class HyperFile(PyPlugin):
         self.log_file = self.get_arg("log_file")
         self.files = self.get_arg("models")
         self.logger = self.get_arg("logger")
+
+        # Queues for communicating with thread for processing an ioctl
+        self.ioctl_command_queue = Queue()
+        self.ioctl_response_queue = Queue()
 
         # Struct format strings for endianness and word size
         self.endian = '<' if panda.endianness == 'little' else '>'
@@ -93,6 +111,12 @@ class HyperFile(PyPlugin):
                 self.handle_get_num_hyperfiles(cpu)
             elif hc_type == HYPER_GET_HYPERFILE_PATHS:
                 self.handle_get_hyperfile_paths(cpu)
+            elif hc_type == HYPER_IOCTL_OP:
+                self.handle_ioctl_op(cpu)
+            elif hc_type == HYPER_IOCTL_END:
+                self.handle_ioctl_end(cpu)
+            elif hc_type == HYPER_IOCTL_READ_RESPONSE:
+                self.handle_ioctl_read_response(cpu)
 
     def handle_get_num_hyperfiles(self, cpu):
         num_hyperfiles_addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
@@ -130,6 +154,30 @@ class HyperFile(PyPlugin):
                 self.panda.arch.set_retval(cpu, RETRY)
                 self.logger.debug("Failed to write hyperfile path to guest - retry")
                 return
+
+    def handle_ioctl_op(self, cpu):
+        req_addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
+        cmd = self.ioctl_command_queue.get()
+        match cmd:
+            case ("read", size, ptr):
+                req_bytes = struct.pack(f"{self.endian} i {self.u_word} {self.u_word}", HYPER_IOCTL_OP_READ, size, ptr)
+            case ("write", ptr, data):
+                req_bytes = struct.pack(f"{self.endian} i {self.u_word} {self.u_word} {len(data)}s", HYPER_IOCTL_OP_WRITE, len(data), ptr, data)
+            case ("ret", status):
+                req_bytes = struct.pack(f"{self.endian} i {self.s_word}", HYPER_IOCTL_OP_RETURN, status)
+            case _:
+                assert False
+        self.panda.virtual_memory_write(cpu, req_addr, req_bytes)
+
+    def handle_ioctl_end(self, cpu):
+        self.ioctl_response_queue.put(("end",))
+        self.ioctl_command_queue = Queue()
+        self.ioctl_response_queue = Queue()
+
+    def handle_ioctl_read_response(self, cpu):
+        addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
+        resp = self.panda.virtual_memory_read(cpu, addr, 128)
+        self.ioctl_response_queue.put(("read_response", resp))
 
     def handle_file_op(self, cpu):
         header_fmt = f"{self.endian} i {self.u_word}"
@@ -216,8 +264,8 @@ class HyperFile(PyPlugin):
 
         elif type_val == HYPER_IOCTL:
             cmd, arg = struct.unpack_from(ioctl_fmt, buf, sub_offset)
-            retval = model[type_val](device_name, cmd, arg)
-            self.handle_result(device_name, "ioctl", retval, cmd, arg)
+            model[type_val](self.ioctl_command_queue, self.ioctl_response_queue, device_name, cmd, arg)
+            retval = 0
 
         elif type_val == HYPER_GETATTR:
             retval, size_data = model[type_val](device_name, model)

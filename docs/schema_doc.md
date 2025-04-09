@@ -683,7 +683,7 @@ How to handle writes to the file
 |||
 |-|-|
 |__Type__|string or null|
-|__Default__|`read`|
+|__Default__|`write`|
 
 
 ##### `pseudofiles.<string>.write.<model=discard>` Discard write
@@ -790,7 +790,7 @@ plugin: my_plugin
 |||
 |-|-|
 |__Type__|string or null|
-|__Default__|`read`|
+|__Default__|`ioctl`|
 
 
 ## `nvram` NVRAM
