@@ -417,10 +417,6 @@ COPY --from=cross_builder /out /igloo_static/
 COPY guest-utils /igloo_static/guest-utils
 COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
 
-# Generate syscall table
-COPY ./pyplugins/utils/build_syscall_info_table.py /pyplugins/utils/build_syscall_info_table.py
-RUN python3 /pyplugins/utils/build_syscall_info_table.py
-
 # Copy wrapper script into container so we can copy out - note we don't put it on guest path
 COPY ./penguin /usr/local/src/penguin_wrapper
 # And add install helpers which generate shell commands to install it on host
