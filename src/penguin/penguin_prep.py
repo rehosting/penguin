@@ -20,6 +20,7 @@ ARCH_ABI_INFO = dict(
                 m_flags=dict(),
             ),
             hard_float=dict(
+                target_triple="armv7-linux-musleabi",
                 musl_arch_name="arm",
                 m_flags=dict(float_abi="hard")
             ),
@@ -42,7 +43,7 @@ ARCH_ABI_INFO = dict(
             ),
             hard_float=dict(
                 libnvram_arch_name="arm",
-                target_triple="armv5-linux-musleabi",
+                target_triple="armv7-linux-musleabi",
                 musl_arch_name="arm",
                 m_flags=dict(float_abi="hard")
             ),
