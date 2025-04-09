@@ -225,7 +225,6 @@ class FileFailures(PyPlugin):
         from hyperfile import (HYPER_IOCTL, HYPER_READ, HyperFile, hyper)
         hf_config = {}
         for filename, details in self.config["pseudofiles"].items():
-            self.logger.info(f"filename {filename} details {details}")
             hf_config[filename] = {}
 
             for targ, prefix in [
@@ -763,6 +762,8 @@ class FileFailures(PyPlugin):
 
         def thread_fn(*args):
             status = res if isinstance(res, int) else res(*args)
+            if status is None:
+                status = -22 # EINVAL
             command_queue.put(("ret", status))
             assert response_queue.get() == ("end",)
 

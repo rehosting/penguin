@@ -3,6 +3,11 @@ from pandare import PyPlugin
 
 class CustomIoctl(PyPlugin):
     def ioctl(self, ctx, path, cmd, arg, details):
+
+        # The _IO() macro sets an upper bit on MIPS but not on other targets.
+        # Mask the command so the same test works on all targets.
+        cmd &= 0xffff
+
         match cmd:
             case 0x6621:
                 data = ctx.read_bytes(arg, 4)
