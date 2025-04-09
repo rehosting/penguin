@@ -763,7 +763,7 @@ class FileFailures(PyPlugin):
         def thread_fn(*args):
             status = res if isinstance(res, int) else res(*args)
             if status is None:
-                status = -22 # EINVAL
+                status = -22  # EINVAL
             command_queue.put(("ret", status))
             assert response_queue.get() == ("end",)
 
