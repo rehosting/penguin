@@ -15,6 +15,6 @@ if [ ! -z "${SHARED_DIR}" ]; then
   /igloo/utils/busybox echo '/igloo/shared/core_dumps/core_%e.%p' > /igloo/pfs/real/proc/sys/kernel/core_pattern
   # 2 all processes dump core when possible. The core dump is owned by the current user and no security is applied. This is intended for system debugging situations only. Ptrace is unchecked. This is insecure as it allows regular users to examine the memory contents of privileged processes.
   # https://sysctl-explorer.net/fs/suid_dumpable/
-  /igloo/utils/busybox echo 2 > /proc/sys/fs/suid_dumpable
+  /igloo/utils/busybox echo 2 > /igloo/pfs/real/proc/sys/fs/suid_dumpable
   ulimit -c unlimited
 fi
