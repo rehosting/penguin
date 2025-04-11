@@ -24,3 +24,4 @@ wget
 clang-11
 lld-11
 zlib1g
+pigz

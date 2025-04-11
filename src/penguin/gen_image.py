@@ -535,7 +535,7 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
         MODIFIED_TARBALL = Path(ARTIFACTS, f"fs_out_{suffix}.tar")
         config = load_config(proj_dir, config_path)
         with tempfile.TemporaryDirectory() as TMP_DIR:
-            contents = check_output(["tar", "xvpsf", IN_TARBALL, "-C", TMP_DIR]).splitlines()
+            contents = check_output(["tar", "-x", "--use-compress-program=pigz", "-vpf", IN_TARBALL, "-C", TMP_DIR]).splitlines()
             # Gracefully handle emptyfs
             if contents and contents[0] != b"./":
                 logger.warning("Filesystem tar does not have a leading ./")
@@ -545,7 +545,7 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
 
             prep_config(config)
             fs_make_config_changes(TMP_DIR, config, project_dir)
-            check_output(["tar", "czpf", MODIFIED_TARBALL, "-C", TMP_DIR, "."])
+            check_output(["tar", "-c", "--use-compress-program=pigz", "-pf", MODIFIED_TARBALL, "-C", TMP_DIR, "."])
         TARBALL = MODIFIED_TARBALL
     else:
         delete_tar = False
