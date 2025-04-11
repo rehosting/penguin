@@ -8,6 +8,7 @@ import socket
 from contextlib import contextmanager, closing
 from pathlib import Path
 from time import sleep
+from glob import glob
 
 from pandare2 import Panda
 
@@ -25,15 +26,18 @@ qemu_configs = {
     "armel": {
         "qemu_machine": "virt",
         "arch": "arm",
+        "kernel_fmt": "zImage",
     },
     "aarch64": {
         "qemu_machine": "virt",
         "kconf_group": "arm64",
         "cpu": "cortex-a57",
+        "kernel_fmt": "zImage",
     },
     "loongarch64": {
         "qemu_machine": "virt",
         "cpu": "la464",
+        "kernel_fmt": "vmlinuz.efi"
     },
     "mipsel": {
         "qemu_machine": "malta",
@@ -63,6 +67,7 @@ qemu_configs = {
         "qemu_machine": "pc",
         "arch": "x86_64",
         "kconf_group": "x86_64",
+        "kernel_fmt": "bzImage",
     },
 }
 
@@ -110,6 +115,18 @@ def redirect_stdout_stderr(stdout_path, stderr_path):
             # the log file (not stdout/stderr)?
             print("stdout or stderr is None - cannot restore")
 
+def get_kernel(conf, q_config):
+    if kernel := conf["core"].get("kernel", None):
+        return kernel
+    
+    kernel_fmt = q_config.get("kernel_fmt", "vmlinux")
+    kernels = glob(f"/igloo_static/kernels/*/{kernel_fmt}.{q_config['arch']}")
+    if len(kernels) == 0:
+        breakpoint()
+        raise ValueError(f"Kernel not found for {q_config['arch']}")
+    if len(kernels) > 1:
+        raise ValueError(f"Multiple kernels found for {q_config['arch']}: {kernels}")
+    return kernels[0]
 
 def run_config(
     proj_dir,
@@ -176,7 +193,13 @@ def run_config(
             )
 
     archend = conf["core"]["arch"]
-    kernel = conf["core"]["kernel"]
+    try:
+        q_config = qemu_configs[archend]
+        q_config["kconf_group"] = q_config.get("kconf_group", archend)
+        q_config["arch"] = q_config.get("arch", archend)
+    except KeyError:
+        raise ValueError(f"Unknown architecture: {archend}")
+    conf["core"]["kernel"] = get_kernel(conf, q_config)
     config_fs = os.path.join(proj_dir, conf["core"]["fs"])  # Path to tar filesystem
     plugin_path = (
         conf["core"]["plugin_path"]
@@ -190,8 +213,8 @@ def run_config(
         logger.info("Warning, expected dict of plugins, got list")
         conf_plugins = {plugin: {} for plugin in conf_plugins}
 
-    if not os.path.isfile(kernel):
-        raise ValueError(f"Kernel file invalid: {kernel}")
+    if not os.path.isfile(conf["core"]["kernel"]):
+        raise ValueError(f"Kernel file invalid: {conf['core']['kernel']}")
 
     if not os.path.isfile(config_fs):
         raise ValueError(f"Missing filesystem archive in base directory: {config_fs}")
@@ -244,13 +267,6 @@ def run_config(
         if os.path.getsize(config_image) == 0:
             os.remove(config_image)
             raise ValueError(f"GenImage produced empty image file: {config_image}")
-
-    try:
-        q_config = qemu_configs[archend]
-        q_config["kconf_group"] = q_config.get("kconf_group", archend)
-        q_config["arch"] = q_config.get("arch", archend)
-    except KeyError:
-        raise ValueError(f"Unknown architecture: {archend}")
 
     # We have to set up vsock args for qemu CLI arguments if we're using the vpn. We
     # special case this here and add the arguments to the plugin later
@@ -330,11 +346,9 @@ def run_config(
         "-M",
         machine_args,
         "-kernel",
-        kernel,
+        conf["core"]["kernel"],
         "-append",
         append,
-        "-display",
-        "none",
         "-device", "virtio-rng-pci",
         *drive_args,
     ]
@@ -342,11 +356,21 @@ def run_config(
         password = "IGLOOPassword!"
         logger.info(f"Setting VNC password to {password}")
         args += [
-            "-object", f"secret,id=vncpasswd,data=\"{password}\"",
-            "-vnc",    ":0,password-secret=vncpasswd",
+            "-object", f'secret,id=vncpasswd,data={password}',
+            "-vnc",    "0.0.0.0:0,password-secret=vncpasswd",
             "-device", "virtio-gpu",
             "-device", "virtio-keyboard-pci",
-            "-device", "virtio-mouse-pci"
+            "-device", "virtio-mouse-pci",
+            "-k", "en-us", 
+        ]
+        if "show_output" in conf["core"] and conf["core"]["show_output"]:
+            args += [
+                "-monitor", "stdio"
+            ]
+            
+    else:
+        args += [
+            "-display", "none",
         ]
     if q_config["arch"] == "loongarch64":
         args += ["-bios", "/igloo_static/loongarch64/bios-loong64-8.1.bin"]
@@ -372,8 +396,8 @@ def run_config(
         console_out = [
             "-serial",
             f"file:{out_dir}/console.log",
-            "-monitor",
-            "null",
+            # "-monitor",
+            # "null",
         ]  # ttyS0: guest console output
 
     if "shared_dir" in conf["core"]:

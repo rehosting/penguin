@@ -102,21 +102,6 @@ class Core(BaseModel):
         ),
     ]
 
-    @model_validator(mode="before")
-    def set_kernel_default(cls, values):
-        arch = values.get("arch")
-        kernel = values.get("kernel")
-        if kernel is None and arch is not None:
-            if arch == "armel":
-                values["kernel"] = "/igloo_static/kernels/4.10/zImage.armel"
-            elif arch == "aarch64":
-                values["kernel"] = "/igloo_static/kernels/4.10/zImage.arm64"
-            elif arch == "intel64":
-                values["kernel"] = "/igloo_static/kernels/4.10/bzImage.x86_64"
-            else:
-                values["kernel"] = f"/igloo_static/kernels/4.10/vmlinux.{arch}"
-        return values
-
     fs: Annotated[
         Optional[str],
         Field(

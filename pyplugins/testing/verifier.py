@@ -62,6 +62,26 @@ class Verifier(PyPlugin):
         else:
             self.logger.error(f"Test {name}: No strings to test for")
             return False
+    
+    def test_csv_contains(self, name, test_case):
+        f = join(self.outdir, test_case["file"])
+        if not exists(f):
+            self.logger.error(f"Test {name}: file not found at {f}")
+            return False
+
+        if "strings" in test_case:
+            test_strs = test_case["strings"]
+            with open(f, "r", encoding="latin-1") as f:
+                f_text = f.read()
+                return all([test_str in f_text for test_str in test_strs])
+        elif "string" in test_case:
+            test_str = test_case["string"]
+            with open(f, "r", encoding="latin-1") as f:
+                f_text = f.read()
+                return test_str in f_text
+        else:
+            self.logger.error(f"Test {name}: No strings to test for")
+            return False
 
     def test_yaml_contains(self, name, test_case):
         f = join(self.outdir, test_case["file"])
