@@ -42,11 +42,6 @@ def _validate_project(proj_dir, config_path):
             f"Config file {config_path} is not a valid unicode YAML file. Is it a firmware file instead of a configuration?"
         )
 
-    if not os.path.isfile(config["core"]["kernel"]):
-        # The config specifies where the kernel should be. Generally this is in
-        # /igloo_static/kernels, but it could be elsewhere.
-        raise RuntimeError(f"Base kernel not found: {config['core']['kernel']}")
-
     # XXX: Should we put this in results somewhere?
     # from .penguin_config import load_config
     # dump_config(config, config_path+".realized")
