@@ -1090,7 +1090,7 @@ Copy a file from the host into the guest
 |__Type__|string|
 
 
-##### `static_files.<string>.<type=move>.mode` Permissions of file
+##### `static_files.<string>.<type=move>.mode` Permissions of target file
 
 |||
 |-|-|
