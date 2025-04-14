@@ -148,7 +148,6 @@ def sort_file_failures(d):
     )
 
 
-
 class FileFailures(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
