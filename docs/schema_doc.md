@@ -1090,6 +1090,13 @@ Copy a file from the host into the guest
 |__Type__|string|
 
 
+##### `static_files.<string>.<type=move>.mode` Permissions of file
+
+|||
+|-|-|
+|__Type__|integer|
+
+
 #### `static_files.<string>.<type=shim>` Shim file
 
 
