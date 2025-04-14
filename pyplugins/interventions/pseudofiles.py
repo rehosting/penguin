@@ -119,6 +119,36 @@ def make_rwif(details, fn_ref):
     return rwif
 
 
+def get_total_counts(d):
+    """Get the sum of all "count" values of a nested dictionary"""
+    return (
+        (
+            d["count"]
+            if "count" in d else
+            sum(map(get_total_counts, d.values()))
+        )
+        if isinstance(d, dict) else 0
+    )
+
+
+def sort_file_failures(d):
+    """Get a sorted version of the file failures dictionary."""
+    # This relies on dict iteration being the same as insertion order,
+    # which is an implementation detail in CPython,
+    # but OrderedDict is harder to serialize with pyyaml.
+    return (
+        dict(
+            sorted(
+                ((k, sort_file_failures(v)) for k, v in d.items()),
+                key=lambda pair: get_total_counts(pair[1]),
+                reverse=True,
+            )
+        )
+        if isinstance(d, dict) else d
+    )
+
+
+
 class FileFailures(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
@@ -735,7 +765,8 @@ class FileFailures(PyPlugin):
     def dump_results(self):
         # Dump all file failures to disk as yaml
         with open(pjoin(self.outdir, outfile_missing), "w") as f:
-            yaml.dump(self.file_failures, f)
+            out = sort_file_failures(self.file_failures)
+            yaml.dump(out, f, sort_keys=False)
 
         if hasattr(self, "symex"):
             # Need to tell symex to export results as well
