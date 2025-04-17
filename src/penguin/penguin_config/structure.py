@@ -693,7 +693,7 @@ StaticFileAction = _union(
                     str,
                     Field(title="File to be moved to the specified location"),
                 ),
-                ("mode", int, Field(title="Permissions of target file")),
+                ("mode", Optional[int], Field(title="Permissions of target file", default=None)),
             ),
         ),
         dict(
