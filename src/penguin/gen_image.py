@@ -207,7 +207,7 @@ def _move_modify_guestfs(g, file_path, file):
         raise ValueError(f"Can't move {file['from']} as it doesn't exist")
     else:
         g.mv(file["from"], file_path)
-        if file["mode"]:
+        if "mode" in file:
             g.chmod(file["mode"], file_path)
 
 

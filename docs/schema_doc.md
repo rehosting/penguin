@@ -1094,7 +1094,8 @@ Copy a file from the host into the guest
 
 |||
 |-|-|
-|__Type__|integer|
+|__Type__|integer or null|
+|__Default__|`null`|
 
 
 #### `static_files.<string>.<type=shim>` Shim file
