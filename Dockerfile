@@ -546,7 +546,7 @@ RUN mkdir /igloo_static/utils.source && \
         ln -s "$file" /igloo_static/utils.source/"$(basename "$file")".all; \
     done
 RUN  cd /igloo_static && mv arm64/* aarch64/ && rm -rf arm64 && mkdir -p utils.bin && \
-    for arch in "aarch64" "armel" "mipsel" "mips64eb" "mips64el" "mipseb" "powerpc" "powerpcle" "powerpc64" "powerpc64l;e" "riscv32" "riscv64" "x86_64"; do \
+    for arch in "aarch64" "armel" "loongarch" "loongarch64" "mipsel" "mips64eb" "mips64el" "mipseb" "powerpc" "powerpcle" "powerpc64" "powerpc64le" "riscv32" "riscv64" "x86_64"; do \
         mkdir -p /igloo_static/vpn /igloo_static/console; \
         for file in /igloo_static/"$arch"/* ; do \
             if [ $(basename "$file") = *"vpn"* ]; then \
