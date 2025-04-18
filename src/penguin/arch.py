@@ -48,12 +48,12 @@ def arch_end(value):
     elif tmp.startswith("riscv64"):
         arch = "riscv64"
         end = "el"
-    elif tmp.startswith("ppc64"):
+    elif tmp.startswith("ppc"):
         arch = "powerpc64"
         end = "eb"
-    elif tmp.startswith("ppc"):
-        arch = "powerpc"
-        end = "eb"  # it can be either so we give it eb
+    # elif tmp.startswith("ppc"):
+        # arch = "powerpc"
+        # end = "eb"  # it can be either so we give it eb
     elif tmp.startswith("loongarch64"):
         arch = "loongarch64"
         end = "el"
