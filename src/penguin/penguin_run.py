@@ -308,7 +308,7 @@ def run_config(
             "vhost-user-vsock-pci,chardev=char0",
         ]
 
-        if "mips" not in q_config["arch"] and "ppc" not in q_config["arch"]:
+        if "mips" not in q_config["arch"]:#  and "ppc" not in q_config["arch"]:
             vsock_args.extend(["-numa", "node,memdev=mem0",])
 
     append = f"root={ROOTFS} init=/igloo/init console=ttyS0 rw panic=1"  # Required
@@ -319,12 +319,14 @@ def run_config(
     append += (
         " clocksource=jiffies nohz_full nohz=off no_timer_check"  # Improve determinism?
     )
-    append += " idle=poll acpi=off nosoftlockup"  # Improve determinism?
+    append += " idle=poll acpi=off nosoftlockup "  # Improve determinism?
     if vpn_enabled:
         append += f" CID={vpn_args['CID']} "
 
     if archend in ["armel", "aarch64"]:
         append = append.replace("console=ttyS0", "console=ttyAMA0")
+    elif archend in ["powerpc", "powerpc64", "powerpc64el"]:
+        append = append.replace("console=ttyS0", "console=hvc0 console=ttyS0")
 
     telnet_port = find_free_port()
     if telnet_port is None:
@@ -341,7 +343,7 @@ def run_config(
     no_snapshot_drive = f"file={config_image},id=hd0"
     snapshot_drive = no_snapshot_drive + ",cache=unsafe,snapshot=on"
     drive = snapshot_drive if conf["core"].get("immutable", True) else no_snapshot_drive
-    if vpn_enabled and ("mips" in q_config["arch"] and "ppc" not in q_config["arch"]):
+    if vpn_enabled and ("mips" in q_config["arch"]): # and "ppc" not in q_config["arch"]):
         machine_args = q_config["qemu_machine"]+",memory-backend=mem0"
     else:
         machine_args = q_config["qemu_machine"]
