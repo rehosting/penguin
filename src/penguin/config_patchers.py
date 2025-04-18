@@ -384,12 +384,20 @@ class BasePatch(PatchGenerator):
         elif arch == "loongarch64":
             self.arch_name = "loongarch64"
             self.arch_dir = "loongarch64"
+            self.dylib_dir = "loongarch"
         elif arch == "riscv64":
             self.arch_name = "riscv64"
             self.arch_dir = "riscv64"
         elif arch == "powerpc":
             self.arch_name = "powerpc"
             self.arch_dir = "powerpc"
+        elif arch == "powerpc64":
+            self.arch_name = "powerpc64"
+            self.arch_dir = "powerpc64"
+            self.dylib_dir = "ppc64"
+        elif arch == "powerpc64el":
+            self.arch_name = "powerpc64"
+            self.arch_dir = "powerpc64"
         else:
             self.arch_name = arch + endian
             self.arch_dir = f"{arch}{endian}"
