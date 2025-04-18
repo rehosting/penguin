@@ -1154,4 +1154,30 @@ Whether to enable this plugin (default depends on plugin)
 |__Default__|`null`|
 
 
+## `network` Network Configuration
+
+Configuration for networks to attach to guest
+
+### `network.external` Set up NAT for outgoing connections
+
+Configuration for NAT for external connections
+
+#### `network.external.mac` MAC Address for external interface
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`'52:54:00:12:34:56'`|
+
+MAC Address for external network interface
+
+#### `network.external.pcap` pcap file name
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Name of pcap file for capturing traffic over external net. Capture disabled if unset.
+
 
