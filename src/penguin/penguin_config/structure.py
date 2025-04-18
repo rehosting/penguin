@@ -763,6 +763,38 @@ class Plugin(BaseModel):
     version: Annotated[Optional[str], Field(None, title="Plugin version")]
 
 
+class ExternalNetwork(BaseModel):
+    """Configuration for NAT for external connections"""
+
+    model_config = ConfigDict(title="Set up NAT for outgoing connections", extra="forbid")
+
+    mac: Optional[str] = Field(
+        title="MAC Address for external interface",
+        default="52:54:00:12:34:56",
+        description="MAC Address for external network interface"
+    )
+
+    # Not supported until QEMU 4.0+
+    # net: Optional[str] = Field(
+    #     default="10.0.2.0/24",
+    #     description="Net for external interface (e.g., 10.0.2.0/24). Host will accessible via .2"
+    # )
+
+    pcap: Optional[str] = Field(
+        title="pcap file name",
+        default=None,
+        description="Name of pcap file for capturing traffic over external net. Capture disabled if unset."
+    )
+
+
+class Network(BaseModel):
+    """Configuration for networks to attach to guest"""
+
+    model_config = ConfigDict(title="Network Configuration", extra="forbid")
+
+    external: ExternalNetwork = Field(default_factory=ExternalNetwork)
+
+
 class Main(BaseModel):
     """Configuration file for config-file-based rehosting with IGLOO"""
 
@@ -779,3 +811,4 @@ class Main(BaseModel):
     lib_inject: LibInject
     static_files: StaticFiles
     plugins: Annotated[dict[str, Plugin], Field(title="Plugins")]
+    network: Optional[Network] = None

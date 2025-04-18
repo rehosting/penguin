@@ -381,6 +381,21 @@ def run_config(
     # Add args from config
     args += shlex.split(conf["core"].get("extra_qemu_args", ""))
 
+    # If we have network args
+    if network := conf.get("network", None):
+        if "external" in network:
+            mac = network["external"]["mac"]
+            arg_str = f"-netdev user,id=ext -device virtio-net-pci,netdev=ext,mac={mac}"
+            # Supported in future versions of QEMU
+            # if net := network["external"].get("net", None):
+            #     arg_str += ",net={net}"
+            if pcap := network["external"].get("pcap", None):
+                pcap_path = os.path.join(out_dir, pcap)
+                arg_str += f" -object filter-dump,id=fext,netdev=ext,file={pcap_path}"
+            args += shlex.split(arg_str)
+            conf["env"]["IGLOO_EXT_MAC"] = mac
+            logger.info(f"Starting external network on interface {mac}. Host is available on 10.0.2.2")
+
     # Disable audio (allegedly speeds up emulation by avoiding running another thread)
     os.environ["QEMU_AUDIO_DRV"] = "none"
 
