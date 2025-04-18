@@ -395,6 +395,20 @@ class BasePatch(PatchGenerator):
             self.arch_dir = f"{arch}{endian}"
 
     def generate(self, patches):
+        # Add serial device in pseudofiles
+        # This is because arm uses ttyAMA (major 204) and mips uses ttyS (major 4).
+        # XXX: For mips we use major 4, minor 65. For arm we use major 204, minor 65.
+        # For powerpc: major 229, minor 1 (hvc1)
+        if self.arch_name in ['armel', 'aarch64']:
+            igloo_serial_major = 204
+            igloo_serial_minor = 64
+        elif "powerpc" in self.arch_name:
+            igloo_serial_major = 229
+            igloo_serial_minor = 1
+        else:
+            igloo_serial_major = 4
+            igloo_serial_minor = 64
+
         result = {
             "core": {
                 "arch": self.arch_name,
@@ -467,15 +481,11 @@ class BasePatch(PatchGenerator):
                     "mode": 0o755,
                     "host_path": os.path.join(*[RESOURCES, "source.d", "*"]),
                 },
-
-                # Add serial device in pseudofiles
-                # XXX: For mips we use major 4, minor 65. For arm we use major 204, minor 65.
-                # This is because arm uses ttyAMA (major 204) and mips uses ttyS (major 4).
                 "/igloo/serial": {
                     "type": "dev",
                     "devtype": "char",
-                    "major": 204 if self.arch_name in ['armel', 'aarch64'] else 4,
-                    "minor": 65,
+                    "major": igloo_serial_major,
+                    "minor": igloo_serial_minor,
                     "mode": 0o666,
                 }
             },
