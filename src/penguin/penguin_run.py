@@ -26,7 +26,7 @@ qemu_configs = {
     "armel": {
         "qemu_machine": "virt",
         "arch": "arm",
-        "kernel_fmt": "zImage",
+        "kernel_whole": "zImage.armel",
     },
     "aarch64": {
         "qemu_machine": "virt",
@@ -55,13 +55,21 @@ qemu_configs = {
         "arch": "mips64",
         "cpu": "MIPS64R2-generic",
     },
-    "powerpc": {
-        "qemu_machine": "ppce500",
-        "arch": "ppc",
-        "cpu": "e500",
+    "powerpc64el": {
+        "qemu_machine": "pseries",
+        "arch": "ppc64",
+        "cpu": "power9",
+    },
+    "powerpc64": {
+        "qemu_machine": "pseries",
+        "arch": "ppc64",
+        "cpu": "power9",
+        "kconf_group": "powerpc64",
+        "kernel_whole": "vmlinux.powerpc64"
     },
     "riscv64": {
         "qemu_machine": "virt",
+        "kernel_fmt": "Image",
     },
     "intel64": {
         "qemu_machine": "pc",
@@ -120,13 +128,20 @@ def get_kernel(conf, q_config):
         return kernel
     
     kernel_fmt = q_config.get("kernel_fmt", "vmlinux")
-    kernels = glob(f"/igloo_static/kernels/*/{kernel_fmt}.{q_config['arch']}")
+    kernel_whole = q_config.get('kernel_whole', f"vmlinux.{q_config['arch']}")
+    options = [
+        f"/igloo_static/kernels/*/{kernel_fmt}.{q_config['arch']}",
+        f"/igloo_static/kernels/*/{kernel_whole}",
+    ]
+    for opt in options:
+        kernels = glob(opt)
+        if len(kernels) == 1:
+            return kernels[0]
+        elif len(kernels) != 0:
+            raise ValueError(f"Multiple kernels found for {q_config['arch']}: {kernels}")
     if len(kernels) == 0:
         breakpoint()
         raise ValueError(f"Kernel not found for {q_config['arch']}")
-    if len(kernels) > 1:
-        raise ValueError(f"Multiple kernels found for {q_config['arch']}: {kernels}")
-    return kernels[0]
 
 def run_config(
     proj_dir,
@@ -463,7 +478,7 @@ def run_config(
         panda.load_plugin(
             "osi_linux",
             args={
-                "kconf_file": os.path.join(os.path.dirname(kernel), "osi.config"),
+                "kconf_file": os.path.join(os.path.dirname(conf["core"]["kernel"]), "osi.config"),
                 "pagewalk": True,
                 "kconf_group": q_config["kconf_group"],
                 "hypercall": True,
