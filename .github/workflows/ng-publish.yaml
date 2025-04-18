@@ -1,0 +1,66 @@
+name: Release Container
+
+on:
+  push:
+    branches:
+      - ng
+jobs:
+    build_container:
+        runs-on: rehosting-arc
+
+        steps:
+          - name: Setup runner
+            run: |
+                  sudo apt-get update;
+                  sudo apt-get install -yy curl jq
+
+          - name: Get next version
+            uses: reecetech/version-increment@2024.10.1
+            id: version
+            with:
+              release_branch: ng
+              tag_prefix: ng-
+              use_api: true
+          - name: Log in to Docker Hub
+            uses: docker/login-action@v3
+            with:
+              username: rehosting
+              password: ${{secrets.DOCKERHUB_TOKEN}}
+         
+          - name: Install dependencies and label git workspace safe
+            run: |
+              sudo apt-get update
+              sudo apt-get -y install git curl jq gzip tmux
+              git config --global --add safe.directory "$GITHUB_WORKSPACE"
+            
+          - name: Checkout code
+            uses: actions/checkout@v4
+            with:
+              fetch-depth: 0
+              ref: ${{ github.ref }}
+
+          - name: Build Docker image and push to Dockerhub
+            uses: docker/build-push-action@v6.3.0
+            with:
+              context: .
+              push: true
+              cache-from: type=registry,ref=rehosting/penguin:ng-latest
+              cache-to: type=inline
+              tags: rehosting/penguin:${{ steps.version.outputs.prefixed-v-version }},rehosting/penguin:ng-latest
+              build-args: |
+                OVERRIDE_VERSION=${{ steps.version.outputs.v-version }}
+          
+          - name: Create release
+            id: create_release
+            uses: softprops/action-gh-release@v2.2.1
+            env:
+              GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            with:
+              tag_name: ${{ steps.version.outputs.prefixed-v-version }}
+              name: Release ${{ steps.version.outputs.prefixed-v-version }} ${{ github.ref }}
+              body: |
+                Release ${{ steps.version.outputs.prefixed-v-version }} @${{ github.ref }}
+              draft: false
+              generate_release_notes: true
+              prerelease: false
+              target_commitish: ${{ github.ref }}
