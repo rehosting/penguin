@@ -19,7 +19,7 @@ ARG VHOST_DEVICE_VERSION="vhost-device-vsock-v0.2.0"
 ARG FW2TAR_TAG="rust-rewrite"
 ARG RIPGREP_VERSION="14.1.1"
 
-FROM rust as rust_builder
+FROM rust:1.86 as rust_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
 ARG VHOST_DEVICE_VERSION
 ENV PATH="/root/.cargo/bin:$PATH"
