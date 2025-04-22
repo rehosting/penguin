@@ -27,7 +27,7 @@ ENV CARGO_INSTALL_ROOT="/usr/local"
 
 RUN apt-get update && apt-get install -y -q build-essential libfontconfig1-dev liblzma-dev
 
-RUN cargo install binwalk --target x86_64-unknown-linux-gnu
+RUN cargo install binwalk --target x86_64-unknown-linux-gnu --locked
 
 ARG FW2TAR_TAG
 ARG DOWNLOAD_TOKEN
