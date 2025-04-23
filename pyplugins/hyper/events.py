@@ -21,7 +21,7 @@ EVENTS = {
     204:        ('igloo_ipv4_release',    (str, int)),
     205:        ('igloo_ipv6_release',    (str, int)),
     300:        ('igloo_uname',           (int, int)),
-    305:        ('igloo_hyp_enoent',      (str)),
+    305:        ('igloo_hyp_enoent',      (str,)),
     0xB335A535: ('igloo_send_hypercall',  (None, int, int)),
     0x8507FAE1: ('igloo_shell',           (int, int, int)),  # crc32("busybox")
 }
