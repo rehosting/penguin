@@ -65,13 +65,13 @@ ARCH_ABI_INFO = dict(
         libnvram_arch_name="ppc64",
         default_abi="default",
         abis=dict(
-            ppc32=dict(
+            default=dict(
                 target_triple="powerpc-linux-musl",
                 libnvram_arch_name="ppc",
                 musl_arch_name="powerpc",
                 m_flags=dict(),
             ),
-            default=dict(
+            ppc64=dict(
                 musl_arch_name="powerpc64",
                 m_flags=dict(),
             ),
@@ -82,12 +82,12 @@ ARCH_ABI_INFO = dict(
         libnvram_arch_name="ppc64le",
         default_abi="default",
         abis=dict(
-            ppc32=dict(
+            default=dict(
                 target_triple="powerpcle-linux-musl",
                 musl_arch_name="powerpc",
                 m_flags=dict(),
             ),
-            default=dict(
+            ppc64=dict(
                 musl_arch_name="powerpc64le",
                 m_flags=dict(),
             ),
