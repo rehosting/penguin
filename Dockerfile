@@ -3,11 +3,11 @@ ARG BASE_IMAGE="ubuntu:22.04"
 ARG DOWNLOAD_TOKEN="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"
 ARG VPN_VERSION="1.0.24"
 ARG BUSYBOX_VERSION="0.0.15"
-ARG LINUX_VERSION="3.0.4-beta"
+ARG LINUX_VERSION="3.0.8-beta"
 ARG LIBNVRAM_VERSION="0.0.19"
 ARG CONSOLE_VERSION="1.0.7"
-ARG HYPERFS_VERSION="0.0.39"
 ARG GUESTHOPPER_VERSION="1.0.16"
+ARG HYPERFS_VERSION="0.0.40"
 ARG GLOW_VERSION="1.5.1"
 ARG GUM_VERSION="0.14.5"
 ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
@@ -15,8 +15,8 @@ ARG LTRACE_PROTOTYPES_HASH="9db3bdee7cf3e11c87d8cc7673d4d25b"
 ARG MUSL_VERSION="1.2.5"
 ARG VHOST_DEVICE_VERSION="vhost-device-vsock-v0.2.0"
 ARG FW2TAR_TAG="v2.0.1"
-ARG PANDA_VERSION="pandav0.0.33"
-ARG PANDANG_VERSION="0.0.19"
+ARG PANDA_VERSION="pandav0.0.35"
+ARG PANDANG_VERSION="0.0.21"
 ARG RIPGREP_VERSION="14.1.1"
 
 FROM rust:1.86 as rust_builder
@@ -186,7 +186,9 @@ RUN cd /tmp && \
 FROM ghcr.io/rehosting/embedded-toolchains:latest AS cross_builder
 COPY ./guest-utils/native/send_hypercall.c /
 RUN cd / && \
-  mkdir -p out/mipseb out/mips64eb out/mipsel out/mips64el  out/armel out/aarch64 out/x86_64 && \
+  mkdir -p out/mipseb out/mips64eb out/mipsel out/mips64el  out/armel out/aarch64 out/x86_64 \
+    out/powerpc out/powerpcle out/powerpc64 out/powerpc64le out/riscv32 out/riscv64  \
+    out/loongarch64 && \
   wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h && \
   mipseb-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/mipseb/send_hypercall && \
   mips64eb-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/mips64eb/send_hypercall  && \
@@ -194,6 +196,11 @@ RUN cd / && \
   mipsel-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/mipsel/send_hypercall && \
   arm-linux-musleabi-gcc -s -static send_hypercall.c -o out/armel/send_hypercall && \
   aarch64-linux-musl-gcc -s -static send_hypercall.c -o out/aarch64/send_hypercall && \
+  loongarch64-unknown-linux-gnu-gcc -s -static send_hypercall.c -o out/loongarch64/send_hypercall && \
+  riscv64-linux-musl-gcc -s -static send_hypercall.c -o out/riscv64/send_hypercall && \
+  powerpc64-linux-musl-gcc -s -static send_hypercall.c -o out/powerpc64/send_hypercall && \
+  powerpc64le-linux-musl-gcc -s -static send_hypercall.c -o out/powerpc64le/send_hypercall && \
+  powerpc-linux-musl-gcc -s -static send_hypercall.c -o out/powerpc/send_hypercall && \
   x86_64-linux-musl-gcc -s -static send_hypercall.c -o out/x86_64/send_hypercall
 
 #### QEMU BUILDER: Build qemu-img ####
@@ -564,8 +571,13 @@ RUN mkdir /igloo_static/utils.source && \
     for file in /igloo_static/guest-utils/scripts/*; do \
         ln -s "$file" /igloo_static/utils.source/"$(basename "$file")".all; \
     done
-RUN  cd /igloo_static && mv arm64/* aarch64/ && rm -rf arm64 && mkdir -p utils.bin && \
-    for arch in "aarch64" "armel" "loongarch" "loongarch64" "mipsel" "mips64eb" "mips64el" "mipseb" "powerpc" "powerpcle" "powerpc64" "powerpc64le" "riscv32" "riscv64" "x86_64"; do \
+RUN  cd /igloo_static &&  \
+    mv arm64/* aarch64/ && rm -rf arm64 && \
+    mv loongarch/* loongarch64 && rm -rf loongarch && \
+    mv ppc64/* powerpc64 && rm -rf ppc64 && \
+    mv ppc/* powerpc && rm -rf ppc && \
+    mkdir -p utils.bin && \
+    for arch in "aarch64" "armel" "loongarch64" "mipsel" "mips64eb" "mips64el" "mipseb" "powerpc" "powerpcle" "powerpc64" "ppc64" "powerpc64le" "riscv32" "riscv64" "x86_64"; do \
         mkdir -p /igloo_static/vpn /igloo_static/console; \
         for file in /igloo_static/"$arch"/* ; do \
             if [ $(basename "$file") = *"vpn"* ]; then \
