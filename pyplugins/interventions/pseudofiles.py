@@ -338,7 +338,7 @@ class FileFailures(PyPlugin):
         # set retval to 0 with no error.
         syscall.retval = 0
 
-    def hyp_enoent(self, file):
+    def hyp_enoent(self, cpu, file):
         if any(file.startswith(x) for x in ("/dev/", "/proc/", "/sys/")):
             self.centralized_log(file, "syscall")
 
