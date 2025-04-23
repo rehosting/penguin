@@ -123,10 +123,11 @@ def redirect_stdout_stderr(stdout_path, stderr_path):
             # the log file (not stdout/stderr)?
             print("stdout or stderr is None - cannot restore")
 
+
 def get_kernel(conf, q_config):
     if kernel := conf["core"].get("kernel", None):
         return kernel
-    
+
     kernel_fmt = q_config.get("kernel_fmt", "vmlinux")
     kernel_whole = q_config.get('kernel_whole', f"vmlinux.{q_config['arch']}")
     options = [
@@ -141,6 +142,7 @@ def get_kernel(conf, q_config):
             raise ValueError(f"Multiple kernels found for {q_config['arch']}: {kernels}")
     if len(kernels) == 0:
         raise ValueError(f"Kernel not found for {q_config['arch']}")
+
 
 def run_config(
     proj_dir,
@@ -307,7 +309,7 @@ def run_config(
             "vhost-user-vsock-pci,chardev=char0",
         ]
 
-        if "mips" not in q_config["arch"]:#  and "ppc" not in q_config["arch"]:
+        if "mips" not in q_config["arch"]:   # and "ppc" not in q_config["arch"]:
             vsock_args.extend(["-numa", "node,memdev=mem0",])
 
     append = f"root={ROOTFS} init=/igloo/init console=ttyS0 rw panic=1"  # Required
@@ -342,7 +344,7 @@ def run_config(
     no_snapshot_drive = f"file={config_image},id=hd0"
     snapshot_drive = no_snapshot_drive + ",cache=unsafe,snapshot=on"
     drive = snapshot_drive if conf["core"].get("immutable", True) else no_snapshot_drive
-    if vpn_enabled and ("mips" in q_config["arch"]): # and "ppc" not in q_config["arch"]):
+    if vpn_enabled and ("mips" in q_config["arch"]):  # and "ppc" not in q_config["arch"]):
         machine_args = q_config["qemu_machine"]+",memory-backend=mem0"
     else:
         machine_args = q_config["qemu_machine"]
@@ -377,13 +379,13 @@ def run_config(
             "-device", "virtio-gpu",
             "-device", "virtio-keyboard-pci",
             "-device", "virtio-mouse-pci",
-            "-k", "en-us", 
+            "-k", "en-us",
         ]
         if "show_output" in conf["core"] and conf["core"]["show_output"]:
             args += [
                 "-monitor", "stdio"
             ]
-            
+
     else:
         args += [
             "-display", "none",

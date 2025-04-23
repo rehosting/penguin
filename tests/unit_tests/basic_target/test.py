@@ -106,7 +106,7 @@ def run_test(kernel, arch, image):
 
 DEFAULT_KERNELS = ['6.13']
 DEFAULT_ARCHES = ['armel', 'aarch64',
-                  'mipsel', 'mipseb', 'mips64el', 'mips64eb', 
+                  'mipsel', 'mipseb', 'mips64el', 'mips64eb',
                   'powerpc64', 'riscv64', 'loongarch64',
                   'x86_64']
 
