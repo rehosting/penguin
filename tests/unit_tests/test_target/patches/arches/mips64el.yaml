@@ -1,6 +1,5 @@
 core:
   arch: mips64el
-  kernel: /igloo_static/kernels/4.10/vmlinux.mips64el
 
 static_files:
   /igloo/utils/busybox:
@@ -14,10 +13,6 @@ static_files:
   /igloo/utils/micropython:
     type: host_file
     host_path: /igloo_static/utils.bin/micropython.mips64el
-    mode: 493
-  /igloo/utils/hyperfs:
-    type: host_file
-    host_path: /igloo_static/utils.bin/hyperfs.mips64el
     mode: 493
   /igloo/utils/send_hypercall:
     type: host_file
