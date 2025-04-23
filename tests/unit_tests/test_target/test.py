@@ -49,7 +49,7 @@ def run_test(kernel, arch, image):
     with open(base_config, "r") as file:
         base_config = yaml.safe_load(file)
 
-    base_config["patches"].append(f"patches/arches/{arch}-{kernel}.yaml")
+    base_config["patches"].append(f"patches/arches/{arch}.yaml")
 
     with open(new_config, "w") as file:
         yaml.dump(base_config, file, sort_keys=False)
@@ -59,8 +59,11 @@ def run_test(kernel, arch, image):
     logger.info("Test completed")
 
 
-DEFAULT_KERNELS = ['4.10']
-DEFAULT_ARCHES = ['armel', 'aarch64', 'mipsel', 'mipseb', 'mips64el', 'mips64eb', 'x86_64']
+DEFAULT_KERNELS = ['6.13']
+DEFAULT_ARCHES = ['armel', 'aarch64',
+                  'mipsel', 'mipseb', 'mips64el', 'mips64eb',
+                  'powerpc64', 'riscv64', 'loongarch64',
+                  'x86_64']
 
 
 @click.command()
