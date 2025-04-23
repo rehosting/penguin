@@ -1,7 +1,5 @@
 import logging
-import pickle
 import re
-import struct
 from collections import Counter
 from copy import deepcopy
 from os.path import dirname, isfile, isabs
@@ -36,7 +34,6 @@ KNOWN_PATHS = [
 try:
     from penguin import yaml
     from penguin.analyses import PenguinAnalysis
-    from penguin.arch import arch_end
     from penguin.graphs import Configuration, Failure, Mitigation
 except ImportError:
     # We can still run as a PyPlugin, but we can't do post-run analysis
