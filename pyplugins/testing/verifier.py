@@ -119,7 +119,7 @@ class Verifier(PyPlugin):
         kind_f = join(testcase_outdir, kind)
         val = ""
         if exists(kind_f):
-            val = open(kind_f).read()
+            val = open(kind_f, encoding="latin-1").read()
         return val
 
     def check_test_cases(self):
