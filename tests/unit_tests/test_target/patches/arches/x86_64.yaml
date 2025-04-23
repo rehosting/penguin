@@ -1,6 +1,5 @@
 core:
   arch: intel64
-  kernel: /igloo_static/kernels/4.10/bzImage.x86_64
 
 static_files:
   /igloo/utils/busybox:
@@ -14,10 +13,6 @@ static_files:
   /igloo/utils/micropython:
     type: host_file
     host_path: /igloo_static/utils.bin/micropython.x86_64
-    mode: 493
-  /igloo/utils/hyperfs:
-    type: host_file
-    host_path: /igloo_static/utils.bin/hyperfs.x86_64
     mode: 493
   /igloo/utils/send_hypercall:
     type: host_file
