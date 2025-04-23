@@ -10,7 +10,7 @@ Core configuration options for this rehosting
 
 |||
 |-|-|
-|__Type__|`"armel"` or `"aarch64"` or `"mipsel"` or `"mipseb"` or `"mips64el"` or `"mips64eb"` or `"intel64"` or null|
+|__Type__|`"armel"` or `"aarch64"` or `"mipsel"` or `"mipseb"` or `"mips64el"` or `"mips64eb"` or `"powerpc"` or `"powerpc64"` or `"powerpc64le"` or `"riscv64"` or `"loongarch64"` or `"intel64"` or null|
 |__Default__|`null`|
 
 
@@ -359,6 +359,44 @@ Allows users to customize memory allocation for guest
 |__Default__|`true`|
 
 If true, the kernel command line will include the quiet flag, otherwise all kernel boot messages will be printed to the console
+
+```yaml
+false
+```
+
+```yaml
+true
+```
+
+### `core.smp` Number of CPUs
+
+|||
+|-|-|
+|__Type__|integer or null|
+|__Default__|`1`|
+
+Number of CPUs to emulate in the guest (Warning: This can break things)
+
+```yaml
+1
+```
+
+```yaml
+2
+```
+
+```yaml
+4
+```
+
+### `core.graphics` Enable graphics
+
+|||
+|-|-|
+|__Type__|boolean|
+|__Default__|`false`|
+
+Whether to enable graphics in the guest
 
 ```yaml
 false
