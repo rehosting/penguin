@@ -43,9 +43,9 @@ jobs:
             with:
               context: .
               push: true
-              cache-from: type=registry,ref=rehosting/penguin:latest
+              cache-from: type=registry,ref=rehosting/penguin:ng-latest
               cache-to: type=inline
-              tags: rehosting/penguin:${{ github.sha }},rehosting/penguin:ng-${{ steps.version.outputs.prefixed-v-version }},rehosting/penguin:ng-latest
+              tags: rehosting/penguin:ng-${{ steps.version.outputs.prefixed-v-version }},rehosting/penguin:ng-latest
               build-args: |
                 OVERRIDE_VERSION=${{ steps.version.outputs.v-version }}
           
