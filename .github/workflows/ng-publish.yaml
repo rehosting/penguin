@@ -47,7 +47,7 @@ jobs:
               cache-to: type=inline
               tags: rehosting/penguin:${{ github.sha }},rehosting/penguin:ng-${{ steps.version.outputs.prefixed-v-version }},rehosting/penguin:ng-latest
               build-args: |
-                OVERRIDE_VERSION=${{ steps.version.outputs.prefixed-v-version }}
+                OVERRIDE_VERSION=${{ steps.version.outputs.v-version }}-ng
           
           - name: Create release
             id: create_release
