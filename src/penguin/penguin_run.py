@@ -140,7 +140,6 @@ def get_kernel(conf, q_config):
         elif len(kernels) != 0:
             raise ValueError(f"Multiple kernels found for {q_config['arch']}: {kernels}")
     if len(kernels) == 0:
-        breakpoint()
         raise ValueError(f"Kernel not found for {q_config['arch']}")
 
 def run_config(
