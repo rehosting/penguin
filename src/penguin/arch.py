@@ -43,7 +43,7 @@ def arch_end(value):
         arch = "intel64"
         end = "el"
     elif tmp.startswith("riscv32"):
-        arch = "riscv64" # just use riscv64
+        arch = "riscv64"  # just use riscv64
         end = "el"
     elif tmp.startswith("riscv64"):
         arch = "riscv64"
