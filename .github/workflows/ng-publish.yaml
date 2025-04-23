@@ -45,9 +45,9 @@ jobs:
               push: true
               cache-from: type=registry,ref=rehosting/penguin:latest
               cache-to: type=inline
-              tags: rehosting/penguin:${{ github.sha }},rehosting/penguin:ng-${{ steps.version.outputs.v-version }},rehosting/penguin:ng-latest
+              tags: rehosting/penguin:${{ github.sha }},rehosting/penguin:ng-${{ steps.version.outputs.prefixed-v-version }},rehosting/penguin:ng-latest
               build-args: |
-                OVERRIDE_VERSION=${{ steps.version.outputs.v-version }}
+                OVERRIDE_VERSION=${{ steps.version.outputs.prefixed-v-version }}
           
           - name: Create release
             id: create_release
@@ -55,10 +55,10 @@ jobs:
             env:
               GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             with:
-              tag_name: ${{ steps.version.outputs.v-version }}
-              name: Release ${{ steps.version.outputs.v-version }} ${{ github.ref }}
+              tag_name: ${{ steps.version.outputs.prefixed-v-version }}
+              name: Release ${{ steps.version.outputs.prefixed-v-version }} ${{ github.ref }}
               body: |
-                Release ${{ steps.version.outputs.v-version }} @${{ github.ref }}
+                Release ${{ steps.version.outputs.prefixed-v-version }} @${{ github.ref }}
               draft: false
               generate_release_notes: true
               prerelease: false
