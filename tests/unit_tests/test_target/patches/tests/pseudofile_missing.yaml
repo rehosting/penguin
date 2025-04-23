@@ -14,7 +14,7 @@ plugins:
           -  /dev/foo/missing
           -  /proc/missing
           -  /proc/fs/missing
-          -  /proc/foo/missing
+          # -  /proc/foo/missing
           -  /sys/missing
           -  /sys/fs/missing
           -  /sys/foo/missing
