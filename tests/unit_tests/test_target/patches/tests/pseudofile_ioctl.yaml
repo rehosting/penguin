@@ -12,15 +12,15 @@ plugins:
           /dev/foo/present:
             ioctl:
               799:
-                count: 4
+                count: 2
           /dev/fs/present:
             ioctl:
               799:
-                count: 4
+                count: 2
           /dev/present:
             ioctl:
               799:
-                count: 4
+                count: 2
 
 pseudofiles:
   /dev/present: {}

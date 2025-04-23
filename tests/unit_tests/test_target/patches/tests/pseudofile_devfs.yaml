@@ -8,7 +8,7 @@ plugins:
       pseudofile_devfs+log:
         type: file_contains
         file: shared/tests/pseudofile_devfs.sh/stdout
-        string: "[bioset]"
+        string: "[kworker"
 
 pseudofiles:
   /dev/test1: {}

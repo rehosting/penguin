@@ -1,6 +1,5 @@
 core:
   arch: armel
-  kernel: /igloo_static/kernels/4.10/zImage.armel
 
 static_files:
   /igloo/utils/busybox:
@@ -14,10 +13,6 @@ static_files:
   /igloo/utils/micropython:
     type: host_file
     host_path: /igloo_static/utils.bin/micropython.armel
-    mode: 493
-  /igloo/utils/hyperfs:
-    type: host_file
-    host_path: /igloo_static/utils.bin/hyperfs.armel
     mode: 493
   /igloo/utils/send_hypercall:
     type: host_file
