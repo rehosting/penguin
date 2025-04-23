@@ -8,7 +8,7 @@ plugins:
       pseudofile_sysfs+stdout:
         type: file_contains
         file: shared/tests/pseudofile_sysfs.sh/stdout
-        string: "[bioset]"
+        string: "[kworker"
 
 pseudofiles:
   /sys/foo/mytest: {}
@@ -49,4 +49,5 @@ static_files:
       echo "Everything is good"
       echo "Passed all init checks"
       /igloo/utils/busybox ps aux
+      exit 0
     mode: 73
