@@ -212,11 +212,11 @@ def arch_filter(elf):
     elif arch == "mips":
         return _identify_mips_arch(header)
     elif arch == "riscv":
-       return ArchInfo(arch=f"{arch}{_elf_bits(elf.header)}", bits=_elf_bits(elf.header))
+        return ArchInfo(arch=f"{arch}{_elf_bits(elf.header)}", bits=_elf_bits(elf.header))
     elif arch == "ppc":
         # same for big and little
-       return ArchInfo(arch="ppc", bits=_elf_bits(elf.header))
-    
+        return ArchInfo(arch="ppc", bits=_elf_bits(elf.header))
+
     # Other architectures get eb suffix if big-endian. mips/arm are handled in their helpers
     if header.e_ident.get("EI_DATA", None) == "ELFDATA2MSB":
         arch += "eb"
