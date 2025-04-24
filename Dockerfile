@@ -2,7 +2,7 @@
 ARG BASE_IMAGE="ubuntu:22.04"
 ARG DOWNLOAD_TOKEN="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"
 ARG BUSYBOX_VERSION="0.0.15"
-ARG LINUX_VERSION="3.0.9-beta"
+ARG LINUX_VERSION="3.0.10-beta"
 ARG LIBNVRAM_VERSION="0.0.19"
 ARG CONSOLE_VERSION="1.0.7"
 ARG VPN_VERSION="1.0.21"
@@ -557,7 +557,7 @@ RUN  cd /igloo_static &&  \
     mv ppc64/* powerpc64 && rm -rf ppc64 && \
     mv ppc/* powerpc && rm -rf ppc && \
     mkdir -p utils.bin && \
-    for arch in "aarch64" "armel" "loongarch64" "mipsel" "mips64eb" "mips64el" "mipseb" "powerpc" "powerpcle" "powerpc64" "ppc64" "powerpc64le" "riscv32" "riscv64" "x86_64"; do \
+    for arch in "aarch64" "armel" "loongarch64" "mipsel" "mips64eb" "mips64el" "mipseb" "powerpc" "powerpcle" "powerpc64" "powerpc64le" "riscv32" "riscv64" "x86_64"; do \
         mkdir -p /igloo_static/vpn /igloo_static/console; \
         for file in /igloo_static/"$arch"/* ; do \
             if [ $(basename "$file") = *"vpn"* ]; then \
