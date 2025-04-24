@@ -4,23 +4,23 @@ core:
 static_files:
   /igloo/utils/busybox:
     type: host_file
-    host_path: /igloo_static/utils.bin/busybox.loongarch
+    host_path: /igloo_static/utils.bin/busybox.loongarch64
     mode: 493
   /igloo/utils/strace:
     type: host_file
-    host_path: /igloo_static/utils.bin/strace.loongarch
+    host_path: /igloo_static/utils.bin/strace.loongarch64
     mode: 493
   /igloo/utils/micropython:
     type: host_file
-    host_path: /igloo_static/utils.bin/micropython.loongarch
+    host_path: /igloo_static/utils.bin/micropython.loongarch64
     mode: 493
   /igloo/utils/send_hypercall:
     type: host_file
-    host_path: /igloo_static/utils.bin/send_hypercall.loongarch
+    host_path: /igloo_static/utils.bin/send_hypercall.loongarch64
     mode: 493
   /igloo/utils/vpn:
     type: host_file
-    host_path: /igloo_static/vpn/vpn.loongarch
+    host_path: /igloo_static/vpn/vpn.loongarch64
     mode: 493
   /igloo/dylibs/*:
     host_path: /igloo_static/dylibs/loongarch/*
