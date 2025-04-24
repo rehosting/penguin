@@ -209,9 +209,12 @@ def add_lib_inject_for_abi(config, abi):
         'libnvram_arch_name', None) or arch_info['libnvram_arch_name']
     aliases = lib_inject.get("aliases", dict())
 
+    hash_options = "-Wl,--hash-style=both" if "mips" not in arch else ""
+
     args = (
         ["clang-20", "-fuse-ld=lld", "-Oz", "-shared", "-nostdlib", "-nostdinc",
-         "-Wl,--hash-style=both"]
+         hash_options
+         ]
         + [
             f"-m{key.replace('_', '-')}={value}"
             for key, value in abi_info["m_flags"].items()
