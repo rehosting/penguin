@@ -32,7 +32,7 @@ qemu_configs = {
         "qemu_machine": "virt",
         "kconf_group": "arm64",
         "cpu": "cortex-a57",
-        "kernel_fmt": "zImage",
+        "kernel_whole": "zImage.arm64",
     },
     "loongarch64": {
         "qemu_machine": "virt",
@@ -45,14 +45,17 @@ qemu_configs = {
     "mipseb": {
         "qemu_machine": "malta",
         "arch": "mips",
+        "kernel_whole": "vmlinux.mipseb"
     },
     "mips64el": {
         "qemu_machine": "malta",
         "cpu": "MIPS64R2-generic",
+        "kernel_whole": "vmlinux.mips64el",
     },
     "mips64eb": {
         "qemu_machine": "malta",
         "arch": "mips64",
+        "kernel_whole": "vmlinux.mips64eb",
         "cpu": "MIPS64R2-generic",
     },
     "powerpc64el": {
