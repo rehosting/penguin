@@ -20,7 +20,7 @@ static_files:
     mode: 493
   /igloo/utils/vpn:
     type: host_file
-    host_path: /igloo_static/vpn/vpn.aarch64
+    host_path: /igloo_static/vpn/vpn.armel
     mode: 493
   /igloo/dylibs/*:
     host_path: /igloo_static/dylibs/arm64/*
