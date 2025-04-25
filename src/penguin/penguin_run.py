@@ -357,6 +357,12 @@ def run_config(
             "-device", "virtio-blk-device,drive=hd0",
             "-drive", drive,
         ]
+    elif "mips" in q_config["arch"]:
+        drive += ",if=none"
+        drive_args = [
+            "-device", "virtio-blk-pci,drive=hd0,disable-modern=on,disable-legacy=off",
+            "-drive", drive,
+        ]
     else:
         drive += ",if=virtio"
         drive_args = [
