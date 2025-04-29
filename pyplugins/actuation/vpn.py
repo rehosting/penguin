@@ -54,7 +54,8 @@ class VPN(PyPlugin):
         self.launch_host_vpn(self.get_arg("CID"),
                              self.get_arg("socket_path"),
                              self.get_arg("uds_path"),
-                             self.get_arg_bool("log"))
+                             self.get_arg_bool("log"),
+                             self.get_arg_bool("pcap"))
 
         port_maps = self.get_arg("IGLOO_VPN_PORT_MAPS")
         self.seen_ips = set()  # IPs we've seen
@@ -124,7 +125,7 @@ class VPN(PyPlugin):
         # Whenever NetLog detects a bind, we'll set up bridges
         plugins.subscribe(plugins.NetBinds, "on_bind", self.on_bind)
 
-    def launch_host_vpn(self, CID, socket_path, uds_path, log=False):
+    def launch_host_vpn(self, CID, socket_path, uds_path, log=False, pcap=False):
         '''
         Launch vhost-device-vsock and VPN on host
         '''
@@ -157,7 +158,9 @@ class VPN(PyPlugin):
         ]
         if log:
             host_vpn_cmd.extend(["-o", self.outdir])
-        self.host_vpn = subprocess.Popen(host_vpn_cmd, stdout=subprocess.DEVNULL)
+        if pcap:
+            host_vpn_cmd.extend(["-l", join(self.outdir, "vpn.pcap")])
+        self.host_vpn = subprocess.Popen(host_vpn_cmd, stdout=subprocess.DEVNULL, stderr=None)
         running_vpns.append(self.host_vpn)
 
     def on_bind(self, sock_type, ipvn, ip, port, procname):
@@ -316,6 +319,7 @@ class VPN(PyPlugin):
 
         if hasattr(self, "host_vpn"):
             self.host_vpn.terminate()
+            self.host_vpn.wait(timeout=2)  # Wait for logged packets to flush
             self.host_vpn.kill()
             running_vpns[:] = [x for x in running_vpns if x != self.host_vpn]
         self.logger.debug("Killed VPN")
