@@ -226,7 +226,7 @@ def add_lib_inject_for_abi(config, abi):
             headers_dir,
             f"-DCONFIG_{libnvram_arch_name.upper()}=1",
             "/igloo_static/libnvram/nvram.c",
-            "/igloo_static/guest-utils/native/inject_ltrace.c",
+            "/igloo_static/guest-utils/ltrace/inject_ltrace.c",
             "--language",
             "c",
             "-",
