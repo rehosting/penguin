@@ -171,24 +171,9 @@ RUN cd /tmp && \
 
 #### CROSS BUILDER: Build send_hypercall ###
 FROM ghcr.io/rehosting/embedded-toolchains:latest AS cross_builder
-COPY ./guest-utils/native/send_hypercall.c /
-RUN cd / && \
-  mkdir -p out/mipseb out/mips64eb out/mipsel out/mips64el  out/armel out/aarch64 out/x86_64 \
-    out/powerpc out/powerpcle out/powerpc64 out/powerpc64le out/riscv32 out/riscv64  \
-    out/loongarch64 && \
-  wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h && \
-  mipseb-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/mipseb/send_hypercall && \
-  mips64eb-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/mips64eb/send_hypercall  && \
-  mips64el-linux-musl-gcc -mips64r2 -s -static send_hypercall.c -o out/mips64el/send_hypercall  && \
-  mipsel-linux-musl-gcc -mips32r3 -s -static send_hypercall.c -o out/mipsel/send_hypercall && \
-  arm-linux-musleabi-gcc -s -static send_hypercall.c -o out/armel/send_hypercall && \
-  aarch64-linux-musl-gcc -s -static send_hypercall.c -o out/aarch64/send_hypercall && \
-  loongarch64-unknown-linux-gnu-gcc -s -static send_hypercall.c -o out/loongarch64/send_hypercall && \
-  riscv64-linux-musl-gcc -s -static send_hypercall.c -o out/riscv64/send_hypercall && \
-  powerpc64-linux-musl-gcc -s -static send_hypercall.c -o out/powerpc64/send_hypercall && \
-  powerpc64le-linux-musl-gcc -s -static send_hypercall.c -o out/powerpc64le/send_hypercall && \
-  powerpc-linux-musl-gcc -s -static send_hypercall.c -o out/powerpc/send_hypercall && \
-  x86_64-linux-musl-gcc -s -static send_hypercall.c -o out/x86_64/send_hypercall
+COPY ./guest-utils/native/ /source
+WORKDIR /source
+RUN make all
 
 #### QEMU BUILDER: Build qemu-img ####
 FROM $BASE_IMAGE AS qemu_builder
@@ -420,7 +405,7 @@ COPY --from=nmap_builder /build/nmap /usr/local/
 COPY --from=downloader /tmp/ltrace /igloo_static/ltrace
 
 # Copy source and binaries from host
-COPY --from=cross_builder /out /igloo_static/
+COPY --from=cross_builder /source/out /igloo_static/
 COPY guest-utils /igloo_static/guest-utils
 COPY --from=vhost_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
 
