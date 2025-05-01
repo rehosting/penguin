@@ -63,3 +63,4 @@ jobs:
               draft: false
               generate_release_notes: true
               prerelease: false
+              target_commitish: ${{ github.ref }}
