@@ -37,6 +37,7 @@ jobs:
             uses: actions/checkout@v4
             with:
               fetch-depth: 0
+              ref: ${{ github.ref }}
 
           - name: Build Docker image and push to Dockerhub
             uses: docker/build-push-action@v6.3.0
