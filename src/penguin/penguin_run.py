@@ -389,8 +389,8 @@ def run_config(
             # Supported in future versions of QEMU
             # if net := network["external"].get("net", None):
             #     arg_str += ",net={net}"
-            if pcap := network["external"].get("pcap", None):
-                pcap_path = os.path.join(out_dir, pcap)
+            if network["external"].get("pcap"):
+                pcap_path = os.path.join(out_dir, "ext.pcap")
                 arg_str += f" -object filter-dump,id=fext,netdev=ext,file={pcap_path}"
             args += shlex.split(arg_str)
             conf["env"]["IGLOO_EXT_MAC"] = mac

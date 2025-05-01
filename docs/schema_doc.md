@@ -1175,9 +1175,9 @@ MAC Address for external network interface
 
 |||
 |-|-|
-|__Type__|string or null|
+|__Type__|boolean or null|
 |__Default__|`null`|
 
-Name of pcap file for capturing traffic over external net. Capture disabled if unset.
+Whether to capture traffic over the external net in a pcap file. The file will be called 'ext.pcap' in the output directory. Capture disabled if unset.
 
 
