@@ -50,6 +50,10 @@ class VPN(PyPlugin):
 
         self.outdir = self.get_arg("outdir")
 
+        self.logger = getColoredLogger("plugins.VPN")
+        if self.get_arg_bool("verbose"):
+            self.logger.setLevel("DEBUG")
+
         # TODO: add option on whether or not to pass -o to host vpn
         self.launch_host_vpn(self.get_arg("CID"),
                              self.get_arg("socket_path"),
@@ -62,10 +66,6 @@ class VPN(PyPlugin):
         self.wild_ips = set()  # (sock_type, port, procname) tuples
         self.mapped_ports = set()  # Ports we've mapped
         self.active_listeners = set()  # (proto, port)
-
-        self.logger = getColoredLogger("plugins.VPN")
-        if self.get_arg_bool("verbose"):
-            self.logger.setLevel("DEBUG")
 
         # Check if we have CONTAINER_{IP,NAME} in env
         self.exposed_ip = env.get("CONTAINER_IP", "127.0.0.1")
@@ -159,7 +159,9 @@ class VPN(PyPlugin):
         if log:
             host_vpn_cmd.extend(["-o", self.outdir])
         if pcap:
-            host_vpn_cmd.extend(["-l", join(self.outdir, "vpn.pcap")])
+            pcap_path = join(self.outdir, "vpn.pcap")
+            self.logger.info(f"VPN logging traffic to {pcap_path}")
+            host_vpn_cmd.extend(["-l", pcap_path])
         self.host_vpn = subprocess.Popen(host_vpn_cmd, stdout=subprocess.DEVNULL, stderr=None)
         running_vpns.append(self.host_vpn)
 
