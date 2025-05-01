@@ -539,10 +539,10 @@ RUN mkdir /igloo_static/utils.source && \
     for file in /igloo_static/guest-utils/scripts/*; do \
         ln -s "$file" /igloo_static/utils.source/"$(basename "$file")".all; \
     done
-    # mv loongarch/* loongarch64 && rm -rf loongarch && \
-    # mv ppc64/* powerpc64 && rm -rf ppc64 && \
-    # mv ppc/* powerpc && rm -rf ppc && \
 RUN  cd /igloo_static &&  \
+    mv loongarch/* loongarch64 && rm -rf loongarch && \
+    mv ppc64/* powerpc64 && rm -rf ppc64 && \
+    mv ppc/* powerpc && rm -rf ppc && \
     mv arm64/* aarch64/ && rm -rf arm64 && \
     mkdir -p utils.bin && \
     for arch in "aarch64" "armel" "loongarch64" "mipsel" "mips64eb" "mips64el" "mipseb" "powerpc" "powerpcle" "powerpc64" "powerpc64le" "riscv32" "riscv64" "x86_64"; do \
