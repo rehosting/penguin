@@ -376,7 +376,7 @@ def run_config(
         conf["core"]["kernel"],
         "-append",
         append,
-        "-device", "virtio-rng-pci",
+        # "-device", "virtio-rng-pci",
         *drive_args,
     ]
     if conf["core"].get("graphics", False):
