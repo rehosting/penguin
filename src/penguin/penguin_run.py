@@ -391,6 +391,7 @@ def run_config(
             #     arg_str += ",net={net}"
             if network["external"].get("pcap"):
                 pcap_path = os.path.join(out_dir, "ext.pcap")
+                logger.info(f"Logging external traffic to {pcap_path}")
                 arg_str += f" -object filter-dump,id=fext,netdev=ext,file={pcap_path}"
             args += shlex.split(arg_str)
             conf["env"]["IGLOO_EXT_MAC"] = mac
