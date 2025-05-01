@@ -144,6 +144,8 @@ RUN /get_release.sh rehosting vpnguin ${VPN_VERSION} ${DOWNLOAD_TOKEN} | \
 ARG HYPERFS_VERSION
 RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} | \
   tar xzf - -C / && \
+  /get_release.sh rehosting hyperfs 0.0.38 ${DOWNLOAD_TOKEN} | \
+  tar xzf - -C / && \
   cp -r /result/utils/* /igloo_static/ && \
   mv /result/dylibs /igloo_static/dylibs && \
   rm -rf /result
@@ -556,11 +558,11 @@ RUN mkdir /igloo_static/utils.source && \
     for file in /igloo_static/guest-utils/scripts/*; do \
         ln -s "$file" /igloo_static/utils.source/"$(basename "$file")".all; \
     done
+    # mv loongarch/* loongarch64 && rm -rf loongarch && \
+    # mv ppc64/* powerpc64 && rm -rf ppc64 && \
+    # mv ppc/* powerpc && rm -rf ppc && \
 RUN  cd /igloo_static &&  \
     mv arm64/* aarch64/ && rm -rf arm64 && \
-    mv loongarch/* loongarch64 && rm -rf loongarch && \
-    mv ppc64/* powerpc64 && rm -rf ppc64 && \
-    mv ppc/* powerpc && rm -rf ppc && \
     mkdir -p utils.bin && \
     for arch in "aarch64" "armel" "loongarch64" "mipsel" "mips64eb" "mips64el" "mipseb" "powerpc" "powerpcle" "powerpc64" "powerpc64le" "riscv32" "riscv64" "x86_64"; do \
         mkdir -p /igloo_static/vpn /igloo_static/console; \
