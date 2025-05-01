@@ -780,10 +780,10 @@ class ExternalNetwork(BaseModel):
     #     description="Net for external interface (e.g., 10.0.2.0/24). Host will accessible via .2"
     # )
 
-    pcap: Optional[str] = Field(
+    pcap: Optional[bool] = Field(
         title="pcap file name",
         default=None,
-        description="Name of pcap file for capturing traffic over external net. Capture disabled if unset."
+        description="Whether to capture traffic over the external net in a pcap file. The file will be called 'ext.pcap' in the output directory. Capture disabled if unset."
     )
 
 
