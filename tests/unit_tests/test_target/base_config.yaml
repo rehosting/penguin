@@ -32,6 +32,7 @@ patches:
   - ./patches/tests/pseudofile_readdir.yaml
   - ./patches/tests/pseudofile_sysfs.yaml
   - ./patches/tests/shared_dir.yaml
+  - ./patches/tests/syscall.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 
