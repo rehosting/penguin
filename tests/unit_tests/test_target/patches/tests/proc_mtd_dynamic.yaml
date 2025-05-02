@@ -17,8 +17,18 @@ static_files:
       #!/igloo/utils/micropython
 
       import ffi
-
-      lib_inject = ffi.open("lib_inject.so")
+      import sys
+      options = ["lib_inject.so", "/igloo/lib_inject_default.so",
+          "/igloo/lib_inject_ppc64.so"]
+      for option in options:
+        try:
+          lib_inject = ffi.open(option)
+          break
+        except OSError as e:
+          print(f"Error loading {option}:", e)
+      else:
+        print("Error loading any of the lib_inject libraries.")
+        sys.exit(1)
 
       strstr = lib_inject.func("s", "libinject_strstr", "ss")
 
