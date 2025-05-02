@@ -14,6 +14,10 @@ static_files:
     type: host_file
     host_path: /igloo_static/utils.bin/micropython.mips64eb
     mode: 493
+  /igloo/utils/send_syscall:
+    type: host_file
+    host_path: /igloo_static/utils.bin/send_syscall.mips64eb
+    mode: 493
   /igloo/utils/send_hypercall:
     type: host_file
     host_path: /igloo_static/utils.bin/send_hypercall.mips64eb
