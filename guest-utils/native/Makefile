@@ -43,12 +43,17 @@ CC_loongarch64 = loongarch64-unknown-linux-gnu-gcc
 CFLAGS_loongarch64 = -s -static
 
 .PHONY: all clean
-all: $(foreach arch,$(ARCHS),out/$(arch)/send_hypercall) $(foreach arch,$(ARCHS),out/$(arch)/send_syscall)
+ALL_CS := $(basename $(notdir $(wildcard *.c)))
+all: $(foreach arch,$(ARCHS),$(foreach bin,$(ALL_CS),out/$(arch)/$(bin)))
 
 hypercall.h:
 	wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h
 
 out/%/send_hypercall: send_hypercall.c hypercall.h
+	@mkdir -p $(dir $@)
+	$(CC_$*) $(CFLAGS_$*) $< -o $@
+
+out/%/send_hypercall_raw: send_hypercall_raw.c hypercall.h
 	@mkdir -p $(dir $@)
 	$(CC_$*) $(CFLAGS_$*) $< -o $@
 
