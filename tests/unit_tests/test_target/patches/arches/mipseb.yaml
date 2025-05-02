@@ -18,6 +18,10 @@ static_files:
     type: host_file
     host_path: /igloo_static/utils.bin/send_hypercall.mipseb
     mode: 493
+  /igloo/utils/send_hypercall_raw:
+    type: host_file
+    host_path: /igloo_static/utils.bin/send_hypercall_raw.mipseb
+    mode: 493
   /igloo/utils/vpn:
     type: host_file
     host_path: /igloo_static/vpn/vpn.mipseb
