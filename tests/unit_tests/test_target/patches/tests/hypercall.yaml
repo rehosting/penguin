@@ -1,0 +1,25 @@
+plugins:
+  hypercall_test: {}
+  verifier:
+    conditions:
+      hypercall_hypervisor_test:
+        type: file_contains
+        file: hypercall_test.txt
+        string: "Hypercall test: passed"
+      hypercall_guest+stdout:
+        type: file_contains
+        file: shared/tests/hypercall.sh/stdout
+        string: "do_hypercall returned: 13"
+
+static_files:
+  /tests/hypercall.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+      /igloo/utils/send_hypercall_raw 0xcafebabe 0xdeadbeeff1f1f1f1 0x1337c0defeedc0de 0xdeadbeeff1f1f1f2 0x1337c0def2f2f2f2
+      if [ $? -ne 13 ]; then
+        echo "Error: Hypercall failed"
+        exit 1
+      fi
+    mode: 73
