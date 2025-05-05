@@ -124,16 +124,18 @@ class Core(PyPlugin):
             # If a timeout is provided, enforce it
             timeout = int(self.get_arg("timeout"))
 
+            # Not supported in ng.
+            # Simple plugin that just counts the number of blocks executed
             # Log info on how many blocks get executed
-            log_path = self.outdir + "/core_shutdown.csv"
-            panda.load_plugin(
-                "timeout",
-                {
-                    # "bb_limit": BB_MAX,
-                    # 'unique_bbs': UNIQUE,
-                    "log": log_path
-                },
-            )
+            # log_path = self.outdir + "/core_shutdown.csv"
+            # panda.load_plugin(
+            #     "timeout",
+            #     {
+            #         # "bb_limit": BB_MAX,
+            #         # 'unique_bbs': UNIQUE,
+            #         "log": log_path
+            #     },
+            # )
 
             self.shutdown_event = threading.Event()
             self.shutdown_thread = threading.Thread(
