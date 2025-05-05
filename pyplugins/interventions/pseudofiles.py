@@ -504,7 +504,7 @@ class FileFailures(PyPlugin):
         config_args = [
            f"{k}" + (f"={v}" if v is not None else "") for k, v in sorted(self.get_arg("conf").get("env").items())
         ]
-        env_val = "\n".join([base64.b64encode(i.encode()).decode() for i in config_args])
+        env_val = "\n".join([base64.b64encode(i.encode()).decode() for i in config_args]) + "\n"
         data = env_val.encode()
         if offset > len(data):
             return (b"", 0)
