@@ -368,7 +368,7 @@ def run_config(
         drive_args = [
             "-drive", drive,
         ]
-    
+
     if conf["core"].get("extra_kernel_args", None):
         append += " " + conf["core"]["extra_kernel_args"]
 

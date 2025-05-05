@@ -6,6 +6,7 @@ from os.path import dirname, isfile, isabs
 from os.path import join as pjoin
 from sys import path as syspath
 from typing import List
+import base64
 from pandare2 import PyPlugin
 from penguin import getColoredLogger, plugins
 
@@ -29,6 +30,7 @@ KNOWN_PATHS = [
     "/dev/urandom",  # Standard devices we should see in devtmpfs
     # TODO: pull in devices like how we do during static analysis (e.g., /resources/proc_sys.txt)
     "/proc/penguin_net",
+    "/proc/penguin_env",
 ]
 
 try:
@@ -288,6 +290,12 @@ class FileFailures(PyPlugin):
                 "size": len(netdev_val),
             }
 
+        if len(self.get_arg("conf").get("env", {})):
+            hf_config["/proc/penguin_env"] = {
+                HYPER_READ: make_rwif({}, self.read_dynamic_env),
+                "size": 0,
+            }
+
         hf_config["/proc/mtd"] = {
             # Note we don't use our make_rwif closure helper here because these are static
             HYPER_READ: self.proc_mtd_check,
@@ -491,6 +499,17 @@ class FileFailures(PyPlugin):
         data = b""
         # XXX if offset > len(data) should we return an error instead of 0?
         return (data, 0)  # data, rv
+
+    def read_dynamic_env(self, filename, buffer, length, offset, details=None):
+        config_args = [
+           f"{k}" + (f"={v}" if v is not None else "") for k, v in sorted(self.get_arg("conf").get("env").items())
+        ]
+        env_val = "\n".join([base64.b64encode(i.encode()).decode() for i in config_args])
+        data = env_val.encode()
+        if offset > len(data):
+            return (b"", 0)
+        final_data = data[offset: offset + length]
+        return (final_data, len(final_data))
 
     def read_const_buf(self, filename, buffer, length, offset, details=None):
         data = details["val"].encode() + b"\x00"  # Null terminate?
