@@ -235,6 +235,15 @@ class Core(BaseModel):
             examples=["-vnc :0 -vga std -device usb-kbd -device usb-tablet"],
         ),
     ]
+    extra_kernel_args: Annotated[
+        Optional[str],
+        Field(
+            None,
+            title="Extra kernel arguments",
+            description="A list of additional kernel command-line arguments to use when booting the guest",
+            examples=["console=ttyS0,115200", "root=/dev/ram0"],
+        ),
+    ]
     mem: Annotated[
         Optional[str],
         Field(

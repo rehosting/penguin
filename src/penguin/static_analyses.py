@@ -436,6 +436,7 @@ class PseudofileFinder(StaticAnalysis):
         "pagetypeinfo",
         "partitions",
         "penguin_net",  # This is custom and unique but we shouldn't ever shadow it
+        "penguin_env",  # This is custom and unique but we shouldn't ever shadow it
         "sched_debug",
         "slabinfo",
         "softirqs",
