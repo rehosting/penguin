@@ -368,6 +368,9 @@ def run_config(
         drive_args = [
             "-drive", drive,
         ]
+    
+    if conf["core"].get("extra_kernel_args", None):
+        append += " " + conf["core"]["extra_kernel_args"]
 
     args = [
         "-M",
@@ -526,32 +529,6 @@ def run_config(
     args.update(vpn_args)
     plugins.initialize(panda, args)
     plugins.load_plugins(conf_plugins)
-
-    # XXX HACK: normally panda args are set at the constructor. But we want to load
-    # our plugins first and these need a handle to panda. So after we've constructed
-    # our panda object, we'll directly insert our args into panda.panda_args in
-    # the string entry after the "-append" argument which is a string list of
-    # the kernel append args. We put our values at the start of this list
-
-    # Find the argument after '-append' in the list and re-render it based on updated env
-    append_idx = panda.panda_args.index("-append") + 1
-
-    config_args = [
-        f"{k}" + (f"={v}" if v is not None else "") for k, v in conf["env"].items()
-    ]
-
-    # We had some args originally (e.g., rootfs), not from our config, so
-    # we need to keep those.
-    # XXX: This is a bit hacky. We want users to be able to clobber args by prioritizing config
-    # args first, but we need to know the start of the string too. So let's say a user can't change
-    # the root=/dev/vda argument and put that first. Then config args. Then the rest of the args
-    root_str = f"root={ROOTFS}"
-    panda.panda_args[append_idx] = (
-        root_str
-        + " "
-        + " ".join(config_args)
-        + panda.panda_args[append_idx].replace(root_str, "")
-    )
 
     @panda.cb_pre_shutdown
     def pre_shutdown():
