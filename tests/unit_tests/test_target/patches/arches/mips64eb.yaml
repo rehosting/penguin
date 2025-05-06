@@ -2,38 +2,10 @@ core:
   arch: mips64eb
 
 static_files:
-  /igloo/utils/busybox:
-    type: host_file
-    host_path: /igloo_static/utils.bin/busybox.mips64eb
+  /igloo/utils/*:
+    host_path: /igloo_static/mips64eb/*
     mode: 493
-  /igloo/utils/strace:
     type: host_file
-    host_path: /igloo_static/utils.bin/strace.mips64eb
-    mode: 493
-  /igloo/utils/micropython:
-    type: host_file
-    host_path: /igloo_static/utils.bin/micropython.mips64eb
-    mode: 493
-  /igloo/utils/send_syscall:
-    type: host_file
-    host_path: /igloo_static/utils.bin/send_syscall.mips64eb
-    mode: 493
-  /igloo/utils/send_hypercall:
-    type: host_file
-    host_path: /igloo_static/utils.bin/send_hypercall.mips64eb
-    mode: 493
-  /igloo/utils/send_hypercall_raw:
-    type: host_file
-    host_path: /igloo_static/utils.bin/send_hypercall_raw.mips64eb
-    mode: 493
-  /igloo/utils/test_ioctl_interaction:
-    type: host_file
-    host_path: /igloo_static/utils.bin/test_ioctl_interaction.mips64eb
-    mode: 493
-  /igloo/utils/vpn:
-    type: host_file
-    host_path: /igloo_static/vpn/vpn.mips64eb
-    mode: 493
   /igloo/dylibs/*:
     host_path: /igloo_static/dylibs/mips64eb/*
     mode: 493
