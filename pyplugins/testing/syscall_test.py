@@ -24,6 +24,45 @@ class SyscallTest(PyPlugin):
         self.success_getpid = None
         self.reported_clone = False
         self.reported_getpid = False
+        self.panda.hsyscall("on_sys_ioctl_return", comm_filter="send_syscall",
+                            arg_filter=[0x13])(self.ioctl_ret)
+        self.panda.hsyscall("on_sys_ioctl_return", comm_filter="send_syscall",
+                            arg_filter=[0x13, 0x1234])(self.ioctl_ret2)
+        self.panda.hsyscall("on_sys_ioctl_return", comm_filter="send_syscall",
+                            arg_filter=[0x13, 0x1234, 0xabcd])(self.ioctl_ret3)
+        self.panda.hsyscall("on_sys_ioctl_return", comm_filter="nosend_syscall",
+                            arg_filter=[None, 0x1234])(self.ioctl_noret)
+        self.ioctl_ret_num = 0
+        self.ioctl_ret2_num = 0
+        self.ioctl_ret3_num = 0
+
+    def ioctl_ret(self, cpu, proto, syscall, hook, fd, op, arg):
+        self.ioctl_ret_num += 1
+        assert fd == 0x13, f"Expected op 0x13, got {fd:#x}"
+        with open(join(self.outdir, "syscall_test.txt"), "a") as f:
+            f.write(f"Syscall ioctl_reg: success {self.ioctl_ret_num}\n")
+
+    def ioctl_ret2(self, cpu, proto, syscall, hook, fd, op, arg):
+        self.ioctl_ret2_num += 1
+        assert fd == 0x13, f"Expected op 0x13, got {fd:#x}"
+        assert op == 0x1234, f"Expected op 0x1234, got {op:#x}"
+        assert self.ioctl_ret2_num <= 2, "ioctl_ret2 Called too many times"
+        with open(join(self.outdir, "syscall_test.txt"), "a") as f:
+            f.write(f"Syscall ioctl_reg2: success {self.ioctl_ret2_num}\n")
+
+    def ioctl_ret3(self, cpu, proto, syscall, hook, fd, op, arg):
+        self.ioctl_ret3_num += 1
+        assert fd == 0x13, f"Expected op 0x13, got {fd:#x}"
+        assert op == 0x1234, f"Expected op 0x1234, got {op:#x}"
+        assert arg == 0xabcd, f"Expected op 0xabcd, got {arg:#x}"
+        assert self.ioctl_ret3_num <= 3, "ioctl_ret3 Called too many times"
+        with open(join(self.outdir, "syscall_test.txt"), "a") as f:
+            f.write(f"Syscall ioctl_reg3: success {self.ioctl_ret3_num}\n")
+
+    def ioctl_noret(self, cpu, proto, syscall, hook, fd, op, arg):
+        # this shouldn't be called
+        with open(join(self.outdir, "syscall_test.txt"), "a") as f:
+            f.write("Syscall ioctl_noret: failure\n")
 
     def getpid(self, cpu, proto, syscall, hook, *args):
         proc = self.panda.plugins['osi'].get_current_process(cpu)
