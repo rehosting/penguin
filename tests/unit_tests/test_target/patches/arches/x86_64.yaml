@@ -2,38 +2,10 @@ core:
   arch: intel64
 
 static_files:
-  /igloo/utils/busybox:
-    type: host_file
-    host_path: /igloo_static/utils.bin/busybox.x86_64
+  /igloo/utils/*:
+    host_path: /igloo_static/x86_64/*
     mode: 493
-  /igloo/utils/strace:
     type: host_file
-    host_path: /igloo_static/utils.bin/strace.x86_64
-    mode: 493
-  /igloo/utils/micropython:
-    type: host_file
-    host_path: /igloo_static/utils.bin/micropython.x86_64
-    mode: 493
-  /igloo/utils/send_syscall:
-    type: host_file
-    host_path: /igloo_static/utils.bin/send_syscall.x86_64
-    mode: 493
-  /igloo/utils/send_hypercall:
-    type: host_file
-    host_path: /igloo_static/utils.bin/send_hypercall.x86_64
-    mode: 493
-  /igloo/utils/send_hypercall_raw:
-    type: host_file
-    host_path: /igloo_static/utils.bin/send_hypercall_raw.x86_64
-    mode: 493
-  /igloo/utils/test_ioctl_interaction:
-    type: host_file
-    host_path: /igloo_static/utils.bin/test_ioctl_interaction.x86_64
-    mode: 493
-  /igloo/utils/vpn:
-    type: host_file
-    host_path: /igloo_static/vpn/vpn.x86_64
-    mode: 493
   /igloo/dylibs/*:
     host_path: /igloo_static/dylibs/x86_64/*
     mode: 493
