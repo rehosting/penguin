@@ -743,7 +743,8 @@ class LibrarySymbols(StaticAnalysis):
                     for symname, offset in found_syms.items():
                         symbols[(tmpless_path, symname)] = offset
                     for key, value in found_nvram.items():
-                        nvram[(tmpless_path, key)] = value
+                        nvram_key = key.rsplit(":", 1)[-1]  # Handle case of value coming from ar
+                        nvram[(tmpless_path, nvram_key)] = value
 
         # Raw data will be library path -> key -> value
         nvram_values = {}
