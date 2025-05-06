@@ -26,6 +26,10 @@ static_files:
     type: host_file
     host_path: /igloo_static/utils.bin/send_hypercall_raw.aarch64
     mode: 493
+  /igloo/utils/test_ioctl_interaction:
+    type: host_file
+    host_path: /igloo_static/utils.bin/test_ioctl_interaction.aarch64
+    mode: 493
   /igloo/utils/vpn:
     type: host_file
     host_path: /igloo_static/vpn/vpn.armel

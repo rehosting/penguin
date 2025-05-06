@@ -1,0 +1,28 @@
+plugins:
+  ioctl_interaction_test: {}
+  verifier:
+    conditions:
+      ioctl_guest+esw_reg_value:
+        type: file_contains
+        file: shared/tests/ioctl_interaction.sh/stdout
+        string: "Returned esw_reg value (val): 0x12345678 (305419896)"
+      ioctl_guest+stdout_retval:
+        type: file_contains
+        file: shared/tests/ioctl_interaction.sh/stdout
+        string: "IOCTL command sent successfully! returned 1"
+      ioctl_guest+stdout_retval2:
+        type: file_contains
+        file: shared/tests/ioctl_interaction.sh/stdout
+        string: "IOCTL command sent successfully! returned 2"
+
+static_files:
+  /tests/ioctl_interaction.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -x
+      # Test standard network interface ioctl
+      /igloo/utils/test_ioctl_interaction 0x89F0 eth0 0x1338c0de
+      /igloo/utils/test_ioctl_interaction 0x89F1 eth1 --offset 0x34
+      exit 0
+    mode: 73
