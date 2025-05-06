@@ -11,6 +11,8 @@ from elftools.elf.sections import SymbolTableSection
 from collections import Counter
 from pathlib import Path
 from penguin import getColoredLogger
+import tempfile
+import subprocess
 
 from .arch import arch_filter, arch_end
 logger = getColoredLogger("penguin.static_analyses")
@@ -896,6 +898,26 @@ class LibrarySymbols(StaticAnalysis):
 
         symbols = {}  # Symbol name -> relative(?) address
         nvram_data = {}  # key -> value (may be empty string)
+
+        # Check if the file is an ar archive
+        try:
+            with open(elf_path, 'rb') as f:
+                archive = f.read(8) == b"!<arch>\n"
+
+            if archive:
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    subprocess.run(["ar", "x", elf_path], cwd=temp_dir, check=True)
+                    for obj_file in os.listdir(temp_dir):
+                        obj_path = os.path.join(temp_dir, obj_file)
+                        found_nvram, found_syms = LibrarySymbols._analyze_library(obj_path, archend)
+                        archive_key = f"{os.path.basename(elf_path)}:{obj_file}"
+                        symbols.update({f"{archive_key}:{k}": v for k, v in found_syms.items()})
+                        nvram_data.update({f"{archive_key}:{k}": v for k, v in found_nvram.items()})
+                return nvram_data, symbols
+        except CalledProcessError as e:
+            logger.error(f"Error processing archive {elf_path}: {e.output.decode('utf-8', errors='ignore')}")
+
+        # Handle ELF files
         try:
             if nm_out := check_output(["nm", "-D", "--defined-only", elf_path],
                                       stderr=STDOUT):
@@ -909,6 +931,8 @@ class LibrarySymbols(StaticAnalysis):
                             addr = int(addr, 16)
                             if addr != 0:
                                 symbols[name] = addr
+                        elif line.strip().endswith("no symbols"):
+                            continue
                         else:
                             logger.warning(f"Unexpected nm output format: {line}")
         except CalledProcessError as e:
