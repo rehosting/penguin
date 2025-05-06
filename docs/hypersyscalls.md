@@ -124,6 +124,47 @@ def log_all_returns(cpu, proto, syscall, hook):
     print(f"{proto.name}({', '.join(str(a) for a in syscall.args)}) = {syscall.retval}")
 ```
 
+### Filtering Syscalls by Process Name
+
+You can filter syscalls to only monitor specific processes by process name:
+
+```python
+@panda.hsyscall("on_sys_open_enter", comm_filter="nginx")
+def on_nginx_open(cpu, proto, syscall, hook, filename, flags, mode):
+    print(f"nginx is opening file: {filename}")
+```
+
+### Filtering Syscalls by Argument Values
+
+You can also filter syscalls based on specific argument values:
+
+```python
+# Only intercept reads from file descriptor 0 (stdin)
+@panda.hsyscall("on_sys_read_enter", arg_filter=[0])
+def on_stdin_read(cpu, proto, syscall, hook, fd, buf, count):
+    print(f"Reading from stdin, buffer at {buf}, count: {count}")
+
+# Multiple argument filters can be combined
+@panda.hsyscall("on_sys_write_enter", arg_filter=[1, 100])
+def on_specific_write(cpu, proto, syscall, hook, fd, buf, count):
+    print(f"Writing exactly 100 bytes to stdout (fd 1)")
+    
+# You can use None to skip checking specific arguments
+@panda.hsyscall("on_sys_ioctl_enter", arg_filter=[0x13, None, 0xabcd])
+def on_specific_ioctl(cpu, proto, syscall, hook, fd, cmd, arg):
+    print(f"ioctl with fd 0x13 and arg 0xabcd (cmd can be any value)")
+```
+
+### Combining Process and Argument Filtering
+
+You can combine both process and argument filtering for more precise targeting:
+
+```python
+@panda.hsyscall("on_sys_open_enter", comm_filter="apache2", arg_filter=[None, 0])
+def on_apache_readonly_open(cpu, proto, syscall, hook, filename, flags, mode):
+    print(f"apache2 is opening {filename} in read-only mode")
+```
+
 ### Hooking Unknown Syscalls
 
 ```python
@@ -146,8 +187,6 @@ def unknown_syscall(cpu, proto, syscall, hook):
 | **Modification**       | Can modify syscall arguments, skip syscalls, and change return values via the `syscall` object | Can also modify, but may be less reliable due to introspection limitations |
 | **Performance**        | Slight overhead due to guest-hypervisor communication | Lower overhead, but less robust |
 | **Use case**           | Best for research, fuzzing, or analysis where guest can be modified | Best for quick analysis of standard OSes without guest changes |
-
----
 
 ---
 
