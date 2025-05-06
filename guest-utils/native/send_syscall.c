@@ -42,6 +42,9 @@ int main(int argc, char **argv)
             } else if (strcmp(argv[i + 1], "getpid") == 0) {
                 syscall_args[i] = SYS_getpid;
                 continue;
+            } else if (strcmp(argv[i + 1], "ioctl") == 0) {
+                syscall_args[i] = SYS_ioctl;
+                continue;
             }
         }
         // Try to convert from hex
