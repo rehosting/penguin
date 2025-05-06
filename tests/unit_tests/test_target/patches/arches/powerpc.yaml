@@ -2,39 +2,11 @@ core:
   arch: powerpc
 
 static_files:
-  /igloo/utils/busybox:
-    type: host_file
-    host_path: /igloo_static/utils.bin/busybox.powerpc
+  /igloo/utils/*:
+    host_path: /igloo_static/powerpc/*
     mode: 493
-  /igloo/utils/strace:
     type: host_file
-    host_path: /igloo_static/utils.bin/strace.powerpc
+  /igloo/dylibs/*:
+    host_path: /igloo_static/dylibs/powerpc/*
     mode: 493
-  /igloo/utils/micropython:
     type: host_file
-    host_path: /igloo_static/utils.bin/micropython.powerpc
-    mode: 493
-  /igloo/utils/send_syscall:
-    type: host_file
-    host_path: /igloo_static/utils.bin/send_syscall.powerpc
-    mode: 493
-  /igloo/utils/send_hypercall:
-    type: host_file
-    host_path: /igloo_static/utils.bin/send_hypercall.powerpc
-    mode: 493
-  /igloo/utils/send_hypercall_raw:
-    type: host_file
-    host_path: /igloo_static/utils.bin/send_hypercall_raw.powerpc
-    mode: 493
-  /igloo/utils/test_ioctl_interaction:
-    type: host_file
-    host_path: /igloo_static/utils.bin/test_ioctl_interaction.powerpc
-    mode: 493
-  /igloo/utils/vpn:
-    type: host_file
-    host_path: /igloo_static/vpn/vpn.powerpc
-    mode: 493
-  # /igloo/dylibs/*:
-  #   host_path: /igloo_static/dylibs/powerpc/*
-  #   mode: 493
-  #   type: host_file
