@@ -12,7 +12,8 @@ class TestIoctlInteraction(PyPlugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.logger = getColoredLogger("plugins.ioctl_interaction_test")
-        self.logger.setLevel("DEBUG")
+        if self.get_arg_bool("verbose"):
+            self.logger.setLevel("DEBUG")
         self.hyp = plugins.hypermem
         self.syscall_test = self.panda.hsyscall(
             "on_sys_ioctl_return")(self.hyp.wrap(self.syscall_test))
