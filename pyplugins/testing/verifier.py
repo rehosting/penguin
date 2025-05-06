@@ -63,6 +63,9 @@ class Verifier(PyPlugin):
             self.logger.error(f"Test {name}: No strings to test for")
             return False
 
+    def test_file_not_contains(self, name, test_case):
+        return not self.test_file_contains(name, test_case)
+
     def test_csv_contains(self, name, test_case):
         f = join(self.outdir, test_case["file"])
         if not exists(f):
