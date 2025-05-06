@@ -58,110 +58,204 @@ class MemoryAccess(PyPlugin):
 
 ### Advanced Examples
 
-#### Reading and Manipulating Kernel Data Structures
+#### Worked Example: IOCTL Interaction with RALink Ethernet
 
-This example shows how to read and modify a complex kernel structure by accessing its fields:
+This example demonstrates how Hypermem can be used to monitor and modify IOCTL calls for hardware interaction, specifically for the RALink Ethernet device used in TP-Link routers.
 
-```python
-class SocketMonitor(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
-        self.logger = getColoredLogger("plugins.socket_monitor")
-        self.hyp = plugins.hypermem
-        
-        # Register the syscall handler with proper wrapping
-        self.panda.hsyscall("on_sys_socket_enter")(self.hyp.wrap(self.inspect_socket_setup))
-        
-    def inspect_socket_setup(self, cpu, proto, syscall, hook, domain, type, protocol):
-        # Read kernel structure at socket_options address
-        sock_opts_addr = yield from self.hyp.read_ptr(some_known_addr)
-        
-        # Read individual fields from the structure
-        flags = yield from self.hyp.read_int(sock_opts_addr)
-        timeout = yield from self.hyp.read_int(sock_opts_addr + 4)
-        
-        self.logger.info(f"Socket options - flags: {flags:#x}, timeout: {timeout}")
-        
-        # Modify the timeout value
-        yield from self.hyp.write_int(sock_opts_addr + 4, 30000)  # 30 second timeout
+### The Problem
+
+When rehosting TP-Link Archer C20 devices, the boot process stalls with a process repeatedly printing "swRegRead" to stderr. This function is responsible for reading registers from the ethernet switch hardware through IOCTL calls. Since the actual hardware isn't present in our emulation environment, we need to intercept these calls and provide appropriate responses.
+
+### The Original Function (from GPL code)
+
+```c
+// From ArcherC20_V4_GPL/mtk_ApSoC_4320/apps/mtk7530_switch/switch.c
+int reg_read(int offset, int *value)
+{
+    struct ifreq ifr;
+    esw_reg reg;
+
+    if (value == NULL)
+        return -1;
+    reg.off = offset;
+    strncpy(ifr.ifr_name, "eth0", 5);
+    ifr.ifr_data = &reg;
+    if (-1 == ioctl(esw_fd, RAETH_ESW_REG_READ, &ifr)) {
+        perror("ioctl");
+        close(esw_fd);
+        exit(0);
+    }
+    *value = reg.val;
+    return 0;
+}
 ```
 
-#### Memory Buffer Inspection and Modification
+This function is called by code that polls for specific bit patterns in the register values:
 
-This example shows how to inspect and modify a buffer, useful for packet or data inspection:
+```c
+// From ArcherC20_V4_GPL/mtk_ApSoC_4320/apps/mtk7530_switch/switch.c
+void table_del(int argc, char *argv[])
+{
+    // ...
+    for (i = 0; i < 20; i++) {
+        reg_read(REG_ESW_WT_MAC_AD0, &value);
+        if (value & 0x2) { //w_mac_done
+            if (argv[1] != NULL)
+                printf("done.\n");
+            return;
+        }
+        usleep(1000);
+    }
+    if (i == 20)
+        printf("timeout.\n");
+}
+```
+
+### The Solution with Hypermem and Syscall Filtering
+
+Using Hypermem combined with hypersyscalls filtering capabilities, we can create a plugin that specifically targets IOCTL system calls for the RALink Ethernet device and provides appropriate register values to allow the device to boot:
 
 ```python
-class BufferInspector(PyPlugin):
+from pandare2 import PyPlugin
+from penguin import getColoredLogger, plugins
+
+# RALink Ethernet register definitions
+RAETH_ESW_REG_READ = 0x89F1
+REG_ESW_WT_MAC_AD0 = 0x34
+REG_ESW_WT_MAC_ATC = 0x80
+REG_ESW_TABLE_STATUS0 = 0x90
+
+class RAEthPlugin(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
-        self.logger = getColoredLogger("plugins.buffer_inspector")
+        self.logger = getColoredLogger("plugins.raeth")
         self.hyp = plugins.hypermem
         
-        # Register the syscall handler with proper wrapping
-        self.panda.hsyscall("on_sys_write_enter")(self.hyp.wrap(self.inspect_buffer))
+        # Register our callback for IOCTL syscalls with specific filtering
+        # Only intercept ioctl calls with cmd=RAETH_ESW_REG_READ (0x89F1)
+        self.panda.hsyscall(
+            "on_sys_ioctl_return", 
+            arg_filter=[None, RAETH_ESW_REG_READ, None]
+        )(self.hyp.wrap(self.handle_raeth_ioctl))
         
-    def inspect_buffer(self, cpu, proto, syscall, hook, fd, buf_addr, count):
-        if count <= 0 or count > 1024*1024:  # Sanity check
+        # Register definitions for logging
+        self.registers = {
+            REG_ESW_WT_MAC_AD0: "REG_ESW_WT_MAC_AD0",
+            REG_ESW_WT_MAC_ATC: "REG_ESW_WT_MAC_ATC",
+            REG_ESW_TABLE_STATUS0: "REG_ESW_TABLE_STATUS0"
+        }
+        
+    def handle_raeth_ioctl(self, cpu, proto, syscall, hook, fd, cmd, arg):
+        """Handler specifically for RALink Ethernet register read operations"""
+        # Read the interface name
+        interface = yield from self.hyp.read_str(arg)
+        
+        # Only handle eth0 ioctls
+        if interface != "eth0":
             return
             
-        # Read the entire buffer
-        buffer = yield from self.hyp.read_bytes(buf_addr, count)
+        # Read the esw_reg structure pointer from ifr_data
+        esw_reg_ptr = yield from self.hyp.read_ptr(arg + 16)
         
-        # Inspect buffer contents (e.g., looking for a signature)
-        if b"HTTP/1.1" in buffer:
-            self.logger.info("Found HTTP request in buffer")
+        # Read the register code (offset)
+        code = yield from self.hyp.read_int(esw_reg_ptr)
+        
+        # Decide what value to provide based on the register
+        if code == REG_ESW_WT_MAC_AD0:
+            # Set bit 0x2 to indicate w_mac_done
+            val = 0x2
+        elif code == REG_ESW_WT_MAC_ATC:
+            val = 0x8234
+        elif code == REG_ESW_TABLE_STATUS0:
+            # This value needs to meet 0x1 & 0x2
+            val = 0x73
+        else:
+            val = 0x10173
             
-            # Modify the buffer (e.g., changing a header)
-            if b"User-Agent:" in buffer:
-                # Create a modified buffer with a different User-Agent
-                modified = buffer.replace(
-                    b"User-Agent: Mozilla",
-                    b"User-Agent: CustomAgent"
-                )
-                
-                # Write the modified buffer back
-                yield from self.hyp.write_bytes(buf_addr, modified)
-                
-                # Update count if necessary
-                if len(modified) != len(buffer):
-                    syscall.args[2] = len(modified)
+        # Log the operation
+        self.logger.info(f"RAEth ioctl: reg={self.registers.get(code, hex(code))}, returning val={hex(val)}")
+        
+        # Write the value back to the esw_reg structure (at offset +4 for val)
+        yield from self.hyp.write_int(esw_reg_ptr + 4, val)
+        
+        # Set the syscall return value to 0 (success)
+        syscall.retval = 0
 ```
 
-#### Process Environment Information
+### Using Advanced Filtering to Target Specific Code Paths
 
-This example demonstrates how to access process information:
+We can further refine our intervention by combining various filters to precisely target specific code paths:
 
 ```python
-class ProcessInfoPlugin(PyPlugin):
+class AdvancedRAEthPlugin(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
-        self.logger = getColoredLogger("plugins.process_info")
+        self.logger = getColoredLogger("plugins.advanced_raeth")
         self.hyp = plugins.hypermem
         
-        # Register the syscall handler with proper wrapping
-        self.panda.hsyscall("on_sys_execve_enter")(self.hyp.wrap(self.process_info))
+        # Target only table_del's register read operations
+        # This uses both command filtering and process name filtering
+        self.panda.hsyscall(
+            "on_sys_ioctl_enter", 
+            comm_filter="mtk7530_switch",  # Process name filter 
+            arg_filter=[None, RAETH_ESW_REG_READ, None]  # Argument filter
+        )(self.hyp.wrap(self.handle_table_del_ioctl))
         
-    def process_info(self, cpu, proto, syscall, hook, filename, argv, envp):
-        # Get command line arguments
-        args = yield from self.hyp.get_proc_args()
-        self.logger.info(f"Process arguments: {args}")
+    def handle_table_del_ioctl(self, cpu, proto, syscall, hook, fd, cmd, arg):
+        """
+        This function specifically targets the table_del function's ioctl calls
+        by checking the register being read
+        """
+        # Read the interface name
+        interface = yield from self.hyp.read_str(arg)
+        if interface != "eth0":
+            return
+            
+        # Read the esw_reg structure pointer from ifr_data
+        esw_reg_ptr = yield from self.hyp.read_ptr(arg + 16)
         
-        # Get environment variables
-        env = yield from self.hyp.get_proc_env()
-        self.logger.info(f"Environment variables: {env}")
+        # Read the register code (offset)
+        code = yield from self.hyp.read_int(esw_reg_ptr)
         
-        # Get process ID
-        pid = yield from self.hyp.get_proc_pid()
-        self.logger.info(f"Process ID: {pid}")
-        
-        # Read the executable path
-        exe_path = yield from self.hyp.read_str(filename)
-        self.logger.info(f"Executing: {exe_path}")
-        
-        # If PATH environment variable exists, log it
-        if "PATH" in env:
-            self.logger.info(f"PATH: {env['PATH']}")
+        # Check if this is the specific register read from table_del
+        if code == REG_ESW_WT_MAC_AD0:
+            self.logger.info("Detected table_del function polling for w_mac_done bit")
+            
+            # Instead of modifying the value, we can skip the syscall entirely
+            # and provide our own return value directly
+            syscall.skip_syscall = True
+            
+            # Write the w_mac_done bit directly to the return value pointer
+            # First, get the value pointer from the calling code
+            caller_frame_ptr = yield from self.hyp.read_ptr(self.panda.arch.get_reg(cpu, "sp"))
+            value_ptr = yield from self.hyp.read_ptr(caller_frame_ptr + 8)  # Assuming x86_64 calling convention
+            
+            # Set the value with the w_mac_done bit set
+            yield from self.hyp.write_int(value_ptr, 0x2)
+            
+            # Make the ioctl call itself return success
+            syscall.retval = 0
+            
+            self.logger.info("Bypassed ioctl call and directly set w_mac_done bit")
 ```
+
+### Benefits of Using Hypermem with Syscall Filtering
+
+1. **Precision Targeting**: By using arg_filter and comm_filter, we can precisely target only the specific ioctl calls we need to handle.
+
+2. **Reduced Overhead**: We avoid intercepting irrelevant syscalls, improving performance.
+
+3. **Contextual Awareness**: We can make decisions based on process name, syscall arguments, and other context.
+
+4. **Flexible Intervention**: We can choose to modify arguments, skip syscalls, or change return values as needed.
+
+5. **Clean Memory Access**: Using Hypermem's higher-level API (`read_int`, `write_int`, etc.) is much cleaner than direct memory manipulation.
+
+### Result
+
+By intercepting only the specific IOCTL calls needed and providing appropriate register values, the TP-Link device bootup process continues successfully beyond the hardware check. The filtering capabilities ensure we only intervene where necessary, maintaining performance while still providing the emulation needed for the missing hardware.
+
+This example demonstrates how combining Hypermem with hypersyscalls' filtering capabilities provides a powerful and precise approach to firmware rehosting.
 
 ## API Reference
 
