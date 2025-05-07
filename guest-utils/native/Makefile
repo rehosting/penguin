@@ -1,46 +1,46 @@
 ARCHS = mipseb mips64eb mipsel mips64el armel aarch64 x86_64 powerpc powerpcle powerpc64 powerpc64le riscv32 riscv64 loongarch64
 
 CC_mipseb = mipseb-linux-musl-gcc
-CFLAGS_mipseb = -mips32r3 -s -static
+CFLAGS_mipseb = -mips32r3 -static
 
 CC_mips64eb = mips64eb-linux-musl-gcc
-CFLAGS_mips64eb = -mips64r2 -s -static
+CFLAGS_mips64eb = -mips64r2 -static
 
 CC_mipsel = mipsel-linux-musl-gcc
-CFLAGS_mipsel = -mips32r3 -s -static
+CFLAGS_mipsel = -mips32r3 -static
 
 CC_mips64el = mips64el-linux-musl-gcc
-CFLAGS_mips64el = -mips64r2 -s -static
+CFLAGS_mips64el = -mips64r2 -static
 
 CC_armel = arm-linux-musleabi-gcc
-CFLAGS_armel = -s -static
+CFLAGS_armel = -static
 
 CC_aarch64 = aarch64-linux-musl-gcc
-CFLAGS_aarch64 = -s -static
+CFLAGS_aarch64 = -static
 
 CC_x86_64 = x86_64-linux-musl-gcc
-CFLAGS_x86_64 = -s -static
+CFLAGS_x86_64 = -static
 
 CC_powerpc = powerpc-linux-musl-gcc
-CFLAGS_powerpc = -s -static
+CFLAGS_powerpc = -static
 
 CC_powerpcle = powerpcle-linux-musl-gcc
-CFLAGS_powerpcle = -s -static
+CFLAGS_powerpcle = -static
 
 CC_powerpc64 = powerpc64-linux-musl-gcc
-CFLAGS_powerpc64 = -s -static
+CFLAGS_powerpc64 = -static
 
 CC_powerpc64le = powerpc64le-linux-musl-gcc
-CFLAGS_powerpc64le = -s -static
+CFLAGS_powerpc64le = -static
 
 CC_riscv32 = riscv32-linux-musl-gcc
-CFLAGS_riscv32 = -s -static
+CFLAGS_riscv32 = -static
 
 CC_riscv64 = riscv64-linux-musl-gcc
-CFLAGS_riscv64 = -s -static
+CFLAGS_riscv64 = -static
 
 CC_loongarch64 = loongarch64-unknown-linux-gnu-gcc
-CFLAGS_loongarch64 = -s -static
+CFLAGS_loongarch64 = -static
 
 .PHONY: all clean
 ALL_CS := $(basename $(notdir $(wildcard *.c)))
