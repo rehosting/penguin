@@ -65,5 +65,9 @@ out/%/test_ioctl_interaction: test_ioctl_interaction.c
 	@mkdir -p $(dir $@)
 	$(CC_$*) $(CFLAGS_$*) $< -o $@
 
+out/%/test_webserver: test_webserver.c
+	@mkdir -p $(dir $@)
+	$(CC_$*) $(CFLAGS_$*) $< -o $@
+
 clean:
 	rm -rf out/ hypercall.h
