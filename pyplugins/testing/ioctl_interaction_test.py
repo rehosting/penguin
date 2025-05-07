@@ -39,7 +39,7 @@ class TestIoctlInteraction(PyPlugin):
 
             assert data == to_write_int, f"Expected {to_write_int:#x}, got {data:#x}, r/w failed"
 
-            fd_name = yield from self.hyp.read_fd_name(fd) or "[???]"
+            fd_name = yield from self.hyp.get_fd_name(fd) or "[???]"
             self.logger.info(f"FD: {fd_name}")
 
             args = yield from self.hyp.get_proc_args()
