@@ -576,6 +576,10 @@ def run_config(
         """
         panda.pyplugins.unload_all()
 
+    while not os.path.exists(socket_path):
+        logger.info(f"Waiting for socket {socket_path} to be created")
+        sleep(0.1)
+
     logger.info("Launching rehosting")
 
     def _run():
