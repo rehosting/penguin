@@ -1,6 +1,7 @@
 from pandare2 import PyPlugin
 from penguin import getColoredLogger
 import struct
+from collections.abc import Iterator
 
 CHUNK_SIZE = 4072
 HYPER_REGISTER_MEM_REGION = 0xbebebebe
@@ -54,6 +55,17 @@ class Hypermem(PyPlugin):
 
     def _write_memregion_state(self, cpu, op, addr, size):
         cpu_memregion = self.cpu_memregions[cpu]
+        if size > CHUNK_SIZE:
+            self.logger.error(f"Size {size} exceeds chunk size {CHUNK_SIZE}")
+            size = CHUNK_SIZE
+        if size < 0:
+            self.logger.error(f"Size {size} is negative")
+            size = 0
+        if addr < 0:
+            self.logger.debug(f"Address {addr} is negative. Converting to unsigned")
+            mask = 0xFFFFFFFFFFFFFFFF if self.panda.bits == 64 else 0xFFFFFFFF
+            addr = addr & mask
+
         mem = struct.pack("<QQQ", op, addr, size)
         try:
             self.panda.virtual_memory_write(cpu, cpu_memregion, mem)
@@ -85,7 +97,7 @@ class Hypermem(PyPlugin):
         elif op == HYPER_RESP_WRITE_OK:
             pass
         elif op == HYPER_RESP_READ_FAIL:
-            self.logger.error("Failed to read memory")
+            self.logger.debug("Failed to read memory")
             pass
         else:
             self.logger.error(f"Unknown operation {op}")
@@ -117,10 +129,18 @@ class Hypermem(PyPlugin):
     def wrap(self, f):
         def wrapper(*args, **kwargs):
             cpu = self.panda.get_cpu()
+            fn_return = None
 
             if cpu not in self.cpu_iterators or self.cpu_iterators[cpu] is None:
                 self.logger.debug(f"Creating new iterator for CPU {cpu}")
-                self.cpu_iterators[cpu] = f(*args, **kwargs)
+                fn_ret = f(*args, **kwargs)
+
+                if not isinstance(fn_ret, Iterator):
+                    self.logger.error("Function {f.__name__} did not return an iterator.\
+                                      You need at least one yield statement in the function.")
+                    return fn_ret
+                
+                self.cpu_iterators[cpu] = fn_ret
 
                 # in_op is assumed to have state None at the beginning
                 in_op = None
@@ -140,18 +160,22 @@ class Hypermem(PyPlugin):
                     cmd = self.cpu_iterators[cpu].send(in_op[1])
                 else:
                     raise Exception(f"Invalid state cmd is {in_op}")
-            except StopIteration:
+            except StopIteration as e:
                 self.cpu_iterators[cpu] = None
+                # The function has completed, and we need to return the value
+                fn_return = e.value
                 cmd = None
 
             if new_iterator and cmd is None:
                 # this is basically a no-op. Our functionality wasn't used
-                return
+                return fn_return
 
             try:
                 self._handle_output_cmd(cpu, cmd)
             except ValueError as e:
                 self.logger.error(f"Failed to write memory {e}")
+            
+            return fn_return
         return wrapper
 
     def _register_cpu_memregion(self, cpu):
@@ -182,9 +206,14 @@ class Hypermem(PyPlugin):
                 f"Reading chunk: chunk_addr={chunk_addr}, chunk_size={chunk_size}")
             chunk = yield ("read", chunk_addr, chunk_size)
             if not chunk:
-                self.logger.error(
+                self.logger.debug(
                     f"Failed to read memory at addr={chunk_addr}, size={chunk_size}")
                 chunk = b"\x00" * chunk_size
+            elif len(chunk) != chunk_size:
+                self.logger.debug(
+                    f"Partial read at addr={chunk_addr}, expected {chunk_size} bytes, got {len(chunk)}")
+                # If the read was partial, fill the rest with zeros
+                chunk = chunk.ljust(chunk_size, b"\x00")
             self.logger.debug(
                 f"Received response from queue: {chunk} chunk_len={len(chunk)}")
             data += chunk
@@ -271,14 +300,14 @@ class Hypermem(PyPlugin):
         self.logger.debug(f"String written successfully: {len(data)} bytes")
         return bytes_written
 
-    def read_fd_name(self, fd):
+    def get_fd_name(self, fd):
         self.logger.debug(f"read_fd_name called: fd={fd}")
         fd_name = yield ("read_fd_name", fd)
         if fd_name:
             self.logger.debug(
                 f"File descriptor name read successfully: {fd_name}")
             return fd_name.decode('latin-1', errors='replace')
-
+    
     def read_socket_info(self, fd):
         self.logger.debug(f"read_socket_info called: fd={fd}")
         socket_info = yield ("read_socket_info", fd)
