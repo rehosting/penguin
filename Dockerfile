@@ -172,17 +172,6 @@ RUN wget -qO- https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-${LTRACE_PRO
 # Add libnvram ltrace prototype file
 COPY ./src/resources/ltrace_nvram.conf /tmp/ltrace/lib_inject.so.conf
 
-# Build capstone v5 libraries for panda callstack_instr to improve arch support
-FROM $BASE_IMAGE AS capstone_builder
-ENV DEBIAN_FRONTEND=noninteractive
-RUN sed -Ei 's/^# deb-src /deb-src /' /etc/apt/sources.list
-RUN apt-get update && apt-get build-dep -y libcapstone-dev && \
-    apt-get install -q -y --no-install-recommends ca-certificates git \
-    && rm -rf /var/lib/apt/lists/*
-RUN cd /tmp && \
-    git clone https://github.com/capstone-engine/capstone/ -b v5 && \
-    cd capstone/ && ./make.sh && make install && \
-    rm -rf /tmp/capstone
 
 #### CROSS BUILDER: Build send_hypercall ###
 FROM ghcr.io/rehosting/embedded-toolchains:latest AS cross_builder
@@ -359,7 +348,6 @@ COPY --from=downloader /tmp/pandare-plugins.deb /tmp/
 COPY --from=downloader /tmp/glow.deb /tmp/
 COPY --from=downloader /tmp/gum.deb /tmp/
 COPY --from=downloader /tmp/ripgrep.deb /tmp/
-COPY --from=capstone_builder /usr/lib/libcapstone* /usr/lib/
 COPY ./dependencies/* /tmp
 
 # We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
