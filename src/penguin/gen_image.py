@@ -17,6 +17,7 @@ gen_image can be run as a separate script if this is loaded at the module
 level. This makes it easier to profile.
 """
 from penguin.penguin_config import load_config
+from penguin.utils import extract_targz
 
 """
 This class wrapped what used to be a libguestfs interface
@@ -537,7 +538,7 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
         MODIFIED_TARBALL = Path(ARTIFACTS, f"fs_out_{suffix}.tar")
         config = load_config(proj_dir, config_path)
         with tempfile.TemporaryDirectory() as TMP_DIR:
-            contents = check_output(["tar", "-x", "--use-compress-program=pigz", "-vpf", IN_TARBALL, "-C", TMP_DIR]).splitlines()
+            contents = extract_targz(IN_TARBALL, TMP_DIR)
             # Gracefully handle emptyfs
             if contents and contents[0] != b"./":
                 logger.warning("Filesystem tar does not have a leading ./")
