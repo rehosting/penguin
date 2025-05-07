@@ -21,6 +21,7 @@ HYPER_OP_READ_FILE = 12
 HYPER_OP_READ_PROCENV = 13
 HYPER_OP_READ_PROCPID = 14
 HYPER_RESP_READ_NUM = 15
+HYPER_OP_DUMP = 16
 
 
 class Hypermem(PyPlugin):
@@ -109,6 +110,8 @@ class Hypermem(PyPlugin):
                 self._write_memregion_state(
                     cpu, HYPER_OP_WRITE, addr, len(data))
                 self._write_memregion_data(cpu, data)
+            case ("dump"):
+                self._write_memregion_state(cpu, HYPER_OP_DUMP, 0, 0)
             case None:
                 self._write_memregion_state(cpu, HYPER_OP_NONE, 0, 0)
             case _:
@@ -314,3 +317,7 @@ class Hypermem(PyPlugin):
             self.logger.info(f"Process PID read successfully: {pid}")
             return pid
         return None
+    
+    def do_dump(self):
+        self.logger.info("Forking and snapshotting process")
+        yield ("dump")
