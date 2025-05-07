@@ -1,0 +1,18 @@
+plugins:
+  text_webserver_dump: {}
+  verifier:
+    conditions:
+      syscall_hypervisor_test:
+        type: file_contains
+        file: syscall_test.txt
+        string: "Syscall clone test: passed"
+
+static_files:
+  /tests/webserver_dump.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -x
+      /igloo/utils/busybox echo 0xFF > /igloo/pfs/real/proc/self/coredump_filter
+      /igloo/utils/strace /igloo/utils/text_webserver 8000
+    mode: 73

@@ -33,6 +33,7 @@ patches:
   - ./patches/tests/pseudofile_sysfs.yaml
   - ./patches/tests/shared_dir.yaml
   - ./patches/tests/syscall.yaml
+  - ./patches/tests/test_webserver_dump.yaml
   - ./patches/tests/ioctl_interaction.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
