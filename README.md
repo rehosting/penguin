@@ -8,6 +8,9 @@ takes a **target-centric** approach to rehosting where the
 specific details of each rehosting process are stored in a configuration
 file that you can examine and edit as necessary.
 
+Implementation philosophy, details, and experiments with Penguin can found in our
+[NDSS BAR 2025 paper](https://www.ndss-symposium.org/wp-content/uploads/bar2025-final10.pdf).
+
 There are typically four phases to rehosting a system with Penguin:
 
 ### Obtain target filesystem
