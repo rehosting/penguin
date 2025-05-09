@@ -6,7 +6,7 @@ from typing import List
 
 from pandare2 import PyPlugin
 
-from penguin import getColoredLogger
+from penguin import getColoredLogger, plugins
 from penguin.analyses import PenguinAnalysis
 from penguin.graphs import Configuration, Failure, Mitigation
 
@@ -75,8 +75,8 @@ class Lifeguard(PyPlugin):
 
         if len(self.blocked_signals) > 0:
             self.logger.info(f"Blocking signals: {self.blocked_signals}")
-
-        self.panda.hsyscall("on_sys_kill_enter")(self.on_sys_kill_enter)
+        self.hyp = plugins.hypermem
+        self.on_sys_kill_enter = self.panda.hsyscall("on_sys_kill_return")(self.hyp.wrap(self.on_sys_kill_enter))
 
     def get_proc_by_pid(self, cpu, pid):
         for p in self.panda.get_processes(cpu):
@@ -87,7 +87,7 @@ class Lifeguard(PyPlugin):
         save = sig in self.blocked_signals
         with open(f"{self.outdir}/{LIFELOG}", "a") as f:
             f.write(f"{sig},{pid},{1 if save else 0}\n")
-
+        
         proc = self.panda.plugins['osi'].get_current_process(cpu)
         if proc != self.panda.ffi.NULL:
             pname = self.panda.ffi.string(proc.name).decode("latin-1", errors="ignore")
@@ -95,6 +95,7 @@ class Lifeguard(PyPlugin):
         else:
             pname = "[?]"
             ppid = "[?]"
+        pname = yield from self.hyp.get_proc_name()
         kpname = self.get_proc_by_pid(cpu, pid) or "[?]"
         expl = signals.get(sig, "[?]")
         self.logger.debug(f"{pname}({ppid}) kill({kpname}({pid}), {expl}({sig})) {'blocked' if save else ''}")

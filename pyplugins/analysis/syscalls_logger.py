@@ -1,9 +1,10 @@
-import contextlib
 import re
 from pandare2 import PyPlugin
 from os.path import join
 from events.types import Syscall
 from penguin import plugins
+from penguin import getColoredLogger
+import functools
 
 """
 This code acquires the error numbers from linux to map in the syscall plugin
@@ -56,7 +57,11 @@ class PyPandaSysLog(PyPlugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.saved_syscall_info = {}
+        self.logger = getColoredLogger("syslog")
         self.DB = plugins.DB
+        self.hyp = plugins.hypermem
+
+        procs = self.get_arg("procs")
 
         if panda.arch_name in ["mips", "mipsel"]:
             self.errcode_to_errname = errcode_to_errname_mips
@@ -65,52 +70,128 @@ class PyPandaSysLog(PyPlugin):
             self.errcode_to_errname = errcode_to_errname
             self.errcode_to_explanation = errcode_to_explanation
 
-        panda.hsyscall("on_all_sys_enter")(self.all_sys_enter)
-        panda.hsyscall("on_all_sys_return")(self.all_sys_ret)
+        if procs:
+            for proc in procs:
+                panda.hsyscall("on_all_sys_return", comm_filter=proc)(self.all_sys_ret)
+                panda.hsyscall("on_sys_execve_enter", comm_filter=proc)(self.sys_execve_enter)
+                panda.hsyscall("on_sys_execveat_enter", comm_filter=proc)(self.sys_execve_enter)
+        else:
+            panda.hsyscall("on_all_sys_return")(self.all_sys_ret)
+            panda.hsyscall("on_sys_execve_enter")(self.sys_execve_enter)
+            panda.hsyscall("on_sys_execveat_enter")(self.sys_execve_enter)
+        
+    def get_arg_repr(self, argval, ctype, name):
+        if name == "fd":
+            fd_name = yield from self.hyp.get_fd_name(argval)
+            return f"{argval:#x}({fd_name or '[???]'})"
+        # Convert argval to a proper Python integer
+        argval_uint = int(self.panda.ffi.cast("target_ulong", argval))
 
-    def all_sys_enter(self, cpu, proto, syscall, hook):
-        nargs = proto.nargs
-        panda = self.panda
-        syscall_name = panda.ffi.string(proto.name).decode()
-        try_replace_args = {}
+        # Handle basic integer types
+        if ctype in ['int', 'unsigned int', 'pid_t', 'uid_t', 'gid_t', 'key_t', 'mqd_t', '__u32', '__s32', 'u32', 'clockid_t', 'umode_t', 'unsigned', 'qid_t', 'old_uid_t', 'old_gid_t', 'key_serial_t', 'timer_t']:
+            argval_int = int(self.panda.ffi.cast("target_long", argval))
+            # return str(argval_int)
+            return f"{argval_uint:#x}"
 
-        procname = panda.get_process_name(cpu)
+        # Handle larger integer types (displayed as hex)
+        elif ctype in ['unsigned long', 'long', 'size_t', 'off_t', 'loff_t', 'aio_context_t']:
+            return f"{argval_uint:#x}"
 
-        args = []
-        # why? because it can read the stack and fail
-        for i in range(nargs):
-            try:
-                arg = panda.arch.get_arg(cpu, i + 1, convention="syscall")
-            except ValueError:
-                arg = 0
-                try_replace_args[i] = (0, "arg")
-            args.append(arg)
-        args_repr = [
-            syscall.args[i] for i in range(nargs)
-        ]
+        # Handle string pointers
+        elif ctype in ['const char *', 'char *']:
+            if argval_uint == 0:
+                return "[NULL]"
+            val = yield from self.hyp.read_str(argval)
+            return f'{argval_uint:#x}("{val}")'
+
+        # Handle array of strings
+        elif ctype == 'const char *const *':
+            if argval_uint == 0:
+                return "[NULL]"
+            result = []
+            addr = argval_uint
+            max_args = 20  # Limit to avoid infinite loops
+            for i in range(max_args):
+                ptr = yield from self.hyp.read_ptr(addr + (i * self.panda.bits // 8))
+                str_val = yield from self.hyp.read_str(ptr)
+                result.append(str_val)
+            return f"{argval_uint:#x}([{', '.join(repr(s) for s in result)}])"
+
+        # Handle numeric pointer types
+        elif ctype in ['int *', 'unsigned int *', 'unsigned long *', 'uid_t *', 'gid_t *', 'old_uid_t *', 'old_gid_t *', 'size_t *', 'off_t *', 'loff_t *', 'u32 *', 'u64 *', 'timer_t *', 'aio_context_t *', 'unsigned *']:
+            if argval_uint == 0:
+                return "[NULL]"
+            return f"{argval_uint:#x}(ptr)"
+
+        # Handle other pointer types (like structs, etc.)
+        elif '*' in ctype:
+            if argval_uint == 0:
+                return "[NULL]"
+            # For struct pointers, just return the address and type
+            if 'struct' in ctype or 'union' in ctype:
+                type_name = ctype.replace('const ', '').replace(' *', '')
+                return f"{argval_uint:#x}({type_name})"
+            # For void pointers or other generic pointers
+            return f"{argval_uint:#x}(ptr)"
+
+        # Handle other types
+        elif 'struct' in ctype or 'union' in ctype:
+            # Direct struct/union value rather than pointer
+            return f"{argval_uint:#x}({ctype} value)"
+
+        # Default fallback for any unhandled types
+        return f"{argval_uint:#x}"
+
+    def cstr(self, x):
+        return "" if x == self.panda.ffi.NULL else self.panda.ffi.string(x).decode()
+    
+    @functools.lru_cache
+    def get_syscall_proto(self, proto, num):
+        protoname = self.cstr(proto.name)
+        types = [self.cstr(proto.types[i]) for i in range(proto.nargs)]
+        names = [self.cstr(proto.names[i]) for i in range(proto.nargs)]
+        return protoname, types, names
+
+    def handle_syscall(self, cpu, proto, syscall, hook):
+        protoname, types, names = self.get_syscall_proto(proto, proto.syscall_nr)
+        args = [syscall.args[i] for i in range(proto.nargs)]
+        args_repr = []
+        for i, j in enumerate(types):
+            val = yield from self.get_arg_repr(syscall.args[i], j, names[i])
+            args_repr.append(f"{names[i]}={val}")
+
+        retval = int(self.panda.ffi.cast("target_long", syscall.retval))
+        errnum = -retval
+        if errnum in self.errcode_to_errname:
+            retno_repr = f"{self.errcode_to_errname[errnum]}({self.errcode_to_explanation[errnum]})"
+        else:
+            retno_repr = f"{retval:#x}"
+        
+        proc_args = yield from self.hyp.get_proc_args()
+        proc = "?" if not proc_args else proc_args[0]
+
         func_args = {
-            "name": syscall_name,
-            "procname": procname,
-            "retno": None,
+            "name": protoname,
             "args": args,
             "args_repr": args_repr,
+            "retno": retval,
+            "retno_repr": retno_repr,
+            "procname": proc,
         }
-        if syscall.task in self.saved_syscall_info:
-            self.return_syscall(self.saved_syscall_info[syscall.task], None)
-        self.saved_syscall_info[syscall.task] = (func_args, try_replace_args)
+        self.add_syscall(**func_args)
+    
+    @plugins.hypermem.wrap
+    def sys_execve_enter(self, cpu, proto, syscall, hook, *args):
+        yield from self.handle_syscall(cpu, proto, syscall, hook)
 
+    @plugins.hypermem.wrap
     def all_sys_ret(self, cpu, proto, syscall, hook):
-        if sysinfo := self.saved_syscall_info.pop(syscall.task, None):
-            self.return_syscall(
-                sysinfo, syscall.retval
-            )
+        protoname, _, _ = self.get_syscall_proto(proto, proto.syscall_nr)
+        if "execve" not in protoname:
+            yield from self.handle_syscall(cpu, proto, syscall, hook)
 
-    # def uninit(self):
-        # print("Called uninit...")
-        # while self.saved_syscall_info:
-        #     sysinfo = self.saved_syscall_info.popitem()
-        #     self.return_syscall(sysinfo, None)
 
+    
     def add_syscall(
         self,
         name,
@@ -135,31 +216,3 @@ class PyPandaSysLog(PyPlugin):
         for i in range(len(args_repr)):
             keys[f"arg{i}_repr"] = args_repr[i]
         self.DB.add_event(Syscall(**keys))
-
-    def return_syscall(self, syscall_info, retval):
-        func_args, try_replace_args = syscall_info
-        for i, (argval, ctype) in try_replace_args.items():
-            panda, cpu = self.panda, self.panda.get_cpu()
-            with contextlib.suppress(ValueError):
-                buf = (
-                    panda.read_str(cpu, argval) if argval != 0 else "[NULL]"
-                    if "STR" in ctype
-                    else (
-                        panda.arch.get_arg(cpu, i + 1, convention="syscall")
-                        if "arg" in ctype
-                        else panda.virtual_memory_read(panda.get_cpu(), argval, 20)
-                    )
-                )
-                func_args["args_repr"][i] = f'{argval:#x}("{buf}")'
-        if retval is not None:
-            func_args["retno"] = int(
-                self.panda.ffi.cast("target_long", retval))
-            errnum = -func_args["retno"]
-            if errnum in self.errcode_to_errname:
-                func_args["retno_repr"] = (
-                    f"{self.errcode_to_errname[errnum]}({self.errcode_to_explanation[errnum]})"
-                )
-            else:
-                func_args["retno_repr"] = f"{func_args['retno']:#x}"
-            retval = int(self.panda.ffi.cast("target_long", retval))
-        self.add_syscall(**func_args)
