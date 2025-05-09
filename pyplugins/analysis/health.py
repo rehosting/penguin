@@ -40,21 +40,19 @@ class Health(PyPlugin):
         plugins.subscribe(plugins.Events, "igloo_ipv4_bind", self.on_ipv4_bind)
         plugins.subscribe(plugins.Events, "igloo_ipv6_bind", self.on_ipv6_bind)
         plugins.subscribe(plugins.Events, "igloo_open",      self.health_detect_opens)
-        self.hyp = plugins.hypermem
+        self.health_execve = self.panda.hsyscall("on_sys_execve_enter")(self.health_execve)
 
-    breakpoint()
-    @plugins.panda.hsyscall("on_sys_execve_enter")
-    @plugins.hypermem.wrap
+    @plugins.portal.wrap
     def health_execve(self, cpu, proto, syscall, hook, fname_ptr, argv_ptr, envp):
         if self.exiting:
             return
-        fname = yield from self.hyp.read_str(fname_ptr)
+        fname = yield from plugins.portal.read_str(fname_ptr)
 
         if fname not in self.procs:
             self.procs.add(fname)
             self.increment_event("nexecs")
 
-        argv_buf = yield from self.hyp.read_ptrlist(argv_ptr, 8)
+        argv_buf = yield from plugins.portal.read_ptrlist(argv_ptr, 8)
         # Read each argument pointer into argv list
         argv = []
         nullable_argv = []
@@ -62,14 +60,13 @@ class Health(PyPlugin):
             if ptr == 0:
                 break
             
-            val = yield from self.hyp.read_str(ptr)
+            val = yield from plugins.portal.read_str(ptr)
             if val == "":
                 argv.append(f"(error: 0x{ptr:x})")
                 nullable_argv.append(None)
             else:
                 argv.append(val)
                 nullable_argv.append(val)
-        breakpoint()
         try:
             plugins.publish(self, "igloo_exec", cpu, fname, argv)
         except Exception as e:

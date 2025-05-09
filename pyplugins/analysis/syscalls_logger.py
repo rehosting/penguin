@@ -59,7 +59,6 @@ class PyPandaSysLog(PyPlugin):
         self.saved_syscall_info = {}
         self.logger = getColoredLogger("syslog")
         self.DB = plugins.DB
-        self.hyp = plugins.hypermem
 
         procs = self.get_arg("procs")
 
@@ -73,16 +72,26 @@ class PyPandaSysLog(PyPlugin):
         if procs:
             for proc in procs:
                 panda.hsyscall("on_all_sys_return", comm_filter=proc)(self.all_sys_ret)
-                panda.hsyscall("on_sys_execve_enter", comm_filter=proc)(self.sys_execve_enter)
+                panda.hsyscall( "on_sys_execve_enter", comm_filter=proc)(self.sys_execve_enter)
                 panda.hsyscall("on_sys_execveat_enter", comm_filter=proc)(self.sys_execve_enter)
         else:
             panda.hsyscall("on_all_sys_return")(self.all_sys_ret)
             panda.hsyscall("on_sys_execve_enter")(self.sys_execve_enter)
             panda.hsyscall("on_sys_execveat_enter")(self.sys_execve_enter)
+    
+    @plugins.portal.wrap
+    def sys_execve_enter(self, cpu, proto, syscall, hook, *args):
+        yield from self.handle_syscall(cpu, proto, syscall, hook)
+
+    @plugins.portal.wrap
+    def all_sys_ret(self, cpu, proto, syscall, hook):
+        protoname, _, _ = self.get_syscall_proto(proto, proto.syscall_nr)
+        if "execve" not in protoname:
+            yield from self.handle_syscall(cpu, proto, syscall, hook)
         
     def get_arg_repr(self, argval, ctype, name):
         if name == "fd":
-            fd_name = yield from self.hyp.get_fd_name(argval)
+            fd_name = yield from plugins.portal.get_fd_name(argval)
             return f"{argval:#x}({fd_name or '[???]'})"
         # Convert argval to a proper Python integer
         argval_uint = int(self.panda.ffi.cast("target_ulong", argval))
@@ -101,7 +110,7 @@ class PyPandaSysLog(PyPlugin):
         elif ctype in ['const char *', 'char *']:
             if argval_uint == 0:
                 return "[NULL]"
-            val = yield from self.hyp.read_str(argval)
+            val = yield from plugins.portal.read_str(argval)
             return f'{argval_uint:#x}("{val}")'
 
         # Handle array of strings
@@ -112,8 +121,8 @@ class PyPandaSysLog(PyPlugin):
             addr = argval_uint
             max_args = 20  # Limit to avoid infinite loops
             for i in range(max_args):
-                ptr = yield from self.hyp.read_ptr(addr + (i * self.panda.bits // 8))
-                str_val = yield from self.hyp.read_str(ptr)
+                ptr = yield from plugins.portal.read_ptr(addr + (i * self.panda.bits // 8))
+                str_val = yield from plugins.portal.read_str(ptr)
                 result.append(str_val)
             return f"{argval_uint:#x}([{', '.join(repr(s) for s in result)}])"
 
@@ -167,7 +176,7 @@ class PyPandaSysLog(PyPlugin):
         else:
             retno_repr = f"{retval:#x}"
         
-        proc_args = yield from self.hyp.get_proc_args()
+        proc_args = yield from plugins.portal.get_proc_args()
         proc = "?" if not proc_args else proc_args[0]
 
         func_args = {
@@ -179,18 +188,6 @@ class PyPandaSysLog(PyPlugin):
             "procname": proc,
         }
         self.add_syscall(**func_args)
-    
-    @plugins.hypermem.wrap
-    def sys_execve_enter(self, cpu, proto, syscall, hook, *args):
-        yield from self.handle_syscall(cpu, proto, syscall, hook)
-
-    @plugins.hypermem.wrap
-    def all_sys_ret(self, cpu, proto, syscall, hook):
-        protoname, _, _ = self.get_syscall_proto(proto, proto.syscall_nr)
-        if "execve" not in protoname:
-            yield from self.handle_syscall(cpu, proto, syscall, hook)
-
-
     
     def add_syscall(
         self,

@@ -37,9 +37,8 @@ class Interfaces(PyPlugin):
 
         self.missing_ifaces = set()
         self.failed_ioctls = set()
-        self.hyp = plugins.hypermem
 
-        self.panda.hsyscall("on_sys_ioctl_return")(self.hyp.wrap(self.after_ioctl))
+        self.panda.hsyscall("on_sys_ioctl_return")(self.after_ioctl)
         plugins.subscribe(plugins.Health, "igloo_exec", self.iface_on_exec)
 
     def handle_interface(self, iface):
@@ -80,9 +79,10 @@ class Interfaces(PyPlugin):
         except ValueError:
             return None
 
+    @plugins.portal.wrap
     def after_ioctl(self, cpu, proto, syscall, hook, fd, request, arg):
         if 0x8000 < request < 0x9000:
-            iface = yield from self.hyp.read_str(arg)
+            iface = yield from plugins.portal.read_str(arg)
             rv = syscall.retval
 
             # try to catch missing interfaces

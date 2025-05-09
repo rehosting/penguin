@@ -30,10 +30,10 @@ HYPER_RESP_WRITE_FAIL = 0xf0000005
 HYPER_RESP_READ_NUM = 0xf0000006
 HYPER_RESP_MAX = 0xf0000007
 
-class Hypermem(PyPlugin):
+class Portal(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
-        self.logger = getColoredLogger("plugins.hypermem")
+        self.logger = getColoredLogger("plugins.portal")
         # if self.get_arg_bool("verbose"):
             # self.logger.setLevel("DEBUG")
         self.panda = panda

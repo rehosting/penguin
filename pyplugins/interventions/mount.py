@@ -36,14 +36,13 @@ class MountTracker(PyPlugin):
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
         
-        self.hyp = plugins.hypermem
+        self.panda.hsyscall("on_sys_mount_return")(self.post_mount)
 
-        self.panda.hsyscall("on_sys_mount_return")(self.hyp.wrap(self.post_mount))
-
+    @plugins.portal.wrap
     def post_mount(self, cpu, proto, syscall, hook, source, target, fs_type, flags, data):
-        source_str = yield from self.hyp.read_str(source)
-        target_str = yield from self.hyp.read_str(target)
-        fs_type_str = yield from self.hyp.read_str(fs_type)
+        source_str = yield from plugins.portal.read_str(source)
+        target_str = yield from plugins.portal.read_str(target)
+        fs_type_str = yield from plugins.portal.read_str(fs_type)
         results = {
             "source": source_str,
             "target": target_str,
