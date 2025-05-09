@@ -185,7 +185,6 @@ class Hypermem(PyPlugin):
     def wrap(self, f):
         id_reg = self.id_reg
         self.id_reg += 1
-        max_completed_callnum = {}
         cpu_iterators = {} 
         cpu_iterator_start = {}
         claimed_slot = {}
@@ -193,11 +192,12 @@ class Hypermem(PyPlugin):
         def wrapper(self_, *args, **kwargs):
             cpu = self.panda.get_cpu()
             fn_return = None
-            nonlocal max_completed_callnum, cpu_iterators, claimed_slot
+            nonlocal cpu_iterators, claimed_slot, cpu_iterator_start
 
             new_iterator = False
             if cpu not in cpu_iterators or cpu_iterators[cpu] is None:
                 self.logger.debug(f"Creating new iterator for CPU {(cpu,f)}")
+                # Revert to calling the original function f with self_
                 fn_ret = f(self_, *args, **kwargs)
 
                 if not isinstance(fn_ret, Iterator):
@@ -239,7 +239,6 @@ class Hypermem(PyPlugin):
                 cpu_iterators[cpu] = None
                 # The function has completed, and we need to return the value
                 fn_return = e.value
-                max_completed_callnum[cpu] = max(max_completed_callnum.get(cpu, -1), call_num)
                 cpu_iterator_start[cpu] = None
                 self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_NONE, 0, 0)
                 self._release_memregion(cpu, slot)
@@ -248,7 +247,6 @@ class Hypermem(PyPlugin):
             
 
             if new_iterator and cmd is None:
-                # max_completed_callnum[cpu] = max(max_completed_callnum.get(cpu, 0), call_num)
                 # this is basically a no-op. Our functionality wasn't used
                 return fn_return
             
