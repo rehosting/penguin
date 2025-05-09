@@ -5,7 +5,7 @@ from collections.abc import Iterator
 import functools
 
 # CHUNK_SIZE = 4096 - 8*3
-CHUNK_SIZE = 1000
+CHUNK_SIZE = 4096 - 8*3 - 1
 HYPER_REGISTER_MEM_REGION = 0xbebebebe
 
 HYPER_OP_NONE = 0
