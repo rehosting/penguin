@@ -216,8 +216,7 @@ class Portal(PyPlugin):
             if new_iterator:
                 cpu_iterator_start[cpu] = call_num
             if cpu_iterator_start[cpu] and cpu_iterator_start[cpu] != call_num:
-                breakpoint()
-                print("active iterator is not the same as the one we started with")
+                self.logger.error(f"CPU {cpu} iterator start {cpu_iterator_start[cpu]} != call_num {call_num}; We must have missed a call!")
             
             in_op = self._handle_input_state(cpu, cpu_memregion)
             self._release_memregion(cpu, slot)
@@ -312,11 +311,6 @@ class Portal(PyPlugin):
     def read_str(self, addr):
         if addr != 0:
             self.logger.debug(f"read_str called: addr={addr:#x}")
-            # if addr == 0xbeffff2d:
-            #     import debugpy
-            #     debugpy.listen(("0.0.0.0", 5678))
-            #     debugpy.wait_for_client()
-            #     breakpoint()
             chunk = yield ("read_str", addr)
             if chunk:
                 self.logger.debug(f"Received response from queue: {chunk}")
