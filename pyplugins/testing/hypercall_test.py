@@ -17,7 +17,7 @@ class HypercallTest(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
-        self.logger = getColoredLogger("plugins.hypercall_test")
+        self.logger = getColoredLogger("plugins.portalercall_test")
         self.panda.hypercall(HYPERCALL_MAGIC)(self.hypercall_test)
         self.success = None
         self.reported = False

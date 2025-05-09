@@ -1,8 +1,8 @@
-# Hypermem
+# Portal
 
-## What is Hypermem?
+## What is Portal?
 
-**Hypermem** is a powerful memory introspection and manipulation tool that provides a cooperative, hypercall-based protocol for reading from and writing to guest memory. Unlike traditional memory introspection approaches that directly access the physical memory, Hypermem uses a cooperative approach between the guest and hypervisor, providing robust memory access and manipulation capabilities across different architectures and OS versions.
+**Portal** is a powerful memory introspection and manipulation tool that provides a cooperative, hypercall-based protocol for reading from and writing to guest memory. Unlike traditional memory introspection approaches that directly access the physical memory, Portal uses a cooperative approach between the guest and hypervisor, providing robust memory access and manipulation capabilities across different architectures and OS versions.
 
 ## How Hypermem Works
 
@@ -37,22 +37,20 @@ class MemoryAccess(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.logger = getColoredLogger("plugins.memory_access")
-        self.hyp = plugins.hypermem
         
-        # Register a callback for syscall events - note the self.hyp.wrap() wrapper
-        # This wrapper is essential when using hypermem within a callback
-        self.panda.hsyscall("on_sys_read_return")(self.hyp.wrap(self.on_read))
+        self.panda.hsyscall("on_sys_read_return")(self.on_read)
     
+    @plugins.portal.wrap
     def on_read(self, cpu, proto, syscall, hook, fd, buf_addr, count):
         # Read a string from the buffer address
-        buffer_content = yield from self.hyp.read_str(buf_addr)
+        buffer_content = yield from plugins.portal.read_str(buf_addr)
         self.logger.info(f"Read buffer content: {buffer_content}")
         
         # Write a string to memory
-        yield from self.hyp.write_str(buf_addr, "Modified content")
+        yield from plugins.portal.write_str(buf_addr, "Modified content")
         
         # Read an integer value from memory
-        value = yield from self.hyp.read_int(buf_addr + 16)
+        value = yield from plugins.portal.read_int(buf_addr + 16)
         self.logger.info(f"Integer value: {value:#x}")
 ```
 
@@ -129,14 +127,13 @@ class RAEthPlugin(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.logger = getColoredLogger("plugins.raeth")
-        self.hyp = plugins.hypermem
         
         # Register our callback for IOCTL syscalls with specific filtering
         # Only intercept ioctl calls with cmd=RAETH_ESW_REG_READ (0x89F1)
         self.panda.hsyscall(
             "on_sys_ioctl_return", 
             arg_filter=[None, RAETH_ESW_REG_READ, None]
-        )(self.hyp.wrap(self.handle_raeth_ioctl))
+        )(self.handle_raeth_ioctl)
         
         # Register definitions for logging
         self.registers = {
@@ -145,20 +142,21 @@ class RAEthPlugin(PyPlugin):
             REG_ESW_TABLE_STATUS0: "REG_ESW_TABLE_STATUS0"
         }
         
+    @plugins.portal.wrap
     def handle_raeth_ioctl(self, cpu, proto, syscall, hook, fd, cmd, arg):
         """Handler specifically for RALink Ethernet register read operations"""
         # Read the interface name
-        interface = yield from self.hyp.read_str(arg)
+        interface = yield from plugins.portal.read_str(arg)
         
         # Only handle eth0 ioctls
         if interface != "eth0":
             return
             
         # Read the esw_reg structure pointer from ifr_data
-        esw_reg_ptr = yield from self.hyp.read_ptr(arg + 16)
+        esw_reg_ptr = yield from plugins.portal.read_ptr(arg + 16)
         
         # Read the register code (offset)
-        code = yield from self.hyp.read_int(esw_reg_ptr)
+        code = yield from plugins.portal.read_int(esw_reg_ptr)
         
         # Decide what value to provide based on the register
         if code == REG_ESW_WT_MAC_AD0:
@@ -176,7 +174,7 @@ class RAEthPlugin(PyPlugin):
         self.logger.info(f"RAEth ioctl: reg={self.registers.get(code, hex(code))}, returning val={hex(val)}")
         
         # Write the value back to the esw_reg structure (at offset +4 for val)
-        yield from self.hyp.write_int(esw_reg_ptr + 4, val)
+        yield from plugins.portal.write_int(esw_reg_ptr + 4, val)
         
         # Set the syscall return value to 0 (success)
         syscall.retval = 0
@@ -191,7 +189,6 @@ class AdvancedRAEthPlugin(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.logger = getColoredLogger("plugins.advanced_raeth")
-        self.hyp = plugins.hypermem
         
         # Target only table_del's register read operations
         # This uses both command filtering and process name filtering
@@ -199,23 +196,24 @@ class AdvancedRAEthPlugin(PyPlugin):
             "on_sys_ioctl_enter", 
             comm_filter="mtk7530_switch",  # Process name filter 
             arg_filter=[None, RAETH_ESW_REG_READ, None]  # Argument filter
-        )(self.hyp.wrap(self.handle_table_del_ioctl))
+        )(self.handle_table_del_ioctl)
         
+    @plugins.portal.wrap
     def handle_table_del_ioctl(self, cpu, proto, syscall, hook, fd, cmd, arg):
         """
         This function specifically targets the table_del function's ioctl calls
         by checking the register being read
         """
         # Read the interface name
-        interface = yield from self.hyp.read_str(arg)
+        interface = yield from plugins.portal.read_str(arg)
         if interface != "eth0":
             return
             
         # Read the esw_reg structure pointer from ifr_data
-        esw_reg_ptr = yield from self.hyp.read_ptr(arg + 16)
+        esw_reg_ptr = yield from plugins.portal.read_ptr(arg + 16)
         
         # Read the register code (offset)
-        code = yield from self.hyp.read_int(esw_reg_ptr)
+        code = yield from plugins.portal.read_int(esw_reg_ptr)
         
         # Check if this is the specific register read from table_del
         if code == REG_ESW_WT_MAC_AD0:
@@ -227,11 +225,11 @@ class AdvancedRAEthPlugin(PyPlugin):
             
             # Write the w_mac_done bit directly to the return value pointer
             # First, get the value pointer from the calling code
-            caller_frame_ptr = yield from self.hyp.read_ptr(self.panda.arch.get_reg(cpu, "sp"))
-            value_ptr = yield from self.hyp.read_ptr(caller_frame_ptr + 8)  # Assuming x86_64 calling convention
+            caller_frame_ptr = yield from plugins.portal.read_ptr(self.panda.arch.get_reg(cpu, "sp"))
+            value_ptr = yield from plugins.portal.read_ptr(caller_frame_ptr + 8)  # Assuming x86_64 calling convention
             
             # Set the value with the w_mac_done bit set
-            yield from self.hyp.write_int(value_ptr, 0x2)
+            yield from plugins.portal.write_int(value_ptr, 0x2)
             
             # Make the ioctl call itself return success
             syscall.retval = 0
@@ -264,7 +262,7 @@ This example demonstrates how combining Hypermem with hypersyscalls' filtering c
 #### Reading Raw Bytes
 
 ```python
-data = yield from self.hyp.read_bytes(addr, size)
+data = yield from plugins.portal.read_bytes(addr, size)
 ```
 
 Reads `size` bytes from memory starting at `addr`.
@@ -272,7 +270,7 @@ Reads `size` bytes from memory starting at `addr`.
 #### Reading Strings
 
 ```python
-string = yield from self.hyp.read_str(addr)
+string = yield from plugins.portal.read_str(addr)
 ```
 
 Reads a null-terminated string from memory starting at `addr`.
@@ -281,13 +279,13 @@ Reads a null-terminated string from memory starting at `addr`.
 
 ```python
 # 32-bit integer
-value = yield from self.hyp.read_int(addr)
+value = yield from plugins.portal.read_int(addr)
 
 # 64-bit integer
-value = yield from self.hyp.read_long(addr)
+value = yield from plugins.portal.read_long(addr)
 
 # Architecture-appropriate pointer
-ptr = yield from self.hyp.read_ptr(addr)
+ptr = yield from plugins.portal.read_ptr(addr)
 ```
 
 ### Writing Memory
@@ -295,7 +293,7 @@ ptr = yield from self.hyp.read_ptr(addr)
 #### Writing Raw Bytes
 
 ```python
-yield from self.hyp.write_bytes(addr, data)
+yield from portal.write_bytes(addr, data)
 ```
 
 Writes the bytes in `data` to memory starting at `addr`.
@@ -303,7 +301,7 @@ Writes the bytes in `data` to memory starting at `addr`.
 #### Writing Strings
 
 ```python
-yield from self.hyp.write_str(addr, string)
+yield from portal.write_str(addr, string)
 ```
 
 Writes `string` to memory at `addr`
@@ -312,33 +310,33 @@ Writes `string` to memory at `addr`
 
 ```python
 # 32-bit integer
-yield from self.hyp.write_int(addr, value)
+yield from portal.write_int(addr, value)
 
 # 64-bit integer
-yield from self.hyp.write_long(addr, value)
+yield from portal.write_long(addr, value)
 
 # Architecture-appropriate pointer
-yield from self.hyp.write_ptr(addr, value)
+yield from portal.write_ptr(addr, value)
 ```
 
 ### Process Information
 
 ```python
 # Get command line arguments
-args = yield from self.hyp.get_proc_args()
+args = yield from portal.get_proc_args()
 
 # Get environment variables
-env = yield from self.hyp.get_proc_env()
+env = yield from portal.get_proc_env()
 
 # Get process ID
-pid = yield from self.hyp.get_proc_pid()
+pid = yield from portal.get_proc_pid()
 ```
 
 ### File Descriptor Information
 
 ```python
 # Get file name associated with a file descriptor
-fd_name = yield from self.hyp.read_fd_name(fd)
+fd_name = yield from portal.read_fd_name(fd)
 ```
 
 ## Real-world Example: IOCTL Interaction Test
@@ -349,39 +347,39 @@ Here's an example from the `ioctl_interaction_test.py` that demonstrates advance
 def syscall_test(self, cpu, proto, syscall, hook, fd, op, arg):
     if op == SIOCDEVPRIVATE:
         # Read a string from the arg address
-        interface = yield from self.hyp.read_str(arg)
+        interface = yield from plugins.portal.read_str(arg)
         self.logger.info(f"Interface: {interface}")
         
         # Read an integer from memory at offset IFNAMSIZ from arg
-        data = yield from self.hyp.read_int(arg + IFNAMSIZ)
+        data = yield from plugins.portal.read_int(arg + IFNAMSIZ)
         self.logger.info(f"Data: {data:#x}")
 
         # Write a string to memory and read it back to verify
         to_write = "test"
-        yield from self.hyp.write_str(arg, to_write)
-        interface = yield from self.hyp.read_str(arg)
+        yield from plugins.portal.write_str(arg, to_write)
+        interface = yield from plugins.portal.read_str(arg)
         assert interface == to_write, f"Expected {to_write}, got {interface}, r/w failed"
 
         # Write an integer to memory and read it back to verify
         to_write_int = 0x12345678
-        yield from self.hyp.write_int(arg + IFNAMSIZ, to_write_int)
-        data = yield from self.hyp.read_int(arg + IFNAMSIZ)
+        yield from plugins.portal.write_int(arg + IFNAMSIZ, to_write_int)
+        data = yield from plugins.portal.read_int(arg + IFNAMSIZ)
         assert data == to_write_int, f"Expected {to_write_int:#x}, got {data:#x}, r/w failed"
 
         # Get file descriptor name
-        fd_name = yield from self.hyp.read_fd_name(fd) or "[???]"
+        fd_name = yield from plugins.portal.read_fd_name(fd) or "[???]"
         self.logger.info(f"FD: {fd_name}")
 
         # Get process arguments
-        args = yield from self.hyp.get_proc_args()
+        args = yield from plugins.portal.get_proc_args()
         self.logger.info(f"Found process: {args}")
         
         # Get environment variables
-        env = yield from self.hyp.get_proc_env()
+        env = yield from plugins.portal.get_proc_env()
         self.logger.info(f"Found env: {env}")
         
         # Get process ID
-        pid = yield from self.hyp.get_proc_pid()
+        pid = yield from plugins.portal.get_proc_pid()
         self.logger.info(f"Found pid: {pid}")
 ```
 
@@ -422,8 +420,8 @@ The Hypermem system works by registering a shared memory region between the gues
 
 ## Operation Flow
 
-1. The Python plugin requests an operation through the Hypermem API
-2. The Hypermem plugin writes the operation code and parameters to the shared memory region
+1. The Python plugin requests an operation through the portal API
+2. The portal plugin writes the operation code and parameters to the shared memory region
 3. The hypervisor signals the guest kernel via a hypercall
 4. The guest kernel processes the operation, accessing memory as needed
 5. Results are written back to the shared memory region
@@ -431,7 +429,7 @@ The Hypermem system works by registering a shared memory region between the gues
 
 ## Differences from Traditional Memory Access
 
-| Feature | Hypermem | Traditional Memory Access |
+| Feature | Portal | Traditional Memory Access |
 |---------|----------|---------------------------|
 | **Access Method** | Cooperative via guest kernel | Direct physical memory access |
 | **Reliability** | High - Uses proper kernel APIs | Medium - May break with kernel changes |
@@ -443,6 +441,5 @@ The Hypermem system works by registering a shared memory region between the gues
 
 ## References
 
-- See [`pyplugins/analysis/hypermem.py`](../pyplugins/analysis/hypermem.py) for the full implementation
+- See [`pyplugins/analysis/portal.py`](../pyplugins/analysis/portal.py) for the full implementation
 - See [`pyplugins/testing/ioctl_interaction_test.py`](../pyplugins/testing/ioctl_interaction_test.py) for usage examples
-- See [`linux_builder/linux/6.13/drivers/igloo/hypermemcall.c`](../linux_builder/linux/6.13/drivers/igloo/hypermemcall.c) for the kernel implementation
