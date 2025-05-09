@@ -40,49 +40,46 @@ class Health(PyPlugin):
         plugins.subscribe(plugins.Events, "igloo_ipv4_bind", self.on_ipv4_bind)
         plugins.subscribe(plugins.Events, "igloo_ipv6_bind", self.on_ipv6_bind)
         plugins.subscribe(plugins.Events, "igloo_open",      self.health_detect_opens)
+        self.hyp = plugins.hypermem
 
-        # TODO: replace with hypercall mechanism
-        @panda.hsyscall("on_sys_execve_enter")
-        def health_execve(cpu, proto, syscall, hook, fname_ptr, argv_ptr, envp):
-            if self.exiting:
-                return
-            try:
-                fname = panda.read_str(cpu, fname_ptr)
-            except ValueError:
-                return
+    breakpoint()
+    @plugins.panda.hsyscall("on_sys_execve_enter")
+    @plugins.hypermem.wrap
+    def health_execve(self, cpu, proto, syscall, hook, fname_ptr, argv_ptr, envp):
+        if self.exiting:
+            return
+        fname = yield from self.hyp.read_str(fname_ptr)
 
-            if fname not in self.procs:
-                self.procs.add(fname)
-                self.increment_event("nexecs")
+        if fname not in self.procs:
+            self.procs.add(fname)
+            self.increment_event("nexecs")
 
-            # Now get args
-            try:
-                argv_buf = panda.virtual_memory_read(cpu, argv_ptr, 96, fmt="ptrlist")
-            except ValueError:
-                return
+        argv_buf = yield from self.hyp.read_ptrlist(argv_ptr, 8)
+        # Read each argument pointer into argv list
+        argv = []
+        nullable_argv = []
+        for ptr in argv_buf:
+            if ptr == 0:
+                break
+            
+            val = yield from self.hyp.read_str(ptr)
+            if val == "":
+                argv.append(f"(error: 0x{ptr:x})")
+                nullable_argv.append(None)
+            else:
+                argv.append(val)
+                nullable_argv.append(val)
+        breakpoint()
+        try:
+            plugins.publish(self, "igloo_exec", cpu, fname, argv)
+        except Exception as e:
+            self.logger.error("Exn in health.igloo_exec")
+            self.logger.exception(e)
 
-            # Read each argument pointer into argv list
-            argv = []
-            nullable_argv = []
-            for ptr in argv_buf:
-                if ptr == 0:
-                    break
-                try:
-                    argv.append(panda.read_str(cpu, ptr))
-                    nullable_argv.append(panda.read_str(cpu, ptr))
-                except ValueError:
-                    argv.append(f"(error: 0x{ptr:x})")
-                    nullable_argv.append(None)
-            try:
-                plugins.publish(self, "igloo_exec", cpu, fname, argv)
-            except Exception as e:
-                self.logger.error("Exn in health.igloo_exec")
-                self.logger.exception(e)
-
-            unique_name = f"{fname} {' '.join(argv)}"
-            if unique_name not in self.procs_args:
-                self.procs_args.add(unique_name)
-                self.increment_event("nexecs_args")
+        unique_name = f"{fname} {' '.join(argv)}"
+        if unique_name not in self.procs_args:
+            self.procs_args.add(unique_name)
+            self.increment_event("nexecs_args")
 
     def on_ipv4_bind(self, cpu, port, is_steam):
         self.health_on_bind(cpu, True, port)

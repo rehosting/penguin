@@ -16,12 +16,17 @@ class RWLog(PyPlugin):
         s = yield from self.hyp.read_str(buf)
 
         signed_fd = int(self.panda.ffi.cast("target_long", fd))
-        fname = yield from self.hyp.get_fd_name(fd) or b"?"
-        fname = self.panda.read_file_name(cpu, fd) or b"?"
+        fname = yield from self.hyp.get_fd_name(fd) or "?"
+        args = yield from self.hyp.get_proc_args()
+        if args:
+            procname = procname.split(" ")[0]
+        else:
+            procname = "[???]"
         self.DB.add_event(
             Write(
+                procname=procname,
                 fd=signed_fd,
-                fname=fname.decode("latin-1", errors="ignore"),
+                fname=fname,
                 buffer=s,
             )
         )
@@ -29,13 +34,19 @@ class RWLog(PyPlugin):
     def read(self, cpu, proto, syscall, hook, fd, buf, count):
         s = yield from self.hyp.read_str(buf)
         signed_fd = int(self.panda.ffi.cast("target_long", fd))
-        fname = yield from self.hyp.get_fd_name(fd) or b"?"
+        fname = yield from self.hyp.get_fd_name(fd) or "?"
         # Get name of FD, if it's valid
         signed_fd = int(self.panda.ffi.cast("target_long", fd))
+        args = yield from self.hyp.get_proc_args()
+        if args:
+            procname = procname.split(" ")[0]
+        else:
+            procname = "[???]"
         self.DB.add_event(
             Read(
+                procname=procname,
                 fd=signed_fd,
-                fname=fname.decode("latin-1", errors="ignore"),
+                fname=fname,
                 buffer=s,
             )
         )
