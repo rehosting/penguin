@@ -540,6 +540,9 @@ def run_config(
         "telnet_port": telnet_port,
     }
     args.update(vpn_args)
+
+    sys.path.append("/pyplugins")
+
     plugins.initialize(panda, args)
     plugins.load_plugins(conf_plugins)
 
