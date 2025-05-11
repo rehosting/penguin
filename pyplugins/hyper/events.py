@@ -1,29 +1,30 @@
 from penguin import getColoredLogger, plugins
 from pandare2 import PyPlugin
+from hyper.consts import *
 
 
 EVENTS = {
     # MAGIC ->  (NAME,              (ARG1,...,ARGN))
-    100:        ('igloo_open',            (str, int)),
-    101:        ('igloo_string_cmp',      (str,)),
-    102:        ('igloo_string_cmp',      (str,)),
-    103:        ('igloo_getenv',          (str,)),
-    104:        ('igloo_strstr',          (str, str)),
-    105:        ('igloo_ioctl',           (str, int)),
-    107:        ('igloo_nvram_get_miss',  (str,)),
-    108:        ('igloo_nvram_get_hit',   (str,)),
-    109:        ('igloo_nvram_set',       (str, str)),
-    110:        ('igloo_nvram_clear',     (str,)),
-    200:        ('igloo_ipv4_setup',      (str, int)),
-    201:        ('igloo_ipv4_bind',       (int, bool)),
-    202:        ('igloo_ipv6_setup',      (str, int)),
-    203:        ('igloo_ipv6_bind',       (int, bool)),
-    204:        ('igloo_ipv4_release',    (str, int)),
-    205:        ('igloo_ipv6_release',    (str, int)),
-    300:        ('igloo_uname',           (int, int)),
-    305:        ('igloo_hyp_enoent',      (str,)),
-    0xB335A535: ('igloo_send_hypercall',  (None, int, int)),
-    0x8507FAE1: ('igloo_shell',           (int, int, int)),  # crc32("busybox")
+    IGLOO_OPEN:         ('igloo_open',            (str, int)),
+    101:                ('igloo_string_cmp',      (str,)),
+    102:                ('igloo_string_cmp',      (str,)),
+    103:                ('igloo_getenv',          (str,)),
+    104:                ('igloo_strstr',          (str, str)),
+    IGLOO_IOCTL_ENOTTY: ('igloo_ioctl',           (str, int)),
+    107:                ('igloo_nvram_get_miss',  (str,)),
+    108:                ('igloo_nvram_get_hit',   (str,)),
+    109:                ('igloo_nvram_set',       (str, str)),
+    110:                ('igloo_nvram_clear',     (str,)),
+    IGLOO_IPV4_SETUP:   ('igloo_ipv4_setup',      (str, int)),
+    IGLOO_IPV4_BIND:    ('igloo_ipv4_bind',       (int, bool)),
+    IGLOO_IPV6_SETUP:   ('igloo_ipv6_setup',      (str, int)),
+    IGLOO_IPV6_BIND:    ('igloo_ipv6_bind',       (int, bool)),
+    IGLOO_IPV4_RELEASE: ('igloo_ipv4_release',    (str, int)),
+    IGLOO_IPV6_RELEASE: ('igloo_ipv6_release',    (str, int)),
+    IGLOO_HYP_UNAME:    ('igloo_uname',           (int, int)),
+    IGLOO_HYP_ENOENT:   ('igloo_hyp_enoent',      (str,)),
+    0xB335A535:         ('igloo_send_hypercall',  (None, int, int)),
+    0x8507FAE1:         ('igloo_shell',           (int, int, int)),  # crc32("busybox")
 }
 
 
