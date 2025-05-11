@@ -243,7 +243,7 @@ class FileFailures(PyPlugin):
         # XXX We need this import in here, otherwise when we load psueodfiles with panda.load_plugin /path/to/pseudofiles.py
         # it sees both FileFailures AND HyperFile. But we only want hyperfile to be loaded by us here, not by our caller.
         # we are not currently using HYPER_WRITE so we do not import it
-        from hyperfile import (HYPER_IOCTL, HYPER_READ, HyperFile, hyper)
+        from hyperfile import (HYP_IOCTL, HYP_READ, HyperFile, hyper)
         hf_config = {}
         for filename, details in self.config["pseudofiles"].items():
             hf_config[filename] = {}
@@ -284,14 +284,14 @@ class FileFailures(PyPlugin):
             # Here we'll use our make_rwif closure
             netdev_val = " ".join(self.get_arg("conf")["netdevs"])
             hf_config["/proc/penguin_net"] = {
-                HYPER_READ: make_rwif({"val": netdev_val}, self.read_const_buf),
+                HYP_READ: make_rwif({"val": netdev_val}, self.read_const_buf),
                 "size": len(netdev_val),
             }
 
         hf_config["/proc/mtd"] = {
             # Note we don't use our make_rwif closure helper here because these are static
-            HYPER_READ: self.proc_mtd_check,
-            HYPER_IOCTL: HyperFile.ioctl_unhandled,
+            HYP_READ: self.proc_mtd_check,
+            HYP_IOCTL: HyperFile.ioctl_unhandled,
             "size": 0,
         }
         return hf_config
