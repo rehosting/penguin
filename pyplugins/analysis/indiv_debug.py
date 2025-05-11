@@ -2,6 +2,7 @@ from pandare2 import PyPlugin
 import subprocess
 import os
 import shlex
+from hyper.consts import IGLOO_SIGSTOP_KTHREAD, IGLOO_SIGSTOP_ARGV, IGLOO_SIGSTOP_QUERY
 
 
 def guest_cmd(cmd):
@@ -28,12 +29,12 @@ class IndivDebug(PyPlugin):
         # to give this plugin information about the process and ask whether it
         # should start paused
 
-        @panda.hypercall(0x0c6ea29a)
+        @panda.hypercall(IGLOO_SIGSTOP_KTHREAD)
         def indiv_debug_get_filename(cpu):
             filename_ptr = panda.arch.get_arg(cpu, 1, convention="syscall")
             self.filename = panda.read_str(cpu, filename_ptr)
 
-        @panda.hypercall(0xbae7babc)
+        @panda.hypercall(IGLOO_SIGSTOP_ARGV)
         def indiv_debug_get_arg(cpu):
             arg_ptr = panda.arch.get_arg(cpu, 1, convention="syscall")
             i = panda.arch.get_arg(cpu, 2, convention="syscall")
@@ -43,7 +44,7 @@ class IndivDebug(PyPlugin):
             arg = panda.read_str(cpu, arg_ptr)
             self.args_tmp.append(arg)
 
-        @panda.hypercall(0x7b7287d5)
+        @panda.hypercall(IGLOO_SIGSTOP_QUERY)
         def indiv_debug_ask_sig_stop(cpu):
             if self.filename is None:
                 return
