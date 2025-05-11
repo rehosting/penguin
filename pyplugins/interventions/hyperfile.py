@@ -1,43 +1,36 @@
 import struct
 from pandare2 import PyPlugin
+from hyper.consts import (
+    IGLOO_HYPERFS_MAGIC,
+    HYP_FILE_OP, HYP_GET_NUM_HYPERFILES, HYP_GET_HYPERFILE_PATHS, 
+    HYP_READ, HYP_WRITE, HYP_IOCTL, HYP_GETATTR, HYP_RETRY
+)
 
 try:
     from penguin import yaml
 except ImportError:
     import yaml
 
-# Make sure these match hyperfs
-HYPER_MAGIC = 0x51EC3692
-HYPER_FILE_OP = 0
-HYPER_GET_NUM_HYPERFILES = 1
-HYPER_GET_HYPERFILE_PATHS = 2
-HYPER_READ = 0
-HYPER_WRITE = 1
-HYPER_IOCTL = 2
-HYPER_GETATTR = 3
-RETRY = 0xDEADBEEF
-
-
 def hyper(name):
     if name == "read":
-        return HYPER_READ
+        return HYP_READ
     elif name == "write":
-        return HYPER_WRITE
+        return HYP_WRITE
     elif name == "ioctl":
-        return HYPER_IOCTL
+        return HYP_IOCTL
     elif name == "getattr":
-        return HYPER_GETATTR
+        return HYP_GETATTR
     raise ValueError(f"Unknown hyperfile operation {name}")
 
 
 def hyper2name(num):
-    if num == HYPER_READ:
+    if num == HYP_READ:
         return "read"
-    elif num == HYPER_WRITE:
+    elif num == HYP_WRITE:
         return "write"
-    elif num == HYPER_IOCTL:
+    elif num == HYP_IOCTL:
         return "ioctl"
-    elif num == HYPER_GETATTR:
+    elif num == HYP_GETATTR:
         return "getattr"
     raise ValueError(f"Unknown hyperfile operation {num}")
 
@@ -71,27 +64,27 @@ class HyperFile(PyPlugin):
         assert isinstance(self.files, dict), f"Files should be dict, not {self.files}"
 
         self.default_model = {
-            HYPER_READ: self.read_unhandled,
-            HYPER_WRITE: self.write_unhandled,
-            HYPER_IOCTL: self.ioctl,
-            HYPER_GETATTR: self.getattr,
+            HYP_READ: self.read_unhandled,
+            HYP_WRITE: self.write_unhandled,
+            HYP_IOCTL: self.ioctl,
+            HYP_GETATTR: self.getattr,
             "size": 0,
         }
 
         # files = {filename: {'read': func, 'write': func, 'ioctl': func}}}
 
         # On hypercall we dispatch to the appropriate handler: read, write, ioctl
-        @panda.hypercall(HYPER_MAGIC)
+        @panda.hypercall(IGLOO_HYPERFS_MAGIC)
         def before_hypercall(cpu):
             # We pass args in the arch-syscall ABI specified in pypanda's arch.py
             # arm: x8/r7 r0, r1, r2
             # mips: v0, a0, a1, a2
             hc_type = panda.arch.get_arg(cpu, 1, convention="syscall")
-            if hc_type == HYPER_FILE_OP:
+            if hc_type == HYP_FILE_OP:
                 self.handle_file_op(cpu)
-            elif hc_type == HYPER_GET_NUM_HYPERFILES:
+            elif hc_type == HYP_GET_NUM_HYPERFILES:
                 self.handle_get_num_hyperfiles(cpu)
-            elif hc_type == HYPER_GET_HYPERFILE_PATHS:
+            elif hc_type == HYP_GET_HYPERFILE_PATHS:
                 self.handle_get_hyperfile_paths(cpu)
 
     def handle_get_num_hyperfiles(self, cpu):
@@ -104,7 +97,7 @@ class HyperFile(PyPlugin):
             )
         except ValueError:
             # Memory r/w failed - tell guest to retry
-            self.panda.arch.set_retval(cpu, RETRY)
+            self.panda.arch.set_retval(cpu, HYP_RETRY)
             self.logger.debug("Failed to read/write number of hyperfiles from guest - retry")
 
     def handle_get_hyperfile_paths(self, cpu):
@@ -120,14 +113,14 @@ class HyperFile(PyPlugin):
                     fmt="int",
                 )
             except ValueError:
-                self.panda.arch.set_retval(cpu, RETRY)
+                self.panda.arch.set_retval(cpu, HYP_RETRY)
                 self.logger.debug("Failed to read hyperfile path ptr from guest - retry")
                 return
         for path, buf in zip(self.files.keys(), hyperfile_paths_ptrs):
             try:
                 self.panda.virtual_memory_write(cpu, buf, path.encode())
             except ValueError:
-                self.panda.arch.set_retval(cpu, RETRY)
+                self.panda.arch.set_retval(cpu, HYP_RETRY)
                 self.logger.debug("Failed to write hyperfile path to guest - retry")
                 return
 
@@ -143,7 +136,7 @@ class HyperFile(PyPlugin):
             buf = self.panda.virtual_memory_read(cpu, buf_addr, hyperfs_data_size, fmt="bytearray")
         except ValueError:
             # Memory read failed - tell guest to retry
-            self.panda.arch.set_retval(cpu, RETRY)
+            self.panda.arch.set_retval(cpu, HYP_RETRY)
             self.logger.debug("Failed to read hyperfile struct from guest - retry")
             return
 
@@ -153,7 +146,7 @@ class HyperFile(PyPlugin):
             device_name = self.panda.read_str(cpu, path_ptr)
         except ValueError:
             # Memory read failed - tell guest to retry
-            self.panda.arch.set_retval(cpu, RETRY)
+            self.panda.arch.set_retval(cpu, HYP_RETRY)
             self.logger.debug("Failed to read hyperfile struct from guest - retry")
             return
 
@@ -173,13 +166,13 @@ class HyperFile(PyPlugin):
         model = self.files[device_name]
         # Ensure our model specifies the current behavior - if not, warn and add default
         if type_val not in model:
-            if not (type_val == HYPER_GETATTR and "size" in model):
+            if not (type_val == HYP_GETATTR and "size" in model):
                 # If we have a size, we can handle getattr with out default method (return size) and it's fine. Otherwise warn
                 self.logger.warning(f"Detected {hyper2name(type_val)} event on device {repr(device_name)} but this event is not modeled in config. Using default.")
             model[type_val] = self.default_model[type_val]
 
         # Dispatch based on the type of operation
-        if type_val == HYPER_READ:
+        if type_val == HYP_READ:
             buffer, length, offset = struct.unpack_from(read_fmt, buf, sub_offset)
             new_buffer, retval = model[type_val](device_name, buffer, length, offset)
 
@@ -190,13 +183,13 @@ class HyperFile(PyPlugin):
                     self.panda.virtual_memory_write(cpu, buffer, new_buffer)
                 except ValueError:
                     self.logger.warning(f"After reading hyperfile {device_name} failed to write result into guest memory at {buffer:x} - retry")
-                    self.panda.arch.set_retval(cpu, RETRY)
+                    self.panda.arch.set_retval(cpu, HYP_RETRY)
                     # XXX: If we ever have stateful files, we'll need to tell it the read failed
                     return
 
             self.handle_result(device_name, "read", retval, length, new_buffer)
 
-        elif type_val == HYPER_WRITE:
+        elif type_val == HYP_WRITE:
             buffer, length, offset = struct.unpack_from(write_fmt, buf, sub_offset)
             # We're writing data into our pseudofile. First we need to read what the guest
             # has given us as data to write
@@ -206,7 +199,7 @@ class HyperFile(PyPlugin):
                 contents = self.panda.virtual_memory_read(cpu, buffer, length)
             except ValueError:
                 self.logger.warning(f"Before writing to hyperfile {device_name} failed to read data out of guest memory at {buffer:x} with offset {offset:x}")
-                self.panda.arch.set_retval(cpu, RETRY)
+                self.panda.arch.set_retval(cpu, HYP_RETRY)
                 # XXX: We might be able to get stuck in a loop here if hyperfs isn't paging in
                 # what we expect
                 return
@@ -214,12 +207,12 @@ class HyperFile(PyPlugin):
             retval = model[type_val](device_name, buffer, length, offset, contents)
             self.handle_result(device_name, "write", retval, length, offset, contents)
 
-        elif type_val == HYPER_IOCTL:
+        elif type_val == HYP_IOCTL:
             cmd, arg = struct.unpack_from(ioctl_fmt, buf, sub_offset)
             retval = model[type_val](device_name, cmd, arg)
             self.handle_result(device_name, "ioctl", retval, cmd, arg)
 
-        elif type_val == HYPER_GETATTR:
+        elif type_val == HYP_GETATTR:
             retval, size_data = model[type_val](device_name, model)
             size_bytes = struct.pack(f"{self.endian} q", size_data)
             self.handle_result(device_name, "getattr", retval, size_data)
@@ -229,7 +222,7 @@ class HyperFile(PyPlugin):
                 self.panda.virtual_memory_write(cpu, size_ptr, size_bytes)
             except ValueError:
                 self.logger.debug("Failed to write hyperfile size into guest - retry(?)")
-                self.panda.arch.set_retval(cpu, RETRY)
+                self.panda.arch.set_retval(cpu, HYP_RETRY)
                 return
 
         self.panda.arch.set_retval(cpu, self.panda.to_unsigned_guest(retval))
