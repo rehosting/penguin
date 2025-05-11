@@ -3,46 +3,49 @@ from penguin import getColoredLogger
 import struct
 from collections.abc import Iterator
 import functools
+from hyper.consts import *
 
-# CHUNK_SIZE = 4096 - 8*3
-CHUNK_SIZE = 4096 - 8*3 - 1
-HYPER_REGISTER_MEM_REGION = 0xbebebebe
+class Wrapper:
+    def __init__(self, obj):
+        super().__setattr__('_obj', obj)  # Set wrapped object safely
+        super().__setattr__('_extra_attrs', {})  # Store attributes set on the wrapper itself
 
-HYPER_OP_NONE = 0
-HYPER_OP_READ = 1
-HYPER_OP_WRITE = 2
-HYPER_OP_READ_FD_NAME = 3
-HYPER_OP_READ_PROCARGS = 4
-HYPER_OP_READ_SOCKET_INFO = 5
-HYPER_OP_READ_STR = 6
-HYPER_OP_READ_FILE = 7
-HYPER_OP_READ_PROCENV = 8
-HYPER_OP_READ_PROCPID = 9
-HYPER_OP_DUMP = 10
-HYPER_OP_MAX = 11
+    def __getattr__(self, name):
+        if name in self._extra_attrs:  # Check wrapper-specific attributes
+            return self._extra_attrs[name]
+        return getattr(self._obj, name)  # Otherwise, access wrapped object attributes
 
-HYPER_RESP_NONE = 0xf0000000
-HYPER_RESP_READ_OK = 0xf0000001
-HYPER_RESP_READ_FAIL = 0xf0000002
-HYPER_RESP_READ_PARTIAL = 0xf0000003
-HYPER_RESP_WRITE_OK = 0xf0000004
-HYPER_RESP_WRITE_FAIL = 0xf0000005
-HYPER_RESP_READ_NUM = 0xf0000006
-HYPER_RESP_MAX = 0xf0000007
+    def __setattr__(self, name, value):
+        if hasattr(self._obj, name):
+            setattr(self._obj, name, value)  # Modify wrapped object attributes
+        else:
+            self._extra_attrs[name] = value  # Store attributes directly on the wrapper
+
+    def __getitem__(self, key):
+        return self.__getattr__(key)  # Allow dictionary-like access
+
+    def __dir__(self):
+        """Retrieve all attributes of both wrapper and wrapped object."""
+        return list(self._extra_attrs.keys()) + dir(self._obj)  # Merge both sets of attributes
+
 
 class Portal(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
         self.logger = getColoredLogger("plugins.portal")
-        # if self.get_arg_bool("verbose"):
-            # self.logger.setLevel("DEBUG")
+        if self.get_arg_bool("verbose"):
+            self.logger.setLevel("DEBUG")
         self.panda = panda
-        self.panda.hypercall(HYPER_REGISTER_MEM_REGION)(
+        self.panda.hypercall(IGLOO_HYPER_REGISTER_MEM_REGION)(
             self._register_cpu_memregion)
         self.cpu_memregion_structs = {}
         # Set endianness format character for struct operations
         self.endian_format = '<' if panda.endianness == 'little' else '>'
         self.id_reg = 1
+    
+    def _get_struct_at(self, cpu, addr, type_):
+        buf = self.panda.virtual_memory_read(cpu, addr, ffi.sizeof(type_))
+        return ffi.from_buffer(f"{type_} *", buf)
     
     '''
     Our memregion is the first available memregion OR the one that is owned by us
@@ -51,55 +54,50 @@ class Portal(PyPlugin):
     '''
     def _find_free_memregion(self, cpu, id_reg, claimed_slot):
         cpu_memregion_struct = self.cpu_memregion_structs[cpu]
-        memregion_head = self.panda.virtual_memory_read(cpu, cpu_memregion_struct, 8*3)
-        count, memregions_requested, call_num = struct.unpack("<QQQ", memregion_head)
-
+        cmrh = self._get_struct_at(cpu, cpu_memregion_struct, "struct cpu_mem_region_hdr")
         if claimed_slot:
             # still need to check the slot
-            next_region = self.panda.virtual_memory_read(cpu, cpu_memregion_struct+(8*3)+ (16*claimed_slot), 16)
-            owner_id, mem_region = struct.unpack("<QQ", next_region)
-            if owner_id in [0, id_reg]:
-                return call_num, claimed_slot, mem_region
+            addr = cpu_memregion_struct + ffi.sizeof(cmrh[0]) + (claimed_slot*ffi.sizeof("struct cpu_mem_region"))
+            region = self._get_struct_at(cpu, addr, "struct cpu_mem_region")
+            if region.owner_id in [0, id_reg]:
+                return cmrh.call_num, claimed_slot, region.mem_region
 
-        for i in range(count):
-            next_region = self.panda.virtual_memory_read(cpu, cpu_memregion_struct+(8*3)+ (16*i), 16)
-            owner_id, mem_region = struct.unpack("<QQ", next_region)
-            if owner_id in [0, id_reg]:
-                return call_num, i, mem_region
+        for i in range(cmrh.count):
+            addr = cpu_memregion_struct+ ffi.sizeof(cmrh[0]) + (i*ffi.sizeof("struct cpu_mem_region"))
+            region = self._get_struct_at(cpu, addr, "struct cpu_mem_region")
+            if region.owner_id in [0, id_reg]:
+                return cmrh.call_num, i, region.mem_region
         breakpoint()
-        # we didn't find one. request an additional memregion
-        memregions = struct.pack("<Q", memregions_requested+1)
-        self.panda.virtual_memory_write(cpu, cpu_memregion_struct+8, memregions)
     
     def _claim_memregion(self, cpu, slot, id_reg):
         cpu_memregion_struct = self.cpu_memregion_structs[cpu]
         id_ = struct.pack("<Q", id_reg)
-        self.panda.virtual_memory_write(cpu, cpu_memregion_struct+(8*3)+(slot*16), id_)
+        addr = cpu_memregion_struct+ffi.sizeof("struct cpu_mem_region_hdr")+(slot*ffi.sizeof("struct cpu_mem_region"))
+        self.panda.virtual_memory_write(cpu, addr, id_)
 
     def _release_memregion(self, cpu, slot):
         self._claim_memregion(cpu, slot, 0)
 
     def _read_memregion_state(self, cpu, cpu_memregion):
-        mem = self.panda.virtual_memory_read(cpu, cpu_memregion, 8*3)
-        op, addr, size = struct.unpack("<QQQ", mem)
+        memr = self._get_struct_at(cpu, cpu_memregion, "region_header")
         self.logger.debug(
-            f"Reading memregion state: op={op}, addr={addr:#x}, size={size}")
-        return op, addr, size, 
+            f"Reading memregion state: op={memr.op}, addr={memr.addr:#x}, size={memr.size}")
+        return memr.op, memr.addr, memr.size 
 
     def _read_memregion_data(self, cpu, cpu_memregion, size):
-        if size > CHUNK_SIZE:
-            self.logger.error(f"Size {size} exceeds chunk size {CHUNK_SIZE}")
-            size = CHUNK_SIZE
+        if size > self.regions_size:
+            self.logger.error(f"Size {size} exceeds chunk size {self.regions_size}")
+            size = self.regions_size
         try:
-            mem = self.panda.virtual_memory_read(cpu, cpu_memregion+(8*3), size)
+            mem = self.panda.virtual_memory_read(cpu, cpu_memregion+ffi.sizeof("region_header"), size)
             return mem
         except ValueError as e:
             self.logger.error(f"Failed to read memory: {e}")
 
-    def _write_memregion_state(self, cpu, cpu_memregion, op, addr, size):
-        if size > CHUNK_SIZE:
-            self.logger.error(f"Size {size} exceeds chunk size {CHUNK_SIZE}")
-            size = CHUNK_SIZE
+    def _write_memregion_state(self, cpu, cpu_memregion, op, addr, size, pid=None):
+        if size > self.regions_size:
+            self.logger.error(f"Size {size} exceeds chunk size {self.regions_size}")
+            size = self.regions_size
         if size < 0:
             self.logger.error(f"Size {size} is negative")
             size = 0
@@ -110,17 +108,21 @@ class Portal(PyPlugin):
         
         self.logger.debug(
             f"Writing memregion state:  op={op}, addr={addr:#x}, size={size}")
+        
+        pid = pid or CURRENT_PID_NUM
 
-        mem = struct.pack("<QQQ", op, addr, size)
+        mem = struct.pack("<QQQQ", op, addr, size, pid)
         try:
             self.panda.virtual_memory_write(cpu, cpu_memregion, mem)
         except ValueError as e:
             self.logger.error(f"Failed to write memregion state: {e}")
 
-    def _write_memregion_data(self, cpu, data):
-        cpu_memregion = self.cpu_memregions[cpu]
+    def _write_memregion_data(self, cpu, cpu_memregion, data):
+        if len(data) > self.regions_size:
+            self.logger.error(f"Data length {len(data)} exceeds chunk size {self.regions_size}")
+            data = data[:self.regions_size]
         try:
-            self.panda.virtual_memory_write(cpu, cpu_memregion+(8*3), data)
+            self.panda.virtual_memory_write(cpu, cpu_memregion+ffi.sizeof("region_header"), data)
         except ValueError as e:
             self.logger.error(f"Failed to write memregion data: {e}")
 
@@ -159,25 +161,31 @@ class Portal(PyPlugin):
 
     def _handle_output_cmd(self, cpu, cpu_memregion, cmd):
         match cmd:
-            case ("read", addr, size):
-                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ, addr, size)
-            case ("read_str", addr):
-                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ_STR, addr, 0)
-            case ("read_fd_name", fd):
-                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ_FD_NAME, fd, 0)
-            case ("read_proc_args"):
-                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ_PROCARGS, 0, 0)
-            case ("read_proc_env"):
-                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ_PROCENV, 0, 0)
+            case ("read", addr, size, pid):
+                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ, addr, size, pid)
+            case ("read_str", addr, pid):
+                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ_STR, addr, 0, pid)
+            case ("read_fd_name", fd, pid):
+                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ_FD_NAME, fd, 0, pid)
+            case ("read_proc_args", pid):
+                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ_PROCARGS, 0, 0, pid)
+            case ("read_proc_env", pid):
+                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ_PROCENV, 0, 0, pid)
             case ("read_proc_pid"):
                 self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ_PROCPID, 0, 0)
-            case ("write", addr, data):
+            case ("read_file_offset", fname, offset, size):
+                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ_FILE, offset, size)
+                self._write_memregion_data(cpu, cpu_memregion, fname)
+            case ("get_proc", pid):
+                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_OSI_PROC, 0, 0, pid)
+            case ("write", addr, data, pid):
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_WRITE, addr, len(data))
-                self._write_memregion_data(cpu, data)
+                    cpu, cpu_memregion, HYPER_OP_WRITE, addr, len(data), pid)
+                self._write_memregion_data(cpu, cpu_memregion, data)
             case None:
                 return False
             case _:
+                breakpoint()
                 self.logger.error(f"Unknown command: {cmd}")
                 return False
         return True
@@ -189,7 +197,7 @@ class Portal(PyPlugin):
         cpu_iterator_start = {}
         claimed_slot = {}
         @functools.wraps(f)
-        def wrapper(self_, *args, **kwargs):
+        def wrapper(*args, **kwargs):
             cpu = self.panda.get_cpu()
             fn_return = None
             nonlocal cpu_iterators, claimed_slot, cpu_iterator_start
@@ -198,7 +206,7 @@ class Portal(PyPlugin):
             if cpu not in cpu_iterators or cpu_iterators[cpu] is None:
                 self.logger.debug(f"Creating new iterator for CPU {(cpu,f)}")
                 # Revert to calling the original function f with self_
-                fn_ret = f(self_, *args, **kwargs)
+                fn_ret = f(*args, **kwargs)
 
                 if not isinstance(fn_ret, Iterator):
                     self.logger.error(f"Function {f.__name__} did not return an iterator.\
@@ -268,30 +276,32 @@ class Portal(PyPlugin):
     def _register_cpu_memregion(self, cpu):
         self.cpu_memregion_structs[cpu] = self.panda.arch.get_arg(
             cpu, 1, convention="syscall")
-
-    def write_bytes(self, addr, data):
+        self.regions_size = self.panda.arch.get_arg(
+            cpu, 2, convention="syscall")
+    
+    def write_bytes(self, addr, data, pid=None):
         self.logger.debug(
             f"write_bytes called: addr={addr}, data_len={len(data)}")
-        for i in range((len(data) + CHUNK_SIZE - 1) // CHUNK_SIZE):
-            offset = i * CHUNK_SIZE
+        for i in range((len(data) + self.regions_size - 1) // self.regions_size):
+            offset = i * self.regions_size
             chunk_addr = addr + offset
-            chunk_data = data[offset:offset + CHUNK_SIZE]
+            chunk_data = data[offset:offset + self.regions_size]
             self.logger.debug(
                 f"Writing chunk: chunk_addr={chunk_addr}, chunk_len={len(chunk_data)}")
-            yield ("write", chunk_addr, chunk_data)
+            yield ("write", chunk_addr, chunk_data, pid)
         self.logger.debug(f"Total bytes written: {len(data)}")
         return len(data)
 
-    def read_bytes(self, addr, size):
+    def read_bytes(self, addr, size, pid=None):
         self.logger.debug(f"read_bytes called: addr={addr}, size={size}")
         data = b""
-        for i in range((size + CHUNK_SIZE - 1) // CHUNK_SIZE):
-            offset = i * CHUNK_SIZE
+        for i in range((size + self.regions_size - 1) // self.regions_size):
+            offset = i * self.regions_size
             chunk_addr = addr + offset
-            chunk_size = min(CHUNK_SIZE, size - offset)
+            chunk_size = min(self.regions_size, size - offset)
             self.logger.debug(
                 f"Reading chunk: chunk_addr={chunk_addr}, chunk_size={chunk_size}")
-            chunk = yield ("read", chunk_addr, chunk_size)
+            chunk = yield ("read", chunk_addr, chunk_size, pid)
             if not chunk:
                 self.logger.debug(
                     f"Failed to read memory at addr={chunk_addr}, size={chunk_size}")
@@ -307,19 +317,19 @@ class Portal(PyPlugin):
         data = data[:size]
         self.logger.debug(f"Total bytes read: {len(data)}")
         return data
-
-    def read_str(self, addr):
+    
+    def read_str(self, addr, pid=None):
         if addr != 0:
             self.logger.debug(f"read_str called: addr={addr:#x}")
-            chunk = yield ("read_str", addr)
+            chunk = yield ("read_str", addr, pid)
             if chunk:
                 self.logger.debug(f"Received response from queue: {chunk}")
                 return chunk.decode('latin-1', errors='replace')
         return ""
-
-    def read_int(self, addr):
+    
+    def read_int(self, addr, pid=None):
         self.logger.debug(f"read_int called: addr={addr}")
-        data = yield from self.read_bytes(addr, 4)
+        data = yield from self.read_bytes(addr, 4, pid)
         if len(data) != 4:
             self.logger.error(
                 f"Failed to read int at addr={addr}, data_len={len(data)}")
@@ -328,9 +338,9 @@ class Portal(PyPlugin):
         self.logger.debug(f"Integer read successfully: value={value}")
         return value
 
-    def read_long(self, addr):
+    def read_long(self, addr, pid=None):
         self.logger.debug(f"read_long called: addr={addr}")
-        data = yield from self.read_bytes(addr, 8)
+        data = yield from self.read_bytes(addr, 8, pid)
         if len(data) != 8:
             self.logger.error(
                 f"Failed to read long at addr={addr}, data_len={len(data)}")
@@ -339,40 +349,40 @@ class Portal(PyPlugin):
         self.logger.debug(f"Long read successfully: value={value}")
         return value
 
-    def read_ptr(self, addr):
+    def read_ptr(self, addr, pid=None):
         if self.panda.bits == 32:
-            ptr = yield from self.read_int(addr)
+            ptr = yield from self.read_int(addr, pid)
         elif self.panda.bits == 64:
-            ptr = yield from self.read_long(addr)
+            ptr = yield from self.read_long(addr, pid)
         else:
             raise Exception("read_ptr: Could not determine bits")
         return ptr
 
-    def write_int(self, addr, value):
+    def write_int(self, addr, value, pid=None):
         self.logger.debug(f"write_int called: addr={addr}, value={value}")
         # Pack the integer according to system endianness
         data = struct.pack(f"{self.endian_format}I", value)
-        bytes_written = yield from self.write_bytes(addr, data)
+        bytes_written = yield from self.write_bytes(addr, data, pid)
         self.logger.debug(f"Integer written successfully: {value}")
         return bytes_written
 
-    def write_long(self, addr, value):
+    def write_long(self, addr, value, pid=None):
         self.logger.debug(f"write_long called: addr={addr}, value={value}")
         # Pack the long according to system endianness
         data = struct.pack(f"{self.endian_format}Q", value)
-        bytes_written = yield from self.write_bytes(addr, data)
+        bytes_written = yield from self.write_bytes(addr, data, pid)
         self.logger.debug(f"Long written successfully: {value}")
         return bytes_written
 
-    def write_ptr(self, addr, value):
+    def write_ptr(self, addr, value, pid=None):
         if self.panda.bits == 32:
-            yield from self.write_int(addr, value)
+            yield from self.write_int(addr, value, pid)
         elif self.panda.bits == 64:
-            yield from self.write_long(addr, value)
+            yield from self.write_long(addr, value, pid)
         else:
             raise Exception("read_ptr: Could not determine bits")
 
-    def write_str(self, addr, string, null_terminate=True):
+    def write_str(self, addr, string, null_terminate=True, pid=None):
         self.logger.debug(
             f"write_str called: addr={addr}, string_len={len(string)}")
         # Convert string to bytes
@@ -389,31 +399,31 @@ class Portal(PyPlugin):
         self.logger.debug(f"String written successfully: {len(data)} bytes")
         return bytes_written
 
-    def get_fd_name(self, fd):
+    def get_fd_name(self, fd, pid=None):
         self.logger.debug(f"read_fd_name called: fd={fd}")
-        fd_name = yield ("read_fd_name", fd)
+        fd_name = yield ("read_fd_name", fd, pid)
         if fd_name:
             self.logger.debug(
                 f"File descriptor name read successfully: {fd_name}")
             return fd_name.decode('latin-1', errors='replace')
     
-    def read_socket_info(self, fd):
+    def read_socket_info(self, fd, pid=None):
         self.logger.debug(f"read_socket_info called: fd={fd}")
-        socket_info = yield ("read_socket_info", fd)
+        socket_info = yield ("read_socket_info", fd, pid)
         if socket_info:
             self.logger.debug(f"Socket info read successfully: {socket_info}")
             return socket_info.decode('latin-1', errors='replace')
-
-    def get_proc_args(self):
+    
+    def get_proc_args(self, pid=None):
         self.logger.debug("read_process_args called")
-        proc_args = yield ("read_proc_args")
+        proc_args = yield ("read_proc_args", pid)
         if proc_args:
             args = [i.decode("latin-1") for i in proc_args.split(b"\0") if i]
             self.logger.debug(
                 f"Proc args read successfully: {args}")
             return args
         return []
-    
+
     def get_proc_name(self):
         self.logger.debug("get_process_name called")
         proc_name = yield ("read_proc_name")
@@ -421,10 +431,10 @@ class Portal(PyPlugin):
             self.logger.debug(f"Proc name read successfully: {proc_name}")
             return proc_name.decode("latin-1").split(" ")[0]
         return ""
-
-    def get_proc_env(self):
+    
+    def get_proc_env(self, pid=None):
         self.logger.debug("get_process_env called")
-        proc_env = yield ("read_proc_env")
+        proc_env = yield ("read_proc_env", pid)
         if proc_env:
             args = [i.decode("latin-1").split("=")
                     for i in proc_env.split(b"\0") if i]
@@ -441,23 +451,38 @@ class Portal(PyPlugin):
             return pid
         return None
     
-    def read_ptrlist(self, addr, length):
+    def read_ptrlist(self, addr, length, pid=None):
         ptrs = []
         ptrsize = int(self.panda.bits/8)
         for start in range(length):
-            ptr = yield from self.read_ptr(addr + (start * ptrsize))
+            ptr = yield from self.read_ptr(addr + (start * ptrsize), pid)
             if ptr == 0:
                 break
             ptrs.append(ptr)
         return ptrs
     
-    def read_char_ptrlist(self, addr, length):
-        ptrlist = yield from self.read_ptrlist(addr, length)
+    def read_char_ptrlist(self, addr, length, pid=None):
+        ptrlist = yield from self.read_ptrlist(addr, length, pid)
         vals = []
         for start in range(len(ptrlist)):
-            strs = yield from self.read_str(ptrlist[start])
+            strs = yield from self.read_str(ptrlist[start], pid)
             vals.append(strs)
         return vals
+    
+    def read_file_offset(self, fname, offset, size, pid=None):
+        fname_bytes = fname.encode('latin-1')[:255] + b'\0'
+        data = yield ("read_file_offset", fname_bytes, offset, size)
+        return data
 
-    def nop(self):
-        return
+    def read_file(self, fname, size=None):
+        size = size or self.regions_size
+        data = yield from self.read_file_offset(fname, 0, size)
+        return data
+    
+    def get_proc(self, pid=None):
+        proc_bytes = yield ("get_proc", pid)
+        if proc_bytes:
+            pb = ffi.from_buffer("struct osi_proc *", proc_bytes)
+            wrap = Wrapper(pb)
+            wrap.name = proc_bytes[pb.name_offset:].decode("latin-1")
+            return wrap
