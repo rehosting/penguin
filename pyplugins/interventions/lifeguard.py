@@ -87,7 +87,7 @@ class Lifeguard(PyPlugin):
         save = sig in self.blocked_signals
         with open(f"{self.outdir}/{LIFELOG}", "a") as f:
             f.write(f"{sig},{pid},{1 if save else 0}\n")
-        
+
         proc = self.panda.plugins['osi'].get_current_process(cpu)
         if proc != self.panda.ffi.NULL:
             pname = self.panda.ffi.string(proc.name).decode("latin-1", errors="ignore")

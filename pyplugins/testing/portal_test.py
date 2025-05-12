@@ -3,6 +3,8 @@ from pandare2 import PyPlugin
 from penguin import getColoredLogger, plugins
 
 portal = plugins.portal
+
+
 class PortalTest(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
@@ -11,41 +13,42 @@ class PortalTest(PyPlugin):
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
         self.panda.hsyscall(
-            "on_sys_ioctl_return",arg_filter=[None, 0x89f3])(self.ioctl_val)
-        
+            "on_sys_ioctl_return", arg_filter=[None, 0x89f3])(self.ioctl_val)
+
     '''
     This test checks that we can get information from our program, its arguments,
     and then checks that its parent processes are what we expect.
 
     A better test might check other values in the proc output.
     '''
+
     def test_callstack(self):
         # test our callstack reading functionality
         names = []
         callstack = []
-        current_proc =None
+        current_proc = None
 
         while True:
             p = yield from portal.get_proc(pid=current_proc)
             if not p:
                 break
-            names.insert(0,p.name)
+            names.insert(0, p.name)
             args = yield from portal.get_proc_args(pid=p.pid)
             callstack.insert(0, args)
             current_proc = p.ppid
             if p.pid == 1:
                 break
-        
+
         expected_callstack = [
-            ['/igloo/utils/sh', '/run_tests.sh'], 
-            ['/igloo/utils/sh', '/tests/portal.sh'], 
+            ['/igloo/utils/sh', '/run_tests.sh'],
+            ['/igloo/utils/sh', '/tests/portal.sh'],
             ['/igloo/utils/send_syscall', 'ioctl', '0x0', '0x89f3', 'stringval']
-            ]
+        ]
         assert callstack == expected_callstack, f"Expected {expected_callstack}, got {callstack}"
 
         expected_names = ['run_tests.sh', 'portal.sh', 'send_syscall']
         assert names == expected_names, f"Expected {expected_names}, got {names}"
-    
+
     '''
     This test writes to our argument string with a range of values.
 
@@ -55,6 +58,7 @@ class PortalTest(PyPlugin):
 
     This test really only ensures that our read/write functions agree with each other
     '''
+
     def test_rw(self, arg):
         # NOTE: this part has to be done after callstack or it will be modified
         # test our read/write string functionality
@@ -83,17 +87,18 @@ class PortalTest(PyPlugin):
         yield from portal.write_long(arg, expected_long)
         val = yield from portal.read_long(arg)
         assert expected_long == val, f"Expected '{expected_long}', got '{val}'"
-    
+
     '''
     This test reads our file /tmp/portal_test. It checks that the file
     contains an expected value from our shell script
     '''
+
     def test_file_read(self):
         # test our file reading functionality
         test = yield from portal.read_file("/tmp/portal_test")
         expected = b"test read value\n"
         assert test == expected, f"Expected '{expected}', got {test}"
-    
+
     '''
     This test reads our proc mappings. It checks that it can find our program
     "send_syscall" in the mapping.
@@ -102,6 +107,7 @@ class PortalTest(PyPlugin):
 
     Further, it checks the memory region for the ELF header
     '''
+
     def test_proc_maps(self):
         # Test process mapping functionality
         maps = yield from portal.get_proc_mappings()
@@ -115,15 +121,16 @@ class PortalTest(PyPlugin):
             c = maps.get_mapping_by_addr(m.end)
 
             assert a == b == c == m, f"Expected {m}, got {a}, {b}, {c}"
-        
+
         hdr = yield from portal.read_bytes(omaps[0].start, size=4)
         assert hdr == b"\x7fELF", f"Expected ELF header, got {hdr}"
         return omaps[0].name
-    
+
     '''
     This test writes our program (/igloo/utils/send_syscall) to a file
     in /tmp. Then our shell script checks if they are the same
     '''
+
     def test_write_file(self, name):
         # test our file writing functionality
         b = yield from portal.read_file(name)
