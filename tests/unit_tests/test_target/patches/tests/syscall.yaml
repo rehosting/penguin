@@ -41,9 +41,18 @@ static_files:
     contents: |
       #!/igloo/utils/sh
       set -x
+      set +e
+
       /igloo/utils/send_syscall ioctl 0x13 0x0 0x1
       /igloo/utils/send_syscall ioctl 0x13 0x1234 0xabce
       /igloo/utils/send_syscall ioctl 0x13 0x1234 0xabcd
+      
+      /igloo/utils/send_syscall ioctl 0x9  0xabcd 
+
+      if [$? -ne 43]; then
+        echo "Error: send_syscall retval enter failed"
+        exit 1
+      fi
       /igloo/utils/send_syscall clone 0x1338c0def2f2f3f2 0xdeadbeeff1f1f1f1 \
         0x1337c0defeedc0de 0xdeedbeeff1f1f0f2 0xdeadbeeff1f1f1f2 0x1337c0def2f2f2f2
       if [ $? -ne 42 ]; then

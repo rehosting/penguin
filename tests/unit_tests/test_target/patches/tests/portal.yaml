@@ -6,17 +6,34 @@ plugins:
         type: file_contains 
         file: console.log
         string: "/tests/portal.sh PASS"
+      portal+write:
+        type: file_contains 
+        file: shared/tests/portal.sh/stdout
+        string: "portal: write_file from portal passed"
 
 static_files:
   /tests/portal.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/sh
-      set -ex
+      set -x
+      set +e # ignore non-zero exit code
 
       echo "test read value" > /tmp/portal_test
 
-      /igloo/utils/send_syscall ioctl 0x0 0x89f3
+      /igloo/utils/send_syscall ioctl 0x0 0x89f3 stringval
 
+      if [ $? -ne 13 ]; then
+        echo "Error: send_syscall retval failed"
+        exit 1
+      fi
+
+      /igloo/utils/busybox cmp /tmp/write_send_syscall /igloo/utils/send_syscall
+
+      if [ $? -eq 0 ]; then
+        echo "portal: write_file from portal passed"
+      else
+        exit 1
+      fi
       exit 0
     mode: 73
