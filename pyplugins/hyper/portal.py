@@ -208,7 +208,7 @@ class Portal(PyPlugin):
         def wrapper(*args, **kwargs):
             cpu = self.panda.get_cpu()
             fn_return = None
-            nonlocal cpu_iterators, claimed_slot, cpu_iterator_start
+            # nonlocal cpu_iterators, claimed_slot, cpu_iterator_start
 
             new_iterator = False
             if cpu not in cpu_iterators or cpu_iterators[cpu] is None:
