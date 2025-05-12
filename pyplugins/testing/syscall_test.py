@@ -24,6 +24,8 @@ class SyscallTest(PyPlugin):
         self.success_getpid = None
         self.reported_clone = False
         self.reported_getpid = False
+        self.panda.hsyscall("on_sys_ioctl_enter", comm_filter="send_syscall",
+                            arg_filter=[None, 0xabcd])(self.test_skip_retval)
         self.panda.hsyscall("on_sys_ioctl_return", comm_filter="send_syscall",
                             arg_filter=[0x13])(self.ioctl_ret)
         self.panda.hsyscall("on_sys_ioctl_return", comm_filter="send_syscall",
@@ -35,6 +37,12 @@ class SyscallTest(PyPlugin):
         self.ioctl_ret_num = 0
         self.ioctl_ret2_num = 0
         self.ioctl_ret3_num = 0
+    
+    def test_skip_retval(self, cpu, proto, syscall, hook, fd, op, arg):
+        assert fd == 9, f"Expected fd 9, got {fd:#x}"
+        assert op == 0xabcd, f"Expected op 0xabcd, got {op:#x}"
+        syscall.skip_syscall = True
+        syscall.retval = 43
 
     def ioctl_ret(self, cpu, proto, syscall, hook, fd, op, arg):
         self.ioctl_ret_num += 1
