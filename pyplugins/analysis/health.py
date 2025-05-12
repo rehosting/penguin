@@ -39,8 +39,10 @@ class Health(PyPlugin):
         #                               "summary": 'true'})
         plugins.subscribe(plugins.Events, "igloo_ipv4_bind", self.on_ipv4_bind)
         plugins.subscribe(plugins.Events, "igloo_ipv6_bind", self.on_ipv6_bind)
-        plugins.subscribe(plugins.Events, "igloo_open",      self.health_detect_opens)
-        self.health_execve = self.panda.hsyscall("on_sys_execve_enter")(self.health_execve)
+        plugins.subscribe(plugins.Events, "igloo_open",
+                          self.health_detect_opens)
+        self.health_execve = self.panda.hsyscall(
+            "on_sys_execve_enter")(self.health_execve)
 
     @plugins.portal.wrap
     def health_execve(self, cpu, proto, syscall, hook, fname_ptr, argv_ptr, envp):
@@ -59,7 +61,7 @@ class Health(PyPlugin):
         for ptr in argv_buf:
             if ptr == 0:
                 break
-            
+
             val = yield from plugins.portal.read_str(ptr)
             if val == "":
                 argv.append(f"(error: 0x{ptr:x})")

@@ -35,7 +35,7 @@ class MountTracker(PyPlugin):
         self.logger = getColoredLogger("plugins.mount")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
- 
+
         self.panda.hsyscall("on_sys_mount_return")(self.post_mount)
 
     @plugins.portal.wrap
@@ -86,4 +86,5 @@ class MountTracker(PyPlugin):
             self.mounts.add((src, tgt, fs))
             with open(pjoin(self.outdir, mount_log), "a") as f:
                 f.write(f"{src},{tgt},{fs},{retval}\n")
-            self.logger.debug(f"Mount returns {retval} for: mount -t {fs} {src} {tgt}")
+            self.logger.debug(
+                f"Mount returns {retval} for: mount -t {fs} {src} {tgt}")

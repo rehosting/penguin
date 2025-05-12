@@ -2,6 +2,7 @@ from pandare2 import PyPlugin
 from penguin import plugins
 from events.types import Read, Write
 
+
 class RWLog(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
@@ -28,7 +29,7 @@ class RWLog(PyPlugin):
                 buffer=s,
             )
         )
-    
+
     @plugins.portal.wrap
     def read(self, cpu, proto, syscall, hook, fd, buf, count):
         s = yield from plugins.portal.read_str(buf)

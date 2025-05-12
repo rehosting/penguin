@@ -6,9 +6,11 @@ ffi = FFI()
 ffi.cdef("typedef uint64_t __le64;")
 ffi.cdef("#define PAGE_SIZE 0x1000")
 
+
 def cdef_file(filename):
     with open(filename) as f:
         return ffi.cdef(f.read())
+
 
 for f in glob(f"/igloo_static/kernels/{DEFAULT_KERNEL}/includes/*.h"):
     cdef_file(f)
