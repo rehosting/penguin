@@ -149,11 +149,12 @@ class Portal(PyPlugin):
                 self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ_PROCARGS, 0, 0, pid)
             case ("read_proc_env", pid):
                 self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ_PROCENV, 0, 0, pid)
-            case ("read_proc_pid"):
-                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ_PROCPID, 0, 0)
             case ("read_file_offset", fname, offset, size):
                 self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_READ_FILE, offset, size)
                 self._write_memregion_data(cpu, cpu_memregion, fname)
+            case ("write_file", fname, offset, data):
+                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_WRITE_FILE, offset, len(data))
+                self._write_memregion_data(cpu, cpu_memregion, fname + data)
             case ("get_proc", pid):
                 self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_OSI_PROC, 0, 0, pid)
             case ("get_proc_mappings", pid, skip):
@@ -378,7 +379,7 @@ class Portal(PyPlugin):
         if null_terminate:
             data = data + b'\0'
 
-        bytes_written = yield from self.write_bytes(addr, data)
+        bytes_written = yield from self.write_bytes(addr, data, pid)
         self.logger.debug(f"String written successfully: {len(data)} bytes")
         return bytes_written
 
@@ -426,14 +427,6 @@ class Portal(PyPlugin):
             return env
         return {}
 
-    def get_proc_pid(self):
-        self.logger.info("read_process_pid called")
-        pid = yield ("read_proc_pid")
-        if pid:
-            self.logger.info(f"Process PID read successfully: {pid}")
-            return pid
-        return None
-    
     def read_ptrlist(self, addr, length, pid=None):
         ptrs = []
         ptrsize = int(self.panda.bits/8)
@@ -452,15 +445,136 @@ class Portal(PyPlugin):
             vals.append(strs)
         return vals
     
-    def read_file_offset(self, fname, offset, size, pid=None):
+    def read_file(self, fname, size=None, offset=0):
+        """
+        Read a file from a specified offset with optional size limit.
+        If size is not specified, reads the entire file from the given offset.
+        
+        Args:
+            fname: Path to the file
+            size: Optional size limit. If None, reads entire file
+            offset: Optional offset in bytes where to start reading (default: 0)
+            
+        Returns:
+            The file data as bytes
+        """
         fname_bytes = fname.encode('latin-1')[:255] + b'\0'
-        data = yield ("read_file_offset", fname_bytes, offset, size)
-        return data
-
-    def read_file(self, fname, size=None):
-        size = size or self.regions_size
-        data = yield from self.read_file_offset(fname, 0, size)
-        return data
+        
+        # Handle the case where we want to read a specific amount
+        if size is not None:
+            # If size is small enough, do a single read
+            if size <= self.regions_size - 1:
+                data = yield ("read_file_offset", fname_bytes, offset, size)
+                return data
+                
+            # For larger sizes, read in chunks
+            all_data = b""
+            current_offset = offset
+            bytes_remaining = size
+            
+            while bytes_remaining > 0:
+                chunk_size = min(self.regions_size - 1, bytes_remaining)
+                self.logger.debug(f"Reading file chunk: {fname}, offset={current_offset}, size={chunk_size}")
+                
+                chunk = yield ("read_file_offset", fname_bytes, current_offset, chunk_size)
+                
+                if not chunk:
+                    self.logger.debug(f"No data returned at offset {current_offset}, stopping read")
+                    break
+                    
+                all_data += chunk
+                current_offset += len(chunk)
+                bytes_remaining -= len(chunk)
+                
+                # If we got less data than requested, we've reached EOF
+                if len(chunk) < chunk_size:
+                    self.logger.debug(f"Reached EOF at offset {current_offset} (requested {chunk_size}, got {len(chunk)})")
+                    break
+            
+            return all_data
+        
+        # If size is not specified, read the entire file in chunks
+        all_data = b""
+        current_offset = offset
+        chunk_size = self.regions_size - 1
+        
+        while True:
+            self.logger.debug(f"Reading file chunk: {fname}, offset={current_offset}, size={chunk_size}")
+            
+            chunk = yield ("read_file_offset", fname_bytes, current_offset, chunk_size)
+            
+            if not chunk:
+                self.logger.debug(f"No data returned at offset {current_offset}, stopping read")
+                break
+                
+            all_data += chunk
+            current_offset += len(chunk)
+            
+            # If we got less data than requested, we've reached EOF
+            if len(chunk) < chunk_size:
+                self.logger.debug(f"Reached EOF at offset {current_offset} (requested {chunk_size}, got {len(chunk)})")
+                break
+        
+        return all_data
+    
+    def write_file(self, fname, data, offset=0):
+        """
+        Write data to a file at a specified offset.
+        Similar to read_file, this method handles chunking for large data automatically.
+        
+        Args:
+            fname: Path to the file
+            data: Bytes or string data to write to the file
+            offset: Optional offset in bytes where to start writing (default: 0)
+            
+        Returns:
+            Number of bytes written
+        """
+        # Convert string data to bytes if necessary
+        if isinstance(data, str):
+            data = data.encode('latin-1')
+            
+        fname_bytes = fname.encode('latin-1')[:255] + b'\0'
+        
+        # Calculate the maximum data size that can fit in one region
+        max_data_size = self.regions_size - len(fname_bytes)
+        
+        # If data is small enough, do a single write
+        if len(data) <= max_data_size:
+            self.logger.debug(f"Writing {len(data)} bytes to file {fname} at offset {offset}")
+            bytes_written = yield ("write_file", fname_bytes, offset, data)
+            return bytes_written
+            
+        # For larger files, write in chunks
+        total_bytes = 0
+        current_offset = offset
+        current_pos = 0
+        
+        while current_pos < len(data):
+            # Calculate maximum chunk size to fit in memory region, considering filename length
+            max_chunk = max_data_size - 16  # Add safety margin
+            chunk_size = min(max_chunk, len(data) - current_pos)
+            
+            self.logger.debug(f"Writing file chunk: {fname}, offset={current_offset}, size={chunk_size}")
+            chunk = data[current_pos:current_pos + chunk_size]
+            
+            bytes_written = yield ("write_file", fname_bytes, current_offset, chunk)
+            
+            if not bytes_written:
+                self.logger.error(f"Failed to write chunk at offset {current_offset}")
+                break
+                
+            total_bytes += bytes_written
+            current_offset += bytes_written
+            current_pos += chunk_size
+            
+            # If we couldn't write the full chunk, stop
+            if bytes_written < chunk_size:
+                self.logger.debug(f"Partial write: wrote {bytes_written} of {chunk_size} bytes")
+                break
+        
+        self.logger.debug(f"Total bytes written to file: {total_bytes}")
+        return total_bytes
     
     def exec_program(self, exe_path=None, argv=None, envp=None, wait=False):
         """
