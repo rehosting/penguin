@@ -4,29 +4,7 @@ import struct
 from collections.abc import Iterator
 import functools
 from hyper.consts import *
-
-class Wrapper:
-    def __init__(self, obj):
-        super().__setattr__('_obj', obj)  # Set wrapped object safely
-        super().__setattr__('_extra_attrs', {})  # Store attributes set on the wrapper itself
-
-    def __getattr__(self, name):
-        if name in self._extra_attrs:  # Check wrapper-specific attributes
-            return self._extra_attrs[name]
-        return getattr(self._obj, name)  # Otherwise, access wrapped object attributes
-
-    def __setattr__(self, name, value):
-        if hasattr(self._obj, name):
-            setattr(self._obj, name, value)  # Modify wrapped object attributes
-        else:
-            self._extra_attrs[name] = value  # Store attributes directly on the wrapper
-
-    def __getitem__(self, key):
-        return self.__getattr__(key)  # Allow dictionary-like access
-
-    def __dir__(self):
-        """Retrieve all attributes of both wrapper and wrapped object."""
-        return list(self._extra_attrs.keys()) + dir(self._obj)  # Merge both sets of attributes
+from analysis.portal_wrappers import Wrapper, MappingWrapper, MappingsWrapper
 
 
 class Portal(PyPlugin):
@@ -178,6 +156,11 @@ class Portal(PyPlugin):
                 self._write_memregion_data(cpu, cpu_memregion, fname)
             case ("get_proc", pid):
                 self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_OSI_PROC, 0, 0, pid)
+            case ("get_proc_mappings", pid, skip):
+                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_OSI_MAPPINGS, skip, 0, pid)
+            case ("exec", wait, data):
+                self._write_memregion_state(cpu, cpu_memregion, HYPER_OP_EXEC, wait, len(data))
+                self._write_memregion_data(cpu, cpu_memregion, data)
             case ("write", addr, data, pid):
                 self._write_memregion_state(
                     cpu, cpu_memregion, HYPER_OP_WRITE, addr, len(data), pid)
@@ -479,6 +462,56 @@ class Portal(PyPlugin):
         data = yield from self.read_file_offset(fname, 0, size)
         return data
     
+    def exec_program(self, exe_path=None, argv=None, envp=None, wait=False):
+        """
+        Execute a program using the kernel's call_usermodehelper function.
+        
+        Args:
+            exe_path: Path to executable
+            argv: List of arguments (including program name as first arg)
+            envp: Dictionary of environment variables
+            wait: Whether to wait for program to complete
+            
+        Returns:
+            Return code from execution
+        """
+
+        if not exe_path:
+            exe_path = argv[0]
+
+        self.logger.debug(f"exec_program called: exe_path={exe_path}, wait={wait}")
+        
+        # Prepare the data buffer using a list of bytes objects
+        data_parts = []
+        
+        # Add executable path (null-terminated)
+        data_parts.append(exe_path.encode('latin-1') + b'\0')
+        
+        # Add argv (null-separated, double-null terminated)
+        if argv:
+            for arg in argv:
+                data_parts.append(arg.encode('latin-1') + b'\0')
+        data_parts.append(b'\0')  # Double null termination
+        
+        # Add environment variables (null-separated, double-null terminated)
+        if envp:
+            for key, value in envp.items():
+                env_string = f"{key}={value}"
+                data_parts.append(env_string.encode('latin-1') + b'\0')
+        data_parts.append(b'\0')  # Double null termination
+        
+        data_parts.append(b'\0')  # Just null termination
+            
+        # Convert the list to a single bytes object
+        data = b''.join(data_parts)
+        
+        # Call the kernel with the prepared data
+        # The wait mode is passed in header.addr field
+        result = yield ("exec", wait, data)
+        
+        self.logger.debug(f"exec_program result: {result}")
+        return result
+    
     def get_proc(self, pid=None):
         proc_bytes = yield ("get_proc", pid)
         if proc_bytes:
@@ -486,3 +519,76 @@ class Portal(PyPlugin):
             wrap = Wrapper(pb)
             wrap.name = proc_bytes[pb.name_offset:].decode("latin-1")
             return wrap
+            
+    def get_proc_mappings(self, pid=None):
+        skip = 0
+        self.logger.debug(f"get_proc_mappings called for pid={pid}, skip={skip}")
+        
+        all_mappings = []
+        current_skip = skip
+        total_count = 0
+        
+        while True:
+            # Send skip count in addr field, as per portal.c implementation
+            self.logger.debug(f"Fetching mappings with skip={current_skip}")
+            mappings_bytes = yield ("get_proc_mappings", pid, current_skip)
+            
+            if not mappings_bytes:
+                self.logger.debug("No mapping data received")
+                if not all_mappings:  # If this was our first request
+                    return [], 0
+                break
+                
+            # First 8 bytes: count of mappings in this response
+            count = struct.unpack(f"{self.endian_format}Q", mappings_bytes[:8])[0]
+            # Next 8 bytes: total count of VMAs in process
+            total_count = struct.unpack(f"{self.endian_format}Q", mappings_bytes[8:16])[0]
+            
+            self.logger.debug(f"Received {count} mappings out of {total_count}")
+            
+            # Skip the header (two 64-bit counts)
+            offset = 16
+            mappings = []
+            t = "struct osi_module"
+            t_size = ffi.sizeof(t)
+            
+            # Each mapping entry
+            for i in range(count):
+                if offset + t_size > len(mappings_bytes):  # Ensure we have enough data
+                    self.logger.error(f"Buffer too short for mapping {i}: offset {offset}, len {len(mappings_bytes)}")
+                    break
+                
+                try:
+                    # Create wrapper object for the mapping
+                    b = ffi.from_buffer(f"{t} *", mappings_bytes[offset:offset+t_size])
+                    mapping = MappingWrapper(b)
+                    # Extract name using name_offset
+                    if mapping.name_offset and mapping.name_offset < len(mappings_bytes):
+                        # Find null terminator
+                        end = mappings_bytes.find(b'\0', mapping.name_offset)
+                        if end != -1:
+                            name = mappings_bytes[mapping.name_offset:end].decode('latin-1', errors='replace')
+                            mapping.name = name
+                        else:
+                            mapping.name = "[unknown]"
+                    else:
+                        mapping.name = "[unknown]"
+                    
+                    mappings.append(mapping)
+                    offset += t_size  # 7 uint64 values
+                except Exception as e:
+                    self.logger.error(f"Error unpacking mapping {i}: {e}")
+                    break
+            
+            all_mappings.extend(mappings)
+            
+            # If we received less mappings than requested or already have all mappings, we're done
+            if len(mappings) == 0 or len(all_mappings) >= total_count:
+                break
+                
+            # Update skip for next request
+            current_skip += len(mappings)
+        ret_mappings = MappingsWrapper(all_mappings)
+        
+        self.logger.debug(f"Retrieved a total of {len(all_mappings)} mappings")
+        return ret_mappings

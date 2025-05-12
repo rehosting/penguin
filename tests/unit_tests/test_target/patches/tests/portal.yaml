@@ -1,0 +1,22 @@
+plugins:
+  portal_test: {}
+  verifier:
+    conditions:
+      portal+console:
+        type: file_contains 
+        file: console.log
+        string: "/tests/portal.sh PASS"
+
+static_files:
+  /tests/portal.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -ex
+
+      echo "test read value" > /tmp/portal_test
+
+      /igloo/utils/send_syscall ioctl 0x0 0x89f3
+
+      exit 0
+    mode: 73
