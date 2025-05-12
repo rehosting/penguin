@@ -132,7 +132,7 @@ class MappingsWrapper(ArrayWrapper):
     def get_mapping_by_addr(self, addr):
         """Find the mapping for a given address."""
         for mapping in self._data:
-            if mapping.start <= addr <= mapping.start + mapping.size:
+            if mapping.start <= addr < mapping.end:
                 return mapping
 
     def get_mappings_by_name(self, name):
