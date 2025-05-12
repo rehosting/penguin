@@ -55,7 +55,7 @@ class TestIoctlInteraction(PyPlugin):
             assert env[
                 "PROJ_NAME"] == "test_target", f"Expected test_target, got {env['PROJ_NAME']}"
 
-            pid = yield from plugins.portal.get_proc_pid()
+            pid = yield from plugins.portal.get_proc().pid
             self.logger.info(f"Found pid: {pid}")
             syscall.retval = 2
         elif op == 0x89f1:
