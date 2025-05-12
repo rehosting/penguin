@@ -118,7 +118,7 @@ class PortalTest(PyPlugin):
         for m in omaps:
             a = maps.get_mapping_by_addr(m.start)
             b = maps.get_mapping_by_addr(m.start + 1)
-            c = maps.get_mapping_by_addr(m.end)
+            c = maps.get_mapping_by_addr(m.end - 1)
 
             assert a == b == c == m, f"Expected {m}, got {a}, {b}, {c}"
 
