@@ -37,7 +37,7 @@ class SyscallTest(PyPlugin):
         self.ioctl_ret_num = 0
         self.ioctl_ret2_num = 0
         self.ioctl_ret3_num = 0
-    
+
     def test_skip_retval(self, cpu, proto, syscall, hook, fd, op, arg):
         assert fd == 9, f"Expected fd 9, got {fd:#x}"
         assert op == 0xabcd, f"Expected op 0xabcd, got {op:#x}"

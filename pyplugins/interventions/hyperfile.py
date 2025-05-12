@@ -2,7 +2,7 @@ import struct
 from pandare2 import PyPlugin
 from hyper.consts import (
     IGLOO_HYPERFS_MAGIC,
-    HYP_FILE_OP, HYP_GET_NUM_HYPERFILES, HYP_GET_HYPERFILE_PATHS, 
+    HYP_FILE_OP, HYP_GET_NUM_HYPERFILES, HYP_GET_HYPERFILE_PATHS,
     HYP_READ, HYP_WRITE, HYP_IOCTL, HYP_GETATTR, HYP_RETRY
 )
 
@@ -10,6 +10,7 @@ try:
     from penguin import yaml
 except ImportError:
     import yaml
+
 
 def hyper(name):
     if name == "read":

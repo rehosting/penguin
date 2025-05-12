@@ -35,7 +35,7 @@ class MountTracker(PyPlugin):
         self.logger = getColoredLogger("plugins.mount")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
-        
+ 
         self.panda.hsyscall("on_sys_mount_return")(self.post_mount)
 
     @plugins.portal.wrap

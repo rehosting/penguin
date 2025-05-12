@@ -2,7 +2,7 @@ from cffi import FFI
 from penguin.defaults import DEFAULT_KERNEL
 from glob import glob
 
-ffi =FFI()
+ffi = FFI()
 ffi.cdef("typedef uint64_t __le64;")
 ffi.cdef("#define PAGE_SIZE 0x1000")
 
