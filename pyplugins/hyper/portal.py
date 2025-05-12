@@ -4,7 +4,7 @@ import struct
 from collections.abc import Iterator
 import functools
 from hyper.consts import *
-from analysis.portal_wrappers import Wrapper, MappingWrapper, MappingsWrapper
+from hyper.portal_wrappers import Wrapper, MappingWrapper, MappingsWrapper
 
 
 class Portal(PyPlugin):
