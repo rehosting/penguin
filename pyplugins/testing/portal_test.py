@@ -135,13 +135,14 @@ class PortalTest(PyPlugin):
         # test our file writing functionality
         b = yield from portal.read_file(name)
         yield from portal.write_file("/tmp/write_send_syscall", b)
-    
+
     '''
     This iterates through all of our processes and checks that we can get
     their arguments, mappings, and file descriptors.
 
     It doesn't check that the values are correct which would be better.
     '''
+
     def test_processes_lookup(self):
         proc_handles = yield from portal.get_proc_handles()
         args_pid = {}
@@ -149,7 +150,7 @@ class PortalTest(PyPlugin):
         fds_pid = {}
         for proc in proc_handles:
             pid = proc.pid
-            p = yield from portal.get_proc(pid) 
+            p = yield from portal.get_proc(pid)
             args = yield from portal.get_args(pid)
             args_pid[pid] = args
             mods_pid[pid] = yield from portal.get_mappings(pid)
