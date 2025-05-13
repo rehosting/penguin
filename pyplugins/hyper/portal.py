@@ -1008,12 +1008,9 @@ class Portal(PyPlugin):
                 except Exception as e:
                     self.logger.error(f"Error unpacking FD entry {i}: {e}")
                     break
-
             # Track how many FDs we've processed in this batch
             self.logger.debug(
                 f"Retrieved {batch_count} file descriptors in this batch, total now: {len(fds)}")
-            # Store total_count for return value
-            total_fds_count = total_count
 
             # Update current_fd for next iteration (pagination)
             # We need to update by batch_count, not the total accumulated fds
