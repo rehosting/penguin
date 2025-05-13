@@ -180,7 +180,7 @@ class PyPandaSysLog(PyPlugin):
         else:
             retno_repr = f"{retval:#x}"
 
-        proc_args = yield from plugins.portal.get_proc_args()
+        proc_args = yield from plugins.portal.get_args()
         proc = "?" if not proc_args else proc_args[0]
 
         func_args = {
