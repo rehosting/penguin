@@ -42,14 +42,14 @@ class TestIoctlInteraction(PyPlugin):
             fd_name = yield from plugins.portal.get_fd_name(fd) or "[???]"
             self.logger.info(f"FD: {fd_name}")
 
-            args = yield from plugins.portal.get_proc_args()
+            args = yield from plugins.portal.get_args()
             self.logger.info(f"Found process: {args}")
 
             expected_args = [
                 '/igloo/utils/test_ioctl_interaction', '0x89F0', 'eth0', '0x1338c0de']
             assert args == expected_args, f"Expected {expected_args}, got {args}"
 
-            env = yield from plugins.portal.get_proc_env()
+            env = yield from plugins.portal.get_env()
             self.logger.info(f"Found env: {env}")
 
             assert env[
