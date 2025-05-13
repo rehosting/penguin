@@ -12,7 +12,7 @@ class Portal(PyPlugin):
         self.outdir = self.get_arg("outdir")
         self.logger = getColoredLogger("plugins.portal")
         # if self.get_arg_bool("verbose"):
-            # self.logger.setLevel("DEBUG")
+        # self.logger.setLevel("DEBUG")
         self.panda = panda
         self.panda.hypercall(IGLOO_HYPER_REGISTER_MEM_REGION)(
             self._register_cpu_memregion)
@@ -417,56 +417,58 @@ class Portal(PyPlugin):
     def get_fd_name(self, fd, pid=None):
         """
         Get the filename for a specific file descriptor.
-        
+
         This uses the more efficient get_fds function that can return information
         for a specific file descriptor instead of sending a separate hypercall.
-        
+
         Args:
             fd: File descriptor number
             pid: Process ID, or None for current process
-            
+
         Returns:
             The file descriptor name as a string
         """
         self.logger.debug(f"get_fd_name called: fd={fd}")
-        
+
         # Try using the get_fds functionality first (more efficient)
-        fds = yield from self.get_fds(pid=pid, start_fd=fd, count=1)  # Only request the single FD we need
+        # Only request the single FD we need
+        fds = yield from self.get_fds(pid=pid, start_fd=fd, count=1)
         if fds and len(fds) > 0 and fds[0].fd == fd:
             fd_name = fds[0].name
-            self.logger.debug(f"File descriptor name read successfully: {fd_name}")
+            self.logger.debug(
+                f"File descriptor name read successfully: {fd_name}")
             return fd_name
 
     def get_args(self, pid=None):
         self.logger.debug("read_process_args called")
         proc_args = yield ("read_proc_args", pid)
-        
+
         if not proc_args:
             return []
-            
+
         # From examining the handle_op_read_procargs function in portal_osi.c:
         # - The kernel reads the process args area (mm->arg_start to mm->arg_end)
         # - In Linux, arguments are already null-terminated in memory
         # - The kernel converts nulls to spaces (except the final one)
         # - This creates a space-separated string, similar to /proc/pid/cmdline
-        
+
         # First, strip any trailing null bytes at the end of the buffer
         proc_args = proc_args.rstrip(b'\0')
-        
+
         # Split by spaces which is how the kernel formats the arguments
         # The kernel function converts nulls to spaces except for the last one
         args = proc_args.decode('latin-1', errors='replace').split()
-        
+
         # Remove any binary garbage that might be present (common issue with syscalls)
         clean_args = []
         for arg in args:
             # Remove trailing null characters from each argument
             arg = arg.rstrip('\0')
-            
+
             # Simple heuristic: if most chars are printable, it's probably a valid arg
             if sum(c.isprintable() for c in arg) > len(arg) * 0.8:
                 clean_args.append(arg)
-                
+
         self.logger.debug(f"Proc args read successfully: {clean_args}")
         return clean_args
 
@@ -725,17 +727,17 @@ class Portal(PyPlugin):
                 if not all_mappings:  # If this was our first request
                     return [], 0
                 break
-            
+
             orh = "struct osi_result_header"
             orh_size = ffi.sizeof(orh)
-            
+
             orh_struct = ffi.from_buffer(f"{orh} *", mappings_bytes[:orh_size])
             count = orh_struct.result_count
             total_count = orh_struct.total_count
 
             # Get the actual size of data returned from the kernel
             total_size = len(mappings_bytes)
-            
+
             self.logger.debug(
                 f"Received {count} mappings out of {total_count}, buffer size: {total_size}")
 
@@ -744,7 +746,7 @@ class Portal(PyPlugin):
             mappings = []
             t = "struct osi_module"
             t_size = ffi.sizeof(t)
-            
+
             # Verify expected module array size against buffer size
             expected_end = offset + (count * t_size)
             if expected_end > total_size:
@@ -769,12 +771,13 @@ class Portal(PyPlugin):
                     b = ffi.from_buffer(
                         f"{t} *", mappings_bytes[offset:offset+t_size])
                     mapping = MappingWrapper(b)
-                    
+
                     # Check if name_offset is within bounds, and if the offset makes sense
                     if mapping.name_offset and mapping.name_offset < total_size:
                         try:
                             # Find null terminator - safely handle potential out-of-bounds access
-                            end = mappings_bytes.find(b'\0', mapping.name_offset)
+                            end = mappings_bytes.find(
+                                b'\0', mapping.name_offset)
                             if end != -1 and end < total_size:
                                 name = mappings_bytes[mapping.name_offset:end].decode(
                                     'latin-1', errors='replace')
@@ -789,7 +792,8 @@ class Portal(PyPlugin):
                                 else:
                                     mapping.name = "[unknown]"
                         except Exception as e:
-                            self.logger.warning(f"Error decoding name for mapping {i}: {e}")
+                            self.logger.warning(
+                                f"Error decoding name for mapping {i}: {e}")
                             mapping.name = "[invalid name]"
                     else:
                         mapping.name = "[unknown]"
@@ -816,7 +820,7 @@ class Portal(PyPlugin):
     def get_proc_handles(self):
         """
         Retrieve a list of process handles from the kernel.
-        
+
         Returns:
             A list of process handle objects with properties:
                 pid: Process ID
@@ -824,153 +828,168 @@ class Portal(PyPlugin):
                 start_time: Process creation time
         """
         self.logger.debug("get_proc_handles called")
-        
+
         # Fetch proc handles from the kernel
         proc_handles_bytes = yield ("get_osi_proc_handles")
-        
+
         if not proc_handles_bytes:
             self.logger.debug("No process handles data received")
             return []
-            
+
         # Get the actual size of data returned from the kernel
         total_size = len(proc_handles_bytes)
-        
+
         # Ensure we have enough data for the header
         if total_size < 16:
-            self.logger.error(f"Buffer too small for header: {total_size} bytes")
+            self.logger.error(
+                f"Buffer too small for header: {total_size} bytes")
             return []
-            
+
         # Extract header information
         orh = "struct osi_result_header"
         orh_size = ffi.sizeof(orh)
-        
+
         orh_struct = ffi.from_buffer(f"{orh} *", proc_handles_bytes[:orh_size])
         count = orh_struct.result_count
         total_count = orh_struct.total_count
-            
-        self.logger.debug(f"Received {count} process handles out of {total_count}")
-        
+
+        self.logger.debug(
+            f"Received {count} process handles out of {total_count}")
+
         # Validate count values
         if count > 10000:
-            self.logger.warning(f"Unreasonably large handle count: {count}, capping at 1000")
+            self.logger.warning(
+                f"Unreasonably large handle count: {count}, capping at 1000")
             count = 1000
-            
+
         # Skip the header
         offset = orh_size
         handles = []
         handle_type = "struct osi_proc_handle"
         handle_size = ffi.sizeof(handle_type)
-        
+
         # Calculate how many handles can actually fit in the buffer
         max_possible_count = (total_size - offset) // handle_size
         safe_count = min(count, max_possible_count)
-        
+
         if safe_count < count:
-            self.logger.warning(f"Buffer can only fit {safe_count} handles out of reported {count}")
+            self.logger.warning(
+                f"Buffer can only fit {safe_count} handles out of reported {count}")
             count = safe_count
-            
+
         # Process each handle
         for i in range(count):
             if offset + handle_size > total_size:
-                self.logger.error(f"Buffer too short for handle {i}: offset {offset}, len {total_size}")
+                self.logger.error(
+                    f"Buffer too short for handle {i}: offset {offset}, len {total_size}")
                 break
-                
+
             try:
                 # Create wrapper object for the handle
-                handle = ffi.from_buffer(f"{handle_type} *", proc_handles_bytes[offset:offset+handle_size])
+                handle = ffi.from_buffer(
+                    f"{handle_type} *", proc_handles_bytes[offset:offset+handle_size])
                 handle_wrapper = Wrapper(handle)
                 handles.append(handle_wrapper)
                 offset += handle_size
             except Exception as e:
                 self.logger.error(f"Error unpacking handle {i}: {e}")
                 break
-                
+
         self.logger.debug(f"Retrieved {len(handles)} process handles")
         return handles
 
     def get_fds(self, pid=None, start_fd=0, count=None):
         """
         Retrieve file descriptors for a process.
-        
+
         Args:
             pid: Process ID, or None for current process
             start_fd: FD number to start listing from (for pagination), defaults to 0
             count: Maximum number of file descriptors to return (None for all)
-        
+
         Returns:
             List of file descriptor objects with fd and name properties
         """
         # Ensure start_fd is an integer
         if start_fd is None:
             start_fd = 0
-            
-        self.logger.debug(f"get_fds called: start_fd={start_fd}, pid={pid}, count={count}")
+
+        self.logger.debug(
+            f"get_fds called: start_fd={start_fd}, pid={pid}, count={count}")
         fds = []
         current_fd = start_fd
         while True:
             fds_bytes = yield ("get_fds", current_fd, pid)
-            
+
             if not fds_bytes:
                 self.logger.debug("No file descriptors data received")
                 # Return empty list only if we haven't fetched any FDs yet
                 if not fds:
                     return []
                 break
-                
+
             # Get the actual size of data returned from the kernel
             total_size = len(fds_bytes)
-            
+
             # Ensure we have enough data for the header
             if total_size < 16:
-                self.logger.error(f"Buffer too small for header: {total_size} bytes")
+                self.logger.error(
+                    f"Buffer too small for header: {total_size} bytes")
                 return []
-                
+
             # Extract header information
             orh = "struct osi_result_header"
             orh_size = ffi.sizeof(orh)
-            
+
             # Make sure we're using the correct header structure format
             orh_struct = ffi.from_buffer(f"{orh} *", fds_bytes[:orh_size])
             # In the kernel, these are LE64 values, need to access correctly
             batch_count = orh_struct.result_count
             total_count = orh_struct.total_count
-            
-            self.logger.debug(f"Raw header values: result_count={batch_count}, total_count={total_count}")
-                
-            self.logger.debug(f"Received {batch_count} file descriptors out of {total_count}")
-            
+
+            self.logger.debug(
+                f"Raw header values: result_count={batch_count}, total_count={total_count}")
+
+            self.logger.debug(
+                f"Received {batch_count} file descriptors out of {total_count}")
+
             # Break if there are no FDs in this batch to avoid infinite loop
             if batch_count == 0:
-                self.logger.debug("No file descriptors in this batch, breaking loop")
+                self.logger.debug(
+                    "No file descriptors in this batch, breaking loop")
                 break
-                
+
             # Skip the header
             offset = orh_size
             fd_type = "struct osi_fd_entry"
             fd_size = ffi.sizeof(fd_type)
-            
+
             # Process each FD entry
             for i in range(batch_count):
                 if offset + fd_size > total_size:
-                    self.logger.error(f"Buffer too short for FD {i}: offset {offset}, len {total_size}")
+                    self.logger.error(
+                        f"Buffer too short for FD {i}: offset {offset}, len {total_size}")
                     break
-                    
+
                 try:
                     # Create wrapper object for the FD
-                    fd_entry = ffi.from_buffer(f"{fd_type} *", fds_bytes[offset:offset+fd_size])
+                    fd_entry = ffi.from_buffer(
+                        f"{fd_type} *", fds_bytes[offset:offset+fd_size])
                     fd_wrapper = Wrapper(fd_entry)
-                    
+
                     # Extract the path name using name_offset
                     if fd_entry.name_offset and fd_entry.name_offset < total_size:
                         try:
                             # Find null terminator
                             end = fds_bytes.find(b'\0', fd_entry.name_offset)
                             if end != -1 and end < total_size:
-                                name = fds_bytes[fd_entry.name_offset:end].decode('latin-1', errors='replace')
+                                name = fds_bytes[fd_entry.name_offset:end].decode(
+                                    'latin-1', errors='replace')
                                 fd_wrapper.name = name
                             else:
                                 # Limited slice if no null terminator
-                                max_name_len = min(256, total_size - fd_entry.name_offset)
+                                max_name_len = min(
+                                    256, total_size - fd_entry.name_offset)
                                 if max_name_len > 0:
                                     name = fds_bytes[fd_entry.name_offset:fd_entry.name_offset+max_name_len].decode(
                                         'latin-1', errors='replace')
@@ -978,39 +997,41 @@ class Portal(PyPlugin):
                                 else:
                                     fd_wrapper.name = "[unknown]"
                         except Exception as e:
-                            self.logger.warning(f"Error decoding name for FD {i}: {e}")
+                            self.logger.warning(
+                                f"Error decoding name for FD {i}: {e}")
                             fd_wrapper.name = "[invalid name]"
                     else:
                         fd_wrapper.name = "[unknown]"
-                    
+
                     fds.append(fd_wrapper)
                     offset += fd_size
                 except Exception as e:
                     self.logger.error(f"Error unpacking FD entry {i}: {e}")
                     break
-            
-            # Track how many FDs we've processed in this batch      
-            self.logger.debug(f"Retrieved {batch_count} file descriptors in this batch, total now: {len(fds)}")
+
+            # Track how many FDs we've processed in this batch
+            self.logger.debug(
+                f"Retrieved {batch_count} file descriptors in this batch, total now: {len(fds)}")
             # Store total_count for return value
             total_fds_count = total_count
-            
+
             # Update current_fd for next iteration (pagination)
             # We need to update by batch_count, not the total accumulated fds
             # Otherwise we might skip entries or go into an infinite loop
             current_fd += batch_count
-            
+
             # Break if we've got all available FDs from kernel
             if len(fds) >= total_count:
                 break
-                
+
             # Break if we've fetched enough FDs based on count parameter
             if count is not None and len(fds) >= count:
                 break
-        
+
         # Protection against incorrect data in the list or count mismatch
         if count is not None and len(fds) > count:
             fds = fds[:count]
-            
+
         # Just return the list of FDs
         return fds
 
