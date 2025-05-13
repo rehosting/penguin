@@ -50,7 +50,6 @@ class Portal(PyPlugin):
             region = self._get_struct_at(cpu, addr, "struct cpu_mem_region")
             if region.owner_id in [0, id_reg]:
                 return cmrh.call_num, i, region.mem_region
-        breakpoint()
 
     def _claim_memregion(self, cpu, slot, id_reg):
         cpu_memregion_struct = self.cpu_memregion_structs[cpu]
