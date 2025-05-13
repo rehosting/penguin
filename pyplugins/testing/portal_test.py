@@ -10,8 +10,8 @@ class PortalTest(PyPlugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.logger = getColoredLogger("plugins.ioctl_interaction_test")
-        if self.get_arg_bool("verbose"):
-            self.logger.setLevel("DEBUG")
+        # if self.get_arg_bool("verbose"):
+        #     self.logger.setLevel("DEBUG")
         self.panda.hsyscall(
             "on_sys_ioctl_return", arg_filter=[None, 0x89f3])(self.ioctl_val)
 
@@ -33,7 +33,7 @@ class PortalTest(PyPlugin):
             if not p:
                 break
             names.insert(0, p.name)
-            args = yield from portal.get_proc_args(pid=p.pid)
+            args = yield from portal.get_args(pid=p.pid)
             callstack.insert(0, args)
             current_proc = p.ppid
             if p.pid == 1:
@@ -110,7 +110,7 @@ class PortalTest(PyPlugin):
 
     def test_proc_maps(self):
         # Test process mapping functionality
-        maps = yield from portal.get_proc_mappings()
+        maps = yield from portal.get_mappings()
         self.logger.debug(f"Found {len(maps)} mappings total")
 
         omaps = maps.get_mappings_by_name("send_syscall")
@@ -135,6 +135,32 @@ class PortalTest(PyPlugin):
         # test our file writing functionality
         b = yield from portal.read_file(name)
         yield from portal.write_file("/tmp/write_send_syscall", b)
+    
+    '''
+    This iterates through all of our processes and checks that we can get
+    their arguments, mappings, and file descriptors.
+
+    It doesn't check that the values are correct which would be better.
+    '''
+    def test_processes_lookup(self):
+        proc_handles = yield from portal.get_proc_handles()
+        args_pid = {}
+        mods_pid = {}
+        fds_pid = {}
+        for proc in proc_handles:
+            pid = proc.pid
+            p = yield from portal.get_proc(pid) 
+            args = yield from portal.get_args(pid)
+            args_pid[pid] = args
+            mods_pid[pid] = yield from portal.get_mappings(pid)
+            fds_pid[pid] = yield from portal.get_fds(pid)
+
+            print(f"PID: {pid}")
+            print(f"Name: {p.name}")
+            print(f"Args: {args}")
+            print(f"Mappings:\n{mods_pid[pid]}")
+            for f in fds_pid[pid]:
+                print(f"FD: {f.fd} -> {f.name}")
 
     @plugins.portal.wrap
     def ioctl_val(self, cpu, proto, syscall, hook, fd, op, arg):
@@ -149,4 +175,5 @@ class PortalTest(PyPlugin):
         yield from self.test_file_read()
         name = yield from self.test_proc_maps()
         yield from self.test_write_file(name)
+        yield from self.test_processes_lookup()
         syscall.retval = 13
