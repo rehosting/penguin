@@ -5,6 +5,7 @@ from collections.abc import Iterator
 import functools
 from hyper.consts import *
 from hyper.portal_wrappers import Wrapper, MappingWrapper, MappingsWrapper
+from typing import Union
 
 CURRENT_PID_NUM = 0xffffffff
 
@@ -190,6 +191,11 @@ class Portal(PyPlugin):
                 self._write_memregion_state(
                     cpu, cpu_memregion, HYPER_OP_WRITE, addr, len(data), pid)
                 self._write_memregion_data(cpu, cpu_memregion, data)
+            case ("ffi_exec", ffi_data):
+                # Set size to sizeof(portal_ffi_call)
+                self._write_memregion_state(
+                    cpu, cpu_memregion, HYPER_OP_FFI_EXEC, 0, 0)
+                self._write_memregion_data(cpu, cpu_memregion, ffi_data)
             case None:
                 return False
             case _:
