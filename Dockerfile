@@ -274,6 +274,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       sqlalchemy \
       telnetlib3 \
       tk \
+      ujson \
       zstandard
 
 FROM python_builder AS version_generator
