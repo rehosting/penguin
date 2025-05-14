@@ -35,6 +35,7 @@ patches:
   - ./patches/tests/syscall.yaml
   - ./patches/tests/ioctl_interaction.yaml
   - ./patches/tests/portal.yaml
+  - ./patches/tests/kffi.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 

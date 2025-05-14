@@ -1,0 +1,25 @@
+core:
+  kernel_quiet: false
+plugins:
+  kffi_test: {}
+  verifier:
+    conditions:
+      kffi+igloo_test_function:
+        type: file_contains
+        file: console.log
+        string: "igloo: test_function called with args: 3 8 9 322486494 12 13 14 15"
+      kffi+printk:
+        type: file_contains
+        file: console.log
+        string: "test printk 1 2 3 4"
+
+static_files:
+  /tests/kffi_test.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -x
+      # Test standard network interface ioctl
+      /igloo/utils/send_syscall ioctl 0x14 0x15 0x16
+      exit 0
+    mode: 73
