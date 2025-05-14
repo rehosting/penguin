@@ -6,13 +6,17 @@ import functools
 from hyper.consts import *
 from hyper.portal_wrappers import Wrapper, MappingWrapper, MappingsWrapper
 
+CURRENT_PID_NUM = 0xffffffff
+
+kffi = plugins.kffi
+cmrh_ref = kffi.new("cpu_mem_regions")
 
 class Portal(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
         self.logger = getColoredLogger("plugins.portal")
         # if self.get_arg_bool("verbose"):
-        # self.logger.setLevel("DEBUG")
+            # self.logger.setLevel("DEBUG")
         self.panda = panda
         self.panda.hypercall(IGLOO_HYPER_REGISTER_MEM_REGION)(
             self._register_cpu_memregion)
@@ -20,10 +24,6 @@ class Portal(PyPlugin):
         # Set endianness format character for struct operations
         self.endian_format = '<' if panda.endianness == 'little' else '>'
         self.id_reg = 1
-
-    def _get_struct_at(self, cpu, addr, type_):
-        buf = self.panda.virtual_memory_read(cpu, addr, ffi.sizeof(type_))
-        return ffi.from_buffer(f"{type_} *", buf)
 
     '''
     Our memregion is the first available memregion OR the one that is owned by us
@@ -33,37 +33,28 @@ class Portal(PyPlugin):
 
     def _find_free_memregion(self, cpu, id_reg, claimed_slot):
         cpu_memregion_struct = self.cpu_memregion_structs[cpu]
-        cmrh = self._get_struct_at(
-            cpu, cpu_memregion_struct, "struct cpu_mem_region_hdr")
+        cmrh = kffi.read_type_panda(cpu, cpu_memregion_struct, "cpu_mem_regions")
         if claimed_slot:
-            # still need to check the slot
-            addr = cpu_memregion_struct + \
-                ffi.sizeof(cmrh[0]) + (claimed_slot *
-                                       ffi.sizeof("struct cpu_mem_region"))
-            region = self._get_struct_at(cpu, addr, "struct cpu_mem_region")
+            region = cmrh.regions[claimed_slot]
             if region.owner_id in [0, id_reg]:
-                return cmrh.call_num, claimed_slot, region.mem_region
-
-        for i in range(cmrh.count):
-            addr = cpu_memregion_struct + \
-                ffi.sizeof(cmrh[0]) + (i*ffi.sizeof("struct cpu_mem_region"))
-            region = self._get_struct_at(cpu, addr, "struct cpu_mem_region")
+                return cmrh.hdr.call_num, claimed_slot, region.mem_region.address
+        for i in range(cmrh.hdr.count):
+            region = cmrh.regions[i]
             if region.owner_id in [0, id_reg]:
-                return cmrh.call_num, i, region.mem_region
+                return cmrh.hdr.call_num, i, region.mem_region.address
 
     def _claim_memregion(self, cpu, slot, id_reg):
         cpu_memregion_struct = self.cpu_memregion_structs[cpu]
-        id_ = struct.pack("<Q", id_reg)
-        addr = cpu_memregion_struct + \
-            ffi.sizeof("struct cpu_mem_region_hdr") + \
-            (slot*ffi.sizeof("struct cpu_mem_region"))
-        self.panda.virtual_memory_write(cpu, addr, id_)
+        offset = cmrh_ref.regions[slot].offset
+        addr = cpu_memregion_struct + offset
+        id_bytes = struct.pack(f"{self.endian_format}I", id_reg)
+        self.panda.virtual_memory_write(cpu, addr, id_bytes)
 
     def _release_memregion(self, cpu, slot):
         self._claim_memregion(cpu, slot, 0)
 
     def _read_memregion_state(self, cpu, cpu_memregion):
-        memr = self._get_struct_at(cpu, cpu_memregion, "region_header")
+        memr = kffi.read_type_panda(cpu, cpu_memregion, "region_header")
         self.logger.debug(
             f"Reading memregion state: op={memr.op}, addr={memr.addr:#x}, size={memr.size}")
         return memr.op, memr.addr, memr.size
@@ -75,7 +66,7 @@ class Portal(PyPlugin):
             size = self.regions_size
         try:
             mem = self.panda.virtual_memory_read(
-                cpu, cpu_memregion+ffi.sizeof("region_header"), size)
+                cpu, cpu_memregion+kffi.sizeof("region_header"), size)
             return mem
         except ValueError as e:
             self.logger.error(f"Failed to read memory: {e}")
@@ -93,15 +84,21 @@ class Portal(PyPlugin):
                 f"Address {addr} is negative. Converting to unsigned")
             mask = 0xFFFFFFFFFFFFFFFF if self.panda.bits == 64 else 0xFFFFFFFF
             addr = addr & mask
-
+        
         self.logger.debug(
             f"Writing memregion state:  op={op}, addr={addr:#x}, size={size}")
 
         pid = pid or CURRENT_PID_NUM
 
-        mem = struct.pack("<QQQQ", op, addr, size, pid)
+        # mem = struct.pack("<QQQQ", op, addr, size, pid)
+        mem = kffi.new("region_header")
+        mem.op = op
+        mem.addr = addr
+        mem.size = size
+        mem.pid = pid
+
         try:
-            self.panda.virtual_memory_write(cpu, cpu_memregion, mem)
+            self.panda.virtual_memory_write(cpu, cpu_memregion, mem.to_bytes())
         except ValueError as e:
             self.logger.error(f"Failed to write memregion state: {e}")
 
@@ -112,7 +109,7 @@ class Portal(PyPlugin):
             data = data[:self.regions_size]
         try:
             self.panda.virtual_memory_write(
-                cpu, cpu_memregion+ffi.sizeof("region_header"), data)
+                cpu, cpu_memregion+kffi.sizeof("region_header"), data)
         except ValueError as e:
             self.logger.error(f"Failed to write memregion data: {e}")
 
@@ -703,7 +700,7 @@ class Portal(PyPlugin):
     def get_proc(self, pid=None):
         proc_bytes = yield ("get_proc", pid)
         if proc_bytes:
-            pb = ffi.from_buffer("struct osi_proc *", proc_bytes)
+            pb = kffi.from_buffer("osi_proc", proc_bytes)
             wrap = Wrapper(pb)
             wrap.name = proc_bytes[pb.name_offset:].decode("latin-1")
             return wrap
@@ -728,10 +725,7 @@ class Portal(PyPlugin):
                     return [], 0
                 break
 
-            orh = "struct osi_result_header"
-            orh_size = ffi.sizeof(orh)
-
-            orh_struct = ffi.from_buffer(f"{orh} *", mappings_bytes[:orh_size])
+            orh_struct = kffi.from_buffer("osi_result_header", mappings_bytes)
             count = orh_struct.result_count
             total_count = orh_struct.total_count
 
@@ -744,8 +738,7 @@ class Portal(PyPlugin):
             # Skip the header (two 64-bit counts)
             offset = 16
             mappings = []
-            t = "struct osi_module"
-            t_size = ffi.sizeof(t)
+            t_size = kffi.sizeof("osi_module")
 
             # Verify expected module array size against buffer size
             expected_end = offset + (count * t_size)
@@ -768,8 +761,7 @@ class Portal(PyPlugin):
 
                 try:
                     # Create wrapper object for the mapping
-                    b = ffi.from_buffer(
-                        f"{t} *", mappings_bytes[offset:offset+t_size])
+                    b = kffi.from_buffer("osi_module", mappings_bytes, instance_offset_in_buffer=offset)
                     mapping = MappingWrapper(b)
 
                     # Check if name_offset is within bounds, and if the offset makes sense
@@ -846,10 +838,7 @@ class Portal(PyPlugin):
             return []
 
         # Extract header information
-        orh = "struct osi_result_header"
-        orh_size = ffi.sizeof(orh)
-
-        orh_struct = ffi.from_buffer(f"{orh} *", proc_handles_bytes[:orh_size])
+        orh_struct = kffi.from_buffer("osi_result_header", proc_handles_bytes)
         count = orh_struct.result_count
         total_count = orh_struct.total_count
 
@@ -863,10 +852,10 @@ class Portal(PyPlugin):
             count = 1000
 
         # Skip the header
-        offset = orh_size
+        offset = kffi.sizeof("osi_result_header")
         handles = []
-        handle_type = "struct osi_proc_handle"
-        handle_size = ffi.sizeof(handle_type)
+        handle_type = "osi_proc_handle"
+        handle_size = kffi.sizeof(handle_type)
 
         # Calculate how many handles can actually fit in the buffer
         max_possible_count = (total_size - offset) // handle_size
@@ -886,8 +875,7 @@ class Portal(PyPlugin):
 
             try:
                 # Create wrapper object for the handle
-                handle = ffi.from_buffer(
-                    f"{handle_type} *", proc_handles_bytes[offset:offset+handle_size])
+                handle = kffi.from_buffer("osi_proc_handle", proc_handles_bytes, instance_offset_in_buffer=offset)
                 handle_wrapper = Wrapper(handle)
                 handles.append(handle_wrapper)
                 offset += handle_size
@@ -937,12 +925,8 @@ class Portal(PyPlugin):
                     f"Buffer too small for header: {total_size} bytes")
                 return []
 
-            # Extract header information
-            orh = "struct osi_result_header"
-            orh_size = ffi.sizeof(orh)
-
             # Make sure we're using the correct header structure format
-            orh_struct = ffi.from_buffer(f"{orh} *", fds_bytes[:orh_size])
+            orh_struct = kffi.from_buffer("osi_result_header", fds_bytes)
             # In the kernel, these are LE64 values, need to access correctly
             batch_count = orh_struct.result_count
             total_count = orh_struct.total_count
@@ -960,9 +944,8 @@ class Portal(PyPlugin):
                 break
 
             # Skip the header
-            offset = orh_size
-            fd_type = "struct osi_fd_entry"
-            fd_size = ffi.sizeof(fd_type)
+            offset = kffi.sizeof("osi_result_header")
+            fd_size = kffi.sizeof("osi_fd_entry")
 
             # Process each FD entry
             for i in range(batch_count):
@@ -973,8 +956,7 @@ class Portal(PyPlugin):
 
                 try:
                     # Create wrapper object for the FD
-                    fd_entry = ffi.from_buffer(
-                        f"{fd_type} *", fds_bytes[offset:offset+fd_size])
+                    fd_entry = kffi.from_buffer("osi_fd_entry", fds_bytes, instance_offset_in_buffer=offset)
                     fd_wrapper = Wrapper(fd_entry)
 
                     # Extract the path name using name_offset
