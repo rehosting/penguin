@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func, create_engine
 from rich import print as rprint
+from rich.markup import escape
 from time import sleep
 from os.path import join, exists
 from events import Event
@@ -18,7 +19,7 @@ def wrapper(results, output, print_procname, follow, filter, args):
 
             # only pretty print if we are printing to stdout
             if output == "/dev/stdout":
-                printer = rprint
+                printer = lambda *args, **kwargs: rprint(*(escape(str(arg)) for arg in args), **kwargs)  # noqa: E731
             else:
                 printer = print
 
