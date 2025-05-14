@@ -1,21 +1,16 @@
-from cffi import FFI
-from penguin.defaults import DEFAULT_KERNEL
-from glob import glob
+from penguin import plugins
 
-ffi = FFI()
-ffi.cdef("typedef uint64_t __le64;")
-ffi.cdef("#define PAGE_SIZE 0x1000")
+enum_names = [
+    "HYPER_OP",
+    "portal_type",
+    "igloo_hypercall_constants",
+    "hyperfs_ops",
+    "hyperfs_file_ops",
+]
 
+for name in enum_names:
+    hyperconsts = plugins.kffi.get_enum_dict(name)
+    assert len(hyperconsts.items()) > 0, f"Failed to get enum {name}"
 
-def cdef_file(filename):
-    with open(filename) as f:
-        return ffi.cdef(f.read())
-
-
-for f in glob(f"/igloo_static/kernels/{DEFAULT_KERNEL}/includes/*.h"):
-    cdef_file(f)
-
-c = ffi.dlopen('c')
-
-for i in dir(c):
-    globals()[i] = getattr(c, i)
+    for i,j in hyperconsts.items():
+        globals()[i] = j
