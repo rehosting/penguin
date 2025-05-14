@@ -21,7 +21,6 @@ import struct  # For unpacking data from buffers
 import argparse  # For command-line argument parsing
 import sys  # For exiting script
 import lzma  # For handling .xz compressed files
-import os  # For path operations
 from typing import List, Dict, Any, Optional, Union
 
 
@@ -814,7 +813,6 @@ class VtypeJson:
 
 
 def load_isf_json(json_input: Union[str, object]) -> VtypeJson:
-    global _JSON_LIB_USED
     raw_data: Any
     input_is_path_str = isinstance(json_input, str)
     if input_is_path_str:
