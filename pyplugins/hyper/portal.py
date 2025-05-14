@@ -11,12 +11,13 @@ CURRENT_PID_NUM = 0xffffffff
 kffi = plugins.kffi
 cmrh_ref = kffi.new("cpu_mem_regions")
 
+
 class Portal(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
         self.logger = getColoredLogger("plugins.portal")
         # if self.get_arg_bool("verbose"):
-            # self.logger.setLevel("DEBUG")
+        # self.logger.setLevel("DEBUG")
         self.panda = panda
         self.panda.hypercall(IGLOO_HYPER_REGISTER_MEM_REGION)(
             self._register_cpu_memregion)
@@ -33,7 +34,8 @@ class Portal(PyPlugin):
 
     def _find_free_memregion(self, cpu, id_reg, claimed_slot):
         cpu_memregion_struct = self.cpu_memregion_structs[cpu]
-        cmrh = kffi.read_type_panda(cpu, cpu_memregion_struct, "cpu_mem_regions")
+        cmrh = kffi.read_type_panda(
+            cpu, cpu_memregion_struct, "cpu_mem_regions")
         if claimed_slot:
             region = cmrh.regions[claimed_slot]
             if region.owner_id in [0, id_reg]:
@@ -84,7 +86,7 @@ class Portal(PyPlugin):
                 f"Address {addr} is negative. Converting to unsigned")
             mask = 0xFFFFFFFFFFFFFFFF if self.panda.bits == 64 else 0xFFFFFFFF
             addr = addr & mask
-        
+
         self.logger.debug(
             f"Writing memregion state:  op={op}, addr={addr:#x}, size={size}")
 
@@ -761,7 +763,8 @@ class Portal(PyPlugin):
 
                 try:
                     # Create wrapper object for the mapping
-                    b = kffi.from_buffer("osi_module", mappings_bytes, instance_offset_in_buffer=offset)
+                    b = kffi.from_buffer(
+                        "osi_module", mappings_bytes, instance_offset_in_buffer=offset)
                     mapping = MappingWrapper(b)
 
                     # Check if name_offset is within bounds, and if the offset makes sense
@@ -875,7 +878,8 @@ class Portal(PyPlugin):
 
             try:
                 # Create wrapper object for the handle
-                handle = kffi.from_buffer("osi_proc_handle", proc_handles_bytes, instance_offset_in_buffer=offset)
+                handle = kffi.from_buffer(
+                    "osi_proc_handle", proc_handles_bytes, instance_offset_in_buffer=offset)
                 handle_wrapper = Wrapper(handle)
                 handles.append(handle_wrapper)
                 offset += handle_size
@@ -956,7 +960,8 @@ class Portal(PyPlugin):
 
                 try:
                     # Create wrapper object for the FD
-                    fd_entry = kffi.from_buffer("osi_fd_entry", fds_bytes, instance_offset_in_buffer=offset)
+                    fd_entry = kffi.from_buffer(
+                        "osi_fd_entry", fds_bytes, instance_offset_in_buffer=offset)
                     fd_wrapper = Wrapper(fd_entry)
 
                     # Extract the path name using name_offset
@@ -1025,3 +1030,82 @@ class Portal(PyPlugin):
                 return mapping
             else:
                 self.logger.debug(f"No mapping found for addr={addr:#x}")
+
+    def _register_uprobe(self, path, offset, process_filter=None, on_enter=True, on_return=False, pid_filter=None):
+        """
+        Register a user probe (uprobe) at a specific file path and offset.
+
+        Args:
+            path: Path to the executable or library file
+            offset: Offset in the file where the probe should be placed
+            process_filter: Optional process name to filter events (None = all processes)
+            on_enter: Whether to trigger on function entry (True by default)
+            on_return: Whether to trigger on function return (False by default)
+            pid_filter: Optional PID to filter events for a specific process
+
+        Returns:
+            Probe ID that can be used to unregister the probe
+        """
+        if on_enter and on_return:
+            probe_type = UPROBE_TYPE_BOTH
+        elif on_enter:
+            probe_type = UPROBE_TYPE_ENTRY
+        elif on_return:
+            probe_type = UPROBE_TYPE_RETURN
+        else:
+            raise ValueError(
+                "At least one of on_enter or on_return must be True")
+
+        self.logger.debug(
+            f"register_uprobe called: path={path}, offset={offset}, filter={process_filter}, type={probe_type}, pid={pid_filter}")
+
+        # Format the data in the required layout expected by the kernel
+        # Format: path\0[process_filter]\0[probe_type][pid_filter]
+        data = path.encode('latin-1') + b'\0'
+
+        if process_filter is not None:
+            data += process_filter.encode('latin-1')
+        data += b'\0'  # Add null terminator after filter (even if empty)
+
+        # Add probe type as an integer
+        data += struct.pack("<Q", probe_type)
+
+        # Add PID filter if specified, otherwise use CURRENT_PID_NUM (0)
+        if pid_filter is not None:
+            data += struct.pack("<Q", pid_filter)
+        else:
+            data += struct.pack("<Q", CURRENT_PID_NUM)  # Match any process
+
+        # Prepare command for the header
+        # The offset is passed in the addr field of the header
+        result = yield ("register_uprobe", offset, data)
+
+        if result is None:
+            self.logger.error(f"Failed to register uprobe at {path}:{offset}")
+            return None
+
+        # The kernel returns the probe ID in the result
+        probe_id = result
+        self.logger.debug(f"Uprobe registered with ID: {probe_id}")
+        return probe_id
+
+    def _unregister_uprobe(self, probe_id):
+        """
+        Unregister a previously registered uprobe.
+
+        Args:
+            probe_id: ID of the probe returned from register_uprobe
+
+        Returns:
+            True if successfully unregistered, False otherwise
+        """
+        self.logger.debug(f"unregister_uprobe called: probe_id={probe_id}")
+
+        result = yield ("unregister_uprobe", probe_id)
+
+        if result is True:
+            self.logger.debug(f"Uprobe {probe_id} successfully unregistered")
+            return True
+        else:
+            self.logger.error(f"Failed to unregister uprobe {probe_id}")
+            return False
