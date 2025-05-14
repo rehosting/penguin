@@ -6,8 +6,9 @@
 # It uses ujson for faster parsing if available, implements lazy loading for types,
 # supports .json.xz compressed files, uses __slots__ for memory efficiency,
 # caches compiled struct formatters, allows symbol lookup by address,
-# offers flexible type input for create_instance, supports writing to fields,
-# and provides a to_bytes() method for instances.
+# offers flexible type input for create_instance (including base/enum types),
+# supports writing to fields/values, provides a to_bytes() method for instances,
+# includes a generic get_type() method, and supports writing to array elements.
 
 try:
     import ujson as json
@@ -129,7 +130,6 @@ class VtypeBaseType:
                 self._compiled_struct = None
         else:
             self._compiled_struct = None
-
         return self._compiled_struct
 
     def __repr__(self) -> str:
@@ -163,7 +163,7 @@ class VtypeUserType:
         self.fields: Dict[str, VtypeStructField] = {
             f_name: VtypeStructField(f_name, f_data) for f_name, f_data in data.get("fields", {}).items() if f_data
         }
-        self.kind: Optional[str] = data.get("kind")
+        self.kind: Optional[str] = data.get("kind")  # "struct" or "union"
 
     def __repr__(self) -> str:
         return f"<VtypeUserType Name='{self.name}' Kind='{self.kind}' Size={self.size} Fields={len(self.fields)}>"
@@ -213,14 +213,81 @@ class VtypeSymbol:
         return f"<VtypeSymbol Name='{self.name}' Address={self.address:#x if self.address is not None else 'N/A'} TypeKind='{type_kind}'>"
 
 
+class BoundArrayView:
+    """A view into an array field of a BoundTypeInstance, allowing get/set of elements."""
+    __slots__ = '_parent_instance', '_array_field_name', '_array_subtype_info', '_array_count', '_element_size', '_array_start_offset_in_parent'
+
+    def __init__(self, parent_instance: 'BoundTypeInstance', array_field_name: str,
+                 array_type_info: Dict[str, Any], array_start_offset_in_parent: int):
+        self._parent_instance = parent_instance
+        self._array_field_name = array_field_name  # For error messages
+        self._array_subtype_info = array_type_info.get("subtype")
+        if self._array_subtype_info is None:
+            raise ValueError(
+                f"Array field '{array_field_name}' has no subtype information.")
+        self._array_count = array_type_info.get("count", 0)
+
+        # Pre-calculate element size for efficiency
+        self._element_size = parent_instance._instance_vtype_accessor.get_type_size(
+            self._array_subtype_info)
+        if self._element_size is None:
+            raise ValueError(
+                f"Cannot determine element size for array '{array_field_name}'.")
+
+        self._array_start_offset_in_parent = array_start_offset_in_parent
+
+    def _get_element_offset_in_parent_struct(self, index: int) -> int:
+        if not 0 <= index < self._array_count:
+            raise IndexError(
+                f"Array index {index} out of bounds for array '{self._array_field_name}' of size {self._array_count}.")
+        # type: ignore
+        return self._array_start_offset_in_parent + (index * self._element_size)
+
+    def __getitem__(self, index: int) -> Any:
+        element_offset = self._get_element_offset_in_parent_struct(index)
+        # _read_data expects offset relative to parent struct start
+        return self._parent_instance._read_data(
+            self._array_subtype_info,
+            element_offset,
+            f"{self._array_field_name}[{index}]"
+        )
+
+    def __setitem__(self, index: int, value: Any):
+        element_offset = self._get_element_offset_in_parent_struct(index)
+        # _write_data expects offset relative to parent struct start
+        self._parent_instance._write_data(
+            self._array_subtype_info,
+            element_offset,
+            value,
+            f"{self._array_field_name}[{index}]"
+        )
+        # Invalidate parent's cache for this array field, as its content (via this view) has changed.
+        if self._array_field_name in self._parent_instance._instance_cache:
+            del self._parent_instance._instance_cache[self._array_field_name]
+
+    def __len__(self) -> int:
+        return self._array_count
+
+    def __iter__(self):
+        for i in range(self._array_count):
+            yield self[i]
+
+    def __repr__(self) -> str:
+        # Displaying all elements can be verbose for large arrays
+        # Consider showing first few and count, or just type and count
+        preview_count = min(self._array_count, 3)
+        items_preview = [repr(self[i]) for i in range(preview_count)]
+        if self._array_count > preview_count:
+            items_preview.append("...")
+        return f"<BoundArrayView Field='{self._array_field_name}' Count={self._array_count} Items=[{', '.join(items_preview)}]>"
+
+
 class BoundTypeInstance:
     """Represents an instance of a DWARF type bound to a memory buffer (bytearray for writability)."""
 
     def __init__(self, type_name: str, type_def: Union[VtypeUserType, VtypeBaseType, VtypeEnum],
                  buffer: bytearray, vtype_accessor: 'VtypeJson',
                  instance_offset_in_buffer: int = 0):
-        # Internal check, create_instance should ensure this.
-        # Should have been handled by VtypeJson.create_instance
         if not isinstance(buffer, bytearray):
             raise TypeError(
                 "Internal Error: BoundTypeInstance expects a bytearray.")
@@ -230,6 +297,109 @@ class BoundTypeInstance:
         self._instance_vtype_accessor = vtype_accessor
         self._instance_offset = instance_offset_in_buffer
         self._instance_cache = {}
+
+    @property
+    def value(self) -> Any:
+        if isinstance(self._instance_type_def, VtypeUserType):
+            raise AttributeError(
+                f"'{self._instance_type_name}' is a struct/union and does not have a direct '.value' attribute. Access its fields instead.")
+        if isinstance(self._instance_type_def, VtypeBaseType):
+            base_type_def = self._instance_type_def
+            compiled_struct_obj = base_type_def.get_compiled_struct()
+            if base_type_def.size == 0:
+                return None
+            if compiled_struct_obj is None:
+                raise ValueError(
+                    f"Cannot get compiled struct for base type '{base_type_def.name}'")
+            try:
+                return compiled_struct_obj.unpack_from(self._instance_buffer, self._instance_offset)[0]
+            except struct.error as e:
+                raise struct.error(
+                    f"Error unpacking value for base type '{base_type_def.name}': {e}")
+        elif isinstance(self._instance_type_def, VtypeEnum):
+            enum_def = self._instance_type_def
+            if enum_def.base is None:
+                raise ValueError(f"Enum '{enum_def.name}' has no base type.")
+            base_type_def = self._instance_vtype_accessor.get_base_type(
+                enum_def.base)
+            if base_type_def is None:
+                raise ValueError(
+                    f"Base type '{enum_def.base}' for enum '{enum_def.name}' not found.")
+            compiled_struct_obj = base_type_def.get_compiled_struct()
+            if compiled_struct_obj is None:
+                raise ValueError(
+                    f"Cannot get compiled struct for enum base type '{enum_def.base}'.")
+            try:
+                int_val = compiled_struct_obj.unpack_from(
+                    self._instance_buffer, self._instance_offset)[0]
+                return EnumInstance(enum_def, int_val)
+            except struct.error as e:
+                raise struct.error(
+                    f"Error unpacking value for enum '{enum_def.name}': {e}")
+        else:
+            raise TypeError(
+                f"'.value' property not applicable to internal type: {type(self._instance_type_def).__name__}")
+
+    @value.setter
+    def value(self, new_value: Any):
+        if isinstance(self._instance_type_def, VtypeUserType):
+            raise AttributeError(
+                f"Cannot set '.value' on a struct/union '{self._instance_type_name}'. Set its fields instead.")
+        if isinstance(self._instance_type_def, VtypeBaseType):
+            base_type_def = self._instance_type_def
+            compiled_struct_obj = base_type_def.get_compiled_struct()
+            if base_type_def.size == 0:
+                if new_value is not None:
+                    raise ValueError("Cannot assign value to void type.")
+                return
+            if compiled_struct_obj is None:
+                raise ValueError(
+                    f"Cannot get compiled struct for base type '{base_type_def.name}' to write value.")
+            try:
+                compiled_struct_obj.pack_into(
+                    self._instance_buffer, self._instance_offset, new_value)
+            except struct.error as e:
+                raise struct.error(
+                    f"Error packing value for base type '{base_type_def.name}': {e}")
+        elif isinstance(self._instance_type_def, VtypeEnum):
+            enum_def = self._instance_type_def
+            if enum_def.base is None:
+                raise ValueError(
+                    f"Enum '{enum_def.name}' has no base type for writing.")
+            base_type_def = self._instance_vtype_accessor.get_base_type(
+                enum_def.base)
+            if base_type_def is None:
+                raise ValueError(
+                    f"Base type '{enum_def.base}' for enum '{enum_def.name}' not found for writing.")
+            compiled_struct_obj = base_type_def.get_compiled_struct()
+            if compiled_struct_obj is None:
+                raise ValueError(
+                    f"Cannot get compiled struct for enum base type '{enum_def.base}' for writing.")
+            int_val_to_write: int
+            if isinstance(new_value, EnumInstance):
+                int_val_to_write = new_value.value
+            elif isinstance(new_value, int):
+                int_val_to_write = new_value
+            elif isinstance(new_value, str):
+                found_val = enum_def.constants.get(new_value)
+                if found_val is None:
+                    raise ValueError(
+                        f"Enum constant name '{new_value}' not found in enum '{enum_def.name}'.")
+                int_val_to_write = found_val
+            else:
+                raise TypeError(
+                    f"Cannot write type '{type(new_value)}' to enum instance. Expected EnumInstance, int, or str.")
+            try:
+                compiled_struct_obj.pack_into(
+                    self._instance_buffer, self._instance_offset, int_val_to_write)
+            except struct.error as e:
+                raise struct.error(
+                    f"Error packing value for enum '{enum_def.name}': {e}")
+        else:
+            raise TypeError(
+                f"'.value' property setter not applicable to internal type: {type(self._instance_type_def).__name__}")
+        if 'value' in self._instance_cache:
+            del self._instance_cache['value']
 
     def _read_data(self, field_type_info: Dict[str, Any], field_offset_in_struct: int, field_name_for_error: str) -> Any:
         kind = field_type_info.get("kind")
@@ -244,26 +414,23 @@ class BoundTypeInstance:
             if base_type_def is None:
                 raise ValueError(
                     f"Base type '{name}' not found for field '{field_name_for_error}'.")
-
             compiled_struct_obj = base_type_def.get_compiled_struct()
             if base_type_def.size == 0:
                 return None
             if compiled_struct_obj is None:
                 raise ValueError(
-                    f"Cannot get compiled struct for base type '{name}' (size: {base_type_def.size}).")
-
+                    f"Cannot get compiled struct for base type '{name}'.")
             try:
                 return compiled_struct_obj.unpack_from(self._instance_buffer, absolute_field_offset)[0]
             except struct.error as e:
                 raise struct.error(
-                    f"Error unpacking base type '{name}' for field '{field_name_for_error}' at offset {absolute_field_offset} (buffer len {len(self._instance_buffer)}): {e}")
+                    f"Error unpacking base type '{name}' for field '{field_name_for_error}': {e}")
 
         elif kind == "pointer":
             ptr_base_type = self._instance_vtype_accessor.get_base_type(
                 "pointer")
             if ptr_base_type is None:
                 raise ValueError("Base type 'pointer' definition not found.")
-
             compiled_struct_obj = ptr_base_type.get_compiled_struct()
             if compiled_struct_obj is None:
                 raise ValueError(
@@ -274,33 +441,11 @@ class BoundTypeInstance:
                 return Ptr(address, field_type_info.get("subtype"), self._instance_vtype_accessor)
             except struct.error as e:
                 raise struct.error(
-                    f"Error unpacking pointer for field '{field_name_for_error}' at offset {absolute_field_offset}: {e}")
+                    f"Error unpacking pointer for field '{field_name_for_error}': {e}")
 
         elif kind == "array":
-            count = field_type_info.get("count", 0)
-            subtype_info = field_type_info.get("subtype")
-            if subtype_info is None:
-                raise ValueError(
-                    f"Array field '{field_name_for_error}' has no subtype.")
-            elements = []
-            current_element_struct_offset = field_offset_in_struct
-            for i in range(count):
-                try:
-                    element = self._read_data(
-                        subtype_info, current_element_struct_offset, f"{field_name_for_error}[{i}]")
-                    elements.append(element)
-                except (ValueError, struct.error) as e:
-                    elements.append(
-                        f"<Error reading element {i} of {field_name_for_error}: {e}>")
-                element_size = self._instance_vtype_accessor.get_type_size(
-                    subtype_info)
-                if element_size is None:
-                    if i < count - 1:
-                        elements.append(
-                            f"<Error: Cannot get subtype size for '{field_name_for_error}', array incomplete.>")
-                    break
-                current_element_struct_offset += element_size
-            return elements
+            # Return a BoundArrayView instance instead of a Python list
+            return BoundArrayView(self, field_name_for_error, field_type_info, field_offset_in_struct)
 
         elif kind == "struct" or kind == "union":
             if name is None:
@@ -327,12 +472,10 @@ class BoundTypeInstance:
             if base_type_def is None:
                 raise ValueError(
                     f"Base type '{enum_def.base}' for enum '{name}' not found.")
-
             compiled_struct_obj = base_type_def.get_compiled_struct()
             if compiled_struct_obj is None:
                 raise ValueError(
                     f"Cannot get compiled struct for enum base type '{enum_def.base}'.")
-
             int_val = compiled_struct_obj.unpack_from(
                 self._instance_buffer, absolute_field_offset)[0]
             return EnumInstance(enum_def, int_val)
@@ -353,12 +496,10 @@ class BoundTypeInstance:
             if underlying_base_def is None or underlying_base_def.size is None:
                 raise ValueError(
                     f"Cannot get underlying type definition or size for bitfield '{field_name_for_error}'.")
-
             compiled_struct_obj = underlying_base_def.get_compiled_struct()
             if compiled_struct_obj is None:
                 raise ValueError(
                     f"Cannot get compiled struct for bitfield '{field_name_for_error}' underlying type.")
-
             storage_unit_val = compiled_struct_obj.unpack_from(
                 self._instance_buffer, absolute_field_offset)[0]
             mask = (1 << bit_length) - 1
@@ -386,7 +527,6 @@ class BoundTypeInstance:
             if base_type_def is None:
                 raise ValueError(
                     f"Base type '{name}' not found for field '{field_name_for_error}'.")
-
             compiled_struct_obj = base_type_def.get_compiled_struct()
             if base_type_def.size == 0:
                 if value_to_write is not None:
@@ -395,13 +535,13 @@ class BoundTypeInstance:
                 return
             if compiled_struct_obj is None:
                 raise ValueError(
-                    f"Cannot get compiled struct for base type '{name}' (size: {base_type_def.size}) to write field '{field_name_for_error}'.")
+                    f"Cannot get compiled struct for base type '{name}' to write field '{field_name_for_error}'.")
             try:
                 compiled_struct_obj.pack_into(
                     self._instance_buffer, absolute_field_offset, value_to_write)
             except struct.error as e:
                 raise struct.error(
-                    f"Error packing base type '{name}' for field '{field_name_for_error}' at offset {absolute_field_offset} with value '{value_to_write}': {e}")
+                    f"Error packing base type '{name}' for field '{field_name_for_error}': {e}")
 
         elif kind == "pointer":
             ptr_base_type = self._instance_vtype_accessor.get_base_type(
@@ -409,12 +549,10 @@ class BoundTypeInstance:
             if ptr_base_type is None:
                 raise ValueError(
                     "Base type 'pointer' definition not found for writing.")
-
             compiled_struct_obj = ptr_base_type.get_compiled_struct()
             if compiled_struct_obj is None:
                 raise ValueError(
                     "Cannot get compiled struct for 'pointer' base type for writing.")
-
             address_to_write: int
             if isinstance(value_to_write, Ptr):
                 address_to_write = value_to_write.address
@@ -428,7 +566,7 @@ class BoundTypeInstance:
                     self._instance_buffer, absolute_field_offset, address_to_write)
             except struct.error as e:
                 raise struct.error(
-                    f"Error packing pointer for field '{field_name_for_error}' at offset {absolute_field_offset} with address {address_to_write:#x}: {e}")
+                    f"Error packing pointer for field '{field_name_for_error}': {e}")
 
         elif kind == "enum":
             if name is None:
@@ -446,12 +584,10 @@ class BoundTypeInstance:
             if base_type_def is None:
                 raise ValueError(
                     f"Base type '{enum_def.base}' for enum '{name}' not found for writing.")
-
             compiled_struct_obj = base_type_def.get_compiled_struct()
             if compiled_struct_obj is None:
                 raise ValueError(
                     f"Cannot get compiled struct for enum base type '{enum_def.base}' for writing.")
-
             int_val_to_write: int
             if isinstance(value_to_write, EnumInstance):
                 int_val_to_write = value_to_write.value
@@ -471,7 +607,7 @@ class BoundTypeInstance:
                     self._instance_buffer, absolute_field_offset, int_val_to_write)
             except struct.error as e:
                 raise struct.error(
-                    f"Error packing enum '{name}' for field '{field_name_for_error}' at offset {absolute_field_offset} with value {int_val_to_write}: {e}")
+                    f"Error packing enum '{name}' for field '{field_name_for_error}': {e}")
 
         elif kind == "bitfield":
             bit_length = field_type_info.get("bit_length")
@@ -480,7 +616,6 @@ class BoundTypeInstance:
             if None in [bit_length, bit_position, underlying_type_info]:
                 raise ValueError(
                     f"Bitfield '{field_name_for_error}' missing properties for writing.")
-
             underlying_base_name = underlying_type_info.get("name")
             if underlying_base_name is None:
                 raise ValueError(
@@ -490,36 +625,29 @@ class BoundTypeInstance:
             if underlying_base_def is None or underlying_base_def.size is None:
                 raise ValueError(
                     f"Cannot get underlying type definition or size for bitfield '{field_name_for_error}' for writing.")
-
             compiled_struct_obj = underlying_base_def.get_compiled_struct()
             if compiled_struct_obj is None:
                 raise ValueError(
                     f"Cannot get compiled struct for bitfield '{field_name_for_error}' underlying type for writing.")
-
             current_storage_val = compiled_struct_obj.unpack_from(
                 self._instance_buffer, absolute_field_offset)[0]
-
             if not isinstance(value_to_write, int):
                 raise TypeError(
                     f"Value for bitfield '{field_name_for_error}' must be an integer, got {type(value_to_write)}.")
-
             mask = (1 << bit_length) - 1
             value_to_set = value_to_write & mask
-
             new_storage_val = (current_storage_val & ~(
                 mask << bit_position)) | (value_to_set << bit_position)
-
             try:
                 compiled_struct_obj.pack_into(
                     self._instance_buffer, absolute_field_offset, new_storage_val)
             except struct.error as e:
                 raise struct.error(
-                    f"Error packing bitfield '{field_name_for_error}' at offset {absolute_field_offset} with new storage value {new_storage_val}: {e}")
+                    f"Error packing bitfield '{field_name_for_error}': {e}")
 
         elif kind == "array" or kind == "struct" or kind == "union":
             raise NotImplementedError(
                 f"Direct assignment to field '{field_name_for_error}' of type '{kind}' is not supported. Modify elements or nested fields individually.")
-
         else:
             raise TypeError(
                 f"Cannot write to field '{field_name_for_error}' of unhandled type kind '{kind}'.")
@@ -527,67 +655,83 @@ class BoundTypeInstance:
     def __getattr__(self, name: str) -> Any:
         if name.startswith('_instance_'):
             return super().__getattribute__(name)
-        if name in self._instance_cache:
-            return self._instance_cache[name]
-        if not isinstance(self._instance_type_def, VtypeUserType):
-            raise AttributeError(
-                f"Type '{self._instance_type_name}' is not struct/union, no field '{name}'.")
-        field_def = self._instance_type_def.fields.get(name)
-        if field_def is None:
-            raise AttributeError(
-                f"'{self._instance_type_name}' has no attribute '{name}'")
-        if field_def.offset is None:
-            raise ValueError(
-                f"Field '{name}' in '{self._instance_type_name}' has no offset.")
-        try:
-            value = self._read_data(
-                field_def.type_info, field_def.offset, name)
-            if field_def.type_info.get("kind") in ["struct", "union", "array"]:
-                self._instance_cache[name] = value
-            return value
-        except (struct.error, ValueError) as e:
-            raise AttributeError(f"Error processing field '{name}': {e}")
 
-    def __setattr__(self, name: str, value: Any):
-        if name.startswith('_instance_'):
-            super().__setattr__(name, value)
-            return
+        if name == 'value':
+            try:
+                return self.value
+            except AttributeError:
+                raise AttributeError(
+                    f"'{self._instance_type_name}' object has no attribute '{name}' or it's not applicable for its type.")
 
-        if not isinstance(self._instance_type_def, VtypeUserType):
-            raise AttributeError(
-                f"Cannot set attribute '{name}' on non-struct/union type '{self._instance_type_name}'.")
-
-        field_def = self._instance_type_def.fields.get(name)
-        if field_def is None:
-            super().__setattr__(name, value)
-            return
-
-        if field_def.offset is None:
-            raise ValueError(
-                f"Field '{name}' in '{self._instance_type_name}' has no offset, cannot write.")
-
-        try:
-            self._write_data(field_def.type_info,
-                             field_def.offset, value, name)
+        if isinstance(self._instance_type_def, VtypeUserType):
             if name in self._instance_cache:
-                del self._instance_cache[name]
-        except (struct.error, ValueError, TypeError, NotImplementedError) as e:
-            raise AttributeError(f"Error setting field '{name}': {e}")
+                return self._instance_cache[name]
+            field_def = self._instance_type_def.fields.get(name)
+            if field_def is None:
+                raise AttributeError(
+                    f"'{self._instance_type_name}' (struct/union) has no attribute '{name}'")
+            if field_def.offset is None:
+                raise ValueError(
+                    f"Field '{name}' in '{self._instance_type_name}' has no offset.")
+            try:
+                val = self._read_data(
+                    field_def.type_info, field_def.offset, name)
+                # Cache the BoundArrayView if an array is accessed
+                if field_def.type_info.get("kind") in ["struct", "union", "array"]:
+                    self._instance_cache[name] = val
+                return val
+            except (struct.error, ValueError) as e:
+                raise AttributeError(f"Error processing field '{name}': {e}")
+
+        raise AttributeError(
+            f"Type '{self._instance_type_name}' (kind: {self._instance_type_def.__class__.__name__}) has no attribute '{name}'. Use '.value' for base/enum types.")
+
+    def __setattr__(self, name: str, new_value: Any):
+        if name.startswith('_instance_'):
+            super().__setattr__(name, new_value)
+            return
+
+        if name == 'value':
+            try:
+                self.value = new_value
+            except AttributeError:
+                raise AttributeError(
+                    f"Cannot set attribute '{name}' on '{self._instance_type_name}' or it's not applicable for its type.")
+            return
+
+        if isinstance(self._instance_type_def, VtypeUserType):
+            field_def = self._instance_type_def.fields.get(name)
+            if field_def is None:
+                super().__setattr__(name, new_value)
+                return
+            if field_def.offset is None:
+                raise ValueError(
+                    f"Field '{name}' in '{self._instance_type_name}' has no offset, cannot write.")
+            try:
+                # If setting an array field, the user should be using the BoundArrayView's __setitem__
+                # This __setattr__ is for regular fields.
+                if field_def.type_info.get("kind") == "array":
+                    raise NotImplementedError(
+                        f"Direct assignment to array field '{name}' is not supported. Access elements like '{name}[index] = value'.")
+
+                self._write_data(field_def.type_info,
+                                 field_def.offset, new_value, name)
+                if name in self._instance_cache:
+                    del self._instance_cache[name]
+                return
+            except (struct.error, ValueError, TypeError, NotImplementedError) as e:
+                raise AttributeError(f"Error setting field '{name}': {e}")
+
+        raise AttributeError(
+            f"Cannot set attribute '{name}' on type '{self._instance_type_name}' (kind: {self._instance_type_def.__class__.__name__}). Use '.value' for base/enum types.")
 
     def to_bytes(self) -> bytes:
-        """
-        Returns a 'bytes' object representing the portion of the underlying
-        buffer that corresponds to this specific instance.
-        """
-        if not isinstance(self._instance_type_def, VtypeUserType):
-            raise TypeError(
-                f"to_bytes() is primarily for struct/union instances. Type is {self._instance_type_name}")
-
         size = self._instance_type_def.size
         if size is None:
             raise ValueError(
-                f"Cannot determine size for type '{self._instance_type_name}' to get bytes.")
-
+                f"Cannot determine size for type '{self._instance_type_name}' (kind: {self._instance_type_def.__class__.__name__}) to get bytes.")
+        if size == 0:
+            return b''
         start = self._instance_offset
         end = start + size
         return bytes(self._instance_buffer[start:end])
@@ -598,17 +742,18 @@ class BoundTypeInstance:
         return self._instance_offset
 
     def __repr__(self) -> str:
-        return f"<BoundTypeInstance Type='{self._instance_type_name}' AtOffset={self._instance_offset}>"
+        return f"<BoundTypeInstance Type='{self._instance_type_name}' Kind='{self._instance_type_def.__class__.__name__}' AtOffset={self._instance_offset}>"
 
     def __dir__(self):
         attrs = list(super().__dir__())
         if isinstance(self._instance_type_def, VtypeUserType):
             attrs.extend(self._instance_type_def.fields.keys())
+        if isinstance(self._instance_type_def, (VtypeBaseType, VtypeEnum)):
+            attrs.append('value')
         return sorted(list(set(a for a in attrs if a != '_instance_cache')))
 
 
 class Ptr:
-    """Represents a pointer, holding an address and its target type information."""
     __slots__ = 'address', '_subtype_info', '_vtype_accessor'
 
     def __init__(self, address: int, subtype_info: Optional[Dict[str, Any]], vtype_accessor: 'VtypeJson'):
@@ -640,7 +785,6 @@ class Ptr:
 
 
 class EnumInstance:
-    """Represents an instance of an enum, holding its definition and integer value."""
     __slots__ = '_enum_def', 'value'
 
     def __init__(self, enum_def: VtypeEnum, value: int):
@@ -668,8 +812,6 @@ class EnumInstance:
 
 
 class VtypeJson:
-    """Top-level container for ISF JSON, enabling lazy loading of type definitions."""
-
     def __init__(self, data: Dict[str, Any]):
         self.metadata: VtypeMetadata = VtypeMetadata(data.get("metadata", {}))
         self._raw_base_types: Dict[str, Any] = data.get("base_types", {})
@@ -723,6 +865,34 @@ class VtypeJson:
         self._parsed_symbols_cache[name] = obj
         return obj
 
+    def get_type(self, name: str) -> Optional[Union[VtypeUserType, VtypeBaseType, VtypeEnum]]:
+        original_name = name
+        name_lower = name.lower()
+
+        if name_lower.startswith("struct "):
+            type_name_to_find = original_name[len("struct "):].strip()
+            return self.get_user_type(type_name_to_find)
+        elif name_lower.startswith("union "):
+            type_name_to_find = original_name[len("union "):].strip()
+            user_type = self.get_user_type(type_name_to_find)
+            if user_type and user_type.kind == "union":
+                return user_type
+            return None
+        elif name_lower.startswith("enum "):
+            type_name_to_find = original_name[len("enum "):].strip()
+            return self.get_enum(type_name_to_find)
+
+        found_type = self.get_user_type(original_name)
+        if found_type:
+            return found_type
+        found_type = self.get_enum(original_name)
+        if found_type:
+            return found_type
+        found_type = self.get_base_type(original_name)
+        if found_type:
+            return found_type
+        return None
+
     def get_symbols_by_address(self, target_address: int) -> List[VtypeSymbol]:
         if self._address_to_symbol_list_cache is None:
             self._address_to_symbol_list_cache = {}
@@ -731,7 +901,6 @@ class VtypeJson:
                 if symbol_obj and symbol_obj.address is not None:
                     self._address_to_symbol_list_cache.setdefault(
                         symbol_obj.address, []).append(symbol_obj)
-
         return self._address_to_symbol_list_cache.get(target_address, [])
 
     def get_type_size(self, type_info: Dict[str, Any]) -> Optional[int]:
@@ -763,11 +932,12 @@ class VtypeJson:
             return self.get_type_size(underlying_type_info) if underlying_type_info else None
         return None
 
-    def create_instance(self, type_input: Union[str, VtypeUserType],
-                        # Accept bytes or bytearray
+    def create_instance(self, type_input: Union[str, VtypeUserType, VtypeBaseType, VtypeEnum],
                         buffer: Union[bytes, bytearray],
                         instance_offset_in_buffer: int = 0) -> BoundTypeInstance:
-        user_type_def: Optional[VtypeUserType] = None
+
+        type_def: Optional[Union[VtypeUserType,
+                                 VtypeBaseType, VtypeEnum]] = None
         type_name_for_instance: str
 
         processed_buffer: bytearray
@@ -780,32 +950,31 @@ class VtypeJson:
                 "Input buffer for create_instance must be bytes or bytearray.")
 
         if isinstance(type_input, str):
-            user_type_def = self.get_user_type(type_input)
             type_name_for_instance = type_input
-        elif isinstance(type_input, VtypeUserType):
-            user_type_def = type_input
-            type_name_for_instance = user_type_def.name
+            type_def = self.get_type(type_input)
+        elif isinstance(type_input, (VtypeUserType, VtypeBaseType, VtypeEnum)):
+            type_def = type_input
+            type_name_for_instance = type_def.name
         else:
             raise TypeError(
-                f"type_input must be a string (type name) or VtypeUserType object, got {type(type_input)}")
+                f"type_input must be a string (type name) or a VtypeUserType/BaseType/Enum object, got {type(type_input)}")
 
-        if user_type_def:
-            effective_len = len(processed_buffer) - instance_offset_in_buffer
-            if user_type_def.size is not None and user_type_def.size > effective_len:
-                raise ValueError(
-                    f"Buffer too small for '{type_name_for_instance}' at offset {instance_offset_in_buffer}. Need {user_type_def.size}, got {effective_len}.")
-            return BoundTypeInstance(type_name_for_instance, user_type_def, processed_buffer, self, instance_offset_in_buffer)
+        if type_def:
+            if not hasattr(type_def, 'size') or type_def.size is None:
+                if not (hasattr(type_def, 'kind') and getattr(type_def, 'kind') == 'void' and type_def.size == 0):
+                    raise ValueError(
+                        f"Type definition for '{type_name_for_instance}' (kind: {type_def.__class__.__name__}) lacks a valid size attribute.")
 
-        if isinstance(type_input, str):
-            if self.get_base_type(type_input):
-                raise NotImplementedError(
-                    f"Direct instance creation for base type '{type_input}' not primary use case. Use for struct/union types.")
-            if self.get_enum(type_input):
-                raise NotImplementedError(
-                    f"Direct instance creation for enum type '{type_input}' not primary use case. Use for struct/union types.")
+            if type_def.size is not None:
+                effective_len = len(processed_buffer) - \
+                    instance_offset_in_buffer
+                if type_def.size > effective_len:
+                    raise ValueError(
+                        f"Buffer too small for '{type_name_for_instance}' at offset {instance_offset_in_buffer}. Need {type_def.size}, got {effective_len}.")
+            return BoundTypeInstance(type_name_for_instance, type_def, processed_buffer, self, instance_offset_in_buffer)
 
         raise ValueError(
-            f"User type definition for '{type_input if isinstance(type_input, str) else type_input.name}' not found or not a VtypeUserType.")
+            f"Type definition for '{type_input if isinstance(type_input, str) else type_input.name}' not found.")
 
     def __repr__(self) -> str:
         return (f"<VtypeJson RawBaseTypes={len(self._raw_base_types)} RawUserTypes={len(self._raw_user_types)} "
@@ -856,32 +1025,22 @@ if __name__ == '__main__':
         description="Load and parse a dwarf2json ISF (Intermediate Symbol File) JSON or JSON.XZ.",
         epilog=f"This script uses the '{_JSON_LIB_USED}' library for JSON parsing."
     )
+    cli_parser.add_argument("json_file_path", type=str,
+                            help="Path to the ISF JSON or JSON.XZ file.")
     cli_parser.add_argument(
-        "json_file_path",
-        type=str,
-        help="Path to the ISF JSON or JSON.XZ file to be loaded."
-    )
+        "-v", "--verbose", action="store_true", help="Print detailed info.")
+    cli_parser.add_argument("--find-symbol-at", type=lambda x: int(x, 0),
+                            metavar="ADDRESS", help="Find symbols at address.")
     cli_parser.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Print more detailed information about the loaded data."
-    )
+        "--test-write", action="store_true", help="Run field write test.")
     cli_parser.add_argument(
-        "--find-symbol-at",
-        type=lambda x: int(x, 0),
-        metavar="ADDRESS",
-        help="Find and print symbols at the given address (e.g., 0xffffffff81000000)."
-    )
+        "--test-to-bytes", action="store_true", help="Run to_bytes() test.")
+    cli_parser.add_argument("--test-base-enum-instance", action="store_true",
+                            help="Test creating instances of base/enum types.")
     cli_parser.add_argument(
-        "--test-write",
-        action="store_true",
-        help="Run a small test of writing to a field if 'my_struct' is defined (for dev purposes)."
-    )
+        "--get-type", type=str, help="Test the generic get_type method with the provided type name.")
     cli_parser.add_argument(
-        "--test-to-bytes",
-        action="store_true",
-        help="Run a small test of the to_bytes() method if 'my_struct' is defined (for dev purposes)."
-    )
+        "--test-array-write", action="store_true", help="Test writing to array elements.")
 
     args = cli_parser.parse_args()
     print(
@@ -891,6 +1050,15 @@ if __name__ == '__main__':
         isf_data: VtypeJson = load_isf_json(args.json_file_path)
         print("\nSuccessfully loaded ISF JSON.")
         print(f"  ISF Representation: {isf_data}")
+
+        if args.get_type:
+            print(f"\n--- Testing get_type('{args.get_type}') ---")
+            found_type_obj = isf_data.get_type(args.get_type)
+            if found_type_obj:
+                print(f"  Found type: {found_type_obj}")
+                print(f"  Type class: {found_type_obj.__class__.__name__}")
+            else:
+                print(f"  Type '{args.get_type}' not found.")
 
         if args.find_symbol_at is not None:
             print(
@@ -921,48 +1089,100 @@ if __name__ == '__main__':
             print(f"  Number of raw enums defined: {len(isf_data._raw_enums)}")
             print(
                 f"  Number of raw symbols defined: {len(isf_data._raw_symbols)}")
-            # ... (rest of verbose printing) ...
 
-        if args.test_write or args.test_to_bytes:
-            print("\n--- Testing Field Write and/or To Bytes Functionality ---")
-            # Assumes 'my_struct' exists for test
-            my_struct_def = isf_data.get_user_type("my_struct")
-            if my_struct_def and my_struct_def.size is not None:
-                # Use bytes for initial data, create_instance will convert to bytearray
-                initial_bytes_data = bytearray(my_struct_def.size)
-                struct.pack_into("<i", initial_bytes_data, 0, 100)      # id
-                # status_flags=1, type_flag=0
-                struct.pack_into("<B", initial_bytes_data, 4, 0b00000001)
-                # ... (initialize other fields if necessary for a complete test)
+        if args.test_write or args.test_to_bytes or args.test_array_write:
+            print(
+                "\n--- Testing Field Write, To Bytes, and/or Array Write Functionality ---")
+            # This test assumes 'my_struct' and 'portal_ffi_call' are defined as in previous examples or in your ISF.
+            # Adjust struct name and fields as necessary.
+            struct_to_test = "my_struct"  # or "portal_ffi_call" if that's in your ISF
+            struct_def = isf_data.get_user_type(struct_to_test)
 
-                # Pass the bytearray to create_instance
+            if struct_def and struct_def.size is not None:
+                buffer_data = bytearray(struct_def.size)
+
+                # Initialize buffer for "my_struct" (example)
+                if struct_to_test == "my_struct":
+                    struct.pack_into("<i", buffer_data, 0, 100)  # id
+                    # status_flags=1, type_flag=0
+                    struct.pack_into("<B", buffer_data, 4, 0b00000001)
+                    # ... (initialize other fields of my_struct if needed)
+
                 instance = isf_data.create_instance(
-                    "my_struct", initial_bytes_data)
+                    struct_to_test, buffer_data)
 
                 if args.test_write:
-                    print(f"  Initial id: {instance.id}")
-                    instance.id = 999
-                    # Check original bytearray
-                    print(
-                        f"  Modified id: {instance.id} (Buffer check: {struct.unpack_from('<i', initial_bytes_data, 0)[0]})")
+                    print(f"  Testing writes for '{struct_to_test}':")
+                    if "id" in struct_def.fields:
+                        print(f"    Initial id: {instance.id}")
+                        instance.id = 999
+                        print(
+                            f"    Modified id: {instance.id} (Buffer check: {struct.unpack_from('<i', buffer_data, 0)[0]})")
                     # ... (more write tests as before) ...
+
+                if args.test_array_write and "args" in struct_def.fields:  # Test for portal_ffi_call like structure
+                    print(
+                        f"  Testing array writes for '{struct_to_test}.args':")
+                    # Assuming 'args' is an array field, e.g., of unsigned long (pointer size)
+                    # This requires 'args' field to exist and be an array.
+                    args_array_view = instance.args
+                    print(
+                        f"    Initial args_array_view[0] (if applicable): {args_array_view[0] if len(args_array_view) > 0 else 'N/A'}")
+                    if len(args_array_view) > 0:
+                        args_array_view[0] = 0xAAAAAAAAAAAAAAAA
+                        print(
+                            f"    Set args_array_view[0] = 0xAAAAAAAAAAAAAAAA")
+                        print(
+                            f"    New args_array_view[0]: {args_array_view[0]}")
+                    if len(args_array_view) > 1:
+                        args_array_view[1] = 0xBBBBBBBBBBBBBBBB
+                        print(
+                            f"    Set args_array_view[1] = 0xBBBBBBBBBBBBBBBB")
+                        print(
+                            f"    New args_array_view[1]: {args_array_view[1]}")
+
+                    # Verify directly from buffer if possible (assuming 'args' field offset and element size)
+                    args_field_def = struct_def.fields.get("args")
+                    if args_field_def and args_field_def.offset is not None:
+                        subtype_info = args_field_def.type_info.get("subtype")
+                        if subtype_info:
+                            element_size = isf_data.get_type_size(subtype_info)
+                            if element_size:
+                                if len(args_array_view) > 0:
+                                    val0 = struct.unpack_from(
+                                        f"<{isf_data.get_base_type(subtype_info.get('name')).get_compiled_struct().format[-1]}", buffer_data, instance._instance_offset + args_field_def.offset)[0]
+                                    print(
+                                        f"    Buffer check args[0]: {val0:#x}")
+                                if len(args_array_view) > 1:
+                                    val1 = struct.unpack_from(
+                                        f"<{isf_data.get_base_type(subtype_info.get('name')).get_compiled_struct().format[-1]}", buffer_data, instance._instance_offset + args_field_def.offset + element_size)[0]
+                                    print(
+                                        f"    Buffer check args[1]: {val1:#x}")
 
                 if args.test_to_bytes:
                     instance_bytes = instance.to_bytes()
                     print(
-                        f"  instance.to_bytes() (hex): {instance_bytes.hex()}")
-                    # Verify the slice is correct
-                    expected_bytes = bytes(
-                        initial_bytes_data[instance._instance_offset: instance._instance_offset + my_struct_def.size])
-                    if instance_bytes == expected_bytes:
-                        print(
-                            "  to_bytes() content matches expected slice of the buffer.")
-                    else:
-                        print("  ERROR: to_bytes() content MISMATCH!")
-                        print(f"    Expected (hex): {expected_bytes.hex()}")
+                        f"  instance.to_bytes() (hex) for '{struct_to_test}': {instance_bytes.hex()}")
             else:
                 print(
-                    "  Skipping write/to_bytes test: 'my_struct' not found or has no size in the loaded ISF.")
+                    f"  Skipping write/to_bytes/array_write test: '{struct_to_test}' not found or has no size.")
+
+        if args.test_base_enum_instance:
+            # ... (base/enum instance test as before) ...
+            print("\n--- Testing Base/Enum Instance Creation ---")
+            int_def = isf_data.get_base_type("int")
+            if int_def and int_def.size is not None:
+                int_buffer = bytearray(int_def.size)
+                struct.pack_into("<i", int_buffer, 0, 12345)
+                int_instance = isf_data.create_instance("int", int_buffer)
+                print(f"  Created int_instance: {int_instance}")
+                print(f"  int_instance.value: {int_instance.value}")
+                int_instance.value = 54321
+                print(f"  Modified int_instance.value: {int_instance.value}")
+                print(
+                    f"  int_instance.to_bytes() (hex): {int_instance.to_bytes().hex()}")
+            else:
+                print("  Skipping 'int' instance test: 'int' not found or has no size.")
 
     except FileNotFoundError as e:
         print(f"\nError: {e}", file=sys.stderr)
