@@ -32,7 +32,7 @@ RUN cargo install binwalk --target x86_64-unknown-linux-gnu --locked
 ARG FW2TAR_TAG
 ARG DOWNLOAD_TOKEN
 RUN cargo install --target x86_64-unknown-linux-gnu \
-    --branch ${FW2TAR_TAG} \
+    --tag ${FW2TAR_TAG} \
     --git https://${DOWNLOAD_TOKEN}:@github.com/rehosting/fw2tar.git
 
 ENV RUSTFLAGS="-C target-feature=+crt-static"
