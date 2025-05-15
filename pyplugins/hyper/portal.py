@@ -11,8 +11,6 @@ import time
 CURRENT_PID_NUM = 0xffffffff
 
 kffi = plugins.kffi
-cmrh_ref = kffi.new("cpu_mem_regions")
-
 
 class Portal(PyPlugin):
     def __init__(self, panda):
@@ -119,36 +117,15 @@ class Portal(PyPlugin):
     This can return none
     '''
 
-    def _find_free_memregion(self, cpu, id_reg, claimed_slot):
-        cpu_memregion_struct = self.cpu_memregion_structs[cpu]
-        cmrh = kffi.read_type_panda(
-            cpu, cpu_memregion_struct, "cpu_mem_regions")
-        if claimed_slot:
-            region = cmrh.regions[claimed_slot]
-            if region.owner_id in [0, id_reg]:
-                return cmrh.hdr.call_num, claimed_slot, region.mem_region.address
-        for i in range(cmrh.hdr.count):
-            region = cmrh.regions[i]
-            if region.owner_id in [0, id_reg]:
-                return cmrh.hdr.call_num, i, region.mem_region.address
-
-    def _claim_memregion(self, cpu, slot, id_reg):
-        cpu_memregion_struct = self.cpu_memregion_structs[cpu]
-        offset = cmrh_ref.regions[slot].offset
-        addr = cpu_memregion_struct + offset
-        id_bytes = struct.pack(f"{self.endian_format}I", id_reg)
-        self.panda.virtual_memory_write(cpu, addr, id_bytes)
-
-    def _release_memregion(self, cpu, slot):
-        self._claim_memregion(cpu, slot, 0)
-
-    def _read_memregion_state(self, cpu, cpu_memregion):
+    def _read_memregion_state(self, cpu):
+        cpu_memregion = self.cpu_memregion_structs[cpu]
         memr = kffi.read_type_panda(cpu, cpu_memregion, "region_header")
         self.logger.debug(
             f"Reading memregion state: op={memr.op}, addr={memr.addr:#x}, size={memr.size}")
         return memr.op, memr.addr, memr.size
 
-    def _read_memregion_data(self, cpu, cpu_memregion, size):
+    def _read_memregion_data(self, cpu, size):
+        cpu_memregion = self.cpu_memregion_structs[cpu]
         if size > self.regions_size:
             self.logger.error(
                 f"Size {size} exceeds chunk size {self.regions_size}")
@@ -160,7 +137,8 @@ class Portal(PyPlugin):
         except ValueError as e:
             self.logger.error(f"Failed to read memory: {e}")
 
-    def _write_memregion_state(self, cpu, cpu_memregion, op, addr, size, pid=None):
+    def _write_memregion_state(self, cpu, op, addr, size, pid=None):
+        cpu_memregion = self.cpu_memregion_structs[cpu]
         if size > self.regions_size:
             self.logger.error(
                 f"Size {size} exceeds chunk size {self.regions_size}")
@@ -191,7 +169,8 @@ class Portal(PyPlugin):
         except ValueError as e:
             self.logger.error(f"Failed to write memregion state: {e}")
 
-    def _write_memregion_data(self, cpu, cpu_memregion, data):
+    def _write_memregion_data(self, cpu, data):
+        cpu_memregion = self.cpu_memregion_structs[cpu]
         if len(data) > self.regions_size:
             self.logger.error(
                 f"Data length {len(data)} exceeds chunk size {self.regions_size}")
@@ -202,9 +181,9 @@ class Portal(PyPlugin):
         except ValueError as e:
             self.logger.error(f"Failed to write memregion data: {e}")
 
-    def _handle_input_state(self, cpu, cpu_memregion):
+    def _handle_input_state(self, cpu):
         in_op = None
-        op, addr, size = self._read_memregion_state(cpu, cpu_memregion)
+        op, addr, size = self._read_memregion_state(cpu)
         if op == HYPER_OP_NONE:
             pass
         elif op & HYPER_RESP_NONE == 0:
@@ -213,13 +192,13 @@ class Portal(PyPlugin):
             self.logger.error(f"Invalid operation: {op:#x}")
         elif op == HYPER_RESP_READ_OK:
             self.logger.debug(f"Read OK: {addr:#x} {size}")
-            data = self._read_memregion_data(cpu, cpu_memregion, size)
+            data = self._read_memregion_data(cpu, size)
             in_op = (op, data)
         elif op == HYPER_RESP_READ_FAIL:
             self.logger.debug("Failed to read memory")
         elif op == HYPER_RESP_READ_PARTIAL:
             self.logger.debug(f"Read OK: {addr:#x} {size}")
-            data = self._read_memregion_data(cpu, cpu_memregion, size)
+            data = self._read_memregion_data(cpu, size)
             in_op = (op, data)
         elif op == HYPER_RESP_WRITE_OK:
             pass
@@ -234,60 +213,60 @@ class Portal(PyPlugin):
             self.logger.error(f"Unknown operation: {op:#x}")
         return in_op
 
-    def _handle_output_cmd(self, cpu, cpu_memregion, cmd):
+    def _handle_output_cmd(self, cpu, cmd):
         match cmd:
             case ("read", addr, size, pid):
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_READ, addr, size, pid)
+                    cpu, HYPER_OP_READ, addr, size, pid)
             case ("read_str", addr, pid):
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_READ_STR, addr, 0, pid)
+                    cpu, HYPER_OP_READ_STR, addr, 0, pid)
             case ("read_proc_args", pid):
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_READ_PROCARGS, 0, 0, pid)
+                    cpu, HYPER_OP_READ_PROCARGS, 0, 0, pid)
             case ("read_proc_env", pid):
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_READ_PROCENV, 0, 0, pid)
+                    cpu, HYPER_OP_READ_PROCENV, 0, 0, pid)
             case ("read_file_offset", fname, offset, size):
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_READ_FILE, offset, size)
-                self._write_memregion_data(cpu, cpu_memregion, fname)
+                    cpu, HYPER_OP_READ_FILE, offset, size)
+                self._write_memregion_data(cpu, fname)
             case ("write_file", fname, offset, data):
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_WRITE_FILE, offset, len(data))
-                self._write_memregion_data(cpu, cpu_memregion, fname + data)
+                    cpu, HYPER_OP_WRITE_FILE, offset, len(data))
+                self._write_memregion_data(cpu, fname + data)
             case ("get_osi_proc_handles"):
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_OSI_PROC_HANDLES, 0, 0)
+                    cpu, HYPER_OP_OSI_PROC_HANDLES, 0, 0)
             case ("get_fds", start_fd, pid):
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_READ_FDS, start_fd, 0, pid)
+                    cpu, HYPER_OP_READ_FDS, start_fd, 0, pid)
             case ("get_proc", pid):
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_OSI_PROC, 0, 0, pid)
+                    cpu, HYPER_OP_OSI_PROC, 0, 0, pid)
             case ("get_proc_mappings", pid, skip):
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_OSI_MAPPINGS, skip, 0, pid)
+                    cpu, HYPER_OP_OSI_MAPPINGS, skip, 0, pid)
             case ("exec", wait, data):
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_EXEC, wait, len(data))
-                self._write_memregion_data(cpu, cpu_memregion, data)
+                    cpu, HYPER_OP_EXEC, wait, len(data))
+                self._write_memregion_data(cpu, data)
             case ("write", addr, data, pid):
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_WRITE, addr, len(data), pid)
-                self._write_memregion_data(cpu, cpu_memregion, data)
+                    cpu, HYPER_OP_WRITE, addr, len(data), pid)
+                self._write_memregion_data(cpu, data)
             case ("ffi_exec", ffi_data):
                 # Set size to sizeof(portal_ffi_call)
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_FFI_EXEC, 0, 0)
-                self._write_memregion_data(cpu, cpu_memregion, ffi_data)
+                    cpu, HYPER_OP_FFI_EXEC, 0, 0)
+                self._write_memregion_data(cpu, ffi_data)
             case ("syscall_reg", data):
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_REGISTER_SYSCALL_HOOK, 0, 0)
-                self._write_memregion_data(cpu, cpu_memregion, data)
+                    cpu, HYPER_OP_REGISTER_SYSCALL_HOOK, 0, 0)
+                self._write_memregion_data(cpu, data)
             case ("syscall_unreg", id_):
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_REGISTER_SYSCALL_HOOK, id_, 0)
+                    cpu, HYPER_OP_REGISTER_SYSCALL_HOOK, id_, 0)
             case None:
                 return False
             case _:
@@ -324,30 +303,8 @@ class Portal(PyPlugin):
                 cpu_iterators[cpu] = fn_ret
                 iteration_time[cpu] = time.time()
                 new_iterator = True
-            memregion_result = self._find_free_memregion(
-                cpu, id_reg, claimed_slot.get(cpu, None))
-            if memregion_result is None:
-                self.logger.info(
-                    f"Bypassing this call in {f.__name__} because we don't have a memregion")
-                return
-            call_num, slot, cpu_memregion = memregion_result
-            if new_iterator:
-                self.logger.debug(f"New iterator @ {call_num} for {f.__name__} on CPU {cpu} with args {args} and kwargs {kwargs}")
-            self.logger.debug(
-                f"Claiming memregion {cpu_memregion:#x} for {f.__name__} on CPU {cpu} @ {call_num} with slot {slot}")
-            if new_iterator:
-                cpu_iterator_start[cpu] = call_num
-            if cpu_iterator_start[cpu] and cpu_iterator_start[cpu] != call_num:
-                self.logger.error(
-                    f"CPU {cpu} iterator start {cpu_iterator_start[cpu]} != call_num {call_num}; We must have missed a call!")
-                breakpoint()
-                fn_ret = f(*args, **kwargs)
-                cpu_iterators[cpu] = fn_ret
-                new_iterator = True
 
-
-            in_op = self._handle_input_state(cpu, cpu_memregion)
-            self._release_memregion(cpu, slot)
+            in_op = self._handle_input_state(cpu)
 
             try:
                 if not in_op:
@@ -362,15 +319,12 @@ class Portal(PyPlugin):
                     cpu_iterators[cpu] = None
                     raise Exception(f"Invalid state cmd is {in_op}")
             except StopIteration as e:
-                self.logger.debug(
-                    f"StopIteration in {f.__name__} for CPU {cpu} @ {call_num}")
                 cpu_iterators[cpu] = None
                 # The function has completed, and we need to return the value
                 fn_return = e.value
                 cpu_iterator_start[cpu] = None
                 self._write_memregion_state(
-                    cpu, cpu_memregion, HYPER_OP_NONE, 0, 0)
-                self._release_memregion(cpu, slot)
+                    cpu, HYPER_OP_NONE, 0, 0)
                 claimed_slot[cpu] = None
                 cmd = None
                 self.total_time += (time.time() - iteration_time[cpu])
@@ -380,18 +334,7 @@ class Portal(PyPlugin):
                 # this is basically a no-op. Our functionality wasn't used
                 return fn_return
 
-            try:
-                active_claim = self._handle_output_cmd(cpu, cpu_memregion, cmd)
-            except ValueError as e:
-                self.logger.error(f"Failed to write memory {e}")
-
-            if active_claim:
-                self._claim_memregion(cpu, slot, id_reg)
-                claimed_slot[cpu] = slot
-            else:
-                # possibly unnecessary
-                self._release_memregion(cpu, slot)
-                claimed_slot[cpu] = None
+            self._handle_output_cmd(cpu, cmd)
 
             return fn_return
         return wrapper
@@ -1294,7 +1237,7 @@ class Portal(PyPlugin):
         
         return decorator
     
-    def uninit(self):
+    def _uninit(self):
         self._cleanup_all_interrupts()
         if self.try_panda:
             perc = (self.panda_fail)/ (self.panda_success + self.panda_fail) * 100
