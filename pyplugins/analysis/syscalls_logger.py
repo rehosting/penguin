@@ -127,7 +127,11 @@ class PyPandaSysLog(PyPlugin):
             max_args = 20  # Limit to avoid infinite loops
             for i in range(max_args):
                 ptr = yield from plugins.portal.read_ptr(addr + (i * self.panda.bits // 8))
+                if ptr == 0:
+                    break
                 str_val = yield from plugins.portal.read_str(ptr)
+                if str_val == "":
+                    break
                 result.append(str_val)
             return f"{argval_uint:#x}([{', '.join(repr(s) for s in result)}])"
 
