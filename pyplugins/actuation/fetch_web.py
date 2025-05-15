@@ -23,9 +23,14 @@ class FetchWeb(PyPlugin):
         self.outdir = self.get_arg("outdir")
         self.shutdown_after_www = self.get_arg_bool("shutdown_after_www")
         self.shutdown_on_failure = self.get_arg_bool("shutdown_on_failure")
+        self.logger = getColoredLogger("plugins.fetch_web")
+        if (delay := self.get_arg("fetch_delay")):
+            self.fetch_delay = int(delay)
+            self.logger.info(f"Fetch delay set to {self.fetch_delay} seconds")
+        else:
+            self.fetch_delay = 20
         self.task_queue = queue.Queue()
         plugins.subscribe(plugins.VPN, "on_bind", self.fetchweb_on_bind)
-        self.logger = getColoredLogger("plugins.fetch_web")
         self.shutting_down = False
 
         self.worker_thread = threading.Thread(target=self.worker)
@@ -77,7 +82,7 @@ class FetchWeb(PyPlugin):
         if os.path.isfile(log_file_name):
             log_file_name += ".alt"
 
-        time.sleep(20)  # Give service plenty of time to start
+        time.sleep(self.fetch_delay)  # Give service plenty of time to start
         cmd = ["wget", "-q", f"https://{host_ip}:{host_port}" if guest_port == 443 else f"http://{host_ip}:{host_port}",
                "--no-check-certificate", "-O", log_file_name]
         timestamp = f"{(time.time() - self.start_time):.02f}s"
