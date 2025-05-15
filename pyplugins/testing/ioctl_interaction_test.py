@@ -14,13 +14,13 @@ class TestIoctlInteraction(PyPlugin):
         self.logger = getColoredLogger("plugins.ioctl_interaction_test")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
-        self.panda.hsyscall(
+        plugins.syscalls.syscall(
             "on_sys_ioctl_return", arg_filter=[None, SIOCDEVPRIVATE])(self.siocdevprivate)
-        self.panda.hsyscall(
+        plugins.syscalls.syscall(
             "on_sys_ioctl_return", arg_filter=[None, 0x89f1])(self.ioctl_ret)
 
     @plugins.portal.wrap
-    def siocdevprivate(self, cpu, proto, syscall, hook, fd, op, arg):
+    def siocdevprivate(self, cpu, proto, syscall, fd, op, arg):
         interface = yield from plugins.portal.read_str(arg)
         self.logger.info(f"Interface: {interface}")
         data = yield from plugins.portal.read_int(arg + IFNAMSIZ)
@@ -86,7 +86,7 @@ class TestIoctlInteraction(PyPlugin):
     };
     '''
     @plugins.portal.wrap
-    def ioctl_ret(self, cpu, proto, syscall, hook, fd, op, arg):
+    def ioctl_ret(self, cpu, proto, syscall, fd, op, arg):
         ifreq = yield from plugins.kffi.read_type(arg, "ifreq")
         interface = bytes(ifreq.ifr_ifrn.ifrn_name).decode("latin-1").rstrip("\x00")
         self.logger.info(f"Interface: {interface}")

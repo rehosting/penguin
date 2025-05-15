@@ -8,11 +8,11 @@ class RWLog(PyPlugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.DB = plugins.DB
-        panda.hsyscall("on_sys_write_return")(self.write)
-        panda.hsyscall("on_sys_read_return")(self.read)
+        plugins.syscalls.syscall("on_sys_write_return")(self.write)
+        plugins.syscalls.syscall("on_sys_read_return")(self.read)
 
     @plugins.portal.wrap
-    def write(self, cpu, proto, syscall, hook, fd, buf, count):
+    def write(self, cpu, proto, syscall, fd, buf, count):
         s = yield from plugins.portal.read_str(buf)
         signed_fd = int(self.panda.ffi.cast("target_long", fd))
         fname = yield from plugins.portal.get_fd_name(fd) or "?"
@@ -31,7 +31,7 @@ class RWLog(PyPlugin):
         )
 
     @plugins.portal.wrap
-    def read(self, cpu, proto, syscall, hook, fd, buf, count):
+    def read(self, cpu, proto, syscall, fd, buf, count):
         s = yield from plugins.portal.read_str(buf)
         signed_fd = int(self.panda.ffi.cast("target_long", fd))
         fname = yield from plugins.portal.get_fd_name(fd) or "?"

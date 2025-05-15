@@ -51,6 +51,8 @@ for match in matches:
 This is our internal representation of a syscall event
 """
 
+syscalls = plugins.syscalls
+
 
 class PyPandaSysLog(PyPlugin):
     def __init__(self, panda):
@@ -71,26 +73,26 @@ class PyPandaSysLog(PyPlugin):
 
         if procs:
             for proc in procs:
-                panda.hsyscall("on_all_sys_return", comm_filter=proc)(
+                syscalls.syscall("on_all_sys_return", comm_filter=proc)(
                     self.all_sys_ret)
-                panda.hsyscall("on_sys_execve_enter", comm_filter=proc)(
+                syscalls.syscall("on_sys_execve_enter", comm_filter=proc)(
                     self.sys_execve_enter)
-                panda.hsyscall("on_sys_execveat_enter", comm_filter=proc)(
+                syscalls.syscall("on_sys_execveat_enter", comm_filter=proc)(
                     self.sys_execve_enter)
         else:
-            panda.hsyscall("on_all_sys_return")(self.all_sys_ret)
-            panda.hsyscall("on_sys_execve_enter")(self.sys_execve_enter)
-            panda.hsyscall("on_sys_execveat_enter")(self.sys_execve_enter)
+            syscalls.syscall("on_all_sys_return")(self.all_sys_ret)
+            syscalls.syscall("on_sys_execve_enter")(self.sys_execve_enter)
+            syscalls.syscall("on_sys_execveat_enter")(self.sys_execve_enter)
 
     @plugins.portal.wrap
-    def sys_execve_enter(self, cpu, proto, syscall, hook, *args):
-        yield from self.handle_syscall(cpu, proto, syscall, hook)
+    def sys_execve_enter(self, cpu, proto, syscall, *args):
+        yield from self.handle_syscall(cpu, proto, syscall)
 
     @plugins.portal.wrap
-    def all_sys_ret(self, cpu, proto, syscall, hook):
+    def all_sys_ret(self, cpu, proto, syscall):
         protoname, _, _ = self.get_syscall_proto(proto, proto.syscall_nr)
         if "execve" not in protoname:
-            yield from self.handle_syscall(cpu, proto, syscall, hook)
+            yield from self.handle_syscall(cpu, proto, syscall)
 
     def get_arg_repr(self, argval, ctype, name):
         if name == "fd":
@@ -155,6 +157,8 @@ class PyPandaSysLog(PyPlugin):
         return f"{argval_uint:#x}"
 
     def cstr(self, x):
+        if isinstance(x, str):
+            return x
         return "" if x == self.panda.ffi.NULL else self.panda.ffi.string(x).decode()
 
     @functools.lru_cache
@@ -164,7 +168,7 @@ class PyPandaSysLog(PyPlugin):
         names = [self.cstr(proto.names[i]) for i in range(proto.nargs)]
         return protoname, types, names
 
-    def handle_syscall(self, cpu, proto, syscall, hook):
+    def handle_syscall(self, cpu, proto, syscall):
         protoname, types, names = self.get_syscall_proto(
             proto, proto.syscall_nr)
         args = [syscall.args[i] for i in range(proto.nargs)]
