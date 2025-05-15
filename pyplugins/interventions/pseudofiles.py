@@ -207,7 +207,7 @@ class FileFailures(PyPlugin):
 
         # On ioctl return we might want to start symex. We detect failures with a special handler though
         if self.need_ioctl_hooks:
-            panda.hsyscall("on_sys_ioctl_return")(self.symex_ioctl_return)
+            plugins.syscalls.syscall("on_sys_ioctl_return")(self.symex_ioctl_return)
 
     def gen_hyperfile_function(self, filename, details, ftype):
         if ftype not in details or "model" not in details[ftype]:
@@ -296,7 +296,7 @@ class FileFailures(PyPlugin):
         }
         return hf_config
 
-    def symex_ioctl_return(self, cpu, proto, syscall, hook, fd, cmd, arg):
+    def symex_ioctl_return(self, cpu, proto, syscall, fd, cmd, arg):
         # We'll return -999 as a magic placeholder value that indicates we should
         # Start symex. Is this a terrible hack. You betcha!
         rv = syscall.retval

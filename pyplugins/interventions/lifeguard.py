@@ -75,7 +75,7 @@ class Lifeguard(PyPlugin):
 
         if len(self.blocked_signals) > 0:
             self.logger.info(f"Blocking signals: {self.blocked_signals}")
-        self.panda.hsyscall("on_sys_kill_return")(self.on_sys_kill_enter)
+        plugins.syscalls.syscall("on_sys_kill_return")(self.on_sys_kill_enter)
 
     def get_proc_by_pid(self, cpu, pid):
         for p in self.panda.get_processes(cpu):
@@ -83,7 +83,7 @@ class Lifeguard(PyPlugin):
                 return self.panda.ffi.string(p.name).decode("latin-1", errors="ignore")
 
     @plugins.portal.wrap
-    def on_sys_kill_enter(self, cpu, proto, sysret, hook, pid, sig):
+    def on_sys_kill_enter(self, cpu, proto, sysret, pid, sig):
         save = sig in self.blocked_signals
         with open(f"{self.outdir}/{LIFELOG}", "a") as f:
             f.write(f"{sig},{pid},{1 if save else 0}\n")
