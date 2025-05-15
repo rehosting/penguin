@@ -500,8 +500,6 @@ def run_config(
         else:
             panda.set_os_name("linux-32-generic")
 
-        panda.load_plugin("hypersyscalls")
-
         panda.load_plugin("osi", args={"disable-autoload": True})
         panda.load_plugin(
             "osi_linux",

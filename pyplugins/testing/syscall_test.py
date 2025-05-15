@@ -3,7 +3,7 @@ This plugin verifies that hypercalls are being made correctly.
 """
 
 from pandare2 import PyPlugin
-from penguin import getColoredLogger
+from penguin import getColoredLogger, plugins
 from os.path import join
 
 SYSCALL_ARG1 = 0x1338c0def2f2f3f2
@@ -12,45 +12,47 @@ SYSCALL_ARG3 = 0x1337c0defeedc0de
 SYSCALL_ARG4 = 0xdeedbeeff1f1f0f2
 SYSCALL_ARG5 = 0xdeadbeeff1f1f1f2
 
+syscalls = plugins.syscalls
+
 
 class SyscallTest(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.logger = getColoredLogger("plugins.syscall_test")
-        self.panda.hsyscall("on_sys_clone_enter")(self.syscall_test)
-        self.panda.hsyscall("on_sys_getpid_return")(self.getpid)
+        syscalls.syscall("on_sys_clone_enter")(self.syscall_test)
+        syscalls.syscall("on_sys_getpid_return")(self.getpid)
         self.success_clone = None
         self.success_getpid = None
         self.reported_clone = False
         self.reported_getpid = False
-        self.panda.hsyscall("on_sys_ioctl_enter", comm_filter="send_syscall",
-                            arg_filter=[None, 0xabcd])(self.test_skip_retval)
-        self.panda.hsyscall("on_sys_ioctl_return", comm_filter="send_syscall",
+        syscalls.syscall("on_sys_ioctl_enter", comm_filter="send_syscall", 
+                         arg_filter=[None, 0xabcd])(self.test_skip_retval)
+        syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
                             arg_filter=[0x13])(self.ioctl_ret)
-        self.panda.hsyscall("on_sys_ioctl_return", comm_filter="send_syscall",
+        syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
                             arg_filter=[0x13, 0x1234])(self.ioctl_ret2)
-        self.panda.hsyscall("on_sys_ioctl_return", comm_filter="send_syscall",
+        syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
                             arg_filter=[0x13, 0x1234, 0xabcd])(self.ioctl_ret3)
-        self.panda.hsyscall("on_sys_ioctl_return", comm_filter="nosend_syscall",
+        syscalls.syscall("on_sys_ioctl_return", comm_filter="nosend_syscall",
                             arg_filter=[None, 0x1234])(self.ioctl_noret)
         self.ioctl_ret_num = 0
         self.ioctl_ret2_num = 0
         self.ioctl_ret3_num = 0
 
-    def test_skip_retval(self, cpu, proto, syscall, hook, fd, op, arg):
+    def test_skip_retval(self, cpu, proto, syscall, fd, op, arg):
         assert fd == 9, f"Expected fd 9, got {fd:#x}"
         assert op == 0xabcd, f"Expected op 0xabcd, got {op:#x}"
         syscall.skip_syscall = True
         syscall.retval = 43
 
-    def ioctl_ret(self, cpu, proto, syscall, hook, fd, op, arg):
+    def ioctl_ret(self, cpu, proto, syscall, fd, op, arg):
         self.ioctl_ret_num += 1
         assert fd == 0x13, f"Expected op 0x13, got {fd:#x}"
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
             f.write(f"Syscall ioctl_reg: success {self.ioctl_ret_num}\n")
 
-    def ioctl_ret2(self, cpu, proto, syscall, hook, fd, op, arg):
+    def ioctl_ret2(self, cpu, proto, syscall, fd, op, arg):
         self.ioctl_ret2_num += 1
         assert fd == 0x13, f"Expected op 0x13, got {fd:#x}"
         assert op == 0x1234, f"Expected op 0x1234, got {op:#x}"
@@ -58,7 +60,7 @@ class SyscallTest(PyPlugin):
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
             f.write(f"Syscall ioctl_reg2: success {self.ioctl_ret2_num}\n")
 
-    def ioctl_ret3(self, cpu, proto, syscall, hook, fd, op, arg):
+    def ioctl_ret3(self, cpu, proto, syscall, fd, op, arg):
         self.ioctl_ret3_num += 1
         assert fd == 0x13, f"Expected op 0x13, got {fd:#x}"
         assert op == 0x1234, f"Expected op 0x1234, got {op:#x}"
@@ -67,12 +69,12 @@ class SyscallTest(PyPlugin):
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
             f.write(f"Syscall ioctl_reg3: success {self.ioctl_ret3_num}\n")
 
-    def ioctl_noret(self, cpu, proto, syscall, hook, fd, op, arg):
+    def ioctl_noret(self, cpu, proto, syscall, fd, op, arg):
         # this shouldn't be called
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
             f.write("Syscall ioctl_noret: failure\n")
 
-    def getpid(self, cpu, proto, syscall, hook, *args):
+    def getpid(self, cpu, proto, syscall, *args):
         proc = self.panda.plugins['osi'].get_current_process(cpu)
         if syscall.retval != proc.pid and syscall.retval != 0:
             self.logger.error(
@@ -84,7 +86,7 @@ class SyscallTest(PyPlugin):
             self.success_getpid = True
             self.report_getpid()
 
-    def syscall_test(self, cpu, proto, syscall, hook, *args):
+    def syscall_test(self, cpu, proto, syscall, *args):
         if self.reported_clone:
             return
         if "send_syscall" not in self.panda.get_process_name(cpu):
@@ -109,7 +111,7 @@ class SyscallTest(PyPlugin):
             self.logger.error("Syscall test failed: args mismatch")
             return
 
-        if self.panda.ffi.string(proto.name) != b"sys_clone":
+        if proto.name != "sys_clone":
             self.logger.error(
                 "Syscall test failed: proto doesn't say sys_clone")
             return

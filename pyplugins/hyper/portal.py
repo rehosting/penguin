@@ -5,7 +5,8 @@ from collections.abc import Iterator
 import functools
 from hyper.consts import *
 from hyper.portal_wrappers import Wrapper, MappingWrapper, MappingsWrapper
-from typing import Union
+from typing import Union, Dict, List, Callable, Optional, Tuple
+import time
 
 CURRENT_PID_NUM = 0xffffffff
 
@@ -18,15 +19,100 @@ class Portal(PyPlugin):
         self.outdir = self.get_arg("outdir")
         self.logger = getColoredLogger("plugins.portal")
         # if self.get_arg_bool("verbose"):
-        # self.logger.setLevel("DEBUG")
+        #     self.logger.setLevel("DEBUG")
         self.panda = panda
-        self.panda.hypercall(IGLOO_HYPER_REGISTER_MEM_REGION)(
-            self._register_cpu_memregion)
         self.cpu_memregion_structs = {}
         # Set endianness format character for struct operations
         self.endian_format = '<' if panda.endianness == 'little' else '>'
         self.id_reg = 1
-
+        self.portal_interrupt = None
+        self.try_panda = True
+        self.panda_success = 0
+        self.panda_fail = 0
+        self.total_time = 0
+        self.num_execs = 0
+        
+        # Generic interrupts mechanism
+        self._interrupt_handlers = {}  # plugin_name -> handler_function
+        self._pending_interrupts = set()  # Set of plugin names with pending work
+        self.panda.hypercall(IGLOO_HYPER_REGISTER_MEM_REGION)(
+            self._register_cpu_memregion)
+        self.panda.hypercall(IGLOO_HYPER_ENABLE_PORTAL_INTERRUPT)(self._register_portal_interrupt)
+        # Don't wrap _portal_interrupt - it's not a generator function
+        self.panda.hypercall(IGLOO_HYPER_PORTAL_INTERRUPT)(self.wrap(self._portal_interrupt))
+    
+    def _register_portal_interrupt(self, cpu):
+        self.portal_interrupt = self.panda.arch.get_arg(
+            cpu, 1, convention="syscall")
+        assert self.panda.arch.get_arg(
+            cpu, 2, convention="syscall") == 0
+    
+    def _portal_interrupt(self, cpu):
+        """Handle portal interrupts - process pending items from registered plugins"""
+        # Process one item from each plugin that has pending interrupts
+        interrupts = self._pending_interrupts.copy()
+        self._pending_interrupts.clear()
+        for plugin_name in list(interrupts):
+            if plugin_name in self._interrupt_handlers:
+                handler_fn = self._interrupt_handlers[plugin_name]
+                self.logger.debug(f"Processing interrupt for {plugin_name}")
+                # Call handler function without any arguments
+                # Plugin is responsible for tracking its own pending work
+                yield from handler_fn()
+    
+    def register_interrupt_handler(self, plugin_name, handler_fn):
+        """
+        Register a plugin to handle portal interrupts.
+        
+        Args:
+            plugin_name (str): Name of the plugin
+            handler_fn (callable): Function to handle interrupts for this plugin
+                                  Must be a generator function that can be used with yield from
+        """
+        self.logger.debug(f"Registering interrupt handler for {plugin_name}")
+        # The handler function should be a wrapped generator
+        self._interrupt_handlers[plugin_name] = handler_fn
+        if plugin_name in self._pending_interrupts:
+            self.logger.debug(f"Plugin {plugin_name} already had pending interrupts")
+    
+    def queue_interrupt(self, plugin_name):
+        """
+        Queue an interrupt for a plugin.
+        
+        Args:
+            plugin_name (str): Name of the plugin
+        
+        Returns:
+            bool: True if queued successfully, False otherwise
+        """
+        if plugin_name not in self._interrupt_handlers:
+            self.logger.error(f"No interrupt handler registered for {plugin_name}")
+            return False
+        
+        # Add plugin to pending set
+        self._pending_interrupts.add(plugin_name)
+        
+        # Trigger an interrupt to process the item
+        self._portal_set_interrupt()
+        return True
+    
+    def _cleanup_all_interrupts(self):
+        """Clean up all registered interrupt handlers and pending interrupts"""
+        self._interrupt_handlers = {}
+        self._pending_interrupts = set()
+    
+    def _portal_set_interrupt_value(self, value):
+        if self.portal_interrupt:
+            buf = struct.pack(f"{self.endian_format}Q", value)
+            self.panda.virtual_memory_write(
+                self.panda.get_cpu(), self.portal_interrupt, buf)
+    
+    def _portal_set_interrupt(self):
+        self._portal_set_interrupt_value(1)
+    
+    def _portal_clear_interrupt(self):
+        self._portal_set_interrupt_value(0)
+    
     '''
     Our memregion is the first available memregion OR the one that is owned by us
 
@@ -131,7 +217,6 @@ class Portal(PyPlugin):
             in_op = (op, data)
         elif op == HYPER_RESP_READ_FAIL:
             self.logger.debug("Failed to read memory")
-            pass
         elif op == HYPER_RESP_READ_PARTIAL:
             self.logger.debug(f"Read OK: {addr:#x} {size}")
             data = self._read_memregion_data(cpu, cpu_memregion, size)
@@ -196,6 +281,13 @@ class Portal(PyPlugin):
                 self._write_memregion_state(
                     cpu, cpu_memregion, HYPER_OP_FFI_EXEC, 0, 0)
                 self._write_memregion_data(cpu, cpu_memregion, ffi_data)
+            case ("syscall_reg", data):
+                self._write_memregion_state(
+                    cpu, cpu_memregion, HYPER_OP_REGISTER_SYSCALL_HOOK, 0, 0)
+                self._write_memregion_data(cpu, cpu_memregion, data)
+            case ("syscall_unreg", id_):
+                self._write_memregion_state(
+                    cpu, cpu_memregion, HYPER_OP_REGISTER_SYSCALL_HOOK, id_, 0)
             case None:
                 return False
             case _:
@@ -210,6 +302,7 @@ class Portal(PyPlugin):
         cpu_iterators = {}
         cpu_iterator_start = {}
         claimed_slot = {}
+        iteration_time = {}
 
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
@@ -229,6 +322,7 @@ class Portal(PyPlugin):
                     return fn_ret
 
                 cpu_iterators[cpu] = fn_ret
+                iteration_time[cpu] = time.time()
                 new_iterator = True
             memregion_result = self._find_free_memregion(
                 cpu, id_reg, claimed_slot.get(cpu, None))
@@ -237,6 +331,8 @@ class Portal(PyPlugin):
                     f"Bypassing this call in {f.__name__} because we don't have a memregion")
                 return
             call_num, slot, cpu_memregion = memregion_result
+            if new_iterator:
+                self.logger.debug(f"New iterator @ {call_num} for {f.__name__} on CPU {cpu} with args {args} and kwargs {kwargs}")
             self.logger.debug(
                 f"Claiming memregion {cpu_memregion:#x} for {f.__name__} on CPU {cpu} @ {call_num} with slot {slot}")
             if new_iterator:
@@ -244,6 +340,11 @@ class Portal(PyPlugin):
             if cpu_iterator_start[cpu] and cpu_iterator_start[cpu] != call_num:
                 self.logger.error(
                     f"CPU {cpu} iterator start {cpu_iterator_start[cpu]} != call_num {call_num}; We must have missed a call!")
+                breakpoint()
+                fn_ret = f(*args, **kwargs)
+                cpu_iterators[cpu] = fn_ret
+                new_iterator = True
+
 
             in_op = self._handle_input_state(cpu, cpu_memregion)
             self._release_memregion(cpu, slot)
@@ -272,6 +373,8 @@ class Portal(PyPlugin):
                 self._release_memregion(cpu, slot)
                 claimed_slot[cpu] = None
                 cmd = None
+                self.total_time += (time.time() - iteration_time[cpu])
+                self.num_execs += 1
 
             if new_iterator and cmd is None:
                 # this is basically a no-op. Our functionality wasn't used
@@ -302,26 +405,51 @@ class Portal(PyPlugin):
     def write_bytes(self, addr, data, pid=None):
         self.logger.debug(
             f"write_bytes called: addr={addr}, data_len={len(data)}")
+        cpu = None
         for i in range((len(data) + self.regions_size - 1) // self.regions_size):
             offset = i * self.regions_size
             chunk_addr = addr + offset
             chunk_data = data[offset:offset + self.regions_size]
             self.logger.debug(
                 f"Writing chunk: chunk_addr={chunk_addr}, chunk_len={len(chunk_data)}")
-            yield ("write", chunk_addr, chunk_data, pid)
+            success = False
+            if self.try_panda:
+                if cpu is None:
+                    cpu = self.panda.get_cpu()
+                try:
+                    self.panda.virtual_memory_write(
+                        cpu, chunk_addr, chunk_data)
+                    success = True
+                    self.panda_success += 1
+                except ValueError:
+                    self.panda_fail += 1
+            if not success:
+                yield ("write", chunk_addr, chunk_data, pid)
         self.logger.debug(f"Total bytes written: {len(data)}")
         return len(data)
 
     def read_bytes(self, addr, size, pid=None):
         self.logger.debug(f"read_bytes called: addr={addr}, size={size}")
         data = b""
+        cpu = None
         for i in range((size + self.regions_size - 1) // self.regions_size):
             offset = i * self.regions_size
             chunk_addr = addr + offset
             chunk_size = min(self.regions_size, size - offset)
             self.logger.debug(
                 f"Reading chunk: chunk_addr={chunk_addr}, chunk_size={chunk_size}")
-            chunk = yield ("read", chunk_addr, chunk_size, pid)
+            chunk = None
+            if self.try_panda:
+                if cpu is None:
+                    cpu = self.panda.get_cpu()
+                try:
+                    chunk = self.panda.virtual_memory_read(
+                        cpu, chunk_addr, chunk_size)
+                    self.panda_success += 1
+                except ValueError:
+                    self.panda_fail += 1
+            if not chunk:
+                chunk = yield ("read", chunk_addr, chunk_size, pid)
             if not chunk:
                 self.logger.debug(
                     f"Failed to read memory at addr={chunk_addr}, size={chunk_size}")
@@ -341,6 +469,13 @@ class Portal(PyPlugin):
     def read_str(self, addr, pid=None):
         if addr != 0:
             self.logger.debug(f"read_str called: addr={addr:#x}")
+            if self.try_panda:
+                try:
+                    chunk = self.panda.read_str(self.panda.get_cpu(), addr)
+                    self.panda_success += 1
+                    return chunk
+                except ValueError as e:
+                    self.panda_fail += 1
             chunk = yield ("read_str", addr, pid)
             if chunk:
                 self.logger.debug(f"Received response from queue: {chunk}")
@@ -1115,3 +1250,55 @@ class Portal(PyPlugin):
         else:
             self.logger.error(f"Failed to unregister uprobe {probe_id}")
             return False
+        
+    def uprobe(self, path, symbol: Union[str, int], process_filter=None, on_enter=True, on_return=False, pid_filter=None):
+        """
+        Decorator to register a uprobe at the specified path and symbol/offset.
+        The decorated function will be called when the uprobe is hit.
+        
+        Args:
+            path: Path to the executable or library file
+            symbol: Symbol name (string) or offset (integer) in the file
+            process_filter: Optional process name to filter events
+            on_enter: Whether to trigger on function entry (default: True)
+            on_return: Whether to trigger on function return (default: False)
+            pid_filter: Optional PID to filter events for a specific process
+            
+        Returns:
+            Decorator function that registers the uprobe
+        """
+        # Determine the offset based on symbol
+        offset = symbol if isinstance(symbol, int) else 0  # TODO: Look up symbol offset
+        
+        options = {
+            'process_filter': process_filter,
+            'on_enter': on_enter,
+            'on_return': on_return,
+            'pid_filter': pid_filter
+        }
+        
+        def decorator(func):
+            # Add this uprobe to the pending list
+            self._pending_uprobes.append((path, offset, func, options))
+            
+            # Trigger an interrupt to register pending uprobes
+            if self.portal_interrupt is not None:
+                self._portal_set_interrupt()
+            
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                # Just call the original function - actual uprobe logic is in handlers
+                return func(*args, **kwargs)
+                
+            return wrapper
+        
+        return decorator
+    
+    def uninit(self):
+        self._cleanup_all_interrupts()
+        if self.try_panda:
+            perc = (self.panda_fail)/ (self.panda_success + self.panda_fail) * 100
+        else:
+            perc = 0
+        self.logger.info(f"PANDA Stats: {self.panda_fail} {self.panda_success} {self.panda} {perc:.2f}%")
+        breakpoint()
