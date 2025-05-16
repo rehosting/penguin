@@ -260,6 +260,13 @@ class Portal(PyPlugin):
                 self._write_memregion_state(
                     cpu, HYPER_OP_FFI_EXEC, 0, 0)
                 self._write_memregion_data(cpu, ffi_data)
+            case ("uprobe_reg", addr, data):
+                self._write_memregion_state(
+                    cpu, HYPER_OP_REGISTER_UPROBE, addr, 0)
+                self._write_memregion_data(cpu, data)
+            case ("uprobe_unreg", id_):
+                self._write_memregion_state(
+                    cpu, HYPER_OP_UNREGISTER_UPROBE, id_, 0)
             case ("syscall_reg", data):
                 self._write_memregion_state(
                     cpu, HYPER_OP_REGISTER_SYSCALL_HOOK, 0, 0)
@@ -1114,128 +1121,6 @@ class Portal(PyPlugin):
                 return mapping
             else:
                 self.logger.debug(f"No mapping found for addr={addr:#x}")
-
-    def _register_uprobe(self, path, offset, process_filter=None, on_enter=True, on_return=False, pid_filter=None):
-        """
-        Register a user probe (uprobe) at a specific file path and offset.
-
-        Args:
-            path: Path to the executable or library file
-            offset: Offset in the file where the probe should be placed
-            process_filter: Optional process name to filter events (None = all processes)
-            on_enter: Whether to trigger on function entry (True by default)
-            on_return: Whether to trigger on function return (False by default)
-            pid_filter: Optional PID to filter events for a specific process
-
-        Returns:
-            Probe ID that can be used to unregister the probe
-        """
-        if on_enter and on_return:
-            probe_type = UPROBE_TYPE_BOTH
-        elif on_enter:
-            probe_type = UPROBE_TYPE_ENTRY
-        elif on_return:
-            probe_type = UPROBE_TYPE_RETURN
-        else:
-            raise ValueError(
-                "At least one of on_enter or on_return must be True")
-
-        self.logger.debug(
-            f"register_uprobe called: path={path}, offset={offset}, filter={process_filter}, type={probe_type}, pid={pid_filter}")
-
-        # Format the data in the required layout expected by the kernel
-        # Format: path\0[process_filter]\0[probe_type][pid_filter]
-        data = path.encode('latin-1') + b'\0'
-
-        if process_filter is not None:
-            data += process_filter.encode('latin-1')
-        data += b'\0'  # Add null terminator after filter (even if empty)
-
-        # Add probe type as an integer
-        data += struct.pack("<Q", probe_type)
-
-        # Add PID filter if specified, otherwise use CURRENT_PID_NUM (0)
-        if pid_filter is not None:
-            data += struct.pack("<Q", pid_filter)
-        else:
-            data += struct.pack("<Q", CURRENT_PID_NUM)  # Match any process
-
-        # Prepare command for the header
-        # The offset is passed in the addr field of the header
-        result = yield ("register_uprobe", offset, data)
-
-        if result is None:
-            self.logger.error(f"Failed to register uprobe at {path}:{offset}")
-            return None
-
-        # The kernel returns the probe ID in the result
-        probe_id = result
-        self.logger.debug(f"Uprobe registered with ID: {probe_id}")
-        return probe_id
-
-    def _unregister_uprobe(self, probe_id):
-        """
-        Unregister a previously registered uprobe.
-
-        Args:
-            probe_id: ID of the probe returned from register_uprobe
-
-        Returns:
-            True if successfully unregistered, False otherwise
-        """
-        self.logger.debug(f"unregister_uprobe called: probe_id={probe_id}")
-
-        result = yield ("unregister_uprobe", probe_id)
-
-        if result is True:
-            self.logger.debug(f"Uprobe {probe_id} successfully unregistered")
-            return True
-        else:
-            self.logger.error(f"Failed to unregister uprobe {probe_id}")
-            return False
-        
-    def uprobe(self, path, symbol: Union[str, int], process_filter=None, on_enter=True, on_return=False, pid_filter=None):
-        """
-        Decorator to register a uprobe at the specified path and symbol/offset.
-        The decorated function will be called when the uprobe is hit.
-        
-        Args:
-            path: Path to the executable or library file
-            symbol: Symbol name (string) or offset (integer) in the file
-            process_filter: Optional process name to filter events
-            on_enter: Whether to trigger on function entry (default: True)
-            on_return: Whether to trigger on function return (default: False)
-            pid_filter: Optional PID to filter events for a specific process
-            
-        Returns:
-            Decorator function that registers the uprobe
-        """
-        # Determine the offset based on symbol
-        offset = symbol if isinstance(symbol, int) else 0  # TODO: Look up symbol offset
-        
-        options = {
-            'process_filter': process_filter,
-            'on_enter': on_enter,
-            'on_return': on_return,
-            'pid_filter': pid_filter
-        }
-        
-        def decorator(func):
-            # Add this uprobe to the pending list
-            self._pending_uprobes.append((path, offset, func, options))
-            
-            # Trigger an interrupt to register pending uprobes
-            if self.portal_interrupt is not None:
-                self._portal_set_interrupt()
-            
-            @functools.wraps(func)
-            def wrapper(*args, **kwargs):
-                # Just call the original function - actual uprobe logic is in handlers
-                return func(*args, **kwargs)
-                
-            return wrapper
-        
-        return decorator
     
     def _uninit(self):
         self._cleanup_all_interrupts()
