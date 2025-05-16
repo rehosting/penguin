@@ -255,8 +255,6 @@ class Uprobes(PyPlugin):
         else:
             self.logger.error("Invalid probe type: at least one of on_enter or on_return must be True")
             return None
-
-        breakpoint()
             
         # Set the PID filter, defaulting to 0xffffffff for "any PID"
         filter_pid = pid_filter if pid_filter is not None else 0xffffffff
