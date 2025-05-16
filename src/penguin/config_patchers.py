@@ -563,7 +563,6 @@ class DynamicExploration(PatchGenerator):
             "plugins": {
                 "nmap": {
                     "enabled": True,
-                    "depends_on": "vpn",
                 },
                 "coverage": {
                     "enabled": True
@@ -571,12 +570,10 @@ class DynamicExploration(PatchGenerator):
                 "vpn": {
                     "enabled": True,
                     "log": True,
-                    "depends_on": "netbinds",
                 },
                 "netbinds":
                 {
                     "enabled": True,
-                    "depends_on": "core",
                     "shutdown_on_www": False,
                 },
             }
@@ -607,7 +604,6 @@ class SingleShotFICD(PatchGenerator):
                 },
                 "vpn": {
                     "enabled": True,
-                    "depends_on": "netbinds",
                 },
                 "netbinds":
                 {
@@ -619,7 +615,6 @@ class SingleShotFICD(PatchGenerator):
                     "stop_on_if": True,
                 },
                 "fetch_web": {
-                    "depends_on": "vpn",
                     "enabled": True,
                     "shutdown_after_www": True,  # FICD or www success results in shutdown
                 },
@@ -651,7 +646,6 @@ class SingleShot(PatchGenerator):
                 },
                 "vpn": {
                     "enabled": True,
-                    "depends_on": "netbinds",
                 },
                 "netbinds":
                 {
@@ -659,7 +653,6 @@ class SingleShot(PatchGenerator):
                     "shutdown_on_www": False,  # We want fetch_web to do the shutdown
                 },
                 "fetch_web": {
-                    "depends_on": "vpn",
                     "enabled": True,
                     "shutdown_after_www": True,
                 },

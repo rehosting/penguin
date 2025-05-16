@@ -26,43 +26,33 @@ default_init_script = open(f"{dirname(dirname(__file__))}/resources/init.sh").re
 default_plugins = {
     "core": {},
     "netbinds": {
-        "depends_on": "core",
     },
     "vpn": {
-        "depends_on": "netbinds",
     },
     "shell": {},
     "coverage": {
         "enabled": False,
     },
     "env": {
-        "depends_on": "core",
     },
     "pseudofiles": {
-        "depends_on": "core",
     },
     "health": {
-        "depends_on": "core",
     },
     "nmap": {
-        "depends_on": "vpn",
         "enabled": False,
     },
     "zap": {
-        "depends_on": "vpn",
         "enabled": False,
     },
     "mount": {},
     "nvram2": {
-        "depends_on": "core",
     },
     "lifeguard": {
     },
     "interfaces": {
-        "depends_on": "health",
     },
     "send_hypercall": {
-        "depends_on": "core",
     },
     "indiv_debug": {},
 }
