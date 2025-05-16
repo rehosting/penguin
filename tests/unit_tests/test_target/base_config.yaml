@@ -36,6 +36,7 @@ patches:
   - ./patches/tests/ioctl_interaction.yaml
   - ./patches/tests/portal.yaml
   - ./patches/tests/kffi.yaml
+  - ./patches/tsts/uprobes.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 
@@ -46,18 +47,11 @@ lib_inject: {}
 plugins: 
   verifier: {}
   core: {}
-  netbinds:
-    depends_on: core
-  health:
-    depends_on: core
-  shell:
-    depends_on: core
-  # env:
-    # depends_on: core
-  vpn:
-    depends_on: netbinds
-  pseudofiles:
-    depends_on: core
+  netbinds: {}
+  health: {}
+  shell: {}
+  vpn: {}
+  pseudofiles: {}
 
 static_files:
   /run_tests.sh:
