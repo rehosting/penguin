@@ -297,6 +297,10 @@ class Portal(PyPlugin):
             fn_return = None
             # nonlocal cpu_iterators, claimed_slot, cpu_iterator_start
 
+            if cpu not in self.cpu_memregion_structs:
+                self.logger.error("CPU not registered")
+                return
+
             new_iterator = False
             if cpu not in cpu_iterators or cpu_iterators[cpu] is None:
                 self.logger.debug(f"Creating new iterator for CPU {(cpu,f)}")
@@ -1113,7 +1117,7 @@ class Portal(PyPlugin):
 
     def get_mapping_by_addr(self, addr):
         self.logger.debug(f"get_mapping_by_addr called: addr={addr:#x}")
-        maps = yield from self.get_proc_mappings()
+        maps = yield from self.get_mappings()
         if maps:
             mapping = maps.get_mapping_by_addr(addr)
             if mapping:
