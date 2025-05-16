@@ -140,12 +140,13 @@ class Syscalls(PyPlugin):
     def _get_syscall_event(self, cpu, sequence, arg):
         saved_sce_info = self.saved_syscall_events.get(cpu, None)
         if saved_sce_info:
-            saved_sc, saved_sequence = saved_sce_info
+            saved_sc, saved_sequence, original = saved_sce_info
             if saved_sequence == sequence:
-                return saved_sc
+                return saved_sc, original
         sce = plugins.kffi.read_type_panda(cpu, arg, "syscall_event")
-        self.saved_syscall_events[cpu] = (sce, sequence)
-        return sce
+        original = sce.to_bytes()[:]
+        self.saved_syscall_events[cpu] = (sce, sequence, original)
+        return sce, original
     
     def _get_proto(self, cpu, sce):
         if sce.nr in self.syscall_info_table:
@@ -169,15 +170,13 @@ class Syscalls(PyPlugin):
         sequence = self.panda.arch.get_arg(cpu, 1, convention="syscall")
         arg = self.panda.arch.get_arg(cpu, 2, convention="syscall")
 
-        sce = self._get_syscall_event(cpu, sequence, arg)
+        sce, original = self._get_syscall_event(cpu, sequence, arg)
         id_ = sce.id
         if id_ not in self.hooks:
             self.logger.debug(f"Syscall event {id_} not registered")
             return
         proto = self._get_proto(cpu, sce)
         on_all, f = self.hooks[id_]
-
-        original = sce.to_bytes()[:]
         
         # If we're handling all syscalls or we don't have prototype info,
         # just call the function with the standard arguments
@@ -346,11 +345,6 @@ class Syscalls(PyPlugin):
                 "callback": func,
                 "pid_filter": pid_filter,
             }
-            
-            @functools.wraps(func)
-            def wrapper(*args, **kwargs):
-                return func(*args, **kwargs)
-            
             # Add to pending hooks and queue interrupt
             self._pending_hooks.append((hook_config, func))
             self.portal.queue_interrupt("syscalls")
