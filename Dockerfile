@@ -275,6 +275,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       telnetlib3 \
       tk \
       ujson \
+      cxxfilt \
       zstandard
 
 FROM python_builder AS version_generator
