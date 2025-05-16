@@ -27,6 +27,6 @@ class UprobeTest(PyPlugin):
     @portal.wrap
     def uprobe_malloc(self, pt_regs):
         retval = pt_regs.get_retval()
-        yield from portal.get_mapping_by_addr(retval)
+        m = yield from portal.get_mapping_by_addr(retval)
         breakpoint()
         print("asdf")
