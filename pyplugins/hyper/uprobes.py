@@ -249,7 +249,7 @@ class Uprobes(PyPlugin):
         if on_enter and on_return:
             probe_type = PORTAL_UPROBE_TYPE_BOTH
         elif on_enter:
-            probe_type = PORTAL_UPROBE_TYPE_ENTER
+            probe_type = PORTAL_UPROBE_TYPE_ENTRY
         elif on_return:
             probe_type = PORTAL_UPROBE_TYPE_RETURN
         else:
