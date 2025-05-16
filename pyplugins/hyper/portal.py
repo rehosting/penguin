@@ -23,7 +23,6 @@ class Portal(PyPlugin):
         self.cpu_memregion_structs = {}
         # Set endianness format character for struct operations
         self.endian_format = '<' if panda.endianness == 'little' else '>'
-        self.id_reg = 1
         self.portal_interrupt = None
         self.try_panda = True
         self.panda_success = 0
@@ -288,8 +287,6 @@ class Portal(PyPlugin):
         return True
 
     def wrap(self, f):
-        id_reg = self.id_reg
-        self.id_reg += 1
         cpu_iterators = {}
         cpu_iterator_start = {}
         claimed_slot = {}
