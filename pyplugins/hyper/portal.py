@@ -6,7 +6,6 @@ import functools
 from hyper.consts import *
 from wrappers.generic import Wrapper
 from wrappers.portal_wrap import MappingWrapper, MappingsWrapper
-from typing import Union, Dict, List, Callable, Optional, Tuple
 import time
 
 CURRENT_PID_NUM = 0xffffffff
@@ -434,7 +433,7 @@ class Portal(PyPlugin):
                     chunk = self.panda.read_str(self.panda.get_cpu(), addr)
                     self.panda_success += 1
                     return chunk
-                except ValueError as e:
+                except ValueError:
                     self.panda_fail += 1
             chunk = yield ("read_str", addr, pid)
             if chunk:
