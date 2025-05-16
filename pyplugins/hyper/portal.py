@@ -4,7 +4,8 @@ import struct
 from collections.abc import Iterator
 import functools
 from hyper.consts import *
-from hyper.portal_wrappers import Wrapper, MappingWrapper, MappingsWrapper
+from wrappers.generic import Wrapper
+from wrappers.portal_wrap import MappingWrapper, MappingsWrapper
 from typing import Union, Dict, List, Callable, Optional, Tuple
 import time
 
