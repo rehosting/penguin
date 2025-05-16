@@ -89,54 +89,56 @@ class KFFI(PyPlugin):
 
     def sizeof(self, struct_name):
         return self.get_struct_size(struct_name)
-    
+
     def get_function_address(self, function):
         sym = self.ffi.get_symbol(function)
         if sym:
             return sym.address
-    
+
     def _prepare_ffi_call(self, func_ptr, args):
         """
         Prepare FFI call structure for kernel execution.
-        
+
         Args:
             func_ptr: Address of the kernel function to call
             args: List of arguments to pass to the function (max 8)
-            
+
         Returns:
             Serialized portal_ffi_call structure as bytes
         """
-        self.logger.debug(f"Preparing FFI call: func_ptr={func_ptr:#x}, args={args}")
-        
+        self.logger.debug(
+            f"Preparing FFI call: func_ptr={func_ptr:#x}, args={args}")
+
         # Validate arguments
         if len(args) > 8:
-            raise ValueError(f"Too many arguments for FFI call: {len(args)} > 8")
-            
+            raise ValueError(
+                f"Too many arguments for FFI call: {len(args)} > 8")
+
         # Create FFI call structure
         ffi_call = self.new("portal_ffi_call")
         ffi_call.func_ptr = func_ptr
         ffi_call.num_args = len(args)
-        
+
         # Set arguments
         for i, arg in enumerate(args):
             ffi_call.args[i] = arg
- 
+
         # Return serialized structure
         return ffi_call.to_bytes()
-        
+
     def call_kernel_function(self, func: Union[int, str], *args):
         """
         Call a kernel function dynamically with the given arguments.
-        
+
         This uses the FFI mechanism to directly call kernel functions.
         CAUTION: This is extremely powerful and can easily crash the kernel
         if used incorrectly. Only call functions that are safe to call
         from arbitrary contexts.
-        
+
         Args:
             func_ptr: Address of the kernel function to call
             *args: Arguments to pass to the function (max 8)
-            
+
         Returns:
             Return value from the kernel function
         """
@@ -150,38 +152,39 @@ class KFFI(PyPlugin):
         else:
             raise ValueError(f"Invalid function pointer type: {type(func)}")
 
-        self.logger.debug(f"call_kernel_function: func_ptr={func_ptr:#x}, args={args}")
+        self.logger.debug(
+            f"call_kernel_function: func_ptr={func_ptr:#x}, args={args}")
 
         buf = self._prepare_ffi_call(func_ptr, args)
-        
+
         # Call the function
         response = yield ("ffi_exec", buf)
-        
+
         if not response:
             self.logger.error(f"FFI call failed: func_ptr={func_ptr:#x}")
             return None
-            
+
         # Parse the response
         result_struct = self.from_buffer("portal_ffi_call", response)
         result = result_struct.result
-        
+
         self.logger.debug(f"FFI call returned: {result:#x}")
         return result
-    
+
     def kmalloc(self, size):
         """
         Allocate memory in the kernel using kmalloc.
-        
+
         Args:
             size: Size of memory to allocate
         """
         val = yield from self.call_kernel_function("igloo_kzalloc", size)
         return val
-    
+
     def kfree(self, addr):
         """
         Free memory in the kernel using kfree.
-        
+
         Args:
             addr: Address of memory to free
         """

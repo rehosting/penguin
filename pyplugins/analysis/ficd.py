@@ -1,6 +1,6 @@
 import time
 from os import path
-from pandare2 import PyPlugin
+from pandare2 import PyPlugin, plugins
 from penguin import getColoredLogger
 import Levenshtein as lv
 
