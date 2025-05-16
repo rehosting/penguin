@@ -22,7 +22,7 @@ class Uprobes(PyPlugin):
         self.logger = getColoredLogger("plugins.uprobes")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
-        self.libsymbols = os.path.join(self.projdir, "static", "LibrarySymbols.yaml.xz")
+        self.libsymbols = os.path.join(self.projdir, "static", "LibrarySymbols.json.xz")
         self.probes: Dict[int, Dict[str, Any]] = {}
         self.probe_info = {}
         self._pending_uprobes: List[Dict[str, Any]] = []
@@ -40,19 +40,19 @@ class Uprobes(PyPlugin):
         """Lazily load symbols from LibrarySymbols.yaml if it exists"""
         if self._symbols_loaded:
             return self._symbols_cache
-        
+
         # Set flag to indicate we attempted loading (even if file doesn't exist)
         self._symbols_loaded = True
         self._symbols_cache = {"symbols": {}}
-        
+
         # Look for the symbols file in the project directory
         symbols_path = self.libsymbols
-        
+
         if os.path.exists(symbols_path):
             try:
-                with lzma.open(symbols_path, 'rt') as f:
-                    import yaml
-                    sym = yaml.safe_load(f)
+                with lzma.open(symbols_path, 'rt', encoding='utf-8') as f:
+                    import json
+                    sym = json.load(f)
                     if "symbols" in sym:
                         self._symbols_cache = sym["symbols"]
                     else:
@@ -62,21 +62,21 @@ class Uprobes(PyPlugin):
                 self.logger.warning(f"Failed to load library symbols: {e}")
         else:
             self.logger.debug(f"Library symbols file not found at {symbols_path}")
-        
+
         return self._symbols_cache
-    
+
     def _lookup_symbol(self, path, symbol):
         """Look up a symbol's offset in the specified library"""
         symbols_data = self._load_symbols()
         if not symbols_data:
             return None, None
-        
+
         # Handle wildcard paths containing asterisks
         if '*' in path:
             self.logger.debug(f"Looking up symbol '{symbol}' in wildcard path '{path}'")
             pattern = path.replace('*', '')  # Remove asterisks for substring matching
             matches = []
-            
+
             # Find all libraries that match our wildcard pattern
             for lib_path, lib_symbols in symbols_data.items():
                 lib_basename = os.path.basename(lib_path)
@@ -86,15 +86,15 @@ class Uprobes(PyPlugin):
                         offset = lib_symbols[symbol]
                         matches.append((lib_path, offset))
                         self.logger.debug(f"Found symbol '{symbol}' at offset {offset} in '{lib_path}' (wildcard match)")
-            
+
             # Return the first match if any were found
             if matches:
                 self.logger.info(f"Using '{matches[0][0]}' for wildcard path '{path}'")
                 return matches[0]  # Return tuple of (path, offset)
-        
+
         # Normalize path to handle absolute/relative paths
         normalized_path = os.path.basename(path)
-        
+
         # Try to demangle the symbol if it looks like a C++ mangled name
         demangled_symbol = None
         if HAVE_CXXFILT and symbol.startswith('_Z'):
@@ -102,7 +102,7 @@ class Uprobes(PyPlugin):
                 demangled_symbol = cxxfilt.demangle(symbol)
             except Exception:
                 pass
-        
+
         # First, try direct path matches
         for lib_path, lib_symbols in symbols_data.items():
             # Check for exact path or basename match
@@ -110,7 +110,7 @@ class Uprobes(PyPlugin):
                 # Try exact symbol match
                 if symbol in lib_symbols:
                     return lib_path, lib_symbols[symbol]
-                    
+
                 # If we have a demangled symbol, try that
                 if demangled_symbol:
                     for lib_sym, offset in lib_symbols.items():
@@ -121,19 +121,19 @@ class Uprobes(PyPlugin):
                                     return lib_path, offset
                         except Exception:
                             pass
-        
+
         # Next, try partial path matches
         for lib_path, lib_symbols in symbols_data.items():
             lib_basename = os.path.basename(lib_path)
-            
+
             # Check for partial matches in library names
             if (normalized_path in lib_basename or lib_basename in normalized_path or
                 (normalized_path.rstrip('-') and lib_basename.startswith(normalized_path.rstrip('-')))):
-                
+
                 # Try exact symbol match
                 if symbol in lib_symbols:
                     return lib_path, lib_symbols[symbol]
-                
+
                 # Try demangled match
                 if demangled_symbol:
                     for lib_sym, offset in lib_symbols.items():
@@ -144,7 +144,7 @@ class Uprobes(PyPlugin):
                                     return lib_path, offset
                         except Exception:
                             pass
-                
+
         return None, None
 
     def _get_portal_event(self, cpu, sequence, arg):
@@ -165,7 +165,7 @@ class Uprobes(PyPlugin):
         self.saved_regs_info[cpu] = (sequence, id_, pt_regs, ptregs_addr, original_bytes)
         return id_, pt_regs, ptregs_addr, original_bytes
 
-    
+
     def _uprobe_event(self, cpu, is_enter):
         print(f"UPROBE EVENT {is_enter=}")
         sequence = self.panda.arch.get_arg(cpu, 1, convention="syscall")
@@ -224,7 +224,7 @@ class Uprobes(PyPlugin):
                 pid_filter=options.get('pid_filter')
             )
             if probe_id:
-                self.probes[probe_id] = func 
+                self.probes[probe_id] = func
                 self.probe_info[probe_id] = {
                     "path": path,
                     "offset": offset,
@@ -241,7 +241,7 @@ class Uprobes(PyPlugin):
     def _register_uprobe(self, path, offset, process_filter=None, on_enter=True, on_return=False, pid_filter=None):
         """
         Register a uprobe with the kernel using the portal.
-        
+
         This follows the same approach as register_syscall_hook, using a KFfi struct
         that matches the C-side struct uprobe_registration in portal_uprobe.c.
         """
@@ -255,28 +255,28 @@ class Uprobes(PyPlugin):
         else:
             self.logger.error("Invalid probe type: at least one of on_enter or on_return must be True")
             return None
-            
+
         # Set the PID filter, defaulting to 0xffffffff for "any PID"
         filter_pid = pid_filter if pid_filter is not None else 0xffffffff
-        
+
         # Debug output before registration
         self.logger.debug(f"Registering uprobe: path={path}, offset={offset:#x}, type={probe_type}, "
                          f"filter_comm={process_filter}, filter_pid={filter_pid:#x}")
-        
+
         # Create a registration struct that matches the C-side struct uprobe_registration
         reg = plugins.kffi.new("uprobe_registration")
-        
+
         # Fill in the path field (first 256 bytes, null-terminated)
         path_bytes = path.encode('latin-1')
         for i, b in enumerate(path_bytes[:255]):  # Ensure we leave room for null terminator
             reg.path[i] = b
         reg.path[min(len(path_bytes), 255)] = 0  # Ensure null termination
-        
+
         # Set the offset, type and pid
         reg.offset = offset
         reg.type = probe_type
         reg.pid = filter_pid
-        
+
         # Fill in the comm field (process filter) if provided - TASK_COMM_LEN is 16
         if process_filter:
             comm_bytes = process_filter.encode('latin-1')
@@ -285,17 +285,17 @@ class Uprobes(PyPlugin):
             reg.comm[min(len(comm_bytes), 15)] = 0
         else:
             reg.comm[0] = 0  # Empty comm filter (match any process)
-        
+
         # Serialize the registration struct to bytes
         reg_bytes = reg.to_bytes()
-        
+
         # Send the registration to the kernel via portal
         result = yield ("uprobe_reg", offset, reg_bytes)
-        
+
         if result is None:
             self.logger.error(f"Failed to register uprobe at {path}:{offset:#x}")
             return None
-            
+
         probe_id = result
         self.logger.debug(f"Uprobe successfully registered with ID: {probe_id}")
         return probe_id
@@ -341,7 +341,7 @@ class Uprobes(PyPlugin):
                 self.logger.warning(f"Symbol '{symbol}' not found in '{path}'. Using offset 0.")
                 offset = 0
                 resolved_path = path  # Default to original path if resolution failed
-                
+
         options = {
             'process_filter': process_filter,
             'on_enter': on_enter,
@@ -360,10 +360,10 @@ class Uprobes(PyPlugin):
             self.portal.queue_interrupt("uprobes")
             return func
         return decorator
-    
+
     def uretprobe(self, path, symbol: Union[str, int], process_filter=None, on_enter=False, on_return=True, pid_filter=None, fail_register_ok=False):
         return self.uprobe(path, symbol, process_filter, on_enter, on_return, pid_filter, fail_register_ok)
-    
+
     def unregister(self, probe_id):
         """
         Unregister a uprobe by its ID.
