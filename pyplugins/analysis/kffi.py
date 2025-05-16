@@ -2,7 +2,7 @@ from pandare2 import PyPlugin
 from penguin import plugins, getColoredLogger
 from analysis.kernel_types import load_isf_json, Ptr
 from os.path import join, realpath, isfile
-from hyper.portal_wrappers import Wrapper
+from wrappers.generic import Wrapper
 import functools
 from typing import Union
 
