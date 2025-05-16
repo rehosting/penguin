@@ -6,6 +6,8 @@ import subprocess
 import sys
 import tempfile
 import yaml
+import json
+import lzma
 
 from collections import defaultdict
 from pathlib import Path
@@ -85,6 +87,10 @@ class ConfigBuilder:
             STATIC.LibrarySymbols,
         ]
 
+        USE_JSON_XZ = [
+            STATIC.LibrarySymbols
+        ]
+
         results = {}
         for analysis in static_analyses:
             # Call each analysis and store results
@@ -93,8 +99,12 @@ class ConfigBuilder:
 
             # If we have results, store on disk. Always store in results dict, even if empty
             if this_result:
-                with open(results_dir / f"{analysis.__name__}.yaml", "w") as f:
-                    yaml.dump(this_result, f)
+                if analysis in USE_JSON_XZ:
+                    with lzma.open(results_dir / f"{analysis.__name__}.json.xz", "wt", encoding="utf-8") as f:
+                        json.dump(this_result, f)
+                else:
+                    with open(results_dir / f"{analysis.__name__}.yaml", "w") as f:
+                        yaml.dump(this_result, f)
 
         return results
 
