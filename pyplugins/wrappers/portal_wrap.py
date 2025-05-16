@@ -5,6 +5,7 @@ VM_WRITE = 0x00000002
 VM_EXEC = 0x00000004
 VM_MAYSHARE = 0x00000080
 
+
 class MappingWrapper(Wrapper):
     @property
     def exec(self):

@@ -5,6 +5,7 @@ from penguin import getColoredLogger, plugins
 kffi = plugins.kffi
 portal = plugins.portal
 
+
 class KFFITest(PyPlugin):
     def __init__(self, panda):
         self.panda = panda
@@ -28,5 +29,3 @@ class KFFITest(PyPlugin):
         yield from kffi.call_kernel_function("igloo_printk", buf, 1, 2, 3, 4)
 
         yield from kffi.kfree(buf)
-
-        

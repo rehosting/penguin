@@ -16,7 +16,8 @@ class BashCommand(PyPlugin):
         outdir = self.get_arg("outdir")
         path = os.path.join(outdir, "bash_cov.csv")
         self.bash_cov_csv = open(path, "w")
-        csv.writer(self.bash_cov_csv).writerow(["filename", "lineno", "pid", "command"])
+        csv.writer(self.bash_cov_csv).writerow(
+            ["filename", "lineno", "pid", "command"])
         self.bash_cov_csv.flush()
         plugins.SendHypercall.subscribe("bash_command", self.cmd_bash_command)
 

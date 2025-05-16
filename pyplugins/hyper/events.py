@@ -24,7 +24,8 @@ EVENTS = {
     IGLOO_HYP_UNAME:    ('igloo_uname',           (int, int)),
     IGLOO_HYP_ENOENT:   ('igloo_hyp_enoent',      (str,)),
     0xB335A535:         ('igloo_send_hypercall',  (None, int, int)),
-    0x8507FAE1:         ('igloo_shell',           (int, int, int)),  # crc32("busybox")
+    # crc32("busybox")
+    0x8507FAE1:         ('igloo_shell',           (int, int, int)),
 }
 
 
@@ -44,7 +45,8 @@ class Events(PyPlugin):
             # argument parsing
             args = [cpu]
             for i, arg in enumerate(arg_types):
-                argval = self.panda.arch.get_arg(cpu, i + 1, convention="syscall")
+                argval = self.panda.arch.get_arg(
+                    cpu, i + 1, convention="syscall")
                 if arg is int:
                     args.append(argval)
                 elif arg is str:

@@ -24,6 +24,7 @@ class Wrapper:
         """Retrieve all attributes of both wrapper and wrapped object."""
         return list(self._extra_attrs.keys()) + dir(self._obj)  # Merge both sets of attributes
 
+
 class ArrayWrapper:
     def __init__(self, data=None):
         """Initialize the wrapper with a list or an empty array."""
@@ -56,4 +57,3 @@ class ArrayWrapper:
     def __repr__(self):
         """Return a string representation."""
         return f"ArrayWrapper({self._data})"
-

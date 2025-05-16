@@ -13,6 +13,7 @@ CURRENT_PID_NUM = 0xffffffff
 
 kffi = plugins.kffi
 
+
 class Portal(PyPlugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
@@ -30,22 +31,24 @@ class Portal(PyPlugin):
         self.panda_fail = 0
         self.total_time = 0
         self.num_execs = 0
-        
+
         # Generic interrupts mechanism
         self._interrupt_handlers = {}  # plugin_name -> handler_function
         self._pending_interrupts = set()  # Set of plugin names with pending work
         self.panda.hypercall(IGLOO_HYPER_REGISTER_MEM_REGION)(
             self._register_cpu_memregion)
-        self.panda.hypercall(IGLOO_HYPER_ENABLE_PORTAL_INTERRUPT)(self._register_portal_interrupt)
+        self.panda.hypercall(IGLOO_HYPER_ENABLE_PORTAL_INTERRUPT)(
+            self._register_portal_interrupt)
         # Don't wrap _portal_interrupt - it's not a generator function
-        self.panda.hypercall(IGLOO_HYPER_PORTAL_INTERRUPT)(self.wrap(self._portal_interrupt))
-    
+        self.panda.hypercall(IGLOO_HYPER_PORTAL_INTERRUPT)(
+            self.wrap(self._portal_interrupt))
+
     def _register_portal_interrupt(self, cpu):
         self.portal_interrupt = self.panda.arch.get_arg(
             cpu, 1, convention="syscall")
         assert self.panda.arch.get_arg(
             cpu, 2, convention="syscall") == 0
-    
+
     def _portal_interrupt(self, cpu):
         """Handle portal interrupts - process pending items from registered plugins"""
         # Process one item from each plugin that has pending interrupts
@@ -58,11 +61,11 @@ class Portal(PyPlugin):
                 # Call handler function without any arguments
                 # Plugin is responsible for tracking its own pending work
                 yield from handler_fn()
-    
+
     def register_interrupt_handler(self, plugin_name, handler_fn):
         """
         Register a plugin to handle portal interrupts.
-        
+
         Args:
             plugin_name (str): Name of the plugin
             handler_fn (callable): Function to handle interrupts for this plugin
@@ -72,46 +75,48 @@ class Portal(PyPlugin):
         # The handler function should be a wrapped generator
         self._interrupt_handlers[plugin_name] = handler_fn
         if plugin_name in self._pending_interrupts:
-            self.logger.debug(f"Plugin {plugin_name} already had pending interrupts")
-    
+            self.logger.debug(
+                f"Plugin {plugin_name} already had pending interrupts")
+
     def queue_interrupt(self, plugin_name):
         """
         Queue an interrupt for a plugin.
-        
+
         Args:
             plugin_name (str): Name of the plugin
-        
+
         Returns:
             bool: True if queued successfully, False otherwise
         """
         if plugin_name not in self._interrupt_handlers:
-            self.logger.error(f"No interrupt handler registered for {plugin_name}")
+            self.logger.error(
+                f"No interrupt handler registered for {plugin_name}")
             return False
-        
+
         # Add plugin to pending set
         self._pending_interrupts.add(plugin_name)
-        
+
         # Trigger an interrupt to process the item
         self._portal_set_interrupt()
         return True
-    
+
     def _cleanup_all_interrupts(self):
         """Clean up all registered interrupt handlers and pending interrupts"""
         self._interrupt_handlers = {}
         self._pending_interrupts = set()
-    
+
     def _portal_set_interrupt_value(self, value):
         if self.portal_interrupt:
             buf = struct.pack(f"{self.endian_format}Q", value)
             self.panda.virtual_memory_write(
                 self.panda.get_cpu(), self.portal_interrupt, buf)
-    
+
     def _portal_set_interrupt(self):
         self._portal_set_interrupt_value(1)
-    
+
     def _portal_clear_interrupt(self):
         self._portal_set_interrupt_value(0)
-    
+
     '''
     Our memregion is the first available memregion OR the one that is owned by us
 
@@ -216,63 +221,63 @@ class Portal(PyPlugin):
 
     def _handle_output_cmd(self, cpu, cmd):
         match cmd:
-            case ("read", addr, size, pid):
+            case("read", addr, size, pid):
                 self._write_memregion_state(
                     cpu, HYPER_OP_READ, addr, size, pid)
-            case ("read_str", addr, pid):
+            case("read_str", addr, pid):
                 self._write_memregion_state(
                     cpu, HYPER_OP_READ_STR, addr, 0, pid)
-            case ("read_proc_args", pid):
+            case("read_proc_args", pid):
                 self._write_memregion_state(
                     cpu, HYPER_OP_READ_PROCARGS, 0, 0, pid)
-            case ("read_proc_env", pid):
+            case("read_proc_env", pid):
                 self._write_memregion_state(
                     cpu, HYPER_OP_READ_PROCENV, 0, 0, pid)
-            case ("read_file_offset", fname, offset, size):
+            case("read_file_offset", fname, offset, size):
                 self._write_memregion_state(
                     cpu, HYPER_OP_READ_FILE, offset, size)
                 self._write_memregion_data(cpu, fname)
-            case ("write_file", fname, offset, data):
+            case("write_file", fname, offset, data):
                 self._write_memregion_state(
                     cpu, HYPER_OP_WRITE_FILE, offset, len(data))
                 self._write_memregion_data(cpu, fname + data)
-            case ("get_osi_proc_handles"):
+            case("get_osi_proc_handles"):
                 self._write_memregion_state(
                     cpu, HYPER_OP_OSI_PROC_HANDLES, 0, 0)
-            case ("get_fds", start_fd, pid):
+            case("get_fds", start_fd, pid):
                 self._write_memregion_state(
                     cpu, HYPER_OP_READ_FDS, start_fd, 0, pid)
-            case ("get_proc", pid):
+            case("get_proc", pid):
                 self._write_memregion_state(
                     cpu, HYPER_OP_OSI_PROC, 0, 0, pid)
-            case ("get_proc_mappings", pid, skip):
+            case("get_proc_mappings", pid, skip):
                 self._write_memregion_state(
                     cpu, HYPER_OP_OSI_MAPPINGS, skip, 0, pid)
-            case ("exec", wait, data):
+            case("exec", wait, data):
                 self._write_memregion_state(
                     cpu, HYPER_OP_EXEC, wait, len(data))
                 self._write_memregion_data(cpu, data)
-            case ("write", addr, data, pid):
+            case("write", addr, data, pid):
                 self._write_memregion_state(
                     cpu, HYPER_OP_WRITE, addr, len(data), pid)
                 self._write_memregion_data(cpu, data)
-            case ("ffi_exec", ffi_data):
+            case("ffi_exec", ffi_data):
                 # Set size to sizeof(portal_ffi_call)
                 self._write_memregion_state(
                     cpu, HYPER_OP_FFI_EXEC, 0, 0)
                 self._write_memregion_data(cpu, ffi_data)
-            case ("uprobe_reg", addr, data):
+            case("uprobe_reg", addr, data):
                 self._write_memregion_state(
                     cpu, HYPER_OP_REGISTER_UPROBE, addr, 0)
                 self._write_memregion_data(cpu, data)
-            case ("uprobe_unreg", id_):
+            case("uprobe_unreg", id_):
                 self._write_memregion_state(
                     cpu, HYPER_OP_UNREGISTER_UPROBE, id_, 0)
-            case ("syscall_reg", data):
+            case("syscall_reg", data):
                 self._write_memregion_state(
                     cpu, HYPER_OP_REGISTER_SYSCALL_HOOK, 0, 0)
                 self._write_memregion_data(cpu, data)
-            case ("syscall_unreg", id_):
+            case("syscall_unreg", id_):
                 self._write_memregion_state(
                     cpu, HYPER_OP_REGISTER_SYSCALL_HOOK, id_, 0)
             case None:
@@ -1126,12 +1131,14 @@ class Portal(PyPlugin):
                 return mapping
             else:
                 self.logger.debug(f"No mapping found for addr={addr:#x}")
-    
+
     def _uninit(self):
         self._cleanup_all_interrupts()
         if self.try_panda:
-            perc = (self.panda_fail)/ (self.panda_success + self.panda_fail) * 100
+            perc = (self.panda_fail) / \
+                (self.panda_success + self.panda_fail) * 100
         else:
             perc = 0
-        self.logger.info(f"PANDA Stats: {self.panda_fail} {self.panda_success} {self.panda} {perc:.2f}%")
+        self.logger.info(
+            f"PANDA Stats: {self.panda_fail} {self.panda_success} {self.panda} {perc:.2f}%")
         breakpoint()
