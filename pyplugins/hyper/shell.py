@@ -145,8 +145,10 @@ class BBCov(PyPlugin):
                 cpu, env_vals_ptr, self.pointer_size * envs_count, fmt="ptrlist"
             )
 
-            env_names = [self.try_read_string(cpu, ptr) for ptr in env_str_ptrs]
-            env_vals = [self.try_read_string(cpu, ptr) for ptr in env_vals_ptrs]
+            env_names = [self.try_read_string(
+                cpu, ptr) for ptr in env_str_ptrs]
+            env_vals = [self.try_read_string(cpu, ptr)
+                        for ptr in env_vals_ptrs]
 
             envs = list(zip(env_names, env_vals))
         except ValueError:
@@ -166,7 +168,8 @@ class BBCov(PyPlugin):
                     if val is None:
                         val = "UNSET"
                     line = line.replace(f"${varname}", f"$({varname}=>{val})")
-                    line = line.replace(f"${{{varname}}}", f"${{{varname}=>{val}}}")
+                    line = line.replace(
+                        f"${{{varname}}}", f"${{{varname}=>{val}}}")
 
                 self.last_line = None
                 with open(join(self.outdir, outfile_trace), "a") as f:

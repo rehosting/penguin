@@ -1131,13 +1131,13 @@ if __name__ == '__main__':
                     if len(args_array_view) > 0:
                         args_array_view[0] = 0xAAAAAAAAAAAAAAAA
                         print(
-                            f"    Set args_array_view[0] = 0xAAAAAAAAAAAAAAAA")
+                            "    Set args_array_view[0] = 0xAAAAAAAAAAAAAAAA")
                         print(
                             f"    New args_array_view[0]: {args_array_view[0]}")
                     if len(args_array_view) > 1:
                         args_array_view[1] = 0xBBBBBBBBBBBBBBBB
                         print(
-                            f"    Set args_array_view[1] = 0xBBBBBBBBBBBBBBBB")
+                            "    Set args_array_view[1] = 0xBBBBBBBBBBBBBBBB")
                         print(
                             f"    New args_array_view[1]: {args_array_view[1]}")
 

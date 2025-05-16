@@ -1,21 +1,22 @@
 from wrappers.generic import Wrapper
 import struct
 
+
 class PtRegsWrapper(Wrapper):
     """Base class for pt_regs wrappers across different architectures"""
-    
+
     def __init__(self, obj, panda=None):
         super().__init__(obj)
         self._register_map = {}  # Will be populated by subclasses
         self._panda = panda      # Reference to PANDA object for memory reading
-    
+
     def get_register(self, reg_name):
         """Get register value by name"""
         if reg_name in self._register_map:
             access_info = self._register_map[reg_name]
             return self._access_register(access_info)
         return None
-    
+
     def set_register(self, reg_name, value):
         """Set register value by name"""
         if reg_name in self._register_map:
@@ -23,7 +24,7 @@ class PtRegsWrapper(Wrapper):
             self._write_register(access_info, value)
             return True
         return False
-    
+
     def _access_register(self, access_info):
         """Access register based on access info"""
         if isinstance(access_info, str):
@@ -43,7 +44,7 @@ class PtRegsWrapper(Wrapper):
                 compute_func = params[0]
                 return compute_func(self._obj)
         return None
-    
+
     def _write_register(self, access_info, value):
         """Write register based on access info"""
         if isinstance(access_info, str):
@@ -64,43 +65,43 @@ class PtRegsWrapper(Wrapper):
             elif access_type == 'computed':
                 _, write_func = params
                 write_func(self._obj, value)
-    
+
     def get_pc(self):
         """Get program counter"""
         return self.get_register("pc")
-    
+
     def set_pc(self, value):
         """Set program counter"""
         self.set_register("pc", value)
-    
+
     def get_sp(self):
         """Get stack pointer"""
         return self.get_register("sp")
-    
+
     def get_return_value(self):
         """Get return value (typically in a0/r0/rax)"""
         # Subclasses should override this if convention is different
         return self.get_register("retval")
-    
+
     def get_retval(self):
         """Get return value (alias for get_return_value)"""
         return self.get_return_value()
-    
+
     def dump(self):
         """Dump all registers to a dictionary"""
         result = {}
         for reg_name in self._register_map.keys():
             result[reg_name] = self.get_register(reg_name)
         return result
-    
+
     def get_arg(self, num, convention=None):
         """
         Get function argument based on calling convention.
-        
+
         Args:
             num: Argument number (0-based)
             convention: Calling convention ('syscall' or 'userland')
-        
+
         Returns:
             The value of the requested argument
         """
@@ -109,34 +110,37 @@ class PtRegsWrapper(Wrapper):
             return self.get_syscall_arg(num)
         else:
             return self.get_userland_arg(num)
-    
+
     def get_syscall_arg(self, num):
         """Get syscall argument (architecture-specific)"""
-        raise NotImplementedError(f"get_syscall_arg not implemented for {self.__class__.__name__}")
-        
+        raise NotImplementedError(
+            f"get_syscall_arg not implemented for {self.__class__.__name__}")
+
     def get_userland_arg(self, num):
         """Get userland function argument (architecture-specific)"""
-        raise NotImplementedError(f"get_userland_arg not implemented for {self.__class__.__name__}")
-    
+        raise NotImplementedError(
+            f"get_userland_arg not implemented for {self.__class__.__name__}")
+
     def read_memory(self, addr, size, fmt='int'):
         """
         Read memory from guest using PANDA's virtual_memory_read.
-        
+
         Args:
             addr: Address to read from
             size: Size to read (1, 2, 4, 8)
             fmt: Format to return ('int', 'ptr', 'bytes', 'str')
-            
+
         Returns:
             The memory value in the requested format
         """
         if not self._panda:
-            raise ValueError("Cannot read memory: no PANDA reference available")
-        
+            raise ValueError(
+                "Cannot read memory: no PANDA reference available")
+
         cpu = self._panda.get_cpu()
         if not cpu:
             raise ValueError("Cannot read memory: failed to get CPU")
-            
+
         try:
             data = self._panda.virtual_memory_read(cpu, addr, size)
             if fmt == 'bytes':
@@ -159,38 +163,40 @@ class PtRegsWrapper(Wrapper):
                     return struct.unpack('<Q', data)[0]
         except Exception as e:
             if hasattr(self._panda, 'logger'):
-                self._panda.logger.warning(f"Error reading memory at {addr:#x}: {e}")
+                self._panda.logger.warning(
+                    f"Error reading memory at {addr:#x}: {e}")
             return None
-            
+
         return None
 
     def read_stack_arg(self, arg_num, word_size=None):
         """
         Read a function argument from the stack
-        
+
         Args:
             arg_num: Argument number (0-based)
             word_size: Word size override (default: based on architecture)
-            
+
         Returns:
             The argument value read from the stack
         """
         if not self._panda:
-            raise ValueError("Cannot read stack args: no PANDA reference available")
-            
+            raise ValueError(
+                "Cannot read stack args: no PANDA reference available")
+
         # Default word size based on architecture
         if word_size is None:
             word_size = 4 if self._panda.bits == 32 else 8
-            
+
         # Get stack pointer
         sp = self.get_sp()
         if sp is None:
             return None
-            
+
         # For most architectures, args start after saved return address
         # So typically: sp + word_size + (arg_num * word_size)
         addr = sp + word_size + (arg_num * word_size)
-        
+
         # Read the value
         return self.read_memory(addr, word_size, 'ptr')
 
@@ -198,7 +204,7 @@ class PtRegsWrapper(Wrapper):
         """
         Get the syscall number from the registers.
         Each architecture implements this differently.
-        
+
         Returns:
             int: The syscall number or None if not available
         """
@@ -208,7 +214,7 @@ class PtRegsWrapper(Wrapper):
 
 class X86PtRegsWrapper(PtRegsWrapper):
     """Wrapper for x86 (32-bit) pt_regs"""
-    
+
     def __init__(self, obj, panda=None):
         super().__init__(obj, panda=panda)
         # Map register names to access info
@@ -219,7 +225,7 @@ class X86PtRegsWrapper(PtRegsWrapper):
             "edx": "dx",
             "esi": "si",
             "edi": "di",
-            "ebp": "bp", 
+            "ebp": "bp",
             "esp": "sp",
             "eip": "ip",
             "orig_eax": "orig_ax",
@@ -235,14 +241,14 @@ class X86PtRegsWrapper(PtRegsWrapper):
             "sp": "sp",
             "retval": "ax",
         }
-    
+
     def get_syscall_arg(self, num):
         """Get x86 syscall argument"""
         syscall_args = ["ebx", "ecx", "edx", "esi", "edi", "ebp"]
         if 0 <= num < len(syscall_args):
             return self.get_register(syscall_args[num])
         return None
-    
+
     def get_userland_arg(self, num):
         """Get x86 userland argument from stack"""
         # For x86, arguments are on the stack at esp+4, esp+8, etc.
@@ -260,7 +266,7 @@ class X86PtRegsWrapper(PtRegsWrapper):
 
 class X86_64PtRegsWrapper(PtRegsWrapper):
     """Wrapper for x86_64 pt_regs"""
-    
+
     def __init__(self, obj, panda=None):
         super().__init__(obj, panda=panda)
         # Map register names to access info
@@ -291,15 +297,15 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
             "sp": "sp",
             "retval": ("array", "regs", 0),
         }
-        
+
         # Create a delegate for x86 (32-bit) mode access (but don't initialize it yet)
         self._x86_delegate = None
-    
+
     def _is_compatibility_mode(self):
         """
         Check if the CPU is running in 32-bit compatibility mode
         based on the code segment (CS) register value.
-        
+
         In 64-bit mode, CS is typically 0x33, while in 32-bit mode it's 0x23.
         The second-lowest bit (bit 1) of CS indicates the privilege level:
         - When 0, kernel mode
@@ -310,7 +316,7 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
         """
         cs = self.get_register("cs")
         return (cs & 0x4) == 0  # If bit 2 is 0, we're in compatibility mode
-    
+
     def _get_x86_delegate(self):
         """
         Get or create an x86 registers delegate for compatibility mode access
@@ -319,26 +325,26 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
             # Create delegate with our original object but use x86 wrapper
             self._x86_delegate = X86PtRegsWrapper(self._obj, panda=self._panda)
         return self._x86_delegate
-    
+
     # Add 32-bit register access
     def get_register(self, reg_name):
         # For compatibility mode, consider delegating to x86 wrapper
         if self._is_compatibility_mode() and reg_name in ["eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp"]:
             return self._get_x86_delegate().get_register(reg_name)
-            
+
         # Handle basic 32-bit registers for non-compatibility mode
         if reg_name.startswith("e") and reg_name[1:] in ["ax", "bx", "cx", "dx", "si", "di", "bp", "sp"]:
             # Handle 32-bit registers (eax, ebx, etc)
             r64_name = "r" + reg_name[1:]
             return super().get_register(r64_name) & 0xFFFFFFFF
-            
+
         return super().get_register(reg_name)
-    
+
     def set_register(self, reg_name, value):
         # For compatibility mode, consider delegating to x86 wrapper
         if self._is_compatibility_mode() and reg_name in ["eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp"]:
             return self._get_x86_delegate().set_register(reg_name, value)
-            
+
         # Handle basic 32-bit registers for non-compatibility mode
         if reg_name.startswith("e") and reg_name[1:] in ["ax", "bx", "cx", "dx", "si", "di", "bp", "sp"]:
             # For setting e-registers in 64-bit mode, we need to preserve upper 32 bits
@@ -347,27 +353,27 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
             current = super().get_register(r64_name) & 0xFFFFFFFF00000000
             new_value = current | (value & 0xFFFFFFFF)
             return super().set_register(r64_name, new_value)
-            
+
         return super().set_register(reg_name, value)
-    
+
     def get_syscall_arg(self, num):
         """Get x86_64 syscall argument, considering compatibility mode"""
         if self._is_compatibility_mode():
             # In 32-bit compatibility mode, use x86 syscall convention
             return self._get_x86_delegate().get_syscall_arg(num)
-            
+
         # Default x86_64 syscall convention
         syscall_args = ["rdi", "rsi", "rdx", "r10", "r8", "r9"]
         if 0 <= num < len(syscall_args):
             return self.get_register(syscall_args[num])
         return None
-    
+
     def get_userland_arg(self, num):
         """Get x86_64 userland argument, considering compatibility mode"""
         if self._is_compatibility_mode():
             # In 32-bit compatibility mode, use x86 userland convention (stack-based)
             return self._get_x86_delegate().get_userland_arg(num)
-            
+
         # Default x86_64 userland convention
         userland_args = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
         if 0 <= num < len(userland_args):
@@ -388,7 +394,7 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
 
 class ArmPtRegsWrapper(PtRegsWrapper):
     """Wrapper for ARM pt_regs"""
-    
+
     def __init__(self, obj, panda=None):
         super().__init__(obj, panda=panda)
         # ARM registers in uregs[18]
@@ -415,13 +421,13 @@ class ArmPtRegsWrapper(PtRegsWrapper):
             # Aliases
             "retval": ("array", "uregs", 0),
         }
-    
+
     def get_syscall_arg(self, num):
         """Get ARM syscall argument"""
         if 0 <= num < 7:  # r0-r6
             return self.get_register(f"r{num}")
         return None
-    
+
     def get_userland_arg(self, num):
         """Get ARM userland argument"""
         if 0 <= num < 4:  # r0-r3 for first 4 args
@@ -436,7 +442,7 @@ class ArmPtRegsWrapper(PtRegsWrapper):
 
 class AArch64PtRegsWrapper(PtRegsWrapper):
     """Wrapper for AArch64 pt_regs"""
-    
+
     def __init__(self, obj, panda=None):
         super().__init__(obj, panda=panda)
         # Map register names to access info
@@ -454,15 +460,15 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
             "fp": ("array", "regs", 29),  # x29
             "lr": ("array", "regs", 30),  # x30
         }
-        
+
         # Create a delegate for ARM mode access (but don't initialize it yet)
         self._arm_delegate = None
-    
+
     def _is_aarch32_mode(self):
         """
         Check if the CPU is running in AArch32 (compatibility) mode
         based on the PSTATE register.
-        
+
         PSTATE.nRW bit (bit 4) indicates the execution state:
         - When 0, AArch64 state
         - When 1, AArch32 state
@@ -470,7 +476,7 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         pstate = self.get_register("pstate")
         # Bit 4 (0x10) is the nRW bit that indicates execution state
         return (pstate & 0x10) != 0
-    
+
     def _get_arm_delegate(self):
         """
         Get or create an ARM registers delegate for AArch32 mode access
@@ -480,7 +486,7 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
             # This is a simplified mapping as the real mapping would be more complex
             self._arm_delegate = ArmPtRegsWrapper(self._obj, panda=self._panda)
         return self._arm_delegate
-    
+
     def get_register(self, reg_name):
         """
         Get register value by name, handling AArch32 compatibility mode if needed
@@ -488,10 +494,10 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         # Check if we're in AArch32 mode and the register is an ARM register
         if self._is_aarch32_mode() and reg_name.startswith("r"):
             return self._get_arm_delegate().get_register(reg_name)
-            
+
         # For AArch64 registers, proceed with standard access
         return super().get_register(reg_name)
-    
+
     def set_register(self, reg_name, value):
         """
         Set register value by name, handling AArch32 compatibility mode if needed
@@ -499,27 +505,27 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         # Check if we're in AArch32 mode and the register is an ARM register
         if self._is_aarch32_mode() and reg_name.startswith("r"):
             return self._get_arm_delegate().set_register(reg_name, value)
-            
+
         # For AArch64 registers, proceed with standard access
         return super().set_register(reg_name, value)
-    
+
     def get_syscall_arg(self, num):
         """Get AArch64 syscall argument, considering compatibility mode"""
         if self._is_aarch32_mode():
             # In AArch32 mode, use ARM syscall convention
             return self._get_arm_delegate().get_syscall_arg(num)
-            
+
         # Default AArch64 syscall convention
         if 0 <= num < 8:  # x0-x7 for syscall args
             return self.get_register(f"x{num}")
         return None
-    
+
     def get_userland_arg(self, num):
         """Get AArch64 userland argument, considering compatibility mode"""
         if self._is_aarch32_mode():
             # In AArch32 mode, use ARM userland convention
             return self._get_arm_delegate().get_userland_arg(num)
-            
+
         # Default AArch64 userland convention
         if 0 <= num < 8:  # x0-x7 for first 8 args
             return self.get_register(f"x{num}")
@@ -539,7 +545,7 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
 
 class MipsPtRegsWrapper(PtRegsWrapper):
     """Wrapper for MIPS pt_regs"""
-    
+
     def __init__(self, obj, panda=None):
         super().__init__(obj, panda=panda)
         # Map register names to access info (MIPS registers are in regs[32] array)
@@ -590,7 +596,7 @@ class MipsPtRegsWrapper(PtRegsWrapper):
             "pc": "cp0_epc",
             "retval": ("array", "regs", 2),  # v0
         }
-    
+
     def get_syscall_arg(self, num):
         """Get MIPS syscall argument"""
         if 0 <= num < 4:  # a0-a3 (r4-r7)
@@ -601,7 +607,7 @@ class MipsPtRegsWrapper(PtRegsWrapper):
         if num == 5:
             return self.get_register("r9")
         return None
-    
+
     def get_userland_arg(self, num):
         """Get MIPS userland argument"""
         if 0 <= num < 4:  # a0-a3 for first 4 args
@@ -620,7 +626,7 @@ class MipsPtRegsWrapper(PtRegsWrapper):
 
 class Mips64PtRegsWrapper(MipsPtRegsWrapper):
     """Wrapper for MIPS64 pt_regs - same structure but different register meanings"""
-    
+
     def __init__(self, obj, panda=None):
         super().__init__(obj, panda=panda)
         # Add MIPS64-specific register aliases (a4-a7 for arguments)
@@ -630,13 +636,13 @@ class Mips64PtRegsWrapper(MipsPtRegsWrapper):
             "a6": ("array", "regs", 10),
             "a7": ("array", "regs", 11),
         })
-    
+
     def get_syscall_arg(self, num):
         """Get MIPS64 syscall argument"""
         if 0 <= num < 8:  # a0-a7 (r4-r11)
             return self.get_register(f"a{num}")
         return None
-    
+
     def get_userland_arg(self, num):
         """Get MIPS64 userland argument"""
         if 0 <= num < 8:  # a0-a7 for first 8 args
@@ -647,7 +653,7 @@ class Mips64PtRegsWrapper(MipsPtRegsWrapper):
 
 class PowerPCPtRegsWrapper(PtRegsWrapper):
     """Wrapper for PowerPC pt_regs"""
-    
+
     def __init__(self, obj, panda=None):
         super().__init__(obj, panda=panda)
         # PowerPC has numbered registers r0-r31
@@ -670,14 +676,14 @@ class PowerPCPtRegsWrapper(PtRegsWrapper):
             "pc": "nip",
             "retval": ("array", "regs", 3),  # r3 holds return values
         }
-    
+
     def get_syscall_arg(self, num):
         """Get PowerPC syscall argument"""
         if 0 <= num < 6:
             # r3-r8 for syscall args
             return self.get_register(f"r{3+num}")
         return None
-    
+
     def get_userland_arg(self, num):
         """Get PowerPC userland argument"""
         if 0 <= num < 8:
@@ -698,7 +704,7 @@ class PowerPC64PtRegsWrapper(PowerPCPtRegsWrapper):
 
 class LoongArch64PtRegsWrapper(PtRegsWrapper):
     """Wrapper for LoongArch64 pt_regs"""
-    
+
     def __init__(self, obj, panda=None):
         super().__init__(obj, panda=panda)
         # LoongArch64 has r0-r31 in regs[32]
@@ -749,14 +755,14 @@ class LoongArch64PtRegsWrapper(PtRegsWrapper):
             "pc": "csr_era",
             "retval": ("array", "regs", 4),  # a0
         }
-    
+
     def get_syscall_arg(self, num):
         """Get LoongArch64 syscall argument"""
         if 0 <= num < 8:
             # a0-a7 for syscall args
             return self.get_register(f"a{num}")
         return None
-    
+
     def get_userland_arg(self, num):
         """Get LoongArch64 userland argument"""
         if 0 <= num < 8:
@@ -772,7 +778,7 @@ class LoongArch64PtRegsWrapper(PtRegsWrapper):
 
 class Riscv32PtRegsWrapper(PtRegsWrapper):
     """Wrapper for RISC-V 32-bit pt_regs"""
-    
+
     def __init__(self, obj, panda=None):
         super().__init__(obj, panda=panda)
         # RISC-V has x0-x31 registers
@@ -819,14 +825,14 @@ class Riscv32PtRegsWrapper(PtRegsWrapper):
             # Aliases
             "retval": ("array", "regs", 10),  # a0
         }
-    
+
     def get_syscall_arg(self, num):
         """Get RISC-V 32-bit syscall argument"""
         if 0 <= num < 8:
             # a0-a7 for syscall args
             return self.get_register(f"a{num}")
         return None
-    
+
     def get_userland_arg(self, num):
         """Get RISC-V 32-bit userland argument"""
         if 0 <= num < 8:
@@ -848,16 +854,16 @@ class Riscv64PtRegsWrapper(Riscv32PtRegsWrapper):
 def get_pt_regs_wrapper(panda, regs, arch_name=None):
     """
     Factory function to create the appropriate pt_regs wrapper based on architecture.
-    
+
     Args:
         cpu: CPU object (may be used to determine architecture if arch_name not provided)
         regs: The pt_regs structure to wrap
         arch_name: Architecture name (optional, will be determined from CPU if not provided)
-    
+
     Returns:
         An appropriate PtRegsWrapper subclass instance
     """
-    
+
     if arch_name is None:
         # Determine architecture from CPU object if possible
         if panda:
@@ -865,7 +871,7 @@ def get_pt_regs_wrapper(panda, regs, arch_name=None):
         else:
             # Default to x86_64 if can't determine from CPU object
             arch_name = "x86_64"
-    
+
     arch_map = {
         "i386": X86PtRegsWrapper,
         "x86_64": X86_64PtRegsWrapper,
@@ -881,6 +887,6 @@ def get_pt_regs_wrapper(panda, regs, arch_name=None):
         "riscv32": Riscv32PtRegsWrapper,
         "riscv64": Riscv64PtRegsWrapper,
     }
-    
+
     wrapper_class = arch_map.get(arch_name.lower(), PtRegsWrapper)
     return wrapper_class(regs, panda=panda)

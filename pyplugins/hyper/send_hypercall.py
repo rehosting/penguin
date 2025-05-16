@@ -12,7 +12,8 @@ class SendHypercall(PyPlugin):
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
         self.registered_events = {}
-        plugins.subscribe(plugins.Events, "igloo_send_hypercall", self.on_send_hypercall)
+        plugins.subscribe(
+            plugins.Events, "igloo_send_hypercall", self.on_send_hypercall)
 
     def subscribe(self, event, callback: Callable[..., Tuple[int, Union[str, bytes]]]):
         if event in self.registered_events:
@@ -24,12 +25,14 @@ class SendHypercall(PyPlugin):
 
         # Read list of pointers
         buf_size = buf_num_ptrs * arch_bytes
-        buf = self.panda.virtual_memory_read(cpu, buf_addr, buf_size, fmt="bytearray")
+        buf = self.panda.virtual_memory_read(
+            cpu, buf_addr, buf_size, fmt="bytearray")
 
         # Unpack list of pointers
         word_char = "I" if arch_bytes == 4 else "Q"
         endianness = ">" if self.panda.arch_name in ["mips", "mips64"] else "<"
-        ptrs = struct.unpack_from(f"{endianness}{buf_num_ptrs}{word_char}", buf)
+        ptrs = struct.unpack_from(
+            f"{endianness}{buf_num_ptrs}{word_char}", buf)
         str_ptrs, out_addr = ptrs[:-1], ptrs[-1]
 
         # Read command and arg strings

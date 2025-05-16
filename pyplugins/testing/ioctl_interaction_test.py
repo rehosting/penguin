@@ -67,7 +67,7 @@ class TestIoctlInteraction(PyPlugin):
         {
             char	ifrn_name[IFNAMSIZ];		/* if name, e.g. "en0" */
         } ifr_ifrn;
-        
+
         union {
             struct	sockaddr ifru_addr;
             struct	sockaddr ifru_dstaddr;
@@ -88,7 +88,8 @@ class TestIoctlInteraction(PyPlugin):
     @plugins.portal.wrap
     def ioctl_ret(self, cpu, proto, syscall, fd, op, arg):
         ifreq = yield from plugins.kffi.read_type(arg, "ifreq")
-        interface = bytes(ifreq.ifr_ifrn.ifrn_name).decode("latin-1").rstrip("\x00")
+        interface = bytes(ifreq.ifr_ifrn.ifrn_name).decode(
+            "latin-1").rstrip("\x00")
         self.logger.info(f"Interface: {interface}")
         esw_reg_ptr = ifreq.ifr_ifru.ifru_data.address
         off = yield from plugins.portal.read_int(esw_reg_ptr)
