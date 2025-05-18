@@ -505,7 +505,7 @@ def run_config(
             "osi_linux",
             args={
                 "kconf_file": os.path.join(os.path.dirname(conf["core"]["kernel"]), "osi.config"),
-                "pagewalk": True,
+                "pagewalk": False,
                 "kconf_group": q_config["kconf_group"],
                 "hypercall": True,
             },
