@@ -24,11 +24,7 @@ class Portal(PyPlugin):
         # Set endianness format character for struct operations
         self.endian_format = '<' if panda.endianness == 'little' else '>'
         self.portal_interrupt = None
-        self.try_panda = True
-        self.panda_success = 0
-        self.panda_fail = 0
-        self.total_time = 0
-        self.num_execs = 0
+        self.try_panda = True if self.panda.arch != "riscv64" else False
 
         # Generic interrupts mechanism
         self._interrupt_handlers = {}  # plugin_name -> handler_function
@@ -340,8 +336,6 @@ class Portal(PyPlugin):
                     cpu, HYPER_OP_NONE, 0, 0)
                 claimed_slot[cpu] = None
                 cmd = None
-                self.total_time += (time.time() - iteration_time[cpu])
-                self.num_execs += 1
 
             if new_iterator and cmd is None:
                 # this is basically a no-op. Our functionality wasn't used
@@ -376,9 +370,8 @@ class Portal(PyPlugin):
                     self.panda.virtual_memory_write(
                         cpu, chunk_addr, chunk_data)
                     success = True
-                    self.panda_success += 1
                 except ValueError:
-                    self.panda_fail += 1
+                    pass
             if not success:
                 yield ("write", chunk_addr, chunk_data, pid)
         self.logger.debug(f"Total bytes written: {len(data)}")
@@ -401,9 +394,8 @@ class Portal(PyPlugin):
                 try:
                     chunk = self.panda.virtual_memory_read(
                         cpu, chunk_addr, chunk_size)
-                    self.panda_success += 1
                 except ValueError:
-                    self.panda_fail += 1
+                    pass
             if not chunk:
                 chunk = yield ("read", chunk_addr, chunk_size, pid)
             if not chunk:
@@ -428,10 +420,9 @@ class Portal(PyPlugin):
             if self.try_panda:
                 try:
                     chunk = self.panda.read_str(self.panda.get_cpu(), addr)
-                    self.panda_success += 1
                     return chunk
                 except ValueError:
-                    self.panda_fail += 1
+                    pass
             chunk = yield ("read_str", addr, pid)
             if chunk:
                 self.logger.debug(f"Received response from queue: {chunk}")
@@ -1128,13 +1119,5 @@ class Portal(PyPlugin):
             else:
                 self.logger.debug(f"No mapping found for addr={addr:#x}")
 
-    def _uninit(self):
+    def uninit(self):
         self._cleanup_all_interrupts()
-        if self.try_panda:
-            perc = (self.panda_fail) / \
-                (self.panda_success + self.panda_fail) * 100
-        else:
-            perc = 0
-        self.logger.info(
-            f"PANDA Stats: {self.panda_fail} {self.panda_success} {self.panda} {perc:.2f}%")
-        breakpoint()
