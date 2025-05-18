@@ -1,5 +1,18 @@
 from wrappers.generic import Wrapper
 import struct
+from penguin import plugins
+
+
+class PandaMemReadFail(Exception):
+    """
+    This class allows us to throw an error and pick up memory reads for
+    portal use-case without having to make all the code yield
+    """
+
+    def __init__(self, addr, size):
+        super().__init__(f"Failed to read {size} bytes from address {addr}")
+        self.addr = addr
+        self.size = size
 
 
 class PtRegsWrapper(Wrapper):
@@ -94,6 +107,9 @@ class PtRegsWrapper(Wrapper):
             result[reg_name] = self.get_register(reg_name)
         return result
 
+    def get_args(self, count, convention=None):
+        return [self.get_arg(i, convention) for i in range(count)]
+
     def get_arg(self, num, convention=None):
         """
         Get function argument based on calling convention.
@@ -106,10 +122,43 @@ class PtRegsWrapper(Wrapper):
             The value of the requested argument
         """
         # Default implementation delegates to architecture-specific functions
-        if convention == "syscall":
-            return self.get_syscall_arg(num)
-        else:
-            return self.get_userland_arg(num)
+        try:
+            if convention == "syscall":
+                return self.get_syscall_arg(num)
+            else:
+                return self.get_userland_arg(num)
+        except PandaMemReadFail:
+            return None
+
+    def get_args_portal(self, count, convention=None):
+        arr = []
+        for i in range(count):
+            arr.append((yield from self.get_arg_portal(i, convention)))
+        return arr
+
+    def get_arg_portal(self, num, convention=None):
+        """
+        Get function argument based on calling convention.
+
+        Args:
+            num: Argument number (0-based)
+            convention: Calling convention ('syscall' or 'userland')
+
+        Returns:
+            The value of the requested argument
+        """
+        # Default implementation delegates to architecture-specific functions
+        try:
+            if convention == "syscall":
+                return self.get_syscall_arg(num)
+            else:
+                return self.get_userland_arg(num)
+        except PandaMemReadFail as e:
+            if e.size == 4:
+                val = yield from plugins.portal.read_int(e.addr)
+            else:
+                val = yield from plugins.portal.read_long(e.addr)
+            return val
 
     def get_syscall_arg(self, num):
         """Get syscall argument (architecture-specific)"""
@@ -161,13 +210,8 @@ class PtRegsWrapper(Wrapper):
                     return struct.unpack('<I', data)[0]
                 else:
                     return struct.unpack('<Q', data)[0]
-        except Exception as e:
-            if hasattr(self._panda, 'logger'):
-                self._panda.logger.warning(
-                    f"Error reading memory at {addr:#x}: {e}")
-            return None
-
-        return None
+        except ValueError:
+            raise PandaMemReadFail(addr, size)
 
     def read_stack_arg(self, arg_num, word_size=None):
         """
