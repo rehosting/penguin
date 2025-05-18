@@ -268,12 +268,12 @@ class Portal(PyPlugin):
                     cpu, HYPER_OP_UNREGISTER_UPROBE, id_, 0)
             case("syscall_reg", data):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_REGISTER_SYSCALL, 0, len(data))
+                    cpu, HYPER_OP_REGISTER_SYSCALL_HOOK, 0, len(data))
                 self._write_memregion_data(cpu, data)
             case("syscall_unreg", id_):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_UNREGISTER_SYSCALL, id_, 0)
-            case("dump", mode=0, signal=0):
+                    cpu, HYPER_OP_UNREGISTER_SYSCALL_HOOK, id_, 0)
+            case("dump", mode, signal):
                 # mode in lowest 8 bits, signal in next 8 bits
                 dump_addr = ((signal & 0xFF) << 8) | (mode & 0xFF)
                 self._write_memregion_state(
