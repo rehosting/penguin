@@ -256,24 +256,28 @@ class Portal(PyPlugin):
                     cpu, HYPER_OP_WRITE, addr, len(data), pid)
                 self._write_memregion_data(cpu, data)
             case("ffi_exec", ffi_data):
-                # Set size to sizeof(portal_ffi_call)
                 self._write_memregion_state(
-                    cpu, HYPER_OP_FFI_EXEC, 0, 0)
+                    cpu, HYPER_OP_FFI_EXEC, 0, len(ffi_data))
                 self._write_memregion_data(cpu, ffi_data)
             case("uprobe_reg", addr, data):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_REGISTER_UPROBE, addr, 0)
+                    cpu, HYPER_OP_REGISTER_UPROBE, addr, len(data))
                 self._write_memregion_data(cpu, data)
             case("uprobe_unreg", id_):
                 self._write_memregion_state(
                     cpu, HYPER_OP_UNREGISTER_UPROBE, id_, 0)
             case("syscall_reg", data):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_REGISTER_SYSCALL_HOOK, 0, 0)
+                    cpu, HYPER_OP_REGISTER_SYSCALL, 0, len(data))
                 self._write_memregion_data(cpu, data)
             case("syscall_unreg", id_):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_REGISTER_SYSCALL_HOOK, id_, 0)
+                    cpu, HYPER_OP_UNREGISTER_SYSCALL, id_, 0)
+            case("dump", mode=0, signal=0):
+                # mode in lowest 8 bits, signal in next 8 bits
+                dump_addr = ((signal & 0xFF) << 8) | (mode & 0xFF)
+                self._write_memregion_state(
+                    cpu, HYPER_OP_DUMP, dump_addr, 0)
             case None:
                 return False
             case _:
@@ -1118,6 +1122,55 @@ class Portal(PyPlugin):
                 return mapping
             else:
                 self.logger.debug(f"No mapping found for addr={addr:#x}")
+
+    def dump(self, mode=0, signal=0):
+        """
+        Trigger a core dump in the guest.
+        
+        Args:
+            mode (int): Dump mode (0=full snapshot and coredump, 1=self abort, 2=custom signal)
+            signal (int): Signal number to send (only used with mode=2)
+            
+        Returns:
+            int: PID of the process that received the signal, or error code
+        """
+        response = yield ("dump", mode, signal)
+        if response is None:
+            self.logger.error(f"Failed to execute dump operation")
+            return None
+        return response
+        
+    def crash_snapshot(self):
+        """
+        Create a snapshot and core dump in the guest (default dump mode).
+        
+        Returns:
+            int: PID of the process that received the signal, or error code
+        """
+        return (yield from self.dump(mode=0))
+        
+    def self_abort(self):
+        """
+        Send SIGABRT to the current process in the guest.
+        
+        Returns:
+            int: PID of the process that received SIGABRT, or error code
+        """
+        return (yield from self.dump(mode=1))
+        
+    def self_signal(self, signal):
+        """
+        Send a custom signal to the current process in the guest.
+        
+        Args:
+            signal (int): Signal number to send (1-31)
+            
+        Returns:
+            int: PID of the process that received the signal, or error code
+        """
+        if not 1 <= signal <= 31:
+            raise ValueError(f"Invalid signal number: {signal}. Must be between 1 and 31.")
+        return (yield from self.dump(mode=2, signal=signal))
 
     def uninit(self):
         self._cleanup_all_interrupts()
