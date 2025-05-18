@@ -44,9 +44,7 @@ RUN apt-get update && \
     make \
     xmlstarlet && \
     rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /igloo_static \
-             /igloo_static/syscalls \
-             /panda_plugins
+    mkdir -p /igloo_static
 
 COPY ./get_release.sh /get_release.sh
 
@@ -73,11 +71,6 @@ RUN wget -O /tmp/pandare.deb \
 ARG RIPGREP_VERSION
 RUN wget -O /tmp/ripgrep.deb \
         https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/ripgrep_${RIPGREP_VERSION}-1_amd64.deb
-
-# Get syscall list from PANDA
-RUN for arch in arm arm64 mips mips64 x64; do \
-    wget -q https://raw.githubusercontent.com/panda-re/panda/dev/panda/plugins/syscalls2/generated-in/linux_${arch}_prototypes.txt -O /igloo_static/syscalls/linux_${arch}_prototypes.txt; \
-  done
 
 ARG GLOW_VERSION
 RUN wget -qO /tmp/glow.deb https://github.com/charmbracelet/glow/releases/download/v${GLOW_VERSION}/glow_${GLOW_VERSION}_amd64.deb
