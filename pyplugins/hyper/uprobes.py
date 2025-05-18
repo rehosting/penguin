@@ -251,9 +251,6 @@ class Uprobes(PyPlugin):
             else:
                 self.logger.error(
                     f"Failed to register uprobe for {path}:{offset}")
-            # Only process one per interrupt
-            break
-        return len(self._pending_uprobes) > 0
 
     def _register_uprobe(self, path, offset, process_filter=None, on_enter=True, on_return=False, pid_filter=None):
         """
