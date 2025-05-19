@@ -1,7 +1,7 @@
 import time
 from os import path
-from pandare2 import PyPlugin, plugins
-from penguin import getColoredLogger
+from pandare2 import PyPlugin
+from penguin import getColoredLogger, plugins
 import Levenshtein as lv
 
 
@@ -39,7 +39,8 @@ class FICD(PyPlugin):
 
             # Now get args
             try:
-                argv_buf = self.panda.virtual_memory_read(cpu, argv_ptr, 96, fmt="ptrlist")
+                argv_buf = self.panda.virtual_memory_read(
+                    cpu, argv_ptr, 96, fmt="ptrlist")
             except ValueError:
                 self.on_exec(fname)
                 return
@@ -68,23 +69,27 @@ class FICD(PyPlugin):
         for proc in self.seen_procs:
             lev_ratio = lv.ratio(proc, newproc)
             if lev_ratio >= 0.5:
-                self.unique_proc_times[newproc] = [round(self.prev_time - self.init_time, 2), "Not Unique"]
+                self.unique_proc_times[newproc] = [
+                    round(self.prev_time - self.init_time, 2), "Not Unique"]
                 measured_tf = self.prev_time - self.last_proc_time
                 if measured_tf > self.time_frame:
                     self.ifin_reached = True
                     self.measured_tf = measured_tf
                     self.ifin_time = self.prev_time-self.init_time
-                    self.logger.info(f"FICD Ifin reached on exec occuring {self.prev_time - self.init_time} after start")
+                    self.logger.info(
+                        f"FICD Ifin reached on exec occuring {self.prev_time - self.init_time} after start")
                     if self.stop_on_if:
                         self.logger.warning("Stopping on Ifin reached...")
                         self.panda.end_analysis()
                 return
 
         if self.ifin_reached:
-            self.logger.warning(f"Warning! FICD Ifin reached but new exec {newproc} was seen at time {self.prev_time - self.init_time}. System is likely being exercised.")
+            self.logger.warning(
+                f"Warning! FICD Ifin reached but new exec {newproc} was seen at time {self.prev_time - self.init_time}. System is likely being exercised.")
         self.last_proc_time = self.prev_time
         self.seen_procs.add(newproc)
-        self.unique_proc_times[newproc] = [round(self.prev_time - self.init_time, 2), "Unique"]
+        self.unique_proc_times[newproc] = [
+            round(self.prev_time - self.init_time, 2), "Unique"]
 
     def uninit(self):
         prev_time = time.time()
@@ -95,6 +100,7 @@ class FICD(PyPlugin):
             f.write(f"boot_time: {self.boot_time}\n")
             f.write(f"init_time: {self.init_time}\n")
             f.write(f"measured_tf: {self.measured_tf}\n")
-            f.write(f"last_proc_start: {self.last_proc_time - self.init_time}\n")
+            f.write(
+                f"last_proc_start: {self.last_proc_time - self.init_time}\n")
             f.write(f"total_execution_time: {prev_time - self.init_time}\n")
             f.write(f"time_past_tf: {self.measured_tf - self.time_frame}\n")
