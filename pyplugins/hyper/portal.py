@@ -567,8 +567,8 @@ class Portal(PyPlugin):
         self.logger.debug("get_process_name called")
         proc_name = yield from self.get_args(pid)
         if proc_name:
-            return proc_name.name
-        return ""
+            return proc_name[0]
+        return "[???]"
 
     def get_env(self, pid=None):
         self.logger.debug("get_process_env called")
