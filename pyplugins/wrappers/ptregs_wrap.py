@@ -147,7 +147,6 @@ class PtRegsWrapper(Wrapper):
         Returns:
             The value of the requested argument
         """
-        # Default implementation delegates to architecture-specific functions
         try:
             if convention == "syscall":
                 return self.get_syscall_arg(num)
@@ -196,21 +195,26 @@ class PtRegsWrapper(Wrapper):
                 return data
             elif fmt == 'str':
                 return data.decode('latin-1', errors='replace')
-            elif fmt == 'int':
+
+            # Use the correct endianness format based on the architecture
+            endian_fmt = '>' if hasattr(
+                self._panda, 'endianness') and self._panda.endianness == 'big' else '<'
+
+            if fmt == 'int':
                 if size == 1:
-                    return struct.unpack('<B', data)[0]
+                    return struct.unpack(endian_fmt + 'B', data)[0]
                 elif size == 2:
-                    return struct.unpack('<H', data)[0]
+                    return struct.unpack(endian_fmt + 'H', data)[0]
                 elif size == 4:
-                    return struct.unpack('<I', data)[0]
+                    return struct.unpack(endian_fmt + 'I', data)[0]
                 elif size == 8:
-                    return struct.unpack('<Q', data)[0]
+                    return struct.unpack(endian_fmt + 'Q', data)[0]
             elif fmt == 'ptr':
                 if self._panda.bits == 32:
-                    return struct.unpack('<I', data)[0]
-                else:
-                    return struct.unpack('<Q', data)[0]
-        except ValueError:
+                    return struct.unpack(endian_fmt + 'I', data)[0]
+                else:  # 64-bit
+                    return struct.unpack(endian_fmt + 'Q', data)[0]
+        except ValueError:  # This is what PANDA's virtual_memory_read raises on failure
             raise PandaMemReadFail(addr, size)
 
     def read_stack_arg(self, arg_num, word_size=None):
@@ -338,7 +342,7 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
             "eflags": "flags",  # flags in struct
             "rsp": "sp",  # sp in struct
             "ss": "ss",
-            
+
             # Alias common names
             "pc": "ip",
             "sp": "sp",
@@ -366,20 +370,21 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
         # Prevent recursion
         if self._checking_mode:
             return False
-            
+
         self._checking_mode = True
         try:
             # Check if the cs field is actually available in the structure
             # Access it directly as a field - not via masked access
             if hasattr(self._obj, "cs"):
                 cs = self._obj.cs
-                return (cs & 0x4) == 0  # If bit 2 is 0, we're in compatibility mode
-            
+                # If bit 2 is 0, we're in compatibility mode
+                return (cs & 0x4) == 0
+
             # Fallback to using flags register if cs isn't directly accessible
             elif hasattr(self._obj, "flags"):
                 flags = self._obj.flags
                 return (flags & (1 << 17)) != 0  # VM8086 mode check
-            
+
             # Default: assume not in compatibility mode if we can't determine
             return False
         finally:
@@ -393,7 +398,7 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
                 access_info = self._register_map[reg_name]
                 return self._access_register(access_info)
             return None
-            
+
         # For compatibility mode, consider delegating to x86 wrapper
         if not self._checking_mode and self._is_compatibility_mode() and reg_name in ["eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp"]:
             return self._get_x86_delegate().get_register(reg_name)
@@ -444,18 +449,18 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
         userland_args = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
         if 0 <= num < len(userland_args):
             return self.get_register(userland_args[num])
-        
+
         # For arguments beyond the registers, read from the stack
         # In x86_64, the standard calling convention places additional args on the stack
         sp = self.get_sp()
         if sp is None:
             return None
-        
+
         # Stack arguments start at position 0 relative to the stack pointer
         # Each subsequent argument is 8 bytes (64 bits) further
         stack_idx = num - len(userland_args)
         addr = sp + 8 + (stack_idx * 8)
-        
+
         return self.read_memory(addr, 8, 'ptr')
 
     def get_syscall_number(self):
@@ -530,22 +535,30 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         super().__init__(obj, panda=panda)
         # Map register names to access info
         self._register_map = {
-            # General registers
-            **{f"x{i}": ("array", "regs", i) for i in range(31)},
-            "sp": "sp",
-            "pc": "pc",
-            "pstate": "pstate",
+            # Access through the nested union and struct
+            # regs array for general registers x0-x30
+            **{f"x{i}": ("computed", lambda obj, i=i: obj.unnamed_field_0.unnamed_field_0.regs[i]) for i in range(31)},
+            # Special registers
+            "sp": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.sp),
+            "pc": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.pc),
+            "pstate": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.pstate),
+            # Other fields directly in pt_regs
             "syscallno": "syscallno",
             "orig_x0": "orig_x0",
             # Aliases
-            "retval": ("array", "regs", 0),
+            # x0 holds the return value
+            "retval": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.regs[0]),
             # Common aliases for named registers
-            "fp": ("array", "regs", 29),  # x29
-            "lr": ("array", "regs", 30),  # x30
+            # x29
+            "fp": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.regs[29]),
+            # x30
+            "lr": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.regs[30]),
         }
 
         # Create a delegate for ARM mode access (but don't initialize it yet)
         self._arm_delegate = None
+        # Add a flag to prevent recursion
+        self._checking_mode = False
 
     def _is_aarch32_mode(self):
         """
@@ -556,9 +569,22 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         - When 0, AArch64 state
         - When 1, AArch32 state
         """
-        pstate = self.get_register("pstate")
-        # Bit 4 (0x10) is the nRW bit that indicates execution state
-        return (pstate & 0x10) != 0
+        # Prevent recursion
+        if self._checking_mode:
+            return False
+
+        self._checking_mode = True
+        try:
+            # Try to access pstate via the nested structure
+            try:
+                pstate = self._obj.unnamed_field_0.unnamed_field_0.pstate
+                # Bit 4 (0x10) is the nRW bit that indicates execution state
+                return (pstate & 0x10) != 0
+            except (AttributeError, TypeError):
+                # If we can't access pstate through the expected path, default to AArch64 mode
+                return False
+        finally:
+            self._checking_mode = False
 
     def _get_arm_delegate(self):
         """
@@ -566,7 +592,6 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         """
         if self._arm_delegate is None:
             # Create delegate with our original object but use ARM wrapper
-            # This is a simplified mapping as the real mapping would be more complex
             self._arm_delegate = ArmPtRegsWrapper(self._obj, panda=self._panda)
         return self._arm_delegate
 
@@ -575,8 +600,10 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         Get register value by name, handling AArch32 compatibility mode if needed
         """
         # Check if we're in AArch32 mode and the register is an ARM register
-        if self._is_aarch32_mode() and reg_name.startswith("r"):
-            return self._get_arm_delegate().get_register(reg_name)
+        # Only do the mode check if we're not already checking the mode
+        if not self._checking_mode and reg_name.startswith("r"):
+            if self._is_aarch32_mode():
+                return self._get_arm_delegate().get_register(reg_name)
 
         # For AArch64 registers, proceed with standard access
         return super().get_register(reg_name)
@@ -612,8 +639,19 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         # Default AArch64 userland convention
         if 0 <= num < 8:  # x0-x7 for first 8 args
             return self.get_register(f"x{num}")
+
         # Additional arguments would be on the stack
-        return self.read_stack_arg(num - 8, word_size=8)
+        # In AArch64, arguments beyond registers are at sp, sp+8, sp+16, etc.
+        # No need to skip return address as it's in LR (x30)
+        sp = self.get_sp()
+        if sp is None:
+            return None
+
+        # Stack arguments start at sp, and each is 8 bytes (64 bits)
+        stack_idx = num - 8  # Adjust for the 8 registers already used
+        addr = sp + (stack_idx * 8)  # No extra offset needed
+
+        return self.read_memory(addr, 8, 'ptr')
 
     def get_syscall_number(self):
         """
@@ -730,8 +768,19 @@ class Mips64PtRegsWrapper(MipsPtRegsWrapper):
         """Get MIPS64 userland argument"""
         if 0 <= num < 8:  # a0-a7 for first 8 args
             return self.get_register(f"a{num}")
+
         # Additional arguments would be on the stack
-        return self.read_stack_arg(num - 8, word_size=8)
+        # In MIPS64 N64 ABI, stack arguments start at sp+0 (rather than sp+16 as in MIPS32)
+        # Each stack argument is 8 bytes (64 bits)
+        sp = self.get_sp()
+        if sp is None:
+            return None
+
+        # Stack arguments start at sp, and each is 8 bytes (64 bits)
+        stack_idx = num - 8  # Adjust for the 8 registers already used
+        addr = sp + (stack_idx * 8)  # No extra offset needed
+
+        return self.read_memory(addr, 8, 'ptr')
 
 
 class PowerPCPtRegsWrapper(PtRegsWrapper):
@@ -739,25 +788,29 @@ class PowerPCPtRegsWrapper(PtRegsWrapper):
 
     def __init__(self, obj, panda=None):
         super().__init__(obj, panda=panda)
-        # PowerPC has numbered registers r0-r31
+        # PowerPC has numbered registers in the gpr array, nested two levels deep in unions/structs
         self._register_map = {
-            **{f"r{i}": ("array", "regs", i) for i in range(32)},
-            "nip": ("computed", lambda obj: obj.nip),
-            "msr": ("computed", lambda obj: obj.msr),
-            "orig_r3": ("computed", lambda obj: obj.orig_gpr3),
-            "ctr": ("computed", lambda obj: obj.ctr),
-            "lr": ("computed", lambda obj: obj.link),
-            "xer": ("computed", lambda obj: obj.xer),
-            "ccr": ("computed", lambda obj: obj.ccr),
-            "softe": ("computed", lambda obj: obj.softe),
-            "trap": ("computed", lambda obj: obj.trap),
-            "dar": ("computed", lambda obj: obj.dar),
-            "dsisr": ("computed", lambda obj: obj.dsisr),
-            "result": ("computed", lambda obj: obj.result),
+            # General purpose registers are in the gpr array inside two levels of anonymous struct/union
+            **{f"r{i}": ("computed", lambda obj, i=i: obj.unnamed_field_0.unnamed_field_0.gpr[i]) for i in range(32)},
+            # Special registers are direct fields in the anonymous struct
+            "nip": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.nip),
+            "msr": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.msr),
+            "orig_r3": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.orig_gpr3),
+            "ctr": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.ctr),
+            "lr": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.link),
+            "xer": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.xer),
+            "ccr": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.ccr),
+            "softe": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.softe),
+            "trap": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.trap),
+            "dar": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.dar),
+            "dsisr": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.dsisr),
+            "result": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.result),
             # Aliases
-            "sp": ("array", "regs", 1),  # r1 is stack pointer
-            "pc": "nip",
-            "retval": ("array", "regs", 3),  # r3 holds return values
+            # r1 is stack pointer
+            "sp": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.gpr[1]),
+            "pc": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.nip),
+            # r3 holds return values
+            "retval": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.gpr[3]),
         }
 
     def get_syscall_arg(self, num):
@@ -770,10 +823,32 @@ class PowerPCPtRegsWrapper(PtRegsWrapper):
     def get_userland_arg(self, num):
         """Get PowerPC userland argument"""
         if 0 <= num < 8:
-            # r3-r10 for userland args
+            # r3-r10 for userland args (arguments 0 through 7)
             return self.get_register(f"r{3+num}")
-        # Additional arguments would be on the stack
-        return self.read_stack_arg(num - 8, word_size=8)
+
+        # Additional arguments would be on the stack (arguments 8 onwards)
+        sp = self.get_sp()
+        if sp is None:
+            return None
+
+        # Determine stack layout based on architecture
+        base_offset = 0
+        word_size = 0
+        if self._panda.bits == 32:
+            # 32-bit PowerPC - args start at SP+8
+            base_offset = 8
+            word_size = 4
+        else:  # 64-bit
+            # 64-bit PowerPC - Linux ABI (ELF V2)
+            base_offset = 96
+            word_size = 8
+
+        # Calculate stack address
+        # Adjust for the 8 registers already used (args 0-7)
+        stack_idx = num - 8
+        addr = sp + base_offset + (stack_idx * word_size)
+
+        return self.read_memory(addr, word_size, 'ptr')
 
     def get_syscall_number(self):
         """Get syscall number from r0 register"""
@@ -851,8 +926,19 @@ class LoongArch64PtRegsWrapper(PtRegsWrapper):
         if 0 <= num < 8:
             # a0-a7 for userland args
             return self.get_register(f"a{num}")
+
         # Additional arguments would be on the stack
-        return self.read_stack_arg(num - 8, word_size=8)
+        # In LoongArch64, arguments beyond registers are at sp, sp+8, sp+16, etc.
+        # No need to skip return address as it's in r1 (ra)
+        sp = self.get_sp()
+        if sp is None:
+            return None
+
+        # Stack arguments start at sp, and each is 8 bytes (64 bits)
+        stack_idx = num - 8  # Adjust for the 8 registers already used
+        addr = sp + (stack_idx * 8)  # No extra offset needed
+
+        return self.read_memory(addr, 8, 'ptr')
 
     def get_syscall_number(self):
         """Get syscall number from a7 register"""
@@ -864,65 +950,112 @@ class Riscv32PtRegsWrapper(PtRegsWrapper):
 
     def __init__(self, obj, panda=None):
         super().__init__(obj, panda=panda)
-        # RISC-V has x0-x31 registers
+        # RISC-V pt_regs has individual fields for each register rather than an array
         self._register_map = {
-            **{f"x{i}": ("array", "regs", i) for i in range(32)},
-            "pc": ("computed", lambda obj: obj.epc),
-            "status": ("computed", lambda obj: obj.status),
-            "badaddr": ("computed", lambda obj: obj.badaddr),
-            "orig_a0": ("computed", lambda obj: obj.orig_a0),
-            # Register aliases
-            "zero": ("array", "regs", 0),
-            "ra": ("array", "regs", 1),
-            "sp": ("array", "regs", 2),
-            "gp": ("array", "regs", 3),
-            "tp": ("array", "regs", 4),
-            "t0": ("array", "regs", 5),
-            "t1": ("array", "regs", 6),
-            "t2": ("array", "regs", 7),
-            "s0": ("array", "regs", 8),
-            "fp": ("array", "regs", 8),  # Alias for s0
-            "s1": ("array", "regs", 9),
-            "a0": ("array", "regs", 10),
-            "a1": ("array", "regs", 11),
-            "a2": ("array", "regs", 12),
-            "a3": ("array", "regs", 13),
-            "a4": ("array", "regs", 14),
-            "a5": ("array", "regs", 15),
-            "a6": ("array", "regs", 16),
-            "a7": ("array", "regs", 17),
-            "s2": ("array", "regs", 18),
-            "s3": ("array", "regs", 19),
-            "s4": ("array", "regs", 20),
-            "s5": ("array", "regs", 21),
-            "s6": ("array", "regs", 22),
-            "s7": ("array", "regs", 23),
-            "s8": ("array", "regs", 24),
-            "s9": ("array", "regs", 25),
-            "s10": ("array", "regs", 26),
-            "s11": ("array", "regs", 27),
-            "t3": ("array", "regs", 28),
-            "t4": ("array", "regs", 29),
-            "t5": ("array", "regs", 30),
-            "t6": ("array", "regs", 31),
-            # Aliases
-            "retval": ("array", "regs", 10),  # a0
+            # Direct register mappings from the pt_regs structure
+            "epc": "epc",          # Program Counter
+            "ra": "ra",            # Return Address (x1)
+            "sp": "sp",            # Stack Pointer (x2)
+            "gp": "gp",            # Global Pointer (x3)
+            "tp": "tp",            # Thread Pointer (x4)
+            "t0": "t0",            # Temporary registers (x5-x7)
+            "t1": "t1",
+            "t2": "t2",
+            "s0": "s0",            # Saved register (x8) / Frame Pointer
+            "s1": "s1",            # Saved register (x9)
+            "a0": "a0",            # Argument/Return registers (x10-x17)
+            "a1": "a1",
+            "a2": "a2",
+            "a3": "a3",
+            "a4": "a4",
+            "a5": "a5",
+            "a6": "a6",
+            "a7": "a7",
+            "s2": "s2",            # Saved registers (x18-x27)
+            "s3": "s3",
+            "s4": "s4",
+            "s5": "s5",
+            "s6": "s6",
+            "s7": "s7",
+            "s8": "s8",
+            "s9": "s9",
+            "s10": "s10",
+            "s11": "s11",
+            "t3": "t3",            # Temporary registers (x28-x31)
+            "t4": "t4",
+            "t5": "t5",
+            "t6": "t6",
+            "status": "status",    # CSR: status
+            "badaddr": "badaddr",  # CSR: bad address
+            "cause": "cause",      # CSR: trap cause
+            "orig_a0": "orig_a0",  # a0 saved at syscall entry
+
+            # Aliases for x-registers by ABI name
+            "x1": "ra",
+            "x2": "sp",
+            "x3": "gp",
+            "x4": "tp",
+            "x5": "t0",
+            "x6": "t1",
+            "x7": "t2",
+            "x8": "s0",
+            "x9": "s1",
+            "x10": "a0",
+            "x11": "a1",
+            "x12": "a2",
+            "x13": "a3",
+            "x14": "a4",
+            "x15": "a5",
+            "x16": "a6",
+            "x17": "a7",
+            "x18": "s2",
+            "x19": "s3",
+            "x20": "s4",
+            "x21": "s5",
+            "x22": "s6",
+            "x23": "s7",
+            "x24": "s8",
+            "x25": "s9",
+            "x26": "s10",
+            "x27": "s11",
+            "x28": "t3",
+            "x29": "t4",
+            "x30": "t5",
+            "x31": "t6",
+
+            # Alias for x0 (always zero)
+            "x0": ("computed", lambda obj: 0),
+            "zero": ("computed", lambda obj: 0),
+
+            # Common aliases
+            "pc": "epc",
+            "fp": "s0",  # Frame pointer is s0/x8 in RISC-V
+            "retval": "a0",  # a0/x10 holds return value
         }
 
     def get_syscall_arg(self, num):
         """Get RISC-V 32-bit syscall argument"""
-        if 0 <= num < 8:
-            # a0-a7 for syscall args
+        if 0 <= num < 8:  # a0-a7 for syscall args
             return self.get_register(f"a{num}")
         return None
 
     def get_userland_arg(self, num):
         """Get RISC-V 32-bit userland argument"""
-        if 0 <= num < 8:
-            # a0-a7 for function args
+        if 0 <= num < 8:  # a0-a7 for first 8 args
             return self.get_register(f"a{num}")
+
         # Additional arguments would be on the stack
-        return self.read_stack_arg(num - 8, word_size=4)
+        # In RISC-V, arguments beyond registers are placed directly at sp, sp+4, sp+8, etc.
+        # No need to skip any return address as it's in the ra register
+        sp = self.get_sp()
+        if sp is None:
+            return None
+
+        # Stack arguments start at sp, and each is 4 bytes (32 bits)
+        stack_idx = num - 8  # Adjust for the 8 registers already used
+        addr = sp + (stack_idx * 4)  # No extra offset needed
+
+        return self.read_memory(addr, 4, 'ptr')
 
     def get_syscall_number(self):
         """Get syscall number from a7 register"""
@@ -930,8 +1063,25 @@ class Riscv32PtRegsWrapper(PtRegsWrapper):
 
 
 class Riscv64PtRegsWrapper(Riscv32PtRegsWrapper):
-    """Wrapper for RISC-V 64-bit pt_regs - same structure as 32-bit"""
-    pass
+    """Wrapper for RISC-V 64-bit pt_regs - same structure as 32-bit but with 64-bit registers"""
+
+    def get_userland_arg(self, num):
+        """Get RISC-V 64-bit userland argument"""
+        if 0 <= num < 8:  # a0-a7 for first 8 args
+            return self.get_register(f"a{num}")
+
+        # Additional arguments would be on the stack
+        # In RISC-V, arguments beyond registers are placed directly at sp, sp+8, sp+16, etc.
+        # No need to skip any return address as it's in the ra register
+        sp = self.get_sp()
+        if sp is None:
+            return None
+
+        # Stack arguments start at sp, and each is 8 bytes (64 bits)
+        stack_idx = num - 8  # Adjust for the 8 registers already used
+        addr = sp + (stack_idx * 8)  # No extra offset needed
+
+        return self.read_memory(addr, 8, 'ptr')
 
 
 def get_pt_regs_wrapper(panda, regs, arch_name=None):
