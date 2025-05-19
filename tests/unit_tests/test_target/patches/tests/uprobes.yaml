@@ -53,7 +53,7 @@ static_files:
       strncmp = libc.func("i", "strncmp", "pp")
       v = strncmp("Hello from uprobe_test\n", "Hello from uprobe_test\n", len("Hello from uprobe_test\n"))
 
-      num_fmtargs = 12
+      num_fmtargs = 11
       printf = libc.func("i", "printf", "p"+(num_fmtargs*"i"))
       argsfmt = "%d "* num_fmtargs
       args = list(range(num_fmtargs))
