@@ -1,24 +1,70 @@
 plugins:
   uprobes_test: {}
   verifier:
-    conditions: {}
+    conditions:
+      uprobes_strncmp_entry:
+        type: file_contains
+        file: uprobe_strncmp_test.txt
+        string: "strncmp entry test passed"
+      uprobes_strncmp_return:
+        type: file_contains
+        file: uprobe_strncmp_test.txt
+        string: "strncmp return test passed"
+      uprobes_printf_entry:
+        type: file_contains
+        file: uprobe_printf_test.txt
+        string: "printf entry test passed"
+      uprobes_printf_return:
+        type: file_contains
+        file: uprobe_printf_test.txt
+        string: "printf return test passed"
+      uprobes_fopen_entry:
+        type: file_contains
+        file: uprobe_fopen_test.txt
+        string: "fopen entry test passed"
+      uprobes_fopen_return:
+        type: file_contains
+        file: uprobe_fopen_test.txt
+        string: "fopen return test passed"
+      uprobes_getenv_entry:
+        type: file_contains
+        file: uprobe_getenv_test.txt
+        string: "getenv entry test passed"
+      uprobes_getenv_return:
+        type: file_contains
+        file: uprobe_getenv_test.txt
+        string: "getenv return test passed"
+      uprobes_all_tests:
+        type: file_contains
+        file: uprobe_tests_summary.txt
+        string: "All uprobe tests PASSED!"
 
 static_files:
   /tests/uprobes_test.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/micropython
-
-      import ffilib
+      import ffi
+      import sys
 
       # libc = ffilib.libc()
-      libc = ffilib.open("/igloo/dylibs/libc.so")
+      libc = ffi.open("/igloo/dylibs/libc.so")
 
-      # printf8i = libc.func("i", "printf", "piiiiiiii")
-      # printf8i("%d %d %d %d %d %d %d %d\n", 1, 2, 3, 4, 5, 6, 7, 8)
-      printf_basic = libc.func("i", "printf", "p")
-      printf_basic("Hello from uprobe_test\n")
+      strncmp = libc.func("i", "strncmp", "pp")
+      v = strncmp("Hello from uprobe_test\n", "Hello from uprobe_test\n", len("Hello from uprobe_test\n"))
 
-      print("tests pass")
+      num_fmtargs = 12
+      printf = libc.func("i", "printf", "p"+(num_fmtargs*"i"))
+      argsfmt = "%d "* num_fmtargs
+      args = list(range(num_fmtargs))
+      printf("Hello from uprobe_test " + argsfmt, *args)
+
+      fopen = libc.func("p", "fopen", "pp")
+      fd = fopen("/proc/self/cmdline", "r")
+      print(fd)
+
+      env = libc.func("p", "getenv", "p")
+      env = env("PROJ_NAME")
+      sys.exit(0)
 
     mode: 73
