@@ -8,6 +8,7 @@ import yaml
 
 from penguin.penguin_config import structure
 
+
 def gen_docs_yaml_dump(x):
     """
     Convert `x` to YAML for use in generated docs.
