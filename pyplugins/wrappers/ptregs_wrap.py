@@ -313,37 +313,42 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
 
     def __init__(self, obj, panda=None):
         super().__init__(obj, panda=panda)
-        # Map register names to access info
+        # Map register names to access info based on the actual x86_64 pt_regs structure
+        # The x86_64 pt_regs has individual register fields, not an array
         self._register_map = {
-            "rax": ("array", "regs", 0),
-            "rcx": ("array", "regs", 1),
-            "rdx": ("array", "regs", 2),
-            "rbx": ("array", "regs", 3),
-            "rsp": ("array", "regs", 4),
-            "rbp": ("array", "regs", 5),
-            "rsi": ("array", "regs", 6),
-            "rdi": ("array", "regs", 7),
-            "r8": ("array", "regs", 8),
-            "r9": ("array", "regs", 9),
-            "r10": ("array", "regs", 10),
-            "r11": ("array", "regs", 11),
-            "r12": ("array", "regs", 12),
-            "r13": ("array", "regs", 13),
-            "r14": ("array", "regs", 14),
-            "r15": ("array", "regs", 15),
-            "rip": "pc",
-            "eflags": "pstate",
-            "orig_rax": "orig_x0",
-            "cs": ("masked", "pstate", 0xFFFF, 0),
-            "ss": ("masked", "pstate", 0xFFFF, 0),
+            # Direct register mappings from the pt_regs structure
+            "r15": "r15",
+            "r14": "r14",
+            "r13": "r13",
+            "r12": "r12",
+            "rbp": "bp",  # bp in struct
+            "rbx": "bx",  # bx in struct
+            "r11": "r11",
+            "r10": "r10",
+            "r9": "r9",
+            "r8": "r8",
+            "rax": "ax",  # ax in struct
+            "rcx": "cx",  # cx in struct
+            "rdx": "dx",  # dx in struct
+            "rsi": "si",  # si in struct
+            "rdi": "di",  # di in struct
+            "orig_rax": "orig_ax",  # orig_ax in struct
+            "rip": "ip",  # ip in struct
+            "cs": "cs",
+            "eflags": "flags",  # flags in struct
+            "rsp": "sp",  # sp in struct
+            "ss": "ss",
+            
             # Alias common names
-            "pc": "pc",
+            "pc": "ip",
             "sp": "sp",
-            "retval": ("array", "regs", 0),
+            "retval": "ax",  # ax holds the return value
         }
 
         # Create a delegate for x86 (32-bit) mode access (but don't initialize it yet)
         self._x86_delegate = None
+        # Flag to prevent recursion in _is_compatibility_mode
+        self._checking_mode = False
 
     def _is_compatibility_mode(self):
         """
@@ -358,22 +363,39 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
         - When 0, compatibility mode (16/32-bit)
         - When 1, 64-bit long mode
         """
-        cs = self.get_register("cs")
-        return (cs & 0x4) == 0  # If bit 2 is 0, we're in compatibility mode
+        # Prevent recursion
+        if self._checking_mode:
+            return False
+            
+        self._checking_mode = True
+        try:
+            # Check if the cs field is actually available in the structure
+            # Access it directly as a field - not via masked access
+            if hasattr(self._obj, "cs"):
+                cs = self._obj.cs
+                return (cs & 0x4) == 0  # If bit 2 is 0, we're in compatibility mode
+            
+            # Fallback to using flags register if cs isn't directly accessible
+            elif hasattr(self._obj, "flags"):
+                flags = self._obj.flags
+                return (flags & (1 << 17)) != 0  # VM8086 mode check
+            
+            # Default: assume not in compatibility mode if we can't determine
+            return False
+        finally:
+            self._checking_mode = False
 
-    def _get_x86_delegate(self):
-        """
-        Get or create an x86 registers delegate for compatibility mode access
-        """
-        if self._x86_delegate is None:
-            # Create delegate with our original object but use x86 wrapper
-            self._x86_delegate = X86PtRegsWrapper(self._obj, panda=self._panda)
-        return self._x86_delegate
-
-    # Add 32-bit register access
     def get_register(self, reg_name):
+        # Prevent recursion when checking for compatibility mode
+        if self._checking_mode and reg_name == "cs":
+            # Direct access without compatibility check
+            if reg_name in self._register_map:
+                access_info = self._register_map[reg_name]
+                return self._access_register(access_info)
+            return None
+            
         # For compatibility mode, consider delegating to x86 wrapper
-        if self._is_compatibility_mode() and reg_name in ["eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp"]:
+        if not self._checking_mode and self._is_compatibility_mode() and reg_name in ["eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp"]:
             return self._get_x86_delegate().get_register(reg_name)
 
         # Handle basic 32-bit registers for non-compatibility mode
@@ -422,8 +444,19 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
         userland_args = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
         if 0 <= num < len(userland_args):
             return self.get_register(userland_args[num])
-        # Additional arguments would be on the stack
-        return self.read_stack_arg(num - len(userland_args), word_size=8)
+        
+        # For arguments beyond the registers, read from the stack
+        # In x86_64, the standard calling convention places additional args on the stack
+        sp = self.get_sp()
+        if sp is None:
+            return None
+        
+        # Stack arguments start at position 0 relative to the stack pointer
+        # Each subsequent argument is 8 bytes (64 bits) further
+        stack_idx = num - len(userland_args)
+        addr = sp + 8 + (stack_idx * 8)
+        
+        return self.read_memory(addr, 8, 'ptr')
 
     def get_syscall_number(self):
         """
