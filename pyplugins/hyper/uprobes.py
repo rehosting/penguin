@@ -58,7 +58,7 @@ class Uprobes(PyPlugin):
         if os.path.exists(symbols_path):
             try:
                 with lzma.open(symbols_path, 'rt', encoding='utf-8') as f:
-                    import json
+                    import ujson as json
                     sym = json.load(f)
                     if "symbols" in sym:
                         self._symbols_cache = sym["symbols"]
@@ -180,7 +180,6 @@ class Uprobes(PyPlugin):
         return id_, pt_regs, ptregs_addr, original_bytes
 
     def _uprobe_event(self, cpu, is_enter):
-        print(f"UPROBE EVENT {is_enter=}")
         sequence = self.panda.arch.get_arg(cpu, 1, convention="syscall")
         arg = self.panda.arch.get_arg(cpu, 2, convention="syscall")
 
@@ -229,7 +228,7 @@ class Uprobes(PyPlugin):
             offset = uprobe_config["offset"]
             callback = uprobe_config["callback"]
             options = uprobe_config["options"]
-            self.logger.debug(f"Registering uprobe for {path}:{offset}")
+            symbol = uprobe_config.get("symbol", "[offset]") or "[offset]"
             probe_id = yield from self._register_uprobe(
                 path,
                 offset,
@@ -247,10 +246,10 @@ class Uprobes(PyPlugin):
                     "options": options
                 }
                 self.logger.info(
-                    f"Successfully registered uprobe ID {probe_id} for {path}:{offset}")
+                    f"Successfully registered uprobe ID {probe_id} for {path}:{offset} ({symbol})")
             else:
                 self.logger.error(
-                    f"Failed to register uprobe for {path}:{offset}")
+                    f"Failed to register uprobe for {path}:{offset} ({symbol})")
 
     def _register_uprobe(self, path, offset, process_filter=None, on_enter=True, on_return=False, pid_filter=None):
         """
