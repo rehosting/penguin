@@ -37,7 +37,7 @@ class UprobesTest(PyPlugin):
             uprobes.uprobe(**kwargs)(fn)
             uprobes.uretprobe(**kwargs)(retfn)
             self.test_results[symbol] = {"entry": False, "return": False}
-        
+
         self.printf_offset = lib_syms["printf"]
 
     def find_lib(self, lib_name):
@@ -171,8 +171,10 @@ class UprobesTest(PyPlugin):
             offset = pc - first_mapping_addr
             assert offset == self.printf_offset, f"Expected offset {self.printf_offset}, got {offset}"
 
+            args_raw = yield from pt_regs.get_args_portal(12)
+
             # Check for arguments and mask as int
-            args = [i & 0xffffffff for i in pt_regs.get_args(12)[1:]]
+            args = [i & 0xffffffff for i in args_raw[1:]]
             expected_args = list(range(11))
             assert args == expected_args, f"Expected args {expected_args}, got {args}"
 
