@@ -37,6 +37,8 @@ class UprobesTest(PyPlugin):
             uprobes.uprobe(**kwargs)(fn)
             uprobes.uretprobe(**kwargs)(retfn)
             self.test_results[symbol] = {"entry": False, "return": False}
+        
+        self.printf_offset = lib_syms["printf"]
 
     def find_lib(self, lib_name):
         """
@@ -156,8 +158,22 @@ class UprobesTest(PyPlugin):
         self.logger.info(f"printf format string: {format_str}")
 
         if format_str.startswith("Hello from uprobe_test"):
-            args = pt_regs.get_args(13)[1:]
-            expected_args = list(range(12))
+            m = yield from portal.get_mappings()
+            pc = pt_regs.get_pc()
+
+            # Get the mapping associated with printf
+            pc_mapping = m.get_mapping_by_addr(pc)
+
+            # look up the first mapping with that name
+            first_mapping_addr = m.get_mappings_by_name(pc_mapping.name)[0].start
+
+            # Calculate offset
+            offset = pc - first_mapping_addr
+            assert offset == self.printf_offset, f"Expected offset {self.printf_offset}, got {offset}"
+
+            # Check for arguments and mask as int
+            args = [i & 0xffffffff for i in pt_regs.get_args(12)[1:]]
+            expected_args = list(range(11))
             assert args == expected_args, f"Expected args {expected_args}, got {args}"
 
             self.test_results["printf"]["entry"] = True
@@ -178,7 +194,7 @@ class UprobesTest(PyPlugin):
 
             # printf should return the number of characters printed
             expected_len = len(
-                "Hello from uprobe_test 0 1 2 3 4 5 6 7 8 9 10 11\n")
+                "Hello from uprobe_test 0 1 2 3 4 5 6 7 8 9 10\n")
             assert retval == expected_len, f"Expected printf to return {expected_len}, got {retval}"
 
             self.test_results["printf"]["return"] = True
