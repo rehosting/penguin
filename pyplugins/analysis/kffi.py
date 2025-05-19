@@ -14,6 +14,10 @@ class KFFI(PyPlugin):
         conf = self.get_arg("conf")
         kernel = conf["core"]["kernel"]
         arch = conf["core"]["arch"]
+        if arch == "intel64":
+            arch = "x86_64"
+        elif arch == "aarch64":
+            arch = "arm64"
         self.isf = realpath(join(kernel, f"../cosi.{arch}.json.xz"))
         self.logger = getColoredLogger("plugins.kffi")
         if not isfile(self.isf):
