@@ -1136,7 +1136,7 @@ class Portal(PyPlugin):
         """
         response = yield ("dump", mode, signal)
         if response is None:
-            self.logger.error(f"Failed to execute dump operation")
+            self.logger.error("Failed to execute dump operation")
             return None
         return response
 
