@@ -477,7 +477,13 @@ class ArmPtRegsWrapper(PtRegsWrapper):
         if 0 <= num < 4:  # r0-r3 for first 4 args
             return self.get_register(f"r{num}")
         # Additional arguments would be on the stack
-        return self.read_stack_arg(num - 4, word_size=4)
+        # On ARM, the stack pointer (sp) points to the stack frame,
+        # and arguments 5+ are at [sp, #0], [sp, #4], etc.
+        sp = self.get_sp()
+        # Calculate the correct stack offset for argument num
+        # For ARM, arguments start at sp+0 for the 5th argument
+        addr = sp + ((num - 4) * 4)
+        return self.read_memory(addr, 4, 'ptr')
 
     def get_syscall_number(self):
         """Get syscall number from r7 register"""
