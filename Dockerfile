@@ -157,6 +157,7 @@ COPY ./src/resources/ltrace_nvram.conf /tmp/ltrace/lib_inject.so.conf
 FROM ghcr.io/rehosting/embedded-toolchains:latest AS cross_builder
 COPY ./guest-utils/native/ /source
 WORKDIR /source
+RUN wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h
 RUN make all
 
 #### QEMU BUILDER: Build qemu-img ####
