@@ -15,7 +15,7 @@ from pandare2 import Panda
 from penguin import getColoredLogger, plugins
 
 from .common import yaml
-from .defaults import default_plugin_path
+from .defaults import default_plugin_path, vnc_password
 from penguin.penguin_config import load_config
 from .utils import hash_image_inputs
 
@@ -336,13 +336,6 @@ def run_config(
     if telnet_port is None:
         raise OSError("No available port found in the specified range")
 
-    root_shell = []
-    if conf["core"].get("root_shell", False):
-        root_shell = [
-            "-serial",
-            "telnet:0.0.0.0:" + str(telnet_port) + ",server,nowait",
-        ]  # ttyS1: root shell
-
     # If core config specifes immutable: False we'll run without snapshot
     no_snapshot_drive = f"file={config_image},id=hd0"
     snapshot_drive = no_snapshot_drive + ",cache=unsafe,snapshot=on"
@@ -379,26 +372,6 @@ def run_config(
         # "-device", "virtio-rng-pci",
         *drive_args,
     ]
-    if conf["core"].get("graphics", False):
-        password = "IGLOOPassword!"
-        logger.info(f"Setting VNC password to {password}")
-        args += [
-            "-object", f'secret,id=vncpasswd,data={password}',
-            "-vnc",    "0.0.0.0:0,password-secret=vncpasswd",
-            "-device", "virtio-gpu",
-            "-device", "virtio-keyboard-pci",
-            "-device", "virtio-mouse-pci",
-            "-k", "en-us",
-        ]
-        if "show_output" in conf["core"] and conf["core"]["show_output"]:
-            args += [
-                "-monitor", "stdio"
-            ]
-
-    else:
-        args += [
-            "-display", "none",
-        ]
     if q_config["arch"] == "loongarch64":
         args += ["-bios", "/igloo_static/loongarch64/bios-loong64-8.1.bin"]
 
@@ -411,20 +384,60 @@ def run_config(
         args.extend(
             ["-netdev", "user,id=user.0", "-device", "virtio-net,netdev=user.0"]
         )
+    
+    graphics = conf["core"].get("graphics", False)
+    show_output = conf["core"].get("show_output", False)
+    root_shell_enabled = conf["core"].get("root_shell", False)
 
-    if "show_output" in conf["core"] and conf["core"]["show_output"]:
+    if graphics and show_output:
+        logger.warning("Graphics and show_output are mutually exclusive. Using graphics")
+        conf["core"]["show_output"] = False
+        show_output = False
+    
+    if graphics and root_shell_enabled:
+        logger.warning("Graphics and root_shell are mutually exclusive. Using graphics")
+        root_shell = False
+        conf["core"]["root_shell"] = False
+    
+    root_shell = []
+    if root_shell_enabled:
+        root_shell = [
+            "-serial",
+            "telnet:0.0.0.0:" + str(telnet_port) + ",server,nowait",
+        ]  # ttyS1: root shell
+
+    else:
+        args += [
+            "-display", "none",
+        ]
+
+    if show_output and not graphics:
         logger.info("Logging console output to stdout")
         console_out = [
                 "-chardev", f"stdio,id=char1,logfile={out_dir}/console.log,signal=off",
                 "-serial", "chardev:char1"
                 ]
+    elif graphics:
+        logger.info(f"Setting VNC password to {vnc_password}")
+        args += [
+            "-object", f'secret,id=vncpasswd,data={vnc_password}',
+            "-vnc",    "0.0.0.0:0,password-secret=vncpasswd",
+            "-device", "virtio-gpu",
+            "-device", "virtio-keyboard-pci",
+            "-device", "virtio-mouse-pci",
+            "-k", "en-us",
+        ]
+        console_out = []
+        # if we do not set show_output it breaks our logging
+        show_output = True
     else:
         logger.info(f"Logging console output to {out_dir}/console.log")
         console_out = [
             "-serial",
             f"file:{out_dir}/console.log",
-            # "-monitor",
-            # "null",
+            "-monitor",
+            "null",
+            "-display", "none",
         ]  # ttyS0: guest console output
 
     if "shared_dir" in conf["core"]:
