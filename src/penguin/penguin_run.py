@@ -406,16 +406,12 @@ def run_config(
             "telnet:0.0.0.0:" + str(telnet_port) + ",server,nowait",
         ]  # ttyS1: root shell
 
-    else:
-        args += [
-            "-display", "none",
-        ]
-
     if show_output and not graphics:
         logger.info("Logging console output to stdout")
         console_out = [
                 "-chardev", f"stdio,id=char1,logfile={out_dir}/console.log,signal=off",
                 "-serial", "chardev:char1"
+                "-display", "none",
                 ]
     elif graphics:
         logger.info(f"Setting VNC password to {vnc_password}")
