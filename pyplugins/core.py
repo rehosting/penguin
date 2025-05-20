@@ -7,6 +7,7 @@ from copy import deepcopy
 from pandare2 import PyPlugin
 
 from penguin import getColoredLogger
+from penguin.defaults import vnc_password
 
 try:
     from penguin import yaml
@@ -81,6 +82,12 @@ class Core(PyPlugin):
             else:
                 self.logger.info(
                     f"Root shell enabled. Connect with docker exec -it [your_container_name] telnet localhost {telnet_port}"
+                )
+
+        if conf["core"].get("graphics", False):
+            if container_ip := os.environ.get("CONTAINER_IP", None):
+                self.logger.info(
+                    f"VNC @ {container_ip}:5900 with password '{vnc_password}'"
                 )
 
         # Same thing, but for a shared directory
@@ -211,7 +218,8 @@ class CoreAnalysis(PenguinAnalysis):
             for line in f:
                 if b" BUG " in line:
                     print(f"KERNEL BUG: {repr(line)}")
-                    raise RuntimeError(f"Found BUG in {output_dir}/console.log")
+                    raise RuntimeError(
+                        f"Found BUG in {output_dir}/console.log")
 
         # qemu logs are above output directory
         stderr = os.path.join(os.path.dirname(output_dir), "qemu_stderr.txt")
@@ -219,7 +227,8 @@ class CoreAnalysis(PenguinAnalysis):
             with open(stderr) as f:
                 for line in f.readlines():
                     if "Traceback " in line:
-                        raise RuntimeError(f"Python analysis crashed in {output_dir}")
+                        raise RuntimeError(
+                            f"Python analysis crashed in {output_dir}")
         else:
             print(f"WARNING missing {stderr}")
         return {}
@@ -241,7 +250,8 @@ class CoreAnalysis(PenguinAnalysis):
 
     def implement_mitigation(self, config, failure, mitigation):
         new_config = deepcopy(config.info)
-        how_truncated = mitigation.info["duration"]  # How many seconds were truncated?
+        # How many seconds were truncated?
+        how_truncated = mitigation.info["duration"]
         new_config["plugins"]["core"][
             "extend"
         ] = how_truncated  # This doesn't actually make sense, but it will be unique
