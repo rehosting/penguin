@@ -46,9 +46,6 @@ CFLAGS_loongarch64 = -s -static
 ALL_CS := $(basename $(notdir $(wildcard *.c)))
 all: $(foreach arch,$(ARCHS),$(foreach bin,$(ALL_CS),out/$(arch)/$(bin)))
 
-hypercall.h:
-	wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h
-
 out/%/send_hypercall: send_hypercall.c hypercall.h
 	@mkdir -p $(dir $@)
 	$(CC_$*) $(CFLAGS_$*) $< -o $@
