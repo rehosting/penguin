@@ -85,14 +85,14 @@ class PyPandaSysLog(PyPlugin):
             syscalls.syscall("on_sys_execveat_enter")(self.sys_execve_enter)
 
     @plugins.portal.wrap
-    def sys_execve_enter(self, cpu, proto, syscall, *args):
-        yield from self.handle_syscall(cpu, proto, syscall)
+    def sys_execve_enter(self, proto, syscall, *args):
+        yield from self.handle_syscall(proto, syscall)
 
     @plugins.portal.wrap
-    def all_sys_ret(self, cpu, proto, syscall):
+    def all_sys_ret(self, proto, syscall):
         protoname, _, _ = self.get_syscall_proto(proto, proto.syscall_nr)
         if "execve" not in protoname:
-            yield from self.handle_syscall(cpu, proto, syscall)
+            yield from self.handle_syscall(proto, syscall)
 
     def get_arg_repr(self, argval, ctype, name):
         if name == "fd":
@@ -172,7 +172,7 @@ class PyPandaSysLog(PyPlugin):
         names = [self.cstr(proto.names[i]) for i in range(proto.nargs)]
         return protoname, types, names
 
-    def handle_syscall(self, cpu, proto, syscall):
+    def handle_syscall(self, proto, syscall):
         protoname, types, names = self.get_syscall_proto(
             proto, proto.syscall_nr)
         args = [syscall.args[i] for i in range(proto.nargs)]

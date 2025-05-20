@@ -192,11 +192,11 @@ class Syscalls(PyPlugin):
         # If we're handling all syscalls or we don't have prototype info,
         # just call the function with the standard arguments
         if on_all or proto is None or proto.nargs == 0:
-            f(cpu, proto, sce)
+            f(proto, sce)
         else:
             sysargs = [sce.args[i] for i in range(proto.nargs)]
             # Call the function with standard arguments plus syscall arguments
-            f(cpu, proto, sce, *sysargs)
+            f(proto, sce, *sysargs)
 
         new = sce.to_bytes()
         if original != new:

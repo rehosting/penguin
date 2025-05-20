@@ -73,14 +73,8 @@ class Interfaces(PyPlugin):
         with open(f"{self.outdir}/{ioctl_log}", "a") as f:
             f.write(f"{hex(ioctl)},{iface or '[?]'},{rv}\n")
 
-    def get_iface_from_ioctl(self, cpu, arg):
-        try:
-            return self.panda.read_str(cpu, arg, max_length=16)
-        except ValueError:
-            return None
-
     @plugins.portal.wrap
-    def after_ioctl(self, cpu, proto, syscall, fd, request, arg):
+    def after_ioctl(self, proto, syscall, fd, request, arg):
         if 0x8000 < request < 0x9000:
             iface = yield from plugins.portal.read_str(arg)
             rv = syscall.retval
@@ -93,7 +87,9 @@ class Interfaces(PyPlugin):
                 # try to catch failing ioctls
                 self.failing_ioctl(request, iface, rv)
 
-    def iface_on_exec(self, cpu, fname, argv):
+    def iface_on_exec(self, e):
+        fname = e.fname
+        argv = e.argv
         # note argv[0] is the binary name, similar to fname
         if argv is None or len(argv) == 0:
             return

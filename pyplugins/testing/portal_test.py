@@ -164,7 +164,7 @@ class PortalTest(PyPlugin):
                 print(f"FD: {f.fd} -> {f.name}")
 
     @plugins.portal.wrap
-    def ioctl_val(self, cpu, proto, syscall, fd, op, arg):
+    def ioctl_val(self, proto, syscall, fd, op, arg):
         # check our arguments
         assert fd == 0, f"Expected fd 0, got {fd:#x}"
         assert op == 0x89f3, f"Expected op 0x89f3, got {op:#x}"

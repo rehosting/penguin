@@ -77,28 +77,18 @@ class Lifeguard(PyPlugin):
             self.logger.info(f"Blocking signals: {self.blocked_signals}")
         plugins.syscalls.syscall("on_sys_kill_return")(self.on_sys_kill_enter)
 
-    def get_proc_by_pid(self, cpu, pid):
-        for p in self.panda.get_processes(cpu):
-            if p.pid == abs(pid):
-                return self.panda.ffi.string(p.name).decode("latin-1", errors="ignore")
-
     @plugins.portal.wrap
     def on_sys_kill_enter(self, cpu, proto, sysret, pid, sig):
         save = sig in self.blocked_signals
         with open(f"{self.outdir}/{LIFELOG}", "a") as f:
             f.write(f"{sig},{pid},{1 if save else 0}\n")
-
-        proc = self.panda.plugins['osi'].get_current_process(cpu)
-        if proc != self.panda.ffi.NULL:
-            pname = self.panda.ffi.string(proc.name).decode("latin-1", errors="ignore")
-            ppid = proc.pid
-        else:
-            pname = "[?]"
-            ppid = "[?]"
-        pname = yield from plugins.portal.get_proc_name()
-        kpname = self.get_proc_by_pid(cpu, pid) or "[?]"
+        
+        proc = yield from plugins.portal.get_proc()
+        pproc = yield from plugins.portal.get_proc_by_pid(pid=proc.ppid)
+        pname = proc.name
+        kpname = pproc.name or "[?]"
         expl = signals.get(sig, "[?]")
-        self.logger.debug(f"{pname}({ppid}) kill({kpname}({pid}), {expl}({sig})) {'blocked' if save else ''}")
+        self.logger.debug(f"{pname}({proc.ppid}) kill({kpname}({pid}), {expl}({sig})) {'blocked' if save else ''}")
 
         if save:
             sysret.args[2] = 18

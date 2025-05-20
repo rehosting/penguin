@@ -39,7 +39,7 @@ class MountTracker(PyPlugin):
         plugins.syscalls.syscall("on_sys_mount_return")(self.post_mount)
 
     @plugins.portal.wrap
-    def post_mount(self, cpu, proto, syscall, source, target, fs_type, flags, data):
+    def post_mount(self, proto, syscall, source, target, fs_type, flags, data):
         source_str = yield from plugins.portal.read_str(source)
         target_str = yield from plugins.portal.read_str(target)
         fs_type_str = yield from plugins.portal.read_str(fs_type)
@@ -65,7 +65,9 @@ class MountTracker(PyPlugin):
             # Always pretend it was a success?
             syscall.retval = 0
 
-    def find_mount(self, cpu, fname, argv):
+    def find_mount(self, e):
+        fname = e.fname
+        argv = e.argv
         if fname == "/bin/mount":
             argc = len(argv)
 

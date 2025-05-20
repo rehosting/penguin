@@ -40,19 +40,19 @@ class SyscallTest(PyPlugin):
         self.ioctl_ret2_num = 0
         self.ioctl_ret3_num = 0
 
-    def test_skip_retval(self, cpu, proto, syscall, fd, op, arg):
+    def test_skip_retval(self, proto, syscall, fd, op, arg):
         assert fd == 9, f"Expected fd 9, got {fd:#x}"
         assert op == 0xabcd, f"Expected op 0xabcd, got {op:#x}"
         syscall.skip_syscall = True
         syscall.retval = 43
 
-    def ioctl_ret(self, cpu, proto, syscall, fd, op, arg):
+    def ioctl_ret(self, proto, syscall, fd, op, arg):
         self.ioctl_ret_num += 1
         assert fd == 0x13, f"Expected op 0x13, got {fd:#x}"
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
             f.write(f"Syscall ioctl_reg: success {self.ioctl_ret_num}\n")
 
-    def ioctl_ret2(self, cpu, proto, syscall, fd, op, arg):
+    def ioctl_ret2(self, proto, syscall, fd, op, arg):
         self.ioctl_ret2_num += 1
         assert fd == 0x13, f"Expected op 0x13, got {fd:#x}"
         assert op == 0x1234, f"Expected op 0x1234, got {op:#x}"
@@ -60,7 +60,7 @@ class SyscallTest(PyPlugin):
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
             f.write(f"Syscall ioctl_reg2: success {self.ioctl_ret2_num}\n")
 
-    def ioctl_ret3(self, cpu, proto, syscall, fd, op, arg):
+    def ioctl_ret3(self, proto, syscall, fd, op, arg):
         self.ioctl_ret3_num += 1
         assert fd == 0x13, f"Expected op 0x13, got {fd:#x}"
         assert op == 0x1234, f"Expected op 0x1234, got {op:#x}"
@@ -69,12 +69,13 @@ class SyscallTest(PyPlugin):
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
             f.write(f"Syscall ioctl_reg3: success {self.ioctl_ret3_num}\n")
 
-    def ioctl_noret(self, cpu, proto, syscall, fd, op, arg):
+    def ioctl_noret(self, proto, syscall, fd, op, arg):
         # this shouldn't be called
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
             f.write("Syscall ioctl_noret: failure\n")
 
-    def getpid(self, cpu, proto, syscall, *args):
+    def getpid(self, proto, syscall, *args):
+        cpu = self.panda.get_cpu()
         proc = self.panda.plugins['osi'].get_current_process(cpu)
         if syscall.retval != proc.pid and syscall.retval != 0:
             self.logger.error(
@@ -86,9 +87,10 @@ class SyscallTest(PyPlugin):
             self.success_getpid = True
             self.report_getpid()
 
-    def syscall_test(self, cpu, proto, syscall, *args):
+    def syscall_test(self, proto, syscall, *args):
         if self.reported_clone:
             return
+        cpu = self.panda.get_cpu()
         if "send_syscall" not in self.panda.get_process_name(cpu):
             return
         self.logger.info(f"Syscall test: {syscall} {args}")
