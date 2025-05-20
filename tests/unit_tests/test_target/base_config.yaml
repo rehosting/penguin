@@ -37,6 +37,7 @@ patches:
   - ./patches/tests/portal.yaml
   - ./patches/tests/kffi.yaml
   - ./patches/tests/uprobes.yaml
+  - ./patches/tests/memory.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 

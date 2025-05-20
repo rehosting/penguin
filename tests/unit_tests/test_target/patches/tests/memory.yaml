@@ -1,0 +1,29 @@
+plugins:
+  verifier:
+    conditions:
+      memory:
+        type: file_contains
+        file: shared/tests/memory.sh/stdout
+        string: "Memory check: 2GB RAM PASS"
+
+static_files:
+  /tests/memory.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+
+      echo "Checking system memory..."
+      
+      # Use BusyBox free command to get total memory in kilobytes
+      TOTAL_MEM_KB=$(/igloo/utils/busybox free | /igloo/utils/busybox grep Mem | /igloo/utils/busybox awk '{print $2}')
+      
+      # Convert to GB and allow a 5% tolerance (1992294 KB ≈ 1.9 GB, which is 95% of 2GB)
+      if [ $TOTAL_MEM_KB -ge 1992294 ]; then
+        echo "Memory check: 2GB RAM PASS"
+        exit 0
+      else
+        TOTAL_MEM_GB=$(/igloo/utils/busybox awk "BEGIN {printf \"%.2f\", $TOTAL_MEM_KB/1024/1024}")
+        echo "Memory check FAIL: Found ${TOTAL_MEM_GB}GB RAM, expected approximately 2GB (with 5% tolerance)"
+        exit 1
+      fi
+    mode: 73
