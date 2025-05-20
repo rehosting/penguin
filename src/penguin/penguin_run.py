@@ -384,7 +384,7 @@ def run_config(
         args.extend(
             ["-netdev", "user,id=user.0", "-device", "virtio-net,netdev=user.0"]
         )
-    
+
     graphics = conf["core"].get("graphics", False)
     show_output = conf["core"].get("show_output", False)
     root_shell_enabled = conf["core"].get("root_shell", False)
@@ -393,12 +393,12 @@ def run_config(
         logger.warning("Graphics and show_output are mutually exclusive. Using graphics")
         conf["core"]["show_output"] = False
         show_output = False
-    
+
     if graphics and root_shell_enabled:
         logger.warning("Graphics and root_shell are mutually exclusive. Using graphics")
         root_shell = False
         conf["core"]["root_shell"] = False
-    
+
     root_shell = []
     if root_shell_enabled:
         root_shell = [
