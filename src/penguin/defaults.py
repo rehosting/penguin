@@ -4,9 +4,12 @@
 from copy import deepcopy
 from os.path import dirname
 
+vnc_password = "IGLOOPassw0rd!"
+
 default_version = 2
 static_dir = "/igloo_static/"
-DEFAULT_KERNEL = "6.13"  # XXX in config_patchers we append .0 to this - may need to update
+# XXX in config_patchers we append .0 to this - may need to update
+DEFAULT_KERNEL = "6.13"
 
 # Where are plugins in the filesystem. These are our standard pyplugins
 # that we use for env, pseudofiles, etc.
@@ -21,7 +24,8 @@ default_netdevs = (
 )
 
 # Resolve current path then go to ../resources/init.sh
-default_init_script = open(f"{dirname(dirname(__file__))}/resources/init.sh").read()
+default_init_script = open(
+    f"{dirname(dirname(__file__))}/resources/init.sh").read()
 
 default_plugins = {
     "core": {},
