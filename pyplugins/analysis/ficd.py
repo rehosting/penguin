@@ -29,41 +29,15 @@ class FICD(PyPlugin):
         self.logger = getColoredLogger("plugins.ficd")
         self.stop_on_if = self.get_arg_bool("stop_on_if")
         self.logger.info("Loading FICD plugin")
+        plugins.subscript(plugins.Events, "igloo_exec", self.on_exec)
 
-        @plugins.syscalls.syscall("on_sys_execve_enter")
-        def ficd_execve(cpu, proto, syscall, fname_ptr, argv_ptr, envp):
-            try:
-                fname = self.panda.read_str(cpu, fname_ptr)
-            except ValueError:
-                return
-
-            # Now get args
-            try:
-                argv_buf = self.panda.virtual_memory_read(
-                    cpu, argv_ptr, 96, fmt="ptrlist")
-            except ValueError:
-                self.on_exec(fname)
-                return
-
-            # Read each argument pointer into argv list
-            argv = []
-            nullable_argv = []
-            for ptr in argv_buf:
-                if ptr == 0:
-                    break
-                try:
-                    argv.append(self.panda.read_str(cpu, ptr))
-                    nullable_argv.append(self.panda.read_str(cpu, ptr))
-                except ValueError:
-                    argv.append(f"(error: 0x{ptr:x})")
-                    nullable_argv.append(None)
-            self.on_exec(fname + " " + " ".join(argv))
 
     def reset(self):
         self.ifin_reached = False
         self.init_time = time.time()
 
-    def on_exec(self, newproc):
+    def on_exec(self, e):
+        newproc = e.fname + " " + " ".join(e.argv)
         self.prev_time = time.time()
 
         for proc in self.seen_procs:

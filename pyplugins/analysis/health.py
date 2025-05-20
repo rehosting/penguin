@@ -32,49 +32,21 @@ class Health(PyPlugin):
         self.procs = set()
         self.procs_args = set()
         self.devs = set()
-
-        plugins.register(self, "igloo_exec")
-
-        # panda.load_plugin("coverage", {"filename": self.outdir+"/cov.csv", "mode": "osi-block",
-        #                               "summary": 'true'})
         plugins.subscribe(plugins.Events, "igloo_ipv4_bind", self.on_ipv4_bind)
         plugins.subscribe(plugins.Events, "igloo_ipv6_bind", self.on_ipv6_bind)
         plugins.subscribe(plugins.Events, "igloo_open",
                           self.health_detect_opens)
-        plugins.syscalls.syscall("on_sys_execve_enter")(self.health_execve)
+        plugins.subscribe(plugins.Events, "igloo_exec", self.on_igloo_exec)
 
-    @plugins.portal.wrap
-    def health_execve(self, cpu, proto, syscall, fname_ptr, argv_ptr, envp):
+    def on_igloo_exec(self, e):
         if self.exiting:
             return
-        fname = yield from plugins.portal.read_str(fname_ptr)
 
-        if fname not in self.procs:
-            self.procs.add(fname)
+        if e.fname not in self.procs:
+            self.procs.add(e.fname)
             self.increment_event("nexecs")
 
-        argv_buf = yield from plugins.portal.read_ptrlist(argv_ptr, 8)
-        # Read each argument pointer into argv list
-        argv = []
-        nullable_argv = []
-        for ptr in argv_buf:
-            if ptr == 0:
-                break
-
-            val = yield from plugins.portal.read_str(ptr)
-            if val == "":
-                argv.append(f"(error: 0x{ptr:x})")
-                nullable_argv.append(None)
-            else:
-                argv.append(val)
-                nullable_argv.append(val)
-        try:
-            plugins.publish(self, "igloo_exec", cpu, fname, argv)
-        except Exception as e:
-            self.logger.error("Exn in health.igloo_exec")
-            self.logger.exception(e)
-
-        unique_name = f"{fname} {' '.join(argv)}"
+        unique_name = f"{e.fname} {' '.join(e.argv)}"
         if unique_name not in self.procs_args:
             self.procs_args.add(unique_name)
             self.increment_event("nexecs_args")
@@ -104,10 +76,6 @@ class Health(PyPlugin):
         """
         Increment the score for the given event
         """
-        # last = self.events[event][-1]
-        # last_score = last[1]
-        # rel_time = time.time() - self.start_time
-        # self.events[event].append((rel_time, last_score + 1))
         self.final_events[event] += 1
 
     def log_dev_open(self, fname):
