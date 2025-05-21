@@ -317,11 +317,20 @@ class Portal(PyPlugin):
                 iteration_time[cpu] = time.time()
                 new_iterator = True
 
+                # Prime the generator and capture the first yielded value
+                try:
+                    primed_cmd = next(cpu_iterators[cpu])
+                except StopIteration as e:
+                    cpu_iterators[cpu] = None
+                    return e.value
+            else:
+                primed_cmd = None
+
             in_op = self._handle_input_state(cpu)
 
             try:
                 if not in_op:
-                    cmd = next(cpu_iterators[cpu])
+                    cmd = primed_cmd if new_iterator else next(cpu_iterators[cpu])
                 elif in_op[0] == HYPER_RESP_READ_OK:
                     cmd = cpu_iterators[cpu].send(in_op[1])
                 elif in_op[0] == HYPER_RESP_READ_NUM:
