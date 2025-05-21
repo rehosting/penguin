@@ -410,7 +410,7 @@ def run_config(
         logger.info("Logging console output to stdout")
         console_out = [
                 "-chardev", f"stdio,id=char1,logfile={out_dir}/console.log,signal=off",
-                "-serial", "chardev:char1"
+                "-serial", "chardev:char1",
                 "-display", "none",
                 ]
     elif graphics:
