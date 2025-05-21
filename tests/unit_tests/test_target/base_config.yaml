@@ -52,6 +52,11 @@ plugins:
   shell: {}
   vpn: {}
   pseudofiles: {}
+  lifeguard: {}
+  interfaces: {}
+  send_hypercall: {}
+  indiv_debug: {}
+  syscalls_logger: {}
 
 static_files:
   /run_tests.sh:
