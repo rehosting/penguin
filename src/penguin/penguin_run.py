@@ -386,13 +386,13 @@ def run_config(
         )
 
     graphics = conf["core"].get("graphics", False)
-    show_output = conf["core"].get("show_output", False)
+    show_output_bool = conf["core"].get("show_output", False)
     root_shell_enabled = conf["core"].get("root_shell", False)
 
-    if graphics and show_output:
+    if graphics and show_output_bool:
         logger.warning("Graphics and show_output are mutually exclusive. Using graphics")
         conf["core"]["show_output"] = False
-        show_output = False
+        show_output_bool = False
 
     if graphics and root_shell_enabled:
         logger.warning("Graphics and root_shell are mutually exclusive. Using graphics")
@@ -406,7 +406,7 @@ def run_config(
             "telnet:0.0.0.0:" + str(telnet_port) + ",server,nowait",
         ]  # ttyS1: root shell
 
-    if show_output and not graphics:
+    if show_output_bool and not graphics:
         logger.info("Logging console output to stdout")
         console_out = [
                 "-chardev", f"stdio,id=char1,logfile={out_dir}/console.log,signal=off",
@@ -425,7 +425,6 @@ def run_config(
         ]
         console_out = []
         # if we do not set show_output it breaks our logging
-        show_output = True
     else:
         logger.info(f"Logging console output to {out_dir}/console.log")
         console_out = [
