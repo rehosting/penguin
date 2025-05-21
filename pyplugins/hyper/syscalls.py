@@ -1,6 +1,5 @@
 from pandare2 import PyPlugin
 from penguin import getColoredLogger, plugins
-import copy
 import json
 from typing import Dict, List, Any
 from hyper.consts import *
@@ -11,12 +10,13 @@ SYSCALL_HC_KNOWN_MAGIC = 0x1234
 class SyscallPrototype:
     """Represents syscall metadata"""
 
-    def __init__(self, name, syscall_nr, args=None):
+    def __init__(self, name, args=None, unknown_args=False):
+        # Store the name as the primary identifier
         self.name = name
-        self.syscall_nr = syscall_nr
         self.types = []
         self.names = []
         self.args = args
+        self.unknown_args = unknown_args
         if args:
             for i, j in args:
                 self.types.append(i)
@@ -24,7 +24,7 @@ class SyscallPrototype:
         self.nargs = len(self.types)
 
     def __repr__(self):
-        return f"<SyscallPrototype name='{self.name}' nr={self.syscall_nr} nargs={self.nargs}>"
+        return f"<SyscallPrototype name='{self.name}' nargs={self.nargs}>"
 
 
 class Syscalls(PyPlugin):
@@ -47,8 +47,8 @@ class Syscalls(PyPlugin):
         # Get portal plugin
         self.portal = plugins.portal
 
-        # Syscall type information
-        self.syscall_info_table: Dict[int, SyscallPrototype] = {}
+        # Syscall type information - using dictionary for fast name-based lookups
+        self.syscall_info_table: Dict[str, SyscallPrototype] = {}
         self.missing_syscalls: List[SyscallPrototype] = []
         self.verified_unknown_syscalls: set = set()
         self.table_initialized = False
@@ -78,26 +78,52 @@ class Syscalls(PyPlugin):
         reg1 = self.panda.arch.get_arg(cpu, 1, convention="syscall")
 
         # Read the JSON string at reg1
-        try:
-            json_str = self.panda.read_str(cpu, reg1)
-            syscall_data = json.loads(json_str)
-            sysinfo = SyscallPrototype(
-                name=syscall_data["name"],
-                syscall_nr=syscall_data["syscall_nr"],
-                args=syscall_data.get("args", [])
-            )
+        json_str = self.panda.read_str(cpu, reg1)
+        syscall_data = json.loads(json_str)
 
-            if sysinfo.syscall_nr == -1:
-                self.logger.debug(
-                    f"Syscall {sysinfo.name} not registered, saving for later")
-                self.missing_syscalls.append(sysinfo)
-            else:
-                self.syscall_info_table[sysinfo.syscall_nr] = sysinfo
-                self.logger.debug(
-                    f"Registered syscall {sysinfo.name} ({sysinfo.syscall_nr})")
+        # Clean the syscall name
+        name = syscall_data["name"]
+        clean_name = self._clean_syscall_name(name)
+        unknown_args = syscall_data.get("args", "") == "unknown"
 
-        except Exception as e:
-            self.logger.error(f"Error processing syscall definition: {e}")
+        if unknown_args:
+            args = []
+        else:
+            args = syscall_data.get("args", [])
+
+        # Create prototype without syscall_nr
+        sysinfo = SyscallPrototype(
+            name=f'sys_{clean_name}',
+            args=args,
+            unknown_args=unknown_args
+        )
+
+        # Store by cleaned name in the hash table
+        if unknown_args and clean_name in self.syscall_info_table:
+            self.logger.debug(
+                f"Syscall {name} is a compat syscall, skipping it for a better match")
+        else:
+            self.syscall_info_table[clean_name] = sysinfo
+            self.logger.debug(
+                f"Registered syscall {name} (cleaned: {clean_name})")
+
+    def _clean_syscall_name(self, name):
+        """
+        Clean a syscall name by removing various prefixes:
+        1. First remove 'sys_' prefix
+        2. Then remove any leading underscores
+        3. Then remove architecture-specific prefixes
+        """
+        if name.startswith("compat_"):
+            name = name[7:]
+        # First remove sys_ prefix if present
+        if name.startswith("sys_"):
+            name = name[4:]
+
+        # Then remove any remaining leading underscores
+        name = name.lstrip("_")
+
+        return name
 
     def _syscall_interrupt_handler(self):
         """
@@ -153,28 +179,50 @@ class Syscalls(PyPlugin):
             if saved_sequence == sequence:
                 return saved_sc, original
         sce = plugins.kffi.read_type_panda(cpu, arg, "syscall_event")
+        sce.name = bytes(sce.syscall_name).decode("latin-1").rstrip("\x00")
         original = sce.to_bytes()[:]
         self.saved_syscall_events[cpu] = (sce, sequence, original)
         return sce, original
 
     def _get_proto(self, cpu, sce):
-        if sce.nr in self.syscall_info_table:
-            proto = self.syscall_info_table[sce.nr]
-        else:
-            name = self.panda.read_str(
-                cpu, sce.syscall_name.address).lstrip('_')
-            scname = f'sys_{name}'
-            if n := self.find_missing_syscall(scname):
-                new_n = copy.copy(n)
-                new_n.syscall_nr = sce.nr
-                self.syscall_info_table[sce.nr] = new_n
-                proto = new_n
-            else:
-                # If we don't have a prototype, create a generic one
-                proto = SyscallPrototype(name=scname, syscall_nr=sce.nr)
-                self.syscall_info_table[sce.nr] = proto
-                self.logger.debug(
-                    f"Syscall {sce.nr} ({sce.name}) not registered, using generic prototype")
+        # Get syscall name from the event
+        name = sce.name
+        # Clean the syscall name
+        cleaned_name = self._clean_syscall_name(name)
+
+        # Look up the prototype by cleaned name directly using hash table (O(1) lookup)
+        proto = self.syscall_info_table.get(cleaned_name)
+
+        # If not found, try removing architecture prefix
+        if not proto:
+            # Try removing everything up to and including the first underscore
+            if '_' in cleaned_name:
+                arch_stripped_name = cleaned_name.split('_', 1)[1]
+                proto = self.syscall_info_table.get(arch_stripped_name)
+
+                if proto:
+                    self.logger.debug(
+                        f"Found syscall after removing architecture prefix: {cleaned_name} → {arch_stripped_name}")
+
+        # If still not found, create a new generic prototype with unknown args
+        if not proto:
+            # Generate generic argument names (unknown1, unknown2, etc.)
+            generic_args = []
+            for i in range(6):  # Most syscalls have 6 or fewer args
+                arg_name = f"unknown{i+1}"
+                generic_args.append(("int", arg_name))
+
+            # Create new prototype with the appropriate name and generic args
+            proto = SyscallPrototype(
+                name=f'sys_{cleaned_name}',
+                args=generic_args
+            )
+
+            # Add to our table for future lookups
+            self.syscall_info_table[cleaned_name] = proto
+            self.logger.error(
+                f"Syscall {name} not registered {cleaned_name=}, created generic prototype with {len(generic_args)} args")
+
         return proto
 
     def _syscall_event(self, cpu, is_enter=None):
@@ -187,29 +235,21 @@ class Syscalls(PyPlugin):
             self.logger.debug(f"Syscall event {id_} not registered")
             return
         proto = self._get_proto(cpu, sce)
+
         on_all, f = self.hooks[id_]
 
         # If we're handling all syscalls or we don't have prototype info,
         # just call the function with the standard arguments
-        if on_all or proto is None or proto.nargs == 0:
+        if on_all or proto is None or sce.argc == 0:
             f(cpu, proto, sce)
         else:
-            sysargs = [sce.args[i] for i in range(proto.nargs)]
+            sysargs = [sce.args[i] for i in range(sce.argc)]
             # Call the function with standard arguments plus syscall arguments
             f(cpu, proto, sce, *sysargs)
 
         new = sce.to_bytes()
         if original != new:
             self.panda.virtual_memory_write(cpu, arg, new)
-
-    def find_missing_syscall(self, scname):
-        for sc in self.missing_syscalls:
-            if sc.name == scname:
-                return sc
-
-        for sc in self.syscall_info_table.values():
-            if sc.name == scname:
-                return copy.copy(sc)
 
     def register_syscall_hook(self, hook_config):
         """

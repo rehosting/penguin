@@ -90,7 +90,7 @@ class PyPandaSysLog(PyPlugin):
 
     @plugins.portal.wrap
     def all_sys_ret(self, cpu, proto, syscall):
-        protoname, _, _ = self.get_syscall_proto(proto, proto.syscall_nr)
+        protoname, _, _ = self.get_syscall_proto(proto, proto.name)
         if "execve" not in protoname:
             yield from self.handle_syscall(cpu, proto, syscall)
 
@@ -166,7 +166,7 @@ class PyPandaSysLog(PyPlugin):
         return "" if x == self.panda.ffi.NULL else self.panda.ffi.string(x).decode()
 
     @functools.lru_cache
-    def get_syscall_proto(self, proto, num):
+    def get_syscall_proto(self, proto, name):
         protoname = self.cstr(proto.name)
         types = [self.cstr(proto.types[i]) for i in range(proto.nargs)]
         names = [self.cstr(proto.names[i]) for i in range(proto.nargs)]
@@ -174,7 +174,7 @@ class PyPandaSysLog(PyPlugin):
 
     def handle_syscall(self, cpu, proto, syscall):
         protoname, types, names = self.get_syscall_proto(
-            proto, proto.syscall_nr)
+            proto, proto.name)
         args = [syscall.args[i] for i in range(proto.nargs)]
         args_repr = []
         for i, j in enumerate(types):
