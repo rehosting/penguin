@@ -544,6 +544,37 @@ Pseudofiles = _newtype(
     description="Device files to emulate in the guest",
 )
 
+
+class NetlinkSource(BaseModel):
+    """How to emulate a netlink source"""
+
+    model_config = ConfigDict(title="Netlink source", extra="forbid")
+
+    plugin: Annotated[
+        str,
+        Field(
+            None,
+            title="Plugin name",
+            description="Name of the loaded PyPlugin to use for emulating the netlink source",
+        ),
+    ]
+    function: Annotated[
+        str,
+        Field(
+            None,
+            title="Function name",
+            description="Name of the function in the PyPlugin to use as the callback for the netlink source",
+        ),
+    ]
+
+
+Netlink = _newtype(
+    class_name="Netlink",
+    type_=dict[Union[int, Star], NetlinkSource],
+    title="Netlink",
+    description="Netlink protocols to listen on in the guest kernel",
+)
+
 Patches = _newtype(
     class_name="Patches",
     type_=list[str],
@@ -807,6 +838,7 @@ class Main(BaseModel):
     patches: Optional[Patches] = None
     env: Env
     pseudofiles: Pseudofiles
+    netlink: Netlink
     nvram: NVRAM
     netdevs: List[str] = NetDevs
     uboot_env: Optional[UBootEnv] = None
