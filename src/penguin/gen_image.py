@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 from subprocess import check_output
 from random import randint
+import keystone
 
 import click
 
@@ -234,7 +235,7 @@ def _symlink_modify_guestfs(g, file_path, file):
     g.chmod(0o777, linkpath)
 
 
-def _modify_guestfs(g, file_path, file, project_dir):
+def _modify_guestfs(g, file_path, file, project_dir, config):
     """
     Given a guestfs handle, a file path, and a file dict, perform the specified action on the guestfs filesystem.
     If the action is unsupported or fails, we'll print details and raise an exception.
@@ -282,7 +283,7 @@ def _modify_guestfs(g, file_path, file, project_dir):
                             new_file = file
                             new_file["host_path"] = m
                             new_file_path = str(Path(folder, Path(m).name))
-                            _modify_guestfs(g, new_file_path, new_file, project_dir)
+                            _modify_guestfs(g, new_file_path, new_file, project_dir, config)
                         return
 
                 try:
@@ -389,12 +390,56 @@ def _modify_guestfs(g, file_path, file, project_dir):
         elif action == "binary_patch":
             file_offset = file.get("file_offset")
             bytes_hex = file.get("hex_bytes")
+            asm = file.get("asm")
 
-            # Convert hex string to bytes
-            patch_bytes = bytes.fromhex(bytes_hex.replace(" ", ""))
+            if bool(bytes_hex) == bool(asm):
+                raise ValueError("Exactly one of 'hex_bytes' or 'asm' must be specified for binary_patch")
+
+            if asm:
+                arch_map = {
+                    "armel": getattr(keystone, "KS_ARCH_ARM"),
+                    "aarch64": getattr(keystone, "KS_ARCH_ARM64"),
+                    "mipsel": getattr(keystone, "KS_ARCH_MIPS"),
+                    "mipseb": getattr(keystone, "KS_ARCH_MIPS"),
+                    "mips64el": getattr(keystone, "KS_ARCH_MIPS"),
+                    "mips64eb": getattr(keystone, "KS_ARCH_MIPS"),
+                    "intel64": getattr(keystone, "KS_ARCH_X86"),
+                }
+                mode_map = {
+                    "aarch64": getattr(keystone, "KS_MODE_LITTLE_ENDIAN") | getattr(keystone, "KS_MODE_64"),
+                    "mipsel": getattr(keystone, "KS_MODE_MIPS32") | getattr(keystone, "KS_MODE_LITTLE_ENDIAN"),
+                    "mipseb": getattr(keystone, "KS_MODE_MIPS32") | getattr(keystone, "KS_MODE_BIG_ENDIAN"),
+                    "mips64el": getattr(keystone, "KS_MODE_MIPS64") | getattr(keystone, "KS_MODE_LITTLE_ENDIAN"),
+                    "mips64eb": getattr(keystone, "KS_MODE_MIPS64") | getattr(keystone, "KS_MODE_BIG_ENDIAN"),
+                    "intel64": getattr(keystone, "KS_MODE_64"),
+                }
+                arch = config["core"]["arch"]
+                ks_arch = arch_map.get(arch)
+                if ks_arch is None:
+                    raise ValueError(f"Unsupported arch: {arch}")
+
+                # Handle ARM mode selection
+                if arch == "armel":
+                    user_mode = file.get("mode", "arm")
+                    if user_mode == "thumb":
+                        ks_mode = getattr(keystone, "KS_MODE_THUMB") | getattr(keystone, "KS_MODE_LITTLE_ENDIAN")
+                    else:
+                        ks_mode = getattr(keystone, "KS_MODE_ARM") | getattr(keystone, "KS_MODE_LITTLE_ENDIAN")
+                else:
+                    ks_mode = mode_map.get(arch)
+                    if ks_mode is None:
+                        raise ValueError(f"Unsupported mode for arch: {arch}")
+
+                ks = keystone.Ks(ks_arch, ks_mode)
+                encoding, _ = ks.asm(asm)
+                patch_bytes = bytes(encoding)
+            else:
+                patch_bytes = bytes.fromhex(bytes_hex.replace(" ", ""))
+
+            if file_offset is None:
+                raise ValueError("binary_patch requires file_offset")
+
             target_path = file_path
-
-            # Open the file and patch it
             p = g.adjust_path(target_path)
             if not os.path.isfile(p):
                 raise FileNotFoundError(f"Target file for binary_patch not found: {target_path}")
@@ -477,7 +522,7 @@ def fs_make_config_changes(fs_base, config, project_dir):
         # resolved_file_path = resolve_symlink_path(g, file_path)
         # resolved_file_path = os.path.dirname(resolved_file_path) + '/' + os.path.basename(file_path)
         if resolved_file_path := file_path:
-            _modify_guestfs(g, resolved_file_path, file, project_dir)
+            _modify_guestfs(g, resolved_file_path, file, project_dir, config)
 
     # Next, we'll do any move_from operations
     move_from_files = {k: v for k, v in files.items() if v["type"] == "move_from"}
@@ -485,7 +530,7 @@ def fs_make_config_changes(fs_base, config, project_dir):
         move_from_files.items(), key=lambda x: len(files[x[0]])
     )
     for file_path, file in sorted_move_from_files:
-        _modify_guestfs(g, file_path, file, project_dir)
+        _modify_guestfs(g, file_path, file, project_dir, config)
 
     # Now we'll do everything, except symlinks
     sorted_files = {
@@ -502,7 +547,7 @@ def fs_make_config_changes(fs_base, config, project_dir):
             # resolved_file_path = file_path
             # if resolved_file_path != file_path:
             #    print(f"WARNING: Resolved file path {file_path} to {resolved_file_path}")
-            _modify_guestfs(g, resolved_file_path, file, project_dir)
+            _modify_guestfs(g, resolved_file_path, file, project_dir, config)
 
     # Create symlinks after everything else because guestfs requires destination to exist
     # move_from_files = {k: v for k, v in files.items() if v["type"] == "symlink"}
@@ -513,7 +558,7 @@ def fs_make_config_changes(fs_base, config, project_dir):
         move_from_files.items(), key=lambda x: len(files[x[0]]["target"])
     )
     for file_path, file in sorted_move_from_files:
-        _modify_guestfs(g, file_path, file, project_dir)
+        _modify_guestfs(g, file_path, file, project_dir, config)
 
     # Sanity checks. Does guest still have a /bin/sh? Is there a /igloo directory?
     if (
