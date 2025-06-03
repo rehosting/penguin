@@ -1115,6 +1115,41 @@ Copy a file from the host into the guest
 |__Type__|string|
 
 
+#### `static_files.<string>.<type=binary_patch>` Patch binary file
+
+
+##### `static_files.<string>.<type=binary_patch>.type` Type of file action (patch binary file)
+
+|||
+|-|-|
+|__Type__|`"binary_patch"`|
+
+
+##### `static_files.<string>.<type=binary_patch>.file_offset` File offset (integer)
+
+|||
+|-|-|
+|__Type__|integer|
+|__Default__|`null`|
+
+Offset in the file to patch, from the start of the file
+
+##### `static_files.<string>.<type=binary_patch>.hex_bytes` Bytes to write (hex string)
+
+|||
+|-|-|
+|__Type__|string|
+
+Hex string of bytes to write at the offset
+
+```yaml
+DEADBEEF
+```
+
+```yaml
+90 90
+```
+
 ## `plugins` Plugins
 
 
