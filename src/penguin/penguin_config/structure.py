@@ -708,6 +708,31 @@ StaticFileAction = _union(
                 ),
             ),
         ),
+        dict(
+            discrim_val="binary_patch",
+            title="Patch binary file",
+            description=None,
+            fields=(
+                (
+                    "file_offset",
+                    int,
+                    Field(
+                        default=None,
+                        title="File offset (integer)",
+                        description="Offset in the file to patch, from the start of the file"
+                    ),
+                ),
+                (
+                    "hex_bytes",
+                    str,
+                    Field(
+                        title="Bytes to write (hex string)",
+                        description="Hex string of bytes to write at the offset",
+                        examples=["DEADBEEF", "90 90"],
+                    ),
+                ),
+            ),
+        ),
     ),
 )
 

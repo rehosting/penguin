@@ -386,6 +386,22 @@ def _modify_guestfs(g, file_path, file, project_dir):
             # Create a symlink to desired target
             symlink_file = {"type": "symlink", "target": file["target"]}
             _symlink_modify_guestfs(g, file_path, symlink_file)
+        elif action == "binary_patch":
+            file_offset = file.get("file_offset")
+            bytes_hex = file.get("hex_bytes")
+
+            # Convert hex string to bytes
+            patch_bytes = bytes.fromhex(bytes_hex.replace(" ", ""))
+            target_path = file_path
+
+            # Open the file and patch it
+            p = g.adjust_path(target_path)
+            if not os.path.isfile(p):
+                raise FileNotFoundError(f"Target file for binary_patch not found: {target_path}")
+
+            with open(p, "r+b") as f:
+                f.seek(file_offset)
+                f.write(patch_bytes)
 
         else:
             raise RuntimeError(f"Unknown file system action {action}")
