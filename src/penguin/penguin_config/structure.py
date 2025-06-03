@@ -724,14 +724,35 @@ StaticFileAction = _union(
                 ),
                 (
                     "hex_bytes",
-                    str,
+                    Optional[str],
                     Field(
+                        default=None,
                         title="Bytes to write (hex string)",
                         description="Hex string of bytes to write at the offset",
                         examples=["DEADBEEF", "90 90"],
                     ),
                 ),
-            ),
+                (
+                    "asm",
+                    Optional[str],
+                    Field(
+                        default=None,
+                        title="Assembly code to write (runs through keystone)",
+                        description="Assembly code to write at the offset. This will be assembled and written to the file.",
+                        examples=["nop", "mov r0, #0xdeadbeef"],
+                    ),
+                ),
+                (
+                    "mode",
+                    Optional[str],
+                    Field(
+                        default=None,
+                        title="Assembly mode",
+                        description="What mode to use for assembly with asm.",
+                        examples=["arm", "thumb"],
+                    ),
+                ),
+            )
         ),
     ),
 )

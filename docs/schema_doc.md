@@ -1138,7 +1138,8 @@ Offset in the file to patch, from the start of the file
 
 |||
 |-|-|
-|__Type__|string|
+|__Type__|string or null|
+|__Default__|`null`|
 
 Hex string of bytes to write at the offset
 
@@ -1148,6 +1149,40 @@ DEADBEEF
 
 ```yaml
 90 90
+```
+
+##### `static_files.<string>.<type=binary_patch>.asm` Assembly code to write (runs through keystone)
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Assembly code to write at the offset. This will be assembled and written to the file.
+
+```yaml
+nop
+```
+
+```yaml
+'mov r0, #0xdeadbeef'
+```
+
+##### `static_files.<string>.<type=binary_patch>.mode` Assembly mode
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+What mode to use for assembly with asm.
+
+```yaml
+arm
+```
+
+```yaml
+thumb
 ```
 
 ## `plugins` Plugins
