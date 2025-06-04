@@ -300,7 +300,7 @@ class Portal(PyPlugin):
             # memory regions per call
             new_iterator = False
             if cpu_memregion not in iterators or iterators[cpu_memregion] is None:
-                self.logger.debug(f"Creating new iterator")
+                self.logger.debug("Creating new iterator")
                 # Revert to calling the original function f with self_
                 fn_ret = f(*args, **kwargs)
 
