@@ -20,7 +20,6 @@ class Portal(PyPlugin):
         # if self.get_arg_bool("verbose"):
         #     self.logger.setLevel("DEBUG")
         self.panda = panda
-        self.cpu_memregion_structs = {}
         # Set endianness format character for struct operations
         self.endian_format = '<' if panda.endianness == 'little' else '>'
         self.portal_interrupt = None
@@ -117,15 +116,15 @@ class Portal(PyPlugin):
     This can return none
     '''
 
-    def _read_memregion_state(self, cpu):
-        cpu_memregion = self.cpu_memregion_structs[cpu]
+    def _read_memregion_state(self, cpum):
+        cpu, cpu_memregion = cpum
         memr = kffi.read_type_panda(cpu, cpu_memregion, "region_header")
         self.logger.debug(
             f"Reading memregion state: op={memr.op}, addr={memr.addr:#x}, size={memr.size}")
         return memr.op, memr.addr, memr.size
 
-    def _read_memregion_data(self, cpu, size):
-        cpu_memregion = self.cpu_memregion_structs[cpu]
+    def _read_memregion_data(self, cpum, size):
+        cpu, cpu_memregion = cpum
         if size > self.regions_size:
             self.logger.error(
                 f"Size {size} exceeds chunk size {self.regions_size}")
@@ -137,8 +136,8 @@ class Portal(PyPlugin):
         except ValueError as e:
             self.logger.error(f"Failed to read memory: {e}")
 
-    def _write_memregion_state(self, cpu, op, addr, size, pid=None):
-        cpu_memregion = self.cpu_memregion_structs[cpu]
+    def _write_memregion_state(self, cpum, op, addr, size, pid=None):
+        cpu, cpu_memregion = cpum
         if size > self.regions_size:
             self.logger.error(
                 f"Size {size} exceeds chunk size {self.regions_size}")
@@ -169,8 +168,8 @@ class Portal(PyPlugin):
         except ValueError as e:
             self.logger.error(f"Failed to write memregion state: {e}")
 
-    def _write_memregion_data(self, cpu, data):
-        cpu_memregion = self.cpu_memregion_structs[cpu]
+    def _write_memregion_data(self, cpum, data):
+        cpu, cpu_memregion = cpum
         if len(data) > self.regions_size:
             self.logger.error(
                 f"Data length {len(data)} exceeds chunk size {self.regions_size}")
@@ -181,9 +180,9 @@ class Portal(PyPlugin):
         except ValueError as e:
             self.logger.error(f"Failed to write memregion data: {e}")
 
-    def _handle_input_state(self, cpu):
+    def _handle_input_state(self, cpum):
         in_op = None
-        op, addr, size = self._read_memregion_state(cpu)
+        op, addr, size = self._read_memregion_state(cpum)
         if op == HYPER_OP_NONE:
             pass
         elif op & HYPER_RESP_NONE == 0:
@@ -192,13 +191,13 @@ class Portal(PyPlugin):
             self.logger.error(f"Invalid operation: {op:#x}")
         elif op == HYPER_RESP_READ_OK:
             self.logger.debug(f"Read OK: {addr:#x} {size}")
-            data = self._read_memregion_data(cpu, size)
+            data = self._read_memregion_data(cpum, size)
             in_op = (op, data)
         elif op == HYPER_RESP_READ_FAIL:
             self.logger.debug("Failed to read memory")
         elif op == HYPER_RESP_READ_PARTIAL:
             self.logger.debug(f"Read OK: {addr:#x} {size}")
-            data = self._read_memregion_data(cpu, size)
+            data = self._read_memregion_data(cpum, size)
             in_op = (op, data)
         elif op == HYPER_RESP_WRITE_OK:
             pass
@@ -213,71 +212,71 @@ class Portal(PyPlugin):
             self.logger.error(f"Unknown operation: {op:#x}")
         return in_op
 
-    def _handle_output_cmd(self, cpu, cmd):
+    def _handle_output_cmd(self, cpum, cmd):
         match cmd:
             case("read", addr, size, pid):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_READ, addr, size, pid)
+                    cpum, HYPER_OP_READ, addr, size, pid)
             case("read_str", addr, pid):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_READ_STR, addr, 0, pid)
+                    cpum, HYPER_OP_READ_STR, addr, 0, pid)
             case("read_proc_args", pid):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_READ_PROCARGS, 0, 0, pid)
+                    cpum, HYPER_OP_READ_PROCARGS, 0, 0, pid)
             case("read_proc_env", pid):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_READ_PROCENV, 0, 0, pid)
+                    cpum, HYPER_OP_READ_PROCENV, 0, 0, pid)
             case("read_file_offset", fname, offset, size):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_READ_FILE, offset, size)
-                self._write_memregion_data(cpu, fname)
+                    cpum, HYPER_OP_READ_FILE, offset, size)
+                self._write_memregion_data(cpum, fname)
             case("write_file", fname, offset, data):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_WRITE_FILE, offset, len(data))
-                self._write_memregion_data(cpu, fname + data)
+                    cpum, HYPER_OP_WRITE_FILE, offset, len(data))
+                self._write_memregion_data(cpum, fname + data)
             case("get_osi_proc_handles"):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_OSI_PROC_HANDLES, 0, 0)
+                    cpum, HYPER_OP_OSI_PROC_HANDLES, 0, 0)
             case("get_fds", start_fd, pid):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_READ_FDS, start_fd, 0, pid)
+                    cpum, HYPER_OP_READ_FDS, start_fd, 0, pid)
             case("get_proc", pid):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_OSI_PROC, 0, 0, pid)
+                    cpum, HYPER_OP_OSI_PROC, 0, 0, pid)
             case("get_proc_mappings", pid, skip):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_OSI_MAPPINGS, skip, 0, pid)
+                    cpum, HYPER_OP_OSI_MAPPINGS, skip, 0, pid)
             case("exec", wait, data):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_EXEC, wait, len(data))
-                self._write_memregion_data(cpu, data)
+                    cpum, HYPER_OP_EXEC, wait, len(data))
+                self._write_memregion_data(cpum, data)
             case("write", addr, data, pid):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_WRITE, addr, len(data), pid)
-                self._write_memregion_data(cpu, data)
+                    cpum, HYPER_OP_WRITE, addr, len(data), pid)
+                self._write_memregion_data(cpum, data)
             case("ffi_exec", ffi_data):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_FFI_EXEC, 0, len(ffi_data))
-                self._write_memregion_data(cpu, ffi_data)
+                    cpum, HYPER_OP_FFI_EXEC, 0, len(ffi_data))
+                self._write_memregion_data(cpum, ffi_data)
             case("uprobe_reg", addr, data):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_REGISTER_UPROBE, addr, len(data))
-                self._write_memregion_data(cpu, data)
+                    cpum, HYPER_OP_REGISTER_UPROBE, addr, len(data))
+                self._write_memregion_data(cpum, data)
             case("uprobe_unreg", id_):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_UNREGISTER_UPROBE, id_, 0)
+                    cpum, HYPER_OP_UNREGISTER_UPROBE, id_, 0)
             case("syscall_reg", data):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_REGISTER_SYSCALL_HOOK, 0, len(data))
-                self._write_memregion_data(cpu, data)
+                    cpum, HYPER_OP_REGISTER_SYSCALL_HOOK, 0, len(data))
+                self._write_memregion_data(cpum, data)
             case("syscall_unreg", id_):
                 self._write_memregion_state(
-                    cpu, HYPER_OP_UNREGISTER_SYSCALL_HOOK, id_, 0)
+                    cpum, HYPER_OP_UNREGISTER_SYSCALL_HOOK, id_, 0)
             case("dump", mode, signal):
                 # mode in lowest 8 bits, signal in next 8 bits
                 dump_addr = ((signal & 0xFF) << 8) | (mode & 0xFF)
                 self._write_memregion_state(
-                    cpu, HYPER_OP_DUMP, dump_addr, 0)
+                    cpum, HYPER_OP_DUMP, dump_addr, 0)
             case None:
                 return False
             case _:
@@ -287,24 +286,21 @@ class Portal(PyPlugin):
         return True
 
     def wrap(self, f):
-        cpu_iterators = {}
-        cpu_iterator_start = {}
-        claimed_slot = {}
+        iterators = {}
         iteration_time = {}
 
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
             cpu = self.panda.get_cpu()
+            cpu_memregion = self.panda.arch.get_arg(cpu, 3, convention="syscall")
+            cpum = cpu, cpu_memregion
             fn_return = None
-            # nonlocal cpu_iterators, claimed_slot, cpu_iterator_start
 
-            if cpu not in self.cpu_memregion_structs:
-                self.logger.error("CPU not registered")
-                return
-
+            # cpu_memregions now uniquely identify the hypercall because they have distinct
+            # memory regions per call
             new_iterator = False
-            if cpu not in cpu_iterators or cpu_iterators[cpu] is None:
-                self.logger.debug(f"Creating new iterator for CPU {(cpu,f)}")
+            if cpu_memregion not in iterators or iterators[cpu_memregion] is None:
+                self.logger.debug(f"Creating new iterator")
                 # Revert to calling the original function f with self_
                 fn_ret = f(*args, **kwargs)
 
@@ -313,48 +309,48 @@ class Portal(PyPlugin):
                                       You need at least one yield statement in the function.")
                     return fn_ret
 
-                cpu_iterators[cpu] = fn_ret
-                iteration_time[cpu] = time.time()
+                iterators[cpu_memregion] = fn_ret
+                iteration_time[cpu_memregion] = time.time()
                 new_iterator = True
 
-            in_op = self._handle_input_state(cpu)
+            in_op = self._handle_input_state(cpum)
+
+            if in_op and new_iterator:
+                self.logger.error("Somehow we have unfinished input state -> problematic")
+                in_op = None
 
             try:
                 if not in_op:
-                    cmd = next(cpu_iterators[cpu])
+                    cmd = next(iterators[cpu_memregion])
                 elif in_op[0] == HYPER_RESP_READ_OK:
-                    cmd = cpu_iterators[cpu].send(in_op[1])
+                    cmd = iterators[cpu_memregion].send(in_op[1])
                 elif in_op[0] == HYPER_RESP_READ_NUM:
-                    cmd = cpu_iterators[cpu].send(in_op[1])
+                    cmd = iterators[cpu_memregion].send(in_op[1])
                 elif in_op[0] == HYPER_RESP_READ_PARTIAL:
-                    cmd = cpu_iterators[cpu].send(in_op[1])
+                    cmd = iterators[cpu_memregion].send(in_op[1])
                 else:
-                    cpu_iterators[cpu] = None
+                    iterators[cpu_memregion] = None
                     raise Exception(f"Invalid state cmd is {in_op}")
             except StopIteration as e:
-                cpu_iterators[cpu] = None
+                del iterators[cpu_memregion]
                 # The function has completed, and we need to return the value
                 fn_return = e.value
-                cpu_iterator_start[cpu] = None
                 self._write_memregion_state(
-                    cpu, HYPER_OP_NONE, 0, 0)
-                claimed_slot[cpu] = None
+                    cpum, HYPER_OP_NONE, 0, 0)
                 cmd = None
 
             if new_iterator and cmd is None:
                 # this is basically a no-op. Our functionality wasn't used
                 return fn_return
 
-            self._handle_output_cmd(cpu, cmd)
+            self._handle_output_cmd(cpum, cmd)
 
             return fn_return
         return wrapper
 
     def _register_cpu_memregion(self, cpu):
-        self.cpu_memregion_structs[cpu] = self.panda.arch.get_arg(
-            cpu, 1, convention="syscall")
         self.regions_size = self.panda.arch.get_arg(
-            cpu, 2, convention="syscall")
+            cpu, 1, convention="syscall")
 
     def write_bytes(self, addr, data, pid=None):
         self.logger.debug(
