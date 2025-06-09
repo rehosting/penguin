@@ -511,7 +511,7 @@ class PseudofileFinder(StaticAnalysis):
     # Directories that we want to just ignore entirely - don't create any entries
     # within these directories. IRQs and device-tree are related to the emulated CPU
     # self and PID are related to the process itself and dynamically created
-    PROC_IGNORE = ["irq", "self", "PID", "device-tree", "net"]
+    PROC_IGNORE = ["irq", "self", "PID", "device-tree", "net", "vmcore"]
 
     def __init__(self):
         # Load ../resources/proc_sys.txt, add each line to IGLOO_PROCFS
