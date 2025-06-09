@@ -573,6 +573,7 @@ Netlink = _newtype(
     type_=dict[Union[int, Star], NetlinkSource],
     title="Netlink",
     description="Netlink protocols to listen on in the guest kernel",
+    default=dict(),
 )
 
 Patches = _newtype(
@@ -838,7 +839,7 @@ class Main(BaseModel):
     patches: Optional[Patches] = None
     env: Env
     pseudofiles: Pseudofiles
-    netlink: Netlink
+    netlink: Optional[Netlink] = None
     nvram: NVRAM
     netdevs: List[str] = NetDevs
     uboot_env: Optional[UBootEnv] = None

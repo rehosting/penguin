@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -eu
 
@@ -397,9 +397,9 @@ penguin_run() {
 
         if [ -n "${SSH_AUTH_SOCK:-}" ]; then
             # Build with ssh
-            DOCKER_BUILDKIT=1 docker build --build-arg SSH=1 --ssh default -t $image -t rehosting/fw2tar .
+            DOCKER_BUILDKIT=1 docker build --platform linux/amd64 --build-arg SSH=1 --ssh default -t $image -t rehosting/fw2tar .
         else
-            DOCKER_BUILDKIT=1 docker build -t $image -t rehosting/fw2tar .
+            DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -t $image -t rehosting/fw2tar .
         fi
 
         # If we have no other args, and not build_singularity exit 0
