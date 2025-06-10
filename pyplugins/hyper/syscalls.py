@@ -103,12 +103,13 @@ class Syscalls(PyPlugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.logger = getColoredLogger("plugins.syscalls")
-        # if self.get_arg_bool("verbose"):
-        # self.logger.setLevel("DEBUG")
 
-        # Map hook_ids to callbacks
-        self.hooks: Dict[int, Dict[str, Any]] = {}
-        self.hook_id_counter = 1
+        # Map hook pointers to callbacks
+        self.hooks: Dict[int, tuple] = {}  # Maps hook pointers to (on_all, callback_func) tuples
+        
+        # Track function -> hook_ptr and name -> hook_ptr for easier lookup
+        self._func_to_hook_ptr = {}  # Maps functions to hook pointers
+        self._name_to_hook_ptr = {}  # Maps function names to hook pointers
 
         # Get portal plugin
         self.portal = plugins.portal
@@ -214,7 +215,17 @@ class Syscalls(PyPlugin):
             # Register the syscall hook
             hook_ptr = yield from self.register_syscall_hook(hook_config)
             on_all = hook_config.get("on_all", False)
+            
+            # Store hook information for multiple lookup methods
             self.hooks[hook_ptr] = (on_all, func)
+            
+            # Track function to hook pointer mappings
+            self._func_to_hook_ptr[func] = hook_ptr
+            
+            # Store by function name if available
+            func_name = func.__name__ if hasattr(func, "__name__") else None
+            if func_name:
+                self._name_to_hook_ptr[func_name] = hook_ptr
 
     def _syscall_enter_event(self, cpu):
         """
@@ -522,3 +533,125 @@ class Syscalls(PyPlugin):
             return func
 
         return decorator
+
+    def disable_syscall(self, callback_or_name):
+        """
+        Disables a registered syscall hook.
+        
+        Args:
+            callback_or_name: The callback function or its name to disable.
+                            Can be the original function, the decorated function, or the function name.
+        
+        Returns:
+            bool: True if hook was found and disabled, False otherwise
+        """
+        hook_ptr = None
+        
+        # Check if we got a function object
+        if callable(callback_or_name):
+            # First try direct lookup
+            if callback_or_name in self._func_to_hook_ptr:
+                hook_ptr = self._func_to_hook_ptr[callback_or_name]
+            else:
+                # Try to find by function name
+                func_name = callback_or_name.__name__ if hasattr(callback_or_name, "__name__") else None
+                if func_name and func_name in self._name_to_hook_ptr:
+                    hook_ptr = self._name_to_hook_ptr[func_name]
+                else:
+                    # Try to find by function in callbacks
+                    for ptr, (_, func) in self.hooks.items():
+                        if func == callback_or_name:
+                            hook_ptr = ptr
+                            break
+        
+        # Check if we got a string (function name)
+        elif isinstance(callback_or_name, str):
+            if callback_or_name in self._name_to_hook_ptr:
+                hook_ptr = self._name_to_hook_ptr[callback_or_name]
+            else:
+                # Try to find by scanning all registered callbacks
+                for ptr, (_, func) in self.hooks.items():
+                    if hasattr(func, "__name__") and func.__name__ == callback_or_name:
+                        hook_ptr = ptr
+                        break
+        
+        # If we found the hook, disable it
+        if hook_ptr and hook_ptr in self.hooks:
+            # Create disable command
+            disable_cmd = plugins.kffi.new("syscall_disable_cmd")
+            disable_cmd.hook = hook_ptr
+            disable_cmd.enable = False
+            
+            # Send to kernel via portal
+            result = self.portal.send_and_receive("syscall_enable", disable_cmd.to_bytes())
+            
+            if result:
+                self.logger.debug(f"Successfully disabled syscall hook: {hook_ptr:#x}")
+                return True
+            else:
+                self.logger.warning(f"Failed to disable syscall hook: {hook_ptr:#x}")
+                return False
+        else:
+            self.logger.warning(f"Syscall hook not found for {callback_or_name}")
+            return False
+            
+    def enable_syscall(self, callback_or_name):
+        """
+        Enables a previously disabled syscall hook.
+        
+        Args:
+            callback_or_name: The callback function or its name to enable.
+                            Can be the original function, the decorated function, or the function name.
+        
+        Returns:
+            bool: True if hook was found and enabled, False otherwise
+        """
+        hook_ptr = None
+        
+        # Check if we got a function object
+        if callable(callback_or_name):
+            # First try direct lookup
+            if callback_or_name in self._func_to_hook_ptr:
+                hook_ptr = self._func_to_hook_ptr[callback_or_name]
+            else:
+                # Try to find by function name
+                func_name = callback_or_name.__name__ if hasattr(callback_or_name, "__name__") else None
+                if func_name and func_name in self._name_to_hook_ptr:
+                    hook_ptr = self._name_to_hook_ptr[func_name]
+                else:
+                    # Try to find by function in callbacks
+                    for ptr, (_, func) in self.hooks.items():
+                        if func == callback_or_name:
+                            hook_ptr = ptr
+                            break
+        
+        # Check if we got a string (function name)
+        elif isinstance(callback_or_name, str):
+            if callback_or_name in self._name_to_hook_ptr:
+                hook_ptr = self._name_to_hook_ptr[callback_or_name]
+            else:
+                # Try to find by scanning all registered callbacks
+                for ptr, (_, func) in self.hooks.items():
+                    if hasattr(func, "__name__") and func.__name__ == callback_or_name:
+                        hook_ptr = ptr
+                        break
+        
+        # If we found the hook, enable it
+        if hook_ptr and hook_ptr in self.hooks:
+            # Create enable command
+            enable_cmd = plugins.kffi.new("syscall_disable_cmd")
+            enable_cmd.hook = hook_ptr
+            enable_cmd.enable = True
+            
+            # Send to kernel via portal
+            result = self.portal.send_and_receive("syscall_enable", enable_cmd.to_bytes())
+            
+            if result:
+                self.logger.debug(f"Successfully enabled syscall hook: {hook_ptr:#x}")
+                return True
+            else:
+                self.logger.warning(f"Failed to enable syscall hook: {hook_ptr:#x}")
+                return False
+        else:
+            self.logger.warning(f"Syscall hook not found for {callback_or_name}")
+            return False
