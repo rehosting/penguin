@@ -55,17 +55,17 @@ class SyscallTest(PyPlugin):
 
     def ioctl_ret2(self, cpu, proto, syscall, fd, op, arg):
         self.ioctl_ret2_num += 1
-        assert fd == 0x13, f"Expected op 0x13, got {fd:#x}"
-        assert op == 0x1234, f"Expected op 0x1234, got {op:#x}"
+        assert fd == 0x13, f"Expected fd 0x13, got {fd:#x}"
+        assert op == 0x1234, f"Expected cmd 0x1234, got {op:#x}"
         assert self.ioctl_ret2_num <= 2, "ioctl_ret2 Called too many times"
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
             f.write(f"Syscall ioctl_reg2: success {self.ioctl_ret2_num}\n")
 
     def ioctl_ret3(self, cpu, proto, syscall, fd, op, arg):
         self.ioctl_ret3_num += 1
-        assert fd == 0x13, f"Expected op 0x13, got {fd:#x}"
+        assert fd == 0x13, f"Expected fd 0x13, got {fd:#x}"
         assert op == 0x1234, f"Expected op 0x1234, got {op:#x}"
-        assert arg == 0xabcd, f"Expected op 0xabcd, got {arg:#x}"
+        assert arg == 0xabcd, f"Expected arg 0xabcd, got {arg:#x}"
         assert self.ioctl_ret3_num <= 3, "ioctl_ret3 Called too many times"
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
             f.write(f"Syscall ioctl_reg3: success {self.ioctl_ret3_num}\n")
