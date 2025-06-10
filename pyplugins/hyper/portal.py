@@ -1,9 +1,10 @@
 from pandare2 import PyPlugin
-from penguin import getColoredLogger
+from penguin import getColoredLogger, plugins
 import struct
 from collections.abc import Iterator
 import functools
-from hyper.consts import *
+from hyper.consts import igloo_hypercall_constants as iconsts
+from hyper.consts import HYPER_OP as hop
 from wrappers.generic import Wrapper
 from wrappers.portal_wrap import MappingWrapper, MappingsWrapper
 import time
@@ -28,12 +29,12 @@ class Portal(PyPlugin):
         # Generic interrupts mechanism
         self._interrupt_handlers = {}  # plugin_name -> handler_function
         self._pending_interrupts = set()  # Set of plugin names with pending work
-        self.panda.hypercall(IGLOO_HYPER_REGISTER_MEM_REGION)(
+        self.panda.hypercall(iconsts.IGLOO_HYPER_REGISTER_MEM_REGION)(
             self._register_cpu_memregion)
-        self.panda.hypercall(IGLOO_HYPER_ENABLE_PORTAL_INTERRUPT)(
+        self.panda.hypercall(iconsts.IGLOO_HYPER_ENABLE_PORTAL_INTERRUPT)(
             self._register_portal_interrupt)
         # Don't wrap _portal_interrupt - it's not a generator function
-        self.panda.hypercall(IGLOO_HYPER_PORTAL_INTERRUPT)(
+        self.panda.hypercall(iconsts.IGLOO_HYPER_PORTAL_INTERRUPT)(
             self.wrap(self._portal_interrupt))
 
     def _register_portal_interrupt(self, cpu):
@@ -183,30 +184,30 @@ class Portal(PyPlugin):
     def _handle_input_state(self, cpum):
         in_op = None
         op, addr, size = self._read_memregion_state(cpum)
-        if op == HYPER_OP_NONE:
+        if op == hop.HYPER_OP_NONE:
             pass
-        elif op & HYPER_RESP_NONE == 0:
+        elif op & hop.HYPER_RESP_NONE == 0:
             self.logger.error(f"Invalid operation OP in return {op:#x}")
-        elif op < HYPER_RESP_NONE or op > HYPER_RESP_MAX:
+        elif op < hop.HYPER_RESP_NONE or op > hop.HYPER_RESP_MAX:
             self.logger.error(f"Invalid operation: {op:#x}")
-        elif op == HYPER_RESP_READ_OK:
+        elif op == hop.HYPER_RESP_READ_OK:
             self.logger.debug(f"Read OK: {addr:#x} {size}")
             data = self._read_memregion_data(cpum, size)
             in_op = (op, data)
-        elif op == HYPER_RESP_READ_FAIL:
+        elif op == hop.HYPER_RESP_READ_FAIL:
             self.logger.debug("Failed to read memory")
-        elif op == HYPER_RESP_READ_PARTIAL:
+        elif op == hop.HYPER_RESP_READ_PARTIAL:
             self.logger.debug(f"Read OK: {addr:#x} {size}")
             data = self._read_memregion_data(cpum, size)
             in_op = (op, data)
-        elif op == HYPER_RESP_WRITE_OK:
+        elif op == hop.HYPER_RESP_WRITE_OK:
             pass
-        elif op == HYPER_RESP_WRITE_FAIL:
+        elif op == hop.HYPER_RESP_WRITE_FAIL:
             self.logger.debug("Failed to write memory")
             pass
-        elif op == HYPER_RESP_READ_NUM:
+        elif op == hop.HYPER_RESP_READ_NUM:
             in_op = (op, size)
-        elif op == HYPER_RESP_NONE:
+        elif op == hop.HYPER_RESP_NONE:
             pass
         else:
             self.logger.error(f"Unknown operation: {op:#x}")
@@ -216,67 +217,72 @@ class Portal(PyPlugin):
         match cmd:
             case("read", addr, size, pid):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_READ, addr, size, pid)
+                    cpum, hop.HYPER_OP_READ, addr, size, pid)
             case("read_str", addr, pid):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_READ_STR, addr, 0, pid)
+                    cpum, hop.HYPER_OP_READ_STR, addr, 0, pid)
             case("read_proc_args", pid):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_READ_PROCARGS, 0, 0, pid)
+                    cpum, hop.HYPER_OP_READ_PROCARGS, 0, 0, pid)
             case("read_proc_env", pid):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_READ_PROCENV, 0, 0, pid)
+                    cpum, hop.HYPER_OP_READ_PROCENV, 0, 0, pid)
             case("read_file_offset", fname, offset, size):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_READ_FILE, offset, size)
+                    cpum, hop.HYPER_OP_READ_FILE, offset, size)
                 self._write_memregion_data(cpum, fname)
             case("write_file", fname, offset, data):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_WRITE_FILE, offset, len(data))
+                    cpum, hop.HYPER_OP_WRITE_FILE, offset, len(data))
                 self._write_memregion_data(cpum, fname + data)
             case("get_osi_proc_handles"):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_OSI_PROC_HANDLES, 0, 0)
+                    cpum, hop.HYPER_OP_OSI_PROC_HANDLES, 0, 0)
             case("get_fds", start_fd, pid):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_READ_FDS, start_fd, 0, pid)
+                    cpum, hop.HYPER_OP_READ_FDS, start_fd, 0, pid)
             case("get_proc", pid):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_OSI_PROC, 0, 0, pid)
+                    cpum, hop.HYPER_OP_OSI_PROC, 0, 0, pid)
             case("get_proc_mappings", pid, skip):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_OSI_MAPPINGS, skip, 0, pid)
+                    cpum, hop.HYPER_OP_OSI_MAPPINGS, skip, 0, pid)
             case("exec", wait, data):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_EXEC, wait, len(data))
+                    cpum, hop.HYPER_OP_EXEC, wait, len(data))
                 self._write_memregion_data(cpum, data)
             case("write", addr, data, pid):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_WRITE, addr, len(data), pid)
+                    cpum, hop.HYPER_OP_WRITE, addr, len(data), pid)
                 self._write_memregion_data(cpum, data)
             case("ffi_exec", ffi_data):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_FFI_EXEC, 0, len(ffi_data))
+                    cpum, hop.HYPER_OP_FFI_EXEC, 0, len(ffi_data))
                 self._write_memregion_data(cpum, ffi_data)
             case("uprobe_reg", addr, data):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_REGISTER_UPROBE, addr, len(data))
+                    cpum, hop.HYPER_OP_REGISTER_UPROBE, addr, len(data))
                 self._write_memregion_data(cpum, data)
             case("uprobe_unreg", id_):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_UNREGISTER_UPROBE, id_, 0)
+                    cpum, hop.HYPER_OP_UNREGISTER_UPROBE, id_, 0)
             case("syscall_reg", data):
                 self._write_memregion_state(
-                    cpum, HYPER_OP_REGISTER_SYSCALL_HOOK, 0, len(data))
+                    cpum, hop.HYPER_OP_REGISTER_SYSCALL_HOOK, 0, len(data))
                 self._write_memregion_data(cpum, data)
-            case("syscall_unreg", id_):
-                self._write_memregion_state(
-                    cpum, HYPER_OP_UNREGISTER_SYSCALL_HOOK, id_, 0)
             case("dump", mode, signal):
                 # mode in lowest 8 bits, signal in next 8 bits
                 dump_addr = ((signal & 0xFF) << 8) | (mode & 0xFF)
                 self._write_memregion_state(
-                    cpum, HYPER_OP_DUMP, dump_addr, 0)
+                    cpum, hop.HYPER_OP_DUMP, dump_addr, 0)
+            case("add_virtual_file", file_path):
+                file_path_bytes = file_path.encode('latin-1')[:255] + b'\0'
+                self._write_memregion_state(
+                    cpum, hop.HYPER_OP_ADD_VIRTUAL_FILE, 0, len(file_path_bytes))
+                self._write_memregion_data(cpum, file_path_bytes)
+            case("remove_virtual_file", file_id):
+                self._write_memregion_state(
+                    cpum, hop.HYPER_OP_REMOVE_VIRTUAL_FILE, file_id, 0)
             case None:
                 return False
             case _:
@@ -322,11 +328,11 @@ class Portal(PyPlugin):
             try:
                 if not in_op:
                     cmd = next(iterators[cpu_memregion])
-                elif in_op[0] == HYPER_RESP_READ_OK:
+                elif in_op[0] == hop.HYPER_RESP_READ_OK:
                     cmd = iterators[cpu_memregion].send(in_op[1])
-                elif in_op[0] == HYPER_RESP_READ_NUM:
+                elif in_op[0] == hop.HYPER_RESP_READ_NUM:
                     cmd = iterators[cpu_memregion].send(in_op[1])
-                elif in_op[0] == HYPER_RESP_READ_PARTIAL:
+                elif in_op[0] == hop.HYPER_RESP_READ_PARTIAL:
                     cmd = iterators[cpu_memregion].send(in_op[1])
                 else:
                     iterators[cpu_memregion] = None
@@ -336,7 +342,7 @@ class Portal(PyPlugin):
                 # The function has completed, and we need to return the value
                 fn_return = e.value
                 self._write_memregion_state(
-                    cpum, HYPER_OP_NONE, 0, 0)
+                    cpum, hop.HYPER_OP_NONE, 0, 0)
                 cmd = None
 
             if new_iterator and cmd is None:
@@ -1168,6 +1174,92 @@ class Portal(PyPlugin):
             raise ValueError(
                 f"Invalid signal number: {signal}. Must be between 1 and 31.")
         return (yield from self.dump(mode=2, signal=signal))
+
+    def _add_virtual_file(self, file_path):
+        """
+        Add a virtual file entry to hyperfs.
+        
+        Args:
+            file_path: Path to the file to virtualize
+            
+        Returns:
+            int: Virtual address (entry pointer) on success, None on failure
+        """
+        self.logger.debug(f"add_virtual_file called: file_path={file_path}")
+        
+        if len(file_path.encode('latin-1')) > 255:
+            self.logger.error(f"File path too long: {len(file_path)} chars")
+            return None
+            
+        response = yield ("add_virtual_file", file_path)
+        
+        if response is None:
+            self.logger.error(f"Failed to add virtual file: {file_path}")
+            return None
+            
+        # The response is now a virtual address (entry pointer) instead of just an ID
+        virtual_addr = response
+        self.logger.debug(f"Virtual file added successfully: virtual_addr=0x{virtual_addr:x}")
+        return virtual_addr
+
+    def _remove_virtual_file(self, file_id):
+        """
+        Remove a virtual file entry from hyperfs.
+        
+        Args:
+            file_id: ID of the virtual file to remove
+            
+        Returns:
+            bool: True on success, False on failure
+        """
+        self.logger.debug(f"remove_virtual_file called: file_id={file_id}")
+        
+        if file_id < 0:
+            self.logger.error(f"Invalid file ID: {file_id}")
+            return False
+            
+        response = yield ("remove_virtual_file", file_id)
+        
+        success = response is not None
+        if success:
+            self.logger.debug(f"Virtual file removed successfully: ID={file_id}")
+        else:
+            self.logger.error(f"Failed to remove virtual file: ID={file_id}")
+            
+        return success
+
+    def _list_virtual_files(self):
+        """
+        List all active virtual files.
+        
+        Returns:
+            dict: Dictionary mapping file IDs to file paths
+        """
+        self.logger.debug("list_virtual_files called")
+        
+        response = yield ("list_virtual_files")
+        
+        if response is None:
+            self.logger.debug("No virtual files found")
+            return {}
+            
+        virtual_files = {}
+        
+        # Parse the response (format: "id:path\n")
+        if isinstance(response, bytes):
+            response = response.decode('latin-1', errors='replace')
+            
+        for line in response.strip().split('\n'):
+            if ':' in line:
+                try:
+                    file_id_str, file_path = line.split(':', 1)
+                    file_id = int(file_id_str)
+                    virtual_files[file_id] = file_path
+                except ValueError:
+                    self.logger.warning(f"Invalid virtual file line: {line}")
+                    
+        self.logger.debug(f"Found {len(virtual_files)} virtual files")
+        return virtual_files
 
     def uninit(self):
         self._cleanup_all_interrupts()

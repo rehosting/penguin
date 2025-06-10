@@ -1,13 +1,14 @@
 from pandare2 import PyPlugin
 from penguin import getColoredLogger, plugins
 import json
-from typing import Dict, List, Any
-from hyper.consts import *
+from typing import Dict, List
+from hyper.consts import value_filter_type as vft
+from hyper.consts import igloo_hypercall_constants as iconsts
 
 class ValueFilter:
     """Represents a complex value filter for syscall arguments or return values"""
     
-    def __init__(self,  filter_type=SYSCALLS_HC_FILTER_EXACT, value=0, 
+    def __init__(self,  filter_type=vft.SYSCALLS_HC_FILTER_EXACT, value=0, 
                  min_value=0, max_value=0, bitmask=0):
         self.filter_type = filter_type
         self.value = value
@@ -18,58 +19,58 @@ class ValueFilter:
     @classmethod
     def exact(cls, value):
         """Create an exact match filter"""
-        return cls(filter_type=SYSCALLS_HC_FILTER_EXACT, value=value)
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_EXACT, value=value)
     
     @classmethod
     def greater(cls, value):
         """Create a greater than filter"""
-        return cls(filter_type=SYSCALLS_HC_FILTER_GREATER, value=value)
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_GREATER, value=value)
     
     @classmethod
     def greater_equal(cls, value):
         """Create a greater than or equal filter"""
-        return cls(filter_type=SYSCALLS_HC_FILTER_GREATER_EQUAL, value=value)
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_GREATER_EQUAL, value=value)
     
     @classmethod
     def less(cls, value):
         """Create a less than filter"""
-        return cls(filter_type=SYSCALLS_HC_FILTER_LESS, value=value)
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_LESS, value=value)
     
     @classmethod
     def less_equal(cls, value):
         """Create a less than or equal filter"""
-        return cls(filter_type=SYSCALLS_HC_FILTER_LESS_EQUAL, value=value)
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_LESS_EQUAL, value=value)
     
     @classmethod
     def not_equal(cls, value):
         """Create a not equal filter"""
-        return cls(filter_type=SYSCALLS_HC_FILTER_NOT_EQUAL, value=value)
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_NOT_EQUAL, value=value)
     
     @classmethod
     def range(cls, min_value, max_value):
         """Create a range filter"""
-        return cls(filter_type=SYSCALLS_HC_FILTER_RANGE, 
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_RANGE, 
                   min_value=min_value, max_value=max_value)
     
     @classmethod
     def success(cls):
         """Create a success filter (>= 0)"""
-        return cls(filter_type=SYSCALLS_HC_FILTER_SUCCESS)
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_SUCCESS)
     
     @classmethod
     def error(cls):
         """Create an error filter (< 0)"""
-        return cls(filter_type=SYSCALLS_HC_FILTER_ERROR)
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_ERROR)
     
     @classmethod
     def bitmask_set(cls, bitmask):
         """Create a bitmask set filter"""
-        return cls(filter_type=SYSCALLS_HC_FILTER_BITMASK_SET, bitmask=bitmask)
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_BITMASK_SET, bitmask=bitmask)
     
     @classmethod
     def bitmask_clear(cls, bitmask):
         """Create a bitmask clear filter"""
-        return cls(filter_type=SYSCALLS_HC_FILTER_BITMASK_CLEAR, bitmask=bitmask)
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_BITMASK_CLEAR, bitmask=bitmask)
 
 
 class SyscallPrototype:
@@ -126,13 +127,13 @@ class Syscalls(PyPlugin):
             "syscalls", self._syscall_interrupt_handler)
 
         # Register handlers for syscall setup and events
-        self.panda.hypercall(IGLOO_HYP_SETUP_SYSCALL)(
+        self.panda.hypercall(iconsts.IGLOO_HYP_SETUP_SYSCALL)(
             self._setup_syscall_handler)
 
         # Register syscall enter/return hypercalls
-        self.panda.hypercall(IGLOO_HYP_SYSCALL_ENTER)(
+        self.panda.hypercall(iconsts.IGLOO_HYP_SYSCALL_ENTER)(
             self._syscall_enter_event)
-        self.panda.hypercall(IGLOO_HYP_SYSCALL_RETURN)(
+        self.panda.hypercall(iconsts.IGLOO_HYP_SYSCALL_RETURN)(
             self._syscall_return_event)
 
         # Add a queue for pending hook registrations
@@ -211,9 +212,9 @@ class Syscalls(PyPlugin):
             hook_config, func = pending_hooks.pop(0)
 
             # Register the syscall hook
-            hook_id = yield from self.register_syscall_hook(hook_config)
+            hook_ptr = yield from self.register_syscall_hook(hook_config)
             on_all = hook_config.get("on_all", False)
-            self.hooks[hook_id] = (on_all, func)
+            self.hooks[hook_ptr] = (on_all, func)
 
     def _syscall_enter_event(self, cpu):
         """
@@ -295,13 +296,13 @@ class Syscalls(PyPlugin):
         arg = self.panda.arch.get_arg(cpu, 2, convention="syscall")
 
         sce, original = self._get_syscall_event(cpu, sequence, arg)
-        id_ = sce.id
-        if id_ not in self.hooks:
-            self.logger.debug(f"Syscall event {id_} not registered")
+        hook_ptr = sce.hook.address
+        if hook_ptr not in self.hooks:
+            self.logger.debug(f"Syscall event with hook pointer {hook_ptr:#x} not registered")
             return
         proto = self._get_proto(cpu, sce)
 
-        on_all, f = self.hooks[id_]
+        on_all, f = self.hooks[hook_ptr]
 
         # If we're handling all syscalls or we don't have prototype info,
         # just call the function with the standard arguments
@@ -365,7 +366,7 @@ class Syscalls(PyPlugin):
                 elif isinstance(arg_filter, (int, float)):
                     # Simple exact match for backward compatibility
                     sch.arg_filters[i].enabled = True
-                    sch.arg_filters[i].type = SYSCALLS_HC_FILTER_EXACT
+                    sch.arg_filters[i].type = vft.SYSCALLS_HC_FILTER_EXACT
                     sch.arg_filters[i].value = int(arg_filter)
                     sch.arg_filters[i].min_value = 0
                     sch.arg_filters[i].max_value = 0
@@ -373,7 +374,7 @@ class Syscalls(PyPlugin):
             else:
                 # No filter for this argument
                 sch.arg_filters[i].enabled = False
-                sch.arg_filters[i].type = SYSCALLS_HC_FILTER_EXACT
+                sch.arg_filters[i].type = vft.SYSCALLS_HC_FILTER_EXACT
                 sch.arg_filters[i].value = 0
                 sch.arg_filters[i].min_value = 0
                 sch.arg_filters[i].max_value = 0
@@ -399,14 +400,14 @@ class Syscalls(PyPlugin):
             elif isinstance(retval_filter, (int, float)):
                 # Simple exact match for backward compatibility
                 sch.retval_filter.enabled = True
-                sch.retval_filter.type = SYSCALLS_HC_FILTER_EXACT
+                sch.retval_filter.type = vft.SYSCALLS_HC_FILTER_EXACT
                 sch.retval_filter.value = int(retval_filter)
                 sch.retval_filter.min_value = 0
                 sch.retval_filter.max_value = 0
                 sch.retval_filter.bitmask = 0
         else:
             sch.retval_filter.enabled = False
-            sch.retval_filter.type = SYSCALLS_HC_FILTER_EXACT
+            sch.retval_filter.type = vft.SYSCALLS_HC_FILTER_EXACT
             sch.retval_filter.value = 0
             sch.retval_filter.min_value = 0
             sch.retval_filter.max_value = 0

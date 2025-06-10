@@ -3,7 +3,8 @@ import lzma
 from pandare2 import PyPlugin
 from penguin import getColoredLogger, plugins
 from typing import Dict, List, Any, Union
-from hyper.consts import *
+from hyper.consts import igloo_hypercall_constants as iconsts
+from hyper.consts import portal_type
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
 try:
     import cxxfilt  # For C++ symbol demangling
@@ -34,9 +35,9 @@ class Uprobes(PyPlugin):
         self.portal.register_interrupt_handler(
             "uprobes", self._uprobe_interrupt_handler)
         self.first_interrupt = True
-        self.panda.hypercall(IGLOO_HYP_UPROBE_ENTER)(
+        self.panda.hypercall(iconsts.IGLOO_HYP_UPROBE_ENTER)(
             self._uprobe_enter_handler)
-        self.panda.hypercall(IGLOO_HYP_UPROBE_RETURN)(
+        self.panda.hypercall(iconsts.IGLOO_HYP_UPROBE_RETURN)(
             self._uprobe_return_handler)
         self.saved_regs_info = {}
         # Add symbol cache for lazy loading
@@ -260,11 +261,11 @@ class Uprobes(PyPlugin):
         """
         # Determine the probe type based on entry/return flags
         if on_enter and on_return:
-            probe_type = PORTAL_UPROBE_TYPE_BOTH
+            probe_type = portal_type.PORTAL_UPROBE_TYPE_BOTH
         elif on_enter:
-            probe_type = PORTAL_UPROBE_TYPE_ENTRY
+            probe_type = portal_type.PORTAL_UPROBE_TYPE_ENTRY
         elif on_return:
-            probe_type = PORTAL_UPROBE_TYPE_RETURN
+            probe_type = portal_type.PORTAL_UPROBE_TYPE_RETURN
         else:
             self.logger.error(
                 "Invalid probe type: at least one of on_enter or on_return must be True")

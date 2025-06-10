@@ -1,28 +1,28 @@
 from penguin import getColoredLogger, plugins
 from pandare2 import PyPlugin
-from hyper.consts import *
+from hyper.consts import igloo_hypercall_constants as iconsts
 
 
 EVENTS = {
     # MAGIC ->  (NAME,              (ARG1,...,ARGN))
-    IGLOO_OPEN:         ('igloo_open',            (str, int)),
+    iconsts.IGLOO_OPEN:         ('igloo_open',            (str, int)),
     101:                ('igloo_string_cmp',      (str,)),
     102:                ('igloo_string_cmp',      (str,)),
     103:                ('igloo_getenv',          (str,)),
     104:                ('igloo_strstr',          (str, str)),
-    IGLOO_IOCTL_ENOTTY: ('igloo_ioctl',           (str, int)),
+    iconsts.IGLOO_IOCTL_ENOTTY: ('igloo_ioctl',           (str, int)),
     107:                ('igloo_nvram_get_miss',  (str,)),
     108:                ('igloo_nvram_get_hit',   (str,)),
     109:                ('igloo_nvram_set',       (str, str)),
     110:                ('igloo_nvram_clear',     (str,)),
-    IGLOO_IPV4_SETUP:   ('igloo_ipv4_setup',      (str, int)),
-    IGLOO_IPV4_BIND:    ('igloo_ipv4_bind',       (int, bool)),
-    IGLOO_IPV6_SETUP:   ('igloo_ipv6_setup',      (str, int)),
-    IGLOO_IPV6_BIND:    ('igloo_ipv6_bind',       (int, bool)),
-    IGLOO_IPV4_RELEASE: ('igloo_ipv4_release',    (str, int)),
-    IGLOO_IPV6_RELEASE: ('igloo_ipv6_release',    (str, int)),
-    IGLOO_HYP_UNAME:    ('igloo_uname',           (int, int)),
-    IGLOO_HYP_ENOENT:   ('igloo_hyp_enoent',      (str,)),
+    iconsts.IGLOO_IPV4_SETUP:   ('igloo_ipv4_setup',      (str, int)),
+    iconsts.IGLOO_IPV4_BIND:    ('igloo_ipv4_bind',       (int, bool)),
+    iconsts.IGLOO_IPV6_SETUP:   ('igloo_ipv6_setup',      (str, int)),
+    iconsts.IGLOO_IPV6_BIND:    ('igloo_ipv6_bind',       (int, bool)),
+    iconsts.IGLOO_IPV4_RELEASE: ('igloo_ipv4_release',    (str, int)),
+    iconsts.IGLOO_IPV6_RELEASE: ('igloo_ipv6_release',    (str, int)),
+    iconsts.IGLOO_HYP_UNAME:    ('igloo_uname',           (int, int)),
+    iconsts.IGLOO_HYP_ENOENT:   ('igloo_hyp_enoent',      (str,)),
     0xB335A535:         ('igloo_send_hypercall',  (None, int, int)),
     # crc32("busybox")
     0x8507FAE1:         ('igloo_shell',           (int, int, int)),

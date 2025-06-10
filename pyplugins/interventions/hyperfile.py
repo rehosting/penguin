@@ -1,10 +1,9 @@
 import struct
 from pandare2 import PyPlugin
-from hyper.consts import (
-    IGLOO_HYPERFS_MAGIC,
-    HYP_FILE_OP, HYP_GET_NUM_HYPERFILES, HYP_GET_HYPERFILE_PATHS,
-    HYP_READ, HYP_WRITE, HYP_IOCTL, HYP_GETATTR
-)
+from hyper.consts import igloo_hypercall_constants as iconsts
+from hyper.consts import hyperfs_ops as hops 
+from hyper.consts import hyperfs_file_ops as fops
+
 HYP_RETRY = 0xdeadbeef
 
 try:
@@ -15,24 +14,24 @@ except ImportError:
 
 def hyper(name):
     if name == "read":
-        return HYP_READ
+        return fops.HYP_READ
     elif name == "write":
-        return HYP_WRITE
+        return fops.HYP_WRITE
     elif name == "ioctl":
-        return HYP_IOCTL
+        return fops.HYP_IOCTL
     elif name == "getattr":
-        return HYP_GETATTR
+        return fops.HYP_GETATTR
     raise ValueError(f"Unknown hyperfile operation {name}")
 
 
 def hyper2name(num):
-    if num == HYP_READ:
+    if num == fops.HYP_READ:
         return "read"
-    elif num == HYP_WRITE:
+    elif num == fops.HYP_WRITE:
         return "write"
-    elif num == HYP_IOCTL:
+    elif num == fops.HYP_IOCTL:
         return "ioctl"
-    elif num == HYP_GETATTR:
+    elif num == fops.HYP_GETATTR:
         return "getattr"
     raise ValueError(f"Unknown hyperfile operation {num}")
 
@@ -66,27 +65,27 @@ class HyperFile(PyPlugin):
         assert isinstance(self.files, dict), f"Files should be dict, not {self.files}"
 
         self.default_model = {
-            HYP_READ: self.read_unhandled,
-            HYP_WRITE: self.write_unhandled,
-            HYP_IOCTL: self.ioctl,
-            HYP_GETATTR: self.getattr,
+            fops.HYP_READ: self.read_unhandled,
+            fops.HYP_WRITE: self.write_unhandled,
+            fops.HYP_IOCTL: self.ioctl,
+            fops.HYP_GETATTR: self.getattr,
             "size": 0,
         }
 
         # files = {filename: {'read': func, 'write': func, 'ioctl': func}}}
 
         # On hypercall we dispatch to the appropriate handler: read, write, ioctl
-        @panda.hypercall(IGLOO_HYPERFS_MAGIC)
+        @panda.hypercall(iconsts.IGLOO_HYPERFS_MAGIC)
         def before_hypercall(cpu):
             # We pass args in the arch-syscall ABI specified in pypanda's arch.py
             # arm: x8/r7 r0, r1, r2
             # mips: v0, a0, a1, a2
             hc_type = panda.arch.get_arg(cpu, 1, convention="syscall")
-            if hc_type == HYP_FILE_OP:
+            if hc_type == hops.HYP_FILE_OP:
                 self.handle_file_op(cpu)
-            elif hc_type == HYP_GET_NUM_HYPERFILES:
+            elif hc_type == hops.HYP_GET_NUM_HYPERFILES:
                 self.handle_get_num_hyperfiles(cpu)
-            elif hc_type == HYP_GET_HYPERFILE_PATHS:
+            elif hc_type == hops.HYP_GET_HYPERFILE_PATHS:
                 self.handle_get_hyperfile_paths(cpu)
 
     def handle_get_num_hyperfiles(self, cpu):
@@ -168,13 +167,13 @@ class HyperFile(PyPlugin):
         model = self.files[device_name]
         # Ensure our model specifies the current behavior - if not, warn and add default
         if type_val not in model:
-            if not (type_val == HYP_GETATTR and "size" in model):
+            if not (type_val == fops.HYP_GETATTR and "size" in model):
                 # If we have a size, we can handle getattr with out default method (return size) and it's fine. Otherwise warn
                 self.logger.warning(f"Detected {hyper2name(type_val)} event on device {repr(device_name)} but this event is not modeled in config. Using default.")
             model[type_val] = self.default_model[type_val]
 
         # Dispatch based on the type of operation
-        if type_val == HYP_READ:
+        if type_val == fops.HYP_READ:
             buffer, length, offset = struct.unpack_from(read_fmt, buf, sub_offset)
             new_buffer, retval = model[type_val](device_name, buffer, length, offset)
 
@@ -191,7 +190,7 @@ class HyperFile(PyPlugin):
 
             self.handle_result(device_name, "read", retval, length, new_buffer)
 
-        elif type_val == HYP_WRITE:
+        elif type_val == fops.HYP_WRITE:
             buffer, length, offset = struct.unpack_from(write_fmt, buf, sub_offset)
             # We're writing data into our pseudofile. First we need to read what the guest
             # has given us as data to write
@@ -209,12 +208,12 @@ class HyperFile(PyPlugin):
             retval = model[type_val](device_name, buffer, length, offset, contents)
             self.handle_result(device_name, "write", retval, length, offset, contents)
 
-        elif type_val == HYP_IOCTL:
+        elif type_val == fops.HYP_IOCTL:
             cmd, arg = struct.unpack_from(ioctl_fmt, buf, sub_offset)
             retval = model[type_val](device_name, cmd, arg)
             self.handle_result(device_name, "ioctl", retval, cmd, arg)
 
-        elif type_val == HYP_GETATTR:
+        elif type_val == fops.HYP_GETATTR:
             retval, size_data = model[type_val](device_name, model)
             size_bytes = struct.pack(f"{self.endian} q", size_data)
             self.handle_result(device_name, "getattr", retval, size_data)
