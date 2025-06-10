@@ -5,6 +5,7 @@ This plugin verifies that hypercalls are being made correctly.
 from pandare2 import PyPlugin
 from penguin import getColoredLogger, plugins
 from os.path import join
+from hyper.syscalls import ValueFilter
 
 SYSCALL_ARG1 = 0x1338c0def2f2f3f2
 SYSCALL_ARG2 = 0xdeadbeeff1f1f1f1
@@ -27,15 +28,15 @@ class SyscallTest(PyPlugin):
         self.reported_clone = False
         self.reported_getpid = False
         syscalls.syscall("on_sys_ioctl_enter", comm_filter="send_syscall",
-                         arg_filter=[None, 0xabcd])(self.test_skip_retval)
+                         arg_filters=[None, 0xabcd])(self.test_skip_retval)
         syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
-                         arg_filter=[0x13])(self.ioctl_ret)
+                         arg_filters=[ValueFilter.exact(0x13)])(self.ioctl_ret)
         syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
-                         arg_filter=[0x13, 0x1234])(self.ioctl_ret2)
+                         arg_filters=[0x13, 0x1234])(self.ioctl_ret2)
         syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
-                         arg_filter=[0x13, 0x1234, 0xabcd])(self.ioctl_ret3)
+                         arg_filters=[0x13, ValueFilter.range(0x1234, 0x1235), 0xabcd])(self.ioctl_ret3)
         syscalls.syscall("on_sys_ioctl_return", comm_filter="nosend_syscall",
-                         arg_filter=[None, 0x1234])(self.ioctl_noret)
+                         arg_filters=[None, ValueFilter.bitmask_set(0x1234)])(self.ioctl_noret)
         self.ioctl_ret_num = 0
         self.ioctl_ret2_num = 0
         self.ioctl_ret3_num = 0
