@@ -15,9 +15,9 @@ class TestIoctlInteraction(PyPlugin):
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
         plugins.syscalls.syscall(
-            "on_sys_ioctl_return", arg_filter=[None, SIOCDEVPRIVATE])(self.siocdevprivate)
+            "on_sys_ioctl_return", arg_filters=[None, SIOCDEVPRIVATE])(self.siocdevprivate)
         plugins.syscalls.syscall(
-            "on_sys_ioctl_return", arg_filter=[None, 0x89f1])(self.ioctl_ret)
+            "on_sys_ioctl_return", arg_filters=[None, 0x89f1])(self.ioctl_ret)
 
     @plugins.portal.wrap
     def siocdevprivate(self, cpu, proto, syscall, fd, op, arg):

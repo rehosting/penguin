@@ -14,7 +14,7 @@ class KFFITest(PyPlugin):
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
         plugins.syscalls.syscall(
-            "on_sys_ioctl_return", arg_filter=[0x14, 0x15, 0x16])(self.kffi)
+            "on_sys_ioctl_return", arg_filters=[0x14, 0x15, 0x16])(self.kffi)
 
     @plugins.portal.wrap
     def kffi(self, cpu, proto, syscall, fd, op, arg):

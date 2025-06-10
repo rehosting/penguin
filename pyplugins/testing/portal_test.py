@@ -13,7 +13,7 @@ class PortalTest(PyPlugin):
         # if self.get_arg_bool("verbose"):
         #     self.logger.setLevel("DEBUG")
         plugins.syscalls.syscall(
-            "on_sys_ioctl_return", arg_filter=[None, 0x89f3])(self.ioctl_val)
+            "on_sys_ioctl_return", arg_filters=[None, 0x89f3])(self.ioctl_val)
 
     '''
     This test checks that we can get information from our program, its arguments,
