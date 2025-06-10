@@ -7,11 +7,16 @@ class Wrapper:
     def __getattr__(self, name):
         if name in self._extra_attrs:  # Check wrapper-specific attributes
             return self._extra_attrs[name]
+        if type(self._obj) is dict:
+            if name in self._obj:
+                return self._obj[name]
         # Otherwise, access wrapped object attributes
         return getattr(self._obj, name)
 
     def __setattr__(self, name, value):
-        if hasattr(self._obj, name):
+        if type(self._obj) is dict:
+            self._obj[name] = value
+        elif hasattr(self._obj, name):
             setattr(self._obj, name, value)  # Modify wrapped object attributes
         else:
             # Store attributes directly on the wrapper
