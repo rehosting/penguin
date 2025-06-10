@@ -1,4 +1,5 @@
 from penguin import plugins
+from wrappers.generic import Wrapper
 
 enum_names = [
     "HYPER_OP",
@@ -13,5 +14,4 @@ for name in enum_names:
     hyperconsts = plugins.kffi.get_enum_dict(name)
     assert len(hyperconsts.items()) > 0, f"Failed to get enum {name}"
 
-    for i, j in hyperconsts.items():
-        globals()[i] = j
+    globals()[name] = Wrapper(hyperconsts)
