@@ -4,7 +4,72 @@ import json
 from typing import Dict, List, Any
 from hyper.consts import *
 
-SYSCALL_HC_KNOWN_MAGIC = 0x1234
+class ValueFilter:
+    """Represents a complex value filter for syscall arguments or return values"""
+    
+    def __init__(self,  filter_type=SYSCALLS_HC_FILTER_EXACT, value=0, 
+                 min_value=0, max_value=0, bitmask=0):
+        self.filter_type = filter_type
+        self.value = value
+        self.min_value = min_value
+        self.max_value = max_value
+        self.bitmask = bitmask
+    
+    @classmethod
+    def exact(cls, value):
+        """Create an exact match filter"""
+        return cls(filter_type=SYSCALLS_HC_FILTER_EXACT, value=value)
+    
+    @classmethod
+    def greater(cls, value):
+        """Create a greater than filter"""
+        return cls(filter_type=SYSCALLS_HC_FILTER_GREATER, value=value)
+    
+    @classmethod
+    def greater_equal(cls, value):
+        """Create a greater than or equal filter"""
+        return cls(filter_type=SYSCALLS_HC_FILTER_GREATER_EQUAL, value=value)
+    
+    @classmethod
+    def less(cls, value):
+        """Create a less than filter"""
+        return cls(filter_type=SYSCALLS_HC_FILTER_LESS, value=value)
+    
+    @classmethod
+    def less_equal(cls, value):
+        """Create a less than or equal filter"""
+        return cls(filter_type=SYSCALLS_HC_FILTER_LESS_EQUAL, value=value)
+    
+    @classmethod
+    def not_equal(cls, value):
+        """Create a not equal filter"""
+        return cls(filter_type=SYSCALLS_HC_FILTER_NOT_EQUAL, value=value)
+    
+    @classmethod
+    def range(cls, min_value, max_value):
+        """Create a range filter"""
+        return cls(filter_type=SYSCALLS_HC_FILTER_RANGE, 
+                  min_value=min_value, max_value=max_value)
+    
+    @classmethod
+    def success(cls):
+        """Create a success filter (>= 0)"""
+        return cls(filter_type=SYSCALLS_HC_FILTER_SUCCESS)
+    
+    @classmethod
+    def error(cls):
+        """Create an error filter (< 0)"""
+        return cls(filter_type=SYSCALLS_HC_FILTER_ERROR)
+    
+    @classmethod
+    def bitmask_set(cls, bitmask):
+        """Create a bitmask set filter"""
+        return cls(filter_type=SYSCALLS_HC_FILTER_BITMASK_SET, bitmask=bitmask)
+    
+    @classmethod
+    def bitmask_clear(cls, bitmask):
+        """Create a bitmask clear filter"""
+        return cls(filter_type=SYSCALLS_HC_FILTER_BITMASK_CLEAR, bitmask=bitmask)
 
 
 class SyscallPrototype:
@@ -280,22 +345,72 @@ class Syscalls(PyPlugin):
                 sch.comm_filter[i] = j
         else:
             sch.comm_filter_enabled = False
-        if hook_config.get("filter_args", None):
-            sch.filter_args_enabled = True
-            for i, arg in enumerate(hook_config.get("filter_args", [])):
-                if arg is None:
-                    sch.filter_arg[i] = False
-                else:
-                    sch.filter_arg[i] = True
-                    sch.arg_filter[i] = arg
-        else:
-            sch.filter_args_enabled = False
+
+        # Handle complex argument filtering
+        arg_filters = hook_config.get("arg_filters", [])
+        if arg_filters is None:
+            arg_filters = []
+        
+        for i in range(6):  # IGLOO_SYSCALL_MAXARGS
+            if i < len(arg_filters) and arg_filters[i] is not None:
+                arg_filter = arg_filters[i]
+                if type(arg_filter).__name__ == 'ValueFilter':
+                    # Complex filter
+                    sch.arg_filters[i].enabled = True
+                    sch.arg_filters[i].type = arg_filter.filter_type
+                    sch.arg_filters[i].value = arg_filter.value
+                    sch.arg_filters[i].min_value = arg_filter.min_value
+                    sch.arg_filters[i].max_value = arg_filter.max_value
+                    sch.arg_filters[i].bitmask = arg_filter.bitmask
+                elif isinstance(arg_filter, (int, float)):
+                    # Simple exact match for backward compatibility
+                    sch.arg_filters[i].enabled = True
+                    sch.arg_filters[i].type = SYSCALLS_HC_FILTER_EXACT
+                    sch.arg_filters[i].value = int(arg_filter)
+                    sch.arg_filters[i].min_value = 0
+                    sch.arg_filters[i].max_value = 0
+                    sch.arg_filters[i].bitmask = 0
+            else:
+                # No filter for this argument
+                sch.arg_filters[i].enabled = False
+                sch.arg_filters[i].type = SYSCALLS_HC_FILTER_EXACT
+                sch.arg_filters[i].value = 0
+                sch.arg_filters[i].min_value = 0
+                sch.arg_filters[i].max_value = 0
+                sch.arg_filters[i].bitmask = 0
 
         if hook_config.get("pid_filter", None):
             sch.pid_filter_enabled = True
             sch.filter_pid = hook_config.get("pid_filter")
         else:
             sch.pid_filter_enabled = False
+
+        # Handle complex return value filtering
+        retval_filter = hook_config.get("retval_filter", None)
+        if retval_filter is not None:
+            if type(retval_filter).__name__ == 'ValueFilter':
+                # Complex filter
+                sch.retval_filter.enabled = True
+                sch.retval_filter.type = retval_filter.filter_type
+                sch.retval_filter.value = retval_filter.value
+                sch.retval_filter.min_value = retval_filter.min_value
+                sch.retval_filter.max_value = retval_filter.max_value
+                sch.retval_filter.bitmask = retval_filter.bitmask
+            elif isinstance(retval_filter, (int, float)):
+                # Simple exact match for backward compatibility
+                sch.retval_filter.enabled = True
+                sch.retval_filter.type = SYSCALLS_HC_FILTER_EXACT
+                sch.retval_filter.value = int(retval_filter)
+                sch.retval_filter.min_value = 0
+                sch.retval_filter.max_value = 0
+                sch.retval_filter.bitmask = 0
+        else:
+            sch.retval_filter.enabled = False
+            sch.retval_filter.type = SYSCALLS_HC_FILTER_EXACT
+            sch.retval_filter.value = 0
+            sch.retval_filter.min_value = 0
+            sch.retval_filter.max_value = 0
+            sch.retval_filter.bitmask = 0
 
         as_bytes = sch.to_bytes()
 
