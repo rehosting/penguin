@@ -243,7 +243,10 @@ class FileFailures(PyPlugin):
         # XXX We need this import in here, otherwise when we load psueodfiles with panda.load_plugin /path/to/pseudofiles.py
         # it sees both FileFailures AND HyperFile. But we only want hyperfile to be loaded by us here, not by our caller.
         # we are not currently using HYPER_WRITE so we do not import it
-        from hyperfile import (HYP_IOCTL, HYP_READ, HyperFile, hyper)
+        from hyper.consts import hyperfs_file_ops as fops
+        from hyperfile import (HyperFile, hyper)
+        HYP_IOCTL = fops.HYP_IOCTL
+        HYP_READ = fops.HYP_READ
         hf_config = {}
         for filename, details in self.config["pseudofiles"].items():
             hf_config[filename] = {}
