@@ -49,7 +49,7 @@ static_files:
       
       /igloo/utils/send_syscall ioctl 0x9  0xabcd 
 
-      if [$? -ne 43]; then
+      if [ $? -ne 43 ]; then
         echo "Error: send_syscall retval enter failed"
         exit 1
       fi
