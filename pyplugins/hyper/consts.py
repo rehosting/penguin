@@ -6,6 +6,7 @@ enum_names = [
     "igloo_hypercall_constants",
     "hyperfs_ops",
     "hyperfs_file_ops",
+    "value_filter_type",
 ]
 
 for name in enum_names:
