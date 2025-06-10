@@ -299,10 +299,10 @@ class BoundTypeInstance:
         self._instance_cache = {}
 
     @property
-    def value(self) -> Any:
+    def _value(self) -> Any:
         if isinstance(self._instance_type_def, VtypeUserType):
             raise AttributeError(
-                f"'{self._instance_type_name}' is a struct/union and does not have a direct '.value' attribute. Access its fields instead.")
+                f"'{self._instance_type_name}' is a struct/union and does not have a direct '._value' attribute. Access its fields instead.")
         if isinstance(self._instance_type_def, VtypeBaseType):
             base_type_def = self._instance_type_def
             compiled_struct_obj = base_type_def.get_compiled_struct()
@@ -338,13 +338,13 @@ class BoundTypeInstance:
                     f"Error unpacking value for enum '{enum_def.name}': {e}")
         else:
             raise TypeError(
-                f"'.value' property not applicable to internal type: {type(self._instance_type_def).__name__}")
+                f"'._value' property not applicable to internal type: {type(self._instance_type_def).__name__}")
 
-    @value.setter
-    def value(self, new_value: Any):
+    @_value.setter
+    def _value(self, new_value: Any):
         if isinstance(self._instance_type_def, VtypeUserType):
             raise AttributeError(
-                f"Cannot set '.value' on a struct/union '{self._instance_type_name}'. Set its fields instead.")
+                f"Cannot set '._value' on a struct/union '{self._instance_type_name}'. Set its fields instead.")
         if isinstance(self._instance_type_def, VtypeBaseType):
             base_type_def = self._instance_type_def
             compiled_struct_obj = base_type_def.get_compiled_struct()
@@ -377,7 +377,7 @@ class BoundTypeInstance:
                     f"Cannot get compiled struct for enum base type '{enum_def.base}' for writing.")
             int_val_to_write: int
             if isinstance(new_value, EnumInstance):
-                int_val_to_write = new_value.value
+                int_val_to_write = new_value._value
             elif isinstance(new_value, int):
                 int_val_to_write = new_value
             elif isinstance(new_value, str):
@@ -397,9 +397,9 @@ class BoundTypeInstance:
                     f"Error packing value for enum '{enum_def.name}': {e}")
         else:
             raise TypeError(
-                f"'.value' property setter not applicable to internal type: {type(self._instance_type_def).__name__}")
-        if 'value' in self._instance_cache:
-            del self._instance_cache['value']
+                f"'._value' property setter not applicable to internal type: {type(self._instance_type_def).__name__}")
+        if '_value' in self._instance_cache:
+            del self._instance_cache['_value']
 
     def _read_data(self, field_type_info: Dict[str, Any], field_offset_in_struct: int, field_name_for_error: str) -> Any:
         kind = field_type_info.get("kind")
@@ -590,7 +590,7 @@ class BoundTypeInstance:
                     f"Cannot get compiled struct for enum base type '{enum_def.base}' for writing.")
             int_val_to_write: int
             if isinstance(value_to_write, EnumInstance):
-                int_val_to_write = value_to_write.value
+                int_val_to_write = value_to_write._value
             elif isinstance(value_to_write, int):
                 int_val_to_write = value_to_write
             elif isinstance(value_to_write, str):
@@ -656,13 +656,6 @@ class BoundTypeInstance:
         if name.startswith('_instance_'):
             return super().__getattribute__(name)
 
-        if name == 'value':
-            try:
-                return self.value
-            except AttributeError:
-                raise AttributeError(
-                    f"'{self._instance_type_name}' object has no attribute '{name}' or it's not applicable for its type.")
-
         if isinstance(self._instance_type_def, VtypeUserType):
             if name in self._instance_cache:
                 return self._instance_cache[name]
@@ -684,19 +677,11 @@ class BoundTypeInstance:
                 raise AttributeError(f"Error processing field '{name}': {e}")
 
         raise AttributeError(
-            f"Type '{self._instance_type_name}' (kind: {self._instance_type_def.__class__.__name__}) has no attribute '{name}'. Use '.value' for base/enum types.")
+            f"Type '{self._instance_type_name}' (kind: {self._instance_type_def.__class__.__name__}) has no attribute '{name}'. Use '._value' for base/enum types.")
 
     def __setattr__(self, name: str, new_value: Any):
         if name.startswith('_instance_'):
             super().__setattr__(name, new_value)
-            return
-
-        if name == 'value':
-            try:
-                self.value = new_value
-            except AttributeError:
-                raise AttributeError(
-                    f"Cannot set attribute '{name}' on '{self._instance_type_name}' or it's not applicable for its type.")
             return
 
         if isinstance(self._instance_type_def, VtypeUserType):
@@ -723,7 +708,7 @@ class BoundTypeInstance:
                 raise AttributeError(f"Error setting field '{name}': {e}")
 
         raise AttributeError(
-            f"Cannot set attribute '{name}' on type '{self._instance_type_name}' (kind: {self._instance_type_def.__class__.__name__}). Use '.value' for base/enum types.")
+            f"Cannot set attribute '{name}' on type '{self._instance_type_name}' (kind: {self._instance_type_def.__class__.__name__}). Use '._value' for base/enum types.")
 
     def to_bytes(self) -> bytes:
         size = self._instance_type_def.size
@@ -749,7 +734,7 @@ class BoundTypeInstance:
         if isinstance(self._instance_type_def, VtypeUserType):
             attrs.extend(self._instance_type_def.fields.keys())
         if isinstance(self._instance_type_def, (VtypeBaseType, VtypeEnum)):
-            attrs.append('value')
+            attrs.append('_value')
         return sorted(list(set(a for a in attrs if a != '_instance_cache')))
 
 
@@ -785,27 +770,27 @@ class Ptr:
 
 
 class EnumInstance:
-    __slots__ = '_enum_def', 'value'
+    __slots__ = '_enum_def', '_value'
 
     def __init__(self, enum_def: VtypeEnum, value: int):
         self._enum_def = enum_def
-        self.value = value
+        self._value = value
 
     @property
     def name(
-        self) -> Optional[str]: return self._enum_def.get_name_for_value(self.value)
+        self) -> Optional[str]: return self._enum_def.get_name_for_value(self._value)
 
     def __repr__(self) -> str:
         name_part = f"{self._enum_def.name}.{self.name}" if self.name else f"{self._enum_def.name} (value)"
-        return f"<EnumInstance {name_part} ({self.value})>"
+        return f"<EnumInstance {name_part} ({self._value})>"
 
-    def __int__(self) -> int: return self.value
+    def __int__(self) -> int: return self._value
 
     def __eq__(self, other):
         if isinstance(other, EnumInstance):
-            return self.value == other.value and self._enum_def.name == other._enum_def.name
+            return self._value == other._value and self._enum_def.name == other._enum_def.name
         if isinstance(other, int):
-            return self.value == other
+            return self._value == other
         if isinstance(other, str):
             return self.name == other
         return False
@@ -1176,9 +1161,9 @@ if __name__ == '__main__':
                 struct.pack_into("<i", int_buffer, 0, 12345)
                 int_instance = isf_data.create_instance("int", int_buffer)
                 print(f"  Created int_instance: {int_instance}")
-                print(f"  int_instance.value: {int_instance.value}")
-                int_instance.value = 54321
-                print(f"  Modified int_instance.value: {int_instance.value}")
+                print(f"  int_instance._value: {int_instance._value}")
+                int_instance._value = 54321
+                print(f"  Modified int_instance._value: {int_instance._value}")
                 print(
                     f"  int_instance.to_bytes() (hex): {int_instance.to_bytes().hex()}")
             else:
