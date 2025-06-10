@@ -293,7 +293,7 @@ class Syscalls(PyPlugin):
 
         if hook_config.get("pid_filter", None):
             sch.pid_filter_enabled = True
-            sch.pid_filter = hook_config.get("pid_filter")
+            sch.filter_pid = hook_config.get("pid_filter")
         else:
             sch.pid_filter_enabled = False
 
@@ -304,19 +304,22 @@ class Syscalls(PyPlugin):
         self.hook_info[result] = hook_config
         return result
 
-    def syscall(self, name_or_pattern=None, enter=None, return_val=None,
-                comm_filter=None, arg_filter=None, pid_filter=None, enabled=True):
+    def syscall(self, name_or_pattern=None, on_enter=None, on_return=None,
+                comm_filter=None, arg_filters=None, pid_filter=None, 
+                retval_filter=None, enabled=True):
         """
         Decorator for registering syscall callbacks.
 
         Args:
             name_or_pattern: Either a syscall name (e.g., "open", "read") or a pattern
                             like "on_sys_write_enter", "on_all_sys_return", etc.
-                            If a pattern is provided, other arguments like enter/return_val are ignored.
-            enter: True to call on syscall entry (ignored if pattern is used)
-            return_val: True to call on syscall return (ignored if pattern is used)
+                            If a pattern is provided, other arguments like on_enter/on_return are ignored.
+            on_enter: True to call on syscall entry (ignored if pattern is used)
+            on_return: True to call on syscall return (ignored if pattern is used)
             comm_filter: Process name filter
-            arg_filter: List of argument values to filter on
+            arg_filters: List of ValueFilter objects or simple values for argument filtering
+            pid_filter: Process ID filter
+            retval_filter: ValueFilter object or simple value for return value filtering
             enabled: Whether the hook is enabled initially
 
         Returns:
@@ -327,8 +330,8 @@ class Syscalls(PyPlugin):
             syscall_name = ""
             on_all = False
             on_unknown = False
-            on_enter = enter
-            on_return = return_val
+            hook_on_enter = on_enter
+            hook_on_return = on_return
 
             if name_or_pattern and isinstance(name_or_pattern, str):
                 # Check if using the hsyscall-style pattern
@@ -341,28 +344,28 @@ class Syscalls(PyPlugin):
                         if parts[1] == "all" and len(parts) >= 4 and parts[2] == "sys":
                             on_all = True
                             syscall_name = ""
-                            on_enter = parts[3] == "enter"
-                            on_return = parts[3] == "return"
+                            hook_on_enter = parts[3] == "enter"
+                            hook_on_return = parts[3] == "return"
                         elif parts[1] == "unknown" and len(parts) >= 4 and parts[2] == "sys":
                             on_unknown = True
                             syscall_name = ""
-                            on_enter = parts[3] == "enter"
-                            on_return = parts[3] == "return"
+                            hook_on_enter = parts[3] == "enter"
+                            hook_on_return = parts[3] == "return"
                         elif parts[1] == "sys" and len(parts) >= 4:
                             # Format: on_sys_NAME_enter/return
                             # Handle case where syscall name itself contains underscores
                             # Last part is enter/return, everything between "sys" and that is the syscall name
                             last_part = parts[-1]
                             if last_part in ["enter", "return"]:
-                                on_enter = last_part == "enter"
-                                on_return = last_part == "return"
+                                hook_on_enter = last_part == "enter"
+                                hook_on_return = last_part == "return"
                                 # Combine all middle parts for the syscall name
                                 syscall_name = "_".join(parts[2:-1])
                             else:
                                 # If it doesn't end with enter/return, treat the whole thing as name_enter
                                 syscall_name = "_".join(parts[2:])
-                                on_enter = True
-                                on_return = False
+                                hook_on_enter = True
+                                hook_on_return = False
                     else:
                         # Fallback to treating the input as a syscall name
                         syscall_name = name_or_pattern
@@ -370,7 +373,7 @@ class Syscalls(PyPlugin):
                     # If it doesn't start with on_, treat it as a syscall name
                     syscall_name = name_or_pattern
             else:
-                # Use the provided values for name, enter, return_val
+                # Use the provided values for name, on_enter, on_return
                 syscall_name = name_or_pattern if name_or_pattern else ""
                 if syscall_name == "all":
                     on_all = True
@@ -379,22 +382,23 @@ class Syscalls(PyPlugin):
                     on_unknown = True
                     syscall_name = ""
 
-            # Ensure at least one of on_enter or on_return is True
-            if not (on_enter or on_return):
-                on_enter = True  # Default to entry if neither is specified
+            # Ensure at least one of hook_on_enter or hook_on_return is True
+            if not (hook_on_enter or hook_on_return):
+                hook_on_enter = True  # Default to entry if neither is specified
 
             # Create hook configuration
             hook_config = {
                 "name": syscall_name,
-                "on_enter": on_enter,
-                "on_return": on_return,
+                "on_enter": hook_on_enter,
+                "on_return": hook_on_return,
                 "on_all": on_all,
                 "on_unknown": on_unknown,
                 "procname": comm_filter,  # Use comm_filter instead of procname
-                "filter_args": arg_filter,
+                "arg_filters": arg_filters,  # Now supports complex filtering
                 "enabled": enabled,
                 "callback": func,
                 "pid_filter": pid_filter,
+                "retval_filter": retval_filter,  # Now supports complex filtering
             }
             # Add to pending hooks and queue interrupt
             self._pending_hooks.append((hook_config, func))
