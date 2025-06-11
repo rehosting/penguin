@@ -17,6 +17,7 @@ fi
 
 if [ ! -z "${igloo_init}" ]; then
   echo '[IGLOO INIT] Running specified init binary';
+  /igloo/utils/send_hypercall_raw 0x1417D04E > /dev/null
   exec "${igloo_init}"
 fi
 echo "[IGLOO INIT] Fatal: no igloo_init specified in env. Abort"

@@ -271,6 +271,15 @@ class Core(BaseModel):
             examples=[False, True],
         ),
     ]
+    early_monitoring: Annotated[
+        bool,
+        Field(
+            False,
+            title="Includde early boot in monitoring output",
+            description="Whether to enable monitoring of all boot activity (mostly rehosting initialization irrelavant to the firmware)",
+            examples=[False, True],
+        ),
+    ]
 
 
 EnvVal = _newtype(

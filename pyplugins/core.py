@@ -8,6 +8,7 @@ from pandare2 import PyPlugin
 
 from penguin import getColoredLogger
 from penguin.defaults import vnc_password
+from penguin import plugins as penguin_plugins
 
 try:
     from penguin import yaml
@@ -150,6 +151,15 @@ class Core(PyPlugin):
                 args=(panda, timeout, self.shutdown_event),
             )
             self.shutdown_thread.start()
+
+        penguin_plugins.subscribe(penguin_plugins.Events, "igloo_init_done", self.init_done)
+
+    def init_done(self, *args, **kwargs):
+        self.logger.debug("Received igloo_init_done event, executing igloo_init task")
+        config = self.get_arg("conf")
+        if not config["core"].get("early_monitoring", False):
+            with open(os.path.join(self.outdir, "console.log"), "r+") as f:
+                f.truncate(0)
 
     def shutdown_after_timeout(self, panda, timeout, shutdown_event):
         wait_time = 0
