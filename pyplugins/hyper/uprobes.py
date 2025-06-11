@@ -243,7 +243,7 @@ class Uprobes(Plugin):
                     "callback": callback,
                     "options": options
                 }
-                self.logger.info(
+                self.logger.debug(
                     f"Successfully registered uprobe ID {probe_id} for {path}:{offset} ({symbol})")
             else:
                 self.logger.error(
