@@ -4,9 +4,7 @@ from copy import deepcopy
 from os.path import join as pjoin
 from typing import List
 
-from pandare2 import PyPlugin
-
-from penguin import getColoredLogger, plugins
+from penguin import plugins, Plugin
 from penguin.analyses import PenguinAnalysis
 from penguin.graphs import Configuration, Failure, Mitigation
 
@@ -57,11 +55,10 @@ for i, v in list(signals.items()):
     signals[v] = i
 
 
-class Lifeguard(PyPlugin):
+class Lifeguard(Plugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
-        self.logger = getColoredLogger("plugins.lifeguard")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
 

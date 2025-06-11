@@ -6,8 +6,7 @@ from os.path import dirname, isfile, isabs
 from os.path import join as pjoin
 from sys import path as syspath
 from typing import List
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import Plugin, plugins
 
 syspath.append(dirname(__file__))
 
@@ -145,13 +144,11 @@ def sort_file_failures(d):
     )
 
 
-class FileFailures(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class Pseudofiles(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.proj_dir = self.get_arg("proj_dir")
         self.written_data = {}  # filename -> data that was written to it
-        self.logger = getColoredLogger("plugins.pseudofiles")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel(logging.DEBUG)
         self.did_mtd_warn = False  # Set if we've warned about misconfigured MTD devices
@@ -186,7 +183,7 @@ class FileFailures(PyPlugin):
         # Need to implement read, write, and IOCTLs
         # IOCTLs with symex gets scary, others are easy though?
         from hyperfile import HyperFile
-        panda.pyplugins.load(
+        plugins.load(
             HyperFile,
             {
                 "models": self.hf_config,

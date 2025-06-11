@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import Plugin, plugins
 
 portal = plugins.portal
 
 
-class PortalTest(PyPlugin):
+class PortalTest(Plugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
-        self.logger = getColoredLogger("plugins.ioctl_interaction_test")
         # if self.get_arg_bool("verbose"):
         #     self.logger.setLevel("DEBUG")
         plugins.syscalls.syscall(

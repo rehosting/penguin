@@ -1,18 +1,15 @@
 import os
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import Plugin, plugins
 
 UBOOT_LOG = "uboot.log"
 
 
-class UBoot(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class UBoot(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
         open(os.path.join(self.outdir, UBOOT_LOG), "w").close()
         self.uboot_log = set()
 
-        self.logger = getColoredLogger("plugins.uboot")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
 

@@ -1,13 +1,11 @@
 import time
 from os import path
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import getColoredLogger, plugins, Plugin
 
 
-class Health(PyPlugin):
-    def __init__(self, panda):
+class Health(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
-        self.panda = panda
         self.start_time = time.time()
         self.exiting = False
         self.logger = getColoredLogger("plugins.health")

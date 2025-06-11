@@ -1,14 +1,11 @@
 import os
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import plugins, Plugin
 
 
-class Canary(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class Canary(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
 
-        self.logger = getColoredLogger("plugins.canary")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
         plugins.SendHypercall.subscribe("canary", self.cmd_canary)

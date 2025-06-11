@@ -4,9 +4,7 @@ import threading
 import time
 from copy import deepcopy
 
-from pandare2 import PyPlugin
-
-from penguin import getColoredLogger
+from penguin import Plugin
 from penguin.defaults import vnc_password
 
 try:
@@ -20,7 +18,7 @@ except ImportError:
     PenguinAnalysis = object
 
 
-class Core(PyPlugin):
+class Core(Plugin):
     """
     Simple sanity checks and basic core logic.
     Also provides a callback on hypercall events for open/openat calls.
@@ -35,17 +33,14 @@ class Core(PyPlugin):
     exception and abort?
     """
 
-    def __init__(self, panda):
+    def __init__(self):
         for arg in "plugins conf fs fw outdir".split():
             if not self.get_arg(arg):
                 raise ValueError(f"[core] Missing required argument: {arg}")
 
-        self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.pending_procname = None
         self.pending_sin_addr = None
-
-        self.logger = getColoredLogger("plugins.core")
 
         plugins = self.get_arg("plugins")
         conf = self.get_arg("conf")

@@ -2,8 +2,7 @@
 This plugin verifies that hypercalls are being made correctly.
 """
 
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import plugins, Plugin
 from os.path import join
 from hyper.syscalls import ValueFilter
 
@@ -15,12 +14,9 @@ SYSCALL_ARG5 = 0xdeadbeeff1f1f1f2
 
 syscalls = plugins.syscalls
 
-
-class SyscallTest(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class SyscallTest(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
-        self.logger = getColoredLogger("plugins.syscall_test")
         syscalls.syscall("on_sys_clone_enter")(self.syscall_test)
         syscalls.syscall("on_sys_getpid_return")(self.getpid)
         self.success_clone = None

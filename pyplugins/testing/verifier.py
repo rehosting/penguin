@@ -2,8 +2,7 @@
 Use this plugin for testing the results of a system run.
 """
 
-from pandare2 import PyPlugin
-from penguin import getColoredLogger
+from penguin import Plugin
 from os.path import join, exists
 import yaml
 from junit_xml import TestSuite, TestCase
@@ -11,12 +10,10 @@ import threading
 import time
 
 
-class Verifier(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class Verifier(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.conditions = self.get_arg("conditions")
-        self.logger = getColoredLogger("plugins.verifier")
 
         self.continuous_eval = self.get_arg("continuous_eval") or False
 

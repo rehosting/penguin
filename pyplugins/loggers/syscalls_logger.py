@@ -1,9 +1,7 @@
 import re
-from pandare2 import PyPlugin
 from os.path import join
 from events.types import Syscall
-from penguin import plugins
-from penguin import getColoredLogger
+from penguin import plugins, Plugin
 import functools
 
 """
@@ -54,12 +52,10 @@ This is our internal representation of a syscall event
 syscalls = plugins.syscalls
 
 
-class PyPandaSysLog(PyPlugin):
+class PyPandaSysLog(Plugin):
     def __init__(self, panda):
-        self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.saved_syscall_info = {}
-        self.logger = getColoredLogger("syslog")
         self.DB = plugins.DB
 
         procs = self.get_arg("procs")

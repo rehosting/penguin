@@ -1,14 +1,11 @@
 import csv
 import os
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import plugins, Plugin
 
 
-class BashCommand(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class BashCommand(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
-        self.logger = getColoredLogger("plugins.bash_command")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
 

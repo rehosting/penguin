@@ -1,9 +1,7 @@
 import tarfile
 from os.path import join
 
-from pandare2 import PyPlugin
-
-from penguin import getColoredLogger, plugins
+from penguin import plugins, Plugin
 
 HC_CMD_LOG_LINENO = 0
 HC_CMD_LOG_ENV_ARGS = 1
@@ -13,7 +11,7 @@ outfile_trace = "shell_cov_trace.csv"
 outfile_env = "shell_env.csv"
 
 
-class BBCov(PyPlugin):
+class BBCov(Plugin):
     def __init__(self, panda):
         self.pointer_size = panda.bits // 8
         self.panda = panda
@@ -24,7 +22,6 @@ class BBCov(PyPlugin):
         self.read_scripts = {}  # filename -> contents
         self.last_line = None
 
-        self.logger = getColoredLogger("plugins.shell")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
 

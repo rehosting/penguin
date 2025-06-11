@@ -2,8 +2,7 @@
 This plugin verifies that hypercalls are being made correctly.
 """
 
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import Plugin, plugins
 from os.path import join, realpath, basename
 from glob import glob
 import functools
@@ -12,12 +11,11 @@ uprobes = plugins.uprobes
 portal = plugins.portal
 
 
-class UprobesTest(PyPlugin):
+class UprobesTest(Plugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
 
-        self.logger = getColoredLogger("plugins.uprobes_test")
         libguest, lib_syms = self.find_lib("*ld-musl*")
 
         targets = [

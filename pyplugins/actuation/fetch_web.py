@@ -5,9 +5,7 @@ import queue
 from collections import Counter
 import math
 import time
-
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import plugins, Plugin
 
 
 def calculate_entropy(buffer: bytes) -> float:
@@ -17,9 +15,8 @@ def calculate_entropy(buffer: bytes) -> float:
     return entropy
 
 
-class FetchWeb(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class FetchWeb(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.shutdown_after_www = self.get_arg_bool("shutdown_after_www")
         self.shutdown_on_failure = self.get_arg_bool("shutdown_on_failure")

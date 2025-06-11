@@ -1,5 +1,5 @@
 import struct
-from pandare2 import PyPlugin
+from penguin import Plugin
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import hyperfs_ops as hops 
 from hyper.consts import hyperfs_file_ops as fops
@@ -36,9 +36,9 @@ def hyper2name(num):
     raise ValueError(f"Unknown hyperfile operation {num}")
 
 
-class HyperFile(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class HyperFile(Plugin):
+    def __init__(self):
+        panda = self.panda
         self.arch_bytes = panda.bits // 8
         self.log_file = self.get_arg("log_file")
         self.files = self.get_arg("models")

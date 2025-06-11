@@ -2,8 +2,7 @@
 This plugin verifies that hypercalls are being made correctly.
 """
 
-from pandare2 import PyPlugin
-from penguin import getColoredLogger
+from penguin import Plugin
 from os.path import join
 
 HYPERCALL_MAGIC = 0xcafebabe
@@ -13,11 +12,9 @@ HYPERCALL_ARG3 = 0xdeadbeeff1f1f1f2
 HYPERCALL_ARG4 = 0x1337c0def2f2f2f2
 
 
-class HypercallTest(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class HypercallTest(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
-        self.logger = getColoredLogger("plugins.hypercall_test")
         self.panda.hypercall(HYPERCALL_MAGIC)(self.hypercall_test)
         self.success = None
         self.reported = False

@@ -4,10 +4,7 @@ from os.path import join as pjoin
 from typing import List
 import re
 
-from pandare2 import PyPlugin
-
-from penguin import getColoredLogger, yaml
-from penguin import plugins
+from penguin import getColoredLogger, yaml, plugins, Plugin
 from penguin.analyses import PenguinAnalysis
 from penguin.graphs import Configuration, Failure, Mitigation
 
@@ -21,9 +18,8 @@ ENODEV = 19
 ignored_interfaces = ["lo"]
 
 
-class Interfaces(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class Interfaces(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.conf = self.get_arg("conf")
         self.logger = getColoredLogger("plugins.interfaces")
