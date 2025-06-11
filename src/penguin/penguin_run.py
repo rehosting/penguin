@@ -583,7 +583,7 @@ def run_config(
         """
         Ensure pyplugins nicely clean up. Working around some panda bug
         """
-        panda.pyplugins.unload_all()
+        plugins.unload_all()
 
     while not os.path.exists(socket_path):
         logger.info(f"Waiting for socket {socket_path} to be created")
@@ -595,7 +595,7 @@ def run_config(
         try:
             panda.run()
             # think about this and maybe join on the thread
-            panda.pyplugins.unload_all()
+            plugins.unload_all()
         except KeyboardInterrupt:
             logger.info("\nStopping for ctrl-c\n")
         except Exception as e:
