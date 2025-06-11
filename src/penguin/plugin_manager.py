@@ -2,16 +2,32 @@ from os.path import join, isfile, basename, splitext
 from penguin import getColoredLogger
 from pandare2 import PyPlugin, Panda
 import shutil
-from typing import List, Dict, Union, Callable, Tuple
+from typing import List, Dict, Union, Callable, Tuple, Optional, Any, Type, TypeVar
 import glob
 import re
 import importlib
 import inspect
 import datetime
 
+# Forward reference for type annotations
+T = TypeVar('T', bound='Plugin')
+PluginManagerType = TypeVar('PluginManagerType', bound='IGLOOPluginManager')
+
 
 class Plugin:
-    def __preinit__(self, plugins: IGLOOPluginManager, args:Union[dict, None]) -> None:
+    """
+    Base class for all IGLOO plugins. 
+    Plugin classes are automatically discovered and instantiated by the plugin manager.
+    """
+    
+    def __preinit__(self, plugins: 'IGLOOPluginManager', args:  Dict) -> None:
+        """
+        Internal initialization method called by the plugin manager before __init__.
+        
+        Args:
+            plugins: The plugin manager instance
+            args: Dictionary of arguments for this plugin
+        """
         self.plugins = plugins
         self.args = args
         logname = camel_to_snake(self.name)
@@ -19,6 +35,12 @@ class Plugin:
 
     @property
     def name(self) -> str:
+        """
+        Returns the name of this plugin, which is its class name.
+        
+        Returns:
+            The class name of this plugin
+        """
         return self.__class__.__name__
     
     @property
@@ -48,21 +70,29 @@ class Plugin:
         return None
 
     def get_arg_bool(self, arg_name: str) -> bool:
-        '''
-        Returns True if the argument is set and has a truthy value
-        '''
-
+        """
+        Returns True if the argument is set and has a truthy value.
+        
+        Args:
+            arg_name: The name of the argument to retrieve
+            
+        Returns:
+            True if the argument exists and has a truthy value, False otherwise
+            
+        Raises:
+            ValueError: If the argument exists but has an unsupported type
+        """
         if arg_name not in self.args:
             # Argument name unset - it's false
             return False
 
         arg_val = self.args[arg_name]
         if isinstance(arg_val, bool):
-            # If it's a python bol already, just return it
+            # If it's a Python bool already, just return it
             return arg_val
 
         if isinstance(arg_val, str):
-            # string of true/y/1  is True
+            # string of true/y/1 is True
             return arg_val.lower() in ['true', 'y', '1']
 
         if isinstance(arg_val, int):
@@ -74,6 +104,17 @@ class Plugin:
     
 
 def gen_search_locations(plugin_name: str, proj_dir: str, plugin_path: str) -> List[str]:
+    """
+    Generate a list of possible file paths to look for a plugin.
+    
+    Args:
+        plugin_name: The name of the plugin to search for
+        proj_dir: The project directory
+        plugin_path: The plugin path
+        
+    Returns:
+        List of possible file paths to search for the plugin
+    """
     search_locations = [
         join(plugin_path, '**', plugin_name),
         join(plugin_path, '**', plugin_name + ".py"),
@@ -86,19 +127,49 @@ def gen_search_locations(plugin_name: str, proj_dir: str, plugin_path: str) -> L
 
 
 def camel_to_snake(name: str) -> str:
-    # Convert CamelCase to snake_case
+    """
+    Convert CamelCase to snake_case.
+    
+    Args:
+        name: The CamelCase string to convert
+        
+    Returns:
+        The converted snake_case string
+    """
     s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
 
 def snake_to_camel(name: str) -> str:
-    # Convert snake_case to CamelCase
+    """
+    Convert snake_case to CamelCase.
+    
+    Args:
+        name: The snake_case string to convert
+        
+    Returns:
+        The converted CamelCase string
+    """
     return ''.join(word.capitalize() for word in name.split('_'))
 
 
 def find_plugin_by_name(plugin_name: str, proj_dir: str, plugin_path: str) -> Tuple[str, bool]:
-
-    def find_file(g):
+    """
+    Find a plugin file by name, trying various naming conventions.
+    
+    Args:
+        plugin_name: The name of the plugin to find
+        proj_dir: The project directory
+        plugin_path: The plugin path
+        
+    Returns:
+        Tuple of (file_path, is_local_plugin)
+        
+    Raises:
+        ValueError: If the plugin cannot be found
+    """
+    def find_file(g: List[str]) -> Optional[str]:
+        """Helper function to find the first matching file from a list of patterns"""
         for f in g:
             if '*' in f:
                 p = glob.glob(f, recursive=True)
@@ -107,6 +178,7 @@ def find_plugin_by_name(plugin_name: str, proj_dir: str, plugin_path: str) -> Tu
             else:
                 if isfile(f):
                     return f
+        return None
 
     plugin_name_possibilities = [plugin_name,
                                  plugin_name.lower(),
@@ -123,29 +195,51 @@ def find_plugin_by_name(plugin_name: str, proj_dir: str, plugin_path: str) -> Tu
 
 
 class IGLOOPluginManager:
-    def __new__(cls):
+    """
+    Singleton class that manages the loading, unloading, and interaction with plugins.
+    """
+    def __new__(cls) -> 'IGLOOPluginManager':
+        """
+        Singleton pattern implementation.
+        
+        Returns:
+            The singleton instance of IGLOOPluginManager
+        """
         if not hasattr(cls, 'instance'):
             cls.instance = super(IGLOOPluginManager, cls).__new__(cls)
         return cls.instance
 
-    def initialize(self, panda: Panda, args: Dict[str, str]) -> None:
+    def initialize(self, panda: Panda, args: Dict[str, Any]) -> None:
+        """
+        Initialize the plugin manager with a Panda instance and arguments.
+        
+        Args:
+            panda: The Panda instance
+            args: Dictionary of arguments
+        """
         self.panda = panda
         self.args = args
         self.logger = getColoredLogger("penguin.plugin_manger")
 
-        self.plugin_cbs = {}
-        self.registered_cbs = {}
-        self.aliases = {}
-        self.plugins = {}
+        self.plugin_cbs: Dict[Plugin, Dict[str, List[Callable]]] = {}
+        self.registered_cbs: Dict[Tuple[Plugin, str], Callable] = {}
+        self.aliases: Dict[str, str] = {}
+        self.plugins: Dict[str, Plugin] = {}
     
-    def load(self, pluginclasses: List[Union[Plugin, PyPlugin]], args:dict = None) -> None:
-        '''
-        pluginclasses can either be an uninstantiated python class, a list of such classes,
-        or a tuple of (path_to_module.py, [classnames]) where classnames is a list of
-        clases subclasses which subclass Plugin.
-
-        Each plugin class will be stored in self.plugins under the class name
-        '''
+    def load(self, pluginclasses: Union[Type[T], List[Type[T]], Tuple[str, List[str]]], args: Dict[str, Any] = None) -> None:
+        """
+        Load one or more plugin classes.
+        
+        Args:
+            pluginclasses: Can be one of:
+                - An uninstantiated plugin class
+                - A list of uninstantiated plugin classes
+                - A tuple of (path_to_module.py, [classnames]) where classnames is a 
+                  list of class names to load from the module
+            args: Optional dictionary of arguments to pass to the plugins
+            
+        Each plugin class will be instantiated and stored in self.plugins under its class name.
+        """
         if args is None:
             args = {}
 
@@ -192,6 +286,15 @@ class IGLOOPluginManager:
             self.plugins[name].load_time = datetime.datetime.now()
 
     def load_plugin(self, plugin_name: str) -> None:
+        """
+        Load a plugin by name.
+        
+        Args:
+            plugin_name: Name of the plugin to load
+            
+        Raises:
+            ValueError: If plugin loading fails
+        """
         if self.get_plugin_by_name(plugin_name):
             return
         self.logger.debug(f"Loading plugin: {plugin_name}")
@@ -256,19 +359,22 @@ class IGLOOPluginManager:
     def __getattr__(self, plugin: str) -> Plugin:
         return self[plugin]
     
-    def load_all(self, plugin_file, args=None) -> List[str]:
-        '''
+    def load_all(self, plugin_file: str, args: Optional[Dict[str, Any]] = None) -> List[str]:
+        """
         Given a path to a python file, load every Plugin defined in that file
         by identifying all classes that subclass Plugin and passing them to
         self.load()
 
         Args:
-            plugin_file (str): A path specifying a Python file from which Plugin classes should be loaded
-            args (dict): Optional. A dictionary of arguments to pass to the Plugin
+            plugin_file: A path specifying a Python file from which Plugin classes should be loaded
+            args: Optional dictionary of arguments to pass to the Plugin
 
         Returns:
-            String list of Plugin class names loaded from the plugin_file
-        '''
+            List of Plugin class names loaded from the plugin_file
+            
+        Raises:
+            ValueError: If the plugin file cannot be loaded
+        """
         spec = importlib.util.spec_from_file_location("plugin_file", plugin_file)
         if spec is None:
             # Likely an invalid path
