@@ -14,11 +14,12 @@ class Plugin:
     def __preinit__(self, plugins, args):
         self.plugins = plugins
         self.args = args
-        self.logger = getColoredLogger(f"plugins.{self.name}")
+        logname = camel_to_snake(self.name)
+        self.logger = getColoredLogger(f"plugins.{logname}")
 
     @property
     def name(self) -> str:
-        return self.__class__.__name__.lower()
+        return self.__class__.__name__
     
     @property
     def panda(self) -> Panda:
