@@ -45,6 +45,7 @@ class Portal(Plugin):
         # Process one item from each plugin that has pending interrupts
         interrupts = self._pending_interrupts.copy()
         self._pending_interrupts.clear()
+        self._portal_clear_interrupt()
         for plugin_name in list(interrupts):
             if plugin_name in self._interrupt_handlers:
                 handler_fn = self._interrupt_handlers[plugin_name]
