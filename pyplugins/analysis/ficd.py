@@ -1,11 +1,10 @@
 import time
 from os import path
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import Plugin, plugins
 import Levenshtein as lv
 
 
-class FICD(PyPlugin):
+class FICD(Plugin):
     """
     FICD metric based on Pandawan, see https://github.com/BUseclab/Pandawan/blob/main/plugins/pandawan/ficd.py
     The goal here is to produce a faithful representation of that metric in PENGUIN
@@ -14,7 +13,7 @@ class FICD(PyPlugin):
     "In our re-hosting experiments we use three (Py)PANDA plugins (coverage, syscalls_logger, and SyscallToKmodTracer) along with the FICD plugin, which results in the optimal tf = 220sec and tf = 300sec"
     """
 
-    def __init__(self, panda):
+    def __init__(self):
         self.time_frame = 300  # set up as arg at some point
         self.init_time = time.time()
         self.boot_time = self.init_time
@@ -25,8 +24,6 @@ class FICD(PyPlugin):
         self.measured_tf = 0
         self.last_proc_time = 0
         self.outfile = path.join(self.get_arg("outdir"), "ficd.yaml")
-        self.panda = panda
-        self.logger = getColoredLogger("plugins.ficd")
         self.stop_on_if = self.get_arg_bool("stop_on_if")
         self.logger.info("Loading FICD plugin")
 

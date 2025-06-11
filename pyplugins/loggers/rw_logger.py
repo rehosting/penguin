@@ -1,11 +1,9 @@
-from pandare2 import PyPlugin
-from penguin import plugins
+from penguin import plugins, Plugin
 from events.types import Read, Write
 
 
-class RWLog(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class RWLog(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.DB = plugins.DB
         plugins.syscalls.syscall("on_sys_write_return")(self.write)

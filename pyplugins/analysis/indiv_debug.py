@@ -1,4 +1,4 @@
-from pandare2 import PyPlugin
+from penguin import Plugin
 import subprocess
 import os
 import shlex
@@ -11,7 +11,7 @@ def guest_cmd(cmd):
     subprocess.Popen(["python3", "/igloo_static/guesthopper/guest_cmd.py", cmd])
 
 
-class IndivDebug(PyPlugin):
+class IndivDebug(Plugin):
     """
     Plugin for debugging individual programs
 

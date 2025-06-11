@@ -1,14 +1,11 @@
-from pandare2 import PyPlugin
-from penguin import plugins
+from penguin import plugins, Plugin
 
 RETRY = 0xDEADBEEF
 NO_CHANGE = 0xABCDABCD
 
 
-class KernelVersion(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
-
+class KernelVersion(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.sysname = self.get_arg("sysname")
         self.nodename = self.get_arg("nodename")

@@ -10,9 +10,7 @@ from os import environ as env
 from os import geteuid
 from os.path import join
 
-from pandare2 import PyPlugin
-
-from penguin import getColoredLogger, plugins
+from penguin import Plugin, plugins
 
 static_dir = "/igloo_static/"
 
@@ -39,7 +37,7 @@ BRIDGE_FILE = "vpn_bridges.csv"
 # e.g., IGLOO_VPN_PORT_MAPS="TCP:80:192.168.0.1:80,udp:20002:192.168.0.1:20002"
 
 
-class VPN(PyPlugin):
+class VPN(Plugin):
     def __init__(self, panda):
         if "vhost-vsock" not in str(panda.panda_args) and "vhost-user-vsock" not in str(
             panda.panda_args
@@ -50,7 +48,6 @@ class VPN(PyPlugin):
 
         self.outdir = self.get_arg("outdir")
 
-        self.logger = getColoredLogger("plugins.VPN")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
 

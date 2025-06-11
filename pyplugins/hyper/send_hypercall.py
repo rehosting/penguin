@@ -1,14 +1,11 @@
 import struct
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import Plugin, plugins
 from typing import Callable, Union, Tuple
 
 
-class SendHypercall(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class SendHypercall(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
-        self.logger = getColoredLogger("plugins.send_hypercall")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
         self.registered_events = {}

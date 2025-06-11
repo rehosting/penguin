@@ -1,5 +1,4 @@
-from penguin import getColoredLogger, plugins
-from pandare2 import PyPlugin
+from penguin import plugins, Plugin
 from hyper.consts import igloo_hypercall_constants as iconsts
 
 
@@ -29,12 +28,10 @@ EVENTS = {
 }
 
 
-class Events(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class Events(Plugin):
+    def __init__(self):
         # MAGIC -> [fn1, fn2, fn3,...]
         self.callbacks = {}
-        self.logger = getColoredLogger("plugins.events")
 
         for event_num, (name, args) in EVENTS.items():
             plugins.register(self, name, register_notify=self.register_notify)

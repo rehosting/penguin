@@ -3,22 +3,19 @@ import struct
 import time
 from os.path import join
 
-from pandare2 import PyPlugin
-
-from penguin import getColoredLogger, plugins
+from penguin import plugins, Plugin
 
 BINDS_FILE = "netbinds.csv"
 SUMMARY_BINDS_FILE = "netbinds_summary.csv"
 
 
-class NetBinds(PyPlugin):
+class NetBinds(Plugin):
     def __init__(self, panda):
         self.outdir = self.get_arg("outdir")
         self.panda = panda
         self.seen_binds = set()
         self.start_time = time.time()
         self.bind_list = []
-        self.logger = getColoredLogger("plugins.netbinds")
         self.shutdown_on_www = self.get_arg_bool("shutdown_on_www")
 
         # The NetBinds.on_bind PPP callback happens on every bind.

@@ -1,5 +1,4 @@
-from pandare2 import PyPlugin
-from penguin import plugins, getColoredLogger
+from penguin import plugins, getColoredLogger, Plugin
 from analysis.kernel_types import load_isf_json, Ptr
 from os.path import join, realpath, isfile
 from wrappers.generic import Wrapper
@@ -7,9 +6,8 @@ import functools
 from typing import Union
 
 
-class KFFI(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class KFFI(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
         conf = self.get_arg("conf")
         kernel = conf["core"]["kernel"]

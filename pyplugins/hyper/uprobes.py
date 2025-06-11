@@ -1,7 +1,6 @@
 import os
 import lzma
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import Plugin, plugins
 from typing import Dict, List, Any, Union
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import portal_type
@@ -13,17 +12,15 @@ except ImportError:
     HAVE_CXXFILT = False
 
 
-class Uprobes(PyPlugin):
+class Uprobes(Plugin):
     """
     Plugin that provides an interface for registering user-space probes (uprobes).
     Uses the portal's interrupt mechanism for registration.
     """
 
     def __init__(self, panda):
-        self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.projdir = self.get_arg("proj_dir")
-        self.logger = getColoredLogger("plugins.uprobes")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
         self.libsymbols = os.path.join(

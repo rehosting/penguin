@@ -11,8 +11,7 @@ from sys import stdout
 from time import sleep
 
 import requests
-from pandare2 import PyPlugin
-from penguin import plugins
+from penguin import plugins, Plugin
 from python_hosts import Hosts, HostsEntry
 from zapv2 import ZAPv2
 
@@ -76,13 +75,11 @@ def find_potential_urls(fs_tar_path):
     return list(all_urls)
 
 
-class Zap(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class Zap(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.fs_tar = self.get_arg("fs")
         self.target_host = self.get_arg("target_host")
-        self.logger = logging.getLogger("zap")
 
         if self.target_host:
             h = Hosts(HOSTS_FILE)

@@ -5,9 +5,7 @@ from os.path import isfile
 from os.path import join as pjoin
 from typing import List
 
-from pandare2 import PyPlugin
-
-from penguin import getColoredLogger, plugins
+from penguin import plugins, Plugin
 
 try:
     from penguin import yaml
@@ -53,19 +51,17 @@ DEFAULT_ENV_VARS = [
 ]
 
 
-class EnvTracker(PyPlugin):
+class EnvTracker(Plugin):
     """
     Track environment variables that appear to be read
     and store them in missing_output if they aren't in our env
     """
 
-    def __init__(self, panda):
-        self.panda = panda
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.env_vars = set()  # set of env vars that were read through libc getenv
         self.uboot_vars = set()  # set of env vars that were read through libc getenv
         self.mtd_vars = set()  # set of mtd partitions read out of /proc/mtd
-        self.logger = getColoredLogger("plugins.env_tracker")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
 

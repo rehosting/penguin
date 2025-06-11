@@ -1,6 +1,5 @@
-from pandare2 import PyPlugin
 from events import Exec
-from penguin import plugins
+from penguin import plugins, Plugin
 
 
 def get_calltree(panda):
@@ -31,9 +30,8 @@ def get_calltree(panda):
     return " -> ".join(f"{item['name']} ({item['pid']})" for item in chain[::-1])
 
 
-class ExecLog(PyPlugin):
+class ExecLog(Plugin):
     def __init__(self, panda):
-        self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.DB = plugins.DB
 

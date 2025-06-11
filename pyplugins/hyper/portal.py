@@ -1,5 +1,4 @@
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import plugins, Plugin
 import struct
 from collections.abc import Iterator
 import functools
@@ -14,15 +13,13 @@ CURRENT_PID_NUM = 0xffffffff
 kffi = plugins.kffi
 
 
-class Portal(PyPlugin):
-    def __init__(self, panda):
+class Portal(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
-        self.logger = getColoredLogger("plugins.portal")
         # if self.get_arg_bool("verbose"):
         #     self.logger.setLevel("DEBUG")
-        self.panda = panda
         # Set endianness format character for struct operations
-        self.endian_format = '<' if panda.endianness == 'little' else '>'
+        self.endian_format = '<' if self.panda.endianness == 'little' else '>'
         self.portal_interrupt = None
         self.try_panda = True if self.panda.arch != "riscv64" else False
 

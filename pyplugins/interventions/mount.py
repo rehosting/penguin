@@ -1,11 +1,10 @@
 from os.path import join as pjoin
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import plugins, Plugin
 
 mount_log = "mounts.csv"
 
 
-class MountTracker(PyPlugin):
+class MountTracker(Plugin):
     """
     Track when the guest tries mounting filesystems.
 
@@ -25,14 +24,12 @@ class MountTracker(PyPlugin):
     finding a good way to make those files appear
     """
 
-    def __init__(self, panda):
-        self.panda = panda
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
         plugins.subscribe(plugins.Health, "igloo_exec", self.find_mount)
         self.mounts = set()
         self.fake_mounts = self.get_arg("fake_mounts") or []
         self.all_succeed = self.get_arg("all_succeed") or False
-        self.logger = getColoredLogger("plugins.mount")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
 

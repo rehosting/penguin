@@ -1,16 +1,14 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from os.path import join
-from pandare2 import PyPlugin
 from events import Base
 from threading import Lock, Thread, Event
 import time
-from penguin import getColoredLogger
+from penguin import Plugin
 
 
-class DB(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class DB(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.db_path = join(self.outdir, "plugins.db")
         self.engine = create_engine(f"sqlite:///{self.db_path}")
@@ -19,7 +17,6 @@ class DB(PyPlugin):
         self.event_lock = Lock()
         self.flush_event = Event()
         self.stop_event = Event()
-        self.logger = getColoredLogger("db")
         self.initialized_db = False
 
         if self.get_arg_bool("verbose"):

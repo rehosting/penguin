@@ -3,13 +3,11 @@ import subprocess
 import threading
 from threading import Lock
 
-from pandare2 import PyPlugin
-from penguin import plugins
+from penguin import plugins, Plugin
 
 
-class Nmap(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class Nmap(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
         plugins.subscribe(plugins.VPN, "on_bind", self.nmap_on_bind)
         self.subprocesses = []

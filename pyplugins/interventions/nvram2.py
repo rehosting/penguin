@@ -1,16 +1,13 @@
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import Plugin, plugins
 
 log = "nvram.csv"
 
 # access: 0 = miss get, 1 = hit get, 2 = set, 3 = clear
 
 
-class Nvram2(PyPlugin):
-    def __init__(self, panda):
+class Nvram2(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
-        self.panda = panda
-        self.logger = getColoredLogger("plugins.nvram2")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
         # Even at debug level, logging every nvram get/clear can be very verbose.

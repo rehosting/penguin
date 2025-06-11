@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import plugins, Plugin
 
 IFNAMSIZ = 16
 SIOCGIFFLAGS = 0x8913
 SIOCDEVPRIVATE = 0x89F0
 
 
-class TestIoctlInteraction(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class TestIoctlInteraction(Plugin):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
-        self.logger = getColoredLogger("plugins.ioctl_interaction_test")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
         plugins.syscalls.syscall(

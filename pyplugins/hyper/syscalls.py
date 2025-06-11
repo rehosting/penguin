@@ -1,5 +1,4 @@
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import plugins, Plugin
 import json
 from typing import Dict, List
 from hyper.consts import value_filter_type as vft
@@ -93,16 +92,14 @@ class SyscallPrototype:
         return f"<SyscallPrototype name='{self.name}' nargs={self.nargs}>"
 
 
-class Syscalls(PyPlugin):
+class Syscalls(Plugin):
     """
     Plugin that provides an interface to monitor and intercept system calls.
     Uses the portal's interrupt mechanism to handle registration.
     """
 
-    def __init__(self, panda):
-        self.panda = panda
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
-        self.logger = getColoredLogger("plugins.syscalls")
 
         # Map hook pointers to callbacks
         self.hooks: Dict[int, tuple] = {}  # Maps hook pointers to (on_all, callback_func) tuples
