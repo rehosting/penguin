@@ -142,7 +142,7 @@ class Core(Plugin):
             self.shutdown_event = threading.Event()
             self.shutdown_thread = threading.Thread(
                 target=self.shutdown_after_timeout,
-                args=(panda, timeout, self.shutdown_event),
+                args=(self.panda, timeout, self.shutdown_event),
             )
             self.shutdown_thread.start()
 
