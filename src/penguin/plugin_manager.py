@@ -2,7 +2,7 @@ from os.path import join, isfile, basename, splitext
 from penguin import getColoredLogger
 from pandare2 import PyPlugin, Panda
 import shutil
-from typing import List, Dict, Union, Callable
+from typing import List, Dict, Union, Callable, Tuple
 import glob
 import re
 import importlib
@@ -11,7 +11,7 @@ import datetime
 
 
 class Plugin:
-    def __preinit__(self, plugins, args):
+    def __preinit__(self, plugins: IGLOOPluginManager, args:Union[dict, None]) -> None:
         self.plugins = plugins
         self.args = args
         logname = camel_to_snake(self.name)
@@ -29,14 +29,14 @@ class Plugin:
         return self.plugins.panda
     
     @panda.setter
-    def panda(self, panda: Panda):
+    def panda(self, panda: Panda) -> None:
         '''
         This does not set anything, but it makes sure code can be backwards 
         compatible with the old PyPlugin interface.
         '''
         pass
     
-    def get_arg(self, arg_name):
+    def get_arg(self, arg_name: str):
         '''
         Returns either the argument as a string or None if the argument
         wasn't passed (arguments passed in bool form (i.e., set but with no value)
@@ -47,7 +47,7 @@ class Plugin:
 
         return None
 
-    def get_arg_bool(self, arg_name):
+    def get_arg_bool(self, arg_name: str) -> bool:
         '''
         Returns True if the argument is set and has a truthy value
         '''
@@ -73,7 +73,7 @@ class Plugin:
         raise ValueError(f"Unsupported arg type: {type(arg_val)}")
     
 
-def gen_search_locations(plugin_name: str, proj_dir: str, plugin_path: str):
+def gen_search_locations(plugin_name: str, proj_dir: str, plugin_path: str) -> List[str]:
     search_locations = [
         join(plugin_path, '**', plugin_name),
         join(plugin_path, '**', plugin_name + ".py"),
@@ -85,18 +85,18 @@ def gen_search_locations(plugin_name: str, proj_dir: str, plugin_path: str):
     return search_locations
 
 
-def camel_to_snake(name):
+def camel_to_snake(name: str) -> str:
     # Convert CamelCase to snake_case
     s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
 
-def snake_to_camel(name):
+def snake_to_camel(name: str) -> str:
     # Convert snake_case to CamelCase
     return ''.join(word.capitalize() for word in name.split('_'))
 
 
-def find_plugin_by_name(plugin_name: str, proj_dir: str, plugin_path: str):
+def find_plugin_by_name(plugin_name: str, proj_dir: str, plugin_path: str) -> Tuple[str, bool]:
 
     def find_file(g):
         for f in g:
@@ -128,7 +128,7 @@ class IGLOOPluginManager:
             cls.instance = super(IGLOOPluginManager, cls).__new__(cls)
         return cls.instance
 
-    def initialize(self, panda: Panda, args: Dict[str, str]):
+    def initialize(self, panda: Panda, args: Dict[str, str]) -> None:
         self.panda = panda
         self.args = args
         self.logger = getColoredLogger("penguin.plugin_manger")
@@ -138,7 +138,7 @@ class IGLOOPluginManager:
         self.aliases = {}
         self.plugins = {}
     
-    def load(self, pluginclasses, args=None):
+    def load(self, pluginclasses: List[Union[Plugin, PyPlugin]], args:dict = None) -> None:
         '''
         pluginclasses can either be an uninstantiated python class, a list of such classes,
         or a tuple of (path_to_module.py, [classnames]) where classnames is a list of
@@ -191,7 +191,7 @@ class IGLOOPluginManager:
                 self.plugins[name].__init__()
             self.plugins[name].load_time = datetime.datetime.now()
 
-    def load_plugin(self, plugin_name: str):
+    def load_plugin(self, plugin_name: str) -> None:
         if self.get_plugin_by_name(plugin_name):
             return
         self.logger.debug(f"Loading plugin: {plugin_name}")
@@ -234,7 +234,7 @@ class IGLOOPluginManager:
         if local_plugin:
             shutil.copy2(path, self.args["outdir"])
 
-    def load_plugins(self, conf_plugins: List[str]):
+    def load_plugins(self, conf_plugins: List[str]) -> None:
         for plugin in conf_plugins:
             self.load_plugin(plugin)
 
@@ -256,7 +256,7 @@ class IGLOOPluginManager:
     def __getattr__(self, plugin: str) -> Plugin:
         return self[plugin]
     
-    def load_all(self, plugin_file, args=None):
+    def load_all(self, plugin_file, args=None) -> List[str]:
         '''
         Given a path to a python file, load every Plugin defined in that file
         by identifying all classes that subclass Plugin and passing them to
@@ -287,7 +287,7 @@ class IGLOOPluginManager:
             names.append(name)
         return names
 
-    def unload(self, pluginclass):
+    def unload(self, pluginclass: List[Union[Plugin, PyPlugin]]) -> None:
         '''
         Given an instance of a PyPlugin or its name, unload it
         '''
@@ -302,7 +302,7 @@ class IGLOOPluginManager:
         if callable(getattr(pluginclass, "uninit", None)):
             pluginclass.uninit()
 
-    def unload_all(self):
+    def unload_all(self) -> None:
         '''
         Unload all PyPlugins
         '''
@@ -313,13 +313,13 @@ class IGLOOPluginManager:
             self.unload(cls)
 
     def register(self, plugin: Plugin, event: str,
-                 register_notify: Callable[[str, Callable[..., None]], None] = None):
+                 register_notify: Callable[[str, Callable[..., None]], None] = None) -> None:
         self.plugin_cbs[plugin] = self.plugin_cbs.get(plugin, {})
         self.plugin_cbs[plugin][event] = self.plugin_cbs[plugin].get(event, [])
         if register_notify:
             self.registered_cbs[(plugin, event)] = register_notify
 
-    def subscribe(self, plugin: Plugin, event: str, callback: Callable[..., None]):
+    def subscribe(self, plugin: Plugin, event: str, callback: Callable[..., None]) -> None:
         if plugin not in self.plugin_cbs:
             raise Exception(f"Attempt to subscribe to unregistered plugin: {plugin}")
         elif event not in self.plugin_cbs[plugin]:
@@ -338,7 +338,7 @@ class IGLOOPluginManager:
             cb(*args, **kwargs)
 
     @property
-    def resources(self):
+    def resources(self) -> str:
         return join(self.args["plugin_path"], "resources")
 
 
