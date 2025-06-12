@@ -393,7 +393,7 @@ class IGLOOPluginManager:
             names.append(name)
         return names
 
-    def unload(self, pluginclass: List[Union[Plugin, PyPlugin]]) -> None:
+    def unload(self, pluginclass: Union[Type[Plugin], Type[PyPlugin]]) -> None:
         '''
         Given an instance of a PyPlugin or its name, unload it
         '''
@@ -401,7 +401,7 @@ class IGLOOPluginManager:
         if isinstance(pluginclass, str) and pluginclass in self.plugins:
             pluginclass = self.plugins[pluginclass]
 
-        if not isinstance(pluginclass, PyPlugin):
+        if not issubclass(type(pluginclass), PyPlugin) and not issubclass(type(pluginclass), Plugin):
             raise ValueError(f"Unload expects a name of a loaded pyplugin or a PyPlugin instance. Got {pluginclass} with plugin list: {self.plugins}")
 
         # Call uninit method if it's present
