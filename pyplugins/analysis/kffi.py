@@ -5,7 +5,6 @@ from wrappers.generic import Wrapper
 import functools
 from typing import Union
 
-
 class KFFI(Plugin):
     def __init__(self):
         self.outdir = self.get_arg("outdir")
@@ -159,8 +158,11 @@ class KFFI(Plugin):
 
         buf = self._prepare_ffi_call(func_ptr, args)
 
+        # importing here to avoid circular import issues
+        from hyper.portal import PortalCmd
+        
         # Call the function
-        response = yield ("ffi_exec", buf)
+        response = yield PortalCmd("ffi_exec", size=len(buf), data=buf)
 
         if not response:
             self.logger.error(f"FFI call failed: func_ptr={func_ptr:#x}")
