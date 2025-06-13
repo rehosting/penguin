@@ -79,7 +79,6 @@ class Lifeguard(Plugin):
             if p.pid == abs(pid):
                 return self.panda.ffi.string(p.name).decode("latin-1", errors="ignore")
 
-    @plugins.portal.wrap
     def on_sys_kill_enter(self, cpu, proto, sysret, pid, sig):
         save = sig in self.blocked_signals
         with open(f"{self.outdir}/{LIFELOG}", "a") as f:

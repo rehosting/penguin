@@ -115,7 +115,6 @@ class UprobesTest(Plugin):
                 self.logger.error(f"stderr: {e.stderr}")
             return {}
 
-    @portal.wrap
     def uprobe_strncmp(self, pt_regs):
         a, b, c = pt_regs.get_args(3)
         av = yield from portal.read_str(a)
@@ -132,7 +131,6 @@ class UprobesTest(Plugin):
         else:
             self.uprobe_strncmp_val = None
 
-    @portal.wrap
     def uprobe_strncmp_ret(self, pt_regs):
         if self.uprobe_strncmp_val == "Hello from uprobe_test\n":
             retval = pt_regs.get_retval()
@@ -149,7 +147,6 @@ class UprobesTest(Plugin):
         if False:
             yield
 
-    @portal.wrap
     def uprobe_printf(self, pt_regs):
         format_str_ptr = pt_regs.get_arg(0)
         format_str = yield from portal.read_str(format_str_ptr)
@@ -186,7 +183,6 @@ class UprobesTest(Plugin):
         else:
             self.uprobe_printf_val = False
 
-    @portal.wrap
     def uprobe_printf_ret(self, pt_regs):
         if self.uprobe_printf_val:
             retval = pt_regs.get_retval()
@@ -206,7 +202,6 @@ class UprobesTest(Plugin):
             if False:
                 yield
 
-    @portal.wrap
     def uprobe_fopen(self, pt_regs):
         path_ptr, mode_ptr = pt_regs.get_args(2)
         path = yield from portal.read_str(path_ptr)
@@ -226,7 +221,6 @@ class UprobesTest(Plugin):
             f.write(
                 f"fopen entry test passed: opening '{path}' with mode '{mode}'\n")
 
-    @portal.wrap
     def uprobe_fopen_ret(self, pt_regs):
         retval = pt_regs.get_retval()
         self.logger.info(f"fopen return value (file descriptor): {retval:#x}")
@@ -243,7 +237,6 @@ class UprobesTest(Plugin):
         if False:
             yield
 
-    @portal.wrap
     def uprobe_getenv(self, pt_regs):
         name_ptr = pt_regs.get_arg(0)
         name = yield from portal.read_str(name_ptr)
@@ -258,7 +251,6 @@ class UprobesTest(Plugin):
                 f.write(
                     f"getenv entry test passed: looking up env var '{name}'\n")
 
-    @portal.wrap
     def uprobe_getenv_ret(self, pt_regs):
         retval = pt_regs.get_retval()
 

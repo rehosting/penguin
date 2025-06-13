@@ -80,11 +80,9 @@ class PyPandaSysLog(Plugin):
             syscalls.syscall("on_sys_execve_enter")(self.sys_execve_enter)
             syscalls.syscall("on_sys_execveat_enter")(self.sys_execve_enter)
 
-    @plugins.portal.wrap
     def sys_execve_enter(self, cpu, proto, syscall, *args):
         yield from self.handle_syscall(cpu, proto, syscall)
 
-    @plugins.portal.wrap
     def all_sys_ret(self, cpu, proto, syscall):
         protoname, _, _ = self.get_syscall_proto(proto, proto.name)
         if "execve" not in protoname:

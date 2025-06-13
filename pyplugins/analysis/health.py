@@ -41,7 +41,6 @@ class Health(Plugin):
                           self.health_detect_opens)
         plugins.syscalls.syscall("on_sys_execve_enter")(self.health_execve)
 
-    @plugins.portal.wrap
     def health_execve(self, cpu, proto, syscall, fname_ptr, argv_ptr, envp):
         if self.exiting:
             return
