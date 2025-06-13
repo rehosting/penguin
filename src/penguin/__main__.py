@@ -95,9 +95,13 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
     # report_best_results(run_base, output_dir, os.path.dirname(output_dir))
 
     # But do calculate and report scores. Unlike multi-run mode, we'll write scores right into output dir instead of in parent
-    best_scores = calculate_score(
-        output_dir, have_console=not config["core"].get("show_output", False)
-    )
+    try:
+        best_scores = calculate_score(
+            output_dir, have_console=not config["core"].get("show_output", False)
+        )
+    except RuntimeError as e:
+        logger.error(f"Failed to calculate scores: {e}")
+        return
     with open(os.path.join(output_dir, "scores.txt"), "w") as f:
         f.write("score_type,score\n")
         for k, v in best_scores.items():
