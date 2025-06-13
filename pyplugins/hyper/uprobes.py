@@ -4,7 +4,9 @@ from penguin import Plugin, plugins
 from typing import Dict, List, Any, Union
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import portal_type
+from hyper.portal import PortalCmd
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
+from collections.abc import Iterator
 try:
     import cxxfilt  # For C++ symbol demangling
     HAVE_CXXFILT = True
@@ -40,6 +42,7 @@ class Uprobes(Plugin):
         # Add symbol cache for lazy loading
         self._symbols_cache = None
         self._symbols_loaded = False
+        self._uprobe_event = self.plugins.portal.wrap(self._uprobe_event)
 
     def _load_symbols(self):
         """Lazily load symbols from LibrarySymbols.yaml if it exists"""
@@ -158,41 +161,33 @@ class Uprobes(Plugin):
 
         return None, None
 
-    def _get_portal_event(self, cpu, sequence, arg):
-        sri = self.saved_regs_info.get(cpu, None)
-        if sri:
-            saved_sequence, id_, pt_regs, ptregs_addr, original_bytes = sri
-            if saved_sequence == sequence:
-                return id_, pt_regs, ptregs_addr, original_bytes
-        # save the pt_regs
-
+    def _uprobe_event(self, cpu, is_enter):
+        # sequence is no longer relevant
+        # sequence = self.panda.arch.get_arg(cpu, 1, convention="syscall")
+        arg = self.panda.arch.get_arg(cpu, 2, convention="syscall")
         # possible issue with registring multiple cpu _memregions
         sce = plugins.kffi.read_type_panda(cpu, arg, "portal_event")
-        id_ = sce.id
         ptregs_addr = sce.regs.address
         pt_regs_raw = plugins.kffi.read_type_panda(cpu, ptregs_addr, "pt_regs")
         pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
         original_bytes = pt_regs.to_bytes()[:]
-        self.saved_regs_info[cpu] = (
-            sequence, id_, pt_regs, ptregs_addr, original_bytes)
-        return id_, pt_regs, ptregs_addr, original_bytes
 
-    def _uprobe_event(self, cpu, is_enter):
-        sequence = self.panda.arch.get_arg(cpu, 1, convention="syscall")
-        arg = self.panda.arch.get_arg(cpu, 2, convention="syscall")
-
-        id_, pt_regs, ptregs_addr, original_bytes = self._get_portal_event(
-            cpu, sequence, arg)
-
-        if id_ not in self.probes:
+        if sce.id not in self.probes:
             self.logger.error(
-                f"Uprobe ID {id_} not found in registered probes")
+                f"Uprobe ID {sce.id} not found in registered probes")
             return
-        self.probes[id_](pt_regs)
+
+        fn = self.probes[sce.id]
+
+        fn_ret = fn(pt_regs)
+
+        if isinstance(fn_ret, Iterator):
+            fn_ret = yield from fn(pt_regs)
 
         new = pt_regs.to_bytes()
         if original_bytes != new:
             self.panda.virtual_memory_write(cpu, ptregs_addr, new)
+        return fn_ret
 
     def _uprobe_enter_handler(self, cpu):
         self._uprobe_event(cpu, True)
@@ -304,7 +299,7 @@ class Uprobes(Plugin):
         reg_bytes = reg.to_bytes()
 
         # Send the registration to the kernel via portal
-        result = yield ("uprobe_reg", offset, reg_bytes)
+        result = yield PortalCmd("register_uprobe", offset, len(reg_bytes), None, reg_bytes)
 
         if result is None:
             self.logger.error(
@@ -318,7 +313,7 @@ class Uprobes(Plugin):
 
     def _unregister_uprobe(self, probe_id):
         self.logger.debug(f"unregister_uprobe called: probe_id={probe_id}")
-        result = yield ("uprobe_unreg", probe_id)
+        result = yield PortalCmd("unregister_uprobe", probe_id, 0)
         if result is True:
             if probe_id in self.probes:
                 del self.probes[probe_id]

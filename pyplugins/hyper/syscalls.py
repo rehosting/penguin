@@ -3,6 +3,8 @@ import json
 from typing import Dict, List
 from hyper.consts import value_filter_type as vft
 from hyper.consts import igloo_hypercall_constants as iconsts
+from hyper.portal import PortalCmd
+from collections.abc import Iterator
 
 class ValueFilter:
     """Represents a complex value filter for syscall arguments or return values"""
@@ -136,6 +138,8 @@ class Syscalls(Plugin):
 
         # Add a queue for pending hook registrations
         self._pending_hooks = []
+        self._syscall_event = self.portal.wrap(self._syscall_event)
+        
 
     def _setup_syscall_handler(self, cpu):
         """Handler for setting up syscall definitions"""
@@ -246,16 +250,10 @@ class Syscalls(Plugin):
     sequence number is the same. If it is we use the original object.
     '''
 
-    def _get_syscall_event(self, cpu, sequence, arg):
-        saved_sce_info = self.saved_syscall_events.get(cpu, None)
-        if saved_sce_info:
-            saved_sc, saved_sequence, original = saved_sce_info
-            if saved_sequence == sequence:
-                return saved_sc, original
+    def _get_syscall_event(self, cpu, arg):
         sce = plugins.kffi.read_type_panda(cpu, arg, "syscall_event")
         sce.name = bytes(sce.syscall_name).decode("latin-1").rstrip("\x00")
         original = sce.to_bytes()[:]
-        self.saved_syscall_events[cpu] = (sce, sequence, original)
         return sce, original
 
     def _get_proto(self, cpu, sce):
@@ -300,10 +298,11 @@ class Syscalls(Plugin):
         return proto
 
     def _syscall_event(self, cpu, is_enter=None):
-        sequence = self.panda.arch.get_arg(cpu, 1, convention="syscall")
+        # sequence is no longer relevant
+        # sequence = self.panda.arch.get_arg(cpu, 1, convention="syscall")
         arg = self.panda.arch.get_arg(cpu, 2, convention="syscall")
 
-        sce, original = self._get_syscall_event(cpu, sequence, arg)
+        sce, original = self._get_syscall_event(cpu, arg)
         hook_ptr = sce.hook.address
         if hook_ptr not in self.hooks:
             self.logger.debug(f"Syscall event with hook pointer {hook_ptr:#x} not registered")
@@ -314,16 +313,24 @@ class Syscalls(Plugin):
 
         # If we're handling all syscalls or we don't have prototype info,
         # just call the function with the standard arguments
+
+        args = None
         if on_all or proto is None or sce.argc == 0:
-            f(cpu, proto, sce)
+            args = (cpu, proto, sce)
         else:
             sysargs = [sce.args[i] for i in range(sce.argc)]
             # Call the function with standard arguments plus syscall arguments
-            f(cpu, proto, sce, *sysargs)
+            args = (cpu, proto, sce, *sysargs)
+        
+        fn_ret = f(*args)
+        if isinstance(fn_ret, Iterator):
+            # If the function returns an iterator, we need to yield from it
+            fn_ret = yield from f(*args)
 
         new = sce.to_bytes()
         if original != new:
             self.panda.virtual_memory_write(cpu, arg, new)
+        return fn_ret
 
     def register_syscall_hook(self, hook_config):
         """
@@ -424,7 +431,7 @@ class Syscalls(Plugin):
         as_bytes = sch.to_bytes()
 
         # Send to kernel via portal
-        result = yield ("syscall_reg", as_bytes)
+        result = yield PortalCmd("register_syscall_hook", size=len(as_bytes), data=as_bytes)
         self.hook_info[result] = hook_config
         return result
 
@@ -580,7 +587,8 @@ class Syscalls(Plugin):
             disable_cmd.enable = False
             
             # Send to kernel via portal
-            result = self.portal.send_and_receive("syscall_enable", disable_cmd.to_bytes())
+            cmd_bytes = disable_cmd.to_bytes()
+            result = yield PortalCmd("syscall_enable", size=len(cmd_bytes), data=cmd_bytes)
             
             if result:
                 self.logger.debug(f"Successfully disabled syscall hook: {hook_ptr:#x}")
@@ -641,7 +649,8 @@ class Syscalls(Plugin):
             enable_cmd.enable = True
             
             # Send to kernel via portal
-            result = self.portal.send_and_receive("syscall_enable", enable_cmd.to_bytes())
+            cmd_bytes = enable_cmd.to_bytes()
+            result = yield PortalCmd("syscall_enable", size=len(cmd_bytes), data=cmd_bytes)
             
             if result:
                 self.logger.debug(f"Successfully enabled syscall hook: {hook_ptr:#x}")

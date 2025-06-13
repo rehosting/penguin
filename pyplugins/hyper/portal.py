@@ -6,6 +6,7 @@ from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import HYPER_OP as hop
 from wrappers.generic import Wrapper
 from wrappers.portal_wrap import MappingWrapper, MappingsWrapper
+from typing import Union
 import time
 
 CURRENT_PID_NUM = 0xffffffff
@@ -13,11 +14,58 @@ CURRENT_PID_NUM = 0xffffffff
 kffi = plugins.kffi
 
 
+class PortalCmd:
+    """
+    Encapsulates a command to be sent through the portal mechanism.
+    
+    This class centralizes the logic for constructing portal commands and
+    reduces complexity in the _handle_output_cmd method.
+    """
+    
+    def __init__(self, op: Union[int, str], addr=0, size=0, pid=None, data=None):
+        """
+        Initialize a portal command.
+        
+        Args:
+            op (int,str): Operation code from HYPER_OP constants
+            addr (int): Address field value
+            size (int): Size field value
+            pid (int): Process ID or None for current process
+            data (bytes): Optional data payload for the command
+        """
+        op_num = None
+        if isinstance(op, str):
+            op_num = getattr(hop, f"HYPER_OP_{op.upper()}", None)
+            if op is None:
+                op_num = getattr(hop, op.upper(), None)
+                if op_num is None:
+                    raise ValueError(f"Invalid operation name: {op}")
+        elif isinstance(op, int):
+            op_num = op
+        else:
+            raise TypeError(f"Operation must be int or str, got {type(op)}")
+        self.op = op_num or 0
+        self.addr = addr or 0
+        self.size = size if size is not None else (len(data) if data else 0)
+        self.pid = pid or CURRENT_PID_NUM
+        self.data = data
+    
+    @classmethod
+    def none(cls):
+        """
+        Create a command representing no operation.
+        
+        Returns:
+            PortalCmd: A command with HYPER_OP_NONE operation
+        """
+        return cls(hop.HYPER_OP_NONE, 0, 0, None, None)
+    
+
 class Portal(Plugin):
     def __init__(self):
         self.outdir = self.get_arg("outdir")
         # if self.get_arg_bool("verbose"):
-        #     self.logger.setLevel("DEBUG")
+        self.logger.setLevel("DEBUG")
         # Set endianness format character for struct operations
         self.endian_format = '<' if self.panda.endianness == 'little' else '>'
         self.portal_interrupt = None
@@ -157,6 +205,9 @@ class Portal(Plugin):
 
         # mem = struct.pack("<QQQQ", op, addr, size, pid)
         mem = kffi.new("region_header")
+        if not isinstance(op, int):
+            breakpoint()
+            print("asdf")
         mem.op = op
         mem.addr = addr
         mem.size = size
@@ -210,84 +261,19 @@ class Portal(Plugin):
         else:
             self.logger.error(f"Unknown operation: {op:#x}")
         return in_op
+    
+    def _write_portalcmd(self, cpum, cmd: PortalCmd):
+        """
+        Write a PortalCmd to the memory region.
+        
+        Args:
+            cpum: Tuple of (cpu, cpu_memregion)
+            cmd: PortalCmd instance to write
+        """
+        self._write_memregion_state(cpum, cmd.op, cmd.addr, cmd.size, cmd.pid)
+        if cmd.data:
+            self._write_memregion_data(cpum, cmd.data)
 
-    def _handle_output_cmd(self, cpum, cmd):
-        match cmd:
-            case("read", addr, size, pid):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_READ, addr, size, pid)
-            case("read_str", addr, pid):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_READ_STR, addr, 0, pid)
-            case("read_proc_args", pid):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_READ_PROCARGS, 0, 0, pid)
-            case("read_proc_env", pid):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_READ_PROCENV, 0, 0, pid)
-            case("read_file_offset", fname, offset, size):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_READ_FILE, offset, size)
-                self._write_memregion_data(cpum, fname)
-            case("write_file", fname, offset, data):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_WRITE_FILE, offset, len(data))
-                self._write_memregion_data(cpum, fname + data)
-            case("get_osi_proc_handles"):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_OSI_PROC_HANDLES, 0, 0)
-            case("get_fds", start_fd, pid):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_READ_FDS, start_fd, 0, pid)
-            case("get_proc", pid):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_OSI_PROC, 0, 0, pid)
-            case("get_proc_mappings", pid, skip):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_OSI_MAPPINGS, skip, 0, pid)
-            case("exec", wait, data):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_EXEC, wait, len(data))
-                self._write_memregion_data(cpum, data)
-            case("write", addr, data, pid):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_WRITE, addr, len(data), pid)
-                self._write_memregion_data(cpum, data)
-            case("ffi_exec", ffi_data):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_FFI_EXEC, 0, len(ffi_data))
-                self._write_memregion_data(cpum, ffi_data)
-            case("uprobe_reg", addr, data):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_REGISTER_UPROBE, addr, len(data))
-                self._write_memregion_data(cpum, data)
-            case("uprobe_unreg", id_):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_UNREGISTER_UPROBE, id_, 0)
-            case("syscall_reg", data):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_REGISTER_SYSCALL_HOOK, 0, len(data))
-                self._write_memregion_data(cpum, data)
-            case("dump", mode, signal):
-                # mode in lowest 8 bits, signal in next 8 bits
-                dump_addr = ((signal & 0xFF) << 8) | (mode & 0xFF)
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_DUMP, dump_addr, 0)
-            case("add_virtual_file", file_path):
-                file_path_bytes = file_path.encode('latin-1')[:255] + b'\0'
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_ADD_VIRTUAL_FILE, 0, len(file_path_bytes))
-                self._write_memregion_data(cpum, file_path_bytes)
-            case("remove_virtual_file", file_id):
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_REMOVE_VIRTUAL_FILE, file_id, 0)
-            case None:
-                return False
-            case _:
-                breakpoint()
-                self.logger.error(f"Unknown command: {cmd}")
-                return False
-        return True
 
     def wrap(self, f):
         iterators = {}
@@ -299,29 +285,20 @@ class Portal(Plugin):
             cpu_memregion = self.panda.arch.get_arg(cpu, 3, convention="syscall")
             cpum = cpu, cpu_memregion
             fn_return = None
-
-            # cpu_memregions now uniquely identify the hypercall because they have distinct
-            # memory regions per call
-            new_iterator = False
+            
             if cpu_memregion not in iterators or iterators[cpu_memregion] is None:
                 self.logger.debug("Creating new iterator")
                 # Revert to calling the original function f with self_
                 fn_ret = f(*args, **kwargs)
 
                 if not isinstance(fn_ret, Iterator):
-                    self.logger.error(f"Function {f.__name__} did not return an iterator.\
-                                      You need at least one yield statement in the function.")
                     return fn_ret
 
                 iterators[cpu_memregion] = fn_ret
                 iteration_time[cpu_memregion] = time.time()
-                new_iterator = True
-
-            in_op = self._handle_input_state(cpum)
-
-            if in_op and new_iterator:
-                self.logger.error("Somehow we have unfinished input state -> problematic")
                 in_op = None
+            else:
+                in_op = self._handle_input_state(cpum)
 
             try:
                 if not in_op:
@@ -339,16 +316,19 @@ class Portal(Plugin):
                 del iterators[cpu_memregion]
                 # The function has completed, and we need to return the value
                 fn_return = e.value
-                self._write_memregion_state(
-                    cpum, hop.HYPER_OP_NONE, 0, 0)
-                cmd = None
+                cmd = PortalCmd.none()
+            except Exception as e:
+                self.logger.error(f"Error in portal iterator: {e}")
+                cmd = e
 
-            if new_iterator and cmd is None:
-                # this is basically a no-op. Our functionality wasn't used
-                return fn_return
-
-            self._handle_output_cmd(cpum, cmd)
-
+            if type(cmd).__name__ == "PortalCmd":
+                self._write_portalcmd(cpum, cmd)
+            elif isinstance(cmd, Exception):
+                self._write_portalcmd(cpum, PortalCmd.none())
+                raise cmd
+            elif cmd is not None:
+                breakpoint()
+                self.logger.error(f"Invalid return to portal: {type(cmd)} {cmd}")
             return fn_return
         return wrapper
 
@@ -377,7 +357,7 @@ class Portal(Plugin):
                 except ValueError:
                     pass
             if not success:
-                yield ("write", chunk_addr, chunk_data, pid)
+                yield PortalCmd(hop.HYPER_OP_WRITE, chunk_addr, len(chunk_data), pid, chunk_data)
         self.logger.debug(f"Total bytes written: {len(data)}")
         return len(data)
 
@@ -401,7 +381,7 @@ class Portal(Plugin):
                 except ValueError:
                     pass
             if not chunk:
-                chunk = yield ("read", chunk_addr, chunk_size, pid)
+                chunk = yield PortalCmd(hop.HYPER_OP_READ, chunk_addr, chunk_size, pid)
             if not chunk:
                 self.logger.debug(
                     f"Failed to read memory at addr={chunk_addr}, size={chunk_size}")
@@ -427,7 +407,7 @@ class Portal(Plugin):
                     return chunk
                 except ValueError:
                     pass
-            chunk = yield ("read_str", addr, pid)
+            chunk = yield PortalCmd(hop.HYPER_OP_READ_STR, addr, 0, pid)
             if chunk:
                 self.logger.debug(f"Received response from queue: {chunk}")
                 return chunk.decode('latin-1', errors='replace')
@@ -532,7 +512,7 @@ class Portal(Plugin):
 
     def get_args(self, pid=None):
         self.logger.debug("read_process_args called")
-        proc_args = yield ("read_proc_args", pid)
+        proc_args = yield PortalCmd(hop.HYPER_OP_READ_PROCARGS, pid=pid)
 
         if not proc_args:
             return []
@@ -572,7 +552,7 @@ class Portal(Plugin):
 
     def get_env(self, pid=None):
         self.logger.debug("get_process_env called")
-        proc_env = yield ("read_proc_env", pid)
+        proc_env = yield PortalCmd(hop.HYPER_OP_READ_PROCENV, pid=pid)
         if proc_env:
             args = [i.decode("latin-1").split("=")
                     for i in proc_env.split(b"\0") if i]
@@ -618,7 +598,7 @@ class Portal(Plugin):
         if size is not None:
             # If size is small enough, do a single read
             if size <= self.regions_size - 1:
-                data = yield ("read_file_offset", fname_bytes, offset, size)
+                data = yield PortalCmd(hop.HYPER_OP_READ_FILE, offset, size, None, fname_bytes)
                 return data
 
             # For larger sizes, read in chunks
@@ -631,7 +611,7 @@ class Portal(Plugin):
                 self.logger.debug(
                     f"Reading file chunk: {fname}, offset={current_offset}, size={chunk_size}")
 
-                chunk = yield ("read_file_offset", fname_bytes, current_offset, chunk_size)
+                chunk = yield PortalCmd(hop.HYPER_OP_READ_FILE, current_offset, chunk_size, None, fname_bytes)
 
                 if not chunk:
                     self.logger.debug(
@@ -659,7 +639,7 @@ class Portal(Plugin):
             self.logger.debug(
                 f"Reading file chunk: {fname}, offset={current_offset}, size={chunk_size}")
 
-            chunk = yield ("read_file_offset", fname_bytes, current_offset, chunk_size)
+            chunk = yield PortalCmd(hop.HYPER_OP_READ_FILE, current_offset, chunk_size, None, fname_bytes)
 
             if not chunk:
                 self.logger.debug(
@@ -703,7 +683,7 @@ class Portal(Plugin):
         if len(data) <= max_data_size:
             self.logger.debug(
                 f"Writing {len(data)} bytes to file {fname} at offset {offset}")
-            bytes_written = yield ("write_file", fname_bytes, offset, data)
+            bytes_written = yield PortalCmd(hop.HYPER_OP_WRITE_FILE, offset, len(data), None, fname_bytes + data)
             return bytes_written
 
         # For larger files, write in chunks
@@ -720,7 +700,7 @@ class Portal(Plugin):
                 f"Writing file chunk: {fname}, offset={current_offset}, size={chunk_size}")
             chunk = data[current_pos:current_pos + chunk_size]
 
-            bytes_written = yield ("write_file", fname_bytes, current_offset, chunk)
+            bytes_written = yield PortalCmd(hop.HYPER_OP_WRITE_FILE, current_offset, len(chunk), None, fname_bytes + chunk)
 
             if not bytes_written:
                 self.logger.error(
@@ -786,13 +766,13 @@ class Portal(Plugin):
 
         # Call the kernel with the prepared data
         # The wait mode is passed in header.addr field
-        result = yield ("exec", wait, data)
+        result = yield PortalCmd(hop.HYPER_OP_EXEC, wait, len(data), None, data)
 
         self.logger.debug(f"exec_program result: {result}")
         return result
 
     def get_proc(self, pid=None):
-        proc_bytes = yield ("get_proc", pid)
+        proc_bytes = yield PortalCmd(hop.HYPER_OP_OSI_PROC, 0, 0, pid)
         if proc_bytes:
             pb = kffi.from_buffer("osi_proc", proc_bytes)
             wrap = Wrapper(pb)
@@ -811,7 +791,7 @@ class Portal(Plugin):
         while True:
             # Send skip count in addr field, as per portal.c implementation
             self.logger.debug(f"Fetching mappings with skip={current_skip}")
-            mappings_bytes = yield ("get_proc_mappings", pid, current_skip)
+            mappings_bytes = yield PortalCmd(hop.HYPER_OP_OSI_MAPPINGS, current_skip, 0, pid)
 
             if not mappings_bytes:
                 self.logger.debug("No mapping data received")
@@ -917,7 +897,7 @@ class Portal(Plugin):
         self.logger.debug("get_proc_handles called")
 
         # Fetch proc handles from the kernel
-        proc_handles_bytes = yield ("get_osi_proc_handles")
+        proc_handles_bytes = yield PortalCmd(hop.HYPER_OP_OSI_PROC_HANDLES, 0, 0)
 
         if not proc_handles_bytes:
             self.logger.debug("No process handles data received")
@@ -1003,7 +983,7 @@ class Portal(Plugin):
         fds = []
         current_fd = start_fd
         while True:
-            fds_bytes = yield ("get_fds", current_fd, pid)
+            fds_bytes = yield PortalCmd(hop.HYPER_OP_READ_FDS, current_fd, 0, pid)
 
             if not fds_bytes:
                 self.logger.debug("No file descriptors data received")
@@ -1134,7 +1114,9 @@ class Portal(Plugin):
         Returns:
             int: PID of the process that received the signal, or error code
         """
-        response = yield ("dump", mode, signal)
+        # mode in lowest 8 bits, signal in next 8 bits
+        dump_addr = ((signal & 0xFF) << 8) | (mode & 0xFF)
+        response = yield PortalCmd(hop.HYPER_OP_DUMP, dump_addr, 0)
         if response is None:
             self.logger.error("Failed to execute dump operation")
             return None
@@ -1189,7 +1171,8 @@ class Portal(Plugin):
             self.logger.error(f"File path too long: {len(file_path)} chars")
             return None
             
-        response = yield ("add_virtual_file", file_path)
+        file_path_bytes = file_path.encode('latin-1')[:255] + b'\0'
+        response = yield PortalCmd(hop.HYPER_OP_ADD_VIRTUAL_FILE, 0, len(file_path_bytes), None, file_path_bytes)
         
         if response is None:
             self.logger.error(f"Failed to add virtual file: {file_path}")
@@ -1216,7 +1199,7 @@ class Portal(Plugin):
             self.logger.error(f"Invalid file ID: {file_id}")
             return False
             
-        response = yield ("remove_virtual_file", file_id)
+        response = yield PortalCmd(hop.HYPER_OP_REMOVE_VIRTUAL_FILE, file_id, 0)
         
         success = response is not None
         if success:
@@ -1235,7 +1218,7 @@ class Portal(Plugin):
         """
         self.logger.debug("list_virtual_files called")
         
-        response = yield ("list_virtual_files")
+        response = yield PortalCmd(hop.HYPER_OP_LIST_VIRTUAL_FILES, 0, 0)
         
         if response is None:
             self.logger.debug("No virtual files found")
