@@ -253,7 +253,7 @@ class PandaRunner:
 
         ran_file = os.path.join(out_dir, ".ran")
         if not os.path.isfile(ran_file):
-            self.logger.error(f"Missing .ran file with {conf_yaml}")
+            self.logger.error(f"Missing .ran file with {conf_yaml}. This likely means the run was not successful.")
             raise RuntimeError(
                 f"Missing {out_dir}/.ran after run with config={conf_yaml} proj_dir={proj_dir}"
             )

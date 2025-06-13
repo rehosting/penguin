@@ -76,15 +76,19 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
                 "Static analysis failed to identify an init script. Please specify one in your config under env.igloo_init"
             )
 
-    PandaRunner().run(
-        config_path,
-        proj_dir,
-        output_dir,
-        init=specified_init,
-        timeout=timeout,
-        show_output=True,
-        verbose=verbose,
-    )  # niters is 1
+    try:
+        PandaRunner().run(
+            config_path,
+            proj_dir,
+            output_dir,
+            init=specified_init,
+            timeout=timeout,
+            show_output=True,
+            verbose=verbose,
+        )  # niters is 1
+    except RuntimeError:
+        logger.error("No post-run analysis since there was no .run file")
+        return
 
     # Single iteration: there is no best - don't report that
     # from manager import report_best_results
