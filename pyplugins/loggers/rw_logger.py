@@ -9,7 +9,6 @@ class RWLog(Plugin):
         plugins.syscalls.syscall("on_sys_write_return")(self.write)
         plugins.syscalls.syscall("on_sys_read_return")(self.read)
 
-    @plugins.portal.wrap
     def write(self, cpu, proto, syscall, fd, buf, count):
         s = yield from plugins.portal.read_str(buf)
         signed_fd = int(self.panda.ffi.cast("target_long", fd))
@@ -28,7 +27,6 @@ class RWLog(Plugin):
             )
         )
 
-    @plugins.portal.wrap
     def read(self, cpu, proto, syscall, fd, buf, count):
         s = yield from plugins.portal.read_str(buf)
         signed_fd = int(self.panda.ffi.cast("target_long", fd))

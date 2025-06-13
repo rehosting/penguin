@@ -16,7 +16,6 @@ class TestIoctlInteraction(Plugin):
         plugins.syscalls.syscall(
             "on_sys_ioctl_return", arg_filters=[None, 0x89f1])(self.ioctl_ret)
 
-    @plugins.portal.wrap
     def siocdevprivate(self, cpu, proto, syscall, fd, op, arg):
         interface = yield from plugins.portal.read_str(arg)
         self.logger.info(f"Interface: {interface}")
@@ -82,7 +81,6 @@ class TestIoctlInteraction(Plugin):
         } ifr_ifru;
     };
     '''
-    @plugins.portal.wrap
     def ioctl_ret(self, cpu, proto, syscall, fd, op, arg):
         ifreq = yield from plugins.kffi.read_type(arg, "ifreq")
         interface = bytes(ifreq.ifr_ifrn.ifrn_name).decode(

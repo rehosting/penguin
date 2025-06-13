@@ -75,7 +75,6 @@ class Interfaces(Plugin):
         except ValueError:
             return None
 
-    @plugins.portal.wrap
     def after_ioctl(self, cpu, proto, syscall, fd, request, arg):
         if 0x8000 < request < 0x9000:
             iface = yield from plugins.portal.read_str(arg)

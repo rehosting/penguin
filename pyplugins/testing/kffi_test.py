@@ -13,7 +13,6 @@ class KFFITest(Plugin):
         plugins.syscalls.syscall(
             "on_sys_ioctl_return", arg_filters=[0x14, 0x15, 0x16])(self.kffi)
 
-    @plugins.portal.wrap
     def kffi(self, cpu, proto, syscall, fd, op, arg):
         args = [3, 8, 9, 0x1338c0de, 12, 13, 14, 15]
         val = yield from kffi.call_kernel_function("igloo_test_function", *args)
