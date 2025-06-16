@@ -133,13 +133,16 @@ def getColoredLogger(name):
     # Prevent log messages from propagating to parent loggers (i.e., penguin.manager should not also log for penguin)
     logger.propagate = False
 
+    # Save the original setLevel method before replacing it
+    original_set_level = logger.setLevel
+    
     def custom_set_level(level):
-        logger._setLevel(level)
+        # Call the original method, not the monkeypatched one
+        original_set_level(level)
         for handler in logger.handlers:
             handler.setLevel(level)
 
-    # Monkeypatch so users can change level
-    logger._setLevel = logger.setLevel
+    # Replace the setLevel method with our custom one
     logger.setLevel = custom_set_level
 
     return logger
