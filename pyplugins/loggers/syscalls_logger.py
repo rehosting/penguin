@@ -90,7 +90,7 @@ class PyPandaSysLog(Plugin):
 
     def get_arg_repr(self, argval, ctype, name):
         if name == "fd":
-            fd_name = yield from plugins.portal.get_fd_name(argval)
+            fd_name = yield from plugins.osi.get_fd_name(argval)
             return f"{argval:#x}({fd_name or '[???]'})"
         # Convert argval to a proper Python integer
         argval_uint = int(self.panda.ffi.cast("target_ulong", argval))
@@ -109,7 +109,7 @@ class PyPandaSysLog(Plugin):
         elif ctype in ['const char *', 'char *']:
             if argval_uint == 0:
                 return "[NULL]"
-            val = yield from plugins.portal.read_str(argval)
+            val = yield from plugins.mem.read_str(argval)
             return f'{argval_uint:#x}("{val}")'
 
         # Handle array of strings
@@ -120,10 +120,10 @@ class PyPandaSysLog(Plugin):
             addr = argval_uint
             max_args = 20  # Limit to avoid infinite loops
             for i in range(max_args):
-                ptr = yield from plugins.portal.read_ptr(addr + (i * self.panda.bits // 8))
+                ptr = yield from plugins.mem.read_ptr(addr + (i * self.panda.bits // 8))
                 if ptr == 0:
                     break
-                str_val = yield from plugins.portal.read_str(ptr)
+                str_val = yield from plugins.mem.read_str(ptr)
                 if str_val == "":
                     break
                 result.append(str_val)
@@ -182,7 +182,7 @@ class PyPandaSysLog(Plugin):
         else:
             retno_repr = f"{retval:#x}"
 
-        proc_args = yield from plugins.portal.get_args()
+        proc_args = yield from plugins.osi.get_args()
         proc = "?" if not proc_args else proc_args[0]
 
         func_args = {

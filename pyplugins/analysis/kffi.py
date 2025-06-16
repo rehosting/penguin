@@ -61,8 +61,7 @@ class KFFI(Plugin):
         t = self._get_type(type_)
         if not t:
             return None
-        portal = plugins.portal
-        buf = yield from portal.read_bytes(addr, t.size)
+        buf = yield from plugins.mem.read_bytes(addr, t.size)
         if not buf:
             self.logger.error(f"Failed to read bytes from {addr:#x}")
             return None

@@ -36,9 +36,9 @@ class MountTracker(Plugin):
         plugins.syscalls.syscall("on_sys_mount_return")(self.post_mount)
 
     def post_mount(self, cpu, proto, syscall, source, target, fs_type, flags, data):
-        source_str = yield from plugins.portal.read_str(source)
-        target_str = yield from plugins.portal.read_str(target)
-        fs_type_str = yield from plugins.portal.read_str(fs_type)
+        source_str = yield from plugins.mem.read_str(source)
+        target_str = yield from plugins.mem.read_str(target)
+        fs_type_str = yield from plugins.mem.read_str(fs_type)
         results = {
             "source": source_str,
             "target": target_str,

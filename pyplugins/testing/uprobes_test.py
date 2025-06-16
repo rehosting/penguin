@@ -8,7 +8,8 @@ from glob import glob
 import functools
 
 uprobes = plugins.uprobes
-portal = plugins.portal
+mem = plugins.mem
+osi = plugins.osi
 
 
 class UprobesTest(Plugin):
@@ -117,8 +118,8 @@ class UprobesTest(Plugin):
 
     def uprobe_strncmp(self, pt_regs):
         a, b, c = pt_regs.get_args(3)
-        av = yield from portal.read_str(a)
-        bv = yield from portal.read_str(b)
+        av = yield from mem.read_str(a)
+        bv = yield from mem.read_str(b)
         expected_str = "Hello from uprobe_test\n"
         if expected_str == av and expected_str == bv:
             self.logger.info(f"strncmp:({av.encode()}, {bv.encode()}, '{c}')")
@@ -149,11 +150,11 @@ class UprobesTest(Plugin):
 
     def uprobe_printf(self, pt_regs):
         format_str_ptr = pt_regs.get_arg(0)
-        format_str = yield from portal.read_str(format_str_ptr)
+        format_str = yield from mem.read_str(format_str_ptr)
         self.logger.info(f"printf format string: {format_str}")
 
         if format_str.startswith("Hello from uprobe_test"):
-            m = yield from portal.get_mappings()
+            m = yield from osi.get_mappings()
             pc = pt_regs.get_pc()
 
             # Get the mapping associated with printf
@@ -204,8 +205,8 @@ class UprobesTest(Plugin):
 
     def uprobe_fopen(self, pt_regs):
         path_ptr, mode_ptr = pt_regs.get_args(2)
-        path = yield from portal.read_str(path_ptr)
-        mode = yield from portal.read_str(mode_ptr)
+        path = yield from mem.read_str(path_ptr)
+        mode = yield from mem.read_str(mode_ptr)
 
         self.logger.info(f"fopen: path={path}, mode={mode}")
 
@@ -239,7 +240,7 @@ class UprobesTest(Plugin):
 
     def uprobe_getenv(self, pt_regs):
         name_ptr = pt_regs.get_arg(0)
-        name = yield from portal.read_str(name_ptr)
+        name = yield from mem.read_str(name_ptr)
         expected_name = "PROJ_NAME"
         self.last_name = name
         if name == expected_name:
@@ -255,7 +256,7 @@ class UprobesTest(Plugin):
         retval = pt_regs.get_retval()
 
         if retval != 0 and self.last_name == "PROJ_NAME":
-            env_value = yield from portal.read_str(retval)
+            env_value = yield from mem.read_str(retval)
             self.logger.info(f"getenv return value: {env_value}")
 
             # For the test_target configuration, PROJ_NAME should be "test_target"
@@ -266,7 +267,7 @@ class UprobesTest(Plugin):
             # Append to test result file
             with open(join(self.outdir, "uprobe_getenv_test.txt"), "a") as f:
                 if retval != 0:
-                    env_value = yield from portal.read_str(retval)
+                    env_value = yield from mem.read_str(retval)
                     f.write(
                         f"getenv return test passed: PROJ_NAME='{env_value}'\n")
                 else:

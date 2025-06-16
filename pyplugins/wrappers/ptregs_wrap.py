@@ -154,9 +154,9 @@ class PtRegsWrapper(Wrapper):
                 return self.get_userland_arg(num)
         except PandaMemReadFail as e:
             if e.size == 4:
-                val = yield from plugins.portal.read_int(e.addr)
+                val = yield from plugins.mem.read_int(e.addr)
             else:
-                val = yield from plugins.portal.read_long(e.addr)
+                val = yield from plugins.mem.read_long(e.addr)
             return val
 
     def get_syscall_arg(self, num):
