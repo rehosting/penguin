@@ -2,7 +2,8 @@
 from penguin import Plugin, plugins
 
 kffi = plugins.kffi
-portal = plugins.portal
+mem = plugins.mem
+syscalls = plugins.syscalls
 
 
 class KFFITest(Plugin):
@@ -10,7 +11,7 @@ class KFFITest(Plugin):
         self.outdir = self.get_arg("outdir")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
-        plugins.syscalls.syscall(
+        syscalls.syscall(
             "on_sys_ioctl_return", arg_filters=[0x14, 0x15, 0x16])(self.kffi)
 
     def kffi(self, cpu, proto, syscall, fd, op, arg):
@@ -20,7 +21,7 @@ class KFFITest(Plugin):
 
         buf = yield from kffi.kmalloc(100)
         level = b"\x01\x03"
-        yield from portal.write_bytes(buf, level + b"test printk %d %d %d %d\x00")
+        yield from mem.write_bytes(buf, level + b"test printk %d %d %d %d\x00")
 
         yield from kffi.call_kernel_function("igloo_printk", buf, 1, 2, 3, 4)
 

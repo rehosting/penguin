@@ -44,13 +44,13 @@ class Health(Plugin):
     def health_execve(self, cpu, proto, syscall, fname_ptr, argv_ptr, envp):
         if self.exiting:
             return
-        fname = yield from plugins.portal.read_str(fname_ptr)
+        fname = yield from plugins.mem.read_str(fname_ptr)
 
         if fname not in self.procs:
             self.procs.add(fname)
             self.increment_event("nexecs")
 
-        argv_buf = yield from plugins.portal.read_ptrlist(argv_ptr, 8)
+        argv_buf = yield from plugins.mem.read_ptrlist(argv_ptr, 8)
         # Read each argument pointer into argv list
         argv = []
         nullable_argv = []
@@ -58,7 +58,7 @@ class Health(Plugin):
             if ptr == 0:
                 break
 
-            val = yield from plugins.portal.read_str(ptr)
+            val = yield from plugins.mem.read_str(ptr)
             if val == "":
                 argv.append(f"(error: 0x{ptr:x})")
                 nullable_argv.append(None)

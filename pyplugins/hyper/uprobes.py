@@ -327,7 +327,7 @@ class Uprobes(Plugin):
         """
         Decorator to register a uprobe at the specified path and symbol/offset.
         Args:
-            path: Path to the executable or library file (can include * wildcards)
+            path: Path to the executable or library file (can include * wildcards), or None to match all libraries containing the symbol
             symbol: Symbol name (string) or offset (integer) in the file
             process_filter: Optional process name to filter events
             on_enter: Whether to trigger on function entry (default: True)
@@ -337,22 +337,14 @@ class Uprobes(Plugin):
         Returns:
             Decorator function that registers the uprobe
         """
-        if isinstance(symbol, int):
-            offset = symbol
-            symbol_name = None
-            resolved_path = path
-        else:
-            # Look up the symbol in the library
-            symbol_name = symbol
-            resolved_path, offset = self._lookup_symbol(path, symbol)
-            if offset is None:
-                if fail_register_ok:
-                    # Return None instead of the decorator to signal no registration
-                    return None
-                self.logger.warning(
-                    f"Symbol '{symbol}' not found in '{path}'. Using offset 0.")
-                offset = 0
-                resolved_path = path  # Default to original path if resolution failed
+        def _register_decorator(uprobe_configs):
+            def decorator(func):
+                for uprobe_config in uprobe_configs:
+                    uprobe_config["callback"] = func
+                    self._pending_uprobes.append((uprobe_config, func))
+                self.portal.queue_interrupt("uprobes")
+                return func
+            return decorator
 
         options = {
             'process_filter': process_filter,
@@ -361,18 +353,49 @@ class Uprobes(Plugin):
             'pid_filter': pid_filter
         }
 
-        def decorator(func):
-            uprobe_config = {
-                "path": resolved_path,  # Use resolved path instead of original
+        if path is None:
+            if isinstance(symbol, int):
+                raise ValueError("If path is None, symbol must be a string, not int.")
+            symbols_data = self._load_symbols()
+            if not symbols_data:
+                if fail_register_ok:
+                    return None
+                raise RuntimeError("No symbols data loaded.")
+            matching_libs = [(lib_path, lib_symbols[symbol]) for lib_path, lib_symbols in symbols_data.items() if symbol in lib_symbols]
+            if not matching_libs:
+                if fail_register_ok:
+                    return None
+                self.logger.warning(f"Symbol '{symbol}' not found in any library.")
+                return None
+            uprobe_configs = [{
+                "path": lib_path,
                 "offset": offset,
-                "callback": func,
-                "options": options,
-                "symbol": symbol_name  # Store the symbol name for reference
-            }
-            self._pending_uprobes.append((uprobe_config, func))
-            self.portal.queue_interrupt("uprobes")
-            return func
-        return decorator
+                "options": options.copy(),
+                "symbol": symbol
+            } for lib_path, offset in matching_libs]
+            return _register_decorator(uprobe_configs)
+
+        if isinstance(symbol, int):
+            offset = symbol
+            symbol_name = None
+            resolved_path = path
+        else:
+            symbol_name = symbol
+            resolved_path, offset = self._lookup_symbol(path, symbol)
+            if offset is None:
+                if fail_register_ok:
+                    return None
+                self.logger.warning(
+                    f"Symbol '{symbol}' not found in '{path}'. Using offset 0.")
+                offset = 0
+                resolved_path = path
+        uprobe_configs = [{
+            "path": resolved_path,
+            "offset": offset,
+            "options": options.copy(),
+            "symbol": symbol_name
+        }]
+        return _register_decorator(uprobe_configs)
 
     def uretprobe(self, path, symbol: Union[str, int], process_filter=None, on_enter=False, on_return=True, pid_filter=None, fail_register_ok=False):
         return self.uprobe(path, symbol, process_filter, on_enter, on_return, pid_filter, fail_register_ok)
