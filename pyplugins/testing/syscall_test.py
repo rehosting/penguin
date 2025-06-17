@@ -4,7 +4,7 @@ This plugin verifies that hypercalls are being made correctly.
 
 from penguin import plugins, Plugin
 from os.path import join
-from hyper.syscalls import ValueFilter
+from interfaces.syscalls import ValueFilter
 
 SYSCALL_ARG1 = 0x1338c0def2f2f3f2
 SYSCALL_ARG2 = 0xdeadbeeff1f1f1f1
