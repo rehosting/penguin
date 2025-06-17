@@ -1,39 +1,54 @@
+"""
+core.py - Core plugin for Penguin
+
+This module provides the Core plugin, which performs basic sanity checks, configuration management,
+and core logic for the penguin emulation environment. It is responsible for:
+
+- Validating required arguments at initialization.
+- Writing configuration and loaded plugin information to the output directory.
+- Handling SIGUSR1 for graceful shutdown of emulation.
+- Creating a `.ran` file in the output directory after a non-crash shutdown.
+- Optionally enforcing a timeout for emulation and shutting down after the specified period.
+- Setting up environment variables for features like root shell, graphics, shared directory, strace, ltrace, and forced WWW.
+- Logging information about available services (e.g., root shell, VNC) based on configuration and environment.
+
+Arguments:
+
+- timeout (int, optional): Timeout in seconds for automatic shutdown.
+
+Plugin Interface:
+    This plugin does not provide a direct interface for other plugins, but it writes configuration
+    and plugin information to files in the output directory, which other plugins or tools may read.
+    It also sets environment variables in the configuration dictionary that may be used by other
+    components or plugins.
+
+Overall Purpose:
+    The Core plugin ensures the emulation environment is correctly set up, manages shutdown
+    procedures, and records essential information for reproducibility and debugging.
+"""
+
 import os
 import signal
 import threading
 import time
-from copy import deepcopy
-
-from penguin import Plugin
+from penguin import Plugin, yaml
 from penguin.defaults import vnc_password
-
-try:
-    from penguin import yaml
-    from penguin.analyses import PenguinAnalysis
-    from penguin.graphs import Configuration, Mitigation
-except ImportError:
-    # We can still run as a PyPlugin, but we can't do post-run analysis
-    import yaml
-
-    PenguinAnalysis = object
-
 
 class Core(Plugin):
     """
-    Simple sanity checks and basic core logic.
-    Also provides a callback on hypercall events for open/openat calls.
+    Core plugin for Cleanguin PyPlugins.
 
-    1) Validate we're getting the expected args.
-    2) Write config and loaded plugins to output dir
-    3) On siguser1 gracefully shutdown emulation
-    4) After a (non-crash) shutdown, create a .ran file in the output
-       if and only if there's no kernel crash in console.log.
-
-    TODO: can we detect if another pyplugin raised an uncaught
-    exception and abort?
+    Performs sanity checks, manages configuration, handles shutdown signals,
+    and enforces optional timeouts for the emulation environment.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """
+        Initialize the Core plugin.
+
+        Raises:
+            ValueError: If any required argument is missing.
+        """
         for arg in "plugins conf fs fw outdir".split():
             if not self.get_arg(arg):
                 raise ValueError(f"[core] Missing required argument: {arg}")
@@ -146,7 +161,19 @@ class Core(Plugin):
             )
             self.shutdown_thread.start()
 
-    def shutdown_after_timeout(self, panda, timeout, shutdown_event):
+    def shutdown_after_timeout(
+        self,
+        timeout: int,
+        shutdown_event: threading.Event
+    ) -> None:
+        """
+        Shutdown the emulation after a specified timeout.
+
+        Args:
+            panda (Panda): The Panda emulation object.
+            timeout (int): Timeout in seconds before shutdown.
+            shutdown_event (threading.Event): Event to signal early shutdown.
+        """
         wait_time = 0
         while wait_time < timeout:
             # Check if the event is set
@@ -175,79 +202,31 @@ class Core(Plugin):
 
         # Unload all plugins explicitly before ending analysis
         # to ensure our unint methods are called
-        panda.unload_plugins()
+        self.panda.unload_plugins()
         time.sleep(1)
 
-        panda.end_analysis()
+        self.panda.end_analysis()
 
-    def graceful_shutdown(self, sig, frame):
+    def graceful_shutdown(self, sig: int, frame) -> None:
+        """
+        Handle SIGUSR1 for graceful shutdown.
+
+        Args:
+            sig (int): Signal number.
+            frame: Current stack frame.
+        """
         self.logger.info("Caught SIGUSR1 - gracefully shutdown emulation")
         open(os.path.join(self.outdir, ".ran"), "w").close()
         self.uninit()  # explicitly call uninit?
         self.panda.end_analysis()
 
-    def uninit(self):
+    def uninit(self) -> None:
+        """
+        Perform cleanup and signal shutdown event if running.
+        """
         # Create .ran
         open(os.path.join(self.outdir, ".ran"), "w").close()
 
         if hasattr(self, "shutdown_event") and not self.shutdown_event.is_set():
             # Tell the shutdown thread to exit if it was started
             self.shutdown_event.set()
-
-
-class CoreAnalysis(PenguinAnalysis):
-    ANALYSIS_TYPE = "core"
-    VERSION = "1.0.0"
-
-    def parse_failures(self, output_dir):
-        """
-        We don't really parse failures mitigations, we just make sure there's no python
-        errors during our analysis.
-
-        XXX Manager ads a failure of type 'core' IFF no other failures are detected
-        and execution was terminated early. In htis case, we mitigate by adding a no-op
-        extend option to the config - this increases depth which increases the timeout.
-        """
-        # First: sanity checks. Do we see any errors in console.log? If so abort
-        with open(os.path.join(output_dir, "console.log"), "rb") as f:
-            for line in f:
-                if b" BUG " in line:
-                    print(f"KERNEL BUG: {repr(line)}")
-                    raise RuntimeError(
-                        f"Found BUG in {output_dir}/console.log")
-
-        # qemu logs are above output directory
-        stderr = os.path.join(os.path.dirname(output_dir), "qemu_stderr.txt")
-        if os.path.isfile(stderr):
-            with open(stderr) as f:
-                for line in f.readlines():
-                    if "Traceback " in line:
-                        raise RuntimeError(
-                            f"Python analysis crashed in {output_dir}")
-        else:
-            print(f"WARNING missing {stderr}")
-        return {}
-
-    def get_mitigations_from_static(self, varname, values):
-        return []
-
-    def get_potential_mitigations(self, config, failure):
-        # If there's a failure named 'truncation', we'll propose a mitigateion of "extend"
-        if failure.friendly_name == "truncation":
-            return [
-                Mitigation(
-                    "extend",
-                    self.ANALYSIS_TYPE,
-                    {"duration": failure.info["truncated"]},
-                    failure_name=failure.friendly_name,
-                )
-            ]
-
-    def implement_mitigation(self, config, failure, mitigation):
-        new_config = deepcopy(config.info)
-        # How many seconds were truncated?
-        how_truncated = mitigation.info["duration"]
-        new_config["plugins"]["core"][
-            "extend"
-        ] = how_truncated  # This doesn't actually make sense, but it will be unique
-        return [Configuration("extended_{how_truncated}", new_config)]
