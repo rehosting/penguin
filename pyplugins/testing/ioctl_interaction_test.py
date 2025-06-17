@@ -36,7 +36,7 @@ class TestIoctlInteraction(Plugin):
 
         assert data == to_write_int, f"Expected {to_write_int:#x}, got {data:#x}, r/w failed"
 
-        fd_name = yield from plugins.osi.get_fd_name(fd) or "[???]"
+        fd_name = (yield from plugins.osi.get_fd_name(fd)) or "[???]"
         self.logger.info(f"FD: {fd_name}")
 
         args = yield from plugins.osi.get_args()
