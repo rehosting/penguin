@@ -1,3 +1,37 @@
+"""
+# plugin_manager.py - IGLOO Plugin Manager for Penguin
+
+This module provides the IGLOOPluginManager and Plugin base class for the Penguin/Cleanguin emulation environment.
+It is responsible for:
+
+- Discovering, loading, and unloading plugin classes.
+- Managing plugin lifecycles and dependencies.
+- Providing a singleton `plugins` object for global plugin access.
+- Registering, subscribing, and publishing plugin events.
+- Supporting both legacy PyPlugin and new Plugin interfaces.
+- Providing utility functions for plugin name resolution and file discovery.
+
+## Arguments
+- `panda` (`Panda`): The Panda emulation object.
+- `args` (`dict`): Dictionary of arguments and configuration for plugins.
+
+## Plugin Interface
+- Plugins should subclass `Plugin` and will be automatically discovered and managed.
+- Plugins can register, subscribe, and publish events using the `plugins` singleton:
+
+```python
+plugins.register(plugin_instance, "event_name")
+plugins.subscribe(other_plugin, "event_name", callback)
+plugins.publish(plugin_instance, "event_name", *args, **kwargs)
+```
+
+- Plugins can be loaded by name or class, and arguments can be passed via the plugin manager.
+
+## Overall Purpose
+The plugin manager provides a flexible, extensible, and event-driven system for managing plugins in the
+Penguin emulation environment, enabling modular analysis, automation, and extension of the emulation workflow.
+"""
+
 from os.path import join, isfile, basename, splitext
 from penguin import getColoredLogger
 from pandare2 import PyPlugin, Panda
@@ -16,17 +50,17 @@ PluginManagerType = TypeVar('PluginManagerType', bound='IGLOOPluginManager')
 
 class Plugin:
     """
-    Base class for all IGLOO plugins. 
-    Plugin classes are automatically discovered and instantiated by the plugin manager.
+    Base class for all IGLOO plugins.
+    Plugins should inherit from this class to be managed by the plugin manager.
+    Provides argument access, logging, and Panda instance access.
     """
     
     def __preinit__(self, plugins: 'IGLOOPluginManager', args:  Dict) -> None:
         """
         Internal initialization method called by the plugin manager before __init__.
-        
         Args:
-            plugins: The plugin manager instance
-            args: Dictionary of arguments for this plugin
+            plugins (IGLOOPluginManager): The plugin manager instance.
+            args (Dict): Dictionary of arguments for this plugin.
         """
         self.plugins = plugins
         self.args = args
@@ -37,33 +71,37 @@ class Plugin:
     def name(self) -> str:
         """
         Returns the name of this plugin, which is its class name.
-        
         Returns:
-            The class name of this plugin
+            str: The class name of this plugin.
         """
         return self.__class__.__name__
     
     @property
     def panda(self) -> Panda:
-        '''
+        """
         Returns the Panda instance associated with this plugin.
-        '''
+        Returns:
+            Panda: The Panda instance.
+        """
         return self.plugins.panda
     
     @panda.setter
     def panda(self, panda: Panda) -> None:
-        '''
-        This does not set anything, but it makes sure code can be backwards 
-        compatible with the old PyPlugin interface.
-        '''
+        """
+        Setter for Panda instance (for compatibility, does nothing).
+        Args:
+            panda (Panda): The Panda instance.
+        """
         pass
     
-    def get_arg(self, arg_name: str):
-        '''
-        Returns either the argument as a string or None if the argument
-        wasn't passed (arguments passed in bool form (i.e., set but with no value)
-        instead of key/value form will also return None).
-        '''
+    def get_arg(self, arg_name: str) -> Any:
+        """
+        Get an argument value by name.
+        Args:
+            arg_name (str): The argument name.
+        Returns:
+            Any: The argument value or None if not set.
+        """
         if arg_name in self.args:
             return self.args[arg_name]
 
@@ -72,15 +110,12 @@ class Plugin:
     def get_arg_bool(self, arg_name: str) -> bool:
         """
         Returns True if the argument is set and has a truthy value.
-        
         Args:
-            arg_name: The name of the argument to retrieve
-            
+            arg_name (str): The name of the argument to retrieve.
         Returns:
-            True if the argument exists and has a truthy value, False otherwise
-            
+            bool: True if the argument exists and has a truthy value, False otherwise.
         Raises:
-            ValueError: If the argument exists but has an unsupported type
+            ValueError: If the argument exists but has an unsupported type.
         """
         if arg_name not in self.args:
             # Argument name unset - it's false
@@ -105,6 +140,7 @@ class Plugin:
 
 def gen_search_locations(plugin_name: str, proj_dir: str, plugin_path: str) -> List[str]:
     """
+    @private
     Generate a list of possible file paths to look for a plugin.
     
     Args:
@@ -128,6 +164,7 @@ def gen_search_locations(plugin_name: str, proj_dir: str, plugin_path: str) -> L
 
 def camel_to_snake(name: str) -> str:
     """
+    @private
     Convert CamelCase to snake_case.
     
     Args:
@@ -142,6 +179,7 @@ def camel_to_snake(name: str) -> str:
 
 def snake_to_camel(name: str) -> str:
     """
+    @private
     Convert snake_case to CamelCase.
     
     Args:
@@ -155,6 +193,7 @@ def snake_to_camel(name: str) -> str:
 
 def find_plugin_by_name(plugin_name: str, proj_dir: str, plugin_path: str) -> Tuple[str, bool]:
     """
+    @private
     Find a plugin file by name, trying various naming conventions.
     
     Args:
@@ -197,13 +236,13 @@ def find_plugin_by_name(plugin_name: str, proj_dir: str, plugin_path: str) -> Tu
 class IGLOOPluginManager:
     """
     Singleton class that manages the loading, unloading, and interaction with plugins.
+    Provides event registration, subscription, publishing, and plugin lifecycle management.
     """
     def __new__(cls) -> 'IGLOOPluginManager':
         """
         Singleton pattern implementation.
-        
         Returns:
-            The singleton instance of IGLOOPluginManager
+            IGLOOPluginManager: The singleton instance of IGLOOPluginManager.
         """
         if not hasattr(cls, 'instance'):
             cls.instance = super(IGLOOPluginManager, cls).__new__(cls)
@@ -212,10 +251,9 @@ class IGLOOPluginManager:
     def initialize(self, panda: Panda, args: Dict[str, Any]) -> None:
         """
         Initialize the plugin manager with a Panda instance and arguments.
-        
         Args:
-            panda: The Panda instance
-            args: Dictionary of arguments
+            panda (Panda): The Panda instance.
+            args (Dict[str, Any]): Dictionary of arguments.
         """
         self.panda = panda
         self.args = args
@@ -229,16 +267,9 @@ class IGLOOPluginManager:
     def load(self, pluginclasses: Union[Type[T], List[Type[T]], Tuple[str, List[str]]], args: Dict[str, Any] = None) -> None:
         """
         Load one or more plugin classes.
-        
         Args:
-            pluginclasses: Can be one of:
-                - An uninstantiated plugin class
-                - A list of uninstantiated plugin classes
-                - A tuple of (path_to_module.py, [classnames]) where classnames is a 
-                  list of class names to load from the module
-            args: Optional dictionary of arguments to pass to the plugins
-            
-        Each plugin class will be instantiated and stored in self.plugins under its class name.
+            pluginclasses (Union[Type[T], List[Type[T]], Tuple[str, List[str]]]): Plugin class(es) or (file, classnames) tuple.
+            args (Dict[str, Any], optional): Arguments to pass to the plugins.
         """
         if args is None:
             args = {}
@@ -288,12 +319,10 @@ class IGLOOPluginManager:
     def load_plugin(self, plugin_name: str) -> None:
         """
         Load a plugin by name.
-        
         Args:
-            plugin_name: Name of the plugin to load
-            
+            plugin_name (str): Name of the plugin to load.
         Raises:
-            ValueError: If plugin loading fails
+            ValueError: If plugin loading fails.
         """
         if self.get_plugin_by_name(plugin_name):
             return
@@ -338,10 +367,22 @@ class IGLOOPluginManager:
             shutil.copy2(path, self.args["outdir"])
 
     def load_plugins(self, conf_plugins: List[str]) -> None:
+        """
+        Load multiple plugins from a list of names.
+        Args:
+            conf_plugins (List[str]): List of plugin names to load.
+        """
         for plugin in conf_plugins:
             self.load_plugin(plugin)
 
     def get_plugin_by_name(self, plugin_name: str) -> Union[Plugin, None]:
+        """
+        Retrieve a loaded plugin by name.
+        Args:
+            plugin_name (str): Name of the plugin.
+        Returns:
+            Plugin or None: The plugin instance if found, else None.
+        """
         if plugin_name in self.aliases:
             plugin_name = self.aliases[plugin_name]
         for p, i in self.plugins.items():
@@ -349,31 +390,47 @@ class IGLOOPluginManager:
                 return i
 
     def __contains__(self, plugin: str) -> bool:
+        """
+        Check if a plugin is loaded by name.
+        Args:
+            plugin (str): Plugin name.
+        Returns:
+            bool: True if loaded, False otherwise.
+        """
         return self.get_plugin_by_name(plugin) is not None
 
     def __getitem__(self, plugin: str) -> Plugin:
+        """
+        Get a plugin by name, loading it if necessary.
+        Args:
+            plugin (str): Plugin name.
+        Returns:
+            Plugin: The plugin instance.
+        """
         if not self.get_plugin_by_name(plugin):
             self.load_plugin(plugin)
         return self.get_plugin_by_name(plugin)
 
     def __getattr__(self, plugin: str) -> Plugin:
+        """
+        Attribute access for plugins by name.
+        Args:
+            plugin (str): Plugin name.
+        Returns:
+            Plugin: The plugin instance.
+        """
         return self[plugin]
     
     def load_all(self, plugin_file: str, args: Optional[Dict[str, Any]] = None) -> List[str]:
         """
-        Given a path to a python file, load every Plugin defined in that file
-        by identifying all classes that subclass Plugin and passing them to
-        self.load()
-
+        Load all Plugin classes from a Python file.
         Args:
-            plugin_file: A path specifying a Python file from which Plugin classes should be loaded
-            args: Optional dictionary of arguments to pass to the Plugin
-
+            plugin_file (str): Path to the Python file.
+            args (Optional[Dict[str, Any]]): Arguments to pass to the Plugin.
         Returns:
-            List of Plugin class names loaded from the plugin_file
-            
+            List[str]: List of Plugin class names loaded from the file.
         Raises:
-            ValueError: If the plugin file cannot be loaded
+            ValueError: If the plugin file cannot be loaded.
         """
         spec = importlib.util.spec_from_file_location("plugin_file", plugin_file)
         if spec is None:
@@ -394,10 +451,13 @@ class IGLOOPluginManager:
         return names
 
     def unload(self, pluginclass: Union[Type[Plugin], Type[PyPlugin]]) -> None:
-        '''
-        Given an instance of a PyPlugin or its name, unload it
-        '''
-
+        """
+        Unload a plugin by class or name.
+        Args:
+            pluginclass (Union[Type[Plugin], Type[PyPlugin], str]): Plugin class or name.
+        Raises:
+            ValueError: If the argument is not a loaded plugin.
+        """
         if isinstance(pluginclass, str) and pluginclass in self.plugins:
             pluginclass = self.plugins[pluginclass]
 
@@ -409,9 +469,9 @@ class IGLOOPluginManager:
             pluginclass.uninit()
 
     def unload_all(self) -> None:
-        '''
-        Unload all PyPlugins
-        '''
+        """
+        Unload all loaded plugins in reverse order of load time.
+        """
         # unload in reverse order of load time
         plugin_list = {k:v for k,v in sorted(self.plugins.items(), key=lambda x: x[1].load_time)}
         while plugin_list:
@@ -420,12 +480,26 @@ class IGLOOPluginManager:
 
     def register(self, plugin: Plugin, event: str,
                  register_notify: Callable[[str, Callable[..., None]], None] = None) -> None:
+        """
+        Register a plugin event for callbacks.
+        Args:
+            plugin (Plugin): The plugin instance.
+            event (str): Event name.
+            register_notify (Callable, optional): Optional callback for registration notification.
+        """
         self.plugin_cbs[plugin] = self.plugin_cbs.get(plugin, {})
         self.plugin_cbs[plugin][event] = self.plugin_cbs[plugin].get(event, [])
         if register_notify:
             self.registered_cbs[(plugin, event)] = register_notify
 
     def subscribe(self, plugin: Plugin, event: str, callback: Callable[..., None]) -> None:
+        """
+        Subscribe a callback to a plugin event.
+        Args:
+            plugin (Plugin): The plugin instance.
+            event (str): Event name.
+            callback (Callable): Callback function.
+        """
         if plugin not in self.plugin_cbs:
             raise Exception(f"Attempt to subscribe to unregistered plugin: {plugin}")
         elif event not in self.plugin_cbs[plugin]:
@@ -436,6 +510,14 @@ class IGLOOPluginManager:
             self.registered_cbs[(plugin, event)](event, callback)
 
     def publish(self, plugin: Plugin, event: str, *args, **kwargs):
+        """
+        Publish an event to all registered callbacks for a plugin event.
+        Args:
+            plugin (Plugin): The plugin instance.
+            event (str): Event name.
+            *args: Positional arguments for callbacks.
+            **kwargs: Keyword arguments for callbacks.
+        """
         if plugin not in self.plugin_cbs:
             raise Exception(f"Attempt to publish to unregistered plugin: {plugin}")
         elif event not in self.plugin_cbs[plugin]:
@@ -443,8 +525,29 @@ class IGLOOPluginManager:
         for cb in self.plugin_cbs[plugin][event]:
             cb(*args, **kwargs)
 
+    def portal_publish(self, func: Callable, *args, **kwargs) -> Any:
+        """
+        Call a function (possibly a generator) and yield from it if needed, otherwise return its result.
+        Args:
+            func (Callable): The function to call (can be a generator or standard function).
+            *args: Positional arguments.
+            **kwargs: Keyword arguments.
+        Returns:
+            Any: The result of the function, or yields from it if it is a generator.
+        """
+        result = func(*args, **kwargs)
+        from collections.abc import Iterator
+        if isinstance(result, Iterator):
+            return (yield from result)
+        return result
+
     @property
     def resources(self) -> str:
+        """
+        Returns the path to the plugin resources directory.
+        Returns:
+            str: Path to the resources directory.
+        """
         return join(self.args["plugin_path"], "resources")
 
 
