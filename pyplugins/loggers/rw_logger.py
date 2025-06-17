@@ -15,7 +15,7 @@ class RWLog(PyPlugin):
     def write(self, cpu, proto, syscall, fd, buf, count):
         s = yield from plugins.portal.read_str(buf)
         signed_fd = int(self.panda.ffi.cast("target_long", fd))
-        fname = yield from plugins.portal.get_fd_name(fd) or "?"
+        fname = (yield from plugins.portal.get_fd_name(fd)) or "?"
         args = yield from plugins.portal.get_args()
         if args:
             procname = args[0]
@@ -34,7 +34,7 @@ class RWLog(PyPlugin):
     def read(self, cpu, proto, syscall, fd, buf, count):
         s = yield from plugins.portal.read_str(buf)
         signed_fd = int(self.panda.ffi.cast("target_long", fd))
-        fname = yield from plugins.portal.get_fd_name(fd) or "?"
+        fname = (yield from plugins.portal.get_fd_name(fd)) or "?"
         # Get name of FD, if it's valid
         signed_fd = int(self.panda.ffi.cast("target_long", fd))
         args = yield from plugins.portal.get_args()
