@@ -1,3 +1,51 @@
+"""
+# portal_wrap.py - Wrappers for process memory mappings
+
+This module provides Pythonic wrappers for handling process memory mappings, typically as returned by a plugin or API that exposes Linux process memory map information. The wrappers are designed to make it easy to inspect, filter, and display memory mappings, such as those found in /proc/<pid>/maps.
+
+## Overview
+This module defines two main classes:
+- **MappingWrapper**: Wraps a single memory mapping, providing properties for permissions, addresses, and device info.
+- **MappingsWrapper**: Wraps a list of MappingWrapper objects, providing search and display utilities.
+
+These wrappers are useful for analyzing process memory layouts, debugging, or building tools that need to inspect memory regions of Linux processes. They abstract away the raw dictionary or struct data and provide convenient Pythonic accessors and search methods.
+
+## Typical Usage
+Suppose you have a plugin or API that returns a list of memory mapping dictionaries for a process (e.g., from `/proc/<pid>/maps` or a similar source):
+
+```python
+from wrappers.portal_wrap import MappingWrapper, MappingsWrapper
+
+# Example: plugin.get_mappings() returns a list of dicts, one per mapping
+raw_mappings = plugin.get_mappings()  # Each dict should have keys: flags, base, size, dev, pgoff, inode, name
+mappings = [MappingWrapper(m) for m in raw_mappings]
+all_mappings = MappingsWrapper(mappings)
+```
+
+You can then perform various queries and inspections:
+
+```python
+# Find a mapping by address:
+mapping = all_mappings.get_mapping_by_addr(0x7f1234567000)
+if mapping:
+    print(f"Permissions: {mapping.perms}, Name: {mapping.name}")
+
+# List all mappings for a library:
+libc_maps = all_mappings.get_mappings_by_name('libc')
+for m in libc_maps:
+    print(m)
+
+# Print all mappings in a format similar to /proc/<pid>/maps:
+print(all_mappings)
+```
+
+The MappingWrapper exposes properties such as `.perms`, `.start`, `.end`, `.dev_major`, `.dev_minor`, and `.name`, making it easy to work with mapping attributes.
+
+## Classes
+- **MappingWrapper**: Wraps a single memory mapping, providing properties for permissions, addresses, and device info.
+- **MappingsWrapper**: Wraps a list of MappingWrapper objects, providing search and display utilities.
+"""
+
 from wrappers.generic import Wrapper, ArrayWrapper
 
 VM_READ = 0x00000001
@@ -7,6 +55,19 @@ VM_MAYSHARE = 0x00000080
 
 
 class MappingWrapper(Wrapper):
+    """
+    Wraps a single process memory mapping, providing convenient properties for permissions, addresses, and device information.
+
+    Attributes:
+        flags (int): Bitmask of mapping permissions and flags.
+        base (int): Start address of the mapping.
+        size (int): Size of the mapping in bytes.
+        dev (int): Device number (major:minor) of the mapping.
+        pgoff (int): Offset into the mapped file.
+        inode (int): Inode number of the mapped file.
+        name (str): Name or path of the mapped file.
+    """
+
     @property
     def exec(self):
         """Check if the mapping is executable."""
@@ -70,6 +131,14 @@ class MappingWrapper(Wrapper):
 
 
 class MappingsWrapper(ArrayWrapper):
+    """
+    Wraps a list of MappingWrapper objects, providing utilities to search and display memory mappings.
+
+    Methods:
+        get_mapping_by_addr(addr): Return the mapping containing the given address.
+        get_mappings_by_name(name): Return all mappings whose name contains the given string.
+    """
+
     def get_mapping_by_addr(self, addr):
         """Find the mapping for a given address."""
         for mapping in self._data:
