@@ -1,23 +1,56 @@
+"""
+nmap.py - Nmap Plugin for Penguin/Cleanguin
+
+This module provides the Nmap plugin, which automatically performs service and vulnerability scans
+on guest services exposed to the host via the VPN plugin. It listens for 'on_bind' events published
+by the VPN plugin and launches nmap scans against the corresponding host ports. The plugin is responsible for:
+
+- Subscribing to VPN 'on_bind' events to detect new guest services exposed to the host.
+- Launching nmap scans (in a separate thread) for each new TCP service, storing results as XML files in the output directory.
+- Supporting custom nmap configurations if present.
+- Managing and cleaning up subprocesses for running nmap scans.
+
+Arguments:
+    - None
+
+Plugin Interface:
+    - Subscribes to the VPN plugin's 'on_bind' event to trigger scans.
+    - Does not provide a direct interface for other plugins, but writes scan results to files in the output directory.
+
+Overall Purpose:
+    The Nmap plugin automates the discovery and analysis of guest services exposed to the host, aiding
+    in security assessment and service enumeration during emulation.
+"""
+
 import os
 import subprocess
 import threading
 from threading import Lock
-
 from penguin import plugins, Plugin
 
 
 class Nmap(Plugin):
-    def __init__(self):
+    def __init__(self) -> None:
+        """
+        Initialize the Nmap plugin, subscribe to VPN on_bind events, and set up state.
+        """
         self.outdir = self.get_arg("outdir")
         plugins.subscribe(plugins.VPN, "on_bind", self.nmap_on_bind)
         self.subprocesses = []
         self.lock = Lock()
         self.custom_nmap = os.path.isfile("/usr/local/etc/nmap/.custom")
 
-    def nmap_on_bind(self, proto, guest_ip, guest_port, host_port, host_ip, procname):
+    def nmap_on_bind(self, proto: str, guest_ip: str, guest_port: int, host_port: int, host_ip: str, procname: str) -> None:
         """
-        There was a bind - run nmap! Maybe bail if we've already seen this port
-        or something for systems that repeatedly start/stop  listening?
+        Handle a new bind event from the VPN plugin and launch an nmap scan if appropriate.
+
+        Args:
+            proto (str): Protocol (e.g., 'tcp').
+            guest_ip (str): Guest IP address.
+            guest_port (int): Guest port.
+            host_port (int): Host port mapped to the guest service.
+            host_ip (str): Host IP address.
+            procname (str): Name of the process binding the port.
         """
 
         if proto != "tcp":
@@ -32,7 +65,16 @@ class Nmap(Plugin):
         t.daemon = True
         t.start()
 
-    def scan_thread(self, host_ip, guest_port, host_port, log_file_name):
+    def scan_thread(self, host_ip: str, guest_port: int, host_port: int, log_file_name: str) -> None:
+        """
+        Run an nmap scan against the specified host port and save results.
+
+        Args:
+            host_ip (str): Host IP address.
+            guest_port (int): Guest port.
+            host_port (int): Host port.
+            log_file_name (str): Path to the XML log file for scan results.
+        """
         # nmap scan our target in service-aware mode
 
         if os.path.isfile(log_file_name):
@@ -72,12 +114,18 @@ class Nmap(Plugin):
             if process in self.subprocesses:
                 self.subprocesses.remove(process)
 
-    def cleanup_subprocesses(self):
+    def cleanup_subprocesses(self) -> None:
+        """
+        Terminate and clean up all running nmap subprocesses.
+        """
         with self.lock:
             for process in self.subprocesses:
                 process.terminate()  # Attempt to terminate gracefully
                 process.kill()  # Force kill if terminate doesn't work
             self.subprocesses.clear()
 
-    def uninit(self):
+    def uninit(self) -> None:
+        """
+        Cleanup subprocesses on plugin unload.
+        """
         self.cleanup_subprocesses()
