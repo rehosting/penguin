@@ -13,10 +13,6 @@ services to the host. The plugin is responsible for:
 - Cleaning up VPN processes on exit.
 
 Arguments:
-- CID (int): Context ID for vsock.
-- socket_path (str): Path to the vsock socket.
-- uds_path (str): Path to the Unix domain socket for QEMU.
-- outdir (str): Output directory for logs and bridge files.
 - log (bool, optional): Enable logging of VPN traffic.
 - pcap (bool, optional): Enable PCAP capture of VPN traffic.
 - verbose (bool, optional): Enable verbose logging.
