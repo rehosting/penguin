@@ -34,9 +34,14 @@ reg_dict = wrapper.dump()
 # Read memory pointed to by a register (if PANDA object is provided)
 ptr = wrapper.get_register('rdi')
 value = wrapper.read_memory(ptr, 8, fmt='int')
+
+# Coroutine-style argument access (portal):
+# get_args_portal and get_arg_portal are generator-based and can yield if a memory read is required (e.g., stack argument).
+# Use 'yield from' to drive these coroutines in a portal/coroutine context.
+args = yield from wrapper.get_args_portal(3)
 ```
 
-The wrappers also support advanced features such as handling 32-bit compatibility mode on x86_64/AArch64, stack argument extraction, and portal-style coroutine memory reads.
+The wrappers also support advanced features such as handling 32-bit compatibility mode on x86_64/AArch64, stack argument extraction, and portal-style coroutine memory reads. The `get_args_portal` and `get_arg_portal` methods are generator-based and will yield if a memory read is required (such as when reading stack arguments that may fail and need to be retried or handled asynchronously).
 
 ## Classes
 - `PtRegsWrapper`: Base class for all pt_regs wrappers, provides generic register access and argument extraction.
@@ -52,7 +57,7 @@ These wrappers are useful for dynamic analysis, syscall tracing, emulation, and 
 from wrappers.generic import Wrapper
 import struct
 from penguin import plugins
-from typing import Any, Dict, List, Optional, Type, Union, Generator
+from typing import Any, Dict, List, Optional, Union, Generator
 
 
 class PandaMemReadFail(Exception):
@@ -160,6 +165,16 @@ class PtRegsWrapper(Wrapper):
         return result
 
     def get_args(self, count: int, convention: Optional[str] = None) -> List[Optional[int]]:
+        """
+        Get a list of function arguments according to the calling convention.
+
+        Args:
+            count: Number of arguments to retrieve.
+            convention: Calling convention ('syscall' or 'userland').
+
+        Returns:
+            List of argument values (may include None if unavailable).
+        """
         return [self.get_arg(i, convention) for i in range(count)]
 
     def get_arg(self, num: int, convention: Optional[str] = None) -> Optional[int]:
@@ -183,6 +198,18 @@ class PtRegsWrapper(Wrapper):
             return None
 
     def get_args_portal(self, count: int, convention: Optional[str] = None) -> Generator[Optional[int], Any, List[Optional[int]]]:
+        """
+        Coroutine/generator version of get_args for portal/coroutine use.
+
+        This method yields if a memory read is required (e.g., for stack arguments), allowing asynchronous or retriable memory access. Use 'yield from' to drive this coroutine. If a memory read fails (e.g., due to unmapped memory), the coroutine will yield and can be resumed after the memory is available.
+
+        Args:
+            count: Number of arguments to retrieve.
+            convention: Calling convention ('syscall' or 'userland').
+
+        Returns:
+            List of argument values (may include None if unavailable).
+        """
         arr = []
         for i in range(count):
             arr.append((yield from self.get_arg_portal(i, convention)))
@@ -190,14 +217,16 @@ class PtRegsWrapper(Wrapper):
 
     def get_arg_portal(self, num: int, convention: Optional[str] = None) -> Generator[Optional[int], Any, Optional[int]]:
         """
-        Get function argument based on calling convention.
+        Coroutine/generator version of get_arg for portal/coroutine use.
+
+        This method yields if a memory read is required (e.g., for stack arguments), allowing asynchronous or retriable memory access. Use 'yield from' to drive this coroutine. If a memory read fails (e.g., due to unmapped memory), the coroutine will yield and can be resumed after the memory is available.
 
         Args:
             num: Argument number (0-based)
             convention: Calling convention ('syscall' or 'userland')
 
         Returns:
-            The value of the requested argument
+            The value of the requested argument (or None if unavailable).
         """
         try:
             if convention == "syscall":
@@ -210,95 +239,6 @@ class PtRegsWrapper(Wrapper):
             else:
                 val = yield from plugins.mem.read_long(e.addr)
             return val
-
-    def get_syscall_arg(self, num: int) -> Optional[int]:
-        """Get syscall argument (architecture-specific)"""
-        raise NotImplementedError(
-            f"get_syscall_arg not implemented for {self.__class__.__name__}")
-
-    def get_userland_arg(self, num: int) -> Optional[int]:
-        """Get userland function argument (architecture-specific)"""
-        raise NotImplementedError(
-            f"get_userland_arg not implemented for {self.__class__.__name__}")
-
-    def read_memory(self, addr: int, size: int, fmt: str = 'int') -> Optional[int]:
-        """
-        Read memory from guest using PANDA's virtual_memory_read.
-
-        Args:
-            addr: Address to read from
-            size: Size to read (1, 2, 4, 8)
-            fmt: Format to return ('int', 'ptr', 'bytes', 'str')
-
-        Returns:
-            The memory value in the requested format
-        """
-        if not self._panda:
-            raise ValueError(
-                "Cannot read memory: no PANDA reference available")
-
-        cpu = self._panda.get_cpu()
-        if not cpu:
-            raise ValueError("Cannot read memory: failed to get CPU")
-
-        try:
-            data = self._panda.virtual_memory_read(cpu, addr, size)
-            if fmt == 'bytes':
-                return data
-            elif fmt == 'str':
-                return data.decode('latin-1', errors='replace')
-
-            # Use the correct endianness format based on the architecture
-            endian_fmt = '>' if hasattr(
-                self._panda, 'endianness') and self._panda.endianness == 'big' else '<'
-
-            if fmt == 'int':
-                if size == 1:
-                    return struct.unpack(endian_fmt + 'B', data)[0]
-                elif size == 2:
-                    return struct.unpack(endian_fmt + 'H', data)[0]
-                elif size == 4:
-                    return struct.unpack(endian_fmt + 'I', data)[0]
-                elif size == 8:
-                    return struct.unpack(endian_fmt + 'Q', data)[0]
-            elif fmt == 'ptr':
-                if self._panda.bits == 32:
-                    return struct.unpack(endian_fmt + 'I', data)[0]
-                else:  # 64-bit
-                    return struct.unpack(endian_fmt + 'Q', data)[0]
-        except ValueError:  # This is what PANDA's virtual_memory_read raises on failure
-            raise PandaMemReadFail(addr, size)
-
-    def read_stack_arg(self, arg_num: int, word_size: Optional[int] = None) -> Optional[int]:
-        """
-        Read a function argument from the stack
-
-        Args:
-            arg_num: Argument number (0-based)
-            word_size: Word size override (default: based on architecture)
-
-        Returns:
-            The argument value read from the stack
-        """
-        if not self._panda:
-            raise ValueError(
-                "Cannot read stack args: no PANDA reference available")
-
-        # Default word size based on architecture
-        if word_size is None:
-            word_size = 4 if self._panda.bits == 32 else 8
-
-        # Get stack pointer
-        sp = self.get_sp()
-        if sp is None:
-            return None
-
-        # For most architectures, args start after saved return address
-        # So typically: sp + word_size + (arg_num * word_size)
-        addr = sp + word_size + (arg_num * word_size)
-
-        # Read the value
-        return self.read_memory(addr, word_size, 'ptr')
 
     def get_syscall_number(self) -> Optional[int]:
         """
