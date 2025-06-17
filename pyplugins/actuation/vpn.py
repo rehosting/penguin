@@ -38,7 +38,7 @@ Plugin Interface:
 Overall Purpose:
     The VPN plugin enables flexible, dynamic, and secure exposure of guest network services to the host,
     supporting advanced features like port mapping and source IP spoofing, and integrates with the
-    Penguin/Cleanguin plugin system for event-driven networking.
+    Penguin plugin system for event-driven networking.
 """
 
 import atexit

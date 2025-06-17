@@ -1,5 +1,5 @@
 """
-nmap.py - Nmap Plugin for Penguin/Cleanguin
+nmap.py - Nmap Plugin for Penguin
 
 This module provides the Nmap plugin, which automatically performs service and vulnerability scans
 on guest services exposed to the host via the VPN plugin. It listens for 'on_bind' events published
