@@ -1,5 +1,5 @@
 """
-fetch_web.py - FetchWeb Plugin for Penguin/Cleanguin
+fetch_web.py - FetchWeb Plugin for Penguin
 
 This module provides the FetchWeb plugin, which automatically fetches web pages from guest services
 exposed to the host (typically on ports 80 and 443) via the VPN plugin. It listens for 'on_bind' events
