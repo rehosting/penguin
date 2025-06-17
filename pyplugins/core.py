@@ -36,7 +36,7 @@ from penguin.defaults import vnc_password
 
 class Core(Plugin):
     """
-    Core plugin for Cleanguin PyPlugins.
+    Core plugin for PyPlugins.
 
     Performs sanity checks, manages configuration, handles shutdown signals,
     and enforces optional timeouts for the emulation environment.
