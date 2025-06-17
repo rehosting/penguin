@@ -1,5 +1,5 @@
 from penguin import plugins, getColoredLogger, Plugin
-from analysis.kernel_types import load_isf_json, Ptr
+from wrappers.ctypes_wrap import load_isf_json, Ptr
 from os.path import join, realpath, isfile
 from wrappers.generic import Wrapper
 import functools
