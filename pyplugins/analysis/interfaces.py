@@ -4,9 +4,7 @@ from os.path import join as pjoin
 from typing import List
 import re
 
-from penguin import getColoredLogger, yaml, plugins, Plugin
-from penguin.analyses import PenguinAnalysis
-from penguin.graphs import Configuration, Failure, Mitigation
+from penguin import plugins, Plugin
 
 iface_log = "iface.log"
 ioctl_log = "iface_ioctl.log"
@@ -22,7 +20,6 @@ class Interfaces(Plugin):
     def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.conf = self.get_arg("conf")
-        self.logger = getColoredLogger("plugins.interfaces")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
 
@@ -111,70 +108,3 @@ class Interfaces(Plugin):
             if len(argv) > 1:
                 iface = argv[1]
         self.handle_interface(iface)
-
-
-class InterfaceAnalysis(PenguinAnalysis):
-    ANALYSIS_TYPE = "interfaces"
-    VERSION = "1.0.0"
-
-    def __init__(self):
-        super().__init__()
-        self.logger = logging.getLogger("iface")
-        self.logger.setLevel(logging.DEBUG)
-
-    def parse_failures(self, output_dir) -> List[Failure]:
-        # Read the iface.log file and create a list of failures
-
-        with open(pjoin(output_dir, "core_config.yaml")) as f:
-            self.config = yaml.safe_load(f)
-
-        # Read existing interfaces from config's netdevs list
-
-        # Return a list of all interfaces identified - in the mitigation stage
-        # we'll filter to drop existing/default ones (this reduces duplication)
-        ifaces = []
-        with open(f"{output_dir}/{iface_log}", "r") as f:
-            for iface in f.readlines():
-                iface = iface.strip()
-                ifaces.append(iface)
-
-        # Delete anything from ifaces that's in already in self.config['netdevs']
-        ifaces = [
-            iface for iface in ifaces if iface not in self.config.get("netdevs", [])
-        ]
-
-        # One failure for each iface
-        return [
-            Failure(
-                f"net_ifaces_{name}",
-                self.ANALYSIS_TYPE,
-                {"ifaces": [name]},
-                patch_name=f"iface_{name}",
-            )
-            for name in ifaces
-        ]
-
-    def get_potential_mitigations(self, config, failure: Failure) -> List[Mitigation]:
-        # Create a mitiation with every iface in the list, so long as at least one isn't already in the config
-        ifaces = failure.info["ifaces"]  # Should just be one now
-        if not any([iface not in config.get("netdevs", []) for iface in ifaces]):
-            return []  # Already present
-        iface = ifaces[0]
-
-        # Create a mitigation with all the ifaces
-        return [
-            Mitigation(f"iface_{iface}", self.ANALYSIS_TYPE, {"ifaces": [iface]},
-                       patch={"netdevs": [iface]}, failure_name=failure.friendly_name)
-        ]
-
-    def implement_mitigation(
-        self, config: Configuration, failure: Failure, mitigation: Mitigation
-    ) -> List[Configuration]:
-        ifaces = failure.info["ifaces"]
-        if all(iface in config.info.get("netdevs", []) for iface in ifaces):
-            print(f"Warning: Interface {ifaces} already exists, refusing to add")
-            return []
-
-        new_config = deepcopy(config.info)
-        new_config["netdevs"] = config.info.get("netdevs", []) + ifaces
-        return [Configuration(f"iface_{len(ifaces)}", new_config)]
