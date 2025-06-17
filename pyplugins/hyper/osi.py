@@ -7,7 +7,7 @@ from penguin import Plugin, plugins
 from hyper.consts import HYPER_OP as hop
 from hyper.portal import PortalCmd
 from wrappers.generic import Wrapper
-from wrappers.portal_wrap import MappingWrapper, MappingsWrapper
+from wrappers.osi_wrap import MappingWrapper, MappingsWrapper
 
 kffi = plugins.kffi
 
