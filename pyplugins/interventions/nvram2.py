@@ -69,7 +69,7 @@ class Nvram2(Plugin):
         with open(f"{self.outdir}/{log}", "w") as f:
             f.write("key,access,value\n")
 
-    @plugins.Events.handler('igloo_nvram_get_hit')
+    @plugins.subscribe(plugins.Events, "igloo_nvram_get_hit")
     def on_nvram_get_hit(self, cpu, key: str) -> None:
         """
         Handles an NVRAM get hit event.
@@ -83,7 +83,7 @@ class Nvram2(Plugin):
         """
         self.on_nvram_get(cpu, key, True)
 
-    @plugins.Events.handler('igloo_nvram_get_miss')
+    @plugins.subscribe(plugins.Events, "igloo_nvram_get_miss")
     def on_nvram_get_miss(self, cpu, key: str) -> None:
         """
         Handles an NVRAM get miss event.
@@ -119,7 +119,7 @@ class Nvram2(Plugin):
         self.panda.arch.set_arg(cpu, 1, 0)
         # self.logger.debug(f"nvram get {key} {status}")
 
-    @plugins.Events.handler('igloo_nvram_set')
+    @plugins.subscribe(plugins.Events, "igloo_nvram_set")
     def on_nvram_set(self, cpu, key: str, newval: str) -> None:
         """
         Handles and logs an NVRAM set operation.
@@ -140,7 +140,7 @@ class Nvram2(Plugin):
         self.panda.arch.set_arg(cpu, 1, 0)
         self.logger.debug(f"nvram set {key} {newval}")
 
-    @plugins.Events.handler('igloo_nvram_clear')
+    @plugins.subscribe(plugins.Events, "igloo_nvram_clear")
     def on_nvram_clear(self, cpu, key: str) -> None:
         """
         Handles and logs an NVRAM clear operation.
