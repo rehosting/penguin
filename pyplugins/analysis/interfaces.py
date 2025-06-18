@@ -1,9 +1,4 @@
-import logging
-from copy import deepcopy
-from os.path import join as pjoin
-from typing import List
 import re
-
 from penguin import plugins, Plugin
 
 iface_log = "iface.log"
@@ -30,10 +25,6 @@ class Interfaces(Plugin):
 
         self.missing_ifaces = set()
         self.failed_ioctls = set()
-
-        plugins.syscalls.syscall("on_sys_ioctl_return")(self.after_ioctl)
-        # Use the Execs plugin interface for exec events
-        plugins.subscribe(plugins.Execs, "exec_event", self.iface_on_exec)
 
     def handle_interface(self, iface):
         if iface is None or not len(iface):
@@ -73,6 +64,7 @@ class Interfaces(Plugin):
         except ValueError:
             return None
 
+    @plugins.syscalls.syscall("on_sys_ioctl_return")
     def after_ioctl(self, cpu, proto, syscall, fd, request, arg):
         if 0x8000 < request < 0x9000:
             iface = yield from plugins.mem.read_str(arg)
@@ -86,6 +78,7 @@ class Interfaces(Plugin):
                 # try to catch failing ioctls
                 self.failing_ioctl(request, iface, rv)
 
+    @plugins.subscribe(plugins.Execs, "exec_event")
     def iface_on_exec(self, event):
         argv = event.get('argv', [])
         fname = event.get('procname', None)
