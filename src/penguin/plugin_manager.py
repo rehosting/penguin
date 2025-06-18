@@ -214,6 +214,8 @@ def find_plugin_by_name(plugin_name: str, proj_dir: str, plugin_path: str) -> Tu
                 p = glob.glob(f, recursive=True)
                 if len(p) == 1:
                     return p[0]
+                elif len(p) > 1:
+                    raise ValueError(f"Multiple files found for {f}: {p}")
             else:
                 if isfile(f):
                     return f
@@ -413,12 +415,23 @@ class IGLOOPluginManager:
 
     def __getattr__(self, plugin: str) -> Plugin:
         """
-        Attribute access for plugins by name.
+        Attribute access for plugins by name or class name.
         Args:
-            plugin (str): Plugin name.
+            plugin (str): Plugin name or class name.
         Returns:
             Plugin: The plugin instance.
         """
+        # First try by plugin name (existing behavior)
+        plugin_by_name = self.get_plugin_by_name(plugin)
+        if plugin_by_name:
+            return plugin_by_name
+        
+        # Then try by class name - search through all plugins
+        for plugin_name, plugin_instance in self.plugins.items():
+            if plugin_instance.__class__.__name__ == plugin:
+                return plugin_instance
+        
+        # If not found by either method, try to load it
         return self[plugin]
     
     def load_all(self, plugin_file: str, args: Optional[Dict[str, Any]] = None) -> List[str]:
@@ -448,6 +461,16 @@ class IGLOOPluginManager:
             cls.__name__ = name
             self.load(cls, args)
             names.append(name)
+            
+            # Create alias from class name to plugin instance for method resolution
+            if name in self.plugins:
+                # Add the class name as an alias to the plugin instance
+                # This allows syscalls plugin to find instances by class name
+                class_name = cls.__name__
+                plugin_instance_name = name  # The key used in self.plugins
+                if class_name != plugin_instance_name:
+                    self.aliases[class_name] = plugin_instance_name
+                
         return names
 
     def unload(self, pluginclass: Union[Type[Plugin], Type[PyPlugin]]) -> None:
@@ -525,21 +548,26 @@ class IGLOOPluginManager:
         for cb in self.plugin_cbs[plugin][event]:
             cb(*args, **kwargs)
 
-    def portal_publish(self, func: Callable, *args, **kwargs) -> Any:
+    def portal_publish(self, plugin: Plugin, event: str, *args, **kwargs):
         """
-        Call a function (possibly a generator) and yield from it if needed, otherwise return its result.
+        Publish an event to all registered callbacks for a plugin event, handling generators properly.
         Args:
-            func (Callable): The function to call (can be a generator or standard function).
-            *args: Positional arguments.
-            **kwargs: Keyword arguments.
-        Returns:
-            Any: The result of the function, or yields from it if it is a generator.
+            plugin (Plugin): The plugin instance.
+            event (str): Event name.
+            *args: Positional arguments for callbacks.
+            **kwargs: Keyword arguments for callbacks.
         """
-        result = func(*args, **kwargs)
-        from collections.abc import Iterator
-        if isinstance(result, Iterator):
-            return (yield from result)
-        return result
+        if plugin not in self.plugin_cbs:
+            raise Exception(f"Attempt to publish to unregistered plugin: {plugin}")
+        elif event not in self.plugin_cbs[plugin]:
+            raise Exception(f"Attempt to publish to unregistered event: {event} for plugin {plugin}")
+        
+        for cb in self.plugin_cbs[plugin][event]:
+            result = cb(*args, **kwargs)
+            from collections.abc import Iterator
+            if isinstance(result, Iterator):
+                yield from result
+            # For non-generator callbacks, we don't need to do anything with the result
 
     @property
     def resources(self) -> str:
