@@ -480,9 +480,7 @@ class Syscalls(Plugin):
         **Returns:**
         `Any`: The result of the callback.
         """
-        # sequence is no longer relevant
-        # sequence = self.panda.arch.get_arg(cpu, 1, convention="syscall")
-        arg = self.panda.arch.get_arg(cpu, 2, convention="syscall")
+        arg = self.panda.arch.get_arg(cpu, 1, convention="syscall")
 
         sce, original = self._get_syscall_event(cpu, arg)
         hook_ptr = sce.hook.address
