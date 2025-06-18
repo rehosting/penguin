@@ -1,5 +1,15 @@
 """
 .. include:: README.md
+
+## Importing in PyPlugins
+
+To import modules in your PyPlugin, you can use the following syntax:
+```python
+from apis.events import EVENTS
+```
+
+Where the `apis` directory exists in the pyplugins directory.
+
 .. include:: ../docs/pyplugin_architecture.md
     :start-after: Plugins are a way to extend the functionality of penguin.
 """
