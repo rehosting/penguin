@@ -31,6 +31,7 @@ in the guest, enabling downstream plugins to implement their own analysis or res
 
 from typing import List, Dict, Any, Generator, Optional
 from penguin import plugins, Plugin
+from wrappers.generic import Wrapper
 
 # Constants needed for execveat handling (define these elsewhere as needed)
 AT_FDCWD: int = -100  # Placeholder, define actual value as needed
@@ -55,6 +56,7 @@ class Execs(Plugin):
         """
         Initialize Execs plugin and subscribe to execve/execveat syscalls.
         """
+        plugins.register(self, "exec_event")
         plugins.syscalls.syscall("on_sys_execve_enter")(self.on_execve)
         plugins.syscalls.syscall("on_sys_execveat_enter")(self.on_execveat)
 
@@ -73,22 +75,62 @@ class Execs(Plugin):
             return []
         result = []
         offset = 0
+        consecutive_failures = 0
+        max_consecutive_failures = 3
+        
         while len(result) < max_length:
-            buf = yield from plugins.mem.read_ptrlist(ptr + offset * 8, chunk_size)
-            for i, p in enumerate(buf):
-                if p == 0 or len(result) >= max_length:
-                    return result
-                try:
-                    val = yield from plugins.mem.read_str(p)
-                except Exception as e:
-                    # Log and skip unreadable pointers
-                    self.logger.warning(f"_read_ptrlist: error reading string at {hex(p)}: {e}")
-                    val = "[unreadable]"
-                result.append(val)
-            offset += chunk_size
+            try:
+                buf = yield from plugins.mem.read_ptrlist(ptr + offset * 8, chunk_size)
+                
+                # If we get an empty buffer, we've likely hit the end
+                if not buf or len(buf) == 0:
+                    self.logger.debug(f"_read_ptrlist: empty buffer at offset {offset}, stopping")
+                    break
+                
+                # Reset failure counter on successful read
+                consecutive_failures = 0
+                
+                found_null = False
+                for i, p in enumerate(buf):
+                    if p == 0 or len(result) >= max_length:
+                        found_null = True
+                        break
+                    try:
+                        val = yield from plugins.mem.read_str(p)
+                        if val is None or val == "":
+                            # Empty string might indicate end of list
+                            self.logger.debug(f"_read_ptrlist: empty string at pointer {hex(p)}, treating as end")
+                            found_null = True
+                            break
+                        result.append(val)
+                    except Exception as e:
+                        # Log and skip unreadable pointers
+                        self.logger.warning(f"_read_ptrlist: error reading string at {hex(p)}: {e}")
+                        val = "[unreadable]"
+                        result.append(val)
+                
+                # If we found a null terminator, stop
+                if found_null:
+                    break
+                    
+                offset += chunk_size
+                
+            except Exception as e:
+                consecutive_failures += 1
+                self.logger.warning(f"_read_ptrlist: error reading pointer list at offset {offset}: {e}")
+                
+                # If we've had too many consecutive failures, give up
+                if consecutive_failures >= max_consecutive_failures:
+                    self.logger.error(f"_read_ptrlist: too many consecutive failures ({consecutive_failures}), stopping")
+                    break
+                
+                # Try to continue with the next chunk
+                offset += chunk_size
+        
         # If we reach max_length, log a warning
         if len(result) >= max_length:
             self.logger.warning(f"_read_ptrlist: reached max_length={max_length}, possible unterminated list at {hex(ptr)}")
+        
         return result
 
     def _parse_envp(self, envp_list: List[str]) -> Dict[str, str]:
@@ -188,7 +230,7 @@ class Execs(Plugin):
         procname = yield from plugins.mem.read_str(fname_ptr)
         argv_list, envp_dict = yield from self._parse_args_env(argv_ptr, envp_ptr)
         parent = yield from plugins.OSI.get_proc()
-        procname_val = self._resolve_procname_val(procname, dirfd, flags)
+        procname_val = yield from self._resolve_procname_val(procname, dirfd, flags)
         event = {
             'procname': procname_val,
             'argv': argv_list,
@@ -196,7 +238,7 @@ class Execs(Plugin):
             'raw_args': (cpu, proto, syscall, dirfd, fname_ptr, argv_ptr, envp_ptr, flags) if dirfd is not None and flags is not None else (cpu, proto, syscall, fname_ptr, argv_ptr, envp_ptr),
             'parent': parent,
         }
-        yield from plugins.portal_publish(self, "exec_event", event)
+        yield from plugins.portal_publish(self, "exec_event", Wrapper(event))
 
     def on_execve(self, cpu: int, proto: Any, syscall: int, fname_ptr: int, argv_ptr: int, envp_ptr: int) -> Generator[Any, None, None]:
         """
