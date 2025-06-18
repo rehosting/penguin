@@ -487,7 +487,7 @@ class Syscalls(Plugin):
         sce, original = self._get_syscall_event(cpu, arg)
         hook_ptr = sce.hook.address
         if hook_ptr not in self.hooks:
-            self.logger.debug(
+            self.logger.error(
                 f"Syscall event with hook pointer {hook_ptr:#x} not registered")
             return
         proto = self._get_proto(cpu, sce)
@@ -501,8 +501,8 @@ class Syscalls(Plugin):
             on_all, f = hook_info
             is_method = False
 
-        pt_regs_raw = plugins.kffi.read_type_panda(
-            cpu, sce.regs.address, "pt_regs")
+        pt_regs_raw = yield from plugins.kffi.read_type(
+            sce.regs.address, "pt_regs")
         pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
         # If we're handling all syscalls or we don't have prototype info,
         # just call the function with the standard arguments
@@ -547,7 +547,7 @@ class Syscalls(Plugin):
 
         new = sce.to_bytes()
         if original != new:
-            self.panda.virtual_memory_write(cpu, arg, new)
+            yield from plugins.mem.write_bytes(arg, new)
         return fn_ret
 
     def register_syscall_hook(
