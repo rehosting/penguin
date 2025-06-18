@@ -28,7 +28,8 @@ class FICD(Plugin):
         self.logger.info("Loading FICD plugin")
 
         @plugins.syscalls.syscall("on_sys_execve_enter")
-        def ficd_execve(cpu, proto, syscall, fname_ptr, argv_ptr, envp):
+        def ficd_execve(regs, proto, syscall, fname_ptr, argv_ptr, envp):
+            cpu = self.panda.get_cpu()
             try:
                 fname = self.panda.read_str(cpu, fname_ptr)
             except ValueError:

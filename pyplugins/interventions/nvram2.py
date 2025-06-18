@@ -70,39 +70,39 @@ class Nvram2(Plugin):
             f.write("key,access,value\n")
 
     @plugins.subscribe(plugins.Events, "igloo_nvram_get_hit")
-    def on_nvram_get_hit(self, cpu, key: str) -> None:
+    def on_nvram_get_hit(self, regs, key: str) -> None:
         """
         Handles an NVRAM get hit event.
 
         **Arguments**:
-        - cpu: CPU context (opaque, framework-specific)
+        - regs: CPU register/context (opaque, framework-specific)
         - key (`str`): NVRAM key accessed
 
         **Returns**:
         - None
         """
-        self.on_nvram_get(cpu, key, True)
+        self.on_nvram_get(regs, key, True)
 
     @plugins.subscribe(plugins.Events, "igloo_nvram_get_miss")
-    def on_nvram_get_miss(self, cpu, key: str) -> None:
+    def on_nvram_get_miss(self, regs, key: str) -> None:
         """
         Handles an NVRAM get miss event.
 
         **Arguments**:
-        - cpu: CPU context (opaque, framework-specific)
+        - regs: CPU register/context (opaque, framework-specific)
         - key (`str`): NVRAM key accessed
 
         **Returns**:
         - None
         """
-        self.on_nvram_get(cpu, key, False)
+        self.on_nvram_get(regs, key, False)
 
-    def on_nvram_get(self, cpu, key: str, hit: bool) -> None:
+    def on_nvram_get(self, regs, key: str, hit: bool) -> None:
         """
         Logs an NVRAM get operation (hit or miss).
 
         **Arguments**:
-        - cpu: CPU context (opaque, framework-specific)
+        - regs: CPU register/context (opaque, framework-specific)
         - key (`str`): NVRAM key accessed
         - hit (`bool`): True if get was a hit, False if miss
 
@@ -116,16 +116,16 @@ class Nvram2(Plugin):
         status = "hit" if hit else "miss"
         with open(f"{self.outdir}/{log}", "a") as f:
             f.write(f"{key},{status},\n")
-        self.panda.arch.set_arg(cpu, 1, 0)
+        self.panda.arch.set_arg(regs, 1, 0)
         # self.logger.debug(f"nvram get {key} {status}")
 
     @plugins.subscribe(plugins.Events, "igloo_nvram_set")
-    def on_nvram_set(self, cpu, key: str, newval: str) -> None:
+    def on_nvram_set(self, regs, key: str, newval: str) -> None:
         """
         Handles and logs an NVRAM set operation.
 
         **Arguments**:
-        - cpu: CPU context (opaque, framework-specific)
+        - regs: CPU register/context (opaque, framework-specific)
         - key (`str`): NVRAM key being set
         - newval (`str`): New value being set
 
@@ -137,16 +137,16 @@ class Nvram2(Plugin):
         key = key.split("/")[-1]  # It's the full /igloo/libnvram_tmpfs/keyname path
         with open(f"{self.outdir}/{log}", "a") as f:
             f.write(f"{key},set,{newval}\n")
-        self.panda.arch.set_arg(cpu, 1, 0)
+        self.panda.arch.set_arg(regs, 1, 0)
         self.logger.debug(f"nvram set {key} {newval}")
 
     @plugins.subscribe(plugins.Events, "igloo_nvram_clear")
-    def on_nvram_clear(self, cpu, key: str) -> None:
+    def on_nvram_clear(self, regs, key: str) -> None:
         """
         Handles and logs an NVRAM clear operation.
 
         **Arguments**:
-        - cpu: CPU context (opaque, framework-specific)
+        - regs: CPU register/context (opaque, framework-specific)
         - key (`str`): NVRAM key being cleared
 
         **Returns**:
@@ -157,6 +157,6 @@ class Nvram2(Plugin):
         key = key.split("/")[-1]  # It's the full /igloo/libnvram_tmpfs/keyname path
         with open(f"{self.outdir}/{log}", "a") as f:
             f.write(f"{key},clear,\n")
-        self.panda.arch.set_arg(cpu, 1, 0)
+        self.panda.arch.set_arg(regs, 1, 0)
         # self.logger.debug(f"nvram clear {key}")
         # self.logger.debug(f"nvram clear {key}")

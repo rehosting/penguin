@@ -32,6 +32,7 @@ in the guest, enabling downstream plugins to implement their own analysis or res
 from typing import List, Dict, Any, Generator, Optional
 from penguin import plugins, Plugin
 from wrappers.generic import Wrapper
+from wrappers.ptregs_wrap import PtRegsWrapper
 
 # Constants needed for execveat handling (define these elsewhere as needed)
 AT_FDCWD: int = -100  # Placeholder, define actual value as needed
@@ -59,9 +60,7 @@ class Execs(Plugin):
         Registers the plugin and sets up syscall hooks.
         """
         plugins.register(self, "exec_event")
-        plugins.syscalls.syscall("on_sys_execve_enter")(self.on_execve)
-        plugins.syscalls.syscall("on_sys_execveat_enter")(self.on_execveat)
-
+    
     def _read_ptrlist(self, ptr: int, chunk_size: int = 8, max_length: int = 256) -> Generator[Any, None, List[str]]:
         """
         ### Dynamically read a NULL-terminated pointer list from guest memory, with a maximum length for safety.
@@ -217,7 +216,7 @@ class Execs(Plugin):
 
     def _handle_exec_event(
         self,
-        cpu: int,
+        regs: PtRegsWrapper,
         proto: Any,
         syscall: int,
         fname_ptr: int,
@@ -250,19 +249,21 @@ class Execs(Plugin):
             'procname': procname_val,
             'argv': argv_list,
             'envp': envp_dict,
-            'raw_args': (cpu, proto, syscall, dirfd, fname_ptr, argv_ptr, envp_ptr, flags) if dirfd is not None and flags is not None else (cpu, proto, syscall, fname_ptr, argv_ptr, envp_ptr),
+            'raw_args': (regs, proto, syscall, dirfd, fname_ptr, argv_ptr, envp_ptr, flags) if dirfd is not None and flags is not None else (regs, proto, syscall, fname_ptr, argv_ptr, envp_ptr),
             'parent': parent,
         }
         yield from plugins.portal_publish(self, "exec_event", Wrapper(event))
 
-    def on_execve(self, cpu: int, proto: Any, syscall: int, fname_ptr: int, argv_ptr: int, envp_ptr: int) -> Generator[Any, None, None]:
+    @plugins.syscalls.syscall("on_sys_execve_enter")
+    def on_execve(self, regs: PtRegsWrapper, proto: Any, syscall: int, fname_ptr: int, argv_ptr: int, envp_ptr: int) -> Generator[Any, None, None]:
         """
         ### Callback for execve syscall. Delegates to shared handler.
         """
-        yield from self._handle_exec_event(cpu, proto, syscall, fname_ptr, argv_ptr, envp_ptr)
+        yield from self._handle_exec_event(regs, proto, syscall, fname_ptr, argv_ptr, envp_ptr)
 
-    def on_execveat(self, cpu: int, proto: Any, syscall: int, dirfd: int, fname_ptr: int, argv_ptr: int, envp_ptr: int, flags: int) -> Generator[Any, None, None]:
+    @plugins.syscalls.syscall("on_sys_execveat_enter")
+    def on_execveat(self, regs: PtRegsWrapper, proto: Any, syscall: int, dirfd: int, fname_ptr: int, argv_ptr: int, envp_ptr: int, flags: int) -> Generator[Any, None, None]:
         """
         ### Callback for execveat syscall. Delegates to shared handler.
         """
-        yield from self._handle_exec_event(cpu, proto, syscall, fname_ptr, argv_ptr, envp_ptr, dirfd, flags)
+        yield from self._handle_exec_event(regs, proto, syscall, fname_ptr, argv_ptr, envp_ptr, dirfd, flags)

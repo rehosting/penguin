@@ -11,12 +11,9 @@ class TestIoctlInteraction(Plugin):
         self.outdir = self.get_arg("outdir")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
-        plugins.syscalls.syscall(
-            "on_sys_ioctl_return", arg_filters=[None, SIOCDEVPRIVATE])(self.siocdevprivate)
-        plugins.syscalls.syscall(
-            "on_sys_ioctl_return", arg_filters=[None, 0x89f1])(self.ioctl_ret)
 
-    def siocdevprivate(self, cpu, proto, syscall, fd, op, arg):
+    @plugins.syscalls.syscall("on_sys_ioctl_return", arg_filters=[None, SIOCDEVPRIVATE])
+    def siocdevprivate(self, regs, proto, syscall, fd, op, arg):
         interface = yield from plugins.mem.read_str(arg)
         self.logger.info(f"Interface: {interface}")
         data = yield from plugins.mem.read_int(arg + IFNAMSIZ)
@@ -81,7 +78,8 @@ class TestIoctlInteraction(Plugin):
         } ifr_ifru;
     };
     '''
-    def ioctl_ret(self, cpu, proto, syscall, fd, op, arg):
+    @plugins.syscalls.syscall("on_sys_ioctl_return", arg_filters=[None, 0x89f1])
+    def ioctl_ret(self, regs, proto, syscall, fd, op, arg):
         ifreq = yield from plugins.kffi.read_type(arg, "ifreq")
         interface = bytes(ifreq.ifr_ifrn.ifrn_name).decode(
             "latin-1").rstrip("\x00")

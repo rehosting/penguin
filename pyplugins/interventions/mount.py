@@ -71,14 +71,14 @@ class MountTracker(Plugin):
 
         plugins.syscalls.syscall("on_sys_mount_return")(self.post_mount)
 
-    def post_mount(self, cpu, proto, syscall, source, target, fs_type, flags, data):
+    def post_mount(self, regs, proto, syscall, source, target, fs_type, flags, data):
         """
         Coroutine callback for the mount syscall return.
 
         Reads the mount arguments from memory, logs the attempt, and optionally fakes the result.
 
         **Arguments**:
-        - cpu: CPU context (opaque, framework-specific)
+        - `regs`: Register state
         - proto: Protocol context (opaque, framework-specific)
         - syscall: Syscall context, with `.retval` for return value
         - source: Pointer to source device string

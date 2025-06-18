@@ -65,7 +65,7 @@ class Interfaces(Plugin):
             return None
 
     @plugins.syscalls.syscall("on_sys_ioctl_return")
-    def after_ioctl(self, cpu, proto, syscall, fd, request, arg):
+    def after_ioctl(self, regs, proto, syscall, fd, request, arg):
         if 0x8000 < request < 0x9000:
             iface = yield from plugins.mem.read_str(arg)
             rv = syscall.retval

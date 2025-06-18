@@ -132,12 +132,12 @@ class PyPandaSysLog(Plugin):
             syscalls.syscall("on_sys_execve_enter")(self.sys_execve_enter)
             syscalls.syscall("on_sys_execveat_enter")(self.sys_execve_enter)
 
-    def sys_execve_enter(self, cpu, proto, syscall, *args) -> None:
+    def sys_execve_enter(self, regs, proto, syscall, *args) -> None:
         """
         Callback for handling execve/execveat syscall entry events.
 
         **Parameters:**
-        - `cpu`: CPU context.
+        - `regs`: Register/context object.
         - `proto`: Syscall prototype.
         - `syscall`: Syscall object.
         - `*args`: Additional syscall arguments.
@@ -146,14 +146,14 @@ class PyPandaSysLog(Plugin):
 
         **Returns:** None
         """
-        yield from self.handle_syscall(cpu, proto, syscall)
+        yield from self.handle_syscall(regs, proto, syscall)
 
-    def all_sys_ret(self, cpu, proto, syscall) -> None:
+    def all_sys_ret(self, regs, proto, syscall) -> None:
         """
         Callback for handling all syscall return events.
 
         **Parameters:**
-        - `cpu`: CPU context.
+        - `regs`: Register/context object.
         - `proto`: Syscall prototype.
         - `syscall`: Syscall object.
 
@@ -163,7 +163,7 @@ class PyPandaSysLog(Plugin):
         """
         protoname, _, _ = self.get_syscall_proto(proto, proto.name)
         if "execve" not in protoname:
-            yield from self.handle_syscall(cpu, proto, syscall)
+            yield from self.handle_syscall(regs, proto, syscall)
 
     def get_arg_repr(self, argval, ctype: str, name: str) -> str:
         """
@@ -274,12 +274,12 @@ class PyPandaSysLog(Plugin):
         names = [self.cstr(proto.names[i]) for i in range(proto.nargs)]
         return protoname, types, names
 
-    def handle_syscall(self, cpu, proto, syscall) -> None:
+    def handle_syscall(self, regs, proto, syscall) -> None:
         """
         Handle and log a syscall event.
 
         **Parameters:**
-        - `cpu`: CPU context.
+        - `regs`: Register/context object.
         - `proto`: Syscall prototype.
         - `syscall`: Syscall object.
 

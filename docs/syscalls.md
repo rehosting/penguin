@@ -21,12 +21,12 @@ class MySyscallMonitor(Plugin):
         plugins.syscalls.syscall("on_sys_execve_enter")(self.monitor_execve)
         plugins.syscalls.syscall("on_all_sys_enter", comm_filter="target_process")(self.monitor_all)
     
-    def monitor_execve(self, cpu, proto, syscall, filename, argv, envp):
+    def monitor_execve(self, pt_regs, proto, syscall, filename, argv, envp):
         """Monitor process execution"""
         filename_str = yield from plugins.mem.read_str(filename)
         print(f"Process executing: {filename_str}")
     
-    def monitor_all(self, cpu, proto, syscall):
+    def monitor_all(self, pt_regs, proto, syscall):
         """Monitor all syscalls for a specific process"""
         print(f"Syscall: {proto.name} by {syscall.task.comm}")
 ```
@@ -54,7 +54,7 @@ Hooks are registered using the `@syscalls.syscall()` decorator with flexible fil
     arg_filters=[None, ValueFilter.exact(0x42)],
     retval_filter=ValueFilter.success()
 )
-def my_handler(cpu, proto, syscall, *args):
+def my_handler(pt_regs, proto, syscall, *args):
     # Handler code here
     pass
 ```
@@ -100,7 +100,7 @@ Filter by process name:
 
 ```python
 @syscalls.syscall("sys_write", comm_filter="nginx")
-def monitor_nginx_writes(cpu, proto, syscall, fd, buf, count):
+def monitor_nginx_writes(pt_regs, proto, syscall, fd, buf, count):
     pass
 ```
 
@@ -109,7 +109,7 @@ Filter by specific process ID:
 
 ```python
 @syscalls.syscall("sys_read", pid_filter=1234)
-def monitor_specific_process(cpu, proto, syscall, fd, buf, count):
+def monitor_specific_process(pt_regs, proto, syscall, fd, buf, count):
     pass
 ```
 
@@ -149,7 +149,7 @@ Filter by syscall arguments:
         ValueFilter.range(100, 200)    # arg2: range filter
     ]
 )
-def filtered_ioctl(cpu, proto, syscall, fd, cmd, arg):
+def filtered_ioctl(pt_regs, proto, syscall, fd, cmd, arg):
     pass
 ```
 
@@ -172,9 +172,12 @@ Filter by return value:
 ### Standard Handlers
 
 ```python
-def handler(cpu, proto, syscall, *args):
+def handler(regs, proto, syscall, *args):
     """
-    cpu: CPU identifier
+    regs: Register/context object (formerly pt_regs, now typically a PtRegsWrapper)
+        - Contains the CPU register state at the time of the syscall.
+        - Provides access to general-purpose registers, PC, SP, etc.
+        - Used for advanced introspection or argument extraction.
     proto: SyscallPrototype with metadata (name, types, arg names)
     syscall: SyscallEvent object with runtime data
     *args: Unpacked syscall arguments (for known syscalls)
@@ -184,7 +187,7 @@ def handler(cpu, proto, syscall, *args):
 ### All-Syscall Handlers
 
 ```python
-def all_handler(cpu, proto, syscall):
+def all_handler(regs, proto, syscall):
     """
     For on_all_sys_* handlers, arguments are not unpacked
     Access via syscall.args array instead
@@ -196,7 +199,7 @@ def all_handler(cpu, proto, syscall):
 The `syscall` parameter provides access to runtime information:
 
 ```python
-def my_handler(cpu, proto, syscall, *args):
+def my_handler(regs, proto, syscall, *args):
     # Basic information
     print(f"Syscall: {syscall.name}")
     print(f"Process: {syscall.task.comm}")
@@ -219,7 +222,7 @@ def my_handler(cpu, proto, syscall, *args):
 The `proto` parameter contains syscall metadata:
 
 ```python
-def my_handler(cpu, proto, syscall, *args):
+def my_handler(regs, proto, syscall, *args):
     print(f"Syscall name: {proto.name}")
     print(f"Argument count: {proto.nargs}")
     
@@ -234,7 +237,7 @@ def my_handler(cpu, proto, syscall, *args):
 
 ```python
 @syscalls.syscall("on_sys_execve_enter")
-def track_process_creation(cpu, proto, syscall, filename, argv, envp):
+def track_process_creation(regs, proto, syscall, filename, argv, envp):
     """Monitor process creation"""
     args = []
     try:
@@ -257,7 +260,7 @@ def track_process_creation(cpu, proto, syscall, filename, argv, envp):
 
 ```python
 @syscalls.syscall("on_sys_openat_enter")
-def monitor_file_access(cpu, proto, syscall, dirfd, pathname, flags, mode):
+def monitor_file_access(regs, proto, syscall, dirfd, pathname, flags, mode):
     """Monitor file access attempts"""
     try:
         path_str = yield from plugins.mem.read_str(pathname)
@@ -280,7 +283,7 @@ def monitor_file_access(cpu, proto, syscall, dirfd, pathname, flags, mode):
 
 ```python
 @syscalls.syscall("on_sys_sendto_enter", comm_filter="target_app")
-def monitor_network_send(cpu, proto, syscall, sockfd, buf, length, flags, dest_addr, addrlen):
+def monitor_network_send(regs, proto, syscall, sockfd, buf, length, flags, dest_addr, addrlen):
     """Monitor network sends from specific application"""
     try:
         # Read the data being sent
@@ -301,7 +304,7 @@ def monitor_network_send(cpu, proto, syscall, sockfd, buf, length, flags, dest_a
 
 ```python
 @syscalls.syscall("on_sys_open_return", retval_filter=ValueFilter.error())
-def track_failed_opens(cpu, proto, syscall):
+def track_failed_opens(regs, proto, syscall):
     """Track failed file open attempts"""
     # Get the original arguments from saved state
     filename = syscall.args[0]  # pathname argument
@@ -333,7 +336,7 @@ def track_failed_opens(cpu, proto, syscall):
     ],
     retval_filter=ValueFilter.success()
 )
-def monitor_specific_ioctls(cpu, proto, syscall, fd, cmd, arg):
+def monitor_specific_ioctls(regs, proto, syscall, fd, cmd, arg):
     """Monitor specific ioctl patterns"""
     print(f"Targeted ioctl: fd={fd}, cmd={cmd:#x}, arg={arg:#x}")
 ```
@@ -393,7 +396,7 @@ Use the most restrictive filters first:
 Always handle memory read failures gracefully:
 
 ```python
-def safe_handler(cpu, proto, syscall, pathname):
+def safe_handler(regs, proto, syscall, pathname):
     try:
         path_str = yield from plugins.mem.read_str(pathname)
         # Process path_str
@@ -408,7 +411,7 @@ def safe_handler(cpu, proto, syscall, pathname):
 The portal system handles most communication errors, but be aware of timeouts:
 
 ```python
-def robust_handler(cpu, proto, syscall, buf, length):
+def robust_handler(regs, proto, syscall, buf, length):
     if length > 1024 * 1024:  # 1MB
         print("Buffer too large, skipping read")
         return
@@ -457,7 +460,7 @@ if proto:
 The syscalls plugin integrates seamlessly with the portal system:
 
 ```python
-def combined_handler(cpu, proto, syscall, fd):
+def combined_handler(pt_regs, proto, syscall, fd):
     # Use portal for additional context
     proc = yield from plugins.portal.get_proc()
     mappings = yield from plugins.portal.get_mappings()
@@ -470,7 +473,7 @@ def combined_handler(cpu, proto, syscall, fd):
 Combine with OS introspection:
 
 ```python
-def osi_enhanced_handler(cpu, proto, syscall, *args):
+def osi_enhanced_handler(pt_regs, proto, syscall, *args):
     # Get process information
     current_proc = yield from plugins.OSI.get_proc()
     if current_proc:
@@ -486,7 +489,7 @@ The system includes comprehensive tests demonstrating usage patterns:
 @syscalls.syscall("on_sys_ioctl_enter", 
                   comm_filter="send_syscall",
                   arg_filters=[None, 0xabcd])
-def test_skip_retval(cpu, proto, syscall, fd, op, arg):
+def test_skip_retval(pt_regs, proto, syscall, fd, op, arg):
     """Test syscall skipping and return value modification"""
     assert fd == 9, f"Expected fd 9, got {fd:#x}"
     assert op == 0xabcd, f"Expected op 0xabcd, got {op:#x}"
@@ -535,7 +538,7 @@ logging.getLogger("syscalls").setLevel(logging.DEBUG)
 Use the syscall event information for debugging:
 
 ```python
-def debug_handler(cpu, proto, syscall, *args):
+def debug_handler(regs, proto, syscall, *args):
     print(f"Syscall: {proto.name}")
     print(f"Args: {[hex(arg) for arg in syscall.args[:syscall.argc]]}")
     print(f"Process: {syscall.task.comm}")
