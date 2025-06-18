@@ -1,16 +1,20 @@
+"""
+.. include:: /docs/syscalls.md
+"""
+
 from penguin import plugins, Plugin
 import json
-from typing import Dict, List
+from typing import Dict, List, Any, Callable, Optional, Iterator
 from hyper.consts import value_filter_type as vft
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.portal import PortalCmd
-from collections.abc import Iterator
 
 class ValueFilter:
-    """Represents a complex value filter for syscall arguments or return values"""
-    
-    def __init__(self,  filter_type=vft.SYSCALLS_HC_FILTER_EXACT, value=0, 
-                 min_value=0, max_value=0, bitmask=0):
+    """
+    Represents a complex value filter for syscall arguments or return values.
+    """
+    def __init__(self,  filter_type: int = vft.SYSCALLS_HC_FILTER_EXACT, value: int = 0, 
+                 min_value: int = 0, max_value: int = 0, bitmask: int = 0) -> None:
         self.filter_type = filter_type
         self.value = value
         self.min_value = min_value
@@ -75,9 +79,10 @@ class ValueFilter:
 
 
 class SyscallPrototype:
-    """Represents syscall metadata"""
-
-    def __init__(self, name, args=None, unknown_args=False):
+    """
+    Represents syscall metadata, including argument types and names.
+    """
+    def __init__(self, name: str, args: Optional[List[Any]] = None, unknown_args: bool = False) -> None:
         # Store the name as the primary identifier
         self.name = name
         self.types = []
@@ -90,17 +95,19 @@ class SyscallPrototype:
                 self.names.append(j)
         self.nargs = len(self.types)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<SyscallPrototype name='{self.name}' nargs={self.nargs}>"
 
 
 class Syscalls(Plugin):
     """
     Plugin that provides an interface to monitor and intercept system calls.
-    Uses the portal's interrupt mechanism to handle registration.
+    Uses the portal's interrupt mechanism to handle registration and event delivery.
     """
-
-    def __init__(self):
+    def __init__(self) -> None:
+        """
+        Initialize the Syscalls plugin, register with portal, and set up syscall metadata.
+        """
         self.outdir = self.get_arg("outdir")
 
         # Map hook pointers to callbacks
@@ -141,8 +148,12 @@ class Syscalls(Plugin):
         self._syscall_event = self.portal.wrap(self._syscall_event)
         
 
-    def _setup_syscall_handler(self, cpu):
-        """Handler for setting up syscall definitions"""
+    def _setup_syscall_handler(self, cpu: int) -> None:
+        """
+        Handler for setting up syscall definitions.
+        Args:
+            cpu (int): CPU id.
+        """
         reg1 = self.panda.arch.get_arg(cpu, 1, convention="syscall")
 
         # Read the JSON string at reg1
@@ -175,12 +186,13 @@ class Syscalls(Plugin):
             self.logger.debug(
                 f"Registered syscall {name} (cleaned: {clean_name})")
 
-    def _clean_syscall_name(self, name):
+    def _clean_syscall_name(self, name: str) -> str:
         """
-        Clean a syscall name by removing various prefixes:
-        1. First remove 'sys_' prefix
-        2. Then remove any leading underscores
-        3. Then remove architecture-specific prefixes
+        Clean a syscall name by removing various prefixes and architecture-specific parts.
+        Args:
+            name (str): The syscall name.
+        Returns:
+            str: Cleaned syscall name.
         """
         if name.startswith("compat_"):
             name = name[7:]
@@ -193,13 +205,11 @@ class Syscalls(Plugin):
 
         return name
 
-    def _syscall_interrupt_handler(self):
+    def _syscall_interrupt_handler(self) -> bool:
         """
         Handle interrupts from the portal for syscall hook registration.
-        This function processes one pending syscall hook registration item.
-
         Returns:
-            bool: True if more hooks are pending, False otherwise
+            bool: True if more hooks are pending, False otherwise.
         """
         # Always ensure we yield at least once so the function returns a proper generator
         if not self._pending_hooks:
@@ -216,9 +226,10 @@ class Syscalls(Plugin):
             # Register the syscall hook
             hook_ptr = yield from self.register_syscall_hook(hook_config)
             on_all = hook_config.get("on_all", False)
+            is_method = hook_config.get("is_method", False)
             
             # Store hook information for multiple lookup methods
-            self.hooks[hook_ptr] = (on_all, func)
+            self.hooks[hook_ptr] = (on_all, func, is_method)
             
             # Track function to hook pointer mappings
             self._func_to_hook_ptr[func] = hook_ptr
@@ -228,15 +239,19 @@ class Syscalls(Plugin):
             if func_name:
                 self._name_to_hook_ptr[func_name] = hook_ptr
 
-    def _syscall_enter_event(self, cpu):
+    def _syscall_enter_event(self, cpu: int) -> None:
         """
         Handler for syscall entry events from the hypervisor.
+        Args:
+            cpu (int): CPU id.
         """
         self._syscall_event(cpu, is_enter=True)
 
-    def _syscall_return_event(self, cpu):
+    def _syscall_return_event(self, cpu: int) -> None:
         """
         Handler for syscall return events from the hypervisor.
+        Args:
+            cpu (int): CPU id.
         """
         self._syscall_event(cpu, is_enter=False)
 
@@ -250,13 +265,29 @@ class Syscalls(Plugin):
     sequence number is the same. If it is we use the original object.
     '''
 
-    def _get_syscall_event(self, cpu, arg):
+    def _get_syscall_event(self, cpu: int, arg: int) -> Any:
+        """
+        Retrieve the syscall event object from the guest.
+        Args:
+            cpu (int): CPU id.
+            arg (int): Argument pointer.
+        Returns:
+            Tuple[Any, bytes]: The syscall event object and its original bytes.
+        """
         sce = plugins.kffi.read_type_panda(cpu, arg, "syscall_event")
         sce.name = bytes(sce.syscall_name).decode("latin-1").rstrip("\x00")
         original = sce.to_bytes()[:]
         return sce, original
 
-    def _get_proto(self, cpu, sce):
+    def _get_proto(self, cpu: int, sce: Any) -> SyscallPrototype:
+        """
+        Get the syscall prototype for a given event.
+        Args:
+            cpu (int): CPU id.
+            sce (Any): Syscall event object.
+        Returns:
+            SyscallPrototype: The prototype for the syscall.
+        """
         # Get syscall name from the event
         name = sce.name
         # Clean the syscall name
@@ -297,7 +328,15 @@ class Syscalls(Plugin):
 
         return proto
 
-    def _syscall_event(self, cpu, is_enter=None):
+    def _syscall_event(self, cpu: int, is_enter: Optional[bool] = None) -> Any:
+        """
+        Handle a syscall event, dispatching to the registered callback.
+        Args:
+            cpu (int): CPU id.
+            is_enter (Optional[bool]): True if entry event, False if return event.
+        Returns:
+            Any: The result of the callback.
+        """
         # sequence is no longer relevant
         # sequence = self.panda.arch.get_arg(cpu, 1, convention="syscall")
         arg = self.panda.arch.get_arg(cpu, 2, convention="syscall")
@@ -309,11 +348,17 @@ class Syscalls(Plugin):
             return
         proto = self._get_proto(cpu, sce)
 
-        on_all, f = self.hooks[hook_ptr]
+        # Unpack hook information - now includes is_method flag
+        hook_info = self.hooks[hook_ptr]
+        if len(hook_info) == 3:
+            on_all, f, is_method = hook_info
+        else:
+            # Backward compatibility for old format
+            on_all, f = hook_info
+            is_method = False
 
         # If we're handling all syscalls or we don't have prototype info,
         # just call the function with the standard arguments
-
         args = None
         if on_all or proto is None or sce.argc == 0:
             args = (cpu, proto, sce)
@@ -322,19 +367,46 @@ class Syscalls(Plugin):
             # Call the function with standard arguments plus syscall arguments
             args = (cpu, proto, sce, *sysargs)
         
-        fn_ret = f(*args)
-        if isinstance(fn_ret, Iterator):
-            # If the function returns an iterator, we need to yield from it
-            fn_ret = yield from f(*args)
+        # Handle method calls properly
+        if is_method and hasattr(f, '__qualname__') and '.' in f.__qualname__:
+            # This is an unbound method that needs to be called on an instance
+            class_name = f.__qualname__.split('.')[0]
+            method_name = f.__qualname__.split('.')[-1]
+            
+            # Use plugin manager's attribute access to find the instance by class name
+            try:
+                instance = getattr(plugins, class_name)
+                
+                if instance and hasattr(instance, method_name):
+                    # Call the bound method
+                    bound_method = getattr(instance, method_name)
+                    fn_ret = bound_method(*args)
+                    if isinstance(fn_ret, Iterator):
+                        fn_ret = yield from bound_method(*args)
+                else:
+                    self.logger.error(f"Could not find method {method_name} on instance for {f.__qualname__}")
+                    return
+            except AttributeError:
+                self.logger.error(f"Could not find instance for class {class_name} from {f.__qualname__}")
+                return
+        else:
+            # Regular function call or already bound method
+            fn_ret = f(*args)
+            if isinstance(fn_ret, Iterator):
+                fn_ret = yield from f(*args)
 
         new = sce.to_bytes()
         if original != new:
             self.panda.virtual_memory_write(cpu, arg, new)
         return fn_ret
 
-    def register_syscall_hook(self, hook_config):
+    def register_syscall_hook(self, hook_config: Dict[str, Any]) -> Iterator[int]:
         """
         Register a syscall hook with the kernel using the portal.
+        Args:
+            hook_config (Dict[str, Any]): Hook configuration dictionary.
+        Returns:
+            Iterator[int]: Yields the hook pointer.
         """
         # Clone the hook config for internal storage and ensure it has enabled flag
         sch = plugins.kffi.new("syscall_hook")
@@ -435,26 +507,28 @@ class Syscalls(Plugin):
         self.hook_info[result] = hook_config
         return result
 
-    def syscall(self, name_or_pattern=None, on_enter=None, on_return=None,
-                comm_filter=None, arg_filters=None, pid_filter=None, 
-                retval_filter=None, enabled=True):
+    def syscall(self,
+                name_or_pattern: Optional[str] = None,
+                on_enter: Optional[bool] = None,
+                on_return: Optional[bool] = None,
+                comm_filter: Optional[str] = None,
+                arg_filters: Optional[List[Any]] = None,
+                pid_filter: Optional[int] = None,
+                retval_filter: Optional[Any] = None,
+                enabled: bool = True) -> Callable:
         """
         Decorator for registering syscall callbacks.
-
         Args:
-            name_or_pattern: Either a syscall name (e.g., "open", "read") or a pattern
-                            like "on_sys_write_enter", "on_all_sys_return", etc.
-                            If a pattern is provided, other arguments like on_enter/on_return are ignored.
-            on_enter: True to call on syscall entry (ignored if pattern is used)
-            on_return: True to call on syscall return (ignored if pattern is used)
-            comm_filter: Process name filter
-            arg_filters: List of ValueFilter objects or simple values for argument filtering
-            pid_filter: Process ID filter
-            retval_filter: ValueFilter object or simple value for return value filtering
-            enabled: Whether the hook is enabled initially
-
+            name_or_pattern (Optional[str]): Syscall name or pattern.
+            on_enter (Optional[bool]): Register for entry events.
+            on_return (Optional[bool]): Register for return events.
+            comm_filter (Optional[str]): Process name filter.
+            arg_filters (Optional[List[Any]]): Argument filters.
+            pid_filter (Optional[int]): PID filter.
+            retval_filter (Optional[Any]): Return value filter.
+            enabled (bool): Whether the hook is enabled.
         Returns:
-            Decorator function
+            Callable: Decorator function.
         """
         def decorator(func):
             # Parse pattern if provided in the hsyscall format
@@ -517,6 +591,10 @@ class Syscalls(Plugin):
             if not (hook_on_enter or hook_on_return):
                 hook_on_enter = True  # Default to entry if neither is specified
 
+            # Detect if this is a method by checking if it has __self__ (bound method)
+            # or if it's being called on a class (unbound method during class definition)
+            is_method = hasattr(func, '__self__') or (hasattr(func, '__qualname__') and '.' in func.__qualname__)
+            
             # Create hook configuration
             hook_config = {
                 "name": syscall_name,
@@ -530,6 +608,7 @@ class Syscalls(Plugin):
                 "callback": func,
                 "pid_filter": pid_filter,
                 "retval_filter": retval_filter,  # Now supports complex filtering
+                "is_method": is_method,  # Store method detection result
             }
             # Add to pending hooks and queue interrupt
             self._pending_hooks.append((hook_config, func))
@@ -538,16 +617,13 @@ class Syscalls(Plugin):
 
         return decorator
 
-    def disable_syscall(self, callback_or_name):
+    def disable_syscall(self, callback_or_name: Any) -> Iterator[bool]:
         """
         Disables a registered syscall hook.
-        
         Args:
-            callback_or_name: The callback function or its name to disable.
-                            Can be the original function, the decorated function, or the function name.
-        
+            callback_or_name (Any): The callback function or its name to disable.
         Returns:
-            bool: True if hook was found and disabled, False otherwise
+            Iterator[bool]: Yields True if hook was found and disabled, False otherwise.
         """
         hook_ptr = None
         
@@ -563,7 +639,8 @@ class Syscalls(Plugin):
                     hook_ptr = self._name_to_hook_ptr[func_name]
                 else:
                     # Try to find by function in callbacks
-                    for ptr, (_, func) in self.hooks.items():
+                    for ptr, hook_info in self.hooks.items():
+                        func = hook_info[1] if len(hook_info) >= 2 else None
                         if func == callback_or_name:
                             hook_ptr = ptr
                             break
@@ -574,8 +651,9 @@ class Syscalls(Plugin):
                 hook_ptr = self._name_to_hook_ptr[callback_or_name]
             else:
                 # Try to find by scanning all registered callbacks
-                for ptr, (_, func) in self.hooks.items():
-                    if hasattr(func, "__name__") and func.__name__ == callback_or_name:
+                for ptr, hook_info in self.hooks.items():
+                    func = hook_info[1] if len(hook_info) >= 2 else None
+                    if func and hasattr(func, "__name__") and func.__name__ == callback_or_name:
                         hook_ptr = ptr
                         break
         
@@ -600,16 +678,13 @@ class Syscalls(Plugin):
             self.logger.warning(f"Syscall hook not found for {callback_or_name}")
             return False
             
-    def enable_syscall(self, callback_or_name):
+    def enable_syscall(self, callback_or_name: Any) -> Iterator[bool]:
         """
         Enables a previously disabled syscall hook.
-        
         Args:
-            callback_or_name: The callback function or its name to enable.
-                            Can be the original function, the decorated function, or the function name.
-        
+            callback_or_name (Any): The callback function or its name to enable.
         Returns:
-            bool: True if hook was found and enabled, False otherwise
+            Iterator[bool]: Yields True if hook was found and enabled, False otherwise.
         """
         hook_ptr = None
         
@@ -625,7 +700,8 @@ class Syscalls(Plugin):
                     hook_ptr = self._name_to_hook_ptr[func_name]
                 else:
                     # Try to find by function in callbacks
-                    for ptr, (_, func) in self.hooks.items():
+                    for ptr, hook_info in self.hooks.items():
+                        func = hook_info[1] if len(hook_info) >= 2 else None
                         if func == callback_or_name:
                             hook_ptr = ptr
                             break
@@ -636,8 +712,9 @@ class Syscalls(Plugin):
                 hook_ptr = self._name_to_hook_ptr[callback_or_name]
             else:
                 # Try to find by scanning all registered callbacks
-                for ptr, (_, func) in self.hooks.items():
-                    if hasattr(func, "__name__") and func.__name__ == callback_or_name:
+                for ptr, hook_info in self.hooks.items():
+                    func = hook_info[1] if len(hook_info) >= 2 else None
+                    if func and hasattr(func, "__name__") and func.__name__ == callback_or_name:
                         hook_ptr = ptr
                         break
         
@@ -661,3 +738,14 @@ class Syscalls(Plugin):
         else:
             self.logger.warning(f"Syscall hook not found for {callback_or_name}")
             return False
+    
+    def get_syscall_info_by_name(self, name: str) -> Optional[SyscallPrototype]:
+        """
+        Look up syscall prototype information by name, automatically cleaning the name.
+        Args:
+            name (str): The syscall name (may include prefixes or architecture-specific parts).
+        Returns:
+            Optional[SyscallPrototype]: The prototype information if found, else None.
+        """
+        clean_name = self._clean_syscall_name(name)
+        return self.syscall_info_table.get(clean_name)
