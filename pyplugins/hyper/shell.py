@@ -1,7 +1,38 @@
+"""
+# Shell Coverage Plugin
+
+This module implements the Shell Coverage (BBCov) plugin for the Penguin hypervisor environment.
+It tracks shell script execution coverage, traces, and environment variable usage by listening to
+hypercall events from the guest. The plugin writes coverage, trace, and environment information
+to CSV files for later analysis.
+
+## Usage
+
+The plugin is loaded by the Penguin framework and responds to "igloo_shell" events.
+
+### Output Files
+
+- `shell_cov.csv`: Coverage data (filename, line number, pid)
+- `shell_cov_trace.csv`: Trace data (filename:lineno, contents)
+- `shell_env.csv`: Environment variable data (filename, lineno, pid, envs)
+
+## Arguments
+
+- `outdir`: Output directory for generated CSV files.
+- `fs`: Path to the tar archive containing the filesystem.
+- `verbose`: If set, enables debug logging.
+
+## Classes
+
+- `BBCov`: Main plugin class for handling shell coverage and environment logging.
+
+"""
+
 import tarfile
 from os.path import join
 
 from penguin import plugins, Plugin
+from typing import Any, Optional
 
 HC_CMD_LOG_LINENO = 0
 HC_CMD_LOG_ENV_ARGS = 1
@@ -12,7 +43,28 @@ outfile_env = "shell_env.csv"
 
 
 class BBCov(Plugin):
-    def __init__(self, panda):
+    """
+    BBCov is a plugin that logs shell script coverage, traces, and environment variable usage.
+
+    **Arguments:**
+    - `outdir` (str): Output directory for generated CSV files.
+    - `fs` (str): Path to the tar archive containing the filesystem.
+    - `verbose` (bool): Enables debug logging if True.
+    """
+
+    def __init__(self, panda: Any) -> None:
+        """
+        Initialize the BBCov plugin.
+
+        - Sets up output files for coverage, trace, and environment data.
+        - Loads the filesystem tar archive.
+        - Subscribes to the "igloo_shell" event.
+
+        **Parameters:**
+        - `panda` (Any): The PANDA instance.
+
+        **Returns:** None
+        """
         self.pointer_size = panda.bits // 8
         self.panda = panda
         self.outdir = self.get_arg("outdir")
@@ -38,7 +90,18 @@ class BBCov(Plugin):
         self.seen_unknown = set()
         plugins.subscribe(plugins.Events, "igloo_shell", self.igloo_shell_cb)
 
-    def igloo_shell_cb(self, cpu, hc_type, argptr, length):
+    def igloo_shell_cb(self, cpu: Any, hc_type: int, argptr: int, length: int) -> None:
+        """
+        Callback for handling igloo_shell hypercall events.
+
+        **Parameters:**
+        - `cpu` (Any): The CPU object.
+        - `hc_type` (int): Hypercall type.
+        - `argptr` (int): Pointer to arguments in guest memory.
+        - `length` (int): Number of arguments.
+
+        **Returns:** None
+        """
         hc_type = hc_type & 0xFFFFFFFF
         length = length & 0xFFFFFFFF
 
@@ -60,7 +123,16 @@ class BBCov(Plugin):
             self.seen_unknown.add(hc_type)
             self.logger.debug(f"Shell: unknown hc_type : {hc_type:x}")
 
-    def log_line_no(self, cpu, argv):
+    def log_line_no(self, cpu: Any, argv: list) -> None:
+        """
+        Log coverage information for a shell script line.
+
+        **Parameters:**
+        - `cpu` (Any): The CPU object.
+        - `argv` (list): List of argument pointers.
+
+        **Returns:** None
+        """
         if len(argv) != 3:
             self.logger.warning(f"Invalid argv in log_line_no: {argv}")
             return
@@ -68,8 +140,6 @@ class BBCov(Plugin):
 
         filename = self.try_read_string(cpu, file_str_ptr)
         if filename is None:
-            # We failed to read guest virtual memory. Nothing we can do since we haven't setup
-            # a good retry mechanism for this yet.
             filename = f"[error reading guest memory at {file_str_ptr:#x}]"
         if filename.startswith("/igloo/"):
             return
@@ -109,20 +179,25 @@ class BBCov(Plugin):
         else:
             self.last_line = None
 
-        # This is too verbose even for debug
-        # self.logger.debug(f"filename: {filename}, lineno = {lineno}, pid = {pid}")
         with open(join(self.outdir, outfile_cov), "a") as f:
             f.write(f"{filename},{lineno},{pid}\n")
 
-    def log_env_args(self, cpu, argv):
+    def log_env_args(self, cpu: Any, argv: list) -> None:
+        """
+        Log environment variable information for a shell script line.
+
+        **Parameters:**
+        - `cpu` (Any): The CPU object.
+        - `argv` (list): List of argument pointers.
+
+        **Returns:** None
+        """
         if len(argv) != 6:
             self.logger.warning(f"Invalid argv in log_env_args: {argv}")
             return
         file_str_ptr, lineno_ptr, pid_ptr, envs_ptr, env_vals_ptr, envs_count_ptr = argv
         filename = self.try_read_string(cpu, file_str_ptr)
         if filename is None:
-            # We failed to read guest virtual memory. Nothing we can do since we haven't setup
-            # a good retry mechanism for this yet.
             filename = f"[error reading guest memory at {file_str_ptr:#x}]"
 
         if filename.startswith("/igloo/"):
@@ -172,11 +247,20 @@ class BBCov(Plugin):
                 with open(join(self.outdir, outfile_trace), "a") as f:
                     f.write(f"{filename}:{lineno},{line}\n")
 
-        # print(f"filename: {filename}, lineno = {lineno}, pid = {pid}, envs: {envs}")
         with open(join(self.outdir, outfile_env), "a") as f:
             f.write(f"{filename},{lineno},{pid},{envs}\n")
 
-    def try_read_string(self, cpu, ptr):
+    def try_read_string(self, cpu: Any, ptr: int) -> Optional[str]:
+        """
+        Attempt to read a string from guest memory.
+
+        **Parameters:**
+        - `cpu` (Any): The CPU object.
+        - `ptr` (int): Pointer to the string in guest memory.
+
+        **Returns:**
+        - `Optional[str]`: The string read, or None if not available.
+        """
         if ptr == 0:
             return None
 
@@ -185,7 +269,17 @@ class BBCov(Plugin):
         except ValueError:
             return "[virtual mem read fail]"
 
-    def try_read_int(self, cpu, ptr):
+    def try_read_int(self, cpu: Any, ptr: int) -> Optional[int]:
+        """
+        Attempt to read an integer from guest memory.
+
+        **Parameters:**
+        - `cpu` (Any): The CPU object.
+        - `ptr` (int): Pointer to the integer in guest memory.
+
+        **Returns:**
+        - `Optional[int]`: The integer read, or None if not available.
+        """
         if ptr == 0:
             return None
 

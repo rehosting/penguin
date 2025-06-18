@@ -1,8 +1,40 @@
+"""
+# Portal Plugin
+
+This module implements the Portal plugin for the Penguin hypervisor environment. It provides a mechanism for plugins to communicate with the hypervisor and each other using memory-mapped regions and hypercalls. The Portal plugin manages command and data transfer, interrupt handling, and memory region state for efficient and flexible plugin communication.
+
+## Usage
+
+The Portal plugin is loaded by the Penguin framework and is not intended for direct invocation. It provides an API for other plugins to register interrupt handlers, queue interrupts, and send/receive commands via the portal mechanism.
+
+### Example
+
+```python
+# Register an interrupt handler
+portal.register_interrupt_handler("my_plugin", my_handler_fn)
+
+# Queue an interrupt for a plugin
+portal.queue_interrupt("my_plugin")
+```
+
+## Classes
+
+- `PortalCmd`: Encapsulates a command to be sent through the portal mechanism.
+- `Portal`: Main plugin class for handling portal communication and interrupts.
+
+## Key Features
+
+- Memory-mapped command and data transfer
+- Plugin interrupt registration and handling
+- Command construction and parsing utilities
+
+"""
+
 from penguin import plugins, Plugin
 from collections.abc import Iterator
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import HYPER_OP as hop
-from typing import Union
+from typing import Union, Callable, Optional, Any
 import time
 import struct
 import functools
@@ -15,21 +47,37 @@ kffi = plugins.kffi
 class PortalCmd:
     """
     Encapsulates a command to be sent through the portal mechanism.
-    
+
     This class centralizes the logic for constructing portal commands and
     reduces complexity in the _handle_output_cmd method.
+
+    Attributes:
+        op (int): Operation code from HYPER_OP constants.
+        addr (int): Address field value.
+        size (int): Size field value.
+        pid (int): Process ID or CURRENT_PID_NUM for current process.
+        data (Optional[bytes]): Optional data payload for the command.
     """
-    
-    def __init__(self, op: Union[int, str], addr=0, size=0, pid=None, data=None):
+
+    def __init__(
+        self,
+        op: Union[int, str],
+        addr: int = 0,
+        size: int = 0,
+        pid: Optional[int] = None,
+        data: Optional[bytes] = None
+    ) -> None:
         """
         Initialize a portal command.
-        
-        Args:
-            op (int,str): Operation code from HYPER_OP constants
-            addr (int): Address field value
-            size (int): Size field value
-            pid (int): Process ID or None for current process
-            data (bytes): Optional data payload for the command
+
+        **Parameters:**
+        - `op` (int | str): Operation code from HYPER_OP constants.
+        - `addr` (int): Address field value.
+        - `size` (int): Size field value.
+        - `pid` (Optional[int]): Process ID or None for current process.
+        - `data` (Optional[bytes]): Optional data payload for the command.
+
+        **Returns:** None
         """
         op_num = None
         if isinstance(op, str):
@@ -47,20 +95,44 @@ class PortalCmd:
         self.size = size if size is not None else (len(data) if data else 0)
         self.pid = pid or CURRENT_PID_NUM
         self.data = data
-    
+
     @classmethod
-    def none(cls):
+    def none(cls) -> "PortalCmd":
         """
         Create a command representing no operation.
-        
-        Returns:
-            PortalCmd: A command with HYPER_OP_NONE operation
+
+        **Returns:**
+        - `PortalCmd`: A command with HYPER_OP_NONE operation.
         """
         return cls(hop.HYPER_OP_NONE, 0, 0, None, None)
     
 
 class Portal(Plugin):
-    def __init__(self):
+    """
+    Portal is a plugin that manages communication and interrupts between plugins and the hypervisor.
+
+    It provides methods for registering interrupt handlers, queuing interrupts, and reading/writing
+    commands and data to memory-mapped regions.
+
+    Attributes:
+        outdir (str): Output directory for plugin data.
+        endian_format (str): Endianness format character for struct operations.
+        portal_interrupt (Optional[int]): Address of the portal interrupt.
+        _interrupt_handlers (dict): Mapping of plugin names to their interrupt handler functions.
+        _pending_interrupts (set): Set of plugin names with pending interrupts.
+        regions_size (int): Size of the memory region.
+    """
+
+    def __init__(self) -> None:
+        """
+        Initialize the Portal plugin.
+
+        - Sets up the output directory.
+        - Registers memory region and portal interrupt handlers.
+        - Initializes internal state for interrupt handling.
+
+        **Returns:** None
+        """
         self.outdir = self.get_arg("outdir")
         # if self.get_arg_bool("verbose"):
             # self.logger.setLevel("DEBUG")
@@ -78,14 +150,29 @@ class Portal(Plugin):
         self.panda.hypercall(iconsts.IGLOO_HYPER_PORTAL_INTERRUPT)(
             self.wrap(self._portal_interrupt))
 
-    def _register_portal_interrupt(self, cpu):
+    def _register_portal_interrupt(self, cpu: Any) -> None:
+        """
+        Register the portal interrupt address for the current CPU.
+
+        **Parameters:**
+        - `cpu` (Any): CPU object.
+
+        **Returns:** None
+        """
         self.portal_interrupt = self.panda.arch.get_arg(
             cpu, 1, convention="syscall")
         assert self.panda.arch.get_arg(
             cpu, 2, convention="syscall") == 0
 
-    def _portal_interrupt(self, cpu):
-        """Handle portal interrupts - process pending items from registered plugins"""
+    def _portal_interrupt(self, cpu: Any) -> Iterator:
+        """
+        Handle portal interrupts and process pending items from registered plugins.
+
+        **Parameters:**
+        - `cpu` (Any): CPU object.
+
+        **Yields:** None
+        """
         # Process one item from each plugin that has pending interrupts
         interrupts = self._pending_interrupts.copy()
         self._pending_interrupts.clear()
@@ -98,14 +185,16 @@ class Portal(Plugin):
                 # Plugin is responsible for tracking its own pending work
                 yield from handler_fn()
 
-    def register_interrupt_handler(self, plugin_name, handler_fn):
+    def register_interrupt_handler(self, plugin_name: str, handler_fn: Callable[[], Iterator]) -> None:
         """
         Register a plugin to handle portal interrupts.
 
-        Args:
-            plugin_name (str): Name of the plugin
-            handler_fn (callable): Function to handle interrupts for this plugin
-                                  Must be a generator function that can be used with yield from
+        **Parameters:**
+        - `plugin_name` (str): Name of the plugin.
+        - `handler_fn` (Callable[[], Iterator]): Function to handle interrupts for this plugin.
+          Must be a generator function that can be used with yield from.
+
+        **Returns:** None
         """
         self.logger.debug(f"Registering interrupt handler for {plugin_name}")
         # The handler function should be a wrapped generator
@@ -114,15 +203,15 @@ class Portal(Plugin):
             self.logger.debug(
                 f"Plugin {plugin_name} already had pending interrupts")
 
-    def queue_interrupt(self, plugin_name):
+    def queue_interrupt(self, plugin_name: str) -> bool:
         """
         Queue an interrupt for a plugin.
 
-        Args:
-            plugin_name (str): Name of the plugin
+        **Parameters:**
+        - `plugin_name` (str): Name of the plugin.
 
-        Returns:
-            bool: True if queued successfully, False otherwise
+        **Returns:**
+        - `bool`: True if queued successfully, False otherwise.
         """
         if plugin_name not in self._interrupt_handlers:
             self.logger.error(
@@ -136,21 +225,43 @@ class Portal(Plugin):
         self._portal_set_interrupt()
         return True
 
-    def _cleanup_all_interrupts(self):
-        """Clean up all registered interrupt handlers and pending interrupts"""
+    def _cleanup_all_interrupts(self) -> None:
+        """
+        Clean up all registered interrupt handlers and pending interrupts.
+
+        **Returns:** None
+        """
         self._interrupt_handlers = {}
         self._pending_interrupts = set()
 
-    def _portal_set_interrupt_value(self, value):
+    def _portal_set_interrupt_value(self, value: int) -> None:
+        """
+        Set the portal interrupt value in memory.
+
+        **Parameters:**
+        - `value` (int): Value to write to the portal interrupt address.
+
+        **Returns:** None
+        """
         if self.portal_interrupt:
             buf = struct.pack(f"{self.endian_format}Q", value)
             self.panda.virtual_memory_write(
                 self.panda.get_cpu(), self.portal_interrupt, buf)
 
-    def _portal_set_interrupt(self):
+    def _portal_set_interrupt(self) -> None:
+        """
+        Set the portal interrupt to signal an event.
+
+        **Returns:** None
+        """
         self._portal_set_interrupt_value(1)
 
-    def _portal_clear_interrupt(self):
+    def _portal_clear_interrupt(self) -> None:
+        """
+        Clear the portal interrupt.
+
+        **Returns:** None
+        """
         self._portal_set_interrupt_value(0)
 
     '''
@@ -159,14 +270,33 @@ class Portal(Plugin):
     This can return none
     '''
 
-    def _read_memregion_state(self, cpum):
+    def _read_memregion_state(self, cpum: tuple) -> tuple:
+        """
+        Read the state of the memory region.
+
+        **Parameters:**
+        - `cpum` (tuple): Tuple of (cpu, cpu_memregion).
+
+        **Returns:**
+        - `(op, addr, size)`: Tuple of operation, address, and size.
+        """
         cpu, cpu_memregion = cpum
         memr = kffi.read_type_panda(cpu, cpu_memregion, "region_header")
         self.logger.debug(
             f"Reading memregion state: op={memr.op}, addr={memr.addr:#x}, size={memr.size}")
         return memr.op, memr.addr, memr.size
 
-    def _read_memregion_data(self, cpum, size):
+    def _read_memregion_data(self, cpum: tuple, size: int) -> Optional[bytes]:
+        """
+        Read data from the memory region.
+
+        **Parameters:**
+        - `cpum` (tuple): Tuple of (cpu, cpu_memregion).
+        - `size` (int): Number of bytes to read.
+
+        **Returns:**
+        - `Optional[bytes]`: Data read from the memory region, or None on error.
+        """
         cpu, cpu_memregion = cpum
         if size > self.regions_size:
             self.logger.error(
@@ -179,7 +309,21 @@ class Portal(Plugin):
         except ValueError as e:
             self.logger.error(f"Failed to read memory: {e}")
 
-    def _write_memregion_state(self, cpum, op, addr, size, pid=None):
+    def _write_memregion_state(
+        self, cpum: tuple, op: int, addr: int, size: int, pid: Optional[int] = None
+    ) -> None:
+        """
+        Write the state to the memory region.
+
+        **Parameters:**
+        - `cpum` (tuple): Tuple of (cpu, cpu_memregion).
+        - `op` (int): Operation code.
+        - `addr` (int): Address value.
+        - `size` (int): Size value.
+        - `pid` (Optional[int]): Process ID.
+
+        **Returns:** None
+        """
         cpu, cpu_memregion = cpum
         if size > self.regions_size:
             self.logger.error(
@@ -211,7 +355,16 @@ class Portal(Plugin):
         except ValueError as e:
             self.logger.error(f"Failed to write memregion state: {e}")
 
-    def _write_memregion_data(self, cpum, data):
+    def _write_memregion_data(self, cpum: tuple, data: bytes) -> None:
+        """
+        Write data to the memory region.
+
+        **Parameters:**
+        - `cpum` (tuple): Tuple of (cpu, cpu_memregion).
+        - `data` (bytes): Data to write.
+
+        **Returns:** None
+        """
         cpu, cpu_memregion = cpum
         if len(data) > self.regions_size:
             self.logger.error(
@@ -223,7 +376,16 @@ class Portal(Plugin):
         except ValueError as e:
             self.logger.error(f"Failed to write memregion data: {e}")
 
-    def _handle_input_state(self, cpum):
+    def _handle_input_state(self, cpum: tuple) -> Optional[tuple]:
+        """
+        Handle the input state from the memory region and process the operation.
+
+        **Parameters:**
+        - `cpum` (tuple): Tuple of (cpu, cpu_memregion).
+
+        **Returns:**
+        - `Optional[tuple]`: Operation and associated data, or None.
+        """
         in_op = None
         op, addr, size = self._read_memregion_state(cpum)
         if op == hop.HYPER_OP_NONE:
@@ -255,20 +417,30 @@ class Portal(Plugin):
             self.logger.error(f"Unknown operation: {op:#x}")
         return in_op
     
-    def _write_portalcmd(self, cpum, cmd: PortalCmd):
+    def _write_portalcmd(self, cpum: tuple, cmd: PortalCmd) -> None:
         """
         Write a PortalCmd to the memory region.
-        
-        Args:
-            cpum: Tuple of (cpu, cpu_memregion)
-            cmd: PortalCmd instance to write
+
+        **Parameters:**
+        - `cpum` (tuple): Tuple of (cpu, cpu_memregion).
+        - `cmd` (PortalCmd): PortalCmd instance to write.
+
+        **Returns:** None
         """
         self._write_memregion_state(cpum, cmd.op, cmd.addr, cmd.size, cmd.pid)
         if cmd.data:
             self._write_memregion_data(cpum, cmd.data)
 
+    def wrap(self, f: Callable) -> Callable:
+        """
+        Wrap a function to manage portal command iteration and state.
 
-    def wrap(self, f):
+        **Parameters:**
+        - `f` (Callable): Function to wrap.
+
+        **Returns:**
+        - `Callable`: Wrapped function.
+        """
         iterators = {}
         iteration_time = {}
 
@@ -325,9 +497,22 @@ class Portal(Plugin):
             return fn_return
         return wrapper
 
-    def _register_cpu_memregion(self, cpu):
+    def _register_cpu_memregion(self, cpu: Any) -> None:
+        """
+        Register the memory region size for the current CPU.
+
+        **Parameters:**
+        - `cpu` (Any): CPU object.
+
+        **Returns:** None
+        """
         self.regions_size = self.panda.arch.get_arg(
             cpu, 1, convention="syscall")
 
-    def uninit(self):
+    def uninit(self) -> None:
+        """
+        Clean up all interrupt handlers and pending interrupts on plugin unload.
+
+        **Returns:** None
+        """
         self._cleanup_all_interrupts()
