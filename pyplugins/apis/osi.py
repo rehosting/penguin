@@ -1,5 +1,5 @@
 """
-# osi.py - OSI Plugin for Penguin/Cleanguin
+# osi.py - OSI Plugin for Penguin
 
 This plugin provides an interface for querying process, file descriptor, and memory mapping information
 from the guest OS via the hypervisor portal. It enables other plugins to retrieve process arguments,
@@ -23,7 +23,7 @@ mappings = yield from plugins.OSI.get_mappings(pid)
 
 ## Overall Purpose
 The OSI plugin enables flexible, efficient, and scriptable access to guest OS state, supporting
-advanced analysis, automation, and plugin interoperability in the Penguin/Cleanguin environment.
+advanced analysis, automation, and plugin interoperability in the Penguin environment.
 """
 
 from penguin import Plugin, plugins

@@ -1,7 +1,7 @@
 """
 # plugin_manager.py - IGLOO Plugin Manager for Penguin
 
-This module provides the IGLOOPluginManager and Plugin base class for the Penguin/Cleanguin emulation environment.
+This module provides the IGLOOPluginManager and Plugin base class for the Penguin emulation environment.
 It is responsible for:
 
 - Discovering, loading, and unloading plugin classes.
