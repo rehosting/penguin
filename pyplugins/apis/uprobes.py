@@ -30,6 +30,8 @@ class Uprobes(Plugin):
         self.probes: Dict[int, Dict[str, Any]] = {}
         self.probe_info = {}
         self._pending_uprobes: List[Dict[str, Any]] = []
+        self._func_to_probe_id = {}  # Maps function to probe_id
+        self._name_to_probe_id = {}  # Maps function name to probe_id
         self.portal = plugins.portal
         self.portal.register_interrupt_handler(
             "uprobes", self._uprobe_interrupt_handler)
@@ -177,12 +179,32 @@ class Uprobes(Plugin):
                 f"Uprobe ID {sce.id} not found in registered probes")
             return
 
-        fn = self.probes[sce.id]
+        probe_info = self.probes[sce.id]
+        fn = probe_info["callback"]
+        is_method = probe_info.get("is_method", False)
+        qualname = probe_info.get("qualname", None)
 
-        fn_ret = fn(pt_regs)
-
-        if isinstance(fn_ret, Iterator):
-            fn_ret = yield from fn(pt_regs)
+        # Handle method callbacks (resolve class instance from plugins)
+        if is_method and qualname and '.' in qualname:
+            class_name = qualname.split('.')[0]
+            method_name = qualname.split('.')[-1]
+            try:
+                instance = getattr(plugins, class_name)
+                if instance and hasattr(instance, method_name):
+                    bound_method = getattr(instance, method_name)
+                    fn_ret = bound_method(pt_regs)
+                    if isinstance(fn_ret, Iterator):
+                        fn_ret = yield from bound_method(pt_regs)
+                else:
+                    self.logger.error(f"Could not find method {method_name} on instance for {qualname}")
+                    return
+            except AttributeError:
+                self.logger.error(f"Could not find instance for class {class_name} from {qualname}")
+                return
+        else:
+            fn_ret = fn(pt_regs)
+            if isinstance(fn_ret, Iterator):
+                fn_ret = yield from fn(pt_regs)
 
         new = pt_regs.to_bytes()
         if original_bytes != new:
@@ -222,6 +244,8 @@ class Uprobes(Plugin):
             callback = uprobe_config["callback"]
             options = uprobe_config["options"]
             symbol = uprobe_config.get("symbol", "[offset]") or "[offset]"
+            is_method = hasattr(func, '__self__') or (hasattr(func, '__qualname__') and '.' in func.__qualname__)
+            qualname = getattr(func, '__qualname__', None)
             probe_id = yield from self._register_uprobe(
                 path,
                 offset,
@@ -231,13 +255,21 @@ class Uprobes(Plugin):
                 pid_filter=options.get('pid_filter')
             )
             if probe_id:
-                self.probes[probe_id] = func
+                self.probes[probe_id] = {
+                    "callback": func,
+                    "is_method": is_method,
+                    "qualname": qualname,
+                }
                 self.probe_info[probe_id] = {
                     "path": path,
                     "offset": offset,
                     "callback": callback,
                     "options": options
                 }
+                # Track function to probe_id mappings
+                self._func_to_probe_id[func] = probe_id
+                if hasattr(func, "__name__"):
+                    self._name_to_probe_id[func.__name__] = probe_id
                 self.logger.debug(
                     f"Successfully registered uprobe ID {probe_id} for {path}:{offset} ({symbol})")
             else:
@@ -339,8 +371,12 @@ class Uprobes(Plugin):
         """
         def _register_decorator(uprobe_configs):
             def decorator(func):
+                is_method = hasattr(func, '__self__') or (hasattr(func, '__qualname__') and '.' in func.__qualname__)
+                qualname = getattr(func, '__qualname__', None)
                 for uprobe_config in uprobe_configs:
                     uprobe_config["callback"] = func
+                    uprobe_config["is_method"] = is_method
+                    uprobe_config["qualname"] = qualname
                     self._pending_uprobes.append((uprobe_config, func))
                 self.portal.queue_interrupt("uprobes")
                 return func
