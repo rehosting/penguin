@@ -1,8 +1,8 @@
 """
 # Events Package
 
-This package defines the core event data model and types for the cleanguin system. It provides SQLAlchemy ORM models
-for all event types collected and stored in the cleanguin event database, as well as utilities for querying and
+This package defines the core event data model and types for the penguin system. It provides SQLAlchemy ORM models
+for all event types collected and stored in the penguin event database, as well as utilities for querying and
 processing these events.
 
 ## Structure

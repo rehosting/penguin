@@ -8,7 +8,7 @@ to be run as a script or imported as a module.
 
 ## Running Commands
 
-Commands should be run from the root of your cleanguin workspace or any directory where the `results` folder is accessible.
+Commands should be run from the root of your penguin workspace or any directory where the `results` folder is accessible.
 You can specify a different results directory using the `--results` option if your data is stored elsewhere.
 
 ## Example usage
