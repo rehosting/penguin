@@ -548,7 +548,7 @@ RUN  cd /igloo_static &&  \
     mv ppc64/* powerpc64 && rm -rf ppc64 && \
     mv ppc/* powerpc && rm -rf ppc && \
     mv arm64/* aarch64/ && rm -rf arm64 && \
-    ln -s /igloo_static/armel/vpn /igloo_static/aarch64/vpn && \
+    ln -sf /igloo_static/armel/vpn /igloo_static/aarch64/vpn && \
     mkdir -p utils.bin && \
     for arch in "aarch64" "armel" "loongarch64" "mipsel" "mips64eb" "mips64el" "mipseb" "powerpc" "powerpcle" "powerpc64" "powerpc64le" "riscv32" "riscv64" "x86_64"; do \
         mkdir -p /igloo_static/vpn /igloo_static/console; \
