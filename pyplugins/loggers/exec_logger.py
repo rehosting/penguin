@@ -13,8 +13,7 @@ in the database.
 
 ## Usage
 
-This plugin is loaded automatically as part of the penguin plugin system. It requires the `execs` plugin
-to be active, as it listens for `exec_event` events.
+Simply add this plugin by name to your config.
 
 The plugin extracts relevant fields and stores them in the database using the `Exec` event type.
 """
@@ -24,32 +23,36 @@ from events.types import Exec
 
 class ExecLog(Plugin):
     """
-    # ExecLog Plugin
-
     Plugin for logging process execution (exec) events to the database.
 
     Subscribes to `exec_event` events from the `execs` plugin and records them as `Exec` events.
     """
-    def __init__(self):
-        """
-        ## Initialize the ExecLog plugin
 
-        Registers a subscription to the `exec_event` event published by the `execs` plugin.
+    def __init__(self) -> None:
+        """
+        Initialize the ExecLog plugin.
+
+        - Registers a subscription to the `exec_event` event published by the `execs` plugin.
+        - Sets up the output directory and database reference.
+
+        **Returns:** None
         """
         self.outdir = self.get_arg("outdir")
         self.DB = plugins.DB
         # Subscribe to exec_event published by execs plugin
         plugins.subscribe(self, "exec_event", self.on_exec_event)
 
-    def on_exec_event(self, event):
+    def on_exec_event(self, event) -> None:
         """
-        ## Callback for handling `exec_event` events
+        Callback for handling `exec_event` events.
 
-        **Args:**
+        **Parameters:**
         - `event` (`dict` or `Wrapper`): The exec event data, either as a dictionary or a Wrapper object.
 
         Extracts argument count, argument vector, environment, and process credentials,
         then records the event in the database as an `Exec` event.
+
+        **Returns:** None
         """
         # event is a Wrapper, unwrap to dict
         data = event.unwrap() if hasattr(event, "unwrap") else event

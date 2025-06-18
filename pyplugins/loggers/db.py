@@ -1,3 +1,35 @@
+"""
+# DB Logger Plugin
+
+This module implements a database-backed event logger plugin for the framework.
+It uses SQLAlchemy to persist events to a SQLite database in a buffered, asynchronous manner.
+
+## Features
+
+- Buffers events in memory and flushes them to disk in batches for performance.
+- Uses a background thread to periodically flush events or when the buffer is full.
+- Thread-safe event queueing.
+- Schema is auto-created on first flush.
+- Configurable buffer size and output directory.
+
+## Usage
+
+```python
+from pyplugins.loggers.db import DB
+
+db_logger = DB()
+db_logger.add_event(event)
+db_logger.uninit()
+```
+
+## Arguments
+
+- `outdir`: Output directory for the SQLite database file.
+- `bufsize`: Buffer size before flushing to disk (default: 100000).
+- `verbose`: Enable debug logging.
+
+"""
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from os.path import join
@@ -8,12 +40,28 @@ from penguin import Plugin
 
 
 class DB(Plugin):
-    def __init__(self):
+    """
+    Database-backed event logger plugin.
+
+    Buffers events and writes them to a SQLite database asynchronously.
+    """
+
+    def __init__(self) -> None:
+        """
+        Initialize the DB logger plugin.
+
+        - Sets up the output directory and database path.
+        - Initializes the SQLAlchemy engine.
+        - Starts the background flush worker thread.
+        - Configures buffer size and logging verbosity.
+
+        **Returns:** None
+        """
         self.outdir = self.get_arg("outdir")
         self.db_path = join(self.outdir, "plugins.db")
         self.engine = create_engine(f"sqlite:///{self.db_path}")
-        self.queued_events = []
-        self.buffer_size = self.get_arg("bufsize") or 100000
+        self.queued_events: list = []
+        self.buffer_size: int = self.get_arg("bufsize") or 100000
         self.event_lock = Lock()
         self.flush_event = Event()
         self.stop_event = Event()
@@ -25,8 +73,15 @@ class DB(Plugin):
         # Start the background flush thread
         Thread(target=self._flush_worker, daemon=True).start()
 
-    def _flush_worker(self):
-        """Worker thread that periodically flushes events to the database."""
+    def _flush_worker(self) -> None:
+        """
+        Background worker thread that periodically flushes events to the database.
+
+        - Waits for either a flush signal or a timeout.
+        - Flushes all queued events to the database.
+
+        **Returns:** None
+        """
         while not self.stop_event.is_set():
             # Wait for a flush signal or timeout
             self.flush_event.wait(timeout=5)
@@ -39,7 +94,18 @@ class DB(Plugin):
             if events_to_flush:
                 self._perform_flush(events_to_flush)
 
-    def _perform_flush(self, events):
+    def _perform_flush(self, events: list) -> None:
+        """
+        Flush a list of events to the database.
+
+        - Initializes the database schema if needed.
+        - Commits all events in a single transaction.
+
+        **Parameters:**
+        - `events` (`list`): List of event objects to flush.
+
+        **Returns:** None
+        """
         if events:
             self.logger.debug(f"Flushing {len(events)} events to DB")
 
@@ -53,7 +119,18 @@ class DB(Plugin):
                 session.add_all(events)
                 session.commit()
 
-    def add_event(self, event):
+    def add_event(self, event) -> None:
+        """
+        Add an event to the buffer.
+
+        - Sets `proc_id` to 0 if not present.
+        - Triggers a flush if the buffer is full.
+
+        **Parameters:**
+        - `event`: The event object to add.
+
+        **Returns:** None
+        """
         if not event.proc_id:
             event.proc_id = 0
 
@@ -62,7 +139,16 @@ class DB(Plugin):
             if len(self.queued_events) >= self.buffer_size:
                 self.flush_event.set()
 
-    def uninit(self):
+    def uninit(self) -> None:
+        """
+        Clean up the plugin and flush any remaining events.
+
+        - Triggers a final flush.
+        - Stops the background worker thread.
+        - Disposes of the SQLAlchemy engine.
+
+        **Returns:** None
+        """
         # Trigger a final flush and stop the worker thread
         if self.queued_events:
             self.flush_event.set()

@@ -1,3 +1,37 @@
+"""
+# Syscalls Logger Plugin
+
+This plugin records system call events to the penguin database. It parses Linux error codes from header files,
+maps error numbers to names and explanations, and logs detailed syscall information including arguments,
+return values, and process context.
+
+## Purpose
+
+- Monitors all system call return events and execve/execveat entries in the guest.
+- Records syscall arguments, return values, and error codes with explanations.
+- Enables later analysis of system call activity and process behavior.
+
+## Usage
+
+```python
+from pyplugins.loggers.syscalls_logger import PyPandaSysLog
+
+syscalls_logger = PyPandaSysLog(panda)
+# Syscall events will be logged automatically.
+```
+
+This plugin is loaded automatically as part of the penguin plugin system. It requires the `syscalls`, `mem`,
+`portal`, and `osi` plugins to be active.
+
+The plugin extracts relevant fields and stores them in the database using the `Syscall` event type.
+
+## Arguments
+
+- `outdir`: Output directory for the SQLite database file.
+- `procs`: Optional list of process names to filter syscall logging. If not provided, all processes are logged.
+
+"""
+
 import re
 from os.path import join
 from events.types import Syscall
@@ -53,7 +87,25 @@ syscalls = plugins.syscalls
 
 
 class PyPandaSysLog(Plugin):
-    def __init__(self, panda):
+    """
+    Plugin for logging system call events to the database.
+
+    Hooks into system call return and execve/execveat entry events and records them as `Syscall` events.
+    """
+
+    def __init__(self, panda) -> None:
+        """
+        Initialize the PyPandaSysLog plugin.
+
+        - Sets up the output directory and database reference.
+        - Loads error code mappings for the current architecture.
+        - Registers hooks for syscall return and execve/execveat entry events, optionally filtered by process.
+
+        **Parameters:**
+        - `panda`: The PANDA instance.
+
+        **Returns:** None
+        """
         self.outdir = self.get_arg("outdir")
         self.saved_syscall_info = {}
         self.DB = plugins.DB
@@ -80,15 +132,52 @@ class PyPandaSysLog(Plugin):
             syscalls.syscall("on_sys_execve_enter")(self.sys_execve_enter)
             syscalls.syscall("on_sys_execveat_enter")(self.sys_execve_enter)
 
-    def sys_execve_enter(self, cpu, proto, syscall, *args):
+    def sys_execve_enter(self, cpu, proto, syscall, *args) -> None:
+        """
+        Callback for handling execve/execveat syscall entry events.
+
+        **Parameters:**
+        - `cpu`: CPU context.
+        - `proto`: Syscall prototype.
+        - `syscall`: Syscall object.
+        - `*args`: Additional syscall arguments.
+
+        Yields from `handle_syscall` to log the syscall event.
+
+        **Returns:** None
+        """
         yield from self.handle_syscall(cpu, proto, syscall)
 
-    def all_sys_ret(self, cpu, proto, syscall):
+    def all_sys_ret(self, cpu, proto, syscall) -> None:
+        """
+        Callback for handling all syscall return events.
+
+        **Parameters:**
+        - `cpu`: CPU context.
+        - `proto`: Syscall prototype.
+        - `syscall`: Syscall object.
+
+        Yields from `handle_syscall` to log the syscall event, except for execve.
+
+        **Returns:** None
+        """
         protoname, _, _ = self.get_syscall_proto(proto, proto.name)
         if "execve" not in protoname:
             yield from self.handle_syscall(cpu, proto, syscall)
 
-    def get_arg_repr(self, argval, ctype, name):
+    def get_arg_repr(self, argval, ctype: str, name: str) -> str:
+        """
+        Format a syscall argument for logging.
+
+        **Parameters:**
+        - `argval`: The argument value.
+        - `ctype` (`str`): The C type of the argument.
+        - `name` (`str`): The argument name.
+
+        Returns a string representation of the argument, resolving pointers and strings as needed.
+
+        **Returns:** `str`
+        """
         if name == "fd":
             fd_name = yield from plugins.osi.get_fd_name(argval)
             return f"{argval:#x}({fd_name or '[???]'})"
@@ -154,19 +243,51 @@ class PyPandaSysLog(Plugin):
         # Default fallback for any unhandled types
         return f"{argval_uint:#x}"
 
-    def cstr(self, x):
+    def cstr(self, x) -> str:
+        """
+        Convert a C string or pointer to a Python string.
+
+        **Parameters:**
+        - `x`: The C string or pointer.
+
+        **Returns:** `str`
+        """
         if isinstance(x, str):
             return x
         return "" if x == self.panda.ffi.NULL else self.panda.ffi.string(x).decode()
 
     @functools.lru_cache
-    def get_syscall_proto(self, proto, name):
+    def get_syscall_proto(self, proto, name) -> tuple:
+        """
+        Retrieve the syscall prototype information.
+
+        **Parameters:**
+        - `proto`: The syscall prototype object.
+        - `name`: The syscall name.
+
+        Returns a tuple of (protoname, types, names).
+
+        **Returns:** `tuple`
+        """
         protoname = self.cstr(proto.name)
         types = [self.cstr(proto.types[i]) for i in range(proto.nargs)]
         names = [self.cstr(proto.names[i]) for i in range(proto.nargs)]
         return protoname, types, names
 
-    def handle_syscall(self, cpu, proto, syscall):
+    def handle_syscall(self, cpu, proto, syscall) -> None:
+        """
+        Handle and log a syscall event.
+
+        **Parameters:**
+        - `cpu`: CPU context.
+        - `proto`: Syscall prototype.
+        - `syscall`: Syscall object.
+
+        Extracts arguments, formats them, determines return value and error code,
+        and logs the event to the database.
+
+        **Returns:** None
+        """
         protoname, types, names = self.get_syscall_proto(
             proto, proto.name)
         args = [syscall.args[i] for i in range(proto.nargs)]
@@ -197,13 +318,26 @@ class PyPandaSysLog(Plugin):
 
     def add_syscall(
         self,
-        name,
-        procname=None,
-        retno=None,
-        args=None,
-        args_repr=None,
-        retno_repr=None,
-    ):
+        name: str,
+        procname: str = None,
+        retno: int = None,
+        args: list = None,
+        args_repr: list = None,
+        retno_repr: str = None,
+    ) -> None:
+        """
+        Add a syscall event to the database.
+
+        **Parameters:**
+        - `name` (`str`): Syscall name.
+        - `procname` (`str`, optional): Process name.
+        - `retno` (`int`, optional): Return value.
+        - `args` (`list`, optional): Raw argument values.
+        - `args_repr` (`list`, optional): String representations of arguments.
+        - `retno_repr` (`str`, optional): String representation of return value.
+
+        **Returns:** None
+        """
         if args is None:
             args = []
         if args_repr is None:
