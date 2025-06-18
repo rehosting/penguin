@@ -108,7 +108,6 @@ class Lifeguard(Plugin):
 
         if len(self.blocked_signals) > 0:
             self.logger.info(f"Blocking signals: {self.blocked_signals}")
-        plugins.syscalls.syscall("on_sys_kill_return")(self.on_sys_kill_enter)
 
     def get_proc_by_pid(self, cpu: object, pid: int) -> str:
         """
@@ -125,12 +124,12 @@ class Lifeguard(Plugin):
             if p.pid == abs(pid):
                 return self.panda.ffi.string(p.name).decode("latin-1", errors="ignore")
 
-    def on_sys_kill_enter(self, cpu: object, proto: object, sysret: object, pid: int, sig: int) -> None:
+    @plugins.syscalls.syscall("on_sys_kill_enter")
+    def on_sys_kill_enter(self, regs, proto: object, sysret: object, pid: int, sig: int) -> None:
         """
         **Handler for the kill syscall. Blocks signals if configured.**
 
         **Args**
-        - `cpu` (`object`): The CPU context.
         - `proto` (`object`): The syscall prototype.
         - `sysret` (`object`): The syscall return object.
         - `pid` (`int`): The target process ID.
@@ -139,6 +138,7 @@ class Lifeguard(Plugin):
         **Returns**
         - `None`
         """
+        cpu = self.panda.get_cpu()
         save = sig in self.blocked_signals
         with open(f"{self.outdir}/{LIFELOG}", "a") as f:
             f.write(f"{sig},{pid},{1 if save else 0}\n")

@@ -42,12 +42,12 @@ class RWLog(Plugin):
         self.DB = plugins.DB
 
     @plugins.syscalls.syscall("on_sys_write_return")
-    def write(self, cpu, proto, syscall, fd, buf, count) -> None:
+    def write(self, regs, proto, syscall, fd, buf, count) -> None:
         """
         Callback for handling write syscall return events.
 
         **Parameters:**
-        - `cpu`: CPU context.
+        - `regs`: CPU registers at the time of the syscall.
         - `proto`: Protocol or plugin-specific context.
         - `syscall`: Syscall number or identifier.
         - `fd`: File descriptor being written to.
@@ -77,12 +77,11 @@ class RWLog(Plugin):
         )
 
     @plugins.syscalls.syscall("on_sys_read_return")
-    def read(self, cpu, proto, syscall, fd, buf, count) -> None:
+    def read(self, regs, proto, syscall, fd, buf, count) -> None:
         """
         Callback for handling read syscall return events.
 
         **Parameters:**
-        - `cpu`: CPU context.
         - `proto`: Protocol or plugin-specific context.
         - `syscall`: Syscall number or identifier.
         - `fd`: File descriptor being read from.

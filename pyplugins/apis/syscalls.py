@@ -8,6 +8,7 @@ from typing import Dict, List, Any, Callable, Optional, Iterator
 from hyper.consts import value_filter_type as vft
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.portal import PortalCmd
+from wrappers.ptregs_wrap import get_pt_regs_wrapper
 
 class ValueFilter:
     """
@@ -488,16 +489,18 @@ class Syscalls(Plugin):
             # Backward compatibility for old format
             on_all, f = hook_info
             is_method = False
-
+        
+        pt_regs_raw = plugins.kffi.read_type_panda(cpu, sce.regs.address, "pt_regs")
+        pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
         # If we're handling all syscalls or we don't have prototype info,
         # just call the function with the standard arguments
         args = None
         if on_all or proto is None or sce.argc == 0:
-            args = (cpu, proto, sce)
+            args = (pt_regs, proto, sce)
         else:
             sysargs = [sce.args[i] for i in range(sce.argc)]
             # Call the function with standard arguments plus syscall arguments
-            args = (cpu, proto, sce, *sysargs)
+            args = (pt_regs, proto, sce, *sysargs)
         
         # Handle method calls properly
         if is_method and hasattr(f, '__qualname__') and '.' in f.__qualname__:

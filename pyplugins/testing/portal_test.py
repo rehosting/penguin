@@ -12,8 +12,6 @@ class PortalTest(Plugin):
         self.outdir = self.get_arg("outdir")
         # if self.get_arg_bool("verbose"):
         #     self.logger.setLevel("DEBUG")
-        plugins.syscalls.syscall(
-            "on_sys_ioctl_return", arg_filters=[None, 0x89f3])(self.ioctl_val)
 
     '''
     This test checks that we can get information from our program, its arguments,
@@ -163,7 +161,8 @@ class PortalTest(Plugin):
             for f in fds_pid[pid]:
                 print(f"FD: {f.fd} -> {f.name}")
 
-    def ioctl_val(self, cpu, proto, syscall, fd, op, arg):
+    plugins.syscalls.syscall("on_sys_ioctl_return", arg_filters=[None, 0x89f3])
+    def ioctl_val(self, regs, proto, syscall, fd, op, arg):
         # check our arguments
         assert fd == 0, f"Expected fd 0, got {fd:#x}"
         assert op == 0x89f3, f"Expected op 0x89f3, got {op:#x}"

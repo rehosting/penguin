@@ -284,7 +284,7 @@ class Pseudofiles(Plugin):
         }
         return hf_config
 
-    def symex_ioctl_return(self, cpu, proto, syscall, fd, cmd, arg):
+    def symex_ioctl_return(self, regs, proto, syscall, fd, cmd, arg):
         # We'll return -999 as a magic placeholder value that indicates we should
         # Start symex. Is this a terrible hack. You betcha!
         rv = syscall.retval
