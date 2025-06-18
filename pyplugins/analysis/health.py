@@ -31,46 +31,22 @@ class Health(Plugin):
         self.procs_args = set()
         self.devs = set()
 
-        plugins.register(self, "igloo_exec")
-
         # panda.load_plugin("coverage", {"filename": self.outdir+"/cov.csv", "mode": "osi-block",
         #                               "summary": 'true'})
         plugins.subscribe(plugins.Events, "igloo_ipv4_bind", self.on_ipv4_bind)
         plugins.subscribe(plugins.Events, "igloo_ipv6_bind", self.on_ipv6_bind)
-        plugins.subscribe(plugins.Events, "igloo_open",
-                          self.health_detect_opens)
-        plugins.syscalls.syscall("on_sys_execve_enter")(self.health_execve)
+        plugins.subscribe(plugins.Events, "igloo_open", self.health_detect_opens)
+        # Use the Execs plugin interface for exec events
+        plugins.subscribe(plugins.Execs, "exec_event", self.health_exec_event)
 
-    def health_execve(self, cpu, proto, syscall, fname_ptr, argv_ptr, envp):
+    def health_exec_event(self, event):
         if self.exiting:
             return
-        fname = yield from plugins.mem.read_str(fname_ptr)
-
-        if fname not in self.procs:
+        fname = event.get('procname', None)
+        argv = event.get('argv', [])
+        if fname and fname not in self.procs:
             self.procs.add(fname)
             self.increment_event("nexecs")
-
-        argv_buf = yield from plugins.mem.read_ptrlist(argv_ptr, 8)
-        # Read each argument pointer into argv list
-        argv = []
-        nullable_argv = []
-        for ptr in argv_buf:
-            if ptr == 0:
-                break
-
-            val = yield from plugins.mem.read_str(ptr)
-            if val == "":
-                argv.append(f"(error: 0x{ptr:x})")
-                nullable_argv.append(None)
-            else:
-                argv.append(val)
-                nullable_argv.append(val)
-        try:
-            plugins.publish(self, "igloo_exec", cpu, fname, argv)
-        except Exception as e:
-            self.logger.error("Exn in health.igloo_exec")
-            self.logger.exception(e)
-
         unique_name = f"{fname} {' '.join(argv)}"
         if unique_name not in self.procs_args:
             self.procs_args.add(unique_name)
