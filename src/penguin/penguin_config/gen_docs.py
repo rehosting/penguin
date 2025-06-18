@@ -6,7 +6,10 @@ import dataclasses
 from pydantic_core import PydanticUndefined, PydanticUndefinedType
 import yaml
 
-from penguin.penguin_config import structure
+try:
+    from penguin.penguin_config import structure
+except ImportError:
+    import structure
 
 
 def gen_docs_yaml_dump(x):
