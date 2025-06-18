@@ -1,6 +1,29 @@
 """
-OSI plugin for querying process, file descriptor, and memory mapping information from the guest OS via the hypervisor portal.
-Provides utilities for process arguments, environment, handles, mappings, and file descriptors.
+# osi.py - OSI Plugin for Penguin/Cleanguin
+
+This plugin provides an interface for querying process, file descriptor, and memory mapping information
+from the guest OS via the hypervisor portal. It enables other plugins to retrieve process arguments,
+environment variables, open file descriptors, memory mappings, and process handles for analysis or automation.
+
+## Arguments
+- None required. Optional arguments may be passed for advanced configuration.
+
+## Plugin Interface
+- Provides coroutine-based methods for querying OS-level information:
+
+```python
+procname = yield from plugins.OSI.get_proc_name(pid)
+args = yield from plugins.OSI.get_args(pid)
+env = yield from plugins.OSI.get_env(pid)
+fds = yield from plugins.OSI.get_fds(pid)
+mappings = yield from plugins.OSI.get_mappings(pid)
+```
+
+- Returns wrapper objects or lists for further inspection.
+
+## Overall Purpose
+The OSI plugin enables flexible, efficient, and scriptable access to guest OS state, supporting
+advanced analysis, automation, and plugin interoperability in the Penguin/Cleanguin environment.
 """
 
 from penguin import Plugin, plugins
@@ -8,15 +31,18 @@ from hyper.consts import HYPER_OP as hop
 from hyper.portal import PortalCmd
 from wrappers.generic import Wrapper
 from wrappers.osi_wrap import MappingWrapper, MappingsWrapper
+from typing import List, Dict, Any, Optional, Generator, Union
 
 kffi = plugins.kffi
+CONST_UNKNOWN_STR = "[???]"
 
 
 class OSI(Plugin):
     """
     Plugin for querying OS-level information (processes, FDs, mappings) from the guest via the hypervisor portal.
+    Provides coroutine-based methods for process arguments, environment, handles, mappings, and file descriptors.
     """
-    def get_fd_name(self, fd, pid=None):
+    def get_fd_name(self, fd: int, pid: Optional[int] = None) -> Generator[Any, None, Optional[str]]:
         """
         Get the filename for a specific file descriptor.
 
@@ -40,8 +66,9 @@ class OSI(Plugin):
             self.logger.debug(
                 f"File descriptor name read successfully: {fd_name}")
             return fd_name
+        return 
 
-    def get_args(self, pid=None):
+    def get_args(self, pid: Optional[int] = None) -> Generator[Any, None, List[str]]:
         """
         Get the argument list for a process.
 
@@ -49,7 +76,7 @@ class OSI(Plugin):
             pid (int, optional): Process ID, or None for current process
 
         Returns:
-            list: List of argument strings
+            Generator[Any, None, List[str]]: List of argument strings (empty if not found)
         """
         self.logger.debug("read_process_args called")
         proc_args = yield PortalCmd(hop.HYPER_OP_READ_PROCARGS, pid=pid)
@@ -83,7 +110,7 @@ class OSI(Plugin):
         self.logger.debug(f"Proc args read successfully: {clean_args}")
         return clean_args
 
-    def get_proc_name(self, pid=None):
+    def get_proc_name(self, pid: Optional[int] = None) -> Generator[Any, None, str]:
         """
         Get the process name (first argument) for a process.
 
@@ -97,9 +124,9 @@ class OSI(Plugin):
         proc_name = yield from self.get_args(pid)
         if proc_name:
             return proc_name[0]
-        return "[???]"
+        return CONST_UNKNOWN_STR
 
-    def get_env(self, pid=None):
+    def get_env(self, pid: Optional[int] = None) -> Generator[Any, None, Dict[str, str]]:
         """
         Get the environment variables for a process.
 
@@ -107,7 +134,7 @@ class OSI(Plugin):
             pid (int, optional): Process ID, or None for current process
 
         Returns:
-            dict: Dictionary of environment variables
+            Dict[str, str]: Dictionary of environment variables (empty if not found)
         """
         self.logger.debug("get_process_env called")
         proc_env = yield PortalCmd(hop.HYPER_OP_READ_PROCENV, pid=pid)
@@ -119,7 +146,7 @@ class OSI(Plugin):
             return env
         return {}
 
-    def get_proc(self, pid=None):
+    def get_proc(self, pid: Optional[int] = None) -> Generator[Any, None, Optional[Wrapper]]:
         """
         Get detailed process information for a process.
 
@@ -127,7 +154,7 @@ class OSI(Plugin):
             pid (int, optional): Process ID, or None for current process
 
         Returns:
-            Wrapper: Process information wrapper object
+            Wrapper or None: Process information wrapper object, or None if not found
         """
         proc_bytes = yield PortalCmd(hop.HYPER_OP_OSI_PROC, 0, 0, pid)
         if proc_bytes:
@@ -136,7 +163,7 @@ class OSI(Plugin):
             wrap.name = proc_bytes[pb.name_offset:].decode("latin-1")
             return wrap
 
-    def get_mappings(self, pid=None):
+    def get_mappings(self, pid: Optional[int] = None) -> Generator[Any, None, MappingsWrapper]:
         """
         Get memory mappings for a process.
 
@@ -144,7 +171,7 @@ class OSI(Plugin):
             pid (int, optional): Process ID, or None for current process
 
         Returns:
-            MappingsWrapper: Wrapper containing all memory mappings
+            MappingsWrapper: Wrapper containing all memory mappings (empty if not found)
         """
         skip = 0
         self.logger.debug(
@@ -250,12 +277,12 @@ class OSI(Plugin):
         self.logger.debug(f"Retrieved a total of {len(all_mappings)} mappings")
         return ret_mappings
 
-    def get_proc_handles(self):
+    def get_proc_handles(self) -> Generator[Any, None, List[Wrapper]]:
         """
         Retrieve a list of process handles from the kernel.
 
         Returns:
-            list: List of process handle objects with properties: pid, taskd, start_time
+            List[Wrapper]: List of process handle objects with properties: pid, taskd, start_time (empty if not found)
         """
         self.logger.debug("get_proc_handles called")
 
@@ -325,7 +352,7 @@ class OSI(Plugin):
         self.logger.debug(f"Retrieved {len(handles)} process handles")
         return handles
 
-    def get_fds(self, pid=None, start_fd=0, count=None):
+    def get_fds(self, pid: Optional[int] = None, start_fd: int = 0, count: Optional[int] = None) -> Generator[Any, None, List[Wrapper]]:
         """
         Retrieve file descriptors for a process.
 
@@ -335,7 +362,7 @@ class OSI(Plugin):
             count (int, optional): Maximum number of file descriptors to return (None for all)
 
         Returns:
-            list: List of file descriptor objects with fd and name properties
+            List[Wrapper]: List of file descriptor objects with fd and name properties (empty if not found)
         """
         # Ensure start_fd is an integer
         if start_fd is None:
@@ -454,7 +481,7 @@ class OSI(Plugin):
         # Just return the list of FDs
         return fds
 
-    def get_mapping_by_addr(self, addr):
+    def get_mapping_by_addr(self, addr: int) -> Generator[Any, None, Optional[MappingWrapper]]:
         """
         Get the memory mapping containing a specific address.
 
