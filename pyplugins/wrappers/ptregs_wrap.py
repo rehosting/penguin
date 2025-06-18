@@ -1,7 +1,7 @@
 """
 # ptregs_wrap.py - Architecture-agnostic wrappers for Linux pt_regs structures
 
-This module provides Pythonic wrappers for Linux kernel pt_regs structures across multiple CPU architectures. It enables convenient, architecture-independent access to process register state, such as that captured at system call entry/exit, exceptions, or context switches. The wrappers abstract away the raw struct layout and provide a unified interface for reading/writing registers, extracting syscall arguments, and handling calling conventions.
+This module provides Pythonic, type-annotated wrappers for Linux kernel pt_regs structures across multiple CPU architectures. It enables convenient, architecture-independent access to process register state, such as that captured at system call entry/exit, exceptions, or context switches. The wrappers abstract away the raw struct layout and provide a unified interface for reading/writing registers, extracting syscall arguments, and handling calling conventions.
 
 ## Overview
 
@@ -10,6 +10,7 @@ The module defines a base `PtRegsWrapper` class and a set of subclasses for each
 The module also provides a `get_pt_regs_wrapper()` factory function to select the correct wrapper for a given architecture.
 
 ## Typical Usage
+
 Suppose you have a PANDA plugin or other tool that provides a pt_regs struct (e.g., at a syscall, exception, or context switch):
 
 ```python
@@ -31,10 +32,6 @@ user_arg0 = wrapper.get_userland_arg(0)
 # Dump all registers as a dictionary
 reg_dict = wrapper.dump()
 
-# Read memory pointed to by a register (if PANDA object is provided)
-ptr = wrapper.get_register('rdi')
-value = wrapper.read_memory(ptr, 8, fmt='int')
-
 # Coroutine-style argument access (portal):
 # get_args_portal and get_arg_portal are generator-based and can yield if a memory read is required (e.g., stack argument).
 # Use 'yield from' to drive these coroutines in a portal/coroutine context.
@@ -44,12 +41,14 @@ args = yield from wrapper.get_args_portal(3)
 The wrappers also support advanced features such as handling 32-bit compatibility mode on x86_64/AArch64, stack argument extraction, and portal-style coroutine memory reads. The `get_args_portal` and `get_arg_portal` methods are generator-based and will yield if a memory read is required (such as when reading stack arguments that may fail and need to be retried or handled asynchronously).
 
 ## Classes
+
 - `PtRegsWrapper`: Base class for all pt_regs wrappers, provides generic register access and argument extraction.
 - `X86PtRegsWrapper`, `X86_64PtRegsWrapper`, `ArmPtRegsWrapper`, ...: Architecture-specific subclasses.
 - `PandaMemReadFail`: Exception for failed memory reads (for portal/coroutine use).
 
 ## Functions
-- `get_pt_regs_wrapper(panda, regs, arch_name=None)`: Factory to select the correct wrapper for a given architecture.
+
+- `get_pt_regs_wrapper(panda: Optional[Any], regs: Any, arch_name: Optional[str] = None) -> PtRegsWrapper`: Factory to select the correct wrapper for a given architecture.
 
 These wrappers are useful for dynamic analysis, syscall tracing, emulation, and any tool that needs to reason about process register state in a cross-architecture way.
 """
@@ -62,33 +61,42 @@ from typing import Any, Dict, List, Optional, Union, Generator
 
 class PandaMemReadFail(Exception):
     """
-    This class allows us to throw an error and pick up memory reads for
-    portal use-case without having to make all the code yield
+    Exception for failed memory reads, used for portal/coroutine use-cases.
+
+    Attributes:
+        addr (int): The address that failed to read.
+        size (int): The size of the attempted read.
     """
 
     def __init__(self, addr: int, size: int) -> None:
         super().__init__(f"Failed to read {size} bytes from address {addr}")
-        self.addr = addr
-        self.size = size
+        self.addr: int = addr
+        self.size: int = size
 
 
 class PtRegsWrapper(Wrapper):
-    """Base class for pt_regs wrappers across different architectures"""
+    """
+    Base class for pt_regs wrappers across different architectures.
+
+    Args:
+        obj: The pt_regs structure to wrap.
+        panda: Optional PANDA object for memory reading.
+    """
 
     def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
         super().__init__(obj)
-        self._register_map = {}  # Will be populated by subclasses
-        self._panda = panda      # Reference to PANDA object for memory reading
+        self._register_map: Dict[str, Union[str, tuple]] = {}  # Will be populated by subclasses
+        self._panda: Optional[Any] = panda      # Reference to PANDA object for memory reading
 
     def get_register(self, reg_name: str) -> Optional[int]:
-        """Get register value by name"""
+        """Get register value by name."""
         if reg_name in self._register_map:
             access_info = self._register_map[reg_name]
             return self._access_register(access_info)
         return None
 
     def set_register(self, reg_name: str, value: int) -> bool:
-        """Set register value by name"""
+        """Set register value by name."""
         if reg_name in self._register_map:
             access_info = self._register_map[reg_name]
             self._write_register(access_info, value)
@@ -96,7 +104,7 @@ class PtRegsWrapper(Wrapper):
         return False
 
     def _access_register(self, access_info: Union[str, tuple]) -> Optional[int]:
-        """Access register based on access info"""
+        """Access register based on access info."""
         if isinstance(access_info, str):
             # Direct attribute access
             return getattr(self._obj, access_info)
@@ -116,7 +124,7 @@ class PtRegsWrapper(Wrapper):
         return None
 
     def _write_register(self, access_info: Union[str, tuple], value: int) -> None:
-        """Write register based on access info"""
+        """Write register based on access info."""
         if isinstance(access_info, str):
             # Direct attribute write
             setattr(self._obj, access_info, value)
@@ -137,28 +145,28 @@ class PtRegsWrapper(Wrapper):
                 write_func(self._obj, value)
 
     def get_pc(self) -> Optional[int]:
-        """Get program counter"""
+        """Get program counter."""
         return self.get_register("pc")
 
     def set_pc(self, value: int) -> None:
-        """Set program counter"""
+        """Set program counter."""
         self.set_register("pc", value)
 
     def get_sp(self) -> Optional[int]:
-        """Get stack pointer"""
+        """Get stack pointer."""
         return self.get_register("sp")
 
     def get_return_value(self) -> Optional[int]:
-        """Get return value (typically in a0/r0/rax)"""
+        """Get return value (typically in a0/r0/rax)."""
         # Subclasses should override this if convention is different
         return self.get_register("retval")
 
     def get_retval(self) -> Optional[int]:
-        """Get return value (alias for get_return_value)"""
+        """Get return value (alias for get_return_value)."""
         return self.get_return_value()
 
     def dump(self) -> Dict[str, Optional[int]]:
-        """Dump all registers to a dictionary"""
+        """Dump all registers to a dictionary."""
         result = {}
         for reg_name in self._register_map.keys():
             result[reg_name] = self.get_register(reg_name)
@@ -201,8 +209,6 @@ class PtRegsWrapper(Wrapper):
         """
         Coroutine/generator version of get_args for portal/coroutine use.
 
-        This method yields if a memory read is required (e.g., for stack arguments), allowing asynchronous or retriable memory access. Use 'yield from' to drive this coroutine. If a memory read fails (e.g., due to unmapped memory), the coroutine will yield and can be resumed after the memory is available.
-
         Args:
             count: Number of arguments to retrieve.
             convention: Calling convention ('syscall' or 'userland').
@@ -218,8 +224,6 @@ class PtRegsWrapper(Wrapper):
     def get_arg_portal(self, num: int, convention: Optional[str] = None) -> Generator[Optional[int], Any, Optional[int]]:
         """
         Coroutine/generator version of get_arg for portal/coroutine use.
-
-        This method yields if a memory read is required (e.g., for stack arguments), allowing asynchronous or retriable memory access. Use 'yield from' to drive this coroutine. If a memory read fails (e.g., due to unmapped memory), the coroutine will yield and can be resumed after the memory is available.
 
         Args:
             num: Argument number (0-based)
@@ -240,6 +244,89 @@ class PtRegsWrapper(Wrapper):
                 val = yield from plugins.mem.read_long(e.addr)
             return val
 
+    def _read_memory(self, addr: int, size: int, fmt: str = 'int') -> Union[int, bytes, str]:
+        """
+        Read memory from guest using PANDA's virtual_memory_read.
+
+        Args:
+            addr: Address to read from.
+            size: Size to read (1, 2, 4, 8).
+            fmt: Format to return ('int', 'ptr', 'bytes', 'str').
+
+        Returns:
+            The memory value in the requested format.
+
+        Raises:
+            ValueError: If PANDA reference or CPU is unavailable.
+            PandaMemReadFail: If memory read fails.
+        """
+        if not self._panda:
+            raise ValueError(
+                "Cannot read memory: no PANDA reference available")
+
+        cpu = self._panda.get_cpu()
+        if not cpu:
+            raise ValueError("Cannot read memory: failed to get CPU")
+
+        try:
+            data = self._panda.virtual_memory_read(cpu, addr, size)
+            if fmt == 'bytes':
+                return data
+            elif fmt == 'str':
+                return data.decode('latin-1', errors='replace')
+
+            # Use the correct endianness format based on the architecture
+            endian_fmt = '>' if hasattr(
+                self._panda, 'endianness') and self._panda.endianness == 'big' else '<'
+
+            if fmt == 'int':
+                if size == 1:
+                    return struct.unpack(endian_fmt + 'B', data)[0]
+                elif size == 2:
+                    return struct.unpack(endian_fmt + 'H', data)[0]
+                elif size == 4:
+                    return struct.unpack(endian_fmt + 'I', data)[0]
+                elif size == 8:
+                    return struct.unpack(endian_fmt + 'Q', data)[0]
+            elif fmt == 'ptr':
+                if self._panda.bits == 32:
+                    return struct.unpack(endian_fmt + 'I', data)[0]
+                else:  # 64-bit
+                    return struct.unpack(endian_fmt + 'Q', data)[0]
+        except ValueError:  # This is what PANDA's virtual_memory_read raises on failure
+            raise PandaMemReadFail(addr, size)
+
+    def read_stack_arg(self, arg_num: int, word_size: Optional[int] = None) -> Optional[int]:
+        """
+        Read a function argument from the stack.
+
+        Args:
+            arg_num: Argument number (0-based).
+            word_size: Word size override (default: based on architecture).
+
+        Returns:
+            The argument value read from the stack.
+        """
+        if not self._panda:
+            raise ValueError(
+                "Cannot read stack args: no PANDA reference available")
+
+        # Default word size based on architecture
+        if word_size is None:
+            word_size = 4 if self._panda.bits == 32 else 8
+
+        # Get stack pointer
+        sp = self.get_sp()
+        if sp is None:
+            return None
+
+        # For most architectures, args start after saved return address
+        # So typically: sp + word_size + (arg_num * word_size)
+        addr = sp + word_size + (arg_num * word_size)
+
+        # Read the value
+        return self._read_memory(addr, word_size, 'ptr')
+
     def get_syscall_number(self) -> Optional[int]:
         """
         Get the syscall number from the registers.
@@ -255,7 +342,7 @@ class PtRegsWrapper(Wrapper):
 class X86PtRegsWrapper(PtRegsWrapper):
     """Wrapper for x86 (32-bit) pt_regs"""
 
-    def __init__(self, obj, panda=None):
+    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
         super().__init__(obj, panda=panda)
         # Map register names to access info
         self._register_map = {
@@ -295,7 +382,7 @@ class X86PtRegsWrapper(PtRegsWrapper):
         if sp is not None:
             # For x86, first arg is at sp+4 (after return address)
             addr = sp + 4 + (num * 4)
-            return self.read_memory(addr, 4, 'ptr')
+            return self._read_memory(addr, 4, 'ptr')
         return None
 
     def get_syscall_number(self) -> Optional[int]:
@@ -306,7 +393,7 @@ class X86PtRegsWrapper(PtRegsWrapper):
 class X86_64PtRegsWrapper(PtRegsWrapper):
     """Wrapper for x86_64 pt_regs"""
 
-    def __init__(self, obj, panda=None):
+    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
         super().__init__(obj, panda=panda)
         # Map register names to access info based on the actual x86_64 pt_regs structure
         # The x86_64 pt_regs has individual register fields, not an array
@@ -452,7 +539,7 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
         stack_idx = num - len(userland_args)
         addr = sp + 8 + (stack_idx * 8)
 
-        return self.read_memory(addr, 8, 'ptr')
+        return self._read_memory(addr, 8, 'ptr')
 
     def get_syscall_number(self) -> Optional[int]:
         """
@@ -468,7 +555,7 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
 class ArmPtRegsWrapper(PtRegsWrapper):
     """Wrapper for ARM pt_regs"""
 
-    def __init__(self, obj, panda=None):
+    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
         super().__init__(obj, panda=panda)
         # ARM registers in uregs[18]
         # Order: r0-r15, cpsr, orig_r0
@@ -512,7 +599,7 @@ class ArmPtRegsWrapper(PtRegsWrapper):
         # Calculate the correct stack offset for argument num
         # For ARM, arguments start at sp+0 for the 5th argument
         addr = sp + ((num - 4) * 4)
-        return self.read_memory(addr, 4, 'ptr')
+        return self._read_memory(addr, 4, 'ptr')
 
     def get_syscall_number(self) -> Optional[int]:
         """Get syscall number from r7 register"""
@@ -522,7 +609,7 @@ class ArmPtRegsWrapper(PtRegsWrapper):
 class AArch64PtRegsWrapper(PtRegsWrapper):
     """Wrapper for AArch64 pt_regs"""
 
-    def __init__(self, obj, panda=None):
+    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
         super().__init__(obj, panda=panda)
         # Map register names to access info
         self._register_map = {
@@ -642,7 +729,7 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         stack_idx = num - 8  # Adjust for the 8 registers already used
         addr = sp + (stack_idx * 8)  # No extra offset needed
 
-        return self.read_memory(addr, 8, 'ptr')
+        return self._read_memory(addr, 8, 'ptr')
 
     def get_syscall_number(self) -> Optional[int]:
         """
@@ -658,7 +745,7 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
 class MipsPtRegsWrapper(PtRegsWrapper):
     """Wrapper for MIPS pt_regs"""
 
-    def __init__(self, obj, panda=None):
+    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
         super().__init__(obj, panda=panda)
         # Map register names to access info (MIPS registers are in regs[32] array)
         self._register_map = {
@@ -728,7 +815,7 @@ class MipsPtRegsWrapper(PtRegsWrapper):
         sp = self.get_sp()
         if sp is not None:
             addr = sp + 16 + ((num - 4) * 4)  # MIPS stack args start at sp+16
-            return self.read_memory(addr, 4, 'ptr')
+            return self._read_memory(addr, 4, 'ptr')
         return None
 
     def get_syscall_number(self) -> Optional[int]:
@@ -739,7 +826,7 @@ class MipsPtRegsWrapper(PtRegsWrapper):
 class Mips64PtRegsWrapper(MipsPtRegsWrapper):
     """Wrapper for MIPS64 pt_regs - same structure but different register meanings"""
 
-    def __init__(self, obj, panda=None):
+    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
         super().__init__(obj, panda=panda)
         # Add MIPS64-specific register aliases (a4-a7 for arguments)
         self._register_map.update({
@@ -771,13 +858,13 @@ class Mips64PtRegsWrapper(MipsPtRegsWrapper):
         stack_idx = num - 8  # Adjust for the 8 registers already used
         addr = sp + (stack_idx * 8)  # No extra offset needed
 
-        return self.read_memory(addr, 8, 'ptr')
+        return self._read_memory(addr, 8, 'ptr')
 
 
 class PowerPCPtRegsWrapper(PtRegsWrapper):
     """Wrapper for PowerPC pt_regs"""
 
-    def __init__(self, obj, panda=None):
+    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
         super().__init__(obj, panda=panda)
         # PowerPC has numbered registers in the gpr array, nested two levels deep in unions/structs
         self._register_map = {
@@ -839,7 +926,7 @@ class PowerPCPtRegsWrapper(PtRegsWrapper):
         stack_idx = num - 8
         addr = sp + base_offset + (stack_idx * word_size)
 
-        return self.read_memory(addr, word_size, 'ptr')
+        return self._read_memory(addr, word_size, 'ptr')
 
     def get_syscall_number(self) -> Optional[int]:
         """Get syscall number from r0 register"""
@@ -854,7 +941,7 @@ class PowerPC64PtRegsWrapper(PowerPCPtRegsWrapper):
 class LoongArch64PtRegsWrapper(PtRegsWrapper):
     """Wrapper for LoongArch64 pt_regs"""
 
-    def __init__(self, obj, panda=None):
+    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
         super().__init__(obj, panda=panda)
         # LoongArch64 has r0-r31 in regs[32]
         self._register_map = {
@@ -929,7 +1016,7 @@ class LoongArch64PtRegsWrapper(PtRegsWrapper):
         stack_idx = num - 8  # Adjust for the 8 registers already used
         addr = sp + (stack_idx * 8)  # No extra offset needed
 
-        return self.read_memory(addr, 8, 'ptr')
+        return self._read_memory(addr, 8, 'ptr')
 
     def get_syscall_number(self) -> Optional[int]:
         """Get syscall number from a7 register"""
@@ -939,7 +1026,7 @@ class LoongArch64PtRegsWrapper(PtRegsWrapper):
 class Riscv32PtRegsWrapper(PtRegsWrapper):
     """Wrapper for RISC-V 32-bit pt_regs"""
 
-    def __init__(self, obj, panda=None):
+    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
         super().__init__(obj, panda=panda)
         # RISC-V pt_regs has individual fields for each register rather than an array
         self._register_map = {
@@ -1046,7 +1133,7 @@ class Riscv32PtRegsWrapper(PtRegsWrapper):
         stack_idx = num - 8  # Adjust for the 8 registers already used
         addr = sp + (stack_idx * 4)  # No extra offset needed
 
-        return self.read_memory(addr, 4, 'ptr')
+        return self._read_memory(addr, 4, 'ptr')
 
     def get_syscall_number(self) -> Optional[int]:
         """Get syscall number from a7 register"""
@@ -1072,20 +1159,24 @@ class Riscv64PtRegsWrapper(Riscv32PtRegsWrapper):
         stack_idx = num - 8  # Adjust for the 8 registers already used
         addr = sp + (stack_idx * 8)  # No extra offset needed
 
-        return self.read_memory(addr, 8, 'ptr')
+        return self._read_memory(addr, 8, 'ptr')
 
 
-def get_pt_regs_wrapper(panda: Optional[Any], regs: Any, arch_name: Optional[str] = None) -> PtRegsWrapper:
+def get_pt_regs_wrapper(
+    panda: Optional[Any],
+    regs: Any,
+    arch_name: Optional[str] = None
+) -> PtRegsWrapper:
     """
     Factory function to create the appropriate pt_regs wrapper based on architecture.
 
     Args:
-        cpu: CPU object (may be used to determine architecture if arch_name not provided)
+        panda: PANDA object (may be used to determine architecture if arch_name not provided)
         regs: The pt_regs structure to wrap
-        arch_name: Architecture name (optional, will be determined from CPU if not provided)
+        arch_name: Architecture name (optional, will be determined from PANDA if not provided)
 
     Returns:
-        An appropriate PtRegsWrapper subclass instance
+        An appropriate PtRegsWrapper subclass instance.
     """
 
     if arch_name is None:
