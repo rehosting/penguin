@@ -1,0 +1,12 @@
+{% extends "default/index.html.jinja2" %}
+
+{% block content %}
+    <main class="pdoc">
+    {% filter to_html %}
+    {{ project_readme | safe }}
+    {% endfilter %}
+    <strong>You can also write plain HTML here!</strong>
+
+    </main>
+    {% include "search.html.jinja2" %}
+{% endblock %}

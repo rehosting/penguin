@@ -283,7 +283,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       tk \
       ujson \
       cxxfilt \
-      zstandard
+      zstandard \
+      pdoc
 
 FROM python_builder AS version_generator
 ARG OVERRIDE_VERSION=""
