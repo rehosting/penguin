@@ -32,7 +32,8 @@ class Interfaces(Plugin):
         self.failed_ioctls = set()
 
         plugins.syscalls.syscall("on_sys_ioctl_return")(self.after_ioctl)
-        plugins.subscribe(plugins.Health, "igloo_exec", self.iface_on_exec)
+        # Use the Execs plugin interface for exec events
+        plugins.subscribe(plugins.Execs, "exec_event", self.iface_on_exec)
 
     def handle_interface(self, iface):
         if iface is None or not len(iface):
@@ -85,17 +86,19 @@ class Interfaces(Plugin):
                 # try to catch failing ioctls
                 self.failing_ioctl(request, iface, rv)
 
-    def iface_on_exec(self, cpu, fname, argv):
+    def iface_on_exec(self, event):
+        argv = event.get('argv', [])
+        fname = event.get('procname', None)
         # note argv[0] is the binary name, similar to fname
         if argv is None or len(argv) == 0:
             return
 
-        if fname.startswith("/igloo/utils"):
+        if fname and fname.startswith("/igloo/utils"):
             # This is us adding interfaces in /igloo_init
             return
 
         iface = None
-        if fname.endswith("/ip") or argv[0] == "ip":
+        if fname and (fname.endswith("/ip") or (argv and argv[0] == "ip")):
             # (ip .* dev \K[a-zA-Z0-9.]+(?=))'
             for idx, arg in enumerate(argv):
                 if not arg:
@@ -103,7 +106,7 @@ class Interfaces(Plugin):
                 if "dev" in arg and idx < len(argv) - 1:
                     iface = argv[idx + 1]
 
-        if fname.endswith("/ifconfig") or argv[0] == "ifconfig":
+        if fname and (fname.endswith("/ifconfig") or (argv and argv[0] == "ifconfig")):
             # device is the first argument
             if len(argv) > 1:
                 iface = argv[1]

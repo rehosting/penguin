@@ -26,7 +26,8 @@ class MountTracker(Plugin):
 
     def __init__(self):
         self.outdir = self.get_arg("outdir")
-        plugins.subscribe(plugins.Health, "igloo_exec", self.find_mount)
+        # Use the Execs plugin interface for exec events
+        plugins.subscribe(plugins.Execs, "exec_event", self.find_mount)
         self.mounts = set()
         self.fake_mounts = self.get_arg("fake_mounts") or []
         self.all_succeed = self.get_arg("all_succeed") or False
@@ -61,10 +62,11 @@ class MountTracker(Plugin):
             # Always pretend it was a success?
             syscall.retval = 0
 
-    def find_mount(self, cpu, fname, argv):
+    def find_mount(self, event):
+        fname = event.get('procname', None)
+        argv = event.get('argv', [])
         if fname == "/bin/mount":
             argc = len(argv)
-
             if argc >= 5 and argv[0] == "mount" and argv[1] == "-t":
                 results = {
                     "source": argv[3],
