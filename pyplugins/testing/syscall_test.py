@@ -4,7 +4,7 @@ This plugin verifies that hypercalls are being made correctly.
 
 from penguin import plugins, Plugin
 from os.path import join
-from interfaces.syscalls import ValueFilter
+from apis.syscalls import ValueFilter
 
 SYSCALL_ARG1 = 0x1338c0def2f2f3f2
 SYSCALL_ARG2 = 0xdeadbeeff1f1f1f1
@@ -17,25 +17,15 @@ syscalls = plugins.syscalls
 class SyscallTest(Plugin):
     def __init__(self):
         self.outdir = self.get_arg("outdir")
-        syscalls.syscall("on_sys_clone_enter")(self.syscall_test)
-        syscalls.syscall("on_sys_getpid_return")(self.getpid)
         self.success_clone = None
         self.success_getpid = None
         self.reported_clone = False
         self.reported_getpid = False
-        syscalls.syscall("on_sys_ioctl_enter", comm_filter="send_syscall",
-                         arg_filters=[None, 0xabcd])(self.test_skip_retval)
-        syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
-                         arg_filters=[ValueFilter.exact(0x13)])(self.ioctl_ret)
-        syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
-                         arg_filters=[0x13, 0x1234])(self.ioctl_ret2)
-        syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
-                         arg_filters=[0x13, ValueFilter.range(0x1234, 0x1235), 0xabcd])(self.ioctl_ret3)
-        syscalls.syscall("on_sys_ioctl_return", comm_filter="nosend_syscall",
-                         arg_filters=[None, ValueFilter.bitmask_set(0x1234)])(self.ioctl_noret)
         self.ioctl_ret_num = 0
         self.ioctl_ret2_num = 0
         self.ioctl_ret3_num = 0
+        syscalls.syscall("on_sys_ioctl_enter", comm_filter="send_syscall",
+                        arg_filters=[None, 0xabcd])(self.test_skip_retval)
 
     def test_skip_retval(self, cpu, proto, syscall, fd, op, arg):
         assert fd == 9, f"Expected fd 9, got {fd:#x}"
@@ -43,12 +33,16 @@ class SyscallTest(Plugin):
         syscall.skip_syscall = True
         syscall.retval = 43
 
+    @syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
+                        arg_filters=[ValueFilter.exact(0x13)])
     def ioctl_ret(self, cpu, proto, syscall, fd, op, arg):
         self.ioctl_ret_num += 1
         assert fd == 0x13, f"Expected op 0x13, got {fd:#x}"
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
             f.write(f"Syscall ioctl_reg: success {self.ioctl_ret_num}\n")
 
+    @syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
+                         arg_filters=[0x13, 0x1234])
     def ioctl_ret2(self, cpu, proto, syscall, fd, op, arg):
         self.ioctl_ret2_num += 1
         assert fd == 0x13, f"Expected fd 0x13, got {fd:#x}"
@@ -57,6 +51,9 @@ class SyscallTest(Plugin):
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
             f.write(f"Syscall ioctl_reg2: success {self.ioctl_ret2_num}\n")
 
+    @syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
+                        arg_filters=[0x13, 
+                        ValueFilter.range(0x1234, 0x1235), 0xabcd])
     def ioctl_ret3(self, cpu, proto, syscall, fd, op, arg):
         self.ioctl_ret3_num += 1
         assert fd == 0x13, f"Expected fd 0x13, got {fd:#x}"
@@ -66,11 +63,14 @@ class SyscallTest(Plugin):
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
             f.write(f"Syscall ioctl_reg3: success {self.ioctl_ret3_num}\n")
 
+    @syscalls.syscall("on_sys_ioctl_return", comm_filter="nosend_syscall",
+                        arg_filters=[None, ValueFilter.bitmask_set(0x1234)])
     def ioctl_noret(self, cpu, proto, syscall, fd, op, arg):
         # this shouldn't be called
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
             f.write("Syscall ioctl_noret: failure\n")
 
+    @syscalls.syscall("on_sys_getpid_return")
     def getpid(self, cpu, proto, syscall, *args):
         # NOTE: We've removed this check because it was causing issues
         # It doesn't seem to indicate anything negative so we're skipping it
@@ -85,6 +85,7 @@ class SyscallTest(Plugin):
             self.success_getpid = True
             self.report_getpid()
 
+    @syscalls.syscall("on_sys_clone_enter")
     def syscall_test(self, cpu, proto, syscall, *args):
         if self.reported_clone:
             return
