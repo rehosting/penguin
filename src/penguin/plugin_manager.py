@@ -512,17 +512,38 @@ class IGLOOPluginManager:
         """
         self.plugin_cbs[plugin] = self.plugin_cbs.get(plugin, {})
         self.plugin_cbs[plugin][event] = self.plugin_cbs[plugin].get(event, [])
-        if register_notify:
+        if register_notify is not None:
             self.registered_cbs[(plugin, event)] = register_notify
 
-    def subscribe(self, plugin: Plugin, event: str, callback: Callable[..., None]) -> None:
+    def subscribe(self, plugin: Plugin, event: str, callback: Callable[..., None] = None):
         """
-        Subscribe a callback to a plugin event.
+        Subscribe a callback to a plugin event. Can also be used as a decorator if callback is not provided.
+
         Args:
             plugin (Plugin): The plugin instance.
             event (str): Event name.
-            callback (Callable): Callback function.
+            callback (Callable, optional): Callback function.
+
+        Usage:
+            @plugins.subscribe(plugin, "event_name")
+            def handler(...): ...
+
+            or
+
+            plugins.subscribe(plugin, "event_name", handler)
         """
+        if callback is None:
+            def decorator(cb):
+                if plugin not in self.plugin_cbs:
+                    raise Exception(f"Attempt to subscribe to unregistered plugin: {plugin}")
+                elif event not in self.plugin_cbs[plugin]:
+                    raise Exception(f"Attempt to subscribe to unregistered event: {event} for plugin {plugin}")
+                self.plugin_cbs[plugin][event].append(cb)
+                if (plugin, event) in self.registered_cbs:
+                    self.registered_cbs[(plugin, event)](event, cb)
+                return cb
+            return decorator
+
         if plugin not in self.plugin_cbs:
             raise Exception(f"Attempt to subscribe to unregistered plugin: {plugin}")
         elif event not in self.plugin_cbs[plugin]:
@@ -546,6 +567,19 @@ class IGLOOPluginManager:
         elif event not in self.plugin_cbs[plugin]:
             raise Exception(f"Attempt to publish to unregistered event: {event} for plugin {plugin}")
         for cb in self.plugin_cbs[plugin][event]:
+            # Handle unbound method: cb is a function, but its __qualname__ contains a dot
+            if hasattr(cb, '__qualname__') and '.' in cb.__qualname__ and not hasattr(cb, '__self__'):
+                class_name = cb.__qualname__.split('.')[0]
+                method_name = cb.__qualname__.split('.')[-1]
+                try:
+                    instance = getattr(self, class_name)
+                    if instance and hasattr(instance, method_name):
+                        bound_method = getattr(instance, method_name)
+                        bound_method(*args, **kwargs)
+                        continue
+                except AttributeError:
+                    # Could not find instance or method, fall through to normal call
+                    pass
             cb(*args, **kwargs)
 
     def portal_publish(self, plugin: Plugin, event: str, *args, **kwargs):
@@ -563,6 +597,22 @@ class IGLOOPluginManager:
             raise Exception(f"Attempt to publish to unregistered event: {event} for plugin {plugin}")
         
         for cb in self.plugin_cbs[plugin][event]:
+            # Handle unbound method: cb is a function, but its __qualname__ contains a dot
+            if hasattr(cb, '__qualname__') and '.' in cb.__qualname__ and not hasattr(cb, '__self__'):
+                class_name = cb.__qualname__.split('.')[0]
+                method_name = cb.__qualname__.split('.')[-1]
+                try:
+                    instance = getattr(self, class_name)
+                    if instance and hasattr(instance, method_name):
+                        bound_method = getattr(instance, method_name)
+                        result = bound_method(*args, **kwargs)
+                        from collections.abc import Iterator
+                        if isinstance(result, Iterator):
+                            yield from result
+                        continue
+                except AttributeError:
+                    # Could not find instance or method, fall through to normal call
+                    pass
             result = cb(*args, **kwargs)
             from collections.abc import Iterator
             if isinstance(result, Iterator):
