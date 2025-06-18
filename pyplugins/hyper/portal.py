@@ -62,8 +62,8 @@ class PortalCmd:
 class Portal(Plugin):
     def __init__(self):
         self.outdir = self.get_arg("outdir")
-        if self.get_arg_bool("verbose"):
-            self.logger.setLevel("DEBUG")
+        # if self.get_arg_bool("verbose"):
+            # self.logger.setLevel("DEBUG")
         # Set endianness format character for struct operations
         self.endian_format = '<' if self.panda.endianness == 'little' else '>'
         self.portal_interrupt = None
