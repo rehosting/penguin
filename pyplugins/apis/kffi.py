@@ -36,6 +36,7 @@ from wrappers.generic import Wrapper
 import functools
 from typing import Any, Optional, Union, Generator
 
+
 class KFFI(Plugin):
     """
     # KFFI Plugin
@@ -104,7 +105,8 @@ class KFFI(Plugin):
         buf = b"\x00" * size
         return self.ffi.create_instance(t, buf)
 
-    def from_buffer(self, type_: str, buf: bytes, instance_offset_in_buffer: int = 0) -> Any:
+    def from_buffer(self, type_: str, buf: bytes,
+                    instance_offset_in_buffer: int = 0) -> Any:
         """
         ### Create an instance of a type from a buffer
 
@@ -264,10 +266,11 @@ class KFFI(Plugin):
         # Return serialized structure
         return ffi_call.to_bytes()
 
-    def call_kernel_function(self, func: Union[int, str], *args: Any) -> Generator[Any, Any, Any]:
+    def call_kernel_function(
+            self, func: Union[int, str], *args: Any) -> Generator[Any, Any, Any]:
         """
         ### Call a kernel function dynamically with the given arguments
-        
+
         This uses the FFI mechanism to directly call kernel functions.
         CAUTION: This is extremely powerful and can easily crash the kernel
         if used incorrectly. Only call functions that are safe to call
@@ -297,7 +300,7 @@ class KFFI(Plugin):
 
         # importing here to avoid circular import issues
         from hyper.portal import PortalCmd
-        
+
         # Call the function
         response = yield PortalCmd("ffi_exec", size=len(buf), data=buf)
 

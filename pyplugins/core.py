@@ -34,6 +34,7 @@ import time
 from penguin import Plugin, yaml
 from penguin.defaults import vnc_password
 
+
 class Core(Plugin):
     """
     Core plugin for PyPlugins.
@@ -111,7 +112,8 @@ class Core(Plugin):
             conf["env"]["IGLOO_LTRACE"] = "1"
 
         if conf["core"].get("force_www", False):
-            if conf.get("static_files", {}).get("/igloo/utils/www_cmds", None) is None:
+            if conf.get("static_files", {}).get(
+                    "/igloo/utils/www_cmds", None) is None:
                 self.logger.warning(
                     "Force WWW unavailable - no webservers were statically identified (/igloo/utils/www_cmds is empty)"
                 )

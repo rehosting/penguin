@@ -14,6 +14,7 @@ SYSCALL_ARG5 = 0xdeadbeeff1f1f1f2
 
 syscalls = plugins.syscalls
 
+
 class SyscallTest(Plugin):
     def __init__(self):
         self.outdir = self.get_arg("outdir")
@@ -25,7 +26,7 @@ class SyscallTest(Plugin):
         self.ioctl_ret2_num = 0
         self.ioctl_ret3_num = 0
         syscalls.syscall("on_sys_ioctl_enter", comm_filter="send_syscall",
-                        arg_filters=[None, 0xabcd])(self.test_skip_retval)
+                         arg_filters=[None, 0xabcd])(self.test_skip_retval)
 
     def test_skip_retval(self, regs, proto, syscall, fd, op, arg):
         assert fd == 9, f"Expected fd 9, got {fd:#x}"
@@ -34,7 +35,7 @@ class SyscallTest(Plugin):
         syscall.retval = 43
 
     @syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
-                        arg_filters=[ValueFilter.exact(0x13)])
+                      arg_filters=[ValueFilter.exact(0x13)])
     def ioctl_ret(self, regs, proto, syscall, fd, op, arg):
         self.ioctl_ret_num += 1
         assert fd == 0x13, f"Expected op 0x13, got {fd:#x}"
@@ -42,7 +43,7 @@ class SyscallTest(Plugin):
             f.write(f"Syscall ioctl_reg: success {self.ioctl_ret_num}\n")
 
     @syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
-                         arg_filters=[0x13, 0x1234])
+                      arg_filters=[0x13, 0x1234])
     def ioctl_ret2(self, regs, proto, syscall, fd, op, arg):
         self.ioctl_ret2_num += 1
         assert fd == 0x13, f"Expected fd 0x13, got {fd:#x}"
@@ -52,8 +53,8 @@ class SyscallTest(Plugin):
             f.write(f"Syscall ioctl_reg2: success {self.ioctl_ret2_num}\n")
 
     @syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
-                        arg_filters=[0x13, 
-                        ValueFilter.range(0x1234, 0x1235), 0xabcd])
+                      arg_filters=[0x13,
+                                   ValueFilter.range(0x1234, 0x1235), 0xabcd])
     def ioctl_ret3(self, regs, proto, syscall, fd, op, arg):
         self.ioctl_ret3_num += 1
         assert fd == 0x13, f"Expected fd 0x13, got {fd:#x}"
@@ -64,7 +65,7 @@ class SyscallTest(Plugin):
             f.write(f"Syscall ioctl_reg3: success {self.ioctl_ret3_num}\n")
 
     @syscalls.syscall("on_sys_ioctl_return", comm_filter="nosend_syscall",
-                        arg_filters=[None, ValueFilter.bitmask_set(0x1234)])
+                      arg_filters=[None, ValueFilter.bitmask_set(0x1234)])
     def ioctl_noret(self, regs, proto, syscall, fd, op, arg):
         # this shouldn't be called
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
@@ -89,7 +90,8 @@ class SyscallTest(Plugin):
     def syscall_test(self, regs, proto, syscall, *args):
         if self.reported_clone:
             return
-        if "send_syscall" not in self.panda.get_process_name(self.panda.get_cpu()):
+        if "send_syscall" not in self.panda.get_process_name(
+                self.panda.get_cpu()):
             return
         self.logger.info(f"Syscall test: {syscall} {args}")
         constants = [SYSCALL_ARG1, SYSCALL_ARG2,

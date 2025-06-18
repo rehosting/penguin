@@ -105,7 +105,7 @@ class PortalCmd:
         - `PortalCmd`: A command with HYPER_OP_NONE operation.
         """
         return cls(hop.HYPER_OP_NONE, 0, 0, None, None)
-    
+
 
 class Portal(Plugin):
     """
@@ -135,7 +135,7 @@ class Portal(Plugin):
         """
         self.outdir = self.get_arg("outdir")
         # if self.get_arg_bool("verbose"):
-            # self.logger.setLevel("DEBUG")
+        # self.logger.setLevel("DEBUG")
         # Set endianness format character for struct operations
         self.endian_format = '<' if self.panda.endianness == 'little' else '>'
         self.portal_interrupt = None
@@ -185,7 +185,8 @@ class Portal(Plugin):
                 # Plugin is responsible for tracking its own pending work
                 yield from handler_fn()
 
-    def register_interrupt_handler(self, plugin_name: str, handler_fn: Callable[[], Iterator]) -> None:
+    def register_interrupt_handler(
+            self, plugin_name: str, handler_fn: Callable[[], Iterator]) -> None:
         """
         Register a plugin to handle portal interrupts.
 
@@ -304,7 +305,7 @@ class Portal(Plugin):
             size = self.regions_size
         try:
             mem = self.panda.virtual_memory_read(
-                cpu, cpu_memregion+kffi.sizeof("region_header"), size)
+                cpu, cpu_memregion + kffi.sizeof("region_header"), size)
             return mem
         except ValueError as e:
             self.logger.error(f"Failed to read memory: {e}")
@@ -372,7 +373,7 @@ class Portal(Plugin):
             data = data[:self.regions_size]
         try:
             self.panda.virtual_memory_write(
-                cpu, cpu_memregion+kffi.sizeof("region_header"), data)
+                cpu, cpu_memregion + kffi.sizeof("region_header"), data)
         except ValueError as e:
             self.logger.error(f"Failed to write memregion data: {e}")
 
@@ -416,7 +417,7 @@ class Portal(Plugin):
         else:
             self.logger.error(f"Unknown operation: {op:#x}")
         return in_op
-    
+
     def _write_portalcmd(self, cpum: tuple, cmd: PortalCmd) -> None:
         """
         Write a PortalCmd to the memory region.
@@ -447,10 +448,11 @@ class Portal(Plugin):
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
             cpu = self.panda.get_cpu()
-            cpu_memregion = self.panda.arch.get_arg(cpu, 3, convention="syscall")
+            cpu_memregion = self.panda.arch.get_arg(
+                cpu, 3, convention="syscall")
             cpum = cpu, cpu_memregion
             fn_return = None
-            
+
             if cpu_memregion not in iterators or iterators[cpu_memregion] is None:
                 self.logger.debug("Creating new iterator")
                 # Revert to calling the original function f with self_
@@ -493,7 +495,8 @@ class Portal(Plugin):
                 raise cmd
             elif cmd is not None:
                 breakpoint()
-                self.logger.error(f"Invalid return to portal: {type(cmd)} {cmd}")
+                self.logger.error(
+                    f"Invalid return to portal: {type(cmd)} {cmd}")
             return fn_return
         return wrapper
 

@@ -13,7 +13,9 @@ KNOWN_PATHS = [
     "/sys",
     "/proc",
     "/run",
-    "/tmp",  # Directories not in static FS that are added by igloo_init (mostly irrelevant with wrong prefixes)
+    # Directories not in static FS that are added by igloo_init (mostly
+    # irrelevant with wrong prefixes)
+    "/tmp",
     "/dev/ttyS0",
     "/dev/console",
     "/dev/root",
@@ -23,7 +25,8 @@ KNOWN_PATHS = [
     "/dev/zero",
     "/dev/random",
     "/dev/urandom",  # Standard devices we should see in devtmpfs
-    # TODO: pull in devices like how we do during static analysis (e.g., /resources/proc_sys.txt)
+    # TODO: pull in devices like how we do during static analysis (e.g.,
+    # /resources/proc_sys.txt)
     "/proc/penguin_net",
 ]
 
@@ -140,17 +143,21 @@ class Pseudofiles(Plugin):
         if self.get_arg_bool("verbose"):
             self.logger.setLevel(logging.DEBUG)
         self.did_mtd_warn = False  # Set if we've warned about misconfigured MTD devices
-        # XXX: It has seemed like this should be 1 for some architectures, but that can't be right?
+        # XXX: It has seemed like this should be 1 for some architectures, but
+        # that can't be right?
         self.ENOENT = 2
         self.warned = set()  # Syscalls we don't know about that we've seen
 
-        # We track when processes try accessing or IOCTLing on missing files here:
+        # We track when processes try accessing or IOCTLing on missing files
+        # here:
         self.file_failures = (
             {}
         )  # path: {event: {count: X}}. Event is like open/read/ioctl/stat/lstat.
 
-        if self.get_arg("conf") is None or "pseudofiles" not in self.get_arg("conf"):
-            raise ValueError("No 'pseudofiles' in config: {self.get_arg('conf')}")
+        if self.get_arg(
+                "conf") is None or "pseudofiles" not in self.get_arg("conf"):
+            raise ValueError(
+                "No 'pseudofiles' in config: {self.get_arg('conf')}")
 
         self.config = self.get_arg("conf")
         self.devfs = []
@@ -188,11 +195,16 @@ class Pseudofiles(Plugin):
         # because openat requires guest introspection to resolve the dfd, but we just
         # did it in the kernel
         plugins.subscribe(plugins.Events, "igloo_open", self.fail_detect_opens)
-        plugins.subscribe(plugins.Events, "igloo_ioctl", self.fail_detect_ioctl)
+        plugins.subscribe(
+            plugins.Events,
+            "igloo_ioctl",
+            self.fail_detect_ioctl)
 
-        # On ioctl return we might want to start symex. We detect failures with a special handler though
+        # On ioctl return we might want to start symex. We detect failures with
+        # a special handler though
         if self.need_ioctl_hooks:
-            plugins.syscalls.syscall("on_sys_ioctl_return")(self.symex_ioctl_return)
+            plugins.syscalls.syscall("on_sys_ioctl_return")(
+                self.symex_ioctl_return)
 
     def gen_hyperfile_function(self, filename, details, ftype):
         if ftype not in details or "model" not in details[ftype]:
@@ -210,7 +222,8 @@ class Pseudofiles(Plugin):
             if hasattr(plugin, func):
                 fn = getattr(plugin, func)
             else:
-                raise ValueError(f"Hyperfile {filename} depends on plugin {plugin} which does not have function {func}")
+                raise ValueError(
+                    f"Hyperfile {filename} depends on plugin {plugin} which does not have function {func}")
         else:
             if ftype == "ioctl":
                 guess = {"pseudofiles": {filename: {"*": details}}}
@@ -246,7 +259,8 @@ class Pseudofiles(Plugin):
 
             hf_config[filename]["size"] = details.get("size", 0)
 
-            # Check if any details with non /dev/mtd names has a 'name' property
+            # Check if any details with non /dev/mtd names has a 'name'
+            # property
             if not filename.startswith("/dev/mtd") and "name" in details:
                 raise ValueError(
                     "Pseudofiles: name property can only be set for MTD devices"
@@ -257,14 +271,16 @@ class Pseudofiles(Plugin):
                 )
 
             for ftype in "read", "write", "ioctl":
-                hf_config[filename][hyper(ftype)] = self.gen_hyperfile_function(filename, details, ftype)
+                hf_config[filename][hyper(ftype)] = self.gen_hyperfile_function(
+                    filename, details, ftype)
                 if (
                     ftype == "ioctl"
                     and ftype in details
                     and "model" not in details[ftype]
                     and any([x["model"] == "symex" for x in details[ftype].values()])
                 ):
-                    # If we have a symex model we'll need to enable some extra introspection
+                    # If we have a symex model we'll need to enable some extra
+                    # introspection
                     self.need_ioctl_hooks = True
 
         if len(self.get_arg("conf").get("netdevs", [])):
@@ -277,7 +293,8 @@ class Pseudofiles(Plugin):
             }
 
         hf_config["/proc/mtd"] = {
-            # Note we don't use our make_rwif closure helper here because these are static
+            # Note we don't use our make_rwif closure helper here because these
+            # are static
             HYP_READ: self.proc_mtd_check,
             HYP_IOCTL: HyperFile.ioctl_unhandled,
             "size": 0,
@@ -299,7 +316,8 @@ class Pseudofiles(Plugin):
             self.symex = PathExpIoctl(self.outdir, self.config["core"]["fs"])
 
         # Look through our config and find the filename with a symex model
-        # XXX: This is a bit of a hack - we're assuming we only have one symex model
+        # XXX: This is a bit of a hack - we're assuming we only have one symex
+        # model
         filename = None
         for fname, file_model in self.config["pseudofiles"].items():
             if "ioctl" in file_model:
@@ -312,7 +330,7 @@ class Pseudofiles(Plugin):
             raise ValueError(
                 "No filename with symex model found in config, but we got a symex ioctl. Unexpected"
             )
-
+        cpu = self.panda.get_cpu()
         # It's time to launch symex!
         self.symex.do_symex(self.panda, cpu, syscall.pc, filename, cmd)
 
@@ -335,7 +353,8 @@ class Pseudofiles(Plugin):
             return
 
         if path.startswith("/proc/"):
-            # replace /proc/<pid> with /proc/<PID> to avoid a ton of different paths
+            # replace /proc/<pid> with /proc/<PID> to avoid a ton of different
+            # paths
             path = re.sub(r"/proc/\d+", "/proc/PID", path)
 
         if path not in self.file_failures:
@@ -418,7 +437,8 @@ class Pseudofiles(Plugin):
         return (buf, len(buf))
 
     def fail_detect_ioctl(self, cpu, fname, cmd):
-        # A regular (non-dyndev) device was ioctl'd and is returning -ENOTTY so our hypercall triggers
+        # A regular (non-dyndev) device was ioctl'd and is returning -ENOTTY so
+        # our hypercall triggers
         self.log_ioctl_failure(fname, cmd)
 
     def fail_detect_opens(self, cpu, fname, fd):
@@ -457,7 +477,8 @@ class Pseudofiles(Plugin):
 
     def read_zero(self, filename, buffer, length, offset, details=None):
         # Simple peripheral model inspired by firmadyne/firmae. Just return 0.
-        # If we've seen a write to this device, mix that data in with 0s padding around it
+        # If we've seen a write to this device, mix that data in with 0s
+        # padding around it
         data = b"0"
         if filename in self.written_data:
             data = self.written_data[filename]
@@ -505,7 +526,11 @@ class Pseudofiles(Plugin):
         vals = details["vals"]
 
         # sort vals dict by key, lowest to highest
-        vals = {k: v for k, v in sorted(vals.items(), key=lambda item: item[0])}
+        vals = {
+            k: v for k,
+            v in sorted(
+                vals.items(),
+                key=lambda item: item[0])}
 
         # now we flatten. For each offset, val pair
         # Need to grab first offset, then pad to that
@@ -523,7 +548,8 @@ class Pseudofiles(Plugin):
                 if not len(val):
                     continue  # Wat?
 
-                # All shoudl be same type. Could support a list of lists e.g., ["key=val", [0x41, 0x00, 0x42], ...]?
+                # All shoudl be same type. Could support a list of lists e.g.,
+                # ["key=val", [0x41, 0x00, 0x42], ...]?
                 first_val = val[0]
                 for this_val in val[1:]:
                     if not isinstance(this_val, type(first_val)):
@@ -547,7 +573,8 @@ class Pseudofiles(Plugin):
             data += pad * (off - len(data)) + val
 
         # Finally pad up to size
-        assert len(data) <= size, f"Data is too long: {len(data)} > size {size}"
+        assert len(
+            data) <= size, f"Data is too long: {len(data)} > size {size}"
         data += pad * (size - len(data))
         return data
 
@@ -559,7 +586,8 @@ class Pseudofiles(Plugin):
 
         return (final_data, len(final_data))  # data, length
 
-    def read_const_map_file(self, filename, buffer, length, offset, details=None):
+    def read_const_map_file(self, filename, buffer,
+                            length, offset, details=None):
         # Create a file on the host using the specified pad, size, vals
         # When we read from the guest, we read from the host file.
         hostfile = details["filename"]
@@ -583,7 +611,8 @@ class Pseudofiles(Plugin):
         return (final_data, len(final_data))  # data, length
 
     def read_from_file(self, filename, buffer, length, offset, details=None):
-        self.logger.debug(f"Reading {filename} with {length} bytes at {offset}:")
+        self.logger.debug(
+            f"Reading {filename} with {length} bytes at {offset}:")
         fname = details["filename"]  # Host file
 
         if not isabs(fname):
@@ -596,7 +625,8 @@ class Pseudofiles(Plugin):
 
         return (data, len(data))
 
-    def write_to_file(self, filename, buffer, length, offset, contents, details=None):
+    def write_to_file(self, filename, buffer, length,
+                      offset, contents, details=None):
         fname = details["filename"]  # Host file
         if not isabs(fname):
             # Paths are relative to the project directory, unless absolute
@@ -611,11 +641,15 @@ class Pseudofiles(Plugin):
 
         return length
 
-    def write_discard(self, filename, buffer, length, offset, contents, details=None):
-        # TODO: make this actually discard - not sure where it's used right now and default is a better model in general
-        return self.write_default(filename, buffer, length, offset, contents, details)
+    def write_discard(self, filename, buffer, length,
+                      offset, contents, details=None):
+        # TODO: make this actually discard - not sure where it's used right now
+        # and default is a better model in general
+        return self.write_default(
+            filename, buffer, length, offset, contents, details)
 
-    def write_default(self, filename, buffer, length, offset, contents, details=None):
+    def write_default(self, filename, buffer, length,
+                      offset, contents, details=None):
         # Store the contents for this file
         # print(f"{filename} writes {length} bytes at {offset}: {contents[:100]}")
         if filename not in self.written_data:
@@ -687,7 +721,8 @@ class Pseudofiles(Plugin):
             # ignore? But we probably could?
             # raise NotImplementedError("Uhhhh nested symex")
             # self.last_symex = filename
-            return MAGIC_SYMEX_RETVAL  # We'll detect this on the return and know what to do. I think?
+            # We'll detect this on the return and know what to do. I think?
+            return MAGIC_SYMEX_RETVAL
         elif model == "from_plugin":
             plugin_name = cmd_details["plugin"]
             plugin = getattr(plugins, plugin_name)
@@ -695,7 +730,8 @@ class Pseudofiles(Plugin):
             if hasattr(plugin, func):
                 fn = getattr(plugin, func)
             else:
-                raise ValueError(f"Hyperfile {filename} depends on plugin {plugin} which does not have function {func}")
+                raise ValueError(
+                    f"Hyperfile {filename} depends on plugin {plugin} which does not have function {func}")
             return fn(filename, cmd, arg, cmd_details)
         else:
             # This is an actual error - config is malformed. Bail

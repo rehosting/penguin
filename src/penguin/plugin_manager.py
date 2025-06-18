@@ -36,7 +36,7 @@ from os.path import join, isfile, basename, splitext
 from penguin import getColoredLogger
 from pandare2 import PyPlugin, Panda
 import shutil
-from typing import List, Dict, Union, Callable, Tuple, Optional, Any, Type, TypeVar
+from typing import List, Dict, Union, Callable, Tuple, Optional, Any, Type, TypeVar, Iterator
 import glob
 import re
 import importlib
@@ -54,8 +54,8 @@ class Plugin:
     Plugins should inherit from this class to be managed by the plugin manager.
     Provides argument access, logging, and Panda instance access.
     """
-    
-    def __preinit__(self, plugins: 'IGLOOPluginManager', args:  Dict) -> None:
+
+    def __preinit__(self, plugins: 'IGLOOPluginManager', args: Dict) -> None:
         """
         Internal initialization method called by the plugin manager before __init__.
         Args:
@@ -75,7 +75,7 @@ class Plugin:
             str: The class name of this plugin.
         """
         return self.__class__.__name__
-    
+
     @property
     def panda(self) -> Panda:
         """
@@ -84,7 +84,7 @@ class Plugin:
             Panda: The Panda instance.
         """
         return self.plugins.panda
-    
+
     @panda.setter
     def panda(self, panda: Panda) -> None:
         """
@@ -93,7 +93,7 @@ class Plugin:
             panda (Panda): The Panda instance.
         """
         pass
-    
+
     def get_arg(self, arg_name: str) -> Any:
         """
         Get an argument value by name.
@@ -136,18 +136,19 @@ class Plugin:
 
         # If it's not a string, int, or bool something is weird
         raise ValueError(f"Unsupported arg type: {type(arg_val)}")
-    
 
-def gen_search_locations(plugin_name: str, proj_dir: str, plugin_path: str) -> List[str]:
+
+def gen_search_locations(plugin_name: str, proj_dir: str,
+                         plugin_path: str) -> List[str]:
     """
     @private
     Generate a list of possible file paths to look for a plugin.
-    
+
     Args:
         plugin_name: The name of the plugin to search for
         proj_dir: The project directory
         plugin_path: The plugin path
-        
+
     Returns:
         List of possible file paths to search for the plugin
     """
@@ -166,10 +167,10 @@ def camel_to_snake(name: str) -> str:
     """
     @private
     Convert CamelCase to snake_case.
-    
+
     Args:
         name: The CamelCase string to convert
-        
+
     Returns:
         The converted snake_case string
     """
@@ -181,29 +182,30 @@ def snake_to_camel(name: str) -> str:
     """
     @private
     Convert snake_case to CamelCase.
-    
+
     Args:
         name: The snake_case string to convert
-        
+
     Returns:
         The converted CamelCase string
     """
     return ''.join(word.capitalize() for word in name.split('_'))
 
 
-def find_plugin_by_name(plugin_name: str, proj_dir: str, plugin_path: str) -> Tuple[str, bool]:
+def find_plugin_by_name(plugin_name: str, proj_dir: str,
+                        plugin_path: str) -> Tuple[str, bool]:
     """
     @private
     Find a plugin file by name, trying various naming conventions.
-    
+
     Args:
         plugin_name: The name of the plugin to find
         proj_dir: The project directory
         plugin_path: The plugin path
-        
+
     Returns:
         Tuple of (file_path, is_local_plugin)
-        
+
     Raises:
         ValueError: If the plugin cannot be found
     """
@@ -265,8 +267,9 @@ class IGLOOPluginManager:
         self.registered_cbs: Dict[Tuple[Plugin, str], Callable] = {}
         self.aliases: Dict[str, str] = {}
         self.plugins: Dict[str, Plugin] = {}
-    
-    def load(self, pluginclasses: Union[Type[T], List[Type[T]], Tuple[str, List[str]]], args: Dict[str, Any] = None) -> None:
+
+    def load(self, pluginclasses: Union[Type[T], List[Type[T]],
+             Tuple[str, List[str]]], args: Dict[str, Any] = None) -> None:
         """
         Load one or more plugin classes.
         Args:
@@ -311,7 +314,9 @@ class IGLOOPluginManager:
 
             self.plugins[name] = pluginclass.__new__(pluginclass)
             self.plugins[name].__preinit__(self, args)
-            num_args = len(inspect.signature(self.plugins[name].__init__).parameters)
+            num_args = len(
+                inspect.signature(
+                    self.plugins[name].__init__).parameters)
             if num_args == 1:
                 self.plugins[name].__init__(self.panda)
             else:
@@ -329,7 +334,8 @@ class IGLOOPluginManager:
         if self.get_plugin_by_name(plugin_name):
             return
         self.logger.debug(f"Loading plugin: {plugin_name}")
-        path, local_plugin = find_plugin_by_name(plugin_name, self.args["proj_dir"], self.args["plugin_path"])
+        path, local_plugin = find_plugin_by_name(
+            plugin_name, self.args["proj_dir"], self.args["plugin_path"])
 
         args = dict(self.args)
         details = self.args["plugins"]
@@ -340,12 +346,14 @@ class IGLOOPluginManager:
             return
 
         for k, v in plugin_args.items():
-            # Extend the args with everything from the config that isn't in our special args
+            # Extend the args with everything from the config that isn't in our
+            # special args
             if k in ["enabled"]:
                 continue
             if k in args.keys():
                 if args[k] != v:
-                    raise ValueError(f"Config for {plugin_name} overwrites argument {k} {args[k]} -> {v}")
+                    raise ValueError(
+                        f"Config for {plugin_name} overwrites argument {k} {args[k]} -> {v}")
                 continue
             self.logger.debug(f"Setting {plugin_name} arg: {k} to {v}")
             args[k] = v
@@ -425,16 +433,17 @@ class IGLOOPluginManager:
         plugin_by_name = self.get_plugin_by_name(plugin)
         if plugin_by_name:
             return plugin_by_name
-        
+
         # Then try by class name - search through all plugins
         for plugin_name, plugin_instance in self.plugins.items():
             if plugin_instance.__class__.__name__ == plugin:
                 return plugin_instance
-        
+
         # If not found by either method, try to load it
         return self[plugin]
-    
-    def load_all(self, plugin_file: str, args: Optional[Dict[str, Any]] = None) -> List[str]:
+
+    def load_all(self, plugin_file: str,
+                 args: Optional[Dict[str, Any]] = None) -> List[str]:
         """
         Load all Plugin classes from a Python file.
         Args:
@@ -445,7 +454,8 @@ class IGLOOPluginManager:
         Raises:
             ValueError: If the plugin file cannot be loaded.
         """
-        spec = importlib.util.spec_from_file_location("plugin_file", plugin_file)
+        spec = importlib.util.spec_from_file_location(
+            "plugin_file", plugin_file)
         if spec is None:
             # Likely an invalid path
             raise ValueError(f"Unable to load {plugin_file}")
@@ -454,15 +464,17 @@ class IGLOOPluginManager:
         spec.loader.exec_module(module)
 
         names = []
-        for name, cls in inspect.getmembers(module, lambda x: inspect.isclass(x)):
+        for name, cls in inspect.getmembers(
+                module, lambda x: inspect.isclass(x)):
             if not issubclass(cls, Plugin) or cls == Plugin:
                 if not issubclass(cls, PyPlugin) or cls == PyPlugin:
                     continue
             cls.__name__ = name
             self.load(cls, args)
             names.append(name)
-            
-            # Create alias from class name to plugin instance for method resolution
+
+            # Create alias from class name to plugin instance for method
+            # resolution
             if name in self.plugins:
                 # Add the class name as an alias to the plugin instance
                 # This allows syscalls plugin to find instances by class name
@@ -470,7 +482,7 @@ class IGLOOPluginManager:
                 plugin_instance_name = name  # The key used in self.plugins
                 if class_name != plugin_instance_name:
                     self.aliases[class_name] = plugin_instance_name
-                
+
         return names
 
     def unload(self, pluginclass: Union[Type[Plugin], Type[PyPlugin]]) -> None:
@@ -484,8 +496,10 @@ class IGLOOPluginManager:
         if isinstance(pluginclass, str) and pluginclass in self.plugins:
             pluginclass = self.plugins[pluginclass]
 
-        if not issubclass(type(pluginclass), PyPlugin) and not issubclass(type(pluginclass), Plugin):
-            raise ValueError(f"Unload expects a name of a loaded pyplugin or a PyPlugin instance. Got {pluginclass} with plugin list: {self.plugins}")
+        if not issubclass(type(pluginclass), PyPlugin) and not issubclass(
+                type(pluginclass), Plugin):
+            raise ValueError(
+                f"Unload expects a name of a loaded pyplugin or a PyPlugin instance. Got {pluginclass} with plugin list: {self.plugins}")
 
         # Call uninit method if it's present
         if callable(getattr(pluginclass, "uninit", None)):
@@ -496,7 +510,11 @@ class IGLOOPluginManager:
         Unload all loaded plugins in reverse order of load time.
         """
         # unload in reverse order of load time
-        plugin_list = {k:v for k,v in sorted(self.plugins.items(), key=lambda x: x[1].load_time)}
+        plugin_list = {
+            k: v for k,
+            v in sorted(
+                self.plugins.items(),
+                key=lambda x: x[1].load_time)}
         while plugin_list:
             name, cls = plugin_list.popitem()
             self.unload(cls)
@@ -515,7 +533,8 @@ class IGLOOPluginManager:
         if register_notify is not None:
             self.registered_cbs[(plugin, event)] = register_notify
 
-    def subscribe(self, plugin: Plugin, event: str, callback: Callable[..., None] = None):
+    def subscribe(self, plugin: Plugin, event: str,
+                  callback: Callable[..., None] = None):
         """
         Subscribe a callback to a plugin event. Can also be used as a decorator if callback is not provided.
 
@@ -535,9 +554,11 @@ class IGLOOPluginManager:
         if callback is None:
             def decorator(cb):
                 if plugin not in self.plugin_cbs:
-                    raise Exception(f"Attempt to subscribe to unregistered plugin: {plugin}")
+                    raise Exception(
+                        f"Attempt to subscribe to unregistered plugin: {plugin}")
                 elif event not in self.plugin_cbs[plugin]:
-                    raise Exception(f"Attempt to subscribe to unregistered event: {event} for plugin {plugin}")
+                    raise Exception(
+                        f"Attempt to subscribe to unregistered event: {event} for plugin {plugin}")
                 self.plugin_cbs[plugin][event].append(cb)
                 if (plugin, event) in self.registered_cbs:
                     self.registered_cbs[(plugin, event)](event, cb)
@@ -545,9 +566,11 @@ class IGLOOPluginManager:
             return decorator
 
         if plugin not in self.plugin_cbs:
-            raise Exception(f"Attempt to subscribe to unregistered plugin: {plugin}")
+            raise Exception(
+                f"Attempt to subscribe to unregistered plugin: {plugin}")
         elif event not in self.plugin_cbs[plugin]:
-            raise Exception(f"Attempt to subscribe to unregistered event: {event} for plugin {plugin}")
+            raise Exception(
+                f"Attempt to subscribe to unregistered event: {event} for plugin {plugin}")
         self.plugin_cbs[plugin][event].append(callback)
 
         if (plugin, event) in self.registered_cbs:
@@ -563,12 +586,16 @@ class IGLOOPluginManager:
             **kwargs: Keyword arguments for callbacks.
         """
         if plugin not in self.plugin_cbs:
-            raise Exception(f"Attempt to publish to unregistered plugin: {plugin}")
+            raise Exception(
+                f"Attempt to publish to unregistered plugin: {plugin}")
         elif event not in self.plugin_cbs[plugin]:
-            raise Exception(f"Attempt to publish to unregistered event: {event} for plugin {plugin}")
+            raise Exception(
+                f"Attempt to publish to unregistered event: {event} for plugin {plugin}")
         for cb in self.plugin_cbs[plugin][event]:
-            # Handle unbound method: cb is a function, but its __qualname__ contains a dot
-            if hasattr(cb, '__qualname__') and '.' in cb.__qualname__ and not hasattr(cb, '__self__'):
+            # Handle unbound method: cb is a function, but its __qualname__
+            # contains a dot
+            if hasattr(cb, '__qualname__') and '.' in cb.__qualname__ and not hasattr(
+                    cb, '__self__'):
                 class_name = cb.__qualname__.split('.')[0]
                 method_name = cb.__qualname__.split('.')[-1]
                 try:
@@ -578,7 +605,8 @@ class IGLOOPluginManager:
                         bound_method(*args, **kwargs)
                         continue
                 except AttributeError:
-                    # Could not find instance or method, fall through to normal call
+                    # Could not find instance or method, fall through to normal
+                    # call
                     pass
             cb(*args, **kwargs)
 
@@ -592,13 +620,17 @@ class IGLOOPluginManager:
             **kwargs: Keyword arguments for callbacks.
         """
         if plugin not in self.plugin_cbs:
-            raise Exception(f"Attempt to publish to unregistered plugin: {plugin}")
+            raise Exception(
+                f"Attempt to publish to unregistered plugin: {plugin}")
         elif event not in self.plugin_cbs[plugin]:
-            raise Exception(f"Attempt to publish to unregistered event: {event} for plugin {plugin}")
-        
+            raise Exception(
+                f"Attempt to publish to unregistered event: {event} for plugin {plugin}")
+
         for cb in self.plugin_cbs[plugin][event]:
-            # Handle unbound method: cb is a function, but its __qualname__ contains a dot
-            if hasattr(cb, '__qualname__') and '.' in cb.__qualname__ and not hasattr(cb, '__self__'):
+            # Handle unbound method: cb is a function, but its __qualname__
+            # contains a dot
+            if hasattr(cb, '__qualname__') and '.' in cb.__qualname__ and not hasattr(
+                    cb, '__self__'):
                 class_name = cb.__qualname__.split('.')[0]
                 method_name = cb.__qualname__.split('.')[-1]
                 try:
@@ -606,18 +638,18 @@ class IGLOOPluginManager:
                     if instance and hasattr(instance, method_name):
                         bound_method = getattr(instance, method_name)
                         result = bound_method(*args, **kwargs)
-                        from collections.abc import Iterator
                         if isinstance(result, Iterator):
                             yield from result
                         continue
                 except AttributeError:
-                    # Could not find instance or method, fall through to normal call
+                    # Could not find instance or method, fall through to normal
+                    # call
                     pass
             result = cb(*args, **kwargs)
-            from collections.abc import Iterator
             if isinstance(result, Iterator):
                 yield from result
-            # For non-generator callbacks, we don't need to do anything with the result
+            # For non-generator callbacks, we don't need to do anything with
+            # the result
 
     @property
     def resources(self) -> str:

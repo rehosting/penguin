@@ -10,7 +10,6 @@ from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import portal_type
 from hyper.portal import PortalCmd
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
-from collections.abc import Iterator
 try:
     import cxxfilt  # For C++ symbol demangling
     HAVE_CXXFILT = True
@@ -71,7 +70,8 @@ class Uprobes(Plugin):
         if self._symbols_loaded:
             return self._symbols_cache
 
-        # Set flag to indicate we attempted loading (even if file doesn't exist)
+        # Set flag to indicate we attempted loading (even if file doesn't
+        # exist)
         self._symbols_loaded = True
         self._symbols_cache = {"symbols": {}}
 
@@ -97,7 +97,8 @@ class Uprobes(Plugin):
 
         return self._symbols_cache
 
-    def _lookup_symbol(self, path: str, symbol: str) -> (Optional[str], Optional[int]):
+    def _lookup_symbol(
+            self, path: str, symbol: str) -> (Optional[str], Optional[int]):
         """
         ### Look up a symbol's offset in the specified library.
 
@@ -154,7 +155,8 @@ class Uprobes(Plugin):
         # First, try direct path matches
         for lib_path, lib_symbols in symbols_data.items():
             # Check for exact path or basename match
-            if path == lib_path or normalized_path == os.path.basename(lib_path):
+            if path == lib_path or normalized_path == os.path.basename(
+                    lib_path):
                 # Try exact symbol match
                 if symbol in lib_symbols:
                     return lib_path, lib_symbols[symbol]
@@ -238,10 +240,12 @@ class Uprobes(Plugin):
                     if isinstance(fn_ret, Iterator):
                         fn_ret = yield from bound_method(pt_regs)
                 else:
-                    self.logger.error(f"Could not find method {method_name} on instance for {qualname}")
+                    self.logger.error(
+                        f"Could not find method {method_name} on instance for {qualname}")
                     return
             except AttributeError:
-                self.logger.error(f"Could not find instance for class {class_name} from {qualname}")
+                self.logger.error(
+                    f"Could not find instance for class {class_name} from {qualname}")
                 return
         else:
             fn_ret = fn(pt_regs)
@@ -311,7 +315,8 @@ class Uprobes(Plugin):
             callback = uprobe_config["callback"]
             options = uprobe_config["options"]
             symbol = uprobe_config.get("symbol", "[offset]") or "[offset]"
-            is_method = hasattr(func, '__self__') or (hasattr(func, '__qualname__') and '.' in func.__qualname__)
+            is_method = hasattr(func, '__self__') or (
+                hasattr(func, '__qualname__') and '.' in func.__qualname__)
             qualname = getattr(func, '__qualname__', None)
             probe_id = yield from self._register_uprobe(
                 path,
@@ -385,7 +390,8 @@ class Uprobes(Plugin):
         self.logger.debug(f"Registering uprobe: path={path}, offset={offset:#x}, type={probe_type}, "
                           f"filter_comm={process_filter}, filter_pid={filter_pid:#x}")
 
-        # Create a registration struct that matches the C-side struct uprobe_registration
+        # Create a registration struct that matches the C-side struct
+        # uprobe_registration
         reg = plugins.kffi.new("uprobe_registration")
 
         # Fill in the path field (first 256 bytes, null-terminated)
@@ -400,7 +406,8 @@ class Uprobes(Plugin):
         reg.type = probe_type
         reg.pid = filter_pid
 
-        # Fill in the comm field (process filter) if provided - TASK_COMM_LEN is 16
+        # Fill in the comm field (process filter) if provided - TASK_COMM_LEN
+        # is 16
         if process_filter:
             comm_bytes = process_filter.encode('latin-1')
             # Leave room for null terminator (16-1)
@@ -474,7 +481,8 @@ class Uprobes(Plugin):
         """
         def _register_decorator(uprobe_configs):
             def decorator(func):
-                is_method = hasattr(func, '__self__') or (hasattr(func, '__qualname__') and '.' in func.__qualname__)
+                is_method = hasattr(func, '__self__') or (
+                    hasattr(func, '__qualname__') and '.' in func.__qualname__)
                 qualname = getattr(func, '__qualname__', None)
                 for uprobe_config in uprobe_configs:
                     uprobe_config["callback"] = func
@@ -494,17 +502,20 @@ class Uprobes(Plugin):
 
         if path is None:
             if isinstance(symbol, int):
-                raise ValueError("If path is None, symbol must be a string, not int.")
+                raise ValueError(
+                    "If path is None, symbol must be a string, not int.")
             symbols_data = self._load_symbols()
             if not symbols_data:
                 if fail_register_ok:
                     return None
                 raise RuntimeError("No symbols data loaded.")
-            matching_libs = [(lib_path, lib_symbols[symbol]) for lib_path, lib_symbols in symbols_data.items() if symbol in lib_symbols]
+            matching_libs = [(lib_path, lib_symbols[symbol]) for lib_path,
+                             lib_symbols in symbols_data.items() if symbol in lib_symbols]
             if not matching_libs:
                 if fail_register_ok:
                     return None
-                self.logger.warning(f"Symbol '{symbol}' not found in any library.")
+                self.logger.warning(
+                    f"Symbol '{symbol}' not found in any library.")
                 return None
             uprobe_configs = [{
                 "path": lib_path,
@@ -563,7 +574,8 @@ class Uprobes(Plugin):
         **Returns:**
         - `Callable[[Callable], Callable]`: Decorator for return probes.
         """
-        return self.uprobe(path, symbol, process_filter, on_enter, on_return, pid_filter, fail_register_ok)
+        return self.uprobe(path, symbol, process_filter,
+                           on_enter, on_return, pid_filter, fail_register_ok)
 
     def unregister(self, probe_id: int) -> None:
         """

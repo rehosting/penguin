@@ -16,7 +16,7 @@ class PdocGenerator(Plugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.logger.info("Unloading plugin")
-        out_path = Path(self.outdir,"pdoc")
+        out_path = Path(self.outdir, "pdoc")
         out_path.mkdir(parents=True, exist_ok=True)
 
         pdoc.render.configure(
@@ -37,7 +37,8 @@ class PdocGenerator(Plugin):
             if not out_path:
                 return out
             else:
-                outfile = out_path / f"{module.fullname.replace('.', '/')}.html"
+                outfile = out_path / \
+                    f"{module.fullname.replace('.', '/')}.html"
                 outfile.parent.mkdir(parents=True, exist_ok=True)
                 outfile.write_bytes(out.encode())
 

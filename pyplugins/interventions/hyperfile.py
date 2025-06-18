@@ -47,10 +47,10 @@ files = {
 """
 
 import struct
-from typing import Any, Callable, Dict, Optional, Tuple, List
+from typing import Any, Dict, Tuple
 from penguin import Plugin
 from hyper.consts import igloo_hypercall_constants as iconsts
-from hyper.consts import hyperfs_ops as hops 
+from hyper.consts import hyperfs_ops as hops
 from hyper.consts import hyperfs_file_ops as fops
 
 HYP_RETRY = 0xdeadbeef
@@ -157,7 +157,8 @@ class HyperFile(Plugin):
         # event="write": {bytes_written: X, data: ...}
         # event="icotl": {mode: {count: X, rv: Y}}
 
-        assert isinstance(self.files, dict), f"Files should be dict, not {self.files}"
+        assert isinstance(
+            self.files, dict), f"Files should be dict, not {self.files}"
 
         self.default_model = {
             fops.HYP_READ: self.read_unhandled,
@@ -169,7 +170,8 @@ class HyperFile(Plugin):
 
         # files = {filename: {'read': func, 'write': func, 'ioctl': func}}}
 
-        # On hypercall we dispatch to the appropriate handler: read, write, ioctl
+        # On hypercall we dispatch to the appropriate handler: read, write,
+        # ioctl
         @panda.hypercall(iconsts.IGLOO_HYPERFS_MAGIC)
         def before_hypercall(cpu):
             # We pass args in the arch-syscall ABI specified in pypanda's arch.py
@@ -193,7 +195,8 @@ class HyperFile(Plugin):
         **Returns**
         - `None`
         """
-        num_hyperfiles_addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
+        num_hyperfiles_addr = self.panda.arch.get_arg(
+            cpu, 2, convention="syscall")
         try:
             self.panda.virtual_memory_write(
                 cpu,
@@ -203,7 +206,8 @@ class HyperFile(Plugin):
         except ValueError:
             # Memory r/w failed - tell guest to retry
             self.panda.arch.set_retval(cpu, HYP_RETRY)
-            self.logger.debug("Failed to read/write number of hyperfiles from guest - retry")
+            self.logger.debug(
+                "Failed to read/write number of hyperfiles from guest - retry")
 
     def handle_get_hyperfile_paths(self, cpu: Any) -> None:
         """
@@ -215,7 +219,8 @@ class HyperFile(Plugin):
         **Returns**
         - `None`
         """
-        hyperfile_paths_array_ptr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
+        hyperfile_paths_array_ptr = self.panda.arch.get_arg(
+            cpu, 2, convention="syscall")
         n = len(self.files)
         hyperfile_paths_ptrs = [None] * n
         for i in range(n):
@@ -228,14 +233,16 @@ class HyperFile(Plugin):
                 )
             except ValueError:
                 self.panda.arch.set_retval(cpu, HYP_RETRY)
-                self.logger.debug("Failed to read hyperfile path ptr from guest - retry")
+                self.logger.debug(
+                    "Failed to read hyperfile path ptr from guest - retry")
                 return
         for path, buf in zip(self.files.keys(), hyperfile_paths_ptrs):
             try:
                 self.panda.virtual_memory_write(cpu, buf, path.encode())
             except ValueError:
                 self.panda.arch.set_retval(cpu, HYP_RETRY)
-                self.logger.debug("Failed to write hyperfile path to guest - retry")
+                self.logger.debug(
+                    "Failed to write hyperfile path to guest - retry")
                 return
 
     def handle_file_op(self, cpu: Any) -> None:
@@ -252,15 +259,18 @@ class HyperFile(Plugin):
         read_fmt = write_fmt = f"{self.endian} {self.u_word} {self.u_word} q"
         ioctl_fmt = f"{self.endian} I {self.u_word}"
         getattr_fmt = f"{self.endian} {self.u_word}"
-        hyperfs_data_size = struct.calcsize(header_fmt) + max(struct.calcsize(fmt) for fmt in (read_fmt, write_fmt, ioctl_fmt))
+        hyperfs_data_size = struct.calcsize(
+            header_fmt) + max(struct.calcsize(fmt) for fmt in (read_fmt, write_fmt, ioctl_fmt))
 
         buf_addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
         try:
-            buf = self.panda.virtual_memory_read(cpu, buf_addr, hyperfs_data_size, fmt="bytearray")
+            buf = self.panda.virtual_memory_read(
+                cpu, buf_addr, hyperfs_data_size, fmt="bytearray")
         except ValueError:
             # Memory read failed - tell guest to retry
             self.panda.arch.set_retval(cpu, HYP_RETRY)
-            self.logger.debug("Failed to read hyperfile struct from guest - retry")
+            self.logger.debug(
+                "Failed to read hyperfile struct from guest - retry")
             return
 
         # Unpack request with our dynamic format string
@@ -270,34 +280,44 @@ class HyperFile(Plugin):
         except ValueError:
             # Memory read failed - tell guest to retry
             self.panda.arch.set_retval(cpu, HYP_RETRY)
-            self.logger.debug("Failed to read hyperfile struct from guest - retry")
+            self.logger.debug(
+                "Failed to read hyperfile struct from guest - retry")
             return
 
         if not len(device_name):
             # XXX: why does this happen? Probably a bug somewhere else?
-            self.logger.warning("Empty device name in hyperfile request - ignore")
-            self.panda.arch.set_retval(cpu, self.panda.to_unsigned_guest(-22), failure=True)
+            self.logger.warning(
+                "Empty device name in hyperfile request - ignore")
+            self.panda.arch.set_retval(
+                cpu, self.panda.to_unsigned_guest(-22), failure=True)
             return
 
         sub_offset = struct.calcsize(header_fmt)
 
         # Ensure we have a model - if we don't, warn and add default
         if device_name not in self.files:
-            self.logger.warning(f"Detected {hyper2name(type_val)} event on device {repr(device_name)} but device is not in config. Using defaults.")
-            self.files[device_name] = {k: v for k, v in self.default_model.items()}  # XXX can't use deepcopy
+            self.logger.warning(
+                f"Detected {hyper2name(type_val)} event on device {repr(device_name)} but device is not in config. Using defaults.")
+            self.files[device_name] = {
+                k: v for k, v in self.default_model.items()}  # XXX can't use deepcopy
 
         model = self.files[device_name]
-        # Ensure our model specifies the current behavior - if not, warn and add default
+        # Ensure our model specifies the current behavior - if not, warn and
+        # add default
         if type_val not in model:
             if not (type_val == fops.HYP_GETATTR and "size" in model):
-                # If we have a size, we can handle getattr with out default method (return size) and it's fine. Otherwise warn
-                self.logger.warning(f"Detected {hyper2name(type_val)} event on device {repr(device_name)} but this event is not modeled in config. Using default.")
+                # If we have a size, we can handle getattr with out default
+                # method (return size) and it's fine. Otherwise warn
+                self.logger.warning(
+                    f"Detected {hyper2name(type_val)} event on device {repr(device_name)} but this event is not modeled in config. Using default.")
             model[type_val] = self.default_model[type_val]
 
         # Dispatch based on the type of operation
         if type_val == fops.HYP_READ:
-            buffer, length, offset = struct.unpack_from(read_fmt, buf, sub_offset)
-            new_buffer, retval = model[type_val](device_name, buffer, length, offset)
+            buffer, length, offset = struct.unpack_from(
+                read_fmt, buf, sub_offset)
+            new_buffer, retval = model[type_val](
+                device_name, buffer, length, offset)
 
             # We need to write new_buffer back into the struct at buffer
             # XXX: sizes? overflows?
@@ -305,15 +325,18 @@ class HyperFile(Plugin):
                 try:
                     self.panda.virtual_memory_write(cpu, buffer, new_buffer)
                 except ValueError:
-                    self.logger.warning(f"After reading hyperfile {device_name} failed to write result into guest memory at {buffer:x} - retry")
+                    self.logger.warning(
+                        f"After reading hyperfile {device_name} failed to write result into guest memory at {buffer:x} - retry")
                     self.panda.arch.set_retval(cpu, HYP_RETRY)
-                    # XXX: If we ever have stateful files, we'll need to tell it the read failed
+                    # XXX: If we ever have stateful files, we'll need to tell
+                    # it the read failed
                     return
 
             self.handle_result(device_name, "read", retval, length, new_buffer)
 
         elif type_val == fops.HYP_WRITE:
-            buffer, length, offset = struct.unpack_from(write_fmt, buf, sub_offset)
+            buffer, length, offset = struct.unpack_from(
+                write_fmt, buf, sub_offset)
             # We're writing data into our pseudofile. First we need to read what the guest
             # has given us as data to write
             # XXX offset is _internal_ to our data structures, it's how far into the file
@@ -321,14 +344,22 @@ class HyperFile(Plugin):
             try:
                 contents = self.panda.virtual_memory_read(cpu, buffer, length)
             except ValueError:
-                self.logger.warning(f"Before writing to hyperfile {device_name} failed to read data out of guest memory at {buffer:x} with offset {offset:x}")
+                self.logger.warning(
+                    f"Before writing to hyperfile {device_name} failed to read data out of guest memory at {buffer:x} with offset {offset:x}")
                 self.panda.arch.set_retval(cpu, HYP_RETRY)
                 # XXX: We might be able to get stuck in a loop here if hyperfs isn't paging in
                 # what we expect
                 return
 
-            retval = model[type_val](device_name, buffer, length, offset, contents)
-            self.handle_result(device_name, "write", retval, length, offset, contents)
+            retval = model[type_val](
+                device_name, buffer, length, offset, contents)
+            self.handle_result(
+                device_name,
+                "write",
+                retval,
+                length,
+                offset,
+                contents)
 
         elif type_val == fops.HYP_IOCTL:
             cmd, arg = struct.unpack_from(ioctl_fmt, buf, sub_offset)
@@ -344,13 +375,15 @@ class HyperFile(Plugin):
             try:
                 self.panda.virtual_memory_write(cpu, size_ptr, size_bytes)
             except ValueError:
-                self.logger.debug("Failed to write hyperfile size into guest - retry(?)")
+                self.logger.debug(
+                    "Failed to write hyperfile size into guest - retry(?)")
                 self.panda.arch.set_retval(cpu, HYP_RETRY)
                 return
 
         self.panda.arch.set_retval(cpu, self.panda.to_unsigned_guest(retval))
 
-    def handle_result(self, device_name: str, event: str, retval: int, *data: Any) -> None:
+    def handle_result(self, device_name: str, event: str,
+                      retval: int, *data: Any) -> None:
         """
         **Record the result of a file operation for logging and analysis.**
 
@@ -414,7 +447,8 @@ class HyperFile(Plugin):
 
     # Function to handle read operations
     @staticmethod
-    def read_zero(devname: str, buffer: int, length: int, offset: int) -> Tuple[bytes, int]:
+    def read_zero(devname: str, buffer: int, length: int,
+                  offset: int) -> Tuple[bytes, int]:
         """
         **Return a buffer of zero bytes for read operations.**
 
@@ -433,7 +467,8 @@ class HyperFile(Plugin):
 
     # Function to handle write operations
     @staticmethod
-    def write_discard(devname: str, buffer: int, length: int, offset: int, contents: bytes) -> int:
+    def write_discard(devname: str, buffer: int, length: int,
+                      offset: int, contents: bytes) -> int:
         """
         **Discard written data and return the number of bytes written.**
 
@@ -480,7 +515,8 @@ class HyperFile(Plugin):
         return -25  # -ENOTTY
 
     @staticmethod
-    def read_unhandled(filename: str, buffer: int, length: int, offset: int) -> Tuple[bytes, int]:
+    def read_unhandled(filename: str, buffer: int, length: int,
+                       offset: int) -> Tuple[bytes, int]:
         """
         **Handle an unhandled read operation.**
 
@@ -496,7 +532,8 @@ class HyperFile(Plugin):
         return (b"", -22)  # -EINVAL
 
     @staticmethod
-    def write_unhandled(filename: str, buffer: int, length: int, offset: int, contents: bytes) -> int:
+    def write_unhandled(filename: str, buffer: int,
+                        length: int, offset: int, contents: bytes) -> int:
         """
         **Handle an unhandled write operation.**
 

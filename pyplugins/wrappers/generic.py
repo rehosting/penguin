@@ -36,14 +36,16 @@ for o in objs:
 - `ArrayWrapper`: Base class for array/list wrappers.
 """
 
-from typing import Any, Dict, Iterator, List, Optional, Sequence, TypeVar, Generic
+from typing import Any, Dict, Iterator, List, Sequence, TypeVar, Generic
 
 T = TypeVar('T')
+
 
 class Wrapper:
     """
     Base class for wrapping a single object, providing attribute access, dict conversion, and pretty-printing.
     """
+
     def __init__(self, obj: Any) -> None:
         """Initialize the wrapper with the given object."""
         super().__setattr__('_obj', obj)  # Set wrapped object safely
@@ -76,7 +78,8 @@ class Wrapper:
 
     def __dir__(self) -> List[str]:
         """Retrieve all attributes of both wrapper and wrapped object."""
-        return list(self._extra_attrs.keys()) + dir(self._obj)  # Merge both sets of attributes
+        return list(self._extra_attrs.keys()) + \
+            dir(self._obj)  # Merge both sets of attributes
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the wrapped object to a dictionary (if possible)."""
@@ -86,7 +89,8 @@ class Wrapper:
             return dict(self._obj)
         else:
             # Fallback: try to extract fields
-            return {k: getattr(self._obj, k) for k in dir(self._obj) if not k.startswith('_')}
+            return {k: getattr(self._obj, k)
+                    for k in dir(self._obj) if not k.startswith('_')}
 
     def __repr__(self) -> str:
         """Return a string representation of the wrapper."""
@@ -96,10 +100,12 @@ class Wrapper:
         """Return a pretty string representation of the wrapped object."""
         return str(self._obj)
 
+
 class ArrayWrapper(Generic[T]):
     """
     Base class for wrapping a list/array of objects, providing list-like access and iteration.
     """
+
     def __init__(self, data: Sequence[T]) -> None:
         """Initialize the array wrapper with a sequence of objects."""
         self._data = list(data)

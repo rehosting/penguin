@@ -5,8 +5,8 @@ This package contains a collection of **Penguin interventions** plugins for dyna
 
 ## Overview
 
-- **Purpose:**  
-  Enhance the observability, control, and modeling of guest system interactions during emulation or analysis.  
+- **Purpose:**
+  Enhance the observability, control, and modeling of guest system interactions during emulation or analysis.
   Useful for firmware analysis, device modeling, and dynamic introspection.
 
 - **Key Plugins:**
@@ -15,7 +15,7 @@ This package contains a collection of **Penguin interventions** plugins for dyna
   - `hyperfile`: Provide a hypercall-based interface for guest/host file operations.
   - `symex`: Symbolically execute IOCTLs to discover distinct execution paths and constraints.
 
-- **Usage:**  
+- **Usage:**
   Plugins are loaded via the Penguin framework and can be configured for specific analysis tasks.
 
 ---

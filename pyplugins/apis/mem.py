@@ -38,6 +38,7 @@ from hyper.portal import PortalCmd
 from struct import pack, unpack
 from typing import Optional, List, Union, Any, Generator
 
+
 class Mem(Plugin):
     """
     ## Mem Plugin
@@ -58,7 +59,8 @@ class Mem(Plugin):
         self.endian_format = '<' if self.panda.endianness == 'little' else '>'
         self.try_panda = True if self.panda.arch != "riscv64" else False
 
-    def write_bytes(self, addr: int, data: bytes, pid: Optional[int] = None) -> Generator[Any, Any, int]:
+    def write_bytes(self, addr: int, data: bytes,
+                    pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         ### Write bytes to guest memory
 
@@ -97,7 +99,8 @@ class Mem(Plugin):
         self.logger.debug(f"Total bytes written: {len(data)}")
         return len(data)
 
-    def read_bytes(self, addr: int, size: int, pid: Optional[int] = None) -> Generator[Any, Any, bytes]:
+    def read_bytes(self, addr: int, size: int,
+                   pid: Optional[int] = None) -> Generator[Any, Any, bytes]:
         """
         ### Read bytes from guest memory
 
@@ -148,7 +151,8 @@ class Mem(Plugin):
         self.logger.debug(f"Total bytes read: {len(data)}")
         return data
 
-    def read_str(self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, str]:
+    def read_str(self, addr: int,
+                 pid: Optional[int] = None) -> Generator[Any, Any, str]:
         """
         ### Read a null-terminated string from guest memory
 
@@ -175,7 +179,8 @@ class Mem(Plugin):
                 return chunk.decode('latin-1', errors='replace')
         return ""
 
-    def read_int(self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
+    def read_int(self, addr: int,
+                 pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
         """
         ### Read a 4-byte integer from guest memory
 
@@ -198,7 +203,8 @@ class Mem(Plugin):
         self.logger.debug(f"Integer read successfully: value={value}")
         return value
 
-    def read_long(self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
+    def read_long(
+            self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
         """
         ### Read an 8-byte long integer from guest memory
 
@@ -221,7 +227,8 @@ class Mem(Plugin):
         self.logger.debug(f"Long read successfully: value={value}")
         return value
 
-    def read_ptr(self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
+    def read_ptr(self, addr: int,
+                 pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
         """
         ### Read a pointer-sized value from guest memory
 
@@ -242,7 +249,8 @@ class Mem(Plugin):
             raise Exception("read_ptr: Could not determine bits")
         return ptr
 
-    def write_int(self, addr: int, value: int, pid: Optional[int] = None) -> Generator[Any, Any, int]:
+    def write_int(self, addr: int, value: int,
+                  pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         ### Write a 4-byte integer to guest memory
 
@@ -263,7 +271,8 @@ class Mem(Plugin):
         self.logger.debug(f"Integer written successfully: {value}")
         return bytes_written
 
-    def write_long(self, addr: int, value: int, pid: Optional[int] = None) -> Generator[Any, Any, int]:
+    def write_long(self, addr: int, value: int,
+                   pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         ### Write an 8-byte long integer to guest memory
 
@@ -284,7 +293,8 @@ class Mem(Plugin):
         self.logger.debug(f"Long written successfully: {value}")
         return bytes_written
 
-    def write_ptr(self, addr: int, value: int, pid: Optional[int] = None) -> Generator[Any, Any, None]:
+    def write_ptr(self, addr: int, value: int,
+                  pid: Optional[int] = None) -> Generator[Any, Any, None]:
         """
         ### Write a pointer-sized value to guest memory
 
@@ -305,7 +315,8 @@ class Mem(Plugin):
         else:
             raise Exception("read_ptr: Could not determine bits")
 
-    def write_str(self, addr: int, string: Union[str, bytes], null_terminate: bool = True, pid: Optional[int] = None) -> Generator[Any, Any, int]:
+    def write_str(self, addr: int, string: Union[str, bytes], null_terminate: bool = True,
+                  pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         ### Write a string to guest memory
 
@@ -335,8 +346,9 @@ class Mem(Plugin):
         bytes_written = yield from self.write_bytes(addr, data, pid)
         self.logger.debug(f"String written successfully: {len(data)} bytes")
         return bytes_written
-    
-    def read_ptrlist(self, addr: int, length: int, pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
+
+    def read_ptrlist(self, addr: int, length: int,
+                     pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
         """
         ### Read a list of pointer values from guest memory
 
@@ -351,7 +363,7 @@ class Mem(Plugin):
         - `list[int]`: List of pointer values.
         """
         ptrs = []
-        ptrsize = int(self.panda.bits/8)
+        ptrsize = int(self.panda.bits / 8)
         for start in range(length):
             ptr = yield from self.read_ptr(addr + (start * ptrsize), pid)
             if ptr == 0:
@@ -359,7 +371,8 @@ class Mem(Plugin):
             ptrs.append(ptr)
         return ptrs
 
-    def read_char_ptrlist(self, addr: int, length: int, pid: Optional[int] = None) -> Generator[Any, Any, List[str]]:
+    def read_char_ptrlist(self, addr: int, length: int,
+                          pid: Optional[int] = None) -> Generator[Any, Any, List[str]]:
         """
         ### Read a list of null-terminated strings from a list of pointers
 
@@ -379,8 +392,9 @@ class Mem(Plugin):
             strs = yield from self.read_str(ptrlist[start], pid)
             vals.append(strs)
         return vals
-    
-    def read_int_array(self, addr: int, count: int, pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
+
+    def read_int_array(self, addr: int, count: int,
+                       pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
         """
         ### Read an array of 4-byte integers from guest memory
 
@@ -396,11 +410,13 @@ class Mem(Plugin):
         """
         data = yield from self.read_bytes(addr, 4 * count, pid)
         if len(data) != 4 * count:
-            self.logger.error(f"Failed to read int array at addr={addr}, expected {4*count} bytes, got {len(data)}")
+            self.logger.error(
+                f"Failed to read int array at addr={addr}, expected {4*count} bytes, got {len(data)}")
             return []
         return list(unpack(f"{self.endian_format}{count}I", data))
 
-    def write_int_array(self, addr: int, values: List[int], pid: Optional[int] = None) -> Generator[Any, Any, int]:
+    def write_int_array(
+            self, addr: int, values: List[int], pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         ### Write an array of 4-byte integers to guest memory
 
@@ -417,7 +433,8 @@ class Mem(Plugin):
         data = pack(f"{self.endian_format}{len(values)}I", *values)
         return (yield from self.write_bytes(addr, data, pid))
 
-    def read_utf8_str(self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, str]:
+    def read_utf8_str(
+            self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, str]:
         """
         ### Read a null-terminated UTF-8 string from guest memory
 
@@ -444,7 +461,8 @@ class Mem(Plugin):
                 return chunk.decode('utf-8', errors='replace')
         return ""
 
-    def read_byte(self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
+    def read_byte(
+            self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
         """
         ### Read a single byte from guest memory
 
@@ -463,7 +481,8 @@ class Mem(Plugin):
             return None
         return data[0]
 
-    def write_byte(self, addr: int, value: int, pid: Optional[int] = None) -> Generator[Any, Any, int]:
+    def write_byte(self, addr: int, value: int,
+                   pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         ### Write a single byte to guest memory
 
@@ -480,7 +499,8 @@ class Mem(Plugin):
         data = bytes([value & 0xFF])
         return (yield from self.write_bytes(addr, data, pid))
 
-    def read_word(self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
+    def read_word(
+            self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
         """
         ### Read a 2-byte word from guest memory
 
@@ -499,7 +519,8 @@ class Mem(Plugin):
             return None
         return unpack(f"{self.endian_format}H", data)[0]
 
-    def write_word(self, addr: int, value: int, pid: Optional[int] = None) -> Generator[Any, Any, int]:
+    def write_word(self, addr: int, value: int,
+                   pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         ### Write a 2-byte word to guest memory
 
@@ -516,7 +537,8 @@ class Mem(Plugin):
         data = pack(f"{self.endian_format}H", value)
         return (yield from self.write_bytes(addr, data, pid))
 
-    def memset(self, addr: int, value: int, size: int, pid: Optional[int] = None) -> Generator[Any, Any, int]:
+    def memset(self, addr: int, value: int, size: int,
+               pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         ### Set a region of guest memory to a specific byte value
 
@@ -534,7 +556,8 @@ class Mem(Plugin):
         data = bytes([value & 0xFF]) * size
         return (yield from self.write_bytes(addr, data, pid))
 
-    def memcmp(self, addr1: int, addr2: int, size: int, pid: Optional[int] = None) -> Generator[Any, Any, bool]:
+    def memcmp(self, addr1: int, addr2: int, size: int,
+               pid: Optional[int] = None) -> Generator[Any, Any, bool]:
         """
         ### Compare two regions of guest memory for equality
 
@@ -552,4 +575,3 @@ class Mem(Plugin):
         data1 = yield from self.read_bytes(addr1, size, pid)
         data2 = yield from self.read_bytes(addr2, size, pid)
         return data1 == data2
-

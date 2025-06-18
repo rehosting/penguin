@@ -5,17 +5,17 @@ The `hyper` package provides a collection of plugins for the Penguin hypervisor 
 
 ## Overview
 
-- **Purpose:**  
+- **Purpose:**
   The `hyper` package is designed to extend the capabilities of the Penguin hypervisor by offering modular plugins that respond to guest hypercalls, manage shared memory regions, and facilitate plugin-to-plugin communication.
 
-- **Key Features:**  
+- **Key Features:**
   - Logging and auditing of shell and Bash command execution.
   - Tracking and manipulation of U-Boot environment variables.
   - Canary value monitoring for integrity checks.
   - Portal mechanism for efficient command and data transfer between plugins and the hypervisor.
   - Utilities for handling hypercall constants and plugin configuration.
 
-- **Typical Usage:**  
+- **Typical Usage:**
   Plugins in this package are loaded by the Penguin framework and operate transparently, responding to specific events or hypercalls from the guest. Output is typically written to files in a specified output directory for later analysis.
 
 ## Included Plugins

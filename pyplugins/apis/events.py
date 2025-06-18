@@ -72,7 +72,7 @@ EVENTS = {
     iconsts.IGLOO_HYP_ENOENT:   ('igloo_hyp_enoent',      (str,)),
     0xB335A535:         ('igloo_send_hypercall',  (None, int, int)),
     # crc32("busybox")
-    0x8507FAE1:         ('igloo_shell',           (int, int, int)),
+    0x8507FAE1: ('igloo_shell', (int, int, int)),
 }
 
 
@@ -88,6 +88,7 @@ class Events(Plugin):
     - Sets up hypercall handlers for each event.
     - Publishes events with parsed arguments to subscribers.
     """
+
     def __init__(self):
         """
         ## Initialize the Events plugin

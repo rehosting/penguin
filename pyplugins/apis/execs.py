@@ -38,6 +38,7 @@ from wrappers.ptregs_wrap import PtRegsWrapper
 AT_FDCWD: int = -100  # Placeholder, define actual value as needed
 AT_EMPTY_PATH: int = 0x1000  # Placeholder, define actual value as needed
 
+
 class Execs(Plugin):
     """
     Plugin for monitoring execve and execveat syscalls and publishing normalized execution events.
@@ -53,6 +54,7 @@ class Execs(Plugin):
         raw_args (tuple): Raw arguments to the handler
         parent (str): Name of the process making the exec call
     """
+
     def __init__(self) -> None:
         """
         ### Initialize Execs plugin and subscribe to execve/execveat syscalls.
@@ -60,8 +62,9 @@ class Execs(Plugin):
         Registers the plugin and sets up syscall hooks.
         """
         plugins.register(self, "exec_event")
-    
-    def _read_ptrlist(self, ptr: int, chunk_size: int = 8, max_length: int = 256) -> Generator[Any, None, List[str]]:
+
+    def _read_ptrlist(self, ptr: int, chunk_size: int = 8,
+                      max_length: int = 256) -> Generator[Any, None, List[str]]:
         """
         ### Dynamically read a NULL-terminated pointer list from guest memory, with a maximum length for safety.
 
@@ -81,19 +84,20 @@ class Execs(Plugin):
         offset = 0
         consecutive_failures = 0
         max_consecutive_failures = 3
-        
+
         while len(result) < max_length:
             try:
                 buf = yield from plugins.mem.read_ptrlist(ptr + offset * 8, chunk_size)
-                
+
                 # If we get an empty buffer, we've likely hit the end
                 if not buf or len(buf) == 0:
-                    self.logger.debug(f"_read_ptrlist: empty buffer at offset {offset}, stopping")
+                    self.logger.debug(
+                        f"_read_ptrlist: empty buffer at offset {offset}, stopping")
                     break
-                
+
                 # Reset failure counter on successful read
                 consecutive_failures = 0
-                
+
                 found_null = False
                 for i, p in enumerate(buf):
                     if p == 0 or len(result) >= max_length:
@@ -103,38 +107,43 @@ class Execs(Plugin):
                         val = yield from plugins.mem.read_str(p)
                         if val is None or val == "":
                             # Empty string might indicate end of list
-                            self.logger.debug(f"_read_ptrlist: empty string at pointer {hex(p)}, treating as end")
+                            self.logger.debug(
+                                f"_read_ptrlist: empty string at pointer {hex(p)}, treating as end")
                             found_null = True
                             break
                         result.append(val)
                     except Exception as e:
                         # Log and skip unreadable pointers
-                        self.logger.warning(f"_read_ptrlist: error reading string at {hex(p)}: {e}")
+                        self.logger.warning(
+                            f"_read_ptrlist: error reading string at {hex(p)}: {e}")
                         val = "[unreadable]"
                         result.append(val)
-                
+
                 # If we found a null terminator, stop
                 if found_null:
                     break
-                    
+
                 offset += chunk_size
-                
+
             except Exception as e:
                 consecutive_failures += 1
-                self.logger.warning(f"_read_ptrlist: error reading pointer list at offset {offset}: {e}")
-                
+                self.logger.warning(
+                    f"_read_ptrlist: error reading pointer list at offset {offset}: {e}")
+
                 # If we've had too many consecutive failures, give up
                 if consecutive_failures >= max_consecutive_failures:
-                    self.logger.error(f"_read_ptrlist: too many consecutive failures ({consecutive_failures}), stopping")
+                    self.logger.error(
+                        f"_read_ptrlist: too many consecutive failures ({consecutive_failures}), stopping")
                     break
-                
+
                 # Try to continue with the next chunk
                 offset += chunk_size
-        
+
         # If we reach max_length, log a warning
         if len(result) >= max_length:
-            self.logger.warning(f"_read_ptrlist: reached max_length={max_length}, possible unterminated list at {hex(ptr)}")
-        
+            self.logger.warning(
+                f"_read_ptrlist: reached max_length={max_length}, possible unterminated list at {hex(ptr)}")
+
         return result
 
     def _parse_envp(self, envp_list: List[str]) -> Dict[str, str]:
@@ -156,7 +165,8 @@ class Execs(Plugin):
                 env_dict[entry] = ''
         return env_dict
 
-    def _parse_args_env(self, argv_ptr: int, envp_ptr: int) -> Generator[Any, None, tuple[List[str], Dict[str, str]]]:
+    def _parse_args_env(
+            self, argv_ptr: int, envp_ptr: int) -> Generator[Any, None, tuple[List[str], Dict[str, str]]]:
         """
         ### Unified parsing for argv and envp pointers.
 
@@ -174,7 +184,8 @@ class Execs(Plugin):
         envp_dict = self._parse_envp(envp_list)
         return argv_list, envp_dict
 
-    def _resolve_procname_val(self, procname: str, dirfd: Optional[int], flags: Optional[int]) -> Generator[Any, None, Optional[str]]:
+    def _resolve_procname_val(
+            self, procname: str, dirfd: Optional[int], flags: Optional[int]) -> Generator[Any, None, Optional[str]]:
         """
         ### Helper to resolve the effective procname value for execve/execveat, handling dirfd and flags.
 
@@ -190,10 +201,11 @@ class Execs(Plugin):
         """
         if dirfd is not None and flags is not None:
             def is_at_fdcwd(val):
-                return int(val) == AT_FDCWD or (isinstance(val, int) and (val & 0xFFFFFFFF) == (AT_FDCWD & 0xFFFFFFFF))
-            
+                return int(val) == AT_FDCWD or (isinstance(val, int)
+                                                and (val & 0xFFFFFFFF) == (AT_FDCWD & 0xFFFFFFFF))
+
             is_absolute = procname.startswith("/")
-            
+
             if procname == "" and (flags & AT_EMPTY_PATH):
                 # AT_EMPTY_PATH: execute the program referred to by dirfd
                 return (yield from plugins.OSI.get_fd_name(dirfd))
@@ -255,14 +267,16 @@ class Execs(Plugin):
         yield from plugins.portal_publish(self, "exec_event", Wrapper(event))
 
     @plugins.syscalls.syscall("on_sys_execve_enter")
-    def on_execve(self, regs: PtRegsWrapper, proto: Any, syscall: int, fname_ptr: int, argv_ptr: int, envp_ptr: int) -> Generator[Any, None, None]:
+    def on_execve(self, regs: PtRegsWrapper, proto: Any, syscall: int,
+                  fname_ptr: int, argv_ptr: int, envp_ptr: int) -> Generator[Any, None, None]:
         """
         ### Callback for execve syscall. Delegates to shared handler.
         """
         yield from self._handle_exec_event(regs, proto, syscall, fname_ptr, argv_ptr, envp_ptr)
 
     @plugins.syscalls.syscall("on_sys_execveat_enter")
-    def on_execveat(self, regs: PtRegsWrapper, proto: Any, syscall: int, dirfd: int, fname_ptr: int, argv_ptr: int, envp_ptr: int, flags: int) -> Generator[Any, None, None]:
+    def on_execveat(self, regs: PtRegsWrapper, proto: Any, syscall: int, dirfd: int,
+                    fname_ptr: int, argv_ptr: int, envp_ptr: int, flags: int) -> Generator[Any, None, None]:
         """
         ### Callback for execveat syscall. Delegates to shared handler.
         """

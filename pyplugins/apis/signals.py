@@ -25,10 +25,11 @@ pid = yield from plugins.signals.self_signal(15)
 ```
 """
 
-from penguin import Plugin 
+from penguin import Plugin
 from hyper.consts import HYPER_OP as hop
 from hyper.portal import PortalCmd
 from typing import Optional, Generator, Any
+
 
 class Signals(Plugin):
     """
@@ -37,7 +38,8 @@ class Signals(Plugin):
     Provides methods to trigger core dumps, crash snapshots, and send signals to guest processes via the hypervisor portal.
     """
 
-    def dump(self, mode: int = 0, signal: int = 0) -> Generator[Any, None, Optional[int]]:
+    def dump(self, mode: int = 0,
+             signal: int = 0) -> Generator[Any, None, Optional[int]]:
         """
         ### Trigger a core dump or signal in the guest
 

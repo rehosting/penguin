@@ -62,11 +62,13 @@ class SendHypercall(Plugin):
         self.outdir = self.get_arg("outdir")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
-        self.registered_events: Dict[str, Callable[..., Tuple[int, Union[str, bytes]]]] = {}
+        self.registered_events: Dict[str, Callable[...,
+                                                   Tuple[int, Union[str, bytes]]]] = {}
         plugins.subscribe(
             plugins.Events, "igloo_send_hypercall", self.on_send_hypercall)
 
-    def subscribe(self, event: str, callback: Callable[..., Tuple[int, Union[str, bytes]]] = None):
+    def subscribe(self, event: str,
+                  callback: Callable[..., Tuple[int, Union[str, bytes]]] = None):
         """
         ### Register a callback for a specific hypercall event
 
@@ -97,7 +99,8 @@ class SendHypercall(Plugin):
             raise ValueError(f"Already subscribed to event {event}")
         self.registered_events[event] = callback
 
-    def on_send_hypercall(self, cpu: Any, buf_addr: int, buf_num_ptrs: int) -> None:
+    def on_send_hypercall(self, cpu: Any, buf_addr: int,
+                          buf_num_ptrs: int) -> None:
         """
         ### Handle an incoming hypercall from the guest
 
@@ -140,7 +143,8 @@ class SendHypercall(Plugin):
             return
 
         # If cb is an unbound method, try to resolve the class and bind it
-        if hasattr(cb, "__qualname__") and "." in cb.__qualname__ and not hasattr(cb, "__self__"):
+        if hasattr(cb, "__qualname__") and "." in cb.__qualname__ and not hasattr(
+                cb, "__self__"):
             class_name = cb.__qualname__.split(".")[0]
             # Try to get the class instance from plugins singleton
             instance = getattr(plugins, class_name, None)

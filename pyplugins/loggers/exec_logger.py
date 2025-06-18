@@ -21,6 +21,7 @@ The plugin extracts relevant fields and stores them in the database using the `E
 from penguin import plugins, Plugin
 from events.types import Exec
 
+
 class ExecLog(Plugin):
     """
     Plugin for logging process execution (exec) events to the database.
@@ -67,7 +68,7 @@ class ExecLog(Plugin):
         else:
             euid = -1
             egid = -1
-        
+
         self.DB.add_event(
             Exec(
                 calltree="",

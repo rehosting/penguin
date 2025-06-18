@@ -52,8 +52,6 @@ from os.path import join
 from penguin import Plugin, plugins
 from penguin.defaults import static_dir
 
-static_dir = "/igloo_static/"
-
 running_vpns = []
 
 

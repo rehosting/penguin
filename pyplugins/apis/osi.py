@@ -42,7 +42,7 @@ from hyper.consts import HYPER_OP as hop
 from hyper.portal import PortalCmd
 from wrappers.generic import Wrapper
 from wrappers.osi_wrap import MappingWrapper, MappingsWrapper
-from typing import List, Dict, Any, Optional, Generator, Union
+from typing import List, Dict, Any, Optional, Generator
 
 kffi = plugins.kffi
 CONST_UNKNOWN_STR = "[???]"
@@ -58,7 +58,8 @@ class OSI(Plugin):
     - `logger`: Logger for debug and error messages.
     """
 
-    def get_fd_name(self, fd: int, pid: Optional[int] = None) -> Generator[Any, None, Optional[str]]:
+    def get_fd_name(
+            self, fd: int, pid: Optional[int] = None) -> Generator[Any, None, Optional[str]]:
         """
         ### Get the filename for a specific file descriptor
 
@@ -81,9 +82,10 @@ class OSI(Plugin):
             self.logger.debug(
                 f"File descriptor name read successfully: {fd_name}")
             return fd_name
-        return 
+        return
 
-    def get_args(self, pid: Optional[int] = None) -> Generator[Any, None, List[str]]:
+    def get_args(self, pid: Optional[int]
+                 = None) -> Generator[Any, None, List[str]]:
         """
         ### Get the argument list for a process
 
@@ -112,20 +114,23 @@ class OSI(Plugin):
         # The kernel function converts nulls to spaces except for the last one
         args = proc_args.decode('latin-1', errors='replace').split()
 
-        # Remove any binary garbage that might be present (common issue with syscalls)
+        # Remove any binary garbage that might be present (common issue with
+        # syscalls)
         clean_args = []
         for arg in args:
             # Remove trailing null characters from each argument
             arg = arg.rstrip('\0')
 
-            # Simple heuristic: if most chars are printable, it's probably a valid arg
+            # Simple heuristic: if most chars are printable, it's probably a
+            # valid arg
             if sum(c.isprintable() for c in arg) > len(arg) * 0.8:
                 clean_args.append(arg)
 
         self.logger.debug(f"Proc args read successfully: {clean_args}")
         return clean_args
 
-    def get_proc_name(self, pid: Optional[int] = None) -> Generator[Any, None, str]:
+    def get_proc_name(
+            self, pid: Optional[int] = None) -> Generator[Any, None, str]:
         """
         ### Get the process name (first argument) for a process
 
@@ -141,7 +146,8 @@ class OSI(Plugin):
             return proc_name[0]
         return CONST_UNKNOWN_STR
 
-    def get_env(self, pid: Optional[int] = None) -> Generator[Any, None, Dict[str, str]]:
+    def get_env(self, pid: Optional[int]
+                = None) -> Generator[Any, None, Dict[str, str]]:
         """
         ### Get the environment variables for a process
 
@@ -161,7 +167,8 @@ class OSI(Plugin):
             return env
         return {}
 
-    def get_proc(self, pid: Optional[int] = None) -> Generator[Any, None, Optional[Wrapper]]:
+    def get_proc(
+            self, pid: Optional[int] = None) -> Generator[Any, None, Optional[Wrapper]]:
         """
         ### Get detailed process information for a process
 
@@ -178,7 +185,8 @@ class OSI(Plugin):
             wrap.name = proc_bytes[pb.name_offset:].decode("latin-1")
             return wrap
 
-    def get_mappings(self, pid: Optional[int] = None) -> Generator[Any, None, MappingsWrapper]:
+    def get_mappings(
+            self, pid: Optional[int] = None) -> Generator[Any, None, MappingsWrapper]:
         """
         ### Get memory mappings for a process
 
@@ -247,10 +255,12 @@ class OSI(Plugin):
                         "osi_module", mappings_bytes, instance_offset_in_buffer=offset)
                     mapping = MappingWrapper(b)
 
-                    # Check if name_offset is within bounds, and if the offset makes sense
+                    # Check if name_offset is within bounds, and if the offset
+                    # makes sense
                     if mapping.name_offset and mapping.name_offset < total_size:
                         try:
-                            # Find null terminator - safely handle potential out-of-bounds access
+                            # Find null terminator - safely handle potential
+                            # out-of-bounds access
                             end = mappings_bytes.find(
                                 b'\0', mapping.name_offset)
                             if end != -1 and end < total_size:
@@ -258,10 +268,11 @@ class OSI(Plugin):
                                     'latin-1', errors='replace')
                                 mapping.name = name
                             else:
-                                # If no null terminator found or out of bounds, use a limited slice
+                                # If no null terminator found or out of bounds,
+                                # use a limited slice
                                 max_name_len = total_size - mapping.name_offset
                                 if max_name_len > 0:
-                                    name = mappings_bytes[mapping.name_offset:mapping.name_offset+max_name_len].decode(
+                                    name = mappings_bytes[mapping.name_offset:mapping.name_offset + max_name_len].decode(
                                         'latin-1', errors='replace')
                                     mapping.name = name
                                 else:
@@ -281,7 +292,8 @@ class OSI(Plugin):
 
             all_mappings.extend(mappings)
 
-            # If we received less mappings than requested or already have all mappings, we're done
+            # If we received less mappings than requested or already have all
+            # mappings, we're done
             if len(mappings) == 0 or len(all_mappings) >= total_count:
                 break
 
@@ -367,7 +379,8 @@ class OSI(Plugin):
         self.logger.debug(f"Retrieved {len(handles)} process handles")
         return handles
 
-    def get_fds(self, pid: Optional[int] = None, start_fd: int = 0, count: Optional[int] = None) -> Generator[Any, None, List[Wrapper]]:
+    def get_fds(self, pid: Optional[int] = None, start_fd: int = 0,
+                count: Optional[int] = None) -> Generator[Any, None, List[Wrapper]]:
         """
         ### Retrieve file descriptors for a process
 
@@ -455,7 +468,7 @@ class OSI(Plugin):
                                 max_name_len = min(
                                     256, total_size - fd_entry.name_offset)
                                 if max_name_len > 0:
-                                    name = fds_bytes[fd_entry.name_offset:fd_entry.name_offset+max_name_len].decode(
+                                    name = fds_bytes[fd_entry.name_offset:fd_entry.name_offset + max_name_len].decode(
                                         'latin-1', errors='replace')
                                     fd_wrapper.name = name
                                 else:
@@ -496,7 +509,8 @@ class OSI(Plugin):
         # Just return the list of FDs
         return fds
 
-    def get_mapping_by_addr(self, addr: int) -> Generator[Any, None, Optional[MappingWrapper]]:
+    def get_mapping_by_addr(
+            self, addr: int) -> Generator[Any, None, Optional[MappingWrapper]]:
         """
         ### Get the memory mapping containing a specific address
 

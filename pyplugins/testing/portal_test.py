@@ -162,6 +162,7 @@ class PortalTest(Plugin):
                 print(f"FD: {f.fd} -> {f.name}")
 
     plugins.syscalls.syscall("on_sys_ioctl_return", arg_filters=[None, 0x89f3])
+
     def ioctl_val(self, regs, proto, syscall, fd, op, arg):
         # check our arguments
         assert fd == 0, f"Expected fd 0, got {fd:#x}"

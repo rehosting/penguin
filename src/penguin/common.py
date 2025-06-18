@@ -135,7 +135,7 @@ def getColoredLogger(name):
 
     # Save the original setLevel method before replacing it
     original_set_level = logger.setLevel
-    
+
     def custom_set_level(level):
         # Call the original method, not the monkeypatched one
         original_set_level(level)

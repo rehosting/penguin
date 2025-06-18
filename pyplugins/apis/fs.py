@@ -33,6 +33,7 @@ from penguin import Plugin
 from hyper.consts import HYPER_OP as hop
 from hyper.portal import PortalCmd
 
+
 class FS(Plugin):
     """
     # FS Plugin
@@ -48,7 +49,9 @@ class FS(Plugin):
 
     > **Note:** All methods are generated and their signatures and types are enforced.
     """
-    def read_file(self, fname: str, size: int = None, offset: int = 0) -> bytes:
+
+    def read_file(self, fname: str, size: int = None,
+                  offset: int = 0) -> bytes:
         """
         ## Read a file from the guest filesystem
 
@@ -135,7 +138,8 @@ class FS(Plugin):
 
         return all_data
 
-    def write_file(self, fname: str, data: bytes | str, offset: int = 0) -> int:
+    def write_file(self, fname: str, data: bytes |
+                   str, offset: int = 0) -> int:
         """
         ## Write data to a file in the guest filesystem
 
@@ -177,7 +181,8 @@ class FS(Plugin):
         current_pos = 0
 
         while current_pos < len(data):
-            # Calculate maximum chunk size to fit in memory region, considering filename length
+            # Calculate maximum chunk size to fit in memory region, considering
+            # filename length
             max_chunk = max_data_size - 16  # Add safety margin
             chunk_size = min(max_chunk, len(data) - current_pos)
 

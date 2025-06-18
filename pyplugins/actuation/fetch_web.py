@@ -58,7 +58,6 @@ class FetchWeb(Plugin):
         self.outdir = self.get_arg("outdir")
         self.shutdown_after_www = self.get_arg_bool("shutdown_after_www")
         self.shutdown_on_failure = self.get_arg_bool("shutdown_on_failure")
-        self.logger = getColoredLogger("plugins.fetch_web")
         if (delay := self.get_arg("fetch_delay")):
             self.fetch_delay = int(delay)
             self.logger.info(f"Fetch delay set to {self.fetch_delay} seconds")
