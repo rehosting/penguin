@@ -1,7 +1,7 @@
 """
 # Event Types
 
-This module defines the main event types for the cleanguin event database, each as a subclass of `Event`.
+This module defines the main event types for the penguin event database, each as a subclass of `Event`.
 These types represent different kinds of system events (read, write, syscall, exec) and are mapped to
 corresponding tables in the database using SQLAlchemy ORM.
 

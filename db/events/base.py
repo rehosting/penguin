@@ -1,7 +1,7 @@
 """
 # Events Base Models
 
-This module defines the SQLAlchemy base classes and the core `Event` model for the cleanguin event database.
+This module defines the SQLAlchemy base classes and the core `Event` model for the penguin event database.
 All event types inherit from `Event`, which provides polymorphic mapping for different event subtypes.
 
 ## Example usage
