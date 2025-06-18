@@ -1,3 +1,30 @@
+"""
+# Pseudofiles Plugin
+
+This module implements a Penguin plugin for modeling and tracking accesses to pseudo-files
+(e.g., `/dev`, `/proc`, `/sys`) in embedded Linux environments. It provides mechanisms to
+simulate device files, log missing file accesses, and model file behaviors for analysis.
+
+## Purpose
+
+- Models pseudo-files and device files for analysis and emulation.
+- Logs missing or failed file accesses for further investigation.
+- Supports custom read, write, and ioctl models for each pseudo-file.
+- Integrates with the HyperFile plugin for advanced modeling.
+- Optionally launches symbolic execution for ioctl failures.
+
+## Usage
+
+The plugin can be configured with the following arguments:
+- `outdir`: Output directory for logs.
+- `proj_dir`: Project directory for relative file paths.
+- `conf`: Configuration dictionary with pseudo-file models.
+- `verbose`: Enables debug logging.
+
+All missing or failed file accesses are logged to `pseudofiles_failures.yaml` in the specified output directory.
+
+"""
+
 import logging
 import re
 from os.path import dirname, isfile, isabs
@@ -133,7 +160,38 @@ def sort_file_failures(d):
 
 
 class Pseudofiles(Plugin):
+    """
+    Pseudofiles is a Penguin plugin that models and logs accesses to pseudo-files in the guest.
+
+    ## Attributes
+    - outdir (`str`): Output directory for logs.
+    - proj_dir (`str`): Project directory for relative file paths.
+    - written_data (`dict[str, bytes]`): Tracks data written to files.
+    - ENOENT (`int`): Error code for "No such file or directory".
+    - warned (`set`): Set of syscalls seen but not known.
+    - file_failures (`dict`): Tracks failed file accesses.
+    - config (`dict`): Plugin configuration.
+    - devfs, procfs, sysfs (`list`): Lists of device, proc, and sys files.
+    - hf_config (`dict`): HyperFile configuration.
+    - did_mtd_warn (`bool`): Warned about MTD device config.
+    - need_ioctl_hooks (`bool`): Whether ioctl hooks are needed.
+    """
+
     def __init__(self):
+        """
+        Initialize the Pseudofiles plugin.
+
+        - Reads configuration arguments.
+        - Loads HyperFile models.
+        - Subscribes to relevant events.
+        - Sets up logging and internal state.
+
+        **Arguments**:
+        - None (uses plugin argument interface)
+
+        **Returns**:
+        - None
+        """
         self.outdir = self.get_arg("outdir")
         self.proj_dir = self.get_arg("proj_dir")
         self.written_data = {}  # filename -> data that was written to it
@@ -194,7 +252,18 @@ class Pseudofiles(Plugin):
         if self.need_ioctl_hooks:
             plugins.syscalls.syscall("on_sys_ioctl_return")(self.symex_ioctl_return)
 
-    def gen_hyperfile_function(self, filename, details, ftype):
+    def gen_hyperfile_function(self, filename: str, details: dict, ftype: str):
+        """
+        Generate a HyperFile function for a given file and operation type.
+
+        **Arguments**:
+        - filename (`str`): Name of the pseudo-file.
+        - details (`dict`): File modeling details.
+        - ftype (`str`): Operation type ('read', 'write', 'ioctl').
+
+        **Returns**:
+        - Callable implementing the model for the operation.
+        """
         if ftype not in details or "model" not in details[ftype]:
             model = "default"  # default is default
         else:
@@ -224,7 +293,16 @@ class Pseudofiles(Plugin):
             details[ftype] if ftype in details else {}, fn
         )
 
-    def populate_hf_config(self):
+    def populate_hf_config(self) -> dict:
+        """
+        Populate the HyperFile configuration from the plugin config.
+
+        **Arguments**:
+        - None
+
+        **Returns**:
+        - `dict`: HyperFile configuration dictionary.
+        """
         # XXX We need this import in here, otherwise when we load psueodfiles with panda.load_plugin /path/to/pseudofiles.py
         # it sees both FileFailures AND HyperFile. But we only want hyperfile to be loaded by us here, not by our caller.
         # we are not currently using HYPER_WRITE so we do not import it
@@ -285,6 +363,20 @@ class Pseudofiles(Plugin):
         return hf_config
 
     def symex_ioctl_return(self, cpu, proto, syscall, fd, cmd, arg):
+        """
+        Handle the return from an ioctl syscall and launch symbolic execution if needed.
+
+        **Arguments**:
+        - cpu: CPU context (opaque, framework-specific)
+        - proto: Protocol context (opaque, framework-specific)
+        - syscall: Syscall context, with `.retval` for return value
+        - fd: File descriptor
+        - cmd: IOCTL command
+        - arg: IOCTL argument
+
+        **Returns**:
+        - None
+        """
         # We'll return -999 as a magic placeholder value that indicates we should
         # Start symex. Is this a terrible hack. You betcha!
         rv = syscall.retval
@@ -323,12 +415,33 @@ class Pseudofiles(Plugin):
         # set retval to 0 with no error.
         syscall.retval = 0
 
-    def hyp_enoent(self, cpu, file):
+    def hyp_enoent(self, cpu, file: str):
+        """
+        Handle ENOENT (file not found) events for pseudo-files.
+
+        **Arguments**:
+        - cpu: CPU context (opaque, framework-specific)
+        - file (`str`): File path accessed
+
+        **Returns**:
+        - None
+        """
         if any(file.startswith(x) for x in ("/dev/", "/proc/", "/sys/")):
             self.centralized_log(file, "syscall")
 
     #######################################
-    def centralized_log(self, path, event, event_details=None):
+    def centralized_log(self, path: str, event: str, event_details=None):
+        """
+        Log a failure to access a given path if it is interesting.
+
+        **Arguments**:
+        - path (`str`): File path accessed
+        - event (`str`): Event type (e.g., 'open', 'read', 'ioctl')
+        - event_details: Optional additional event details
+
+        **Returns**:
+        - None
+        """
         # Log a failure to open a given path if it's interesting
         # We just track count
         if not path_interesting(path):
@@ -355,155 +468,245 @@ class Pseudofiles(Plugin):
                 self.file_failures[path][event]["details"] = []
             self.file_failures[path][event]["details"].append(event_details)
 
-    def proc_mtd_check(self, filename, buffer, length, offset, details=None):
+    def proc_mtd_check(self, filename: str, buffer, length: int, offset: int, details=None):
         """
-        The guest is reading /proc/mtd. We should populate this file
-        dynamically based on the /dev/mtd* devices we've set up.
-
-        These devices have a name in addition to other properties:
-        /dev/mtd0:
-            name: mymtdname
-            read:
-                model: return_const
-                buf: "foo"
-        """
-
-        assert filename == "/proc/mtd"
-
-        # For each device in our config that's /dev/mtdX, we'll add a line to the buffer
-        # Buffer size is limited to 512 in kernel for now.
-        buf = ""
-        did_warn = False
-        for filename, details in self.config["pseudofiles"].items():
-            if not filename.startswith("/dev/mtd"):
-                continue
-
-            idx = filename.split("/dev/mtd")[1]
-            if idx.startswith("/"):  # i.e., /dev/mtd/0 -> 0
-                idx = idx[1:]
-
-            if not idx.isdigit():
-                if not self.did_mtd_warn:
-                    did_warn = True
-                    self.logger.warning(
-                        f"Mtd device {filename} is non-numeric. Skipping in /proc/mtd report"
-                    )
-                continue
-
-            if "name" not in details:
-                if not self.did_mtd_warn:
-                    did_warn = True
-                    self.logger.warning(
-                        f"Mtd device {filename} has no name. Skipping in /proc/mtd report"
-                    )
-                continue
-
-            buf += 'mtd{}: {:08x} {:08x} "{}"\n'.format(
-                int(idx), 0x1000000, 0x20000, details["name"]
-            )
-
-        if did_warn:
-            self.did_mtd_warn = True
-
-        buf = buf[offset: offset + length].encode()
-
-        if len(buf) == 0:
-            with open(pjoin(self.outdir, "pseudofiles_proc_mtd.txt"), "w") as f:
-                f.write("/proc/mtd was read with no devices in config")
-
-            # The guest read /proc/mtd, but we didn't have anything set up in it! Perhaps
-            # it's looking for a device of a specific name - potential failure we can mitigate
-            # self.file_failures['/proc/mtd'] = {'read': {'count': 1, 'details': 'special: no mtd devices in pseudofiles'}}
-
-        return (buf, len(buf))
-
-    def fail_detect_ioctl(self, cpu, fname, cmd):
-        # A regular (non-dyndev) device was ioctl'd and is returning -ENOTTY so our hypercall triggers
-        self.log_ioctl_failure(fname, cmd)
-
-    def fail_detect_opens(self, cpu, fname, fd):
-        fd = self.panda.from_unsigned_guest(fd)
-
-        if fd == -self.ENOENT:
-            # enoent let's gooooo
-            self.centralized_log(fname, "open")
-
-    def log_ioctl_failure(self, path, cmd):
-        # This might trigger twice, depending on the -ENOTTY path
-        # between our dyndev ioctl handler and do_vfs_ioctl?
-
-        if ignore_ioctl_path(path) or ignore_cmd(cmd):
-            # Uninteresting
-            return
-
-        if path not in self.file_failures:
-            self.file_failures[path] = {}
-
-        if "ioctl" not in self.file_failures[path]:
-            self.file_failures[path]["ioctl"] = {}
-
-        first = False
-        if cmd not in self.file_failures[path]["ioctl"]:
-            self.file_failures[path]["ioctl"][cmd] = {"count": 0}
-            first = True
-
-        self.file_failures[path]["ioctl"][cmd]["count"] += 1
-        if first:
-            # The first time we see an IOCTL update our results on disk
-            # This is just relevant if someone's watching the output during a run
-            # final results are always written at the end.
-            self.dump_results()
-            self.logger.debug(f"New ioctl failure observed: {cmd:x} on {path}")
-
-    def read_zero(self, filename, buffer, length, offset, details=None):
-        # Simple peripheral model inspired by firmadyne/firmae. Just return 0.
-        # If we've seen a write to this device, mix that data in with 0s padding around it
-        data = b"0"
-        if filename in self.written_data:
-            data = self.written_data[filename]
-
-        final_data = data[offset: offset + length]
-        # XXX if offset > len(data) should we return an error instead of 0?
-        return (final_data, len(final_data))  # data, rv
-
-    def read_one(self, filename, buffer, length, offset, details=None):
-        data = b"1"
-        if filename in self.written_data:
-            data = self.written_data[filename]
-
-        final_data = data[offset: offset + length]
-        # XXX if offset > len(data) should we return an error instead of 0?
-        return (final_data, len(final_data))  # data, rv
-
-    def read_empty(self, filename, buffer, length, offset, details=None):
-        data = b""
-        # XXX if offset > len(data) should we return an error instead of 0?
+        Populate /proc/mtd dynamically based on configured MTD devices.
         return (data, 0)  # data, rv
 
     def read_const_buf(self, filename, buffer, length, offset, details=None):
         data = details["val"].encode() + b"\x00"  # Null terminate?
         final_data = data[offset: offset + length]
         # XXX if offset > len(data) should we return an error instead of 0?
-        if offset > len(data):
-            return (b"", 0)  # -EINVAL
 
+        **Arguments**:            return (b"", 0)  # -EINVAL
+        - filename (`str`): File being read (should be '/proc/mtd')
         return (final_data, len(final_data))  # data, rv
+        - buffer: Buffer to read into (unused)
+        - length (`int`): Number of bytes to read
+        - offset (`int`): Offset into the file
+        - details: Additional details (unused)buffer
 
-    def _render_file(self, details):
-        # Given offset: data mapping plus a pad, we
-        # combine to return a buffer
-        pad = b"\x00"
+        **Returns**:        if "pad" in details:
+        - Tuple[bytes, int]: Data read and number of bytes read
+        """                pad = details["pad"].encode()
+        assert filename == "/proc/mtd""pad"], int):
+
+        # For each device in our config that's /dev/mtdX, we'll add a line to the buffer
+        # Buffer size is limited to 512 in kernel for now. ValueError("const_map: pad value must be string or int")
+        buf = ""
+        did_warn = Falseails else 0x10000
+        for filename, details in self.config["pseudofiles"].items():
+            if not filename.startswith("/dev/mtd"):
+                continueghest
+: v for k, v in sorted(vals.items(), key=lambda item: item[0])}
+            idx = filename.split("/dev/mtd")[1]
+            if idx.startswith("/"):  # i.e., /dev/mtd/0 -> 0        # now we flatten. For each offset, val pair
+                idx = idx[1:]
+ist(vals.keys())[0] if len(vals.keys()) else 0)
+            if not idx.isdigit():
+                if not self.did_mtd_warn:
+                    did_warn = True
+                    self.logger.warning(            # may be a string, a list of ints (for non-printable chars)
+                        f"Mtd device {filename} is non-numeric. Skipping in /proc/mtd report"null terminators
+                    )
+                continue
+                val = val.encode()
+            if "name" not in details:
+                if not self.did_mtd_warn:
+                    did_warn = True
+                    self.logger.warning(
+                        f"Mtd device {filename} has no name. Skipping in /proc/mtd report"
+                    ) type. Could support a list of lists e.g., ["key=val", [0x41, 0x00, 0x42], ...]?
+                continue
+                for this_val in val[1:]:
+            buf += 'mtd{}: {:08x} {:08x} "{}"\n'.format(his_val, type(first_val)):
+                int(idx), 0x1000000, 0x20000, details["name"]lueError(
+            )atching vals but we have {this_val} and {first_val}"
+                        )
+        if did_warn:
+            self.did_mtd_warn = Truet_val, int):
+ints - these are non-printable chars
+        buf = buf[offset: offset + length].encode()
+
+        if len(buf) == 0:
+            with open(pjoin(self.outdir, "pseudofiles_proc_mtd.txt"), "w") as f:n this list with null bytes
+                f.write("/proc/mtd was read with no devices in config")                    val = b"\x00".join([x.encode() for x in val])
+
+            # The guest read /proc/mtd, but we didn't have anything set up in it! Perhaps
+            # it's looking for a device of a specific name - potential failure we can mitigateals must be strings lists of ints/strings"
+            # self.file_failures['/proc/mtd'] = {'read': {'count': 1, 'details': 'special: no mtd devices in pseudofiles'}}                )
+
+        return (buf, len(buf))lue
+
+    def fail_detect_ioctl(self, cpu, fname: str, cmd: int):
+        """
+        Detect and log ioctl failures on pseudo-files.}"
+ad * (size - len(data))
+        **Arguments**:        return data
+        - cpu: CPU context (opaque, framework-specific)
+        - fname (`str`): File path accessedngth, offset, details=None):
+        - cmd (`int`): IOCTL command        data = self._render_file(details)
+: offset + length]
+        **Returns**:
+        - Noneno bytes read
+        """
+        # A regular (non-dyndev) device was ioctl'd and is returning -ENOTTY so our hypercall triggers        return (final_data, len(final_data))  # data, length
+        self.log_ioctl_failure(fname, cmd)
+e, buffer, length, offset, details=None):
+    def fail_detect_opens(self, cpu, fname: str, fd: int):ified pad, size, vals
+        """e guest, we read from the host file.
+        Detect and log open failures (ENOENT) on pseudo-files.
+
+        **Arguments**:
+        - cpu: CPU context (opaque, framework-specific)            # Paths are relative to the project directory, unless absolute
+        - fname (`str`): File path accessed
+        - fd (`int`): File descriptor returned
+
+        **Returns**:
+        - None            data = self._render_file(details)
+        """le
+        fd = self.panda.from_unsigned_guest(fd)
+
+        if fd == -self.ENOENT:
+            # enoent let's gooooo
+            self.centralized_log(fname, "open")) as f:
+
+    def log_ioctl_failure(self, path: str, cmd: int):ength)
+        """
+        Log an ioctl failure for a given path and command.en(final_data))  # data, length
+
+        **Arguments**:filename, buffer, length, offset, details=None):
+        - path (`str`): File path accessedlename} with {length} bytes at {offset}:")
+        - cmd (`int`): IOCTL commandilename"]  # Host file
+
+        **Returns**:        if not isabs(fname):
+        - Nonenless absolute
+        """            fname = pjoin(self.proj_dir, fname)
+        # This might trigger twice, depending on the -ENOTTY path
+        # between our dyndev ioctl handler and do_vfs_ioctl?
+
+        if ignore_ioctl_path(path) or ignore_cmd(cmd):            data = f.read(length)
+            # Uninteresting
+            return
+
+        if path not in self.file_failures:    def write_to_file(self, filename, buffer, length, offset, contents, details=None):
+            self.file_failures[path] = {} # Host file
+):
+        if "ioctl" not in self.file_failures[path]:to the project directory, unless absolute
+            self.file_failures[path]["ioctl"] = {}            fname = pjoin(self.proj_dir, fname)
+
+        first = False            f"Writing {fname} with {length} bytes at {offset}: {contents[:100]}"
+        if cmd not in self.file_failures[path]["ioctl"]:
+            self.file_failures[path]["ioctl"][cmd] = {"count": 0}
+            first = True") as f:
+
+        self.file_failures[path]["ioctl"][cmd]["count"] += 1
+        if first:
+            # The first time we see an IOCTL update our results on disk
+            # This is just relevant if someone's watching the output during a run
+            # final results are always written at the end.    def write_discard(self, filename, buffer, length, offset, contents, details=None):
+            self.dump_results()iscard - not sure where it's used right now and default is a better model in general
+            self.logger.debug(f"New ioctl failure observed: {cmd:x} on {path}")default(filename, buffer, length, offset, contents, details)
+
+    def read_zero(self, filename: str, buffer, length: int, offset: int, details=None):    def write_default(self, filename, buffer, length, offset, contents, details=None):
+        """ontents for this file
+        Model a read that returns zero bytes or previously written data.        # print(f"{filename} writes {length} bytes at {offset}: {contents[:100]}")
+
+        **Arguments**:
+        - filename (`str`): File being read
+        - buffer: Buffer to read into (unused)        previous = self.written_data[filename][:offset]
+        - length (`int`): Number of bytes to read
+        - offset (`int`): Offset into the file
+        - details: Additional details (unused)
+
+        **Returns**:
+        - Tuple[bytes, int]: Data read and number of bytes read
+        """
+        data = b"0"filename][offset + length:]
+        if filename in self.written_data:en_data[filename]) > offset + length
+            data = self.written_data[filename]
+
+        final_data = data[offset: offset + length]
+        # XXX if offset > len(data) should we return an error instead of 0?
+        return (final_data, len(final_data))  # data, rv
+ld we explicitly error and require a model?
+    def read_one(self, filename: str, buffer, length: int, offset: int, details=None):nts, details=None):
+        """d_log(filename, 'write')
+        Model a read that returns one bytes or previously written data.rn -22 # -EINVAL - we don't support writes
+
+        **Arguments**:- log failures
+        - filename (`str`): File being read    def read_default(self, filename, buffer, length, offset, details=None):
+        - buffer: Buffer to read into (unused)
+        - length (`int`): Number of bytes to read
+        - offset (`int`): Offset into the file
+        - details: Additional details (unused)
+    # default is a bit of a misnomer, it's our default ioctl handler which
+        **Returns**:i.e., error) on issue of unspecified ioctls,
+        - Tuple[bytes, int]: Data read and number of bytes read
+        """, ioctl_details):
+        data = b"1"
+        if filename in self.written_data:        Given a cmd and arg, return a value
+            data = self.written_data[filename]
+
+        final_data = data[offset: offset + length]
+        # XXX if offset > len(data) should we return an error instead of 0?
+        return (final_data, len(final_data))  # data, rv
+ry to use cmd as our key, but '*' is a fallback
+    def read_empty(self, filename: str, buffer, length: int, offset: int, details=None):
+        """:
+        Model a read that returns an empty buffer.ails[cmd]
+
+        **Arguments**:l_details["*"]
+        - filename (`str`): File being read # is_wildcard = True
+        - buffer: Buffer to read into (unused)
+        - length (`int`): Number of bytes to readilure(filename, cmd)
+        - offset (`int`): Offset into the fileY
+        - details: Additional details (unused)
+"]
+        **Returns**:
+        - Tuple[bytes, int]: Empty data and zero bytes readt":
+        """v = cmd_details["val"]
+        data = b""
+        # XXX if offset > len(data) should we return an error instead of 0?
+        return (data, 0)  # data, rv        elif model == "symex":
+fferent from normal models.
+    def read_const_buf(self, filename: str, buffer, length: int, offset: int, details=None):            # First off, these models need to specify a 'val' just like any other
+        """and, to be honest, during) symex.
+        Model a read that returns a constant buffer.s use 0 when doing symex!
+
+        **Arguments**:            # if self.last_symex:
+        - filename (`str`): File being readt and encode info in our retval
+        - buffer: Buffer to read into (unused)lly
+        - length (`int`): Number of bytes to read
+        - offset (`int`): Offset into the file
+        - details: Additional details, must contain 'val' key
+            return MAGIC_SYMEX_RETVAL  # We'll detect this on the return and know what to do. I think?
+        **Returns**:n":
+        - Tuple[bytes, int]: Data read and number of bytes read
+        """
+        data = details["val"].encode() + b"\x00"  # Null terminate?", "ioctl")
+        final_data = data[offset: offset + length]
+        # XXX if offset > len(data) should we return an error instead of 0?c)
+        if offset > len(data):
+            return (b"", 0)  # -EINVALyperfile {filename} depends on plugin {plugin} which does not have function {func}")
+etails)
+        return (final_data, len(final_data))  # data, rv
+rmed. Bail
+    def _render_file(self, details: dict) -> bytes:orted ioctl model {model} for cmd {cmd}")
+        """
+        Render a file's contents from a details dictionary.
+
+        **Arguments**:
+        - details (`dict`): File modeling detailsopen(pjoin(self.outdir, outfile_missing), "w") as f:
+
+        **Returns**:
+        - `bytes`: Rendered file data
+        """        if hasattr(self, "symex"):
+        pad = b"\x00"symex to export results as well
         if "pad" in details:
             if isinstance(details["pad"], str):
                 pad = details["pad"].encode()
-            elif isinstance(details["pad"], int):
-                pad = bytes([details["pad"]])
-            else:
-                raise ValueError("const_map: pad value must be string or int")
-
-        size = details["size"] if "size" in details else 0x10000
-        vals = details["vals"]
-
+            elif isinstance(details["pad"], int):                pad = bytes([details["pad"]])            else:                raise ValueError("const_map: pad value must be string or int")        size = details["size"] if "size" in details else 0x10000        vals = details["vals"]
         # sort vals dict by key, lowest to highest
         vals = {k: v for k, v in sorted(vals.items(), key=lambda item: item[0])}
 
@@ -551,7 +754,20 @@ class Pseudofiles(Plugin):
         data += pad * (size - len(data))
         return data
 
-    def read_const_map(self, filename, buffer, length, offset, details=None):
+    def read_const_map(self, filename: str, buffer, length: int, offset: int, details=None):
+        """
+        Model a read that returns data from a constant map.
+
+        **Arguments**:
+        - filename (`str`): File being read
+        - buffer: Buffer to read into (unused)
+        - length (`int`): Number of bytes to read
+        - offset (`int`): Offset into the file
+        - details: Additional details (must contain 'vals' and optionally 'pad', 'size')
+
+        **Returns**:
+        - Tuple[bytes, int]: Data read and number of bytes read
+        """
         data = self._render_file(details)
         final_data = data[offset: offset + length]
         if offset > len(data):
@@ -559,9 +775,20 @@ class Pseudofiles(Plugin):
 
         return (final_data, len(final_data))  # data, length
 
-    def read_const_map_file(self, filename, buffer, length, offset, details=None):
-        # Create a file on the host using the specified pad, size, vals
-        # When we read from the guest, we read from the host file.
+    def read_const_map_file(self, filename: str, buffer, length: int, offset: int, details=None):
+        """
+        Model a read that returns data from a host file, creating it if needed.
+
+        **Arguments**:
+        - filename (`str`): File being read
+        - buffer: Buffer to read into (unused)
+        - length (`int`): Number of bytes to read
+        - offset (`int`): Offset into the file
+        - details: Additional details (must contain 'filename', 'vals', etc.)
+
+        **Returns**:
+        - Tuple[bytes, int]: Data read and number of bytes read
+        """
         hostfile = details["filename"]
 
         if not isabs(hostfile):
@@ -582,7 +809,20 @@ class Pseudofiles(Plugin):
 
         return (final_data, len(final_data))  # data, length
 
-    def read_from_file(self, filename, buffer, length, offset, details=None):
+    def read_from_file(self, filename: str, buffer, length: int, offset: int, details=None):
+        """
+        Model a read that returns data from a specified host file.
+
+        **Arguments**:
+        - filename (`str`): File being read
+        - buffer: Buffer to read into (unused)
+        - length (`int`): Number of bytes to read
+        - offset (`int`): Offset into the file
+        - details: Additional details (must contain 'filename')
+
+        **Returns**:
+        - Tuple[bytes, int]: Data read and number of bytes read
+        """
         self.logger.debug(f"Reading {filename} with {length} bytes at {offset}:")
         fname = details["filename"]  # Host file
 
@@ -596,7 +836,21 @@ class Pseudofiles(Plugin):
 
         return (data, len(data))
 
-    def write_to_file(self, filename, buffer, length, offset, contents, details=None):
+    def write_to_file(self, filename: str, buffer, length: int, offset: int, contents: bytes, details=None) -> int:
+        """
+        Model a write that writes data to a specified host file.
+
+        **Arguments**:
+        - filename (`str`): File being written
+        - buffer: Buffer to write from (unused)
+        - length (`int`): Number of bytes to write
+        - offset (`int`): Offset into the file
+        - contents (`bytes`): Data to write
+        - details: Additional details (must contain 'filename')
+
+        **Returns**:
+        - `int`: Number of bytes written
+        """
         fname = details["filename"]  # Host file
         if not isabs(fname):
             # Paths are relative to the project directory, unless absolute
@@ -611,11 +865,39 @@ class Pseudofiles(Plugin):
 
         return length
 
-    def write_discard(self, filename, buffer, length, offset, contents, details=None):
+    def write_discard(self, filename: str, buffer, length: int, offset: int, contents: bytes, details=None) -> int:
+        """
+        Model a write that discards data (no-op).
+
+        **Arguments**:
+        - filename (`str`): File being written
+        - buffer: Buffer to write from (unused)
+        - length (`int`): Number of bytes to write
+        - offset (`int`): Offset into the file
+        - contents (`bytes`): Data to write
+        - details: Additional details (unused)
+
+        **Returns**:
+        - `int`: Number of bytes written (same as input length)
+        """
         # TODO: make this actually discard - not sure where it's used right now and default is a better model in general
         return self.write_default(filename, buffer, length, offset, contents, details)
 
-    def write_default(self, filename, buffer, length, offset, contents, details=None):
+    def write_default(self, filename: str, buffer, length: int, offset: int, contents: bytes, details=None) -> int:
+        """
+        Model a write that stores data in memory for the file.
+
+        **Arguments**:
+        - filename (`str`): File being written
+        - buffer: Buffer to write from (unused)
+        - length (`int`): Number of bytes to write
+        - offset (`int`): Offset into the file
+        - contents (`bytes`): Data to write
+        - details: Additional details (unused)
+
+        **Returns**:
+        - `int`: Number of bytes written
+        """
         # Store the contents for this file
         # print(f"{filename} writes {length} bytes at {offset}: {contents[:100]}")
         if filename not in self.written_data:
@@ -642,7 +924,20 @@ class Pseudofiles(Plugin):
     #    return -22 # -EINVAL - we don't support writes
 
     # default models - log failures
-    def read_default(self, filename, buffer, length, offset, details=None):
+    def read_default(self, filename: str, buffer, length: int, offset: int, details=None):
+        """
+        Default model for reads: logs the failure and returns error.
+
+        **Arguments**:
+        - filename (`str`): File being read
+        - buffer: Buffer to read into (unused)
+        - length (`int`): Number of bytes to read
+        - offset (`int`): Offset into the file
+        - details: Additional details (unused)
+
+        **Returns**:
+        - Tuple[bytes, int]: Empty data and error code (-22)
+        """
         self.centralized_log(filename, "read")
         return (b"", -22)  # -EINVAL - we don't support reads
 
@@ -650,13 +945,18 @@ class Pseudofiles(Plugin):
     # default is a bit of a misnomer, it's our default ioctl handler which
     # implements default behavior (i.e., error) on issue of unspecified ioctls,
     # but implements what it's told for others
-    def ioctl_default(self, filename, cmd, arg, ioctl_details):
+    def ioctl_default(self, filename: str, cmd: int, arg, ioctl_details: dict) -> int:
         """
-        Given a cmd and arg, return a value
-        filename is device path
-        ioctl_details is a dict of:
-            cmd -> {'model': 'return_const'|'symex',
-                     'val': X}
+        Default model for ioctls: returns constant, launches symex, or delegates to plugin.
+
+        **Arguments**:
+        - filename (`str`): File being accessed
+        - cmd (`int`): IOCTL command
+        - arg: IOCTL argument
+        - ioctl_details (`dict`): IOCTL modeling details
+
+        **Returns**:
+        - `int`: Return value for the ioctl operation
         """
         # Try to use cmd as our key, but '*' is a fallback
         # is_wildcard = False
@@ -703,6 +1003,15 @@ class Pseudofiles(Plugin):
             # return -25 # -ENOTTY
 
     def dump_results(self):
+        """
+        Dump all file failures and symex results to disk as YAML.
+
+        **Arguments**:
+        - None
+
+        **Returns**:
+        - None
+        """
         # Dump all file failures to disk as yaml
         with open(pjoin(self.outdir, outfile_missing), "w") as f:
             out = sort_file_failures(self.file_failures)
@@ -713,4 +1022,13 @@ class Pseudofiles(Plugin):
             self.symex.save_results()
 
     def uninit(self):
+        """
+        Called on plugin unload; dumps results to disk.
+
+        **Arguments**:
+        - None
+
+        **Returns**:
+        - None
+        """
         self.dump_results()

@@ -1,4 +1,53 @@
+"""
+# HyperFile Plugin
+
+This module implements the `HyperFile` plugin for the Penguin framework, enabling
+hypercall-based file operations between a guest and the host. It provides a model
+for virtual files that can be read, written, or controlled via ioctl/getattr
+operations from the guest OS. The plugin is designed to be flexible and extensible,
+allowing users to specify custom file behaviors via models.
+
+## Features
+
+- Handles hypercalls for file operations (`read`, `write`, `ioctl`, `getattr`)
+- Supports dynamic file models for custom device/file behaviors
+- Logs and tracks file operation results for analysis
+- Provides default behaviors for unhandled operations
+
+## Example Usage
+
+```python
+from pyplugins.interventions.hyperfile import HyperFile
+
+# Register the plugin with Penguin, specifying file models and log file
+plugin = HyperFile()
+```
+
+## File Model Example
+
+```python
+files = {
+    "/dev/zero": {
+        fops.HYP_READ: HyperFile.read_zero,
+        fops.HYP_WRITE: HyperFile.write_discard,
+        "size": 0,
+    }
+}
+```
+
+## Classes
+
+- `HyperFile`: Main plugin class implementing the hypercall interface.
+
+## Functions
+
+- `hyper(name: str) -> int`: Map operation name to hyperfile operation constant.
+- `hyper2name(num: int) -> str`: Map hyperfile operation constant to operation name.
+
+"""
+
 import struct
+from typing import Any, Callable, Dict, Optional, Tuple, List
 from penguin import Plugin
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import hyperfs_ops as hops 
@@ -12,7 +61,19 @@ except ImportError:
     import yaml
 
 
-def hyper(name):
+def hyper(name: str) -> int:
+    """
+    **Map a string operation name to its corresponding hyperfile operation constant.**
+
+    **Parameters**
+    - `name` (`str`): The operation name ("read", "write", "ioctl", "getattr").
+
+    **Returns**
+    - `int`: The corresponding hyperfile operation constant.
+
+    **Raises**
+    - `ValueError`: If the operation name is unknown.
+    """
     if name == "read":
         return fops.HYP_READ
     elif name == "write":
@@ -24,7 +85,19 @@ def hyper(name):
     raise ValueError(f"Unknown hyperfile operation {name}")
 
 
-def hyper2name(num):
+def hyper2name(num: int) -> str:
+    """
+    **Map a hyperfile operation constant to its string operation name.**
+
+    **Parameters**
+    - `num` (`int`): The hyperfile operation constant.
+
+    **Returns**
+    - `str`: The operation name.
+
+    **Raises**
+    - `ValueError`: If the operation constant is unknown.
+    """
     if num == fops.HYP_READ:
         return "read"
     elif num == fops.HYP_WRITE:
@@ -37,7 +110,29 @@ def hyper2name(num):
 
 
 class HyperFile(Plugin):
-    def __init__(self):
+    """
+    **The HyperFile plugin implements a virtual file interface for the guest OS,
+    allowing the guest to perform file operations via hypercalls.**
+
+    **Attributes**
+    - `arch_bytes` (`int`): Number of bytes per architecture word.
+    - `log_file` (`Optional[str]`): Path to the log file for operation results.
+    - `files` (`Optional[Dict[str, Dict]]`): File models for virtual devices.
+    - `logger` (`Any`): Logger instance.
+    - `endian` (`str`): Endianness format for struct packing.
+    - `s_word`, `u_word` (`str`): Signed/unsigned word format for struct packing.
+    - `results` (`Dict`): Stores results of file operations for logging.
+    - `default_model` (`Dict`): Default model for unhandled file operations.
+    """
+
+    def __init__(self) -> None:
+        """
+        **Initialize the HyperFile plugin, set up file models, logging, and
+        register hypercall handlers.**
+
+        **Returns**
+        - `None`
+        """
         panda = self.panda
         self.arch_bytes = panda.bits // 8
         self.log_file = self.get_arg("log_file")
@@ -88,7 +183,16 @@ class HyperFile(Plugin):
             elif hc_type == hops.HYP_GET_HYPERFILE_PATHS:
                 self.handle_get_hyperfile_paths(cpu)
 
-    def handle_get_num_hyperfiles(self, cpu):
+    def handle_get_num_hyperfiles(self, cpu: Any) -> None:
+        """
+        **Handle the hypercall to get the number of hyperfiles.**
+
+        **Parameters**
+        - `cpu` (`Any`): The CPU context from Panda.
+
+        **Returns**
+        - `None`
+        """
         num_hyperfiles_addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
         try:
             self.panda.virtual_memory_write(
@@ -101,7 +205,16 @@ class HyperFile(Plugin):
             self.panda.arch.set_retval(cpu, HYP_RETRY)
             self.logger.debug("Failed to read/write number of hyperfiles from guest - retry")
 
-    def handle_get_hyperfile_paths(self, cpu):
+    def handle_get_hyperfile_paths(self, cpu: Any) -> None:
+        """
+        **Handle the hypercall to get the paths of all hyperfiles.**
+
+        **Parameters**
+        - `cpu` (`Any`): The CPU context from Panda.
+
+        **Returns**
+        - `None`
+        """
         hyperfile_paths_array_ptr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
         n = len(self.files)
         hyperfile_paths_ptrs = [None] * n
@@ -125,7 +238,16 @@ class HyperFile(Plugin):
                 self.logger.debug("Failed to write hyperfile path to guest - retry")
                 return
 
-    def handle_file_op(self, cpu):
+    def handle_file_op(self, cpu: Any) -> None:
+        """
+        **Handle a file operation hypercall (read, write, ioctl, getattr).**
+
+        **Parameters**
+        - `cpu` (`Any`): The CPU context from Panda.
+
+        **Returns**
+        - `None`
+        """
         header_fmt = f"{self.endian} i {self.u_word}"
         read_fmt = write_fmt = f"{self.endian} {self.u_word} {self.u_word} q"
         ioctl_fmt = f"{self.endian} I {self.u_word}"
@@ -228,7 +350,19 @@ class HyperFile(Plugin):
 
         self.panda.arch.set_retval(cpu, self.panda.to_unsigned_guest(retval))
 
-    def handle_result(self, device_name, event, retval, *data):
+    def handle_result(self, device_name: str, event: str, retval: int, *data: Any) -> None:
+        """
+        **Record the result of a file operation for logging and analysis.**
+
+        **Parameters**
+        - `device_name` (`str`): The name of the device/file.
+        - `event` (`str`): The event type ("read", "write", "ioctl", "getattr").
+        - `retval` (`int`): The return value of the operation.
+        - `*data` (`Any`): Additional data relevant to the event.
+
+        **Returns**
+        - `None`
+        """
         if device_name not in self.results:
             self.results[device_name] = {}
 
@@ -280,34 +414,116 @@ class HyperFile(Plugin):
 
     # Function to handle read operations
     @staticmethod
-    def read_zero(devname, buffer, length, offset):
+    def read_zero(devname: str, buffer: int, length: int, offset: int) -> Tuple[bytes, int]:
+        """
+        **Return a buffer of zero bytes for read operations.**
+
+        **Parameters**
+        - `devname` (`str`): Device name.
+        - `buffer` (`int`): Guest buffer address.
+        - `length` (`int`): Number of bytes to read.
+        - `offset` (`int`): Offset into the file.
+
+        **Returns**
+        - `Tuple[bytes, int]`: (Data read, number of bytes read)
+        """
         data = b"0"
         final_data = data[offset: offset + length]
         return (final_data, len(final_data))  # data, rv
 
     # Function to handle write operations
     @staticmethod
-    def write_discard(devname, buffer, length, offset, contents):
+    def write_discard(devname: str, buffer: int, length: int, offset: int, contents: bytes) -> int:
+        """
+        **Discard written data and return the number of bytes written.**
+
+        **Parameters**
+        - `devname` (`str`): Device name.
+        - `buffer` (`int`): Guest buffer address.
+        - `length` (`int`): Number of bytes to write.
+        - `offset` (`int`): Offset into the file.
+        - `contents` (`bytes`): Data to write.
+
+        **Returns**
+        - `int`: Number of bytes written.
+        """
         return length
 
     @staticmethod
-    def ioctl(devname, cmd, arg):
+    def ioctl(devname: str, cmd: int, arg: int) -> int:
+        """
+        **Handle an ioctl operation (default: always succeeds).**
+
+        **Parameters**
+        - `devname` (`str`): Device name.
+        - `cmd` (`int`): IOCTL command.
+        - `arg` (`int`): IOCTL argument.
+
+        **Returns**
+        - `int`: Return value (0 for success).
+        """
         return 0
 
     @staticmethod
-    def ioctl_unhandled(devname, cmd, arg):
+    def ioctl_unhandled(devname: str, cmd: int, arg: int) -> int:
+        """
+        **Handle an unhandled ioctl operation.**
+
+        **Parameters**
+        - `devname` (`str`): Device name.
+        - `cmd` (`int`): IOCTL command.
+        - `arg` (`int`): IOCTL argument.
+
+        **Returns**
+        - `int`: Return value (-25 for ENOTTY).
+        """
         return -25  # -ENOTTY
 
     @staticmethod
-    def read_unhandled(filename, buffer, length, offset):
+    def read_unhandled(filename: str, buffer: int, length: int, offset: int) -> Tuple[bytes, int]:
+        """
+        **Handle an unhandled read operation.**
+
+        **Parameters**
+        - `filename` (`str`): File name.
+        - `buffer` (`int`): Guest buffer address.
+        - `length` (`int`): Number of bytes to read.
+        - `offset` (`int`): Offset into the file.
+
+        **Returns**
+        - `Tuple[bytes, int]`: (Empty bytes, -22 for EINVAL)
+        """
         return (b"", -22)  # -EINVAL
 
     @staticmethod
-    def write_unhandled(filename, buffer, length, offset, contents):
+    def write_unhandled(filename: str, buffer: int, length: int, offset: int, contents: bytes) -> int:
+        """
+        **Handle an unhandled write operation.**
+
+        **Parameters**
+        - `filename` (`str`): File name.
+        - `buffer` (`int`): Guest buffer address.
+        - `length` (`int`): Number of bytes to write.
+        - `offset` (`int`): Offset into the file.
+        - `contents` (`bytes`): Data to write.
+
+        **Returns**
+        - `int`: Return value (-22 for EINVAL).
+        """
         return -22  # -EINVAL
 
     @staticmethod
-    def getattr(device_name, model):
+    def getattr(device_name: str, model: Dict[str, Any]) -> Tuple[int, int]:
+        """
+        **Handle a getattr operation, returning the file size.**
+
+        **Parameters**
+        - `device_name` (`str`): Device name.
+        - `model` (`Dict[str, Any]`): File model dictionary.
+
+        **Returns**
+        - `Tuple[int, int]`: (Return value, file size)
+        """
         """
         Return retval, size to write into buffer.
         Note we could refactor this to be different and take in the panda object as an arg
@@ -316,7 +532,13 @@ class HyperFile(Plugin):
         """
         return 0, model.get("size", 0)
 
-    def uninit(self):
+    def uninit(self) -> None:
+        """
+        **Dump the results to the log file on plugin unload.**
+
+        **Returns**
+        - `None`
+        """
         if self.log_file is not None:
             with open(self.log_file, "w") as f:
                 yaml.dump(self.results, f)

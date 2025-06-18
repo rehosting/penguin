@@ -1,10 +1,32 @@
+"""
+# Lifeguard: Signal Blocking Plugin
+
+This module provides a plugin for the Penguin framework to block specified Linux signals
+by replacing them with a harmless `SIGCONT`. It is useful for preventing certain signals
+from terminating or interrupting processes during analysis or emulation.
+
+## Features
+
+- Block user-specified signals (e.g., SIGKILL, SIGTERM) for target processes.
+- Log all signal delivery attempts to a CSV file.
+- Optionally enable verbose logging for debugging.
+
+## Usage
+
+To use this plugin, specify the signals to block in the configuration:
+
+```json
+{
+    "blocked_signals": [9, 15]  # Block SIGKILL and SIGTERM
+}
+```
+
+The plugin will log all signal attempts to `lifeguard.csv` in the specified output directory.
+"""
+
 from penguin import plugins, Plugin
 
-"""
-Block specified signals by replacing them with a harmless SIGCONT
-"""
-
-LIFELOG = "lifeguard.csv"
+LIFELOG: str = "lifeguard.csv"
 
 signals = {
     "SIGHUP": 1,
@@ -48,7 +70,29 @@ for i, v in list(signals.items()):
 
 
 class Lifeguard(Plugin):
-    def __init__(self, panda):
+    """
+    Plugin to block specified signals by replacing them with SIGCONT.
+
+    **Attributes**
+    - `panda`: The PANDA instance.
+    - `outdir` (`str`): Output directory for logs.
+    - `blocked_signals` (`list[int]`): List of blocked signal numbers.
+    """
+
+    panda: object
+    outdir: str
+    blocked_signals: list[int]
+
+    def __init__(self, panda: object) -> None:
+        """
+        **Initialize the Lifeguard plugin.**
+
+        **Args**
+        - `panda` (`object`): The PANDA instance.
+
+        **Returns**
+        - `None`
+        """
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         if self.get_arg_bool("verbose"):
@@ -66,12 +110,35 @@ class Lifeguard(Plugin):
             self.logger.info(f"Blocking signals: {self.blocked_signals}")
         plugins.syscalls.syscall("on_sys_kill_return")(self.on_sys_kill_enter)
 
-    def get_proc_by_pid(self, cpu, pid):
+    def get_proc_by_pid(self, cpu: object, pid: int) -> str:
+        """
+        **Get the process name for a given PID.**
+
+        **Args**
+        - `cpu` (`object`): The CPU context.
+        - `pid` (`int`): The process ID.
+
+        **Returns**
+        - `str`: The process name, or None if not found.
+        """
         for p in self.panda.get_processes(cpu):
             if p.pid == abs(pid):
                 return self.panda.ffi.string(p.name).decode("latin-1", errors="ignore")
 
-    def on_sys_kill_enter(self, cpu, proto, sysret, pid, sig):
+    def on_sys_kill_enter(self, cpu: object, proto: object, sysret: object, pid: int, sig: int) -> None:
+        """
+        **Handler for the kill syscall. Blocks signals if configured.**
+
+        **Args**
+        - `cpu` (`object`): The CPU context.
+        - `proto` (`object`): The syscall prototype.
+        - `sysret` (`object`): The syscall return object.
+        - `pid` (`int`): The target process ID.
+        - `sig` (`int`): The signal number.
+
+        **Returns**
+        - `None`
+        """
         save = sig in self.blocked_signals
         with open(f"{self.outdir}/{LIFELOG}", "a") as f:
             f.write(f"{sig},{pid},{1 if save else 0}\n")
