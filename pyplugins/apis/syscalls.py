@@ -15,6 +15,16 @@ class ValueFilter:
     """
     def __init__(self,  filter_type: int = vft.SYSCALLS_HC_FILTER_EXACT, value: int = 0, 
                  min_value: int = 0, max_value: int = 0, bitmask: int = 0) -> None:
+        """
+        ### Initialize a ValueFilter
+
+        **Args:**
+        - `filter_type` (`int`): The type of filter.
+        - `value` (`int`): The value for the filter.
+        - `min_value` (`int`): The minimum value for range filters.
+        - `max_value` (`int`): The maximum value for range filters.
+        - `bitmask` (`int`): The bitmask for bitmask filters.
+        """
         self.filter_type = filter_type
         self.value = value
         self.min_value = min_value
@@ -22,59 +32,142 @@ class ValueFilter:
         self.bitmask = bitmask
     
     @classmethod
-    def exact(cls, value):
-        """Create an exact match filter"""
+    def exact(cls, value: int) -> "ValueFilter":
+        """
+        ### Create an exact match filter
+
+        **Args:**
+        - `value` (`int`): The value to match.
+
+        **Returns:**  
+        `ValueFilter`: An exact match filter.
+        """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_EXACT, value=value)
     
     @classmethod
-    def greater(cls, value):
-        """Create a greater than filter"""
+    def greater(cls, value: int) -> "ValueFilter":
+        """
+        ### Create a greater than filter
+
+        **Args:**
+        - `value` (`int`): The value to compare.
+
+        **Returns:**  
+        `ValueFilter`: A greater than filter.
+        """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_GREATER, value=value)
     
     @classmethod
-    def greater_equal(cls, value):
-        """Create a greater than or equal filter"""
+    def greater_equal(cls, value: int) -> "ValueFilter":
+        """
+        ### Create a greater than or equal filter
+
+        **Args:**
+        - `value` (`int`): The value to compare.
+
+        **Returns:**  
+        `ValueFilter`: A greater than or equal filter.
+        """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_GREATER_EQUAL, value=value)
     
     @classmethod
-    def less(cls, value):
-        """Create a less than filter"""
+    def less(cls, value: int) -> "ValueFilter":
+        """
+        ### Create a less than filter
+
+        **Args:**
+        - `value` (`int`): The value to compare.
+
+        **Returns:**  
+        `ValueFilter`: A less than filter.
+        """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_LESS, value=value)
     
     @classmethod
-    def less_equal(cls, value):
-        """Create a less than or equal filter"""
+    def less_equal(cls, value: int) -> "ValueFilter":
+        """
+        ### Create a less than or equal filter
+
+        **Args:**
+        - `value` (`int`): The value to compare.
+
+        **Returns:**  
+        `ValueFilter`: A less than or equal filter.
+        """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_LESS_EQUAL, value=value)
     
     @classmethod
-    def not_equal(cls, value):
-        """Create a not equal filter"""
+    def not_equal(cls, value: int) -> "ValueFilter":
+        """
+        ### Create a not equal filter
+
+        **Args:**
+        - `value` (`int`): The value to compare.
+
+        **Returns:**  
+        `ValueFilter`: A not equal filter.
+        """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_NOT_EQUAL, value=value)
     
     @classmethod
-    def range(cls, min_value, max_value):
-        """Create a range filter"""
+    def range(cls, min_value: int, max_value: int) -> "ValueFilter":
+        """
+        ### Create a range filter
+
+        **Args:**
+        - `min_value` (`int`): The minimum value.
+        - `max_value` (`int`): The maximum value.
+
+        **Returns:**  
+        `ValueFilter`: A range filter.
+        """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_RANGE, 
                   min_value=min_value, max_value=max_value)
     
     @classmethod
-    def success(cls):
-        """Create a success filter (>= 0)"""
+    def success(cls) -> "ValueFilter":
+        """
+        ### Create a success filter (>= 0)
+
+        **Returns:**  
+        `ValueFilter`: A success filter.
+        """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_SUCCESS)
     
     @classmethod
-    def error(cls):
-        """Create an error filter (< 0)"""
+    def error(cls) -> "ValueFilter":
+        """
+        ### Create an error filter (< 0)
+
+        **Returns:**  
+        `ValueFilter`: An error filter.
+        """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_ERROR)
     
     @classmethod
-    def bitmask_set(cls, bitmask):
-        """Create a bitmask set filter"""
+    def bitmask_set(cls, bitmask: int) -> "ValueFilter":
+        """
+        ### Create a bitmask set filter
+
+        **Args:**
+        - `bitmask` (`int`): The bitmask to set.
+
+        **Returns:**  
+        `ValueFilter`: A bitmask set filter.
+        """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_BITMASK_SET, bitmask=bitmask)
     
     @classmethod
-    def bitmask_clear(cls, bitmask):
-        """Create a bitmask clear filter"""
+    def bitmask_clear(cls, bitmask: int) -> "ValueFilter":
+        """
+        ### Create a bitmask clear filter
+
+        **Args:**
+        - `bitmask` (`int`): The bitmask to clear.
+
+        **Returns:**  
+        `ValueFilter`: A bitmask clear filter.
+        """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_BITMASK_CLEAR, bitmask=bitmask)
 
 
@@ -83,6 +176,14 @@ class SyscallPrototype:
     Represents syscall metadata, including argument types and names.
     """
     def __init__(self, name: str, args: Optional[List[Any]] = None, unknown_args: bool = False) -> None:
+        """
+        ### Initialize a SyscallPrototype
+
+        **Args:**
+        - `name` (`str`): The syscall name.
+        - `args` (`Optional[List[Any]]`): List of argument type/name pairs.
+        - `unknown_args` (`bool`): Whether the arguments are unknown.
+        """
         # Store the name as the primary identifier
         self.name = name
         self.types = []
@@ -96,6 +197,12 @@ class SyscallPrototype:
         self.nargs = len(self.types)
 
     def __repr__(self) -> str:
+        """
+        ### Return a string representation of the SyscallPrototype
+
+        **Returns:**  
+        `str`: String representation.
+        """
         return f"<SyscallPrototype name='{self.name}' nargs={self.nargs}>"
 
 
@@ -106,7 +213,9 @@ class Syscalls(Plugin):
     """
     def __init__(self) -> None:
         """
-        Initialize the Syscalls plugin, register with portal, and set up syscall metadata.
+        ### Initialize the Syscalls plugin
+
+        Registers with portal and sets up syscall metadata.
         """
         self.outdir = self.get_arg("outdir")
 
@@ -150,9 +259,13 @@ class Syscalls(Plugin):
 
     def _setup_syscall_handler(self, cpu: int) -> None:
         """
-        Handler for setting up syscall definitions.
-        Args:
-            cpu (int): CPU id.
+        ### Handler for setting up syscall definitions
+
+        **Args:**
+        - `cpu` (`int`): CPU id.
+
+        **Returns:**  
+        `None`
         """
         reg1 = self.panda.arch.get_arg(cpu, 1, convention="syscall")
 
@@ -188,11 +301,15 @@ class Syscalls(Plugin):
 
     def _clean_syscall_name(self, name: str) -> str:
         """
-        Clean a syscall name by removing various prefixes and architecture-specific parts.
-        Args:
-            name (str): The syscall name.
-        Returns:
-            str: Cleaned syscall name.
+        ### Clean a syscall name
+
+        Removes various prefixes and architecture-specific parts.
+
+        **Args:**
+        - `name` (`str`): The syscall name.
+
+        **Returns:**  
+        `str`: Cleaned syscall name.
         """
         if name.startswith("compat_"):
             name = name[7:]
@@ -207,9 +324,10 @@ class Syscalls(Plugin):
 
     def _syscall_interrupt_handler(self) -> bool:
         """
-        Handle interrupts from the portal for syscall hook registration.
-        Returns:
-            bool: True if more hooks are pending, False otherwise.
+        ### Handle interrupts from the portal for syscall hook registration
+
+        **Returns:**  
+        `bool`: True if more hooks are pending, False otherwise.
         """
         # Always ensure we yield at least once so the function returns a proper generator
         if not self._pending_hooks:
@@ -241,17 +359,25 @@ class Syscalls(Plugin):
 
     def _syscall_enter_event(self, cpu: int) -> None:
         """
-        Handler for syscall entry events from the hypervisor.
-        Args:
-            cpu (int): CPU id.
+        ### Handler for syscall entry events from the hypervisor
+
+        **Args:**
+        - `cpu` (`int`): CPU id.
+
+        **Returns:**  
+        `None`
         """
         self._syscall_event(cpu, is_enter=True)
 
     def _syscall_return_event(self, cpu: int) -> None:
         """
-        Handler for syscall return events from the hypervisor.
-        Args:
-            cpu (int): CPU id.
+        ### Handler for syscall return events from the hypervisor
+
+        **Args:**
+        - `cpu` (`int`): CPU id.
+
+        **Returns:**  
+        `None`
         """
         self._syscall_event(cpu, is_enter=False)
 
@@ -267,12 +393,14 @@ class Syscalls(Plugin):
 
     def _get_syscall_event(self, cpu: int, arg: int) -> Any:
         """
-        Retrieve the syscall event object from the guest.
-        Args:
-            cpu (int): CPU id.
-            arg (int): Argument pointer.
-        Returns:
-            Tuple[Any, bytes]: The syscall event object and its original bytes.
+        ### Retrieve the syscall event object from the guest
+
+        **Args:**
+        - `cpu` (`int`): CPU id.
+        - `arg` (`int`): Argument pointer.
+
+        **Returns:**  
+        `Tuple[Any, bytes]`: The syscall event object and its original bytes.
         """
         sce = plugins.kffi.read_type_panda(cpu, arg, "syscall_event")
         sce.name = bytes(sce.syscall_name).decode("latin-1").rstrip("\x00")
@@ -281,12 +409,14 @@ class Syscalls(Plugin):
 
     def _get_proto(self, cpu: int, sce: Any) -> SyscallPrototype:
         """
-        Get the syscall prototype for a given event.
-        Args:
-            cpu (int): CPU id.
-            sce (Any): Syscall event object.
-        Returns:
-            SyscallPrototype: The prototype for the syscall.
+        ### Get the syscall prototype for a given event
+
+        **Args:**
+        - `cpu` (`int`): CPU id.
+        - `sce` (`Any`): Syscall event object.
+
+        **Returns:**  
+        `SyscallPrototype`: The prototype for the syscall.
         """
         # Get syscall name from the event
         name = sce.name
@@ -330,12 +460,14 @@ class Syscalls(Plugin):
 
     def _syscall_event(self, cpu: int, is_enter: Optional[bool] = None) -> Any:
         """
-        Handle a syscall event, dispatching to the registered callback.
-        Args:
-            cpu (int): CPU id.
-            is_enter (Optional[bool]): True if entry event, False if return event.
-        Returns:
-            Any: The result of the callback.
+        ### Handle a syscall event, dispatching to the registered callback
+
+        **Args:**
+        - `cpu` (`int`): CPU id.
+        - `is_enter` (`Optional[bool]`): True if entry event, False if return event.
+
+        **Returns:**  
+        `Any`: The result of the callback.
         """
         # sequence is no longer relevant
         # sequence = self.panda.arch.get_arg(cpu, 1, convention="syscall")
@@ -402,11 +534,13 @@ class Syscalls(Plugin):
 
     def register_syscall_hook(self, hook_config: Dict[str, Any]) -> Iterator[int]:
         """
-        Register a syscall hook with the kernel using the portal.
-        Args:
-            hook_config (Dict[str, Any]): Hook configuration dictionary.
-        Returns:
-            Iterator[int]: Yields the hook pointer.
+        ### Register a syscall hook with the kernel using the portal
+
+        **Args:**
+        - `hook_config` (`Dict[str, Any]`): Hook configuration dictionary.
+
+        **Returns:**  
+        `Iterator[int]`: Yields the hook pointer.
         """
         # Clone the hook config for internal storage and ensure it has enabled flag
         sch = plugins.kffi.new("syscall_hook")
@@ -507,28 +641,32 @@ class Syscalls(Plugin):
         self.hook_info[result] = hook_config
         return result
 
-    def syscall(self,
-                name_or_pattern: Optional[str] = None,
-                on_enter: Optional[bool] = None,
-                on_return: Optional[bool] = None,
-                comm_filter: Optional[str] = None,
-                arg_filters: Optional[List[Any]] = None,
-                pid_filter: Optional[int] = None,
-                retval_filter: Optional[Any] = None,
-                enabled: bool = True) -> Callable:
+    def syscall(
+        self,
+        name_or_pattern: Optional[str] = None,
+        on_enter: Optional[bool] = None,
+        on_return: Optional[bool] = None,
+        comm_filter: Optional[str] = None,
+        arg_filters: Optional[List[Any]] = None,
+        pid_filter: Optional[int] = None,
+        retval_filter: Optional[Any] = None,
+        enabled: bool = True
+    ) -> Callable:
         """
-        Decorator for registering syscall callbacks.
-        Args:
-            name_or_pattern (Optional[str]): Syscall name or pattern.
-            on_enter (Optional[bool]): Register for entry events.
-            on_return (Optional[bool]): Register for return events.
-            comm_filter (Optional[str]): Process name filter.
-            arg_filters (Optional[List[Any]]): Argument filters.
-            pid_filter (Optional[int]): PID filter.
-            retval_filter (Optional[Any]): Return value filter.
-            enabled (bool): Whether the hook is enabled.
-        Returns:
-            Callable: Decorator function.
+        ### Decorator for registering syscall callbacks
+
+        **Args:**
+        - `name_or_pattern` (`Optional[str]`): Syscall name or pattern.
+        - `on_enter` (`Optional[bool]`): Register for entry events.
+        - `on_return` (`Optional[bool]`): Register for return events.
+        - `comm_filter` (`Optional[str]`): Process name filter.
+        - `arg_filters` (`Optional[List[Any]]`): Argument filters.
+        - `pid_filter` (`Optional[int]`): PID filter.
+        - `retval_filter` (`Optional[Any]`): Return value filter.
+        - `enabled` (`bool`): Whether the hook is enabled.
+
+        **Returns:**  
+        `Callable`: Decorator function.
         """
         def decorator(func):
             # Parse pattern if provided in the hsyscall format
@@ -619,11 +757,13 @@ class Syscalls(Plugin):
 
     def disable_syscall(self, callback_or_name: Any) -> Iterator[bool]:
         """
-        Disables a registered syscall hook.
-        Args:
-            callback_or_name (Any): The callback function or its name to disable.
-        Returns:
-            Iterator[bool]: Yields True if hook was found and disabled, False otherwise.
+        ### Disables a registered syscall hook
+
+        **Args:**
+        - `callback_or_name` (`Any`): The callback function or its name to disable.
+
+        **Returns:**  
+        `Iterator[bool]`: Yields True if hook was found and disabled, False otherwise.
         """
         hook_ptr = None
         
@@ -680,11 +820,13 @@ class Syscalls(Plugin):
             
     def enable_syscall(self, callback_or_name: Any) -> Iterator[bool]:
         """
-        Enables a previously disabled syscall hook.
-        Args:
-            callback_or_name (Any): The callback function or its name to enable.
-        Returns:
-            Iterator[bool]: Yields True if hook was found and enabled, False otherwise.
+        ### Enables a previously disabled syscall hook
+
+        **Args:**
+        - `callback_or_name` (`Any`): The callback function or its name to enable.
+
+        **Returns:**  
+        `Iterator[bool]`: Yields True if hook was found and enabled, False otherwise.
         """
         hook_ptr = None
         
@@ -741,11 +883,15 @@ class Syscalls(Plugin):
     
     def get_syscall_info_by_name(self, name: str) -> Optional[SyscallPrototype]:
         """
-        Look up syscall prototype information by name, automatically cleaning the name.
-        Args:
-            name (str): The syscall name (may include prefixes or architecture-specific parts).
-        Returns:
-            Optional[SyscallPrototype]: The prototype information if found, else None.
+        ### Look up syscall prototype information by name
+
+        Automatically cleans the name.
+
+        **Args:**
+        - `name` (`str`): The syscall name (may include prefixes or architecture-specific parts).
+
+        **Returns:**  
+        `Optional[SyscallPrototype]`: The prototype information if found, else None.
         """
         clean_name = self._clean_syscall_name(name)
         return self.syscall_info_table.get(clean_name)
