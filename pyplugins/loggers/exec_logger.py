@@ -16,9 +16,7 @@ in the database.
 This plugin is loaded automatically as part of the penguin plugin system. It requires the `execs` plugin
 to be active, as it listens for `exec_event` events.
 
-
 The plugin extracts relevant fields and stores them in the database using the `Exec` event type.
-
 """
 
 from penguin import plugins, Plugin
@@ -26,13 +24,15 @@ from events.types import Exec
 
 class ExecLog(Plugin):
     """
+    # ExecLog Plugin
+
     Plugin for logging process execution (exec) events to the database.
 
     Subscribes to `exec_event` events from the `execs` plugin and records them as `Exec` events.
     """
     def __init__(self):
         """
-        Initialize the ExecLog plugin.
+        ## Initialize the ExecLog plugin
 
         Registers a subscription to the `exec_event` event published by the `execs` plugin.
         """
@@ -43,10 +43,10 @@ class ExecLog(Plugin):
 
     def on_exec_event(self, event):
         """
-        Callback for handling `exec_event` events.
+        ## Callback for handling `exec_event` events
 
-        Args:
-            event (dict or Wrapper): The exec event data, either as a dictionary or a Wrapper object.
+        **Args:**
+        - `event` (`dict` or `Wrapper`): The exec event data, either as a dictionary or a Wrapper object.
 
         Extracts argument count, argument vector, environment, and process credentials,
         then records the event in the database as an `Exec` event.
