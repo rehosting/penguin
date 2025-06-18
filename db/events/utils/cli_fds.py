@@ -1,3 +1,31 @@
+"""
+# FDs Utility
+
+This module provides a command-line interface (CLI) for querying file descriptor (FD) write events from a database.
+It allows filtering by process name and file descriptor, supports outputting results to a file or stdout, and can
+follow new events as they appear. The CLI is built using [Click](https://click.palletsprojects.com/) and is intended
+to be run as a script or imported as a module.
+
+## Example usage
+
+```bash
+fds --procname myproc --fd 3 --output results.txt
+```
+
+## Options
+
+- `--results`: Path to results folder (default: `./results/latest`)
+- `--procname`: Filter by process name (substring match)
+- `--fd`: File descriptor number to filter
+- `--output`: Output file (default: `/dev/stdout`)
+- `--follow`: Show latest results as they appear
+
+## Functions
+
+- `query_fds`: Main CLI command for querying FD write events.
+
+"""
+
 from sqlalchemy import func, create_engine
 import click
 from events import Event, Write
@@ -26,6 +54,16 @@ from os.path import join, exists
     "--output", default="/dev/stdout", help="Output to file instead of stdout"
 )
 def query_fds(results, procname, follow, fd, output):
+    """
+    ### Query file descriptor write events from the database with optional filters and output options.
+
+    **Args:**
+    - `results` (`str`): Path to results folder.
+    - `procname` (`str` or `None`): Process name substring to filter for.
+    - `follow` (`bool`): Whether to show latest results as they appear.
+    - `fd` (`str` or `None`): File descriptor number to filter for.
+    - `output` (`str`): Output file path (default: /dev/stdout).
+    """
     db_path = join(results, "plugins.db")
     if not exists(db_path):
         print(f"Failed to find db at {db_path}. Check your --results")

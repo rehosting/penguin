@@ -1,3 +1,31 @@
+"""
+# Event Types
+
+This module defines the main event types for the cleanguin event database, each as a subclass of `Event`.
+These types represent different kinds of system events (read, write, syscall, exec) and are mapped to
+corresponding tables in the database using SQLAlchemy ORM.
+
+## Example usage
+
+```python
+from events.types import Read, Write, Syscall, Exec
+```
+
+## Classes
+
+- `Read`: Represents a file read event.
+- `Write`: Represents a file write event.
+- `Syscall`: Represents a syscall event with arguments and return value.
+- `Exec`: Represents an exec event (process execution).
+
+Each class provides a `__str__` method for human-readable representation.
+
+## Table Structure
+
+Each event type is mapped to its own table and linked to the base `event` table via a foreign key.
+
+"""
+
 from .base import Event
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
@@ -6,6 +34,15 @@ from typing import Optional
 
 
 class Read(Event):
+    """
+    ### Represents a file read event.
+
+    **Attributes:**
+    - `id` (`int`): Primary key, foreign key to event.id.
+    - `fd` (`int`): File descriptor read from.
+    - `fname` (`str`): Name of the file read.
+    - `buffer` (`Optional[str]`): Contents read from the file.
+    """
     __tablename__ = "read"
     id: Mapped[int] = mapped_column(ForeignKey("event.id"), primary_key=True)
     fd: Mapped[int]
@@ -21,6 +58,15 @@ class Read(Event):
 
 
 class Write(Event):
+    """
+    ### Represents a file write event.
+
+    **Attributes:**
+    - `id` (`int`): Primary key, foreign key to event.id.
+    - `fd` (`int`): File descriptor written to.
+    - `fname` (`Optional[str]`): Name of the file written.
+    - `buffer` (`Optional[str]`): Contents written to the file.
+    """
     __tablename__ = "write"
     id: Mapped[int] = mapped_column(ForeignKey("event.id"), primary_key=True)
     fd: Mapped[int]
@@ -36,6 +82,17 @@ class Write(Event):
 
 
 class Syscall(Event):
+    """
+    ### Represents a syscall event, including arguments and return value.
+
+    **Attributes:**
+    - `id` (`int`): Primary key, foreign key to event.id.
+    - `name` (`str`): Name of the syscall.
+    - `retno` (`Optional[int]`): Return value of the syscall.
+    - `retno_repr` (`Optional[str]`): String representation of the return value.
+    - `arg0-arg5` (`Optional[int]`): Argument values.
+    - `arg0_repr-arg5_repr` (`Optional[str]`): String representations of arguments.
+    """
     __tablename__ = "syscall"
     id: Mapped[int] = mapped_column(ForeignKey("event.id"), primary_key=True)
     name: Mapped[str]
@@ -68,6 +125,18 @@ class Syscall(Event):
 
 
 class Exec(Event):
+    """
+    ### Represents a process execution (exec) event.
+
+    **Attributes:**
+    - `id` (`int`): Primary key, foreign key to event.id.
+    - `calltree` (`str`): Call tree information.
+    - `argc` (`str`): Argument count.
+    - `argv` (`str`): Argument values.
+    - `envp` (`str`): Environment variables.
+    - `euid` (`int`): Effective user ID.
+    - `egid` (`int`): Effective group ID.
+    """
     __tablename__ = "exec"
     id: Mapped[int] = mapped_column(ForeignKey("event.id"), primary_key=True)
     calltree: Mapped[str]
