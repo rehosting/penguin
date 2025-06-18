@@ -1,29 +1,40 @@
 """
-# osi.py - OSI Plugin for Penguin
+# OSI Plugin (`osi.py`) for Penguin
 
-This plugin provides an interface for querying process, file descriptor, and memory mapping information
-from the guest OS via the hypervisor portal. It enables other plugins to retrieve process arguments,
-environment variables, open file descriptors, memory mappings, and process handles for analysis or automation.
+This module provides the `OSI` plugin for the Penguin framework, enabling coroutine-based access to guest OS state via the hypervisor portal. It allows querying of process information, file descriptors, memory mappings, process handles, arguments, and environment variables. The plugin is designed for advanced analysis, automation, and plugin interoperability.
 
-## Arguments
-- None required. Optional arguments may be passed for advanced configuration.
+## Features
 
-## Plugin Interface
-- Provides coroutine-based methods for querying OS-level information:
+- Retrieve process arguments, environment variables, and process names.
+- List open file descriptors and resolve their names.
+- Query memory mappings and locate mappings by address.
+- Fetch process handles and detailed process information.
+- All methods are coroutine-based and return wrapper objects or lists for further inspection.
+
+## Example Usage
 
 ```python
+from penguin import plugins
+
+# Get process name
 procname = yield from plugins.OSI.get_proc_name(pid)
+
+# Get process arguments
 args = yield from plugins.OSI.get_args(pid)
+
+# Get environment variables
 env = yield from plugins.OSI.get_env(pid)
+
+# Get open file descriptors
 fds = yield from plugins.OSI.get_fds(pid)
+
+# Get memory mappings
 mappings = yield from plugins.OSI.get_mappings(pid)
 ```
 
-- Returns wrapper objects or lists for further inspection.
+## Purpose
 
-## Overall Purpose
-The OSI plugin enables flexible, efficient, and scriptable access to guest OS state, supporting
-advanced analysis, automation, and plugin interoperability in the Penguin environment.
+The OSI plugin enables flexible, efficient, and scriptable access to guest OS state, supporting advanced analysis, automation, and plugin interoperability in the Penguin environment.
 """
 
 from penguin import Plugin, plugins
@@ -39,22 +50,26 @@ CONST_UNKNOWN_STR = "[???]"
 
 class OSI(Plugin):
     """
-    Plugin for querying OS-level information (processes, FDs, mappings) from the guest via the hypervisor portal.
-    Provides coroutine-based methods for process arguments, environment, handles, mappings, and file descriptors.
+    ## OSI Plugin
+
+    Provides coroutine-based methods for querying OS-level information (processes, FDs, mappings) from the guest via the hypervisor portal.
+
+    ### Attributes
+    - `logger`: Logger for debug and error messages.
     """
+
     def get_fd_name(self, fd: int, pid: Optional[int] = None) -> Generator[Any, None, Optional[str]]:
         """
-        Get the filename for a specific file descriptor.
+        ### Get the filename for a specific file descriptor
 
-        This uses the more efficient get_fds function that can return information
-        for a specific file descriptor instead of sending a separate hypercall.
+        Uses the efficient `get_fds` function to retrieve information for a specific file descriptor.
 
-        Args:
-            fd (int): File descriptor number
-            pid (int, optional): Process ID, or None for current process
+        **Args:**
+        - `fd` (`int`): File descriptor number.
+        - `pid` (`int`, optional): Process ID, or `None` for current process.
 
-        Returns:
-            str: The file descriptor name, or None if not found
+        **Returns:**
+        - `str` or `None`: The file descriptor name, or `None` if not found.
         """
         self.logger.debug(f"get_fd_name called: fd={fd}")
 
@@ -70,13 +85,13 @@ class OSI(Plugin):
 
     def get_args(self, pid: Optional[int] = None) -> Generator[Any, None, List[str]]:
         """
-        Get the argument list for a process.
+        ### Get the argument list for a process
 
-        Args:
-            pid (int, optional): Process ID, or None for current process
+        **Args:**
+        - `pid` (`int`, optional): Process ID, or `None` for current process.
 
-        Returns:
-            Generator[Any, None, List[str]]: List of argument strings (empty if not found)
+        **Returns:**
+        - `List[str]`: List of argument strings (empty if not found).
         """
         self.logger.debug("read_process_args called")
         proc_args = yield PortalCmd(hop.HYPER_OP_READ_PROCARGS, pid=pid)
@@ -112,13 +127,13 @@ class OSI(Plugin):
 
     def get_proc_name(self, pid: Optional[int] = None) -> Generator[Any, None, str]:
         """
-        Get the process name (first argument) for a process.
+        ### Get the process name (first argument) for a process
 
-        Args:
-            pid (int, optional): Process ID, or None for current process
+        **Args:**
+        - `pid` (`int`, optional): Process ID, or `None` for current process.
 
-        Returns:
-            str: Process name or '[???]' if not found
+        **Returns:**
+        - `str`: Process name or '[???]' if not found.
         """
         self.logger.debug("get_process_name called")
         proc_name = yield from self.get_args(pid)
@@ -128,13 +143,13 @@ class OSI(Plugin):
 
     def get_env(self, pid: Optional[int] = None) -> Generator[Any, None, Dict[str, str]]:
         """
-        Get the environment variables for a process.
+        ### Get the environment variables for a process
 
-        Args:
-            pid (int, optional): Process ID, or None for current process
+        **Args:**
+        - `pid` (`int`, optional): Process ID, or `None` for current process.
 
-        Returns:
-            Dict[str, str]: Dictionary of environment variables (empty if not found)
+        **Returns:**
+        - `Dict[str, str]`: Dictionary of environment variables (empty if not found).
         """
         self.logger.debug("get_process_env called")
         proc_env = yield PortalCmd(hop.HYPER_OP_READ_PROCENV, pid=pid)
@@ -148,13 +163,13 @@ class OSI(Plugin):
 
     def get_proc(self, pid: Optional[int] = None) -> Generator[Any, None, Optional[Wrapper]]:
         """
-        Get detailed process information for a process.
+        ### Get detailed process information for a process
 
-        Args:
-            pid (int, optional): Process ID, or None for current process
+        **Args:**
+        - `pid` (`int`, optional): Process ID, or `None` for current process.
 
-        Returns:
-            Wrapper or None: Process information wrapper object, or None if not found
+        **Returns:**
+        - `Wrapper` or `None`: Process information wrapper object, or `None` if not found.
         """
         proc_bytes = yield PortalCmd(hop.HYPER_OP_OSI_PROC, 0, 0, pid)
         if proc_bytes:
@@ -165,13 +180,13 @@ class OSI(Plugin):
 
     def get_mappings(self, pid: Optional[int] = None) -> Generator[Any, None, MappingsWrapper]:
         """
-        Get memory mappings for a process.
+        ### Get memory mappings for a process
 
-        Args:
-            pid (int, optional): Process ID, or None for current process
+        **Args:**
+        - `pid` (`int`, optional): Process ID, or `None` for current process.
 
-        Returns:
-            MappingsWrapper: Wrapper containing all memory mappings (empty if not found)
+        **Returns:**
+        - `MappingsWrapper`: Wrapper containing all memory mappings (empty if not found).
         """
         skip = 0
         self.logger.debug(
@@ -279,10 +294,10 @@ class OSI(Plugin):
 
     def get_proc_handles(self) -> Generator[Any, None, List[Wrapper]]:
         """
-        Retrieve a list of process handles from the kernel.
+        ### Retrieve a list of process handles from the kernel
 
-        Returns:
-            List[Wrapper]: List of process handle objects with properties: pid, taskd, start_time (empty if not found)
+        **Returns:**
+        - `List[Wrapper]`: List of process handle objects with properties: pid, taskd, start_time (empty if not found).
         """
         self.logger.debug("get_proc_handles called")
 
@@ -354,15 +369,15 @@ class OSI(Plugin):
 
     def get_fds(self, pid: Optional[int] = None, start_fd: int = 0, count: Optional[int] = None) -> Generator[Any, None, List[Wrapper]]:
         """
-        Retrieve file descriptors for a process.
+        ### Retrieve file descriptors for a process
 
-        Args:
-            pid (int, optional): Process ID, or None for current process
-            start_fd (int, optional): FD number to start listing from (default: 0)
-            count (int, optional): Maximum number of file descriptors to return (None for all)
+        **Args:**
+        - `pid` (`int`, optional): Process ID, or `None` for current process.
+        - `start_fd` (`int`, optional): FD number to start listing from (default: 0).
+        - `count` (`int`, optional): Maximum number of file descriptors to return (`None` for all).
 
-        Returns:
-            List[Wrapper]: List of file descriptor objects with fd and name properties (empty if not found)
+        **Returns:**
+        - `List[Wrapper]`: List of file descriptor objects with fd and name properties (empty if not found).
         """
         # Ensure start_fd is an integer
         if start_fd is None:
@@ -483,13 +498,13 @@ class OSI(Plugin):
 
     def get_mapping_by_addr(self, addr: int) -> Generator[Any, None, Optional[MappingWrapper]]:
         """
-        Get the memory mapping containing a specific address.
+        ### Get the memory mapping containing a specific address
 
-        Args:
-            addr (int): Address to look up
+        **Args:**
+        - `addr` (`int`): Address to look up.
 
-        Returns:
-            MappingWrapper or None: Mapping containing the address, or None if not found
+        **Returns:**
+        - `MappingWrapper` or `None`: Mapping containing the address, or `None` if not found.
         """
         self.logger.debug(f"get_mapping_by_addr called: addr={addr:#x}")
         maps = yield from self.get_mappings()

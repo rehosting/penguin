@@ -1,7 +1,11 @@
+"""
+.. include:: /docs/uprobes.md
+"""
+
 import os
 import lzma
 from penguin import Plugin, plugins
-from typing import Dict, List, Any, Union
+from typing import Dict, List, Any, Union, Callable, Optional, Iterator
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import portal_type
 from hyper.portal import PortalCmd
@@ -16,11 +20,20 @@ except ImportError:
 
 class Uprobes(Plugin):
     """
-    Plugin that provides an interface for registering user-space probes (uprobes).
-    Uses the portal's interrupt mechanism for registration.
+    ## Uprobes Plugin
+
+    Provides an interface for registering and handling user-space probes (uprobes) in guest processes.
+    Supports flexible filtering, symbol lookup, and coroutine-based event handling.
+
+    **Attributes:**
+    - `probes` (`Dict[int, Dict[str, Any]]`): Registered probe callbacks by probe ID.
+    - `probe_info` (`Dict[int, Dict[str, Any]]`): Metadata for each registered probe.
+    - `_pending_uprobes` (`List[Dict[str, Any]]`): Queue of uprobes pending registration.
+    - `_func_to_probe_id` (`Dict[Callable, int]`): Maps callback functions to probe IDs.
+    - `_name_to_probe_id` (`Dict[str, int]`): Maps function names to probe IDs.
     """
 
-    def __init__(self, panda):
+    def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.projdir = self.get_arg("proj_dir")
         if self.get_arg_bool("verbose"):
@@ -46,8 +59,15 @@ class Uprobes(Plugin):
         self._symbols_loaded = False
         self._uprobe_event = self.plugins.portal.wrap(self._uprobe_event)
 
-    def _load_symbols(self):
-        """Lazily load symbols from LibrarySymbols.yaml if it exists"""
+    def _load_symbols(self) -> Dict[str, Any]:
+        """
+        ### Lazily load symbols from the compressed symbols database.
+
+        Loads and caches the symbols from `LibrarySymbols.json.xz` for symbol lookup.
+
+        **Returns:**
+        - `Dict[str, Any]`: Dictionary mapping library paths to symbol offsets.
+        """
         if self._symbols_loaded:
             return self._symbols_cache
 
@@ -77,8 +97,20 @@ class Uprobes(Plugin):
 
         return self._symbols_cache
 
-    def _lookup_symbol(self, path, symbol):
-        """Look up a symbol's offset in the specified library"""
+    def _lookup_symbol(self, path: str, symbol: str) -> (Optional[str], Optional[int]):
+        """
+        ### Look up a symbol's offset in the specified library.
+
+        Supports wildcards and demangling for C++ symbols.
+
+        **Args:**
+        - `path` (`str`): Path or pattern to the library.
+        - `symbol` (`str`): Symbol name to look up.
+
+        **Returns:**
+        - `Optional[str]`: Resolved library path.
+        - `Optional[int]`: Offset of the symbol in the library.
+        """
         symbols_data = self._load_symbols()
         if not symbols_data:
             return None, None
@@ -163,9 +195,19 @@ class Uprobes(Plugin):
 
         return None, None
 
-    def _uprobe_event(self, cpu, is_enter):
-        # sequence is no longer relevant
-        # sequence = self.panda.arch.get_arg(cpu, 1, convention="syscall")
+    def _uprobe_event(self, cpu: Any, is_enter: bool) -> Any:
+        """
+        ### Handle a uprobe event from the portal.
+
+        Invokes the registered callback for the probe, passing a `pt_regs` wrapper.
+
+        **Args:**
+        - `cpu` (`Any`): CPU context.
+        - `is_enter` (`bool`): True if entry probe, False if return probe.
+
+        **Returns:**
+        - Any: Return value from the callback, if any.
+        """
         arg = self.panda.arch.get_arg(cpu, 2, convention="syscall")
         # possible issue with registring multiple cpu _memregions
         sce = plugins.kffi.read_type_panda(cpu, arg, "portal_event")
@@ -211,13 +253,38 @@ class Uprobes(Plugin):
             self.panda.virtual_memory_write(cpu, ptregs_addr, new)
         return fn_ret
 
-    def _uprobe_enter_handler(self, cpu):
+    def _uprobe_enter_handler(self, cpu: Any) -> None:
+        """
+        ### Entry handler for uprobes.
+
+        **Args:**
+        - `cpu` (`Any`): CPU context.
+
+        **Returns:** None
+        """
         self._uprobe_event(cpu, True)
 
-    def _uprobe_return_handler(self, cpu):
+    def _uprobe_return_handler(self, cpu: Any) -> None:
+        """
+        ### Return handler for uprobes.
+
+        **Args:**
+        - `cpu` (`Any`): CPU context.
+
+        **Returns:** None
+        """
         self._uprobe_event(cpu, False)
 
-    def _uprobe_interrupt_handler(self):
+    def _uprobe_interrupt_handler(self) -> bool:
+        """
+        ### Handle interrupts for pending uprobe registrations.
+
+        Processes one pending uprobe registration per call.
+        Returns True if more uprobes are pending, False otherwise.
+
+        **Returns:**
+        - `bool`: True if more uprobes are pending, False otherwise.
+        """
         """
         We have to skip the first interrupt because there isn't really a filesystem
         yet, and we can't register uprobes until we have a filesystem.
@@ -276,12 +343,28 @@ class Uprobes(Plugin):
                 self.logger.error(
                     f"Failed to register uprobe for {path}:{offset} ({symbol})")
 
-    def _register_uprobe(self, path, offset, process_filter=None, on_enter=True, on_return=False, pid_filter=None):
+    def _register_uprobe(
+        self,
+        path: str,
+        offset: int,
+        process_filter: Optional[str] = None,
+        on_enter: bool = True,
+        on_return: bool = False,
+        pid_filter: Optional[int] = None
+    ) -> Iterator[Optional[int]]:
         """
-        Register a uprobe with the kernel using the portal.
+        ### Register a uprobe with the kernel using the portal.
 
-        This follows the same approach as register_syscall_hook, using a KFfi struct
-        that matches the C-side struct uprobe_registration in portal_uprobe.c.
+        **Args:**
+        - `path` (`str`): Path to the executable or library file.
+        - `offset` (`int`): Offset in the file to place the probe.
+        - `process_filter` (`Optional[str]`): Process name filter.
+        - `on_enter` (`bool`): Trigger on function entry.
+        - `on_return` (`bool`): Trigger on function return.
+        - `pid_filter` (`Optional[int]`): PID filter.
+
+        **Yields:**
+        - `Optional[int]`: Probe ID if registration succeeds, None otherwise.
         """
         # Determine the probe type based on entry/return flags
         if on_enter and on_return:
@@ -343,7 +426,16 @@ class Uprobes(Plugin):
             f"Uprobe successfully registered with ID: {probe_id}")
         return probe_id
 
-    def _unregister_uprobe(self, probe_id):
+    def _unregister_uprobe(self, probe_id: int) -> Iterator[bool]:
+        """
+        ### Unregister a uprobe by its ID.
+
+        **Args:**
+        - `probe_id` (`int`): ID of the uprobe to unregister.
+
+        **Yields:**
+        - `bool`: True if successfully unregistered, False otherwise.
+        """
         self.logger.debug(f"unregister_uprobe called: probe_id={probe_id}")
         result = yield PortalCmd("unregister_uprobe", probe_id, 0)
         if result is True:
@@ -355,19 +447,30 @@ class Uprobes(Plugin):
             self.logger.error(f"Failed to unregister uprobe {probe_id}")
             return False
 
-    def uprobe(self, path: str, symbol: Union[str, int], process_filter=None, on_enter=True, on_return=False, pid_filter=None, fail_register_ok=False):
+    def uprobe(
+        self,
+        path: Optional[str],
+        symbol: Union[str, int],
+        process_filter: Optional[str] = None,
+        on_enter: bool = True,
+        on_return: bool = False,
+        pid_filter: Optional[int] = None,
+        fail_register_ok: bool = False
+    ) -> Callable[[Callable], Callable]:
         """
-        Decorator to register a uprobe at the specified path and symbol/offset.
-        Args:
-            path: Path to the executable or library file (can include * wildcards), or None to match all libraries containing the symbol
-            symbol: Symbol name (string) or offset (integer) in the file
-            process_filter: Optional process name to filter events
-            on_enter: Whether to trigger on function entry (default: True)
-            on_return: Whether to trigger on function return (default: False)
-            pid_filter: Optional PID to filter events for a specific process
-            fail_register_ok: If True, silently return if symbol not found
-        Returns:
-            Decorator function that registers the uprobe
+        ### Decorator to register a uprobe at the specified path and symbol/offset.
+
+        **Args:**
+        - `path` (`Optional[str]`): Path to the executable or library file (can include wildcards), or None to match all libraries containing the symbol.
+        - `symbol` (`Union[str, int]`): Symbol name (string) or offset (integer) in the file.
+        - `process_filter` (`Optional[str]`): Process name to filter events.
+        - `on_enter` (`bool`): Trigger on function entry (default: True).
+        - `on_return` (`bool`): Trigger on function return (default: False).
+        - `pid_filter` (`Optional[int]`): PID to filter events for a specific process.
+        - `fail_register_ok` (`bool`): If True, silently return if symbol not found.
+
+        **Returns:**
+        - `Callable[[Callable], Callable]`: Decorator function that registers the uprobe.
         """
         def _register_decorator(uprobe_configs):
             def decorator(func):
@@ -433,13 +536,42 @@ class Uprobes(Plugin):
         }]
         return _register_decorator(uprobe_configs)
 
-    def uretprobe(self, path, symbol: Union[str, int], process_filter=None, on_enter=False, on_return=True, pid_filter=None, fail_register_ok=False):
+    def uretprobe(
+        self,
+        path: Optional[str],
+        symbol: Union[str, int],
+        process_filter: Optional[str] = None,
+        on_enter: bool = False,
+        on_return: bool = True,
+        pid_filter: Optional[int] = None,
+        fail_register_ok: bool = False
+    ) -> Callable[[Callable], Callable]:
+        """
+        ### Decorator to register a return uprobe (uretprobe).
+
+        Equivalent to `uprobe()` with `on_enter=False, on_return=True`.
+
+        **Args:**
+        - `path` (`Optional[str]`): Path to the executable or library file.
+        - `symbol` (`Union[str, int]`): Symbol name or offset.
+        - `process_filter` (`Optional[str]`): Process name filter.
+        - `on_enter` (`bool`): Trigger on entry (default: False).
+        - `on_return` (`bool`): Trigger on return (default: True).
+        - `pid_filter` (`Optional[int]`): PID filter.
+        - `fail_register_ok` (`bool`): If True, silently return if symbol not found.
+
+        **Returns:**
+        - `Callable[[Callable], Callable]`: Decorator for return probes.
+        """
         return self.uprobe(path, symbol, process_filter, on_enter, on_return, pid_filter, fail_register_ok)
 
-    def unregister(self, probe_id):
+    def unregister(self, probe_id: int) -> None:
         """
-        Unregister a uprobe by its ID.
-        Args:
-            probe_id: ID of the uprobe to unregister
+        ### Unregister a uprobe by its ID.
+
+        **Args:**
+        - `probe_id` (`int`): ID of the uprobe to unregister.
+
+        **Returns:** None
         """
         self._unregister_uprobe(probe_id)
