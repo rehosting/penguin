@@ -43,7 +43,7 @@ class Verifier(Plugin):
     def test_file_contains(self, name, test_case):
         f = join(self.outdir, test_case["file"])
         if not exists(f):
-            self.logger.error(f"Test {name}: file not found at {f}")
+            self.logger.debug(f"Test {name}: file not found at {f}")
             return False
 
         if "strings" in test_case:
