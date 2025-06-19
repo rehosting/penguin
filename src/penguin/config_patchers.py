@@ -564,9 +564,6 @@ class DynamicExploration(PatchGenerator):
                 "nmap": {
                     "enabled": True,
                 },
-                "coverage": {
-                    "enabled": True
-                },
                 "vpn": {
                     "enabled": True,
                     "log": True,
@@ -597,9 +594,6 @@ class SingleShotFICD(PatchGenerator):
             },
             "plugins": {
                 "nmap": {
-                    "enabled": False,
-                },
-                "coverage": {
                     "enabled": False,
                 },
                 "vpn": {
@@ -641,9 +635,6 @@ class SingleShot(PatchGenerator):
                 "nmap": {
                     "enabled": False,
                 },
-                "coverage": {
-                    "enabled": False,
-                },
                 "vpn": {
                     "enabled": True,
                 },
@@ -678,9 +669,6 @@ class ManualInteract(PatchGenerator):
             },
             "plugins": {
                 "nmap": {
-                    "enabled": False,
-                },
-                "coverage": {
                     "enabled": False,
                 },
                 "vpn": {

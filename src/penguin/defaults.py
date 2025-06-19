@@ -34,20 +34,9 @@ default_plugins = {
     "vpn": {
     },
     "shell": {},
-    "coverage": {
-        "enabled": False,
-    },
-    "env": {
-    },
     "pseudofiles": {
     },
     "health": {
-    },
-    "nmap": {
-        "enabled": False,
-    },
-    "zap": {
-        "enabled": False,
     },
     "mount": {},
     "nvram2": {
