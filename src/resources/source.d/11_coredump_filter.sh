@@ -1,0 +1,1 @@
+echo 0xFFFFFFFF > /igloo/pfs/real/proc/1/coredump_filter
