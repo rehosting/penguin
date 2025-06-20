@@ -135,7 +135,7 @@ class Portal(Plugin):
         """
         self.outdir = self.get_arg("outdir")
         # if self.get_arg_bool("verbose"):
-        # self.logger.setLevel("DEBUG")
+            # self.logger.setLevel("DEBUG")
         # Set endianness format character for struct operations
         self.endian_format = '<' if self.panda.endianness == 'little' else '>'
         self.portal_interrupt = None
@@ -454,7 +454,7 @@ class Portal(Plugin):
             fn_return = None
 
             if cpu_memregion not in iterators or iterators[cpu_memregion] is None:
-                self.logger.debug("Creating new iterator")
+                # self.logger.debug("Creating new iterator")
                 # Revert to calling the original function f with self_
                 fn_ret = f(*args, **kwargs)
 
@@ -464,8 +464,10 @@ class Portal(Plugin):
                 iterators[cpu_memregion] = fn_ret
                 iteration_time[cpu_memregion] = time.time()
                 in_op = None
+                new_iterator = True
             else:
                 in_op = self._handle_input_state(cpum)
+                new_iterator = False
 
             try:
                 if not in_op:
@@ -489,12 +491,12 @@ class Portal(Plugin):
                 cmd = e
 
             if type(cmd).__name__ == "PortalCmd":
-                self._write_portalcmd(cpum, cmd)
+                if not (new_iterator and cmd.op == hop.HYPER_OP_NONE):
+                    self._write_portalcmd(cpum, cmd)
             elif isinstance(cmd, Exception):
                 self._write_portalcmd(cpum, PortalCmd.none())
                 raise cmd
             elif cmd is not None:
-                breakpoint()
                 self.logger.error(
                     f"Invalid return to portal: {type(cmd)} {cmd}")
             return fn_return
