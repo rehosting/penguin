@@ -575,3 +575,35 @@ class Mem(Plugin):
         data1 = yield from self.read_bytes(addr1, size, pid)
         data2 = yield from self.read_bytes(addr2, size, pid)
         return data1 == data2
+
+    def read_ptr_array(self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, List[str]]:
+        """
+        ### Read a NULL-terminated array of pointers to strings from guest memory using the portal's optimized handler.
+
+        Uses the HYPER_OP_READ_PTR_ARRAY portal command for efficient reading.
+
+        **Args:**
+        - `addr` (`int`): Address of the pointer array in guest memory.
+        - `pid` (`int`, optional): Process ID for context.
+
+        **Returns:**
+        - `List[str]`: List of strings read from the array.
+        """
+        from hyper.consts import HYPER_OP as hop
+        from hyper.portal import PortalCmd
+        buf = yield PortalCmd(hop.HYPER_OP_READ_PTR_ARRAY, addr, 0, pid)
+        if not buf:
+            return []
+        # The buffer is a sequence of null-terminated strings
+        result = []
+        offset = 0
+        while offset < len(buf):
+            end = buf.find(b'\0', offset)
+            if end == -1:
+                break
+            s = buf[offset:end].decode('latin-1', errors='replace')
+            if s == '':
+                break
+            result.append(s)
+            offset = end + 1
+        return result
