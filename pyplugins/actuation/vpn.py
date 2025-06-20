@@ -251,8 +251,7 @@ class VPN(Plugin):
             if ip == "0.0.0.0":
                 # First run normal callback with 0.0.0.0 IP
                 host_port = self.bridge(sock_type, ip, port, procname, ipvn)
-                yield from plugins.portal_publish(self, "on_bind", sock_type, ip, 
-                                                port, host_port, self.exposed_ip, procname)
+                plugins.publish(self, "on_bind", sock_type, ip, port, host_port, self.exposed_ip, procname)
 
                 # Add wild_ips
                 self.wild_ips.add((sock_type, port, procname))
@@ -260,8 +259,7 @@ class VPN(Plugin):
                 # Bridge for each previously seen ip
                 for seen_ip in self.seen_ips:
                     host_port = self.bridge(sock_type, seen_ip, port, procname, ipvn)
-                    yield from plugins.portal_publish(self, "on_bind", sock_type, seen_ip, 
-                                               port, host_port, self.exposed_ip, procname)
+                    plugins.publish(self, "on_bind", sock_type, seen_ip, port, host_port, self.exposed_ip, procname)
                 return  # Skip the final call to bridge / trigger ppp callback
 
             elif ip not in self.seen_ips:
@@ -273,12 +271,10 @@ class VPN(Plugin):
                     host_port = self.bridge(
                         sock_type, ip, seen_port, seen_procname, ipvn
                     )  # If unsupported or guest-host ports actually match, we skip this
-                    yield from plugins.portal_publish(self, "on_bind", sock_type, ip,
-                                                      seen_port, host_port, self.exposed_ip, procname)
+                    plugins.publish(self, "on_bind", sock_type, ip, seen_port, host_port, self.exposed_ip, procname)
 
         host_port = self.bridge(sock_type, ip, port, procname, ipvn)
-        yield from plugins.portal_publish(self, "on_bind", sock_type, ip, port, 
-                                          host_port, self.exposed_ip, procname)
+        plugins.publish(self, "on_bind", sock_type, ip, port, host_port, self.exposed_ip, procname)
 
     def map_bound_socket(self, sock_type: str, ip: str, guest_port: int, procname: str) -> int:
         """
