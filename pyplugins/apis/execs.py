@@ -63,89 +63,6 @@ class Execs(Plugin):
         """
         plugins.register(self, "exec_event")
 
-    def _read_ptrlist(self, ptr: int, chunk_size: int = 8,
-                      max_length: int = 256) -> Generator[Any, None, List[str]]:
-        """
-        ### Dynamically read a NULL-terminated pointer list from guest memory, with a maximum length for safety.
-
-        Coroutine: use `yield from` to call.
-
-        **Args:**
-        - `ptr` (`int`): Pointer to the start of the list.
-        - `chunk_size` (`int`): Number of pointers to read per chunk.
-        - `max_length` (`int`): Maximum number of entries to read (default: 256).
-
-        **Returns:**
-        - `List[str]`: List of strings (argument or environment values).
-        """
-        if not ptr:
-            return []
-        result = []
-        offset = 0
-        consecutive_failures = 0
-        max_consecutive_failures = 3
-
-        while len(result) < max_length:
-            try:
-                buf = yield from plugins.mem.read_ptrlist(ptr + offset * 8, chunk_size)
-
-                # If we get an empty buffer, we've likely hit the end
-                if not buf or len(buf) == 0:
-                    self.logger.debug(
-                        f"_read_ptrlist: empty buffer at offset {offset}, stopping")
-                    break
-
-                # Reset failure counter on successful read
-                consecutive_failures = 0
-
-                found_null = False
-                for i, p in enumerate(buf):
-                    if p == 0 or len(result) >= max_length:
-                        found_null = True
-                        break
-                    try:
-                        val = yield from plugins.mem.read_str(p)
-                        if val is None or val == "":
-                            # Empty string might indicate end of list
-                            self.logger.debug(
-                                f"_read_ptrlist: empty string at pointer {hex(p)}, treating as end")
-                            found_null = True
-                            break
-                        result.append(val)
-                    except Exception as e:
-                        # Log and skip unreadable pointers
-                        self.logger.warning(
-                            f"_read_ptrlist: error reading string at {hex(p)}: {e}")
-                        val = "[unreadable]"
-                        result.append(val)
-
-                # If we found a null terminator, stop
-                if found_null:
-                    break
-
-                offset += chunk_size
-
-            except Exception as e:
-                consecutive_failures += 1
-                self.logger.warning(
-                    f"_read_ptrlist: error reading pointer list at offset {offset}: {e}")
-
-                # If we've had too many consecutive failures, give up
-                if consecutive_failures >= max_consecutive_failures:
-                    self.logger.error(
-                        f"_read_ptrlist: too many consecutive failures ({consecutive_failures}), stopping")
-                    break
-
-                # Try to continue with the next chunk
-                offset += chunk_size
-
-        # If we reach max_length, log a warning
-        if len(result) >= max_length:
-            self.logger.warning(
-                f"_read_ptrlist: reached max_length={max_length}, possible unterminated list at {hex(ptr)}")
-
-        return result
-
     def _parse_envp(self, envp_list: List[str]) -> Dict[str, str]:
         """
         ### Convert envp list to a dictionary, handling both 'key=value' and 'key' (empty value) cases.
@@ -168,7 +85,7 @@ class Execs(Plugin):
     def _parse_args_env(
             self, argv_ptr: int, envp_ptr: int) -> Generator[Any, None, tuple[List[str], Dict[str, str]]]:
         """
-        ### Unified parsing for argv and envp pointers.
+        ### Unified parsing for argv and envp pointers using the portal's optimized handler.
 
         Coroutine: use `yield from` to call.
 
@@ -179,8 +96,8 @@ class Execs(Plugin):
         **Returns:**
         - `Tuple[List[str], Dict[str, str]]`: argv list and envp dictionary.
         """
-        argv_list = yield from self._read_ptrlist(argv_ptr)
-        envp_list = yield from self._read_ptrlist(envp_ptr)
+        argv_list = yield from plugins.mem.read_ptr_array(argv_ptr)
+        envp_list = yield from plugins.mem.read_ptr_array(envp_ptr)
         envp_dict = self._parse_envp(envp_list)
         return argv_list, envp_dict
 
