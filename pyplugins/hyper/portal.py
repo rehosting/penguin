@@ -135,7 +135,7 @@ class Portal(Plugin):
         """
         self.outdir = self.get_arg("outdir")
         # if self.get_arg_bool("verbose"):
-            # self.logger.setLevel("DEBUG")
+        #   self.logger.setLevel("DEBUG")
         # Set endianness format character for struct operations
         self.endian_format = '<' if self.panda.endianness == 'little' else '>'
         self.portal_interrupt = None
