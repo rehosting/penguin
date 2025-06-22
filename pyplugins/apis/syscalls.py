@@ -469,6 +469,35 @@ class Syscalls(Plugin):
 
         return proto
 
+    def _resolve_syscall_callback(self, f, is_method, hook_ptr=None):
+        """
+        Resolve and bind the function or method for a syscall event.
+        If a method is resolved, update self.hooks[hook_ptr] to store the bound method.
+        Returns the callable (already bound if needed), or None on error.
+        """
+        if is_method and hasattr(f, '__qualname__') and '.' in f.__qualname__:
+            class_name = f.__qualname__.split('.')[0]
+            method_name = f.__qualname__.split('.')[-1]
+            try:
+                instance = getattr(plugins, class_name)
+                if instance and hasattr(instance, method_name):
+                    bound_method = getattr(instance, method_name)
+                    # Patch the hook_info to store the bound method for future calls
+                    if hook_ptr is not None and hook_ptr in self.hooks:
+                        on_all, _, is_method_flag = self.hooks[hook_ptr] if len(self.hooks[hook_ptr]) == 3 else (*self.hooks[hook_ptr], False)
+                        self.hooks[hook_ptr] = (on_all, bound_method, False)
+                    return bound_method
+                else:
+                    self.logger.error(
+                        f"Could not find method {method_name} on instance for {f.__qualname__}")
+                    return None
+            except AttributeError:
+                self.logger.error(
+                    f"Could not find instance for class {class_name} from {f.__qualname__}")
+                return None
+        else:
+            return f
+
     def _syscall_event(self, cpu: int, is_enter: Optional[bool] = None) -> Any:
         """
         ### Handle a syscall event, dispatching to the registered callback
@@ -498,55 +527,25 @@ class Syscalls(Plugin):
             # Backward compatibility for old format
             on_all, f = hook_info
             is_method = False
-
         pt_regs_raw = yield from plugins.kffi.read_type(
             sce.regs.address, "pt_regs")
         pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
-        # If we're handling all syscalls or we don't have prototype info,
-        # just call the function with the standard arguments
         args = None
         if on_all or proto is None or sce.argc == 0:
             args = (pt_regs, proto, sce)
         else:
             sysargs = [sce.args[i] for i in range(sce.argc)]
-            # Call the function with standard arguments plus syscall arguments
             args = (pt_regs, proto, sce, *sysargs)
 
-        # Handle method calls properly
-        if is_method and hasattr(f, '__qualname__') and '.' in f.__qualname__:
-            # This is an unbound method that needs to be called on an instance
-            class_name = f.__qualname__.split('.')[0]
-            method_name = f.__qualname__.split('.')[-1]
-
-            # Use plugin manager's attribute access to find the instance by
-            # class name
-            try:
-                instance = getattr(plugins, class_name)
-
-                if instance and hasattr(instance, method_name):
-                    # Call the bound method
-                    bound_method = getattr(instance, method_name)
-                    fn_ret = bound_method(*args)
-                    if isinstance(fn_ret, Iterator):
-                        fn_ret = yield from bound_method(*args)
-                else:
-                    self.logger.error(
-                        f"Could not find method {method_name} on instance for {f.__qualname__}")
-                    return
-            except AttributeError:
-                self.logger.error(
-                    f"Could not find instance for class {class_name} from {f.__qualname__}")
-                return
-        else:
-            # Regular function call or already bound method
-            fn_ret = f(*args)
-            if isinstance(fn_ret, Iterator):
-                fn_ret = yield from f(*args)
-
+        # Use the new helper to resolve the function to call
+        fn_to_call = self._resolve_syscall_callback(f, is_method, hook_ptr)
+        result = fn_to_call(*args)
+        if isinstance(result, Iterator):
+            result = yield from result
         new = sce.to_bytes()
         if original != new:
             yield from plugins.mem.write_bytes(arg, new)
-        return fn_ret
+        return result
 
     def register_syscall_hook(
             self, hook_config: Dict[str, Any]) -> Iterator[int]:
