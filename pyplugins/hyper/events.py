@@ -26,6 +26,8 @@ EVENTS = {
     0xB335A535:         ('igloo_send_hypercall',  (None, int, int)),
     # crc32("busybox")
     0x8507FAE1:         ('igloo_shell',           (int, int, int)),
+    # Bad 1337speak for INITDONE
+    0x1417D04E:         ('igloo_init_done',        ()),
 }
 
 

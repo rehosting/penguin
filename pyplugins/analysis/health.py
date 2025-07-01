@@ -12,26 +12,7 @@ class Health(PyPlugin):
         self.exiting = False
         self.logger = getColoredLogger("plugins.health")
 
-        # XXX no longer used to track time
-        self.events = {  # Class: [(time, score)]
-            "nproc": [(0, 0)],
-            "nproc_args": [(0, 0)],
-            "nfiles": [(0, 0)],
-            "nuniquedevs": [(0, 0)],
-            "nbound_sockets": [(0, 0)],
-            "nsyscalls": [(0, 0)],
-            "nexecs": [(0, 0)],
-            "nexecs_args": [(0, 0)],
-            "nioctls": [(0, 0)],
-        }
-
-        self.final_events = {k: 0 for k in self.events.keys()}
-
-        # Per event data storage
-        self.binds = set()
-        self.procs = set()
-        self.procs_args = set()
-        self.devs = set()
+        self.reset_events()
 
         plugins.register(self, "igloo_exec")
 
@@ -42,6 +23,7 @@ class Health(PyPlugin):
         plugins.subscribe(plugins.Events, "igloo_open",
                           self.health_detect_opens)
         plugins.syscalls.syscall("on_sys_execve_enter")(self.health_execve)
+        plugins.subscribe(plugins.Events, "igloo_init_done", self.init_done)
 
     @plugins.portal.wrap
     def health_execve(self, cpu, proto, syscall, fname_ptr, argv_ptr, envp):
@@ -117,6 +99,32 @@ class Health(PyPlugin):
             self.devs.add(fname)
             self.increment_event("nuniquedevs")
             self.logger.debug("New device opened: %s", fname)
+
+    def reset_events(self):
+        self.events = {  # Class: [(time, score)]
+            "nproc": [(0, 0)],
+            "nproc_args": [(0, 0)],
+            "nfiles": [(0, 0)],
+            "nuniquedevs": [(0, 0)],
+            "nbound_sockets": [(0, 0)],
+            "nsyscalls": [(0, 0)],
+            "nexecs": [(0, 0)],
+            "nexecs_args": [(0, 0)],
+            "nioctls": [(0, 0)],
+        }
+
+        self.final_events = {k: 0 for k in self.events.keys()}
+
+        # Per event data storage
+        self.binds = set()
+        self.procs = set()
+        self.procs_args = set()
+        self.devs = set()
+
+    def init_done(self, *args, **kwargs):
+        config = self.get_arg("conf")
+        if not config["core"].get("early_monitoring", False):
+            self.reset_events()
 
     def uninit(self):
         self.exiting = True

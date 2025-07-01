@@ -406,6 +406,23 @@ false
 true
 ```
 
+### `core.early_monitoring` Includde early boot in monitoring output
+
+|||
+|-|-|
+|__Type__|boolean|
+|__Default__|`false`|
+
+Whether to enable monitoring of all boot activity (mostly rehosting initialization irrelavant to the firmware)
+
+```yaml
+false
+```
+
+```yaml
+true
+```
+
 ## `patches` Patches
 
 |||

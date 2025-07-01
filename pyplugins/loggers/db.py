@@ -4,8 +4,7 @@ from os.path import join
 from pandare2 import PyPlugin
 from events import Base
 from threading import Lock, Thread, Event
-import time
-from penguin import getColoredLogger
+from penguin import getColoredLogger, plugins
 
 
 class DB(PyPlugin):
@@ -26,7 +25,17 @@ class DB(PyPlugin):
             self.logger.setLevel("DEBUG")
 
         # Start the background flush thread
-        Thread(target=self._flush_worker, daemon=True).start()
+        self.flush_thread = Thread(target=self._flush_worker, daemon=True)
+        self.flush_thread.start()
+
+        self.buffering = True  # Start in buffering mode
+        self.pre_init_buffer = []
+        # The early_monitoring flag determines whether to keep the pre-init buffered events
+        config = self.get_arg("conf")
+        self.early_monitoring = config["core"].get("early_monitoring", False)
+        if self.early_monitoring:
+            self.logger.info("Early monitoring enabled, buffering and will output pre-init events")
+        plugins.subscribe(plugins.Events, "igloo_init_done", self.end_buffering)
 
     def _flush_worker(self):
         """Worker thread that periodically flushes events to the database."""
@@ -60,18 +69,34 @@ class DB(PyPlugin):
         if not event.proc_id:
             event.proc_id = 0
 
+        if self.buffering:
+            self.pre_init_buffer.append(event)
+            return
+
         with self.event_lock:
             self.queued_events.append(event)
             if len(self.queued_events) >= self.buffer_size:
                 self.flush_event.set()
 
+    def end_buffering(self, *args, **kwargs):
+        self.buffering = False
+        if self.early_monitoring:
+            with self.event_lock:
+                self.queued_events.extend(self.pre_init_buffer)
+                if self.queued_events:
+                    self.flush_event.set()
+        self.pre_init_buffer.clear()
+
     def uninit(self):
+        if self.buffering:
+            self.end_buffering()
         # Trigger a final flush and stop the worker thread
         if self.queued_events:
             self.flush_event.set()
 
         self.stop_event.set()
         self.flush_event.set()  # Wake up the thread
-        time.sleep(0.1)  # Give the thread time to process
+
+        self.flush_thread.join(timeout=5)  # Wait up to 5 seconds for the thread to finish
 
         self.engine.dispose()
