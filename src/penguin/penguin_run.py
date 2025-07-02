@@ -409,7 +409,7 @@ def run_config(
     if show_output_bool and not graphics:
         logger.info("Logging console output to stdout")
         console_out = [
-                "-chardev", f"stdio,id=char1,logfile={out_dir}/console.log,signal=off",
+                "-chardev", f"stdio,id=char1,logfile={out_dir}/console.log,signal=on",
                 "-serial", "chardev:char1",
                 "-display", "none",
                 ]
@@ -594,13 +594,13 @@ def run_config(
     def _run():
         try:
             panda.run()
-            # think about this and maybe join on the thread
-            plugins.unload_all()
         except KeyboardInterrupt:
             logger.info("\nStopping for ctrl-c\n")
         except Exception as e:
             logger.exception(e)
         finally:
+            # think about this and maybe join on the thread
+            plugins.unload_all()
             if vpn_enabled:
                 shutil.rmtree(vpn_tmpdir.name, ignore_errors=True)
 
