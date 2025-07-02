@@ -119,20 +119,31 @@ class PyPandaSysLog(Plugin):
             self.errcode_to_errname = errcode_to_errname
             self.errcode_to_explanation = errcode_to_explanation
 
+        # These syscalls won't necessarily return so we log them on enter
+        monitor_enter_syscalls = [
+            'execve',
+            'execveat',
+            'exit',
+            'exit_group',
+            'vfork',
+            'reboot',
+            'sigreturn',
+            'setcontext',
+        ]
+
         if procs:
             for proc in procs:
                 syscalls.syscall("on_all_sys_return", comm_filter=proc)(
                     self.all_sys_ret)
-                syscalls.syscall("on_sys_execve_enter", comm_filter=proc)(
-                    self.sys_execve_enter)
-                syscalls.syscall("on_sys_execveat_enter", comm_filter=proc)(
-                    self.sys_execve_enter)
+                for syscall_name in monitor_enter_syscalls:
+                    syscalls.syscall(f"on_sys_{syscall_name}_enter", comm_filter=proc)(
+                        self.sys_record_enter)
         else:
             syscalls.syscall("on_all_sys_return")(self.all_sys_ret)
-            syscalls.syscall("on_sys_execve_enter")(self.sys_execve_enter)
-            syscalls.syscall("on_sys_execveat_enter")(self.sys_execve_enter)
+            for syscall_name in monitor_enter_syscalls:
+                syscalls.syscall(f"on_sys_{syscall_name}_enter")(self.sys_record_enter)
 
-    def sys_execve_enter(self, regs, proto, syscall, *args) -> None:
+    def sys_record_enter(self, regs, proto, syscall, *args) -> None:
         """
         Callback for handling execve/execveat syscall entry events.
 
