@@ -595,7 +595,7 @@ def run_config(
         try:
             panda.run()
         except KeyboardInterrupt:
-            logger.info("\nStopping for ctrl-c\n")
+            logger.info("Stopping for ctrl-c")
         except Exception as e:
             logger.exception(e)
         finally:
