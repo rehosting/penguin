@@ -31,7 +31,7 @@ import os
 import signal
 import threading
 import time
-from penguin import Plugin, yaml
+from penguin import Plugin, yaml, plugins
 from penguin.defaults import vnc_password
 
 
@@ -219,7 +219,7 @@ class Core(Plugin):
         """
         self.logger.info("Caught SIGUSR1 - gracefully shutdown emulation")
         open(os.path.join(self.outdir, ".ran"), "w").close()
-        self.uninit()  # explicitly call uninit?
+        plugins.unload_all()
         self.panda.end_analysis()
 
     def uninit(self) -> None:
