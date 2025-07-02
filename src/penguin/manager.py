@@ -130,15 +130,33 @@ class PandaRunner:
     def __init__(self):
         self.logger = getColoredLogger("penguin.run_manager")
 
-    @staticmethod
-    def _send_sigusr1(pid):
+    def _send_sigusr1(self, pid):
         try:
-            os.kill(pid, signal.SIGUSR1)
+            os.killpg(os.getpgpid(pid), signal.SIGUSR1)
             return True
         except ProcessLookupError:
-            logger = getColoredLogger("penguin.run_manager")
-            logger.warning(f"Process {pid} not found when trying to send SIGUSR1")
+            self.logger.warning(f"Process {pid} not found when trying to send SIGUSR1")
             return False
+
+    def catch_and_forward_sigint(self, p):
+        """Install a SIGINT handler that escalates to SIGKILL on repeated Ctrl+C."""
+        self._sigint_count = 0
+
+        def handler(signum, frame):
+            self._sigint_count += 1
+            if self._sigint_count == 1:
+                self.logger.warning("SIGINT received, forwarding to subprocess group (Ctrl+C again to force kill)...")
+                try:
+                    os.killpg(os.getpgid(p.pid), signal.SIGINT)
+                except Exception as e:
+                    self.logger.error(f"Failed to send SIGINT to process group: {e}")
+            else:
+                self.logger.error("Second SIGINT received, force killing subprocess group!")
+                try:
+                    os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                except Exception as e:
+                    self.logger.error(f"Failed to send SIGKILL to process group: {e}")
+        signal.signal(signal.SIGINT, handler)
 
     def run(
         self,
@@ -214,39 +232,20 @@ class PandaRunner:
 
         start = time.time()
         try:
-            p = subprocess.Popen(cmd)  # Without stdout argument, the output will be printed to the console - great
-            p.wait(timeout=timeout_s + 180 if timeout_s else None)
+            # Without stdout argument, the output will be printed to the console - great
+            p = subprocess.Popen(cmd, preexec_fn=os.setsid)
+            self.catch_and_forward_sigint(p)
+            p.wait(timeout=timeout_s + 10 if timeout_s else None)
         except subprocess.TimeoutExpired:
             self.logger.info(
                 f"Timeout expired for {conf_yaml} after {timeout_s} seconds"
             )
+            self._send_sigusr1(p.pid)
+            p.wait(timeout=10)
             if p:
                 p.kill()
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Error running {conf_yaml}: {e}")
-        except KeyboardInterrupt:
-            self.logger.warning("Received keyboard interrupt while running emulation")
-            self.logger.info(
-                "Please wait up to 60s for graceful shutdown and result reporting"
-            )
-            self.logger.info("Otherwise, press Ctrl+C again to force kill")
-
-            if p and p.poll() is None:  # Check if process is still running
-                if self._send_sigusr1(p.pid):
-                    try:
-                        p.wait(
-                            timeout=60
-                        )  # Wait up to 60 seconds for the process to finish
-                    except subprocess.TimeoutExpired:
-                        self.logger.error(
-                            f"Process {p.pid} still running after SIGUSR1 + 30s: killing hard"
-                        )
-                        p.kill()  # Use p.kill() instead of system("kill -9")
-
-            if p:
-                p.wait()  # Ensure we wait for the process to finish
-            self.logger.debug("Shutdown complete")
-            return
 
         elapsed = time.time() - start
         self.logger.info(f"Emulation finishes after {elapsed:.02f} seconds with return code {p.returncode if p else 'N/A'} for {conf_yaml}")
