@@ -35,7 +35,6 @@ from sqlalchemy.orm import Session
 from os.path import join
 from events import Base
 from threading import Lock, Thread, Event
-import time
 from penguin import Plugin
 
 
@@ -65,6 +64,7 @@ class DB(Plugin):
         self.event_lock = Lock()
         self.flush_event = Event()
         self.stop_event = Event()
+        self.finished_worker = Event()
         self.initialized_db = False
 
         if self.get_arg_bool("verbose"):
@@ -93,6 +93,7 @@ class DB(Plugin):
 
             if events_to_flush:
                 self._perform_flush(events_to_flush)
+        self.finished_worker.set()
 
     def _perform_flush(self, events: list) -> None:
         """
@@ -155,6 +156,6 @@ class DB(Plugin):
 
         self.stop_event.set()
         self.flush_event.set()  # Wake up the thread
-        time.sleep(0.1)  # Give the thread time to process
-
+        while not self.finished_worker.is_set():
+            self.finished_worker.wait(timeout=5)
         self.engine.dispose()
