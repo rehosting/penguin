@@ -47,6 +47,49 @@ import datetime
 T = TypeVar('T', bound='Plugin')
 PluginManagerType = TypeVar('PluginManagerType', bound='IGLOOPluginManager')
 
+class ArgsBox:
+    def __init__(self, args: Dict[str, Any]) -> None:
+        """
+        Initialize ArgsBox with a dictionary of arguments.
+        Args:
+            args (Dict[str, Any]): Dictionary of arguments.
+        """
+        self.args = args
+
+    def __getitem__(self, key):
+        return self.args[key]
+
+    def __getattr__(self, key):
+        try:
+            return self.args[key]
+        except KeyError:
+            raise AttributeError(f"ArgsBox has no attribute '{key}'")
+
+    def get(self, key, default=None):
+        return self.args.get(key, default)
+    
+    def get_bool(self, key: str, default: bool = False) -> bool:
+        """
+        Get a boolean argument value by name.
+        Args:
+            key (str): The argument name.
+            default (bool): Default value if the argument is not set.
+        Returns:
+            bool: The argument value interpreted as a boolean.
+        """
+        if key not in self.args:
+            return default
+        if x := interpret_bool(self.args[key]) is not None:
+            return x
+
+        raise ValueError(f"Unsupported arg type: {type(self.args[key])}")
+    
+    def __contains__(self, key):
+        return key in self.args
+
+    def __repr__(self):
+        return f"ArgsBox({self.args!r})"
+
 
 class Plugin:
     """
@@ -63,7 +106,7 @@ class Plugin:
             args (Dict): Dictionary of arguments for this plugin.
         """
         self.plugins = plugins
-        self.args = args
+        self.args = ArgsBox(args)
         logname = camel_to_snake(self.name)
         self.logger = getColoredLogger(f"plugins.{logname}")
 
@@ -118,24 +161,11 @@ class Plugin:
             ValueError: If the argument exists but has an unsupported type.
         """
         if arg_name not in self.args:
-            # Argument name unset - it's false
             return False
+        if x := interpret_bool(self.args[arg_name]) is not None:
+            return x
 
-        arg_val = self.args[arg_name]
-        if isinstance(arg_val, bool):
-            # If it's a Python bool already, just return it
-            return arg_val
-
-        if isinstance(arg_val, str):
-            # string of true/y/1 is True
-            return arg_val.lower() in ['true', 'y', '1']
-
-        if isinstance(arg_val, int):
-            # Nonzero is True
-            return arg_val != 0
-
-        # If it's not a string, int, or bool something is weird
-        raise ValueError(f"Unsupported arg type: {type(arg_val)}")
+        raise ValueError(f"Unsupported arg type: {type(val)}")
 
 
 class ScriptingPlugin(Plugin):
@@ -153,7 +183,7 @@ class ScriptingPlugin(Plugin):
             "plugins": self.plugins,
             "logger": self.logger,
             "panda": self.panda,
-            "args": self.args or {},
+            "args": ArgsBox(self.args or {}),
         }
         self.module = runpy.run_path(self.script_path, init_globals=self.init_globals)
 
@@ -201,6 +231,24 @@ def gen_search_locations(plugin_name: str, proj_dir: str,
         join(proj_dir, "plugins", plugin_name + ".py"),
     ]
     return search_locations
+
+
+def interpret_bool(val: Any) -> bool:
+    """
+    Interpret a value as a boolean, supporting bool, str, and int types.
+    Args:
+        val (Any): The value to interpret.
+    Returns:
+        bool: The interpreted boolean value.
+    Raises:
+        ValueError: If the value has an unsupported type.
+    """
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.lower() in ['true', 'y', '1']
+    if isinstance(val, int):
+        return val != 0
 
 
 def camel_to_snake(name: str) -> str:
@@ -510,7 +558,7 @@ class IGLOOPluginManager:
             "plugins": self,
             "logger": script_logger,
             "panda": self.panda,
-            "args": args or {},
+            "args": ArgsBox(args or {}),
         })
         spec.loader.exec_module(module)
 
@@ -746,24 +794,11 @@ class IGLOOPluginManager:
             ValueError: If the argument exists but has an unsupported type.
         """
         if arg_name not in self.args:
-            # Argument name unset - it's false
             return False
+        if x := interpret_bool(self.args[arg_name]) is not None:
+            return x
 
-        arg_val = self.args[arg_name]
-        if isinstance(arg_val, bool):
-            # If it's a Python bool already, just return it
-            return arg_val
-
-        if isinstance(arg_val, str):
-            # string of true/y/1 is True
-            return arg_val.lower() in ['true', 'y', '1']
-
-        if isinstance(arg_val, int):
-            # Nonzero is True
-            return arg_val != 0
-
-        # If it's not a string, int, or bool something is weird
-        raise ValueError(f"Unsupported arg type: {type(arg_val)}")
+        raise ValueError(f"Unsupported arg type: {type(self.args[arg_name])}")
 
 
 # singleton pattern for the plugin manager

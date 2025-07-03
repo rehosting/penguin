@@ -17,5 +17,7 @@ plugins:
         type: file_contains
         file: scripting2_test.txt
         string: "Unloading scripting2_test.py"
-  scripting_test: {}
+  scripting_test:
+    argument: True
+    key2: "value2"
   scripting2_test: {}
