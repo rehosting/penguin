@@ -333,17 +333,20 @@ class IGLOOPluginManager:
         """
         if self.get_plugin_by_name(plugin_name):
             return
-        self.logger.debug(f"Loading plugin: {plugin_name}")
-        path, local_plugin = find_plugin_by_name(
-            plugin_name, self.args["proj_dir"], self.args["plugin_path"])
 
-        args = dict(self.args)
+        # Check if the plugin is disabled explicitly before loading
         details = self.args["plugins"]
         plugin_args = details.get(plugin_name, {})
 
         if plugin_args.get("enabled", True) is False:
             self.logger.debug(f"Plugin {plugin_name} is disabled")
             return
+
+        self.logger.debug(f"Loading plugin: {plugin_name}")
+        path, local_plugin = find_plugin_by_name(
+            plugin_name, self.args["proj_dir"], self.args["plugin_path"])
+
+        args = dict(self.args)
 
         for k, v in plugin_args.items():
             # Extend the args with everything from the config that isn't in our
