@@ -47,6 +47,7 @@ import datetime
 T = TypeVar('T', bound='Plugin')
 PluginManagerType = TypeVar('PluginManagerType', bound='IGLOOPluginManager')
 
+
 class ArgsBox:
     def __init__(self, args: Dict[str, Any]) -> None:
         """
@@ -67,7 +68,7 @@ class ArgsBox:
 
     def get(self, key, default=None):
         return self.args.get(key, default)
-    
+
     def get_bool(self, key: str, default: bool = False) -> bool:
         """
         Get a boolean argument value by name.
@@ -81,9 +82,8 @@ class ArgsBox:
             return default
         if x := interpret_bool(self.args[key]) is not None:
             return x
-
         raise ValueError(f"Unsupported arg type: {type(self.args[key])}")
-    
+
     def __contains__(self, key):
         return key in self.args
 
@@ -164,8 +164,7 @@ class Plugin:
             return False
         if x := interpret_bool(self.args[arg_name]) is not None:
             return x
-
-        raise ValueError(f"Unsupported arg type: {type(val)}")
+        raise ValueError(f"Unsupported arg type: {type(x)}")
 
 
 class ScriptingPlugin(Plugin):
