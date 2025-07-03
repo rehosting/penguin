@@ -8,6 +8,7 @@
 
 getpid_ran = False
 
+
 @plugins.syscalls.syscall("on_sys_getpid_enter")
 def getpid_enter(*args):
     """
@@ -22,6 +23,7 @@ def getpid_enter(*args):
     with open(f"{outdir}/scripting2_test.txt", "w") as f:
         f.write("Hello from scripting2_test.py\n")
     getpid_ran = True
+
 
 def uninit():
     """
