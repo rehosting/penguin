@@ -137,6 +137,44 @@ class Plugin:
         # If it's not a string, int, or bool something is weird
         raise ValueError(f"Unsupported arg type: {type(arg_val)}")
 
+class ScriptingPlugin(Plugin):
+    """
+    A plugin that loads and executes a Python script as its __init__.
+    The script will have access to 'plugins' and 'self' (the plugin instance).
+    """
+    script = None
+
+    def __init__(self, *args, **kwargs):
+        import runpy
+        self.script_path = self.script
+        self.logger.info(f"ScriptingPlugin loading script: {self.script_path}")
+        self.init_globals = {
+            "plugins": self.plugins,
+            "logger": self.logger,
+            "panda": self.panda,
+            "args": self.args or {},
+        }
+        self.module = runpy.run_path(self.script_path, init_globals=self.init_globals)
+
+    @property
+    def name(self) -> str:
+        """
+        Returns the name of this plugin, which is its class name.
+        Returns:
+            str: The class name of this plugin.
+        """
+        if hasattr(self, "script_path"):
+            return basename(self.script_path).split('.')[0]
+        else:
+            return super().name
+
+    def uninit(self) -> None:
+        """
+        Uninitialize the plugin, if needed.
+        This method can be overridden by subclasses to perform cleanup.
+        """
+        if hasattr(self, "module") and self.module.get("uninit", None) is not None:
+            self.module["uninit"]()
 
 def gen_search_locations(plugin_name: str, proj_dir: str,
                          plugin_path: str) -> List[str]:
@@ -448,7 +486,7 @@ class IGLOOPluginManager:
     def load_all(self, plugin_file: str,
                  args: Optional[Dict[str, Any]] = None) -> List[str]:
         """
-        Load all Plugin classes from a Python file.
+        Load all Plugin classes from a Python file. If no Plugin classes are found, load as ScriptingPlugin.
         Args:
             plugin_file (str): Path to the Python file.
             args (Optional[Dict[str, Any]]): Arguments to pass to the Plugin.
@@ -464,14 +502,33 @@ class IGLOOPluginManager:
             raise ValueError(f"Unable to load {plugin_file}")
 
         module = importlib.util.module_from_spec(spec)
+        # Prepare a logger for the script/module
+        script_logger = getColoredLogger(f"plugins.{camel_to_snake(basename(plugin_file).split('.')[0])}")
+        module.__dict__.update({
+            "plugins": self,
+            "logger": script_logger,
+            "panda": self.panda,
+            "args": args or {},
+        })
         spec.loader.exec_module(module)
 
         names = []
+        plugin_classes = []
         for name, cls in inspect.getmembers(
                 module, lambda x: inspect.isclass(x)):
             if not issubclass(cls, Plugin) or cls == Plugin:
                 if not issubclass(cls, PyPlugin) or cls == PyPlugin:
                     continue
+            plugin_classes.append((name, cls))
+
+        if not plugin_classes:
+            # No Plugin classes found, load as ScriptingPlugin
+            name = basename(plugin_file).split('.')[0]
+            ScriptingPlugin.__name__ = name
+            ScriptingPlugin.script = plugin_file
+            plugin_classes.append((name, ScriptingPlugin))
+
+        for name, cls in plugin_classes:
             cls.__name__ = name
             self.load(cls, args)
             names.append(name)
