@@ -11,10 +11,10 @@ Penguin supports both class-based plugins and scripting plugins. Scripting plugi
 |------------------------|-----------------------------------|-----------------------------------|
 | Structure              | Subclass `Plugin`                 | Plain Python script               |
 | Entry Point            | `__init__` method                 | Top-level code (runs in `__init__` of ScriptingPlugin) |
-| Arguments              | `self.get_arg("foo")`            | `plugins.get_arg("foo")`         |
+| Arguments              | `self.get_arg("foo")`            | `args` global                      |
 | Decorators             | Use as `@self.plugins.syscalls...`| Use as `@plugins.syscalls...`     |
 | Unload/cleanup         | `uninit()` method                 | Define `uninit()` function        |
-| Access to manager      | `self.plugins`                    | `plugins` global                  |
+| Access to manager      | `self.plugins` or `import`        | `plugins` global or `import`      |
 | Access to logger       | `self.logger`                     | `logger` global                   |
 
 - Scripting plugins are loaded and managed just like class-based plugins. If a `.py` file does not define a `Plugin` subclass, it is loaded as a scripting plugin.
@@ -32,7 +32,7 @@ Penguin supports both class-based plugins and scripting plugins. Scripting plugi
 # The 'uninit' function will be called automatically when the plugin is unloaded.
 
 logger.info("Initializing scripting_test.py")
-outdir = plugins.get_arg("outdir")
+outdir = args.outdir
 getpid_ran = False
 
 @plugins.syscalls.syscall("on_sys_getpid_enter")
@@ -56,7 +56,6 @@ def uninit():
     It appends a message to the output file, or writes a failure message if the syscall was never triggered.
     """
     logger.info("Got uninit() call")
-    outdir = plugins.get_arg("outdir")
     if getpid_ran:
         with open(f"{outdir}/scripting_test.txt", "a") as f:
             f.write("Unloading scripting_test.py\n")

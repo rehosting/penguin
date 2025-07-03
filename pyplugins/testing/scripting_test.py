@@ -7,6 +7,8 @@
 # 'plugins' and 'logger' are injected automatically by the plugin manager.
 
 getpid_ran = False
+assert args.get_bool("argument") is True, "Expected argument 'argument' to be True"
+assert args.key2 == "value2", "Expected argument 'key2' to be 'value2'"
 
 
 @plugins.syscalls.syscall("on_sys_getpid_enter")
@@ -19,7 +21,7 @@ def getpid_enter(*args):
     if getpid_ran:
         return
     logger.info("Received getpid_enter syscall")
-    outdir = plugins.get_arg("outdir")
+    outdir = args.outdir
     with open(f"{outdir}/scripting_test.txt", "w") as f:
         f.write("Hello from scripting_test.py\n")
     getpid_ran = True
@@ -31,7 +33,7 @@ def uninit():
     It appends a message to the output file, or writes a failure message if the syscall was never triggered.
     """
     logger.info("Got uninit() call")
-    outdir = plugins.get_arg("outdir")
+    outdir = args.outdir
     if getpid_ran:
         with open(f"{outdir}/scripting_test.txt", "a") as f:
             f.write("Unloading scripting_test.py\n")
