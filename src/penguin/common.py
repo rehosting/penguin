@@ -113,6 +113,9 @@ def getColoredLogger(name):
     """
     Get or create a coloredlogger at INFO.
     """
+    if name in logging.Logger.manager.loggerDict:
+        # If the logger already exists, return it
+        return logging.getLogger(name)
     logger = logging.getLogger(name)
     level = logging.INFO
 
