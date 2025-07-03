@@ -61,7 +61,7 @@ class Nvram2(Plugin):
         - None
         """
         self.outdir = self.get_arg("outdir")
-        if self.get_arg_bool("verbose"):
+        if self.get_arg_bool("penguin_verbose"):
             self.logger.setLevel("DEBUG")
         # Even at debug level, logging every nvram get/clear can be very verbose.
         # As such, we only debug log nvram sets

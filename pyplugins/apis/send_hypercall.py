@@ -60,7 +60,7 @@ class SendHypercall(Plugin):
         Sets up logging, event registration, and subscribes to the igloo_send_hypercall event.
         """
         self.outdir = self.get_arg("outdir")
-        if self.get_arg_bool("verbose"):
+        if self.get_arg_bool("penguin_verbose"):
             self.logger.setLevel("DEBUG")
         self.registered_events: Dict[str, Callable[...,
                                                    Tuple[int, Union[str, bytes]]]] = {}

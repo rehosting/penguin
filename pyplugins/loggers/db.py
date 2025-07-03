@@ -67,7 +67,7 @@ class DB(Plugin):
         self.finished_worker = Event()
         self.initialized_db = False
 
-        if self.get_arg_bool("verbose"):
+        if self.get_arg_bool("penguin_verbose"):
             self.logger.setLevel("DEBUG")
 
         # Start the background flush thread

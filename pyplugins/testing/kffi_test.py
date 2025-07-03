@@ -9,7 +9,7 @@ syscalls = plugins.syscalls
 class KFFITest(Plugin):
     def __init__(self):
         self.outdir = self.get_arg("outdir")
-        if self.get_arg_bool("verbose"):
+        if self.get_arg_bool("penguin_verbose"):
             self.logger.setLevel("DEBUG")
 
     @syscalls.syscall("on_sys_ioctl_return", arg_filters=[0x14, 0x15, 0x16])

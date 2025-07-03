@@ -74,7 +74,7 @@ class BBCov(Plugin):
         self.read_scripts = {}  # filename -> contents
         self.last_line = None
 
-        if self.get_arg_bool("verbose"):
+        if self.get_arg_bool("penguin_verbose"):
             self.logger.setLevel("DEBUG")
 
         # initialize outfiles:

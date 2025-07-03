@@ -49,7 +49,7 @@ class EnvTracker(Plugin):
         self.env_vars = set()  # set of env vars that were read through libc getenv
         self.uboot_vars = set()  # set of env vars that were read through libc getenv
         self.mtd_vars = set()  # set of mtd partitions read out of /proc/mtd
-        if self.get_arg_bool("verbose"):
+        if self.get_arg_bool("penguin_verbose"):
             self.logger.setLevel("DEBUG")
 
         self.default_env_vars = DEFAULT_ENV_VARS
@@ -214,7 +214,7 @@ class TargetCmp(Plugin):
         # this hurts performance, but without it we definitely miss some comparisons
         # in targetcmp/callwitharg/callstack_instr.
         panda.disable_tb_chaining()
-        if self.get_arg_bool("verbose"):
+        if self.get_arg_bool("penguin_verbose"):
             self.logger.setLevel("DEBUG")
 
         self.outdir = self.get_arg("outdir")
