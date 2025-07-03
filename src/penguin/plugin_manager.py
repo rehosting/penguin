@@ -664,5 +664,49 @@ class IGLOOPluginManager:
         return join(self.args["plugin_path"], "resources")
 
 
+    def get_arg(self, arg_name: str) -> Any:
+        """
+        Get an argument value by name.
+        Args:
+            arg_name (str): The argument name.
+        Returns:
+            Any: The argument value or None if not set.
+        """
+        if arg_name in self.args:
+            return self.args[arg_name]
+
+        return None
+
+    def get_arg_bool(self, arg_name: str) -> bool:
+        """
+        Returns True if the argument is set and has a truthy value.
+        Args:
+            arg_name (str): The name of the argument to retrieve.
+        Returns:
+            bool: True if the argument exists and has a truthy value, False otherwise.
+        Raises:
+            ValueError: If the argument exists but has an unsupported type.
+        """
+        if arg_name not in self.args:
+            # Argument name unset - it's false
+            return False
+
+        arg_val = self.args[arg_name]
+        if isinstance(arg_val, bool):
+            # If it's a Python bool already, just return it
+            return arg_val
+
+        if isinstance(arg_val, str):
+            # string of true/y/1 is True
+            return arg_val.lower() in ['true', 'y', '1']
+
+        if isinstance(arg_val, int):
+            # Nonzero is True
+            return arg_val != 0
+
+        # If it's not a string, int, or bool something is weird
+        raise ValueError(f"Unsupported arg type: {type(arg_val)}")
+
+
 # singleton pattern for the plugin manager
 plugins = IGLOOPluginManager()
