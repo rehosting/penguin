@@ -31,8 +31,8 @@ Penguin supports both class-based plugins and scripting plugins. Scripting plugi
 # No class definition is needed; top-level code is executed at load time.
 # The 'uninit' function will be called automatically when the plugin is unloaded.
 
-# 'plugins' and 'logger' are injected automatically by the plugin manager.
-
+logger.info("Initializing scripting_test.py")
+outdir = plugins.get_arg("outdir")
 getpid_ran = False
 
 @plugins.syscalls.syscall("on_sys_getpid_enter")
@@ -45,7 +45,7 @@ def getpid_enter(*args):
     if getpid_ran:
         return
     logger.info("Received getpid_enter syscall")
-    outdir = plugins.get_arg("outdir")
+    
     with open(f"{outdir}/scripting_test.txt", "w") as f:
         f.write("Hello from scripting_test.py\n")
     getpid_ran = True
@@ -68,17 +68,34 @@ def uninit():
 ## Example: Class-based Plugin
 
 ```python
-from penguin import Plugin
+from penguin import Plugin, plugins
 
-class MyPlugin(Plugin):
+class ClassExample(Plugin):
     def __init__(self):
+        self.getpid_ran = False
         self.logger.info(f"Initializing {self.name}")
-        foo = self.get_arg("foo")
-        if self.get_arg_bool("debug"):
-            self.logger.setLevel("DEBUG")
+        self.outdir = self.get_arg("outdir")
+        plugins.syscalls.syscall("on_sys_getpid_enter")(self.getpid_enter)
+
+    # Alternatively: you can also use the decorator directly
+    # instead of plugins.syscalls.syscall in __init__
+    # @plugins.syscalls.syscall("on_sys_getpid_enter")
+    def getpid_enter(self, *args):
+        if self.getpid_ran:
+            return
+        self.logger.info("Received getpid_enter syscall")
+        with open(f"{self.outdir}/scripting_test.txt", "w") as f:
+            f.write("Hello from scripting_test.py\n")
+        self.getpid_ran = True
 
     def uninit(self):
-        self.logger.info("Unloading MyPlugin")
+        self.logger.info("Got uninit() call")
+        if self.getpid_ran:
+            with open(f"{self.outdir}/class_example.txt", "a") as f:
+                f.write("Unloading class_example.py\n")
+        else:
+            with open(f"{self.outdir}/class_example.txt", "w") as f:
+                f.write("FAIL: class_example.py was never run\n")
 ```
 
 ## When to Use Scripting Plugins
