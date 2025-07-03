@@ -1,0 +1,21 @@
+plugins:
+  verifier:
+    conditions:
+      scripting_called:
+        type: file_contains
+        file: scripting_test.txt
+        string: "Hello from scripting_test.py"
+      scripting_uninit:
+        type: file_contains
+        file: scripting_test.txt
+        string: "Unloading scripting_test.py"
+      scripting2_called:
+        type: file_contains
+        file: scripting2_test.txt
+        string: "Hello from scripting2_test.py"
+      scripting2_uninit:
+        type: file_contains
+        file: scripting2_test.txt
+        string: "Unloading scripting2_test.py"
+  scripting_test: {}
+  scripting2_test: {}
