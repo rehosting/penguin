@@ -1,3 +1,4 @@
 [flake8]
-per-file-ignores = __init__.py:F401
+per-file-ignores = __init__.py:F401,pyplugins/testing/scripting_test.py:F821,
+                   pyplugins/testing/scripting2_test.py:F821
 extend-ignore = E501,F403,F405
