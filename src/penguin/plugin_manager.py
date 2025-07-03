@@ -137,6 +137,7 @@ class Plugin:
         # If it's not a string, int, or bool something is weird
         raise ValueError(f"Unsupported arg type: {type(arg_val)}")
 
+
 class ScriptingPlugin(Plugin):
     """
     A plugin that loads and executes a Python script as its __init__.
@@ -175,6 +176,7 @@ class ScriptingPlugin(Plugin):
         """
         if hasattr(self, "module") and self.module.get("uninit", None) is not None:
             self.module["uninit"]()
+
 
 def gen_search_locations(plugin_name: str, proj_dir: str,
                          plugin_path: str) -> List[str]:
@@ -719,7 +721,6 @@ class IGLOOPluginManager:
             str: Path to the resources directory.
         """
         return join(self.args["plugin_path"], "resources")
-
 
     def get_arg(self, arg_name: str) -> Any:
         """
