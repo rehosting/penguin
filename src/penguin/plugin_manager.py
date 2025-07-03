@@ -271,10 +271,8 @@ class IGLOOPluginManager:
         self.args = args
         self.logger = getColoredLogger("penguin.plugin_manger")
 
-        # Set the logger level based on the 'verbose' argument
-        # Do not pass verbose as an argument to the plugins
-        # as they set those individually
-        if self.args.pop("verbose", None) is not None:
+        # Set the logger level based on the 'penguin_verbose' argument
+        if self.args.get("penguin_verbose", False):
             self.logger.setLevel("DEBUG")
 
         self.plugin_cbs: Dict[Plugin, Dict[str, List[Callable]]] = {}

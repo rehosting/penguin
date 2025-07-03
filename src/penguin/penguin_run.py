@@ -542,7 +542,7 @@ def run_config(
         "fs": config_fs,
         "fw": config_image,
         "outdir": out_dir,
-        "verbose": verbose,
+        "penguin_verbose": verbose,
         "telnet_port": telnet_port,
     }
     args.update(vpn_args)
