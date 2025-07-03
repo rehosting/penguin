@@ -223,20 +223,34 @@ penguin_run() {
         arg="${cmd[$i]}"
         local rewritten=false
 
-        for map in "${maps[@]}"; do
-            local host_path="${map%%:*}"
-            local guest_path="${map#*:}"
+        # Skip rewriting if this argument is one of our flags
+        if [[ $i -gt 1 && "${cmd[$((i-1))]}" =~ ^--(timeout|config|output|name|image|subnet|extra_docker_args)$ ]]; then
+            new_cmd+=("$arg")
+            continue
+        fi
 
-            # Check if the real directory path of the argument matches the host path
-            local real_arg_path="$(realpath "$arg" 2>/dev/null)"
-            if [[ "$real_arg_path" == "$host_path"* ]]; then
-                # Accurately replace the host path with the guest path
-                local rewritten_path="${real_arg_path//$host_path/$guest_path}"
-                new_cmd+=("$rewritten_path")
-                rewritten=true
-                break
-            fi
-        done
+        # Skip rewriting if this is a flag itself
+        if [[ "$arg" =~ ^-- ]]; then
+            new_cmd+=("$arg")
+            continue
+        fi
+
+        # Only attempt path rewriting if the argument actually exists as a file/directory
+        if [[ -e "$arg" ]]; then
+            for map in "${maps[@]}"; do
+                local host_path="${map%%:*}"
+                local guest_path="${map#*:}"
+
+                # Check if the real directory path of the argument matches the host path
+                local real_arg_path="$(realpath "$arg" 2>/dev/null)"
+                if [[ "$real_arg_path" == "$host_path"* ]]; then
+                    local rewritten_path="${real_arg_path//$host_path/$guest_path}"
+                    new_cmd+=("$rewritten_path")
+                    rewritten=true
+                    break
+                fi
+            done
+        fi
 
         if ! $rewritten; then
             new_cmd+=("$arg")
