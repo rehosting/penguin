@@ -75,42 +75,42 @@ COPY ./get_release.sh /get_release.sh
 ARG PANDA_VERSION
 ARG PANDANG_VERSION
 ARG DOWNLOAD_TOKEN
-RUN /get_release.sh panda-re qemu ${PANDA_VERSION} ${DOWNLOAD_TOKEN} pandare_22.04.deb > /tmp/pandare.deb && \
-    /get_release.sh panda-re panda-ng v${PANDANG_VERSION} ${DOWNLOAD_TOKEN} pandare-plugins_22.04.deb > /tmp/pandare-plugins.deb
+RUN /get_release.sh /tmp/pandare.deb panda-re qemu ${PANDA_VERSION} ${DOWNLOAD_TOKEN} pandare_22.04.deb && \
+    /get_release.sh /tmp/pandare-plugins.deb panda-re panda-ng v${PANDANG_VERSION} ${DOWNLOAD_TOKEN} pandare-plugins_22.04.deb
     # RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
 
 ARG RIPGREP_VERSION
-RUN /get_release.sh BurntSushi ripgrep ${RIPGREP_VERSION} ${DOWNLOAD_TOKEN} ripgrep_${RIPGREP_VERSION}-1_amd64.deb > /tmp/ripgrep.deb
+RUN /get_release.sh /tmp/ripgrep.deb BurntSushi ripgrep ${RIPGREP_VERSION} ${DOWNLOAD_TOKEN} ripgrep_${RIPGREP_VERSION}-1_amd64.deb
 
 ARG GLOW_VERSION
-RUN /get_release.sh charmbracelet glow v${GLOW_VERSION} ${DOWNLOAD_TOKEN} glow_${GLOW_VERSION}_amd64.deb > /tmp/glow.deb
+RUN /get_release.sh /tmp/glow.deb charmbracelet glow v${GLOW_VERSION} ${DOWNLOAD_TOKEN} glow_${GLOW_VERSION}_amd64.deb
 
 ARG GUM_VERSION
-RUN /get_release.sh charmbracelet gum v${GUM_VERSION} ${DOWNLOAD_TOKEN} gum_${GUM_VERSION}_amd64.deb > /tmp/gum.deb
+RUN /get_release.sh /tmp/gum.deb charmbracelet gum v${GUM_VERSION} ${DOWNLOAD_TOKEN} gum_${GUM_VERSION}_amd64.deb
 
 # 3) Get penguin resources
 # Download kernels from CI. Populate /igloo_static/kernels
 ARG DOWNLOAD_TOKEN
 ARG LINUX_VERSION
-RUN /get_release.sh rehosting linux_builder v${LINUX_VERSION} ${DOWNLOAD_TOKEN} kernels-latest.tar.gz | \
-    tar xzf - -C /igloo_static
+RUN /get_release.sh /tmp/kernels-latest.tar.gz rehosting linux_builder v${LINUX_VERSION} ${DOWNLOAD_TOKEN} kernels-latest.tar.gz && \
+    tar xzf /tmp/kernels-latest.tar.gz -C /igloo_static
 
 # Populate /igloo_static/utils.bin/utils/busybox.*
 ARG BUSYBOX_VERSION
-RUN /get_release.sh rehosting busybox v${BUSYBOX_VERSION} ${DOWNLOAD_TOKEN} busybox-latest.tar.gz | \
-    tar xzf - -C /igloo_static/ && \
+RUN /get_release.sh /tmp/busybox-latest.tar.gz rehosting busybox v${BUSYBOX_VERSION} ${DOWNLOAD_TOKEN} busybox-latest.tar.gz && \
+    tar xzf /tmp/busybox-latest.tar.gz -C /igloo_static/ && \
     mv /igloo_static/build/* /igloo_static/
 
 # Get panda provided console from CI. Populate /igloo_static/console
 ARG CONSOLE_VERSION
-RUN /get_release.sh rehosting console v${CONSOLE_VERSION} ${DOWNLOAD_TOKEN} console.tar.gz | \
-    tar xzf - -C /igloo_static
+RUN /get_release.sh /tmp/console.tar.gz rehosting console v${CONSOLE_VERSION} ${DOWNLOAD_TOKEN} console.tar.gz && \
+    tar xzf /tmp/console.tar.gz -C /igloo_static
 
 
 # Download libnvram. Populate /igloo_static/libnvram.
 ARG LIBNVRAM_VERSION
-RUN /get_release.sh rehosting libnvram v${LIBNVRAM_VERSION} ${DOWNLOAD_TOKEN} libnvram-latest.tar.gz | \
-    tar xzf - -C /igloo_static
+RUN /get_release.sh /tmp/libnvram-latest.tar.gz rehosting libnvram v${LIBNVRAM_VERSION} ${DOWNLOAD_TOKEN} libnvram-latest.tar.gz && \
+    tar xzf /tmp/libnvram-latest.tar.gz -C /igloo_static
 
 # Build musl headers for each arch
 ARG MUSL_VERSION
@@ -127,25 +127,25 @@ RUN wget -qO- https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz | \
 
 # Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
 ARG VPN_VERSION
-RUN /get_release.sh rehosting vpnguin v${VPN_VERSION} ${DOWNLOAD_TOKEN} vpn.tar.gz | \
-    tar xzf - -C /igloo_static
+RUN /get_release.sh /tmp/vpn.tar.gz rehosting vpnguin v${VPN_VERSION} ${DOWNLOAD_TOKEN} vpn.tar.gz && \
+    tar xzf /tmp/vpn.tar.gz -C /igloo_static
 
 ARG HYPERFS_VERSION
-RUN /get_release.sh rehosting hyperfs v${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} hyperfs.tar.gz | \
-  tar xzf - -C / && \
-  /get_release.sh rehosting hyperfs v0.0.38 ${DOWNLOAD_TOKEN} | \
-  tar xzf - -C / && \
+RUN /get_release.sh /tmp/hyperfs.tar.gz rehosting hyperfs v${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} hyperfs.tar.gz && \
+  tar xzf /tmp/hyperfs.tar.gz -C / && \
+  /get_release.sh /tmp/hyperfs-0.0.38.tar.gz rehosting hyperfs v0.0.38 ${DOWNLOAD_TOKEN} hyperfs.tar.gz && \
+  tar xzf /tmp/hyperfs-0.0.38.tar.gz -C / && \
   cp -r /result/utils/* /igloo_static/ && \
   mv /result/dylibs /igloo_static/dylibs && \
   rm -rf /result
 
 # Download guesthopper from CI. Populate /igloo_static/guesthopper
 ARG GUESTHOPPER_VERSION
-RUN /get_release.sh rehosting guesthopper v${GUESTHOPPER_VERSION} ${DOWNLOAD_TOKEN} guesthopper.tar.gz | \
-    tar xzf - -C /igloo_static
+RUN /get_release.sh /tmp/guesthopper.tar.gz rehosting guesthopper v${GUESTHOPPER_VERSION} ${DOWNLOAD_TOKEN} guesthopper.tar.gz && \
+    tar xzf /tmp/guesthopper.tar.gz -C /igloo_static
 
 ARG DEBIANONQEMU_VERSION="v2024.01.05"
-RUN /get_release.sh wtdcode DebianOnQEMU ${DEBIANONQEMU_VERSION} ${DOWNLOAD_TOKEN} bios-loong64-8.1.bin > /igloo_static/loongarch64/bios-loong64-8.1.bin
+RUN /get_release.sh /igloo_static/loongarch64/bios-loong64-8.1.bin wtdcode DebianOnQEMU ${DEBIANONQEMU_VERSION} ${DOWNLOAD_TOKEN} bios-loong64-8.1.bin
 
 # Download prototype files for ltrace.
 #
@@ -238,7 +238,7 @@ COPY ./get_release.sh /get_release.sh
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 RUN apt-get update && apt-get install -y python3-pip git curl jq liblzo2-dev
-RUN /get_release.sh panda-re panda-ng v${PANDANG_VERSION} ${DOWNLOAD_TOKEN} pandare2-${PANDANG_VERSION}-py3-none-any.whl > /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl
+RUN /get_release.sh /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl panda-re panda-ng v${PANDANG_VERSION} ${DOWNLOAD_TOKEN} pandare2-${PANDANG_VERSION}-py3-none-any.whl
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip wheel --no-cache-dir --wheel-dir /app/wheels \
       angr \

@@ -1,31 +1,50 @@
 #!/bin/bash
-set -u
+set -ux
 
 # Arguments
-OWNER=$1
-REPO=$2
-VERSION=$3
-GITHUB_TOKEN=$4
+OUTPUT_FILE=$1
+OWNER=$2
+REPO=$3
+VERSION=$4
+GITHUB_TOKEN=$5
 ASSET_NAME=""
-if [ $# -ge 5 ]; then
-    ASSET_NAME="$5"
+if [ $# -ge 6 ]; then
+    ASSET_NAME="$6"
 fi
 
 # Special case for GitHub auto-generated source tarballs
 if [ "$ASSET_NAME" = "source.tar.gz" ]; then
-    curl -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-        "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${VERSION}.tar.gz" || {
-        echo "ERROR: Failed to download source tarball for owner='${OWNER}', repo='${REPO}', tag='${VERSION}'." >&2
-        exit 10
-    }
+    if [ "$OUTPUT_FILE" = "-" ]; then
+        curl -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${VERSION}.tar.gz" || {
+            echo "ERROR: Failed to download source tarball for owner='${OWNER}', repo='${REPO}', tag='${VERSION}'." >&2
+            exit 10
+        }
+    else
+        curl -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -o "$OUTPUT_FILE" \
+            "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${VERSION}.tar.gz" || {
+            echo "ERROR: Failed to download source tarball for owner='${OWNER}', repo='${REPO}', tag='${VERSION}'." >&2
+            exit 10
+        }
+    fi
     exit $?
 fi
 if [ "$ASSET_NAME" = "source.zip" ]; then
-    curl -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-        "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${VERSION}.zip" || {
-        echo "ERROR: Failed to download source zip for owner='${OWNER}', repo='${REPO}', tag='${VERSION}'." >&2
-        exit 11
-    }
+    if [ "$OUTPUT_FILE" = "-" ]; then
+        curl -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${VERSION}.zip" || {
+            echo "ERROR: Failed to download source zip for owner='${OWNER}', repo='${REPO}', tag='${VERSION}'." >&2
+            exit 11
+        }
+    else
+        curl -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -o "$OUTPUT_FILE" \
+            "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${VERSION}.zip" || {
+            echo "ERROR: Failed to download source zip for owner='${OWNER}', repo='${REPO}', tag='${VERSION}'." >&2
+            exit 11
+        }
+    fi
     exit $?
 fi
 
@@ -109,8 +128,17 @@ if [ -z "$ACTUAL_DOWNLOAD_URL" ]; then
 fi
 
 # Download the asset
-curl -fL -H "Accept: application/octet-stream" \
-     "$ACTUAL_DOWNLOAD_URL" || {
-    echo "ERROR: Failed to download asset from '$ACTUAL_DOWNLOAD_URL'." >&2
-    exit 17
-}
+if [ "$OUTPUT_FILE" = "-" ]; then
+    curl -fL -H "Accept: application/octet-stream" \
+         "$ACTUAL_DOWNLOAD_URL" || {
+        echo "ERROR: Failed to download asset from '$ACTUAL_DOWNLOAD_URL'." >&2
+        exit 17
+    }
+else
+    curl -fL -H "Accept: application/octet-stream" \
+         -o "$OUTPUT_FILE" \
+         "$ACTUAL_DOWNLOAD_URL" || {
+        echo "ERROR: Failed to download asset from '$ACTUAL_DOWNLOAD_URL'." >&2
+        exit 17
+    }
+fi
