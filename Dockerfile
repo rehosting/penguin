@@ -31,10 +31,10 @@ RUN apt-get update --allow-releaseinfo-change && apt-get install -y --fix-missin
 RUN cargo install binwalk --target x86_64-unknown-linux-gnu --locked
 
 ARG FW2TAR_TAG
-ARG DOWNLOAD_TOKEN
+ARG CLONE_TOKEN
 RUN cargo install --target x86_64-unknown-linux-gnu \
     --tag ${FW2TAR_TAG} \
-    --git https://${DOWNLOAD_TOKEN}:@github.com/rehosting/fw2tar.git
+    --git https://${CLONE_TOKEN}:@github.com/rehosting/fw2tar.git
 
 ENV RUSTFLAGS="-C target-feature=+crt-static"
 RUN cd /root/vhost-device/ && \
