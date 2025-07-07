@@ -25,7 +25,7 @@ ARG VHOST_DEVICE_VERSION
 ENV PATH="/root/.cargo/bin:$PATH"
 ENV CARGO_INSTALL_ROOT="/usr/local" 
 
-RUN apt-get update && apt-get install -y -q build-essential libfontconfig1-dev liblzma-dev
+RUN apt-get update --allow-releaseinfo-change && apt-get install -y --fix-missing -q build-essential libfontconfig1-dev liblzma-dev
 
 RUN cargo install binwalk --target x86_64-unknown-linux-gnu --locked
 
@@ -46,8 +46,8 @@ RUN cd /root/vhost-device/ && \
 # least-frequently changing to most-frequently changing
 FROM $BASE_IMAGE AS downloader
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && \
-    apt-get install -y \
+RUN apt-get update --allow-releaseinfo-change && \
+    apt-get install -y --fix-missing \
     bzip2 \
     ca-certificates \
     curl \
@@ -175,8 +175,8 @@ FROM $BASE_IMAGE AS qemu_builder
 ENV DEBIAN_FRONTEND=noninteractive
 # Enable source repos
 RUN sed -Ei 's/^# deb-src /deb-src /' /etc/apt/sources.list
-RUN apt-get update && apt-get build-dep -y qemu-utils qemu && \
-    apt-get install -q -y --no-install-recommends ninja-build git \
+RUN apt-get update --allow-releaseinfo-change && apt-get build-dep -y --fix-missing qemu-utils qemu && \
+    apt-get install -q -y --no-install-recommends --fix-missing ninja-build git \
     && rm -rf /var/lib/apt/lists/*
 RUN git clone --depth 1 --no-checkout https://github.com/qemu/qemu.git /src && \
   cd /src && \
@@ -194,7 +194,7 @@ FROM $BASE_IMAGE AS nmap_builder
 ENV DEBIAN_FRONTEND=noninteractive
 ARG SSH
 
-RUN apt-get update && apt-get install -q -y \
+RUN apt-get update --allow-releaseinfo-change && apt-get install -q -y --fix-missing \
     git \
     openssh-client \
     python3-setuptools
@@ -207,7 +207,7 @@ RUN --mount=type=ssh \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts && \
     git clone git@github.com:rehosting/nmap.git /src && \
     sed -i 's/^# deb-src/deb-src/' /etc/apt/sources.list && \
-    apt-get update && apt-get build-dep -y nmap && \
+    apt-get update --allow-releaseinfo-change && apt-get build-dep -y --fix-missing nmap && \
     rm -rf /var/lib/apt/lists/* && \
     cd /src && ./configure --prefix=/build/nmap && make -j$(nproc) && \
     make install && \
@@ -237,7 +237,7 @@ COPY ./get_release.sh /get_release.sh
 
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
-RUN apt-get update && apt-get install -y python3-pip git curl jq liblzo2-dev
+RUN apt-get update --allow-releaseinfo-change && apt-get install -y --fix-missing python3-pip git curl jq liblzo2-dev
 RUN /get_release.sh /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl panda-re panda-ng v${PANDANG_VERSION} ${DOWNLOAD_TOKEN} pandare2-${PANDANG_VERSION}-py3-none-any.whl
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip wheel --no-cache-dir --wheel-dir /app/wheels \
@@ -316,7 +316,7 @@ RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts
 ARG SSH
 RUN --mount=type=ssh git clone git@github.com:rehosting/fakeroot.git /fakeroot && \
     sed -i 's/^# deb-src/deb-src/' /etc/apt/sources.list && \
-    apt-get update && apt-get build-dep -y fakeroot && \
+    apt-get update --allow-releaseinfo-change && apt-get build-dep -y --fix-missing fakeroot && \
     cd /fakeroot && ./bootstrap && ./configure && make || true
 
 # Create empty directory to copy if it doesn't exist
@@ -350,8 +350,8 @@ COPY ./dependencies/* /tmp
 # we'll fail because we get a distutils distribution of pycparser 2.19 that we can't
 # uninstall somewhere in setting up other dependencies.
 
-RUN apt-get update && \
-    apt-get --no-install-recommends install -y python3-pip && \
+RUN apt-get update --allow-releaseinfo-change && \
+    apt-get --no-install-recommends install -y --fix-missing python3-pip && \
     rm -rf /var/lib/apt/lists/*
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip install --upgrade \
@@ -360,7 +360,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 
 # Update and install prerequisites
-RUN apt-get update && apt-get install -y \
+RUN apt-get update --allow-releaseinfo-change && apt-get install -y --fix-missing \
     wget \
     gnupg \
     software-properties-common \
@@ -372,7 +372,7 @@ RUN wget https://apt.llvm.org/llvm.sh && \
     ./llvm.sh 20
 
 # Install apt dependencies - largely for binwalk, some for penguin, some for fw2tar
-RUN apt-get update && apt-get install -q -y $(cat /tmp/penguin.txt) $(cat /tmp/fw2tar.txt) && \
+RUN apt-get update --allow-releaseinfo-change && apt-get install -q -y --fix-missing $(cat /tmp/penguin.txt) $(cat /tmp/fw2tar.txt) && \
     apt install -yy -f /tmp/pandare.deb -f /tmp/pandare-plugins.deb \
     -f /tmp/glow.deb -f /tmp/gum.deb -f /tmp/ripgrep.deb && \
     rm -rf /var/lib/apt/lists/* /tmp/*.deb
