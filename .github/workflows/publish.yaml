@@ -36,6 +36,9 @@ jobs:
             with:
               fetch-depth: 0
 
+          - name: Fetch all dependencies
+            run: bash ./fetch_all_deps.sh
+
           - name: Build Docker image and push to Dockerhub
             uses: docker/build-push-action@v6.3.0
             with:
