@@ -26,12 +26,14 @@ if [ "$ASSET_NAME" = "source.tar.gz" ]; then
     TAR_URL=$(echo "$RELEASE_JSON" | jq -r '.tarball_url // empty')
     if [ -n "$TAR_URL" ] && [ "$TAR_URL" != "null" ]; then
         if [ "$OUTPUT_FILE" = "-" ]; then
-            curl $CURL_OPTIONS -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" -o - "$TAR_URL" || {
+            curl $CURL_OPTIONS -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" -o - "$TAR_URL" || \
+            curl $CURL_OPTIONS -fL -o - "$TAR_URL" || {
                 echo "ERROR: Failed to download source tarball for owner='${OWNER}', repo='${REPO}', tag='${VERSION}' (tarball_url)." >&2
                 exit 10
             }
         else
-            curl $CURL_OPTIONS -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" -o "$OUTPUT_FILE" "$TAR_URL" || {
+            curl $CURL_OPTIONS -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" -o "$OUTPUT_FILE" "$TAR_URL" || \
+            curl $CURL_OPTIONS -fL -o "$OUTPUT_FILE" "$TAR_URL" || {
                 echo "ERROR: Failed to download source tarball for owner='${OWNER}', repo='${REPO}', tag='${VERSION}' (tarball_url)." >&2
                 exit 10
             }
@@ -41,12 +43,17 @@ if [ "$ASSET_NAME" = "source.tar.gz" ]; then
     # Fallback to public URL if tarball_url is not available
     if [ "$OUTPUT_FILE" = "-" ]; then
         curl $CURL_OPTIONS -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${VERSION}.tar.gz" || \
+        curl $CURL_OPTIONS -fL \
             "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${VERSION}.tar.gz" || {
             echo "ERROR: Failed to download source tarball for owner='${OWNER}', repo='${REPO}', tag='${VERSION}'." >&2
             exit 10
         }
     else
         curl $CURL_OPTIONS -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -o "$OUTPUT_FILE" \
+            "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${VERSION}.tar.gz" || \
+        curl $CURL_OPTIONS -fL \
             -o "$OUTPUT_FILE" \
             "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${VERSION}.tar.gz" || {
             echo "ERROR: Failed to download source tarball for owner='${OWNER}', repo='${REPO}', tag='${VERSION}'." >&2
@@ -135,6 +142,9 @@ TEMP_REDIRECT=$(mktemp)
 curl -sfL -I -o $TEMP_REDIRECT \
      -H "Authorization: Bearer ${GITHUB_TOKEN}" \
      -H "Accept: application/octet-stream" \
+     "$ASSET_API_URL" || \
+curl -sfL -I -o $TEMP_REDIRECT \
+     -H "Accept: application/octet-stream" \
      "$ASSET_API_URL" || {
     echo "ERROR: Failed to fetch asset redirect for '$ASSET_NAME' from GitHub." >&2
     rm -f $TEMP_REDIRECT
@@ -155,14 +165,16 @@ fi
 # Download the asset
 if [ "$OUTPUT_FILE" = "-" ]; then
     curl $CURL_OPTIONS -fL -H "Accept: application/octet-stream" \
-         "$ACTUAL_DOWNLOAD_URL" || {
+         "$ACTUAL_DOWNLOAD_URL" || \
+    curl $CURL_OPTIONS -fL "$ACTUAL_DOWNLOAD_URL" || {
         echo "ERROR: Failed to download asset from '$ACTUAL_DOWNLOAD_URL'." >&2
         exit 17
     }
 else
     curl $CURL_OPTIONS -fL -H "Accept: application/octet-stream" \
          -o "$OUTPUT_FILE" \
-         "$ACTUAL_DOWNLOAD_URL" || {
+         "$ACTUAL_DOWNLOAD_URL" || \
+    curl $CURL_OPTIONS -fL -o "$OUTPUT_FILE" "$ACTUAL_DOWNLOAD_URL" || {
         echo "ERROR: Failed to download asset from '$ACTUAL_DOWNLOAD_URL'." >&2
         exit 17
     }
