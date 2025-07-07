@@ -84,8 +84,6 @@ jobs:
             type=registry,ref=rehosting/penguin:latest,mode=max
             type=registry,ref=rehosting/penguin:cache-PR-${{github.event.number}},mode=max
           cache-to: type=registry,ref=rehosting/penguin:cache-PR-${{ github.event.number }}
-          build-args: |
-            DOWNLOAD_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
   run_tests:
     needs: build_container
