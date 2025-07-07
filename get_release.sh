@@ -17,6 +17,28 @@ fi
 
 # Special case for GitHub auto-generated source tarballs
 if [ "$ASSET_NAME" = "source.tar.gz" ]; then
+    # Try to get tarball_url from the release API (works for private repos/releases)
+    RELEASE_JSON=$(curl -sfL \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${VERSION}" 2>/dev/null)
+    TAR_URL=$(echo "$RELEASE_JSON" | jq -r '.tarball_url // empty')
+    if [ -n "$TAR_URL" ] && [ "$TAR_URL" != "null" ]; then
+        if [ "$OUTPUT_FILE" = "-" ]; then
+            curl $CURL_OPTIONS -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" -o - "$TAR_URL" || {
+                echo "ERROR: Failed to download source tarball for owner='${OWNER}', repo='${REPO}', tag='${VERSION}' (tarball_url)." >&2
+                exit 10
+            }
+        else
+            curl $CURL_OPTIONS -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" -o "$OUTPUT_FILE" "$TAR_URL" || {
+                echo "ERROR: Failed to download source tarball for owner='${OWNER}', repo='${REPO}', tag='${VERSION}' (tarball_url)." >&2
+                exit 10
+            }
+        fi
+        exit $?
+    fi
+    # Fallback to public URL if tarball_url is not available
     if [ "$OUTPUT_FILE" = "-" ]; then
         curl $CURL_OPTIONS -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${VERSION}.tar.gz" || {
