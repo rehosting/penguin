@@ -19,7 +19,7 @@ ARG PANDA_VERSION="pandav0.0.37"
 ARG PANDANG_VERSION="0.0.26"
 ARG RIPGREP_VERSION="14.1.1"
 
-FROM rust:1.86 as rust_builder
+FROM rust:1.86 AS rust_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
 ARG VHOST_DEVICE_VERSION
 ENV PATH="/root/.cargo/bin:$PATH"
@@ -74,47 +74,43 @@ COPY ./get_release.sh /get_release.sh
 # Get panda .deb
 ARG PANDA_VERSION
 ARG PANDANG_VERSION
-# RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
-RUN wget -O /tmp/pandare.deb \
-    https://github.com/panda-re/qemu/releases/download/${PANDA_VERSION}/pandare_22.04.deb && \
-    wget -O /tmp/pandare-plugins.deb \
-    https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare-plugins_22.04.deb
+ARG DOWNLOAD_TOKEN
+RUN /get_release.sh panda-re qemu ${PANDA_VERSION} ${DOWNLOAD_TOKEN} pandare_22.04.deb > /tmp/pandare.deb && \
+    /get_release.sh panda-re panda-ng v${PANDANG_VERSION} ${DOWNLOAD_TOKEN} pandare-plugins_22.04.deb > /tmp/pandare-plugins.deb
     # RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
 
 ARG RIPGREP_VERSION
-RUN wget -O /tmp/ripgrep.deb \
-        https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/ripgrep_${RIPGREP_VERSION}-1_amd64.deb
+RUN /get_release.sh BurntSushi ripgrep ${RIPGREP_VERSION} ${DOWNLOAD_TOKEN} ripgrep_${RIPGREP_VERSION}-1_amd64.deb > /tmp/ripgrep.deb
 
 ARG GLOW_VERSION
-RUN wget -qO /tmp/glow.deb https://github.com/charmbracelet/glow/releases/download/v${GLOW_VERSION}/glow_${GLOW_VERSION}_amd64.deb
+RUN /get_release.sh charmbracelet glow v${GLOW_VERSION} ${DOWNLOAD_TOKEN} glow_${GLOW_VERSION}_amd64.deb > /tmp/glow.deb
 
 ARG GUM_VERSION
-RUN wget -qO /tmp/gum.deb https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/gum_${GUM_VERSION}_amd64.deb
+RUN /get_release.sh charmbracelet gum v${GUM_VERSION} ${DOWNLOAD_TOKEN} gum_${GUM_VERSION}_amd64.deb > /tmp/gum.deb
 
 # 3) Get penguin resources
 # Download kernels from CI. Populate /igloo_static/kernels
 ARG DOWNLOAD_TOKEN
 ARG LINUX_VERSION
-RUN /get_release.sh rehosting linux_builder ${LINUX_VERSION} ${DOWNLOAD_TOKEN} | \
+RUN /get_release.sh rehosting linux_builder v${LINUX_VERSION} ${DOWNLOAD_TOKEN} kernels-latest.tar.gz | \
     tar xzf - -C /igloo_static
 
 # Populate /igloo_static/utils.bin/utils/busybox.*
 ARG BUSYBOX_VERSION
-RUN /get_release.sh rehosting busybox ${BUSYBOX_VERSION} ${DOWNLOAD_TOKEN} | \
+RUN /get_release.sh rehosting busybox v${BUSYBOX_VERSION} ${DOWNLOAD_TOKEN} busybox-latest.tar.gz | \
     tar xzf - -C /igloo_static/ && \
     mv /igloo_static/build/* /igloo_static/
 
 # Get panda provided console from CI. Populate /igloo_static/console
 ARG CONSOLE_VERSION
-RUN /get_release.sh rehosting console ${CONSOLE_VERSION} ${DOWNLOAD_TOKEN} | \
+RUN /get_release.sh rehosting console v${CONSOLE_VERSION} ${DOWNLOAD_TOKEN} console.tar.gz | \
     tar xzf - -C /igloo_static
 
 
 # Download libnvram. Populate /igloo_static/libnvram.
 ARG LIBNVRAM_VERSION
-RUN wget -qO- https://github.com/rehosting/libnvram/archive/refs/tags/v${LIBNVRAM_VERSION}.tar.gz | \
-    tar xzf - -C /igloo_static && \
-    mv /igloo_static/libnvram-${LIBNVRAM_VERSION} /igloo_static/libnvram
+RUN /get_release.sh rehosting libnvram v${LIBNVRAM_VERSION} ${DOWNLOAD_TOKEN} libnvram-latest.tar.gz | \
+    tar xzf - -C /igloo_static
 
 # Build musl headers for each arch
 ARG MUSL_VERSION
@@ -131,13 +127,13 @@ RUN wget -qO- https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz | \
 
 # Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
 ARG VPN_VERSION
-RUN /get_release.sh rehosting vpnguin ${VPN_VERSION} ${DOWNLOAD_TOKEN} | \
+RUN /get_release.sh rehosting vpnguin v${VPN_VERSION} ${DOWNLOAD_TOKEN} vpn.tar.gz | \
     tar xzf - -C /igloo_static
 
 ARG HYPERFS_VERSION
-RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} | \
+RUN /get_release.sh rehosting hyperfs v${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} hyperfs.tar.gz | \
   tar xzf - -C / && \
-  /get_release.sh rehosting hyperfs 0.0.38 ${DOWNLOAD_TOKEN} | \
+  /get_release.sh rehosting hyperfs v0.0.38 ${DOWNLOAD_TOKEN} | \
   tar xzf - -C / && \
   cp -r /result/utils/* /igloo_static/ && \
   mv /result/dylibs /igloo_static/dylibs && \
@@ -145,10 +141,11 @@ RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} | \
 
 # Download guesthopper from CI. Populate /igloo_static/guesthopper
 ARG GUESTHOPPER_VERSION
-RUN /get_release.sh rehosting guesthopper ${GUESTHOPPER_VERSION} ${DOWNLOAD_TOKEN} | \
+RUN /get_release.sh rehosting guesthopper v${GUESTHOPPER_VERSION} ${DOWNLOAD_TOKEN} guesthopper.tar.gz | \
     tar xzf - -C /igloo_static
 
-RUN wget https://github.com/wtdcode/DebianOnQEMU/releases/download/v2024.01.05/bios-loong64-8.1.bin -O /igloo_static/loongarch64/bios-loong64-8.1.bin
+ARG DEBIANONQEMU_VERSION="v2024.01.05"
+RUN /get_release.sh wtdcode DebianOnQEMU ${DEBIANONQEMU_VERSION} ${DOWNLOAD_TOKEN} bios-loong64-8.1.bin > /igloo_static/loongarch64/bios-loong64-8.1.bin
 
 # Download prototype files for ltrace.
 #
@@ -234,12 +231,14 @@ RUN if [ -f /tmp/local_packages/nmap.tar.gz ]; then \
 ### Python Builder: Build all wheel files necessary###
 FROM $BASE_IMAGE AS python_builder
 ARG PANDANG_VERSION
+ARG DOWNLOAD_TOKEN
+
+COPY ./get_release.sh /get_release.sh
 
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
-RUN apt-get update && apt-get install -y python3-pip git wget liblzo2-dev
-RUN wget -O /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl \
-    https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare2-${PANDANG_VERSION}-py3-none-any.whl
+RUN apt-get update && apt-get install -y python3-pip git curl jq liblzo2-dev
+RUN /get_release.sh panda-re panda-ng v${PANDANG_VERSION} ${DOWNLOAD_TOKEN} pandare2-${PANDANG_VERSION}-py3-none-any.whl > /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip wheel --no-cache-dir --wheel-dir /app/wheels \
       angr \
