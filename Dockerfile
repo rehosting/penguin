@@ -303,7 +303,7 @@ FROM $BASE_IMAGE AS fw2tar_dep_builder
 ENV DEBIAN_FRONTEND=noninteractive
 
 COPY ./dependencies/fw2tar.txt /tmp/fw2tar.txt
-RUN apt-get update && apt-get install -y -q git $(cat /tmp/fw2tar.txt)
+RUN apt-get update --allow-releaseinfo-change && apt-get install -y -q --fix-missing git $(cat /tmp/fw2tar.txt)
 
 ARG DOWNLOAD_TOKEN
 ARG FW2TAR_TAG
