@@ -12,16 +12,19 @@ if [ $# -ge 6 ]; then
     ASSET_NAME="$6"
 fi
 
+# Default CURL_OPTIONS if not set
+: "${CURL_OPTIONS:=--retry 5 --retry-delay 5 --max-time 600}"
+
 # Special case for GitHub auto-generated source tarballs
 if [ "$ASSET_NAME" = "source.tar.gz" ]; then
     if [ "$OUTPUT_FILE" = "-" ]; then
-        curl -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+        curl $CURL_OPTIONS -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${VERSION}.tar.gz" || {
             echo "ERROR: Failed to download source tarball for owner='${OWNER}', repo='${REPO}', tag='${VERSION}'." >&2
             exit 10
         }
     else
-        curl -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+        curl $CURL_OPTIONS -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             -o "$OUTPUT_FILE" \
             "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${VERSION}.tar.gz" || {
             echo "ERROR: Failed to download source tarball for owner='${OWNER}', repo='${REPO}', tag='${VERSION}'." >&2
@@ -32,13 +35,13 @@ if [ "$ASSET_NAME" = "source.tar.gz" ]; then
 fi
 if [ "$ASSET_NAME" = "source.zip" ]; then
     if [ "$OUTPUT_FILE" = "-" ]; then
-        curl -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+        curl $CURL_OPTIONS -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${VERSION}.zip" || {
             echo "ERROR: Failed to download source zip for owner='${OWNER}', repo='${REPO}', tag='${VERSION}'." >&2
             exit 11
         }
     else
-        curl -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+        curl $CURL_OPTIONS -fL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             -o "$OUTPUT_FILE" \
             "https://github.com/${OWNER}/${REPO}/archive/refs/tags/${VERSION}.zip" || {
             echo "ERROR: Failed to download source zip for owner='${OWNER}', repo='${REPO}', tag='${VERSION}'." >&2
@@ -129,13 +132,13 @@ fi
 
 # Download the asset
 if [ "$OUTPUT_FILE" = "-" ]; then
-    curl -fL -H "Accept: application/octet-stream" \
+    curl $CURL_OPTIONS -fL -H "Accept: application/octet-stream" \
          "$ACTUAL_DOWNLOAD_URL" || {
         echo "ERROR: Failed to download asset from '$ACTUAL_DOWNLOAD_URL'." >&2
         exit 17
     }
 else
-    curl -fL -H "Accept: application/octet-stream" \
+    curl $CURL_OPTIONS -fL -H "Accept: application/octet-stream" \
          -o "$OUTPUT_FILE" \
          "$ACTUAL_DOWNLOAD_URL" || {
         echo "ERROR: Failed to download asset from '$ACTUAL_DOWNLOAD_URL'." >&2
