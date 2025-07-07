@@ -60,84 +60,84 @@ COPY ./get_release.sh /get_release.sh
 FROM fetch_base AS fetch_kernels
 ARG DOWNLOAD_TOKEN
 ARG LINUX_VERSION
-COPY ./local_packages /local_packages
+COPY ./local_package[s] /local_packages
 RUN if [ -f /local_packages/kernels-latest.tar.gz ]; then cp /local_packages/kernels-latest.tar.gz /out/kernels-latest.tar.gz; else /get_release.sh /out/kernels-latest.tar.gz rehosting linux_builder v${LINUX_VERSION} ${DOWNLOAD_TOKEN} kernels-latest.tar.gz; fi
 # --- FETCH BUSYBOX ---
 FROM fetch_base AS fetch_busybox
 ARG DOWNLOAD_TOKEN
 ARG BUSYBOX_VERSION
-COPY ./local_packages /local_packages
+COPY ./local_package[s] /local_packages
 RUN if [ -f /local_packages/busybox-latest.tar.gz ]; then cp /local_packages/busybox-latest.tar.gz /out/busybox-latest.tar.gz; else /get_release.sh /out/busybox-latest.tar.gz rehosting busybox v${BUSYBOX_VERSION} ${DOWNLOAD_TOKEN} busybox-latest.tar.gz; fi
 # --- FETCH CONSOLE ---
 FROM fetch_base AS fetch_console
 ARG DOWNLOAD_TOKEN
 ARG CONSOLE_VERSION
-COPY ./local_packages /local_packages
+COPY ./local_package[s] /local_packages
 RUN if [ -f /local_packages/console.tar.gz ]; then cp /local_packages/console.tar.gz /out/console.tar.gz; else /get_release.sh /out/console.tar.gz rehosting console v${CONSOLE_VERSION} ${DOWNLOAD_TOKEN} console.tar.gz; fi
 # --- FETCH LIBNVRAM ---
 FROM fetch_base AS fetch_libnvram
 ARG DOWNLOAD_TOKEN
 ARG LIBNVRAM_VERSION
-COPY ./local_packages /local_packages
+COPY ./local_package[s] /local_packages
 RUN if [ -f /local_packages/libnvram-latest.tar.gz ]; then cp /local_packages/libnvram-latest.tar.gz /out/libnvram-latest.tar.gz; else /get_release.sh /out/libnvram-latest.tar.gz rehosting libnvram v${LIBNVRAM_VERSION} ${DOWNLOAD_TOKEN} source.tar.gz; fi
 # --- FETCH VPN ---
 FROM fetch_base AS fetch_vpn
 ARG DOWNLOAD_TOKEN
 ARG VPN_VERSION
-COPY ./local_packages /local_packages
+COPY ./local_package[s] /local_packages
 RUN if [ -f /local_packages/vpn.tar.gz ]; then cp /local_packages/vpn.tar.gz /out/vpn.tar.gz; else /get_release.sh /out/vpn.tar.gz rehosting vpnguin v${VPN_VERSION} ${DOWNLOAD_TOKEN} vpn.tar.gz; fi
 # --- FETCH HYPERFS ---
 FROM fetch_base AS fetch_hyperfs
 ARG DOWNLOAD_TOKEN
 ARG HYPERFS_VERSION
-COPY ./local_packages /local_packages
+COPY ./local_package[s] /local_packages
 RUN if [ -f /local_packages/hyperfs.tar.gz ]; then cp /local_packages/hyperfs.tar.gz /out/hyperfs.tar.gz; else /get_release.sh /out/hyperfs.tar.gz rehosting hyperfs v${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} hyperfs.tar.gz; fi
 # --- FETCH GUESTHOPPER ---
 FROM fetch_base AS fetch_guesthopper
 ARG DOWNLOAD_TOKEN
 ARG GUESTHOPPER_VERSION
-COPY ./local_packages /local_packages
+COPY ./local_package[s] /local_packages
 RUN if [ -f /local_packages/guesthopper.tar.gz ]; then cp /local_packages/guesthopper.tar.gz /out/guesthopper.tar.gz; else /get_release.sh /out/guesthopper.tar.gz rehosting guesthopper v${GUESTHOPPER_VERSION} ${DOWNLOAD_TOKEN} guesthopper.tar.gz; fi
 # --- FETCH LTRACE ---
 FROM fetch_base AS fetch_ltrace
 ARG LTRACE_PROTOTYPES_VERSION
 ARG LTRACE_PROTOTYPES_HASH
-COPY ./local_packages /local_packages
+COPY ./local_package[s] /local_packages
 RUN if [ -f /local_packages/ltrace-prototypes.tar.bz2 ]; then cp /local_packages/ltrace-prototypes.tar.bz2 /out/ltrace-prototypes.tar.bz2; else curl -sSL -o /out/ltrace-prototypes.tar.bz2 https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-${LTRACE_PROTOTYPES_VERSION}.tar.bz2/${LTRACE_PROTOTYPES_HASH}/ltrace-${LTRACE_PROTOTYPES_VERSION}.tar.bz2; fi
 # --- FETCH PANDA ---
 FROM fetch_base AS fetch_panda
 ARG DOWNLOAD_TOKEN
 ARG PANDA_VERSION
-COPY ./local_packages /local_packages
+COPY ./local_package[s] /local_packages
 RUN if [ -f /local_packages/pandare.deb ]; then cp /local_packages/pandare.deb /out/pandare.deb; else /get_release.sh /out/pandare.deb panda-re qemu ${PANDA_VERSION} ${DOWNLOAD_TOKEN} pandare_22.04.deb; fi
 # --- FETCH PANDA PLUGINS ---
 FROM fetch_base AS fetch_panda_plugins
 ARG DOWNLOAD_TOKEN
 ARG PANDANG_VERSION
-COPY ./local_packages /local_packages
+COPY ./local_package[s] /local_packages
 RUN if [ -f /local_packages/pandare-plugins.deb ]; then cp /local_packages/pandare-plugins.deb /out/pandare-plugins.deb; else /get_release.sh /out/pandare-plugins.deb panda-re panda-ng v${PANDANG_VERSION} ${DOWNLOAD_TOKEN} pandare-plugins_22.04.deb; fi
 # --- FETCH RIPGREP ---
 FROM fetch_base AS fetch_ripgrep
 ARG DOWNLOAD_TOKEN
 ARG RIPGREP_VERSION
-COPY ./local_packages /local_packages
+COPY ./local_package[s] /local_packages
 RUN if [ -f /local_packages/ripgrep.deb ]; then cp /local_packages/ripgrep.deb /out/ripgrep.deb; else /get_release.sh /out/ripgrep.deb BurntSushi ripgrep ${RIPGREP_VERSION} ${DOWNLOAD_TOKEN} ripgrep_${RIPGREP_VERSION}-1_amd64.deb; fi
 # --- FETCH GLOW ---
 FROM fetch_base AS fetch_glow
 ARG DOWNLOAD_TOKEN
 ARG GLOW_VERSION
-COPY ./local_packages /local_packages
+COPY ./local_package[s] /local_packages
 RUN if [ -f /local_packages/glow.deb ]; then cp /local_packages/glow.deb /out/glow.deb; else /get_release.sh /out/glow.deb charmbracelet glow v${GLOW_VERSION} ${DOWNLOAD_TOKEN} glow_${GLOW_VERSION}_amd64.deb; fi
 # --- FETCH GUM ---
 FROM fetch_base AS fetch_gum
 ARG DOWNLOAD_TOKEN
 ARG GUM_VERSION
-COPY ./local_packages /local_packages
+COPY ./local_package[s] /local_packages
 RUN if [ -f /local_packages/gum.deb ]; then cp /local_packages/gum.deb /out/gum.deb; else /get_release.sh /out/gum.deb charmbracelet gum v${GUM_VERSION} ${DOWNLOAD_TOKEN} gum_${GUM_VERSION}_amd64.deb; fi
 # --- FETCH MUSL HEADERS ---
 FROM fetch_base AS fetch_musl
 ARG MUSL_VERSION
-COPY ./local_packages /local_packages
+COPY ./local_package[s] /local_packages
 RUN if [ -f /local_packages/musl-${MUSL_VERSION}.tar.gz ]; then \
     cp /local_packages/musl-${MUSL_VERSION}.tar.gz /musl.tar.gz; \
   else \
@@ -154,7 +154,7 @@ RUN if [ -f /local_packages/musl-${MUSL_VERSION}.tar.gz ]; then \
 FROM fetch_base AS fetch_debianonqemu
 ARG DOWNLOAD_TOKEN
 ARG DEBIANONQEMU_VERSION
-COPY ./local_packages /local_packages
+COPY ./local_package[s] /local_packages
 RUN if [ -f /local_packages/bios-loong64-8.1.bin ]; then cp /local_packages/bios-loong64-8.1.bin /out/bios-loong64-8.1.bin; else /get_release.sh /out/bios-loong64-8.1.bin wtdcode DebianOnQEMU ${DEBIANONQEMU_VERSION} ${DOWNLOAD_TOKEN} bios-loong64-8.1.bin; fi
 
 # --- FINAL DOWNLOADER ---
