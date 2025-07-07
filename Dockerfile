@@ -1,6 +1,7 @@
 # versions of the various dependencies.
 ARG BASE_IMAGE="ubuntu:jammy-20250619"
-ARG DOWNLOAD_TOKEN="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"
+ARG CLONE_TOKEN="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"
+ARG DOWNLOAD_TOKEN=${CLONE_TOKEN}
 ARG VPN_VERSION="1.0.24"
 ARG BUSYBOX_VERSION="0.0.15"
 ARG LINUX_VERSION="3.3.3-beta"
@@ -109,7 +110,7 @@ RUN /get_release.sh /tmp/console.tar.gz rehosting console v${CONSOLE_VERSION} ${
 
 # Download libnvram. Populate /igloo_static/libnvram.
 ARG LIBNVRAM_VERSION
-RUN /get_release.sh /tmp/libnvram-latest.tar.gz rehosting libnvram v${LIBNVRAM_VERSION} ${DOWNLOAD_TOKEN} libnvram-latest.tar.gz && \
+RUN /get_release.sh /tmp/libnvram-latest.tar.gz rehosting libnvram v${LIBNVRAM_VERSION} ${DOWNLOAD_TOKEN} source.tar.gz && \
     tar xzf /tmp/libnvram-latest.tar.gz -C /igloo_static
 
 # Build musl headers for each arch
@@ -305,9 +306,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 COPY ./dependencies/fw2tar.txt /tmp/fw2tar.txt
 RUN apt-get update --allow-releaseinfo-change && apt-get install -y -q --fix-missing git $(cat /tmp/fw2tar.txt)
 
-ARG DOWNLOAD_TOKEN
+ARG CLONE_TOKEN
 ARG FW2TAR_TAG
-RUN git clone --depth=1 -b ${FW2TAR_TAG} https://${DOWNLOAD_TOKEN}:@github.com/rehosting/fw2tar.git /tmp/fw2tar
+RUN git clone --depth=1 -b ${FW2TAR_TAG} https://${CLONE_TOKEN}:@github.com/rehosting/fw2tar.git /tmp/fw2tar
 RUN git clone --depth=1 https://github.com/davidribyrne/cramfs.git /cramfs && \
     cd /cramfs && make
 RUN git clone --depth=1 https://github.com/rehosting/unblob.git /unblob
