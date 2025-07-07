@@ -16,9 +16,10 @@ ARG LTRACE_PROTOTYPES_HASH="9db3bdee7cf3e11c87d8cc7673d4d25b"
 ARG MUSL_VERSION="1.2.5"
 ARG VHOST_DEVICE_VERSION="vhost-device-vsock-v0.2.0"
 ARG FW2TAR_TAG="v2.0.1"
-ARG PANDA_VERSION="pandav0.0.37"
+ARG PANDA_VERSION="pandav0.0.40"
 ARG PANDANG_VERSION="0.0.26"
 ARG RIPGREP_VERSION="14.1.1"
+ARG DEBIANONQEMU_VERSION="v2024.01.05"
 
 FROM rust:1.86 AS rust_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
@@ -45,123 +46,153 @@ RUN cd /root/vhost-device/ && \
 ### DOWNLOADER ###
 # Fetch and extract our various dependencies. Roughly ordered on
 # least-frequently changing to most-frequently changing
-FROM $BASE_IMAGE AS downloader
+
+# --- FETCH BASE ---
+FROM $BASE_IMAGE AS fetch_base
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update --allow-releaseinfo-change && \
-    apt-get install -y --fix-missing \
-    bzip2 \
-    ca-certificates \
-    curl \
-    jq \
-    less \
-    wget \
-    make \
-    xmlstarlet && \
+    apt-get install -y --fix-missing curl jq bzip2 ca-certificates less wget make xmlstarlet && \
     rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /igloo_static
-
+    mkdir -p /out
 COPY ./get_release.sh /get_release.sh
 
-# 1) Get external resources
-# Download ZAP into /zap
-#RUN mkdir /zap && \
-#wget -qO- https://raw.githubusercontent.com/zaproxy/zap-admin/master/ZapVersions.xml | \
-#    xmlstarlet sel -t -v //url | grep -i Linux | wget -q --content-disposition -i - -O - | \
-#    tar zxv -C /zap && \
-#	mv /zap/ZAP*/* /zap && \
-#	rm -R /zap/ZAP*
-
-# 2) Get PANDA resources
-# Get panda .deb
-ARG PANDA_VERSION
-ARG PANDANG_VERSION
-ARG DOWNLOAD_TOKEN
-RUN /get_release.sh /tmp/pandare.deb panda-re qemu ${PANDA_VERSION} ${DOWNLOAD_TOKEN} pandare_22.04.deb && \
-    /get_release.sh /tmp/pandare-plugins.deb panda-re panda-ng v${PANDANG_VERSION} ${DOWNLOAD_TOKEN} pandare-plugins_22.04.deb
-    # RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
-
-ARG RIPGREP_VERSION
-RUN /get_release.sh /tmp/ripgrep.deb BurntSushi ripgrep ${RIPGREP_VERSION} ${DOWNLOAD_TOKEN} ripgrep_${RIPGREP_VERSION}-1_amd64.deb
-
-ARG GLOW_VERSION
-RUN /get_release.sh /tmp/glow.deb charmbracelet glow v${GLOW_VERSION} ${DOWNLOAD_TOKEN} glow_${GLOW_VERSION}_amd64.deb
-
-ARG GUM_VERSION
-RUN /get_release.sh /tmp/gum.deb charmbracelet gum v${GUM_VERSION} ${DOWNLOAD_TOKEN} gum_${GUM_VERSION}_amd64.deb
-
-# 3) Get penguin resources
-# Download kernels from CI. Populate /igloo_static/kernels
+# --- FETCH KERNELS ---
+FROM fetch_base AS fetch_kernels
 ARG DOWNLOAD_TOKEN
 ARG LINUX_VERSION
-RUN /get_release.sh /tmp/kernels-latest.tar.gz rehosting linux_builder v${LINUX_VERSION} ${DOWNLOAD_TOKEN} kernels-latest.tar.gz && \
-    tar xzf /tmp/kernels-latest.tar.gz -C /igloo_static
-
-# Populate /igloo_static/utils.bin/utils/busybox.*
+COPY ./local_packages /local_packages
+RUN if [ -f /local_packages/kernels-latest.tar.gz ]; then cp /local_packages/kernels-latest.tar.gz /out/kernels-latest.tar.gz; else /get_release.sh /out/kernels-latest.tar.gz rehosting linux_builder v${LINUX_VERSION} ${DOWNLOAD_TOKEN} kernels-latest.tar.gz; fi
+# --- FETCH BUSYBOX ---
+FROM fetch_base AS fetch_busybox
+ARG DOWNLOAD_TOKEN
 ARG BUSYBOX_VERSION
-RUN /get_release.sh /tmp/busybox-latest.tar.gz rehosting busybox v${BUSYBOX_VERSION} ${DOWNLOAD_TOKEN} busybox-latest.tar.gz && \
-    tar xzf /tmp/busybox-latest.tar.gz -C /igloo_static/ && \
-    mv /igloo_static/build/* /igloo_static/
-
-# Get panda provided console from CI. Populate /igloo_static/console
+COPY ./local_packages /local_packages
+RUN if [ -f /local_packages/busybox-latest.tar.gz ]; then cp /local_packages/busybox-latest.tar.gz /out/busybox-latest.tar.gz; else /get_release.sh /out/busybox-latest.tar.gz rehosting busybox v${BUSYBOX_VERSION} ${DOWNLOAD_TOKEN} busybox-latest.tar.gz; fi
+# --- FETCH CONSOLE ---
+FROM fetch_base AS fetch_console
+ARG DOWNLOAD_TOKEN
 ARG CONSOLE_VERSION
-RUN /get_release.sh /tmp/console.tar.gz rehosting console v${CONSOLE_VERSION} ${DOWNLOAD_TOKEN} console.tar.gz && \
-    tar xzf /tmp/console.tar.gz -C /igloo_static
-
-
-# Download libnvram. Populate /igloo_static/libnvram.
+COPY ./local_packages /local_packages
+RUN if [ -f /local_packages/console.tar.gz ]; then cp /local_packages/console.tar.gz /out/console.tar.gz; else /get_release.sh /out/console.tar.gz rehosting console v${CONSOLE_VERSION} ${DOWNLOAD_TOKEN} console.tar.gz; fi
+# --- FETCH LIBNVRAM ---
+FROM fetch_base AS fetch_libnvram
+ARG DOWNLOAD_TOKEN
 ARG LIBNVRAM_VERSION
-RUN /get_release.sh /tmp/libnvram-latest.tar.gz rehosting libnvram v${LIBNVRAM_VERSION} ${DOWNLOAD_TOKEN} source.tar.gz && \
-    tar xzf /tmp/libnvram-latest.tar.gz -C /igloo_static
-
-# Build musl headers for each arch
-ARG MUSL_VERSION
-RUN wget -qO- https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz | \
-    tar xzf - && \
-    for arch in arm aarch64 mips mips64 mipsn32 powerpc powerpc64 riscv32 riscv64 loongarch64 x86_64 i386; do \
-        make -C musl-* \
-            ARCH=$arch \
-            DESTDIR=/ \
-            prefix=/igloo_static/musl-headers/$arch \
-            install-headers; \
-    done && \
-    rm -rf musl-*
-
-# Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
+COPY ./local_packages /local_packages
+RUN if [ -f /local_packages/libnvram-latest.tar.gz ]; then cp /local_packages/libnvram-latest.tar.gz /out/libnvram-latest.tar.gz; else /get_release.sh /out/libnvram-latest.tar.gz rehosting libnvram v${LIBNVRAM_VERSION} ${DOWNLOAD_TOKEN} source.tar.gz; fi
+# --- FETCH VPN ---
+FROM fetch_base AS fetch_vpn
+ARG DOWNLOAD_TOKEN
 ARG VPN_VERSION
-RUN /get_release.sh /tmp/vpn.tar.gz rehosting vpnguin v${VPN_VERSION} ${DOWNLOAD_TOKEN} vpn.tar.gz && \
-    tar xzf /tmp/vpn.tar.gz -C /igloo_static
-
+COPY ./local_packages /local_packages
+RUN if [ -f /local_packages/vpn.tar.gz ]; then cp /local_packages/vpn.tar.gz /out/vpn.tar.gz; else /get_release.sh /out/vpn.tar.gz rehosting vpnguin v${VPN_VERSION} ${DOWNLOAD_TOKEN} vpn.tar.gz; fi
+# --- FETCH HYPERFS ---
+FROM fetch_base AS fetch_hyperfs
+ARG DOWNLOAD_TOKEN
 ARG HYPERFS_VERSION
-RUN /get_release.sh /tmp/hyperfs.tar.gz rehosting hyperfs v${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} hyperfs.tar.gz && \
-  tar xzf /tmp/hyperfs.tar.gz -C / && \
-  /get_release.sh /tmp/hyperfs-0.0.38.tar.gz rehosting hyperfs v0.0.38 ${DOWNLOAD_TOKEN} hyperfs.tar.gz && \
-  tar xzf /tmp/hyperfs-0.0.38.tar.gz -C / && \
-  cp -r /result/utils/* /igloo_static/ && \
-  mv /result/dylibs /igloo_static/dylibs && \
-  rm -rf /result
-
-# Download guesthopper from CI. Populate /igloo_static/guesthopper
+COPY ./local_packages /local_packages
+RUN if [ -f /local_packages/hyperfs.tar.gz ]; then cp /local_packages/hyperfs.tar.gz /out/hyperfs.tar.gz; else /get_release.sh /out/hyperfs.tar.gz rehosting hyperfs v${HYPERFS_VERSION} ${DOWNLOAD_TOKEN} hyperfs.tar.gz; fi
+# --- FETCH GUESTHOPPER ---
+FROM fetch_base AS fetch_guesthopper
+ARG DOWNLOAD_TOKEN
 ARG GUESTHOPPER_VERSION
-RUN /get_release.sh /tmp/guesthopper.tar.gz rehosting guesthopper v${GUESTHOPPER_VERSION} ${DOWNLOAD_TOKEN} guesthopper.tar.gz && \
-    tar xzf /tmp/guesthopper.tar.gz -C /igloo_static
-
-ARG DEBIANONQEMU_VERSION="v2024.01.05"
-RUN /get_release.sh /igloo_static/loongarch64/bios-loong64-8.1.bin wtdcode DebianOnQEMU ${DEBIANONQEMU_VERSION} ${DOWNLOAD_TOKEN} bios-loong64-8.1.bin
-
-# Download prototype files for ltrace.
-#
-# Download the tarball from Fedora, because ltrace.org doesn't store old
-# versions and we want this container to build even when dependencies are
-# outdated.
+COPY ./local_packages /local_packages
+RUN if [ -f /local_packages/guesthopper.tar.gz ]; then cp /local_packages/guesthopper.tar.gz /out/guesthopper.tar.gz; else /get_release.sh /out/guesthopper.tar.gz rehosting guesthopper v${GUESTHOPPER_VERSION} ${DOWNLOAD_TOKEN} guesthopper.tar.gz; fi
+# --- FETCH LTRACE ---
+FROM fetch_base AS fetch_ltrace
 ARG LTRACE_PROTOTYPES_VERSION
 ARG LTRACE_PROTOTYPES_HASH
-RUN wget -qO- https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-${LTRACE_PROTOTYPES_VERSION}.tar.bz2/${LTRACE_PROTOTYPES_HASH}/ltrace-${LTRACE_PROTOTYPES_VERSION}.tar.bz2 \
-  | tar xjf - -C / && \
-  mv /ltrace-*/etc /tmp/ltrace && \
-  rm -rf /ltrace-*
+COPY ./local_packages /local_packages
+RUN if [ -f /local_packages/ltrace-prototypes.tar.bz2 ]; then cp /local_packages/ltrace-prototypes.tar.bz2 /out/ltrace-prototypes.tar.bz2; else curl -sSL -o /out/ltrace-prototypes.tar.bz2 https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-${LTRACE_PROTOTYPES_VERSION}.tar.bz2/${LTRACE_PROTOTYPES_HASH}/ltrace-${LTRACE_PROTOTYPES_VERSION}.tar.bz2; fi
+# --- FETCH PANDA ---
+FROM fetch_base AS fetch_panda
+ARG DOWNLOAD_TOKEN
+ARG PANDA_VERSION
+COPY ./local_packages /local_packages
+RUN if [ -f /local_packages/pandare.deb ]; then cp /local_packages/pandare.deb /out/pandare.deb; else /get_release.sh /out/pandare.deb panda-re qemu ${PANDA_VERSION} ${DOWNLOAD_TOKEN} pandare_22.04.deb; fi
+# --- FETCH PANDA PLUGINS ---
+FROM fetch_base AS fetch_panda_plugins
+ARG DOWNLOAD_TOKEN
+ARG PANDANG_VERSION
+COPY ./local_packages /local_packages
+RUN if [ -f /local_packages/pandare-plugins.deb ]; then cp /local_packages/pandare-plugins.deb /out/pandare-plugins.deb; else /get_release.sh /out/pandare-plugins.deb panda-re panda-ng v${PANDANG_VERSION} ${DOWNLOAD_TOKEN} pandare-plugins_22.04.deb; fi
+# --- FETCH RIPGREP ---
+FROM fetch_base AS fetch_ripgrep
+ARG DOWNLOAD_TOKEN
+ARG RIPGREP_VERSION
+COPY ./local_packages /local_packages
+RUN if [ -f /local_packages/ripgrep.deb ]; then cp /local_packages/ripgrep.deb /out/ripgrep.deb; else /get_release.sh /out/ripgrep.deb BurntSushi ripgrep ${RIPGREP_VERSION} ${DOWNLOAD_TOKEN} ripgrep_${RIPGREP_VERSION}-1_amd64.deb; fi
+# --- FETCH GLOW ---
+FROM fetch_base AS fetch_glow
+ARG DOWNLOAD_TOKEN
+ARG GLOW_VERSION
+COPY ./local_packages /local_packages
+RUN if [ -f /local_packages/glow.deb ]; then cp /local_packages/glow.deb /out/glow.deb; else /get_release.sh /out/glow.deb charmbracelet glow v${GLOW_VERSION} ${DOWNLOAD_TOKEN} glow_${GLOW_VERSION}_amd64.deb; fi
+# --- FETCH GUM ---
+FROM fetch_base AS fetch_gum
+ARG DOWNLOAD_TOKEN
+ARG GUM_VERSION
+COPY ./local_packages /local_packages
+RUN if [ -f /local_packages/gum.deb ]; then cp /local_packages/gum.deb /out/gum.deb; else /get_release.sh /out/gum.deb charmbracelet gum v${GUM_VERSION} ${DOWNLOAD_TOKEN} gum_${GUM_VERSION}_amd64.deb; fi
+# --- FETCH MUSL HEADERS ---
+FROM fetch_base AS fetch_musl
+ARG MUSL_VERSION
+COPY ./local_packages /local_packages
+RUN if [ -f /local_packages/musl-${MUSL_VERSION}.tar.gz ]; then \
+    cp /local_packages/musl-${MUSL_VERSION}.tar.gz /musl.tar.gz; \
+  else \
+    wget -qO /musl.tar.gz https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz; \
+  fi && \
+  tar xzf /musl.tar.gz && \
+  mkdir -p /out/musl-headers && \
+  for arch in arm aarch64 mips mips64 mipsn32 powerpc powerpc64 riscv32 riscv64 loongarch64 x86_64 i386; do \
+    make -C musl-* ARCH=$arch DESTDIR=/ prefix=/out/musl-headers/$arch install-headers; \
+  done && \
+  tar czf /out/musl-headers.tar.gz -C /out musl-headers && \
+  rm -rf musl-* /out/musl-headers /musl.tar.gz /local_packages/musl-${MUSL_VERSION}.tar.gz
+# --- FETCH DEBIANONQEMU BIOS ---
+FROM fetch_base AS fetch_debianonqemu
+ARG DOWNLOAD_TOKEN
+ARG DEBIANONQEMU_VERSION
+COPY ./local_packages /local_packages
+RUN if [ -f /local_packages/bios-loong64-8.1.bin ]; then cp /local_packages/bios-loong64-8.1.bin /out/bios-loong64-8.1.bin; else /get_release.sh /out/bios-loong64-8.1.bin wtdcode DebianOnQEMU ${DEBIANONQEMU_VERSION} ${DOWNLOAD_TOKEN} bios-loong64-8.1.bin; fi
+
+# --- FINAL DOWNLOADER ---
+FROM $BASE_IMAGE AS downloader
+ENV DEBIAN_FRONTEND=noninteractive
+RUN mkdir -p /igloo_static/loongarch64 /tmp
+COPY --from=fetch_kernels /out/kernels-latest.tar.gz /tmp/
+COPY --from=fetch_busybox /out/busybox-latest.tar.gz /tmp/
+COPY --from=fetch_console /out/console.tar.gz /tmp/
+COPY --from=fetch_libnvram /out/libnvram-latest.tar.gz /tmp/
+COPY --from=fetch_vpn /out/vpn.tar.gz /tmp/
+COPY --from=fetch_hyperfs /out/hyperfs.tar.gz /tmp/
+COPY --from=fetch_guesthopper /out/guesthopper.tar.gz /tmp/
+COPY --from=fetch_ltrace /out/ltrace-prototypes.tar.bz2 /tmp/
+COPY --from=fetch_musl /out/musl-headers.tar.gz /tmp/
+COPY --from=fetch_debianonqemu /out/bios-loong64-8.1.bin /tmp/
+
+# Extract and arrange all archives as in Dockerfile.old
+RUN set -eux; \
+    tar xzf /tmp/kernels-latest.tar.gz -C /igloo_static && rm /tmp/kernels-latest.tar.gz; \
+    tar xzf /tmp/busybox-latest.tar.gz -C /igloo_static && rm /tmp/busybox-latest.tar.gz; \
+    if [ -d /igloo_static/build ]; then mv /igloo_static/build/* /igloo_static/ && rmdir /igloo_static/build; fi; \
+    tar xzf /tmp/console.tar.gz -C /igloo_static && rm /tmp/console.tar.gz; \
+    tar xzf /tmp/libnvram-latest.tar.gz -C /igloo_static && rm /tmp/libnvram-latest.tar.gz; \
+    if [ -d /igloo_static/libnvram-* ]; then mv /igloo_static/libnvram-* /igloo_static/libnvram; fi; \
+    tar xzf /tmp/vpn.tar.gz -C /igloo_static && rm /tmp/vpn.tar.gz; \
+    tar xzf /tmp/hyperfs.tar.gz -C / && rm /tmp/hyperfs.tar.gz; \
+    if [ -d /result/utils ]; then cp -r /result/utils/* /igloo_static/; fi; \
+    if [ -d /result/dylibs ]; then mv /result/dylibs /igloo_static/dylibs; fi; \
+    rm -rf /result; \
+    tar xzf /tmp/guesthopper.tar.gz -C /igloo_static && rm /tmp/guesthopper.tar.gz; \
+    tar xzf /tmp/musl-headers.tar.gz -C /igloo_static && rm /tmp/musl-headers.tar.gz; \
+    tar xjf /tmp/ltrace-prototypes.tar.bz2 -C /igloo_static && rm /tmp/ltrace-prototypes.tar.bz2; \
+    if [ -d /igloo_static/ltrace-* ]; then mv /igloo_static/ltrace-*/etc /igloo_static/ltrace && rm -rf /igloo_static/ltrace-*; fi; \
+    mv /tmp/bios-loong64-8.1.bin /igloo_static/loongarch64/bios-loong64-8.1.bin
 
 # Add libnvram ltrace prototype file
-COPY ./src/resources/ltrace_nvram.conf /tmp/ltrace/lib_inject.so.conf
+COPY ./src/resources/ltrace_nvram.conf /igloo_static/ltrace/lib_inject.so.conf
 
 
 #### CROSS BUILDER: Build send_hypercall ###
@@ -170,64 +201,6 @@ COPY ./guest-utils/native/ /source
 WORKDIR /source
 RUN wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h
 RUN make all
-
-#### QEMU BUILDER: Build qemu-img ####
-FROM $BASE_IMAGE AS qemu_builder
-ENV DEBIAN_FRONTEND=noninteractive
-# Enable source repos
-RUN sed -Ei 's/^# deb-src /deb-src /' /etc/apt/sources.list
-RUN apt-get update --allow-releaseinfo-change && apt-get build-dep -y --fix-missing qemu-utils qemu && \
-    apt-get install -q -y --no-install-recommends --fix-missing ninja-build git \
-    && rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 --no-checkout https://github.com/qemu/qemu.git /src && \
-  cd /src && \
-  git fetch --depth 1 origin tag v7.2.0 && \
-  git checkout v7.2.0
-RUN mkdir /src/build && cd /src/build && ../configure \
-    --without-default-features \
-    --disable-system \
-    --disable-user \
-    --enable-tools \
-    && make -j$(nproc)
-
-#### NMAP BUILDER: Build nmap ####
-FROM $BASE_IMAGE AS nmap_builder
-ENV DEBIAN_FRONTEND=noninteractive
-ARG SSH
-
-RUN apt-get update --allow-releaseinfo-change && apt-get install -q -y --fix-missing \
-    git \
-    openssh-client \
-    python3-setuptools
-
-# OPTIONALLY build and install custom nmap at /build/nmap. Only if SSH keys available and can clone
-# Failure is allowed and non-fatal.
-# If you have access run the following to build your container:
-# eval `ssh-agent -s`; ssh-add ~/.ssh/id_rsa; ./penguin --build
-RUN --mount=type=ssh \
-    mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts && \
-    git clone git@github.com:rehosting/nmap.git /src && \
-    sed -i 's/^# deb-src/deb-src/' /etc/apt/sources.list && \
-    apt-get update --allow-releaseinfo-change && apt-get build-dep -y --fix-missing nmap && \
-    rm -rf /var/lib/apt/lists/* && \
-    cd /src && ./configure --prefix=/build/nmap && make -j$(nproc) && \
-    make install && \
-    mkdir -p /build/nmap/etc/nmap && \
-    touch /build/nmap/etc/nmap/.custom \
-    || mkdir -p /build/nmap
-
-# Support buidling from source with local_packages. Make sure to
-# package from within nmap with `git clean -fx; tar cvzf nmap.tar.gz .`
-COPY ./local_package[s] /tmp/local_packages
-RUN if [ -f /tmp/local_packages/nmap.tar.gz ]; then \
-    rm -rf /src /build/nmap && \
-    mkdir /src && \
-    tar xzf /tmp/local_packages/nmap.tar.gz -C /src && \
-    cd /src && ./configure --prefix=/build/nmap && make -j$(nproc) && \
-    make install && \
-    mkdir -p /build/nmap/etc/nmap && \
-    touch /build/nmap/etc/nmap/.custom /build/nmap/etc/nmap/.custom_local; \
-    fi
 
 ### Python Builder: Build all wheel files necessary###
 FROM $BASE_IMAGE AS python_builder
@@ -340,13 +313,6 @@ ENV HOME=/root
 # Add rootshell helper command
 RUN echo "#!/bin/sh\ntelnet localhost 4321" > /usr/local/bin/rootshell && chmod +x /usr/local/bin/rootshell
 
-COPY --from=downloader /tmp/pandare.deb /tmp/
-COPY --from=downloader /tmp/pandare-plugins.deb /tmp/
-COPY --from=downloader /tmp/glow.deb /tmp/
-COPY --from=downloader /tmp/gum.deb /tmp/
-COPY --from=downloader /tmp/ripgrep.deb /tmp/
-COPY ./dependencies/* /tmp
-
 # We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
 # we'll fail because we get a distutils distribution of pycparser 2.19 that we can't
 # uninstall somewhere in setting up other dependencies.
@@ -358,7 +324,6 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       pip install --upgrade \
         pip \
         "pycparser>=2.21"
-
 
 # Update and install prerequisites
 RUN apt-get update --allow-releaseinfo-change && apt-get install -y --fix-missing \
@@ -373,6 +338,12 @@ RUN wget https://apt.llvm.org/llvm.sh && \
     ./llvm.sh 20
 
 # Install apt dependencies - largely for binwalk, some for penguin, some for fw2tar
+COPY --from=fetch_glow /out/glow.deb /tmp/glow.deb
+COPY --from=fetch_gum /out/gum.deb /tmp/
+COPY --from=fetch_panda /out/pandare.deb /tmp/
+COPY --from=fetch_panda_plugins /out/pandare-plugins.deb /tmp/
+COPY --from=fetch_ripgrep /out/ripgrep.deb /tmp/
+COPY ./dependencies/* /tmp
 RUN apt-get update --allow-releaseinfo-change && apt-get install -q -y --fix-missing $(cat /tmp/penguin.txt) $(cat /tmp/fw2tar.txt) && \
     apt install -yy -f /tmp/pandare.deb -f /tmp/pandare-plugins.deb \
     -f /tmp/glow.deb -f /tmp/gum.deb -f /tmp/ripgrep.deb && \
@@ -397,18 +368,8 @@ RUN pip install --no-cache /wheels/*
 
 RUN poetry config virtualenvs.create false
 
-
-# qemu-img
-COPY --from=qemu_builder /src/build/qemu-img /usr/local/bin/qemu-img
-
 # VPN, libnvram, kernels, console
 COPY --from=downloader /igloo_static/ /igloo_static/
-
-# Copy nmap build into /usr/local/bin
-COPY --from=nmap_builder /build/nmap /usr/local/
-
-COPY --from=downloader /tmp/ltrace /igloo_static/ltrace
-
 # Copy source and binaries from host
 COPY --from=cross_builder /source/out /igloo_static/
 COPY guest-utils /igloo_static/guest-utils
@@ -491,54 +452,6 @@ CMD ["/usr/local/bin/banner.sh"]
 # and replace the previously-installed version.
 
 # Supported packages filesnames are listed in docs/dev.md
-
-# The [s] allows the copy from local_packages to fail if the directory is missing
-COPY ./local_package[s] /tmp/local_packages
-
-RUN if [ -d /tmp/local_packages ]; then \
-        if [ -f /tmp/local_packages/console.tar.gz ]; then \
-            tar xvf /tmp/local_packages/console.tar.gz -C /igloo_static/; \
-        fi; \
-        if [ -f /tmp/local_packages/kernels-latest.tar.gz ]; then \
-            rm -rf /igloo_static/kernels && \
-            tar xvf /tmp/local_packages/kernels-latest.tar.gz -C /igloo_static/; \
-        fi; \
-        if [ -f /tmp/local_packages/pandare_22.04.deb ]; then \
-            dpkg -i /tmp/local_packages/pandare_22.04.deb; \
-        fi; \
-        if [ -f /tmp/local_packages/pandare-plugins_22.04.deb ]; then \
-            dpkg -i /tmp/local_packages/pandare-plugins_22.04.deb; \
-        fi; \
-        if [ -f /tmp/local_packages/vpn.tar.gz ]; then \
-            tar xzf /tmp/local_packages/vpn.tar.gz -C /igloo_static; \
-        fi; \
-        if [ -f /tmp/local_packages/busybox-latest.tar.gz ]; then \
-            tar xvf /tmp/local_packages/busybox-latest.tar.gz -C /igloo_static/;  \
-        fi; \
-        if [ -f /tmp/local_packages/hyperfs.tar.gz ]; then \
-            tar xzf /tmp/local_packages/hyperfs.tar.gz -C / && \
-            cp -rv /result/utils/* /igloo_static/ && \
-            mv /result/dylibs /igloo_static/dylibs && \
-            rm -rf /result; \
-        fi; \
-        if [ -f /tmp/local_packages/libnvram-latest.tar.gz ]; then \
-            rm -rf /igloo_static/libnvram; \
-            tar xzf /tmp/local_packages/libnvram-latest.tar.gz -C /igloo_static; \
-        fi; \
-        if [ -f /tmp/local_packages/plugins.tar.gz ]; then \
-            tar xvf /tmp/local_packages/plugins.tar.gz -C /usr/local/lib/panda/panda/; \
-        fi; \
-        if [ -f /tmp/local_packages/pandare2-*.whl ]; then \
-            pip install /tmp/local_packages/pandare2-*.whl; \
-        fi; \
-        if [ -f /tmp/local_packages/pandare2.tar.gz ]; then \
-            tar xvf /tmp/local_packages/pandare2.tar.gz -C /usr/local/lib/python3.10/dist-packages/; \
-        fi; \
-        if [ -f /tmp/local_packages/guesthopper.tar.gz ]; then \
-            rm -rf /igloo_static/guesthopper; \
-            tar xzf /tmp/local_packages/guesthopper.tar.gz -C /igloo_static; \
-        fi; \
-    fi
 RUN mkdir /igloo_static/utils.source && \
     for file in /igloo_static/guest-utils/scripts/*; do \
         ln -s "$file" /igloo_static/utils.source/"$(basename "$file")".all; \
