@@ -538,7 +538,7 @@ CMD ["/usr/local/bin/banner.sh"]
 # Supported packages filesnames are listed in docs/dev.md
 
 # The [s] allows the copy from local_packages to fail if the directory is missing
-COPY ${LOCAL_PACKAGES_DIR} /tmp/local_packages
+COPY ${LOCAL_PACKAGES_DIR}/. /tmp/local_packages
 
 RUN if [ -d /tmp/local_packages ]; then \
         if [ -f /tmp/local_packages/console-${CONSOLE_VERSION}.tar.gz ]; then \
