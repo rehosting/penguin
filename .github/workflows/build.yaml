@@ -67,6 +67,42 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
+      - name: Cache pip cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-cache-
+          restore-keys: |
+            pip-cache-
+
+      - name: Cache apt cache
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-cache-
+          restore-keys: |
+            apt-cache-
+
+      - name: Clean local_packages directory
+        run: |
+          rm -rf ./local_packages/* || true
+
+      - name: Cache local_packages
+        uses: actions/cache@v4
+        with:
+          path: ./local_packages
+          key: local-packages-
+          restore-keys: |
+            local-packages-
+
+      - name: Show local_packages contents
+        run: |
+          echo "Contents of local_packages after cache restore:" && ls -lh ./local_packages || true
+
+      - name: Populate local_packages directory with required packages
+        run: |
+          ./get_local_packages.sh || echo "No get_local_packages.sh script found, skipping population."
+      
       - name: Build Docker image and push to Docker Hub
         uses: docker/build-push-action@v6.18.0
         with:
@@ -79,7 +115,33 @@ jobs:
           cache-to: type=registry,ref=rehosting/penguin:cache-PR-${{ github.event.number }}
           build-args: |
             USE_MIRROR=true
+            PIP_CACHE_DIR=/root/.cache/pip
+            APT_CACHE_DIR=/var/cache/apt/archives
+            LOCAL_PACKAGES_DIR=./local_packages
 
+      - name: Save pip cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-cache-${{ github.run_id }}
+          restore-keys: |
+            pip-cache-
+
+      - name: Save apt cache
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-cache-${{ github.run_id }}
+          restore-keys: |
+            apt-cache-
+
+      - name: Save local_packages cache
+        uses: actions/cache@v4
+        with:
+          path: ./local_packages
+          key: local-packages-${{ github.run_id }}
+          restore-keys: |
+            local-packages-
 
   run_tests:
     needs: build_container

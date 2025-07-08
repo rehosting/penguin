@@ -78,22 +78,43 @@ COPY ./get_release.sh /get_release.sh
 # Get panda .deb
 ARG PANDA_VERSION
 ARG PANDANG_VERSION
-# RUN curl -L -v --retry 5 --retry-delay 5 -o /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
-RUN curl -L -v --retry 5 --retry-delay 5 -o /tmp/pandare.deb \
-    https://github.com/panda-re/qemu/releases/download/${PANDA_VERSION}/pandare_22.04.deb && \
-    curl -L -v --retry 5 --retry-delay 5 -o /tmp/pandare-plugins.deb \
-    https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare-plugins_22.04.deb
+RUN if [ -f /tmp/local_packages/pandare_22.04.deb ]; then \
+      cp /tmp/local_packages/pandare_22.04.deb /tmp/pandare.deb; \
+    else \
+      curl -L -v --retry 5 --retry-delay 5 -o /tmp/pandare.deb \
+        https://github.com/panda-re/qemu/releases/download/${PANDA_VERSION}/pandare_22.04.deb; \
+    fi && \
+    if [ -f /tmp/local_packages/pandare-plugins_22.04.deb ]; then \
+      cp /tmp/local_packages/pandare-plugins_22.04.deb /tmp/pandare-plugins.deb; \
+    else \
+      curl -L -v --retry 5 --retry-delay 5 -o /tmp/pandare-plugins.deb \
+        https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare-plugins_22.04.deb; \
+    fi
     # RUN curl -L -v --retry 5 --retry-delay 5 -o /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
 
 ARG RIPGREP_VERSION
-RUN curl -L -v --retry 5 --retry-delay 5 -o /tmp/ripgrep.deb \
-        https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/ripgrep_${RIPGREP_VERSION}-1_amd64.deb
+RUN if [ -f /tmp/local_packages/ripgrep_${RIPGREP_VERSION}-1_amd64.deb ]; then \
+      cp /tmp/local_packages/ripgrep_${RIPGREP_VERSION}-1_amd64.deb /tmp/ripgrep.deb; \
+    else \
+      curl -L -v --retry 5 --retry-delay 5 -o /tmp/ripgrep.deb \
+        https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/ripgrep_${RIPGREP_VERSION}-1_amd64.deb; \
+    fi
 
 ARG GLOW_VERSION
-RUN curl -L -v --retry 5 --retry-delay 5 -o /tmp/glow.deb https://github.com/charmbracelet/glow/releases/download/v${GLOW_VERSION}/glow_${GLOW_VERSION}_amd64.deb
+RUN if [ -f /tmp/local_packages/glow_${GLOW_VERSION}_amd64.deb ]; then \
+      cp /tmp/local_packages/glow_${GLOW_VERSION}_amd64.deb /tmp/glow.deb; \
+    else \
+      curl -L -v --retry 5 --retry-delay 5 -o /tmp/glow.deb \
+        https://github.com/charmbracelet/glow/releases/download/v${GLOW_VERSION}/glow_${GLOW_VERSION}_amd64.deb; \
+    fi
 
 ARG GUM_VERSION
-RUN curl -L -v --retry 5 --retry-delay 5 -o /tmp/gum.deb https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/gum_${GUM_VERSION}_amd64.deb
+RUN if [ -f /tmp/local_packages/gum_${GUM_VERSION}_amd64.deb ]; then \
+      cp /tmp/local_packages/gum_${GUM_VERSION}_amd64.deb /tmp/gum.deb; \
+    else \
+      curl -L -v --retry 5 --retry-delay 5 -o /tmp/gum.deb \
+        https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/gum_${GUM_VERSION}_amd64.deb; \
+    fi
 
 # 3) Get penguin resources
 # Download kernels from CI. Populate /igloo_static/kernels
@@ -342,12 +363,17 @@ RUN mkdir /fakeroot || true
 ### MAIN CONTAINER ###
 FROM $BASE_IMAGE AS penguin
 ARG USE_MIRROR
+ARG PIP_CACHE_DIR=/root/.cache/pip
+ARG APT_CACHE_DIR=/var/cache/apt/archives
+ARG LOCAL_PACKAGES_DIR=./local_packages
 COPY docker/mirrors.list /tmp/mirrors.list
 RUN if [ "$USE_MIRROR" = "true" ]; then cp /tmp/mirrors.list /etc/apt/sources.list; fi
 # Environment setup
 ENV PIP_ROOT_USER_ACTION=ignore
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PROMPT_COMMAND=""
+ENV PIP_CACHE_DIR=${PIP_CACHE_DIR}
+ENV APT_CACHE_DIR=${APT_CACHE_DIR}
 
 # Install unblob dependencies, curl, and fakeroot
 ENV DEBIAN_FRONTEND=noninteractive
@@ -373,7 +399,7 @@ COPY ./dependencies/* /tmp
 RUN apt-get update && \
     apt-get --no-install-recommends install -y python3-pip && \
     rm -rf /var/lib/apt/lists/*
-RUN --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache,target=${PIP_CACHE_DIR} \
       pip install --upgrade \
         pip \
         "pycparser>=2.21"
@@ -392,8 +418,8 @@ RUN wget https://apt.llvm.org/llvm.sh && \
     ./llvm.sh 20
 
 # Install apt dependencies - largely for binwalk, some for penguin, some for fw2tar
-RUN apt-get update && apt-get install -q -y $(cat /tmp/penguin.txt) $(cat /tmp/fw2tar.txt) && \
-    apt install -yy -f /tmp/pandare.deb -f /tmp/pandare-plugins.deb \
+RUN apt-get update && apt-get install -q -y --option=dir::cache::archives=${APT_CACHE_DIR} $(cat /tmp/penguin.txt) $(cat /tmp/fw2tar.txt) && \
+    apt install -yy --option=dir::cache::archives=${APT_CACHE_DIR} -f /tmp/pandare.deb -f /tmp/pandare-plugins.deb \
     -f /tmp/glow.deb -f /tmp/gum.deb -f /tmp/ripgrep.deb && \
     rm -rf /var/lib/apt/lists/* /tmp/*.deb
 
@@ -484,14 +510,14 @@ COPY ./README.md /docs/README.md
 
 # Add DB module
 COPY ./db /db
-RUN --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache,target=${PIP_CACHE_DIR} \
     pip install -e /db
 
 # Now copy in our module and install it
 # penguin is editable so we can mount local copy for dev
 COPY --from=version_generator /app/version.txt /pkg/penguin/version.txt
 COPY ./src /pkg
-RUN --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache,target=${PIP_CACHE_DIR} \
     pip install -e /pkg
 
 # Copy pyplugins into our the pyplugins directory. We might mount
@@ -512,50 +538,50 @@ CMD ["/usr/local/bin/banner.sh"]
 # Supported packages filesnames are listed in docs/dev.md
 
 # The [s] allows the copy from local_packages to fail if the directory is missing
-COPY ./local_package[s] /tmp/local_packages
+COPY ${LOCAL_PACKAGES_DIR} /tmp/local_packages
 
 RUN if [ -d /tmp/local_packages ]; then \
-        if [ -f /tmp/local_packages/console.tar.gz ]; then \
-            tar xvf /tmp/local_packages/console.tar.gz -C /igloo_static/; \
+        if [ -f /tmp/local_packages/console-${CONSOLE_VERSION}.tar.gz ]; then \
+            tar xvf /tmp/local_packages/console-${CONSOLE_VERSION}.tar.gz -C /igloo_static/; \
         fi; \
-        if [ -f /tmp/local_packages/kernels-latest.tar.gz ]; then \
+        if [ -f /tmp/local_packages/kernels-latest-${LINUX_VERSION}.tar.gz ]; then \
             rm -rf /igloo_static/kernels && \
-            tar xvf /tmp/local_packages/kernels-latest.tar.gz -C /igloo_static/; \
+            tar xvf /tmp/local_packages/kernels-latest-${LINUX_VERSION}.tar.gz -C /igloo_static/; \
         fi; \
-        if [ -f /tmp/local_packages/pandare_22.04.deb ]; then \
-            dpkg -i /tmp/local_packages/pandare_22.04.deb; \
+        if [ -f /tmp/local_packages/pandare_22.04-${PANDA_VERSION}.deb ]; then \
+            dpkg -i /tmp/local_packages/pandare_22.04-${PANDA_VERSION}.deb; \
         fi; \
-        if [ -f /tmp/local_packages/pandare-plugins_22.04.deb ]; then \
-            dpkg -i /tmp/local_packages/pandare-plugins_22.04.deb; \
+        if [ -f /tmp/local_packages/pandare-plugins_22.04-${PANDANG_VERSION}.deb ]; then \
+            dpkg -i /tmp/local_packages/pandare-plugins_22.04-${PANDANG_VERSION}.deb; \
         fi; \
-        if [ -f /tmp/local_packages/vpn.tar.gz ]; then \
-            tar xzf /tmp/local_packages/vpn.tar.gz -C /igloo_static; \
+        if [ -f /tmp/local_packages/vpn-${VPN_VERSION}.tar.gz ]; then \
+            tar xzf /tmp/local_packages/vpn-${VPN_VERSION}.tar.gz -C /igloo_static; \
         fi; \
-        if [ -f /tmp/local_packages/busybox-latest.tar.gz ]; then \
-            tar xvf /tmp/local_packages/busybox-latest.tar.gz -C /igloo_static/;  \
+        if [ -f /tmp/local_packages/busybox-latest-${BUSYBOX_VERSION}.tar.gz ]; then \
+            tar xvf /tmp/local_packages/busybox-latest-${BUSYBOX_VERSION}.tar.gz -C /igloo_static/;  \
         fi; \
-        if [ -f /tmp/local_packages/hyperfs.tar.gz ]; then \
-            tar xzf /tmp/local_packages/hyperfs.tar.gz -C / && \
+        if [ -f /tmp/local_packages/hyperfs-${HYPERFS_VERSION}.tar.gz ]; then \
+            tar xzf /tmp/local_packages/hyperfs-${HYPERFS_VERSION}.tar.gz -C / && \
             cp -rv /result/utils/* /igloo_static/ && \
             mv /result/dylibs /igloo_static/dylibs && \
             rm -rf /result; \
         fi; \
-        if [ -f /tmp/local_packages/libnvram-latest.tar.gz ]; then \
+        if [ -f /tmp/local_packages/libnvram-latest-${LIBNVRAM_VERSION}.tar.gz ]; then \
             rm -rf /igloo_static/libnvram; \
-            tar xzf /tmp/local_packages/libnvram-latest.tar.gz -C /igloo_static; \
+            tar xzf /tmp/local_packages/libnvram-latest-${LIBNVRAM_VERSION}.tar.gz -C /igloo_static; \
         fi; \
         if [ -f /tmp/local_packages/plugins.tar.gz ]; then \
             tar xvf /tmp/local_packages/plugins.tar.gz -C /usr/local/lib/panda/panda/; \
         fi; \
-        if [ -f /tmp/local_packages/pandare2-*.whl ]; then \
-            pip install /tmp/local_packages/pandare2-*.whl; \
+        if [ -f /tmp/local_packages/pandare2-${PANDANG_VERSION}.py3-none-any.whl ]; then \
+            pip install /tmp/local_packages/pandare2-${PANDANG_VERSION}.py3-none-any.whl; \
         fi; \
         if [ -f /tmp/local_packages/pandare2.tar.gz ]; then \
             tar xvf /tmp/local_packages/pandare2.tar.gz -C /usr/local/lib/python3.10/dist-packages/; \
         fi; \
-        if [ -f /tmp/local_packages/guesthopper.tar.gz ]; then \
+        if [ -f /tmp/local_packages/guesthopper-${GUESTHOPPER_VERSION}.tar.gz ]; then \
             rm -rf /igloo_static/guesthopper; \
-            tar xzf /tmp/local_packages/guesthopper.tar.gz -C /igloo_static; \
+            tar xzf /tmp/local_packages/guesthopper-${GUESTHOPPER_VERSION}.tar.gz -C /igloo_static; \
         fi; \
     fi
 RUN mkdir /igloo_static/utils.source && \
