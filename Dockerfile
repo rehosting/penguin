@@ -170,7 +170,8 @@ COPY ./src/resources/ltrace_nvram.conf /tmp/ltrace/lib_inject.so.conf
 FROM ghcr.io/rehosting/embedded-toolchains:latest AS cross_builder
 COPY ./guest-utils/native/ /source
 WORKDIR /source
-RUN curl -L -v --retry 5 --retry-delay 5 -o hypercall.h https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h
+RUN git clone --depth 1 https://github.com/panda-re/libhc.git /source/libhc && \
+    mv /source/libhc/hypercall.h /source/
 RUN make all
 
 #### QEMU BUILDER: Build qemu-img ####
