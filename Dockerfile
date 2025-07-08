@@ -1,5 +1,5 @@
 # versions of the various dependencies.
-ARG BASE_IMAGE="ubuntu:22.04"
+ARG BASE_IMAGE="ubuntu:jammy-20250619"
 ARG DOWNLOAD_TOKEN="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"
 ARG VPN_VERSION="1.0.24"
 ARG BUSYBOX_VERSION="0.0.15"
