@@ -237,7 +237,7 @@ ARG PANDANG_VERSION
 
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
-RUN apt-get update && apt-get install -y python3-pip git wget liblzo2-dev
+RUN apt-get update && apt-get install -y python3-pip git curl liblzo2-dev
 RUN curl -L -v --retry 5 --retry-delay 5 -o /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl \
     https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare2-${PANDANG_VERSION}-py3-none-any.whl
 RUN --mount=type=cache,target=/root/.cache/pip \
