@@ -1,5 +1,6 @@
 # versions of the various dependencies.
 ARG BASE_IMAGE="ubuntu:jammy-20250619"
+ARG USE_MIRROR=false
 ARG DOWNLOAD_TOKEN="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"
 ARG VPN_VERSION="1.0.24"
 ARG BUSYBOX_VERSION="0.0.15"
@@ -45,6 +46,9 @@ RUN cd /root/vhost-device/ && \
 # Fetch and extract our various dependencies. Roughly ordered on
 # least-frequently changing to most-frequently changing
 FROM $BASE_IMAGE AS downloader
+ARG USE_MIRROR
+COPY docker/mirrors.list /tmp/mirrors.list
+RUN if [ "$USE_MIRROR" = "true" ]; then cp /tmp/mirrors.list /etc/apt/sources.list; fi
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y \
@@ -176,6 +180,9 @@ RUN make all
 
 #### QEMU BUILDER: Build qemu-img ####
 FROM $BASE_IMAGE AS qemu_builder
+ARG USE_MIRROR
+COPY docker/mirrors.list /tmp/mirrors.list
+RUN if [ "$USE_MIRROR" = "true" ]; then cp /tmp/mirrors.list /etc/apt/sources.list; fi
 ENV DEBIAN_FRONTEND=noninteractive
 # Enable source repos
 RUN sed -Ei 's/^# deb-src /deb-src /' /etc/apt/sources.list
@@ -195,6 +202,9 @@ RUN mkdir /src/build && cd /src/build && ../configure \
 
 #### NMAP BUILDER: Build nmap ####
 FROM $BASE_IMAGE AS nmap_builder
+ARG USE_MIRROR
+COPY docker/mirrors.list /tmp/mirrors.list
+RUN if [ "$USE_MIRROR" = "true" ]; then cp /tmp/mirrors.list /etc/apt/sources.list; fi
 ENV DEBIAN_FRONTEND=noninteractive
 ARG SSH
 
@@ -234,6 +244,9 @@ RUN if [ -f /tmp/local_packages/nmap.tar.gz ]; then \
 
 ### Python Builder: Build all wheel files necessary###
 FROM $BASE_IMAGE AS python_builder
+ARG USE_MIRROR
+COPY docker/mirrors.list /tmp/mirrors.list
+RUN if [ "$USE_MIRROR" = "true" ]; then cp /tmp/mirrors.list /etc/apt/sources.list; fi
 ARG PANDANG_VERSION
 
 ENV PYTHONDONTWRITEBYTECODE 1
@@ -302,13 +315,13 @@ RUN if [ ! -z "${OVERRIDE_VERSION}" ]; then \
 
 ### Build fw2tar deps ahead of time ###
 FROM $BASE_IMAGE AS fw2tar_dep_builder
+ARG USE_MIRROR
+COPY docker/mirrors.list /tmp/mirrors.list
+RUN if [ "$USE_MIRROR" = "true" ]; then cp /tmp/mirrors.list /etc/apt/sources.list; fi
 ENV DEBIAN_FRONTEND=noninteractive
 
 COPY ./dependencies/fw2tar.txt /tmp/fw2tar.txt
 RUN apt-get update && apt-get install -y -q git $(cat /tmp/fw2tar.txt)
-
-ARG DOWNLOAD_TOKEN
-ARG FW2TAR_TAG
 RUN git clone --depth=1 -b ${FW2TAR_TAG} https://${DOWNLOAD_TOKEN}:@github.com/rehosting/fw2tar.git /tmp/fw2tar
 RUN git clone --depth=1 https://github.com/davidribyrne/cramfs.git /cramfs && \
     cd /cramfs && make
@@ -326,6 +339,9 @@ RUN mkdir /fakeroot || true
 
 ### MAIN CONTAINER ###
 FROM $BASE_IMAGE AS penguin
+ARG USE_MIRROR
+COPY docker/mirrors.list /tmp/mirrors.list
+RUN if [ "$USE_MIRROR" = "true" ]; then cp /tmp/mirrors.list /etc/apt/sources.list; fi
 # Environment setup
 ENV PIP_ROOT_USER_ACTION=ignore
 ENV DEBIAN_FRONTEND=noninteractive
