@@ -1,0 +1,12 @@
+deb http://mirrors.mit.edu/ubuntu/ jammy main restricted
+deb-src http://mirrors.mit.edu/ubuntu/ jammy main restricted
+deb http://mirrors.mit.edu/ubuntu/ jammy universe
+deb-src http://mirrors.mit.edu/ubuntu/ jammy universe
+deb http://mirrors.mit.edu/ubuntu/ jammy multiverse
+deb-src http://mirrors.mit.edu/ubuntu/ jammy multiverse
+deb http://mirrors.mit.edu/ubuntu/ jammy-updates main restricted universe multiverse
+deb-src http://mirrors.mit.edu/ubuntu/ jammy-updates main restricted universe multiverse
+deb http://mirrors.mit.edu/ubuntu/ jammy-backports main restricted universe multiverse
+deb-src http://mirrors.mit.edu/ubuntu/ jammy-backports main restricted universe multiverse
+deb http://mirrors.mit.edu/ubuntu/ jammy-security main restricted universe multiverse
+deb-src http://mirrors.mit.edu/ubuntu/ jammy-security main restricted universe multiverse
