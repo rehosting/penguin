@@ -74,22 +74,22 @@ COPY ./get_release.sh /get_release.sh
 # Get panda .deb
 ARG PANDA_VERSION
 ARG PANDANG_VERSION
-# RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
-RUN wget -O /tmp/pandare.deb \
+# RUN curl -L -v --retry 5 --retry-delay 5 -o /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
+RUN curl -L -v --retry 5 --retry-delay 5 -o /tmp/pandare.deb \
     https://github.com/panda-re/qemu/releases/download/${PANDA_VERSION}/pandare_22.04.deb && \
-    wget -O /tmp/pandare-plugins.deb \
+    curl -L -v --retry 5 --retry-delay 5 -o /tmp/pandare-plugins.deb \
     https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare-plugins_22.04.deb
-    # RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
+    # RUN curl -L -v --retry 5 --retry-delay 5 -o /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
 
 ARG RIPGREP_VERSION
-RUN wget -O /tmp/ripgrep.deb \
+RUN curl -L -v --retry 5 --retry-delay 5 -o /tmp/ripgrep.deb \
         https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/ripgrep_${RIPGREP_VERSION}-1_amd64.deb
 
 ARG GLOW_VERSION
-RUN wget -qO /tmp/glow.deb https://github.com/charmbracelet/glow/releases/download/v${GLOW_VERSION}/glow_${GLOW_VERSION}_amd64.deb
+RUN curl -L -v --retry 5 --retry-delay 5 -o /tmp/glow.deb https://github.com/charmbracelet/glow/releases/download/v${GLOW_VERSION}/glow_${GLOW_VERSION}_amd64.deb
 
 ARG GUM_VERSION
-RUN wget -qO /tmp/gum.deb https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/gum_${GUM_VERSION}_amd64.deb
+RUN curl -L -v --retry 5 --retry-delay 5 -o /tmp/gum.deb https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/gum_${GUM_VERSION}_amd64.deb
 
 # 3) Get penguin resources
 # Download kernels from CI. Populate /igloo_static/kernels
@@ -112,13 +112,13 @@ RUN /get_release.sh rehosting console ${CONSOLE_VERSION} ${DOWNLOAD_TOKEN} | \
 
 # Download libnvram. Populate /igloo_static/libnvram.
 ARG LIBNVRAM_VERSION
-RUN wget -qO- https://github.com/rehosting/libnvram/archive/refs/tags/v${LIBNVRAM_VERSION}.tar.gz | \
+RUN curl -L -v --retry 5 --retry-delay 5 https://github.com/rehosting/libnvram/archive/refs/tags/v${LIBNVRAM_VERSION}.tar.gz | \
     tar xzf - -C /igloo_static && \
     mv /igloo_static/libnvram-${LIBNVRAM_VERSION} /igloo_static/libnvram
 
 # Build musl headers for each arch
 ARG MUSL_VERSION
-RUN wget -qO- https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz | \
+RUN curl -L -v --retry 5 --retry-delay 5 https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz | \
     tar xzf - && \
     for arch in arm aarch64 mips mips64 mipsn32 powerpc powerpc64 riscv32 riscv64 loongarch64 x86_64 i386; do \
         make -C musl-* \
@@ -148,7 +148,7 @@ ARG GUESTHOPPER_VERSION
 RUN /get_release.sh rehosting guesthopper ${GUESTHOPPER_VERSION} ${DOWNLOAD_TOKEN} | \
     tar xzf - -C /igloo_static
 
-RUN wget https://github.com/wtdcode/DebianOnQEMU/releases/download/v2024.01.05/bios-loong64-8.1.bin -O /igloo_static/loongarch64/bios-loong64-8.1.bin
+RUN curl -L -v --retry 5 --retry-delay 5 -o /igloo_static/loongarch64/bios-loong64-8.1.bin https://github.com/wtdcode/DebianOnQEMU/releases/download/v2024.01.05/bios-loong64-8.1.bin
 
 # Download prototype files for ltrace.
 #
@@ -157,7 +157,7 @@ RUN wget https://github.com/wtdcode/DebianOnQEMU/releases/download/v2024.01.05/b
 # outdated.
 ARG LTRACE_PROTOTYPES_VERSION
 ARG LTRACE_PROTOTYPES_HASH
-RUN wget -qO- https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-${LTRACE_PROTOTYPES_VERSION}.tar.bz2/${LTRACE_PROTOTYPES_HASH}/ltrace-${LTRACE_PROTOTYPES_VERSION}.tar.bz2 \
+RUN curl -L -v --retry 5 --retry-delay 5 https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-${LTRACE_PROTOTYPES_VERSION}.tar.bz2/${LTRACE_PROTOTYPES_HASH}/ltrace-${LTRACE_PROTOTYPES_VERSION}.tar.bz2 \
   | tar xjf - -C / && \
   mv /ltrace-*/etc /tmp/ltrace && \
   rm -rf /ltrace-*
@@ -170,7 +170,7 @@ COPY ./src/resources/ltrace_nvram.conf /tmp/ltrace/lib_inject.so.conf
 FROM ghcr.io/rehosting/embedded-toolchains:latest AS cross_builder
 COPY ./guest-utils/native/ /source
 WORKDIR /source
-RUN wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h
+RUN curl -L -v --retry 5 --retry-delay 5 -o hypercall.h https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h
 RUN make all
 
 #### QEMU BUILDER: Build qemu-img ####
@@ -238,7 +238,7 @@ ARG PANDANG_VERSION
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 RUN apt-get update && apt-get install -y python3-pip git wget liblzo2-dev
-RUN wget -O /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl \
+RUN curl -L -v --retry 5 --retry-delay 5 -o /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl \
     https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare2-${PANDANG_VERSION}-py3-none-any.whl
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip wheel --no-cache-dir --wheel-dir /app/wheels \
