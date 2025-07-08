@@ -323,6 +323,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 COPY ./dependencies/fw2tar.txt /tmp/fw2tar.txt
 RUN apt-get update && apt-get install -y -q git $(cat /tmp/fw2tar.txt)
 ARG DOWNLOAD_TOKEN
+ARG FW2TAR_TAG
 RUN git clone --depth=1 -b ${FW2TAR_TAG} https://${DOWNLOAD_TOKEN}:x-oauth-basic@github.com/rehosting/fw2tar.git /tmp/fw2tar
 RUN git clone --depth=1 https://github.com/davidribyrne/cramfs.git /cramfs && \
     cd /cramfs && make
