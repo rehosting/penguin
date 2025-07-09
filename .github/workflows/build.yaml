@@ -75,7 +75,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
       
       - name: Cache pip cache
-        uses: actions/cache@v4
+        uses: actions/cache@v4.2.0
         with:
           path: ~/.cache/pip
           key: pip-cache-
@@ -83,7 +83,7 @@ jobs:
             pip-cache-
 
       - name: Cache apt cache
-        uses: actions/cache@v4
+        uses: actions/cache@v4.2.0
         with:
           path: /var/cache/apt/archives
           key: apt-cache-
@@ -91,7 +91,7 @@ jobs:
             apt-cache-
 
       - name: Cache package_cache
-        uses: actions/cache@v4
+        uses: actions/cache@v4.2.0
         with:
           path: ./package_cache
           key: package-cache-
@@ -124,7 +124,7 @@ jobs:
 
       - name: Save pip cache
         if: always()
-        uses: actions/cache@v4
+        uses: actions/cache@v4.2.0
         with:
           path: ~/.cache/pip
           key: pip-cache-${{ github.run_id }}
@@ -133,7 +133,7 @@ jobs:
 
       - name: Save apt cache
         if: always()
-        uses: actions/cache@v4
+        uses: actions/cache@v4.2.0
         with:
           path: /var/cache/apt/archives
           key: apt-cache-${{ github.run_id }}
@@ -142,7 +142,7 @@ jobs:
 
       - name: Save package_cache
         if: always()
-        uses: actions/cache@v4
+        uses: actions/cache@v4.2.0
         with:
           path: ./package_cache
           key: package-cache-${{ github.run_id }}
