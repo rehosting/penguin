@@ -78,25 +78,19 @@ jobs:
         uses: actions/cache@v4.2.0
         with:
           path: ~/.cache/pip
-          key: pip-cache-
-          restore-keys: |
-            pip-cache-
+          key: pip-cache
 
       - name: Cache apt cache
         uses: actions/cache@v4.2.0
         with:
           path: /var/cache/apt/archives
-          key: apt-cache-
-          restore-keys: |
-            apt-cache-
+          key: apt-cache
 
       - name: Cache package_cache
         uses: actions/cache@v4.2.0
         with:
           path: ./package_cache
-          key: package-cache-
-          restore-keys: |
-            package-cache-
+          key: package-cache
 
       - name: Show package_cache contents
         run: |
@@ -121,33 +115,6 @@ jobs:
             PIP_CACHE_DIR=/root/.cache/pip
             APT_CACHE_DIR=/var/cache/apt/archives
             PACKAGE_CACHE_DIR=./package_cache
-
-      - name: Save pip cache
-        if: always()
-        uses: actions/cache@v4.2.0
-        with:
-          path: ~/.cache/pip
-          key: pip-cache-${{ github.run_id }}
-          restore-keys: |
-            pip-cache-
-
-      - name: Save apt cache
-        if: always()
-        uses: actions/cache@v4.2.0
-        with:
-          path: /var/cache/apt/archives
-          key: apt-cache-${{ github.run_id }}
-          restore-keys: |
-            apt-cache-
-
-      - name: Save package_cache
-        if: always()
-        uses: actions/cache@v4.2.0
-        with:
-          path: ./package_cache
-          key: package-cache-${{ github.run_id }}
-          restore-keys: |
-            package-cache-
 
   run_tests:
     needs: build_container
