@@ -78,19 +78,25 @@ jobs:
         uses: actions/cache@v4.2.0
         with:
           path: ~/.cache/pip
-          key: pip-cache
+          key: pip-cache-${{ hashFiles('**/requirements.txt', 'Dockerfile') }}
+          restore-keys: |
+            pip-cache-
 
       - name: Cache apt cache
         uses: actions/cache@v4.2.0
         with:
           path: /var/cache/apt/archives
-          key: apt-cache
+          key: apt-cache-${{ hashFiles('**/dependencies/*.txt', 'Dockerfile') }}
+          restore-keys: |
+            apt-cache-
 
       - name: Cache package_cache
         uses: actions/cache@v4.2.0
         with:
           path: ./package_cache
-          key: package-cache
+          key: package-cache-${{ hashFiles('**/dependencies/*.txt', 'Dockerfile') }}
+          restore-keys: |
+            package-cache-
 
       - name: Show package_cache contents
         run: |
