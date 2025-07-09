@@ -13,3 +13,4 @@ penguin.sif
 fw
 db/events.*
 local_packages/*
+package_cache
