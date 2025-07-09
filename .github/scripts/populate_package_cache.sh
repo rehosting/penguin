@@ -69,7 +69,7 @@ fetch_if_missing "https://github.com/charmbracelet/gum/releases/download/v${GUM_
 # 6. guesthopper (get_release.sh)
 fetch_release_if_missing rehosting guesthopper "$GUESTHOPPER_VERSION" "$PACKAGE_CACHE_DIR/guesthopper-${GUESTHOPPER_VERSION}.tar.gz" &
 # 7. vpn (get_release.sh)
-fetch_release_if_missing rehosting vpnguin "$VPN_VERSION" "$PACKAGE_CACHE_DIR/vpn-${VPN_VERSION}.tar.gz" &
+fetch_release_if_missing rehosting vpnguin "$VPN_VERSION" "$PACKAGE_CACHE_DIR/vpnguin-${VPN_VERSION}.tar.gz" &
 # 8. busybox (get_release.sh)
 fetch_release_if_missing rehosting busybox "$BUSYBOX_VERSION" "$PACKAGE_CACHE_DIR/busybox-${BUSYBOX_VERSION}.tar.gz" &
 # 9. kernels (get_release.sh)
@@ -94,6 +94,12 @@ fetch_if_missing "https://github.com/panda-re/panda-ng/releases/download/v${PAND
 if [ ! -f "$PACKAGE_CACHE_DIR/pandare2.tar.gz" ]; then
   echo "[WARN] pandare2.tar.gz is not public. Place it in $PACKAGE_CACHE_DIR if needed."
 fi &
+# 17. ltrace prototypes
+fetch_if_missing "https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-${LTRACE_PROTOTYPES_VERSION}.tar.bz2/${LTRACE_PROTOTYPES_HASH}/ltrace-${LTRACE_PROTOTYPES_VERSION}.tar.bz2" "$PACKAGE_CACHE_DIR/ltrace-${LTRACE_PROTOTYPES_VERSION}.tar.bz2" "ltrace prototypes" "$LTRACE_PROTOTYPES_VERSION" &
+# 18. bios-loong64-8.1.bin
+fetch_if_missing "https://github.com/wtdcode/DebianOnQEMU/releases/download/v2024.01.05/bios-loong64-8.1.bin" "$PACKAGE_CACHE_DIR/bios-loong64-8.1.bin" "bios-loong64-8.1.bin" "2024.01.05" &
+# 19. llvm.sh
+fetch_if_missing "https://apt.llvm.org/llvm.sh" "$PACKAGE_CACHE_DIR/llvm.sh" "llvm.sh" "latest" &
 
 wait
 
