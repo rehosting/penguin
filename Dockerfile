@@ -336,10 +336,12 @@ RUN make all
 
 ### Python Builder: Build all wheel files necessary###
 FROM $BASE_IMAGE AS python_builder
+ARG APT_CACHE_DIR=/var/cache/apt/archives
 COPY docker/mirrors.list /tmp/mirrors.list
 ARG USE_MIRROR
+ENV APT_CACHE_DIR=${APT_CACHE_DIR}
 RUN if [ "$USE_MIRROR" = "true" ]; then cp /tmp/mirrors.list /etc/apt/sources.list; fi
-RUN apt-get update && apt-get install -y python3-pip git curl liblzo2-dev
+RUN apt-get update && apt-get install -y --option=dir::cache::archives=${APT_CACHE_DIR} python3-pip git curl liblzo2-dev
 
 ARG PANDANG_VERSION
 COPY --from=fetch_pandare2 /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl /tmp/
