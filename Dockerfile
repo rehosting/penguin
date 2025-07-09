@@ -324,7 +324,6 @@ COPY ./src/resources/ltrace_nvram.conf /igloo_static/ltrace/lib_inject.so.conf
 FROM ghcr.io/rehosting/embedded-toolchains:latest AS cross_builder
 COPY ./guest-utils/native/ /source
 WORKDIR /source
-RUN curl -L -v --retry 5 --retry-delay 5 -o hypercall.h https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h
 RUN make all
 
 ### Python Builder: Build all wheel files necessary###
