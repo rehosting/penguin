@@ -31,6 +31,7 @@ LINUX_VERSION="$(get_var LINUX_VERSION)"
 CONSOLE_VERSION="$(get_var CONSOLE_VERSION)"
 HYPERFS_VERSION="$(get_var HYPERFS_VERSION)"
 LIBNVRAM_VERSION="$(get_var LIBNVRAM_VERSION)"
+MUSL_VERSION="$(get_var MUSL_VERSION)"
 
 # Helper: download if missing
 fetch_if_missing() {
@@ -100,6 +101,8 @@ fetch_if_missing "https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-${LTRACE
 fetch_if_missing "https://github.com/wtdcode/DebianOnQEMU/releases/download/v2024.01.05/bios-loong64-8.1.bin" "$PACKAGE_CACHE_DIR/bios-loong64-8.1.bin" "bios-loong64-8.1.bin" "2024.01.05" &
 # 19. llvm.sh
 fetch_if_missing "https://apt.llvm.org/llvm.sh" "$PACKAGE_CACHE_DIR/llvm.sh" "llvm.sh" "latest" &
+# 20. musl (public tarball)
+fetch_if_missing "https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz" "$PACKAGE_CACHE_DIR/musl-${MUSL_VERSION}.tar.gz" "musl" "$MUSL_VERSION" &
 
 wait
 

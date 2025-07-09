@@ -151,11 +151,19 @@ RUN if [ -f /package_cache/console-${CONSOLE_VERSION}.tar.gz ]; then \
 
 FROM downloader AS fetch_libnvram
 ARG LIBNVRAM_VERSION
-RUN curl -L -v --retry 5 --retry-delay 5 https://github.com/rehosting/libnvram/archive/refs/tags/v${LIBNVRAM_VERSION}.tar.gz -o /tmp/libnvram.tar.gz
+RUN if [ -f /package_cache/libnvram-${LIBNVRAM_VERSION}.tar.gz ]; then \
+      cp /package_cache/libnvram-${LIBNVRAM_VERSION}.tar.gz /tmp/libnvram.tar.gz; \
+    else \
+      curl -L -v --retry 5 --retry-delay 5 https://github.com/rehosting/libnvram/archive/refs/tags/v${LIBNVRAM_VERSION}.tar.gz -o /tmp/libnvram.tar.gz; \
+    fi
 
 FROM downloader AS fetch_musl
 ARG MUSL_VERSION
-RUN curl -L -v --retry 5 --retry-delay 5 https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz -o /tmp/musl.tar.gz
+RUN if [ -f /package_cache/musl-${MUSL_VERSION}.tar.gz ]; then \
+      cp /package_cache/musl-${MUSL_VERSION}.tar.gz /tmp/musl.tar.gz; \
+    else \
+      curl -L -v --retry 5 --retry-delay 5 https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz -o /tmp/musl.tar.gz; \
+    fi
 
 FROM downloader AS fetch_vpn
 ARG DOWNLOAD_TOKEN
