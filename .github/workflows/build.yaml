@@ -47,10 +47,17 @@ jobs:
 
     steps:
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.4.0
         with:
           username: rehosting
           password: ${{secrets.DOCKERHUB_TOKEN}}
+      
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install dependencies and label git workspace safe
         run: |
@@ -83,26 +90,22 @@ jobs:
           restore-keys: |
             apt-cache-
 
-      - name: Clean local_packages directory
-        run: |
-          rm -rf ./local_packages/* || true
-
-      - name: Cache local_packages
+      - name: Cache package_cache
         uses: actions/cache@v4
         with:
-          path: ./local_packages
-          key: local-packages-
+          path: ./package_cache
+          key: package-cache-
           restore-keys: |
-            local-packages-
+            package-cache-
 
-      - name: Show local_packages contents
+      - name: Show package_cache contents
         run: |
-          echo "Contents of local_packages after cache restore:" && ls -lh ./local_packages || true
+          echo "Contents of ./package_cache after cache restore:" && ls -lh ./package_cache || true
 
-      - name: Populate local_packages directory with required packages
+      - name: Populate package_cache directory with required packages
         run: |
-          ./get_local_packages.sh || echo "No get_local_packages.sh script found, skipping population."
-      
+          .github/scripts/populate_package_cache.sh
+
       - name: Build Docker image and push to Docker Hub
         uses: docker/build-push-action@v6.18.0
         with:
@@ -110,16 +113,17 @@ jobs:
           push: true
           tags: rehosting/penguin:${{ github.sha }}
           cache-from: |
-            type=registry,ref=rehosting/penguin:latest,mode=max
+            type=registry,ref=rehosting/penguin:cache,mode=max
             type=registry,ref=rehosting/penguin:cache-PR-${{github.event.number}},mode=max
           cache-to: type=registry,ref=rehosting/penguin:cache-PR-${{ github.event.number }}
           build-args: |
             USE_MIRROR=true
             PIP_CACHE_DIR=/root/.cache/pip
             APT_CACHE_DIR=/var/cache/apt/archives
-            LOCAL_PACKAGES_DIR=./local_packages
+            PACKAGE_CACHE_DIR=./package_cache
 
       - name: Save pip cache
+        if: always()
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
@@ -128,6 +132,7 @@ jobs:
             pip-cache-
 
       - name: Save apt cache
+        if: always()
         uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives
@@ -135,13 +140,14 @@ jobs:
           restore-keys: |
             apt-cache-
 
-      - name: Save local_packages cache
+      - name: Save package_cache
+        if: always()
         uses: actions/cache@v4
         with:
-          path: ./local_packages
-          key: local-packages-${{ github.run_id }}
+          path: ./package_cache
+          key: package-cache-${{ github.run_id }}
           restore-keys: |
-            local-packages-
+            package-cache-
 
   run_tests:
     needs: build_container
