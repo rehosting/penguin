@@ -5,10 +5,13 @@
 
 set -e
 
-PACKAGE_CACHE_DIR="/package_cache"
-mkdir -p "$PACKAGE_CACHE_DIR"
+SCRIPT_PATH="$(readlink -f "$0")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 
-DOCKERFILE="./Dockerfile"
+PACKAGE_CACHE_DIR="$(realpath ${SCRIPT_DIR}"/../../package_cache")"
+mkdir -p "$PACKAGE_CACHE_DIR"
+DOCKERFILE="$(realpath ${SCRIPT_DIR}"/../../Dockerfile")"
+
 
 # Parse versions and token from Dockerfile
 get_var() {
