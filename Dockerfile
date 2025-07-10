@@ -167,7 +167,7 @@ COPY ./src/resources/ltrace_nvram.conf /tmp/ltrace/lib_inject.so.conf
 
 
 #### CROSS BUILDER: Build send_hypercall ###
-FROM ghcr.io/rehosting/embedded-toolchains:latest AS cross_builder
+FROM rehosting/embedded-toolchains:latest AS cross_builder
 COPY ./guest-utils/native/ /source
 WORKDIR /source
 RUN wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h
