@@ -41,8 +41,8 @@ jobs:
             with:
               context: .
               push: true
-              cache-from: type=registry,ref=rehosting/penguin:latest
-              cache-to: type=inline
+              cache-from: type=registry,ref=rehosting/penguin:cache,mode=max
+              cache-to: type=registry,ref=rehosting/penguin:cache,mode=max
               tags: rehosting/penguin:${{ github.sha }},rehosting/penguin:${{ steps.version.outputs.v-version }},rehosting/penguin:latest
               build-args: |
                 OVERRIDE_VERSION=${{ steps.version.outputs.v-version }}
