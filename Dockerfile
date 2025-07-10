@@ -19,7 +19,7 @@ ARG PANDA_VERSION="pandav0.0.37"
 ARG PANDANG_VERSION="0.0.26"
 ARG RIPGREP_VERSION="14.1.1"
 
-FROM rust:1.86 as rust_builder
+FROM rust:1.86 AS rust_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
 ARG VHOST_DEVICE_VERSION
 ENV PATH="/root/.cargo/bin:$PATH"
