@@ -46,9 +46,6 @@ jobs:
     needs: lint
 
     steps:
-      - name: Log in to Container Registry
-        run: |
-          echo ${{secrets.DOCKERHUB_TOKEN}} | podman login --username rehosting --password-stdin docker.io
 
       - name: Install dependencies and label git workspace safe
         run: |
@@ -61,6 +58,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      
+      - name: Log in to Container Registry
+        run: |
+          echo ${{secrets.DOCKERHUB_TOKEN}} | podman login --username rehosting --password-stdin docker.io
       
       - name: Build Container Image
         run: |
