@@ -64,19 +64,17 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Build Docker image and push to Docker Hub
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: rehosting/penguin:${{ github.sha }}
-          cache-from: |
-            type=registry,ref=rehosting/penguin:latest,mode=max
-            type=registry,ref=rehosting/penguin:cache-PR-${{github.event.number}},mode=max
-          cache-to: type=registry,ref=rehosting/penguin:cache-PR-${{ github.event.number }}
+      - name: Build Docker image
+        run: |
+          docker pull rehosting/penguin:latest || true
+          docker pull rehosting/penguin:cache-PR-${{ github.event.number }} || true
+          docker build \
+            --tag rehosting/penguin:${{ github.sha }} .
+      - name: Push Docker image
+        run: |
+          docker push rehosting/penguin:${{ github.sha }}
+          docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:cache-PR-${{ github.event.number }}
+          docker push rehosting/penguin:cache-PR-${{ github.event.number }}
 
   run_tests:
     needs: build_container
