@@ -1,5 +1,5 @@
 # versions of the various dependencies.
-ARG BASE_IMAGE="ubuntu:22.04"
+ARG BASE_IMAGE="docker.io/library/ubuntu:22.04"
 ARG DOWNLOAD_TOKEN="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"
 ARG VPN_VERSION="1.0.24"
 ARG BUSYBOX_VERSION="0.0.15"
@@ -19,7 +19,7 @@ ARG PANDA_VERSION="pandav0.0.37"
 ARG PANDANG_VERSION="0.0.26"
 ARG RIPGREP_VERSION="14.1.1"
 
-FROM rust:1.86 as rust_builder
+FROM docker.io/library/rust:1.86 AS rust_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
 ARG VHOST_DEVICE_VERSION
 ENV PATH="/root/.cargo/bin:$PATH"
@@ -240,8 +240,7 @@ ENV PYTHONUNBUFFERED 1
 RUN apt-get update && apt-get install -y python3-pip git wget liblzo2-dev
 RUN wget -O /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl \
     https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare2-${PANDANG_VERSION}-py3-none-any.whl
-RUN --mount=type=cache,target=/root/.cache/pip \
-      pip wheel --no-cache-dir --wheel-dir /app/wheels \
+RUN pip wheel --no-cache-dir --wheel-dir /app/wheels \
       angr \
       beautifulsoup4 \
       coloredlogs \
@@ -354,8 +353,7 @@ COPY ./dependencies/* /tmp
 RUN apt-get update && \
     apt-get --no-install-recommends install -y python3-pip && \
     rm -rf /var/lib/apt/lists/*
-RUN --mount=type=cache,target=/root/.cache/pip \
-      pip install --upgrade \
+RUN pip install --upgrade \
         pip \
         "pycparser>=2.21"
 
@@ -465,15 +463,13 @@ COPY ./README.md /docs/README.md
 
 # Add DB module
 COPY ./db /db
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -e /db
+RUN pip install -e /db
 
 # Now copy in our module and install it
 # penguin is editable so we can mount local copy for dev
 COPY --from=version_generator /app/version.txt /pkg/penguin/version.txt
 COPY ./src /pkg
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -e /pkg
+RUN pip install -e /pkg
 
 # Copy pyplugins into our the pyplugins directory. We might mount
 # this from the host during development. In the long term we'll
