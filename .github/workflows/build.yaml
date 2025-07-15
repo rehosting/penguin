@@ -46,16 +46,14 @@ jobs:
     needs: lint
 
     steps:
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: rehosting
-          password: ${{secrets.DOCKERHUB_TOKEN}}
+      - name: Log in to Container Registry
+        run: |
+          echo ${{secrets.DOCKERHUB_TOKEN}} | podman login --username rehosting --password-stdin docker.io
 
       - name: Install dependencies and label git workspace safe
         run: |
           sudo apt-get update
-          sudo apt-get -y install python3-pip git curl jq gzip tmux
+          sudo apt-get -y install python3-pip git curl jq gzip tmux podman
           python3 -m pip install click
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
       
@@ -64,17 +62,18 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Build Docker image
+      - name: Build Container Image
         run: |
-          docker pull rehosting/penguin:latest || true
-          docker pull rehosting/penguin:cache-PR-${{ github.event.number }} || true
-          docker build \
-            --tag rehosting/penguin:${{ github.sha }} .
-      - name: Push Docker image
+          podman pull docker.io/rehosting/penguin:cache || true
+          podman build \
+            --tag docker.io/rehosting/penguin:${{ github.sha }} \
+            --tag docker.io/rehosting/penguin:cache \
+            --pull=always \
+            .
+      - name: Push Container Image
         run: |
-          docker push rehosting/penguin:${{ github.sha }}
-          docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:cache-PR-${{ github.event.number }}
-          docker push rehosting/penguin:cache-PR-${{ github.event.number }}
+          podman push docker.io/rehosting/penguin:${{ github.sha }}
+          podman push docker.io/rehosting/penguin:cache
 
   run_tests:
     needs: build_container
