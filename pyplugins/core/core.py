@@ -58,7 +58,7 @@ class Core(Plugin):
         self.pending_procname = None
         self.pending_sin_addr = None
 
-        plugins = self.get_arg("plugins")
+        plugs = self.get_arg("plugins")
         conf = self.get_arg("conf")
 
         telnet_port = self.get_arg("telnet_port")
@@ -128,7 +128,7 @@ class Core(Plugin):
 
         # Record loaded plugins
         with open(os.path.join(self.outdir, "core_plugins.yaml"), "w") as f:
-            f.write(yaml.dump(plugins))  # Names and args
+            f.write(yaml.dump(plugs))  # Names and args
 
         # Record config in outdir:
         with open(os.path.join(self.outdir, "core_config.yaml"), "w") as f:
@@ -230,6 +230,15 @@ class Core(Plugin):
         """
         # Create .ran
         open(os.path.join(self.outdir, ".ran"), "w").close()
+
+        plugins = self.get_arg("plugins")
+        # Record loaded plugins
+        with open(os.path.join(self.outdir, "core_plugins.yaml"), "w") as f:
+            f.write(yaml.dump(plugins))  # Names and args
+
+        # Record config in outdir:
+        with open(os.path.join(self.outdir, "core_config.yaml"), "w") as f:
+            f.write(yaml.dump(self.get_arg("conf").args))
 
         if hasattr(self, "shutdown_event") and not self.shutdown_event.is_set():
             # Tell the shutdown thread to exit if it was started
