@@ -535,7 +535,7 @@ def run_config(
     logger.info("Loading plugins")
     args = {
         "plugins": conf_plugins,
-        "conf": conf,
+        "conf": ArgsBox(conf),
         "proj_name": os.path.basename(proj_dir).replace("host_", ""),
         "proj_dir": proj_dir,
         "plugin_path": plugin_path,
@@ -544,6 +544,7 @@ def run_config(
         "outdir": out_dir,
         "verbose": verbose,
         "telnet_port": telnet_port,
+        "shared_dir": shared_dir,
     }
     args.update(vpn_args)
 
