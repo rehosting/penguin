@@ -282,7 +282,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       ujson \
       cxxfilt \
       zstandard \
-      pdoc
+      pdoc \
+      ratarmountcore[full] \
+      ratarmount[gzip]
 
 FROM python_builder AS version_generator
 ARG OVERRIDE_VERSION=""
