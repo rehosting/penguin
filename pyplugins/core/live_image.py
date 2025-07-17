@@ -18,7 +18,7 @@ class LiveImage(Plugin):
         makedirs(self.host_files_dir, exist_ok=True)
 
         self.file_counter = 0
-        self.busybox = "/igloo/utils/busybox"
+        self.busybox = ""#"/igloo/utils/busybox"
         self.proj_dir = self.get_arg("proj_dir")
         self.guest_shared_dir = "/igloo/shared/host_files"
         
@@ -151,14 +151,14 @@ class LiveImage(Plugin):
         return patch_bytes
 
     def get_unique_shared_name(self, src):
-        unique_name = f"{self.file_counter}_" + os.path.basename(src)
+        makedirs(os.path.join(self.host_files_dir, str(self.file_counter)),exist_ok=True)
+        unique_name = f"{self.file_counter}/{os.path.basename(src)}"
         self.file_counter += 1
         return unique_name
 
     def with_mkdir(self, cmd, dir_path):
-        if dir_path and dir_path not in self.made_dirs:
+        if dir_path:
             self.made_dirs.add(dir_path)
-            return f"{self.busybox} mkdir -p '{dir_path}' && {cmd}"
         return cmd
 
     def copy_host_to_shared(self, src):
@@ -181,8 +181,8 @@ class LiveImage(Plugin):
         mode_cmd = ""
         if mode:
             mode_str = self.octal_mode(mode)
-            mode_cmd = f" && {self.busybox} chmod {mode_str} '{file_path}'"
-        cmd = f"{self.busybox} cp '{guest_shared_dst}' '{file_path}' {mode_cmd}"
+            mode_cmd = f" && chmod {mode_str} '{file_path}'"
+        cmd = f"cp '{guest_shared_dst}' '{file_path}' {mode_cmd}"
         cmd = self.with_mkdir(cmd, dir_path)
         self.logger.debug(f"CMD: {cmd}")
         yield cmd
@@ -256,14 +256,14 @@ class LiveImage(Plugin):
         if not guest_tar:
             return
         dir_path = self.parent_dir(file_path)
-        cmd = f"{self.busybox} tar -xf '{guest_tar}' -C '{file_path}'"
+        cmd = f"tar -xf '{guest_tar}' -C '{file_path}'"
         cmd = self.with_mkdir(cmd, dir_path)
         self.logger.debug(f"CMD: {cmd}")
         yield cmd
 
     def handle_dir(self, file_path, action):
         mode_str = self.octal_mode(action.get("mode", 0o777))
-        cmd = f"{self.busybox} chmod {mode_str} '{file_path}'"
+        cmd = f"chmod {mode_str} '{file_path}'"
         cmd = self.with_mkdir(cmd, file_path)
         self.logger.debug(f"CMD: {cmd}")
         yield cmd
@@ -271,7 +271,7 @@ class LiveImage(Plugin):
     def handle_symlink(self, file_path, action):
         target = action.get("target", "")
         dir_path = self.parent_dir(file_path)
-        cmd = f"{self.busybox} ln -sf '{target}' '{file_path}'"
+        cmd = f"ln -sf '{target}' '{file_path}'"
         cmd = self.with_mkdir(cmd, dir_path)
         self.logger.debug(f"CMD: {cmd}")
         yield cmd
@@ -281,7 +281,7 @@ class LiveImage(Plugin):
         major = action.get("major", 0)
         minor = action.get("minor", 0)
         dir_path = self.parent_dir(file_path)
-        cmd = f"{self.busybox} mknod '{file_path}' {'c' if devtype == 'char' else 'b'} {major} {minor} && {self.busybox} chmod 777 '{file_path}'"
+        cmd = f"mknod '{file_path}' {'c' if devtype == 'char' else 'b'} {major} {minor} && chmod 777 '{file_path}'"
         cmd = self.with_mkdir(cmd, dir_path)
         self.logger.debug(f"CMD: {cmd}")
         yield cmd
@@ -290,7 +290,7 @@ class LiveImage(Plugin):
         from_path = action.get("from", "")
         dir_path = self.parent_dir(file_path)
         mode_str = self.octal_mode(action.get("mode", 0o777))
-        cmd = f"{self.busybox} mv '{from_path}' '{file_path}' && {self.busybox} chmod {mode_str} '{file_path}'"
+        cmd = f"mv '{from_path}' '{file_path}' && chmod {mode_str} '{file_path}'"
         cmd = self.with_mkdir(cmd, dir_path)
         self.logger.debug(f"CMD: {cmd}")
         yield cmd
@@ -299,13 +299,13 @@ class LiveImage(Plugin):
         target = action.get("target", "")
         orig_path = f"/igloo/utils/{os.path.basename(file_path)}.orig"
         dir_path = self.parent_dir(orig_path)
-        cmd = f"{self.busybox} mv '{file_path}' '{orig_path}' && {self.busybox} ln -sf '{target}' '{file_path}' && {self.busybox} chmod 777 '{file_path}'"
+        cmd = f"mv '{file_path}' '{orig_path}' && ln -sf '{target}' '{file_path}' && chmod 777 '{file_path}'"
         cmd = self.with_mkdir(cmd, dir_path)
         self.logger.debug(f"CMD: {cmd}")
         yield cmd
 
     def handle_delete(self, file_path, action):
-        cmd = f"{self.busybox} rm -rf '{file_path}'"
+        cmd = f"rm -rf '{file_path}'"
         self.logger.debug(f"CMD: {cmd}")
         yield cmd
 
@@ -340,9 +340,16 @@ class LiveImage(Plugin):
         if not hasattr(self, "script_written"):
             # Write all commands to a script in the shared dir
             script_path = os.path.join(self.host_files_dir, "gen_live_image.sh")
+            cmds = list(self.build_shell_commands())
+            mkdirs = sorted(self.made_dirs)
             with open(script_path, "w") as f:
                 f.write(f"#!/igloo/utils/busybox sh\n")
-                for cmd in self.build_shell_commands():
+                f.write("export PATH=/igloo/utils\n")
+                for util in ["chmod", "cp", "mkdir", "rm", "ln", "mknod", "tar"]:
+                    f.write(f"/igloo/utils/busybox ln -sf /igloo/utils/busybox /igloo/utils/{util}\n")
+                if mkdirs:
+                    f.write(f"mkdir -p {' '.join([repr(d) for d in mkdirs])}\n")
+                for cmd in cmds:
                     f.write(cmd + "\n")
             os.chmod(script_path, 0o755)
             self.script_written = True
