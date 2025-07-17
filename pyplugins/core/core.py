@@ -31,7 +31,7 @@ import os
 import signal
 import threading
 import time
-from penguin import Plugin, yaml, plugins
+from penguin import Plugin, plugins, yaml
 from penguin.defaults import vnc_password
 
 
@@ -62,6 +62,8 @@ class Core(Plugin):
         conf = self.get_arg("conf")
 
         telnet_port = self.get_arg("telnet_port")
+
+        plugins.live_image.ensure_init()
 
         # If we have an option of root_shell we need to add ROOT_SHELL=1 into env
         # so that the init script knows to start a root shell
