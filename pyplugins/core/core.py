@@ -130,7 +130,7 @@ class Core(Plugin):
 
         # Record config in outdir:
         with open(os.path.join(self.outdir, "core_config.yaml"), "w") as f:
-            f.write(yaml.dump(self.get_arg("conf")))
+            f.write(yaml.dump(self.get_arg("conf").args))
 
         signal.signal(signal.SIGUSR1, self.graceful_shutdown)
 
