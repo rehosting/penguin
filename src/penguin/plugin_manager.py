@@ -55,16 +55,24 @@ class ArgsBox:
         Args:
             args (Dict[str, Any]): Dictionary of arguments.
         """
-        self.args = args
+        super().__setattr__('args', args)
 
     def __getitem__(self, key):
         return self.args[key]
 
     def __getattr__(self, key):
+        if key == 'args':
+            return super().__getattribute__('args')
         try:
             return self.args[key]
         except KeyError:
             raise AttributeError(f"ArgsBox has no attribute '{key}'")
+    
+    def __setitem__(self, key, value):
+        self.args[key] = value
+
+    def __setattr__(self, key, value):
+        self.args[key] = value
 
     def get(self, key, default=None):
         return self.args.get(key, default)
