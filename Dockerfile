@@ -502,6 +502,10 @@ RUN if [ -d /tmp/local_packages ]; then \
             rm -rf /igloo_static/kernels && \
             tar xvf /tmp/local_packages/kernels-latest.tar.gz -C /igloo_static/; \
         fi; \
+        if [ -f /tmp/local_packages/igloo_driver.tar.gz ]; then \
+            rm -rf /igloo_static/drivers && \
+            tar xvf /tmp/local_packages/igloo_driver.tar.gz -C /igloo_static/; \
+        fi; \
         if [ -f /tmp/local_packages/pandare_22.04.deb ]; then \
             dpkg -i /tmp/local_packages/pandare_22.04.deb; \
         fi; \
