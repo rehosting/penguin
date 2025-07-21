@@ -52,7 +52,7 @@ from hyper.consts import igloo_hypercall_constants as iconsts
 
 EVENTS = {
     # MAGIC ->  (NAME,              (ARG1,...,ARGN))
-    iconsts.IGLOO_OPEN:         ('igloo_open',            (str, int)),
+    0:         ('igloo_open',            (str, int)), #TODO FIX
     101:                ('igloo_string_cmp',      (str,)),
     102:                ('igloo_string_cmp',      (str,)),
     103:                ('igloo_getenv',          (str,)),

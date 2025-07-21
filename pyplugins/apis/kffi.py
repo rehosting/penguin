@@ -30,7 +30,7 @@ yield from plugins.kffi.write_kernel_memory(0xffff888000000000, b"\x90\x90\x90\x
 """
 
 from penguin import plugins, getColoredLogger, Plugin
-from wrappers.ctypes_wrap import load_isf_json, Ptr
+from wrappers.ctypes_wrap import load_and_merge_isfs, Ptr, load_isf_json
 from os.path import join, realpath, isfile
 from wrappers.generic import Wrapper
 import functools
@@ -67,6 +67,8 @@ class KFFI(Plugin):
 
         self.logger.debug(f"Loading ISF file: {self.isf}")
         self.ffi = load_isf_json(self.isf)
+        self.igloo_ko_isf  = realpath(join(kernel, f"../igloo.ko.{arch}.json.xz"))
+        self.igloo_isf = load_isf_json(self.igloo_ko_isf)
 
     def _get_type(self, type_: str) -> Any:
         """
