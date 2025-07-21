@@ -78,7 +78,7 @@ jobs:
             [registry."docker.io"]
               mirrors = ["${{ secrets.REHOSTING_ARC_REGISTRY }}"]
               http = true
-              # insecure = true  # only if Harbor is HTTP/insecure
+              insecure = true
       
       - name: Build Docker image and push to Docker Hub
         uses: docker/build-push-action@v6.18.0
