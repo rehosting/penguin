@@ -92,7 +92,7 @@ jobs:
             type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache,mode=max
             type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache-PR-${{github.event.number}},mode=max
           cache-to: |
-            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache,mode=max
             type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache-PR-${{ github.event.number }}
 
   run_tests:
