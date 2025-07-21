@@ -68,7 +68,8 @@ jobs:
             [[registry]]
               location = "${{ secrets.REHOSTING_ARC_REGISTRY }}"
               insecure = true
-            [registry."docker.io"]
+            [[registry]]
+              location = "docker.io"
               mirrors = ["${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy"]
               http = true
               insecure = true
