@@ -46,13 +46,6 @@ jobs:
     needs: lint
 
     steps:
-      - name: Log in to Rehosting Arc Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
-          username: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
-          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
-
       - name: Install dependencies and label git workspace safe
         run: |
           sudo apt-get update
@@ -76,22 +69,29 @@ jobs:
               location = "${{ secrets.REHOSTING_ARC_REGISTRY }}"
               insecure = true
             [registry."docker.io"]
-              mirrors = ["${{ secrets.REHOSTING_ARC_REGISTRY }}"]
+              mirrors = ["${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy"]
               http = true
               insecure = true
+      
+      - name: Log in to Rehosting Arc Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
+          username: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
       
       - name: Build Docker image and push to Docker Hub
         uses: docker/build-push-action@v6.18.0
         with:
           context: .
           push: true
-          tags: ${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:${{ github.sha }}
+          tags: ${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:${{ github.sha }}
           cache-from: |
-            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache,mode=max
-            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache-PR-${{github.event.number}},mode=max
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache,mode=max
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache-PR-${{github.event.number}},mode=max
           cache-to: |
-            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache
-            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache-PR-${{ github.event.number }}
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache-PR-${{ github.event.number }}
 
   run_tests:
     needs: build_container
@@ -124,8 +124,8 @@ jobs:
       # Locally tag as latest, just for testing
       - name: Pull the image from Rehosting Arc Registry
         run: |
-              docker pull ${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:${{ github.sha }};
-              docker tag ${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
+              docker pull ${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:${{ github.sha }};
+              docker tag ${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:${{ github.sha }} rehosting/penguin:latest
       
       - name: Basic test for ${{ matrix.arch }}
         run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/basic_target/test.py --arch ${{ matrix.arch }}
