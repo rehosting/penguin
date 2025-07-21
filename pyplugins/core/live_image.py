@@ -30,6 +30,8 @@ class LiveImage(Plugin):
             self.arch_dir = "powerpc64"
         self.utils_dir = f"{static_dir}/{self.arch_dir}/"
         self.copy_util("send_hypercall_raw")
+        igloo_kernel_version = "6.13"
+        self.copy_host_file_to_guest(join(static_dir, "kernels", igloo_kernel_version, f"igloo.ko.{self.arch_dir}"), "igloo.ko")
     
     def ensure_init(self):
         pass
@@ -44,11 +46,15 @@ class LiveImage(Plugin):
             return ""
         return self.copy_host_file_to_guest(util_path)
 
-    def copy_host_file_to_guest(self, host_path):
+    def copy_host_file_to_guest(self, host_path, dstname=None):
         if not os.path.isabs(host_path):
             proj_dir = self.get_arg("proj_dir")
             host_path = os.path.join(proj_dir, host_path)
-        dst = os.path.join(self.host_files_dir, os.path.basename(host_path))
+        if not dstname:
+            dstn = os.path.basename(host_path)
+        else:
+            dstn = dstname
+        dst = os.path.join(self.host_files_dir, os.path.basename(dstn))
         try:
             shutil.copyfile(host_path, dst)
             chmod(dst, 0o755)  # Make it executable
