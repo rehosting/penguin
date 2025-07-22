@@ -43,7 +43,6 @@ jobs:
     needs: lint
 
     steps:
-      
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -53,6 +52,7 @@ jobs:
           echo "Fetching certificate from ${{ secrets.REHOSTING_ARC_REGISTRY }}"
           openssl s_client -showcerts -connect ${{ secrets.REHOSTING_ARC_REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
           sudo update-ca-certificates
+          sudo systemctl restart docker
       
       # UPDATED STEP: By removing the 'driver-opts', this action will now default
       # to using the 'docker' driver, which leverages the BuildKit capabilities
