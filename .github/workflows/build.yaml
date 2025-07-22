@@ -65,9 +65,9 @@ jobs:
             image=moby/buildkit:master
             network=host
           buildkitd-config-inline: |
-            [registry."${{ secrets.REHOSTING_ARC_REGISTRY }}"]
+            [registry]
+              location = "${{ secrets.REHOSTING_ARC_REGISTRY }}"
               insecure = true
-              http = true
 
       - name: Log-in to Rehosting Arc Registry
         run: |
