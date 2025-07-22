@@ -65,8 +65,8 @@ jobs:
             image=moby/buildkit:master
             network=host
           buildkitd-config-inline: |
-            [registry]
-              location = "harbor.harbor.svc.cluster.local"
+            [registry."harbor.harbor.svc.cluster.local"]
+              http = true
               insecure = true
 
       - name: Log-in to Rehosting Arc Registry
