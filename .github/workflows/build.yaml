@@ -37,9 +37,6 @@ jobs:
 
   build_container:
     runs-on: rehosting-arc
-    
-    # Sets the permissions granted to the `GITHUB_TOKEN` for the actions in this job.
-    # (required)
     permissions:
       contents: write
       packages: write
@@ -65,8 +62,7 @@ jobs:
             image=moby/buildkit:master
             network=host
           buildkitd-config-inline: |
-            [[registry]]
-              location = "${{ secrets.REHOSTING_ARC_REGISTRY }}"
+            [registry."${{ secrets.REHOSTING_ARC_REGISTRY }}"]
               insecure = true
               http = true
       
@@ -91,7 +87,6 @@ jobs:
           cache-to: |
             type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache,mode=max
             type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache-PR-${{ github.event.number }}
-
   run_tests:
     needs: build_container
     runs-on: rehosting-arc
