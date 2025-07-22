@@ -78,6 +78,8 @@ jobs:
           context: .
           push: true
           tags: ${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:${{ github.sha }}
+          build-args: |
+            REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}
           cache-from: |
             type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache,mode=max
             type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache-PR-${{github.event.number}},mode=max
