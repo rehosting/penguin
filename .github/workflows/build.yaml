@@ -52,7 +52,6 @@ jobs:
           sudo apt-get -y install python3-pip git curl jq gzip tmux
           python3 -m pip install click
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          sleep 10000
       
       - name: Checkout code
         uses: actions/checkout@v4
@@ -65,18 +64,7 @@ jobs:
           driver-opts: |
             image=moby/buildkit:master
             network=host
-          buildkitd-config-inline: |
-            [registry."harbor.harbor.svc.cluster.local"]
-              http = true
-              insecure = true
-      - name: Allow HTTP for the in-cluster registry
-        run: |
-          sudo mkdir -p /etc/containers/registries.conf.d
-          cat <<'EOF' | sudo tee /etc/containers/registries.conf.d/50-smallworld.conf
-          [[registry]]
-          location = "harbor.harbor.svc.cluster.local"
-          insecure = true
-          EOF
+      
       - name: Log in to Rehosting Arc Registry
         uses: docker/login-action@v3
         with:
