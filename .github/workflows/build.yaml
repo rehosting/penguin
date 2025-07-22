@@ -106,6 +106,12 @@ jobs:
         with:
           fetch-depth: 0
       
+      - name: Trust Harbor's self-signed certificate
+        run: |
+          echo "Fetching certificate from ${{ secrets.REHOSTING_ARC_REGISTRY }}"
+          openssl s_client -showcerts -connect ${{ secrets.REHOSTING_ARC_REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
+          sudo update-ca-certificates
+      
       - name: Log in to Rehosting Arc Registry
         uses: docker/login-action@v3
         with:
