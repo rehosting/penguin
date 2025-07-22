@@ -72,6 +72,7 @@ jobs:
               tags: rehosting/penguin:${{ github.sha }},rehosting/penguin:${{ steps.version.outputs.v-version }},rehosting/penguin:latest
               build-args: |
                 OVERRIDE_VERSION=${{ steps.version.outputs.v-version }}
+                REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy
           
           - name: Create release
             id: create_release
