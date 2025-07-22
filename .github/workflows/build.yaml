@@ -66,12 +66,12 @@ jobs:
             network=host
           buildkitd-config-inline: |
             [registry]
-              location = "${{ secrets.REHOSTING_ARC_REGISTRY }}"
-              insecure = true
+            location = "harbor.harbor.svc.cluster.local"
+            insecure = true
 
       - name: Log-in to Rehosting Arc Registry
         run: |
-          docker login ${{ secrets.REHOSTING_ARC_REGISTRY }} \
+          docker login harbor.harbor.svc.cluster.local \
             -u "${{ secrets.REHOSTING_ARC_REGISTRY_USER }}" \
             -p "${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}"
       # - name: Log in to Rehosting Arc Registry
