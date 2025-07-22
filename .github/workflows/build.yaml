@@ -52,6 +52,7 @@ jobs:
           sudo apt-get -y install python3-pip git curl jq gzip tmux
           python3 -m pip install click
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cat /etc/docker/daemon.json && false
       
       - name: Checkout code
         uses: actions/checkout@v4
