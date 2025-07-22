@@ -66,8 +66,8 @@ jobs:
             network=host
           buildkitd-config-inline: |
             [registry]
-            location = "harbor.harbor.svc.cluster.local"
-            insecure = true
+              location = "harbor.harbor.svc.cluster.local"
+              insecure = true
 
       - name: Log-in to Rehosting Arc Registry
         run: |
