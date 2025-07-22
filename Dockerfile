@@ -1,5 +1,6 @@
 # versions of the various dependencies.
-ARG BASE_IMAGE="ubuntu:22.04"
+ARG REGISTRY="docker.io"
+ARG BASE_IMAGE="${REGISTRY}/ubuntu:22.04"
 ARG DOWNLOAD_TOKEN="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"
 ARG VPN_VERSION="1.0.24"
 ARG BUSYBOX_VERSION="0.0.15"
@@ -19,7 +20,7 @@ ARG PANDA_VERSION="pandav0.0.37"
 ARG PANDANG_VERSION="0.0.26"
 ARG RIPGREP_VERSION="14.1.1"
 
-FROM rust:1.86 as rust_builder
+FROM ${REGISTRY}/rust:1.86 AS rust_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
 ARG VHOST_DEVICE_VERSION
 ENV PATH="/root/.cargo/bin:$PATH"
@@ -167,7 +168,7 @@ COPY ./src/resources/ltrace_nvram.conf /tmp/ltrace/lib_inject.so.conf
 
 
 #### CROSS BUILDER: Build send_hypercall ###
-FROM ghcr.io/rehosting/embedded-toolchains:latest AS cross_builder
+FROM ${REGISTRY}/rehosting/embedded-toolchains:latest AS cross_builder
 COPY ./guest-utils/native/ /source
 WORKDIR /source
 RUN wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h
