@@ -37,46 +37,54 @@ jobs:
 
   build_container:
     runs-on: rehosting-arc
-    
-    # Sets the permissions granted to the `GITHUB_TOKEN` for the actions in this job.
-    # (required)
     permissions:
       contents: write
       packages: write
     needs: lint
 
     steps:
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: rehosting
-          password: ${{secrets.DOCKERHUB_TOKEN}}
-
-      - name: Install dependencies and label git workspace safe
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install python3-pip git curl jq gzip tmux
-          python3 -m pip install click
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Trust Harbor's self-signed certificate
+        run: |
+          echo "Fetching certificate from ${{ secrets.REHOSTING_ARC_REGISTRY }}"
+          openssl s_client -showcerts -connect ${{ secrets.REHOSTING_ARC_REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
+          sudo update-ca-certificates
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:master
+            network=host
+          buildkitd-config-inline: |
+            [registry."${{ secrets.REHOSTING_ARC_REGISTRY }}"]
+              insecure = true
+              http = true
+      
+      - name: Log in to Rehosting Arc Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
+          username: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
       
       - name: Build Docker image and push to Docker Hub
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: rehosting/penguin:${{ github.sha }}
+          tags: ${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:${{ github.sha }}
+          build-args: |
+            REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy
           cache-from: |
-            type=registry,ref=rehosting/penguin:latest,mode=max
-            type=registry,ref=rehosting/penguin:cache-PR-${{github.event.number}},mode=max
-          cache-to: type=registry,ref=rehosting/penguin:cache-PR-${{ github.event.number }}
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache,mode=max
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache-PR-${{github.event.number}},mode=max
+          cache-to: |
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache,mode=max
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:cache-PR-${{ github.event.number }}
 
   run_tests:
     needs: build_container
@@ -98,18 +106,25 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Log in to Docker Hub
+      - name: Trust Harbor's self-signed certificate
+        run: |
+          echo "Fetching certificate from ${{ secrets.REHOSTING_ARC_REGISTRY }}"
+          openssl s_client -showcerts -connect ${{ secrets.REHOSTING_ARC_REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
+          sudo update-ca-certificates
+      
+      - name: Log in to Rehosting Arc Registry
         uses: docker/login-action@v3
         with:
-          username: rehosting
-          password: ${{secrets.DOCKERHUB_TOKEN}}
+          registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
+          username: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
       
       
       # Locally tag as latest, just for testing
-      - name: Pull the image from Dockerhub
+      - name: Pull the image from Rehosting Arc Registry
         run: |
-              docker pull rehosting/penguin:${{ github.sha }};
-              docker tag rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
+              docker pull ${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:${{ github.sha }};
+              docker tag ${{secrets.REHOSTING_ARC_REGISTRY}}/library/penguin:${{ github.sha }} rehosting/penguin:latest
       
       - name: Basic test for ${{ matrix.arch }}
         run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/basic_target/test.py --arch ${{ matrix.arch }}

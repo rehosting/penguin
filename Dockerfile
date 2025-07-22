@@ -1,5 +1,6 @@
 # versions of the various dependencies.
-ARG BASE_IMAGE="ubuntu:22.04"
+ARG REGISTRY="docker.io"
+ARG BASE_IMAGE="${REGISTRY}/ubuntu:22.04"
 ARG DOWNLOAD_TOKEN="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"
 ARG VPN_VERSION="1.0.24"
 ARG BUSYBOX_VERSION="0.0.15"
@@ -19,7 +20,7 @@ ARG PANDA_VERSION="pandav0.0.37"
 ARG PANDANG_VERSION="0.0.26"
 ARG RIPGREP_VERSION="14.1.1"
 
-FROM rust:1.86 as rust_builder
+FROM ${REGISTRY}/rust:1.86 AS rust_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
 ARG VHOST_DEVICE_VERSION
 ENV PATH="/root/.cargo/bin:$PATH"
@@ -167,7 +168,7 @@ COPY ./src/resources/ltrace_nvram.conf /tmp/ltrace/lib_inject.so.conf
 
 
 #### CROSS BUILDER: Build send_hypercall ###
-FROM ghcr.io/rehosting/embedded-toolchains:latest AS cross_builder
+FROM ${REGISTRY}/rehosting/embedded-toolchains:latest AS cross_builder
 COPY ./guest-utils/native/ /source
 WORKDIR /source
 RUN wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h
@@ -303,8 +304,7 @@ RUN if [ ! -z "${OVERRIDE_VERSION}" ]; then \
 FROM $BASE_IMAGE AS fw2tar_dep_builder
 ENV DEBIAN_FRONTEND=noninteractive
 
-COPY ./dependencies/fw2tar.txt /tmp/fw2tar.txt
-RUN apt-get update && apt-get install -y -q git $(cat /tmp/fw2tar.txt)
+RUN apt-get update && apt-get install -y -q git android-sdk-libsparse-utils arj automake build-essential bzip2 cabextract clang cpio cramfsswap curl default-jdk e2fsprogs fakeroot gcc git gzip lhasa libarchive-dev libfontconfig1-dev libacl1-dev libcap-dev liblzma-dev liblzo2-dev liblz4-dev libbz2-dev libssl-dev libmagic1 locales lz4 lziprecover lzop mtd-utils openssh-client p7zip p7zip-full python3 python3-pip qtbase5-dev sleuthkit squashfs-tools srecord tar unar unrar unrar-free unyaffs unzip wget xz-utils zlib1g-dev zstd
 
 ARG DOWNLOAD_TOKEN
 ARG FW2TAR_TAG
@@ -345,7 +345,6 @@ COPY --from=downloader /tmp/pandare-plugins.deb /tmp/
 COPY --from=downloader /tmp/glow.deb /tmp/
 COPY --from=downloader /tmp/gum.deb /tmp/
 COPY --from=downloader /tmp/ripgrep.deb /tmp/
-COPY ./dependencies/* /tmp
 
 # We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
 # we'll fail because we get a distutils distribution of pycparser 2.19 that we can't
@@ -372,8 +371,10 @@ RUN wget https://apt.llvm.org/llvm.sh && \
     chmod +x llvm.sh && \
     ./llvm.sh 20
 
-# Install apt dependencies - largely for binwalk, some for penguin, some for fw2tar
-RUN apt-get update && apt-get install -q -y $(cat /tmp/penguin.txt) $(cat /tmp/fw2tar.txt) && \
+# Install apt dependencies - first line for penguin - second for fw2tar
+RUN apt-get update && apt-get install -q -y \
+    fakeroot genext2fs graphviz graphviz-dev libarchive13 libgcc-s1 liblinear4 liblua5.3-0 libpcap0.8 libpcre3 libssh2-1 libssl3 libstdc++6 libxml2 lua-lpeg nmap python3 python3-lxml python3-venv sudo telnet vim wget zlib1g pigz clang-20 lldb-20 lld-20 \
+    android-sdk-libsparse-utils arj automake build-essential bzip2 cabextract clang cpio cramfsswap curl default-jdk e2fsprogs fakeroot gcc git gzip lhasa libarchive-dev libfontconfig1-dev libacl1-dev libcap-dev liblzma-dev liblzo2-dev liblz4-dev libbz2-dev libssl-dev libmagic1 locales lz4 lziprecover lzop mtd-utils openssh-client p7zip p7zip-full python3 python3-pip qtbase5-dev sleuthkit squashfs-tools srecord tar unar unrar unrar-free unyaffs unzip wget xz-utils zlib1g-dev zstd && \
     apt install -yy -f /tmp/pandare.deb -f /tmp/pandare-plugins.deb \
     -f /tmp/glow.deb -f /tmp/gum.deb -f /tmp/ripgrep.deb && \
     rm -rf /var/lib/apt/lists/* /tmp/*.deb
