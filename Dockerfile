@@ -345,7 +345,6 @@ COPY --from=downloader /tmp/pandare-plugins.deb /tmp/
 COPY --from=downloader /tmp/glow.deb /tmp/
 COPY --from=downloader /tmp/gum.deb /tmp/
 COPY --from=downloader /tmp/ripgrep.deb /tmp/
-COPY ./dependencies/* /tmp
 
 # We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
 # we'll fail because we get a distutils distribution of pycparser 2.19 that we can't
