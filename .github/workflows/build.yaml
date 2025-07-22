@@ -67,10 +67,14 @@ jobs:
           buildkitd-config-inline: |
             [registry."${{ secrets.REHOSTING_ARC_REGISTRY }}"]
               insecure = true
+              http = true
             [registry."${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy"]
               insecure = true
+              http = true
             [registry."docker.io"]
               mirrors = ["${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy"]
+              insecure = true
+              http = true
 
       - name: Log in to Rehosting Arc Registry
         uses: docker/login-action@v3
