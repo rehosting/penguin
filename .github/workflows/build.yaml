@@ -69,12 +69,17 @@ jobs:
               insecure = true
               http = true
 
-      - name: Log in to Rehosting Arc Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
-          username: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
-          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
+      - name: Log-in to Rehosting Arc Registry
+        run: |
+          docker login ${{ secrets.REHOSTING_ARC_REGISTRY }} \
+            -u "${{ secrets.REHOSTING_ARC_REGISTRY_USER }}" \
+            -p "${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}"
+      # - name: Log in to Rehosting Arc Registry
+      #   uses: docker/login-action@v3
+      #   with:
+      #     registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
+      #     username: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
+      #     password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
       
       - name: Build Docker image and push to Docker Hub
         uses: docker/build-push-action@v6
