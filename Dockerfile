@@ -30,7 +30,6 @@ RUN apt-get update && apt-get install -y -q build-essential libfontconfig1-dev l
 RUN cargo install binwalk --target x86_64-unknown-linux-gnu --locked
 
 ARG FW2TAR_TAG
-ARG DOWNLOAD_TOKEN
 RUN cargo install --target x86_64-unknown-linux-gnu \
     --tag ${FW2TAR_TAG} \
     --git https://github.com/rehosting/fw2tar.git
