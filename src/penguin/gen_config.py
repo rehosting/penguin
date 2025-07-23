@@ -12,6 +12,7 @@ import lzma
 from collections import defaultdict
 from pathlib import Path
 from penguin import getColoredLogger
+from penguin.utils import extract_targz
 
 from . import config_patchers as CP
 from . import static_analyses as STATIC
@@ -41,7 +42,7 @@ class ConfigBuilder:
         # Extract the filesystem into base_dir/fs
         extracted_fs = base_dir / "extracted"
         extracted_fs.mkdir()
-        subprocess.check_output(["tar", "-xf", archive_fs, "-C", str(extracted_fs)])
+        extract_targz(archive_fs, extracted_fs)
 
         try:
             # First run static analyses and produce info about the filesystem

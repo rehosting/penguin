@@ -233,6 +233,20 @@ def construct_empty_fs(path):
     subprocess.check_output(f"tar -czf {path} -T /dev/null", shell=True)
 
 
+def extract_targz(tar_path, dest_path):
+    contents = subprocess.check_output(
+        ["tar", "-x", "--use-compress-program=pigz", "-vpf", str(tar_path), "-C", str(dest_path)]).splitlines()
+
+    # ensure every file is readable by the current user
+    subprocess.check_output(
+        ["find", str(dest_path), "-type", "f", "-exec", "chmod", "u+r", "{}", "+"])
+
+    # ensure every directory is readable by the current user (requires exec)
+    subprocess.check_output(
+        ["find", str(dest_path), "-type", "d", "-exec", "chmod", "u+rx", "{}", "+"])
+    return contents
+
+
 def get_mitigation_providers(config: dict):
     """
     Given a config, pull out all the enabled mitigation providers,
