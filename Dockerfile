@@ -1,13 +1,13 @@
 # versions of the various dependencies.
 ARG REGISTRY="docker.io"
 ARG BASE_IMAGE="${REGISTRY}/ubuntu:22.04"
-ARG VPN_VERSION="1.0.24"
+ARG VPN_VERSION="1.0.25"
 ARG BUSYBOX_VERSION="0.0.15"
 ARG LINUX_VERSION="3.3.3-beta"
 ARG LIBNVRAM_VERSION="0.0.22"
 ARG CONSOLE_VERSION="1.0.7"
-ARG GUESTHOPPER_VERSION="1.0.16"
-ARG HYPERFS_VERSION="0.0.40"
+ARG GUESTHOPPER_VERSION="1.0.17"
+ARG HYPERFS_VERSION="0.0.42"
 ARG GLOW_VERSION="1.5.1"
 ARG GUM_VERSION="0.14.5"
 ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
@@ -33,7 +33,7 @@ ARG FW2TAR_TAG
 ARG DOWNLOAD_TOKEN
 RUN cargo install --target x86_64-unknown-linux-gnu \
     --tag ${FW2TAR_TAG} \
-    --git https://${DOWNLOAD_TOKEN}:@github.com/rehosting/fw2tar.git
+    --git https://github.com/rehosting/fw2tar.git
 
 ENV RUSTFLAGS="-C target-feature=+crt-static"
 RUN cd /root/vhost-device/ && \
@@ -136,7 +136,7 @@ RUN /get_release.sh rehosting vpnguin ${VPN_VERSION} vpn.tar.gz | \
 ARG HYPERFS_VERSION
 RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} hyperfs.tar.gz | \
   tar xzf - -C / && \
-  /get_release.sh rehosting hyperfs 0.0.38 ${DOWNLOAD_TOKEN} | \
+  /get_release.sh rehosting hyperfs 0.0.38 hyperfs.tar.gz | \
   tar xzf - -C / && \
   cp -r /result/utils/* /igloo_static/ && \
   mv /result/dylibs /igloo_static/dylibs && \
@@ -303,9 +303,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y -q git android-sdk-libsparse-utils arj automake build-essential bzip2 cabextract clang cpio cramfsswap curl default-jdk e2fsprogs fakeroot gcc git gzip lhasa libarchive-dev libfontconfig1-dev libacl1-dev libcap-dev liblzma-dev liblzo2-dev liblz4-dev libbz2-dev libssl-dev libmagic1 locales lz4 lziprecover lzop mtd-utils openssh-client p7zip p7zip-full python3 python3-pip qtbase5-dev sleuthkit squashfs-tools srecord tar unar unrar unrar-free unyaffs unzip wget xz-utils zlib1g-dev zstd
 
-ARG DOWNLOAD_TOKEN
 ARG FW2TAR_TAG
-RUN git clone --depth=1 -b ${FW2TAR_TAG} https://${DOWNLOAD_TOKEN}:@github.com/rehosting/fw2tar.git /tmp/fw2tar
+RUN git clone --depth=1 -b ${FW2TAR_TAG} https://github.com/rehosting/fw2tar.git /tmp/fw2tar
 RUN git clone --depth=1 https://github.com/davidribyrne/cramfs.git /cramfs && \
     cd /cramfs && make
 RUN git clone --depth=1 https://github.com/rehosting/unblob.git /unblob
