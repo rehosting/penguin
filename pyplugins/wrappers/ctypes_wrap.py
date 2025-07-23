@@ -284,7 +284,8 @@ class VtypeSymbol:
     def __repr__(self) -> str:
         type_kind = self.type_info.get(
             'kind', 'N/A') if self.type_info else 'N/A'
-        return f"<VtypeSymbol Name='{self.name}' Address={self.address:#x if self.address is not None else 'N/A'} TypeKind='{type_kind}'>"
+        addr = f"{self.address:#x}" if self.address is not None else 'N/A'
+        return f"<VtypeSymbol Name='{self.name}' Address={addr} TypeKind='{type_kind}'>"
 
 
 class BoundArrayView:
@@ -901,11 +902,11 @@ class VtypeJson:
         """
         # Update raw symbol data
         for sym_name, sym_data in self._raw_symbols.items():
-            if sym_data is not None and "address" in sym_data and sym_data["address"] is not None:
+            if sym_data is not None and "address" in sym_data and sym_data["address"] not in [None, 0]:
                 sym_data["address"] += delta
         # Update cached VtypeSymbol objects
         for sym_obj in self._parsed_symbols_cache.values():
-            if sym_obj.address is not None:
+            if sym_obj.address not in [None, 0]:
                 sym_obj.address += delta
         # Invalidate address-to-symbol cache
         self._address_to_symbol_list_cache = None
@@ -1108,9 +1109,9 @@ class VtypeJsonGroup:
     def get_symbol(self, name: str):
         for f in self._file_order:
             res = self.vtypejsons[f].get_symbol(name)
-            if res is not None:
-                return res
-        return None
+            if hasattr(res, 'address') and res.address in [None, 0]:
+                continue
+            return res
 
     def get_type(self, name: str):
         for f in self._file_order:
