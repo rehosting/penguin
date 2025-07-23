@@ -298,7 +298,7 @@ class BoundArrayView:
         self._array_subtype_info = array_type_info.get("subtype")
         if self._array_subtype_info is None:
             raise ValueError(
-                f"Array field '{array_field_name}' has no subtype information.")
+                f"Array field '{array_field_name}' has no subtype information. type_info={array_type_info}")
         self._array_count = array_type_info.get("count", 0)
 
         # Pre-calculate element size for efficiency
@@ -306,7 +306,12 @@ class BoundArrayView:
             self._array_subtype_info)
         if self._element_size is None:
             raise ValueError(
-                f"Cannot determine element size for array '{array_field_name}'.")
+                f"Cannot determine element size for array '{array_field_name}'.\n"
+                f"  Parent struct: {getattr(parent_instance, '_instance_type_name', None)}\n"
+                f"  Array type_info: {array_type_info}\n"
+                f"  Subtype info: {self._array_subtype_info}\n"
+                f"  get_type_size(subtype_info) returned None.\n"
+                f"  Check that the subtype is defined in the ISF and has a valid size.")
 
         self._array_start_offset_in_parent = array_start_offset_in_parent
 
@@ -884,6 +889,21 @@ class VtypeJson:
         self._address_to_symbol_list_cache: Optional[Dict[int,
                                                           List[VtypeSymbol]]] = None
 
+    def shift_symbol_addresses(self, delta: int):
+        """
+        Shift all symbol addresses by the given delta. Updates both raw symbol data and cached VtypeSymbol objects.
+        """
+        # Update raw symbol data
+        for sym_name, sym_data in self._raw_symbols.items():
+            if sym_data is not None and "address" in sym_data and sym_data["address"] is not None:
+                sym_data["address"] += delta
+        # Update cached VtypeSymbol objects
+        for sym_obj in self._parsed_symbols_cache.values():
+            if sym_obj.address is not None:
+                sym_obj.address += delta
+        # Invalidate address-to-symbol cache
+        self._address_to_symbol_list_cache = None
+
     def get_base_type(self, name: str) -> Optional[VtypeBaseType]:
         if name in self._parsed_base_types_cache:
             return self._parsed_base_types_cache[name]
@@ -1040,6 +1060,95 @@ class VtypeJson:
                 f"RawEnums={len(self._raw_enums)} RawSymbols={len(self._raw_symbols)} (Lazy Loaded)>")
 
 
+class VtypeJsonGroup:
+    """
+    Container for multiple related VtypeJson objects, loaded from a list of file paths or file-like objects.
+    Methods are dispatched in order to each VtypeJson until a result is found.
+    """
+    def __init__(self, file_list: list):
+        self._file_order = list(file_list)
+        self.vtypejsons = {}
+        for f in self._file_order:
+            self.vtypejsons[f] = load_isf_json(f)
+
+    @property
+    def paths(self):
+        return list(self._file_order)
+
+    def get_vtypejson(self, path):
+        return self.vtypejsons[path]
+
+    def get_base_type(self, name: str):
+        for f in self._file_order:
+            res = self.vtypejsons[f].get_base_type(name)
+            if res is not None:
+                return res
+        return None
+
+    def get_user_type(self, name: str):
+        for f in self._file_order:
+            res = self.vtypejsons[f].get_user_type(name)
+            if res is not None:
+                return res
+        return None
+
+    def get_enum(self, name: str):
+        for f in self._file_order:
+            res = self.vtypejsons[f].get_enum(name)
+            if res is not None:
+                return res
+        return None
+
+    def get_symbol(self, name: str):
+        for f in self._file_order:
+            res = self.vtypejsons[f].get_symbol(name)
+            if res is not None:
+                return res
+        return None
+
+    def get_type(self, name: str):
+        for f in self._file_order:
+            res = self.vtypejsons[f].get_type(name)
+            if res is not None:
+                return res
+        return None
+
+    def get_symbols_by_address(self, target_address: int):
+        results = []
+        for f in self._file_order:
+            results.extend(self.vtypejsons[f].get_symbols_by_address(target_address))
+        return results
+
+    def get_type_size(self, type_info: dict):
+        for f in self._file_order:
+            res = self.vtypejsons[f].get_type_size(type_info)
+            if res is not None:
+                return res
+        return None
+
+    def create_instance(self, type_input, buffer, instance_offset_in_buffer=0):
+        for f in self._file_order:
+            try:
+                return self.vtypejsons[f].create_instance(type_input, buffer, instance_offset_in_buffer)
+            except ValueError:
+                continue
+        raise ValueError(f"Type definition for '{type_input if isinstance(type_input, str) else getattr(type_input, 'name', type(type_input))}' not found in any VtypeJson.")
+
+    def shift_symbol_addresses(self, delta: int, path: str = None):
+        """
+        Shift symbol addresses for all or a specific VtypeJson in the group.
+        If path is None, shift all; else shift only the VtypeJson for the given path.
+        """
+        if path is None:
+            for f in self._file_order:
+                self.vtypejsons[f].shift_symbol_addresses(delta)
+        else:
+            self.vtypejsons[path].shift_symbol_addresses(delta)
+
+    def __repr__(self):
+        return f"<VtypeJsonGroup: {len(self.vtypejsons)} VtypeJsons>"
+
+
 def load_isf_json(json_input: Union[str, object]) -> VtypeJson:
     raw_data: Any
     input_is_path_str = isinstance(json_input, str)
@@ -1077,34 +1186,6 @@ def load_isf_json(json_input: Union[str, object]) -> VtypeJson:
         raise ValueError(
             "ISF JSON root must be an object, not a list or other type.")
     return VtypeJson(raw_data)
-
-def load_and_merge_isfs(json_inputs: list) -> VtypeJson:
-    """
-    Load multiple ISF JSONs and merge them into a single VtypeJson.
-    Later ISFs override earlier ones on name conflicts.
-    Accepts a list of file paths or file-like objects.
-    """
-    merged_data = {
-        "metadata": {},
-        "base_types": {},
-        "user_types": {},
-        "enums": {},
-        "symbols": {},
-    }
-    for idx, inp in enumerate(json_inputs):
-        vj = load_isf_json(inp)
-        # Merge base_types
-        merged_data["base_types"].update(vj._raw_base_types)
-        # Merge user_types
-        merged_data["user_types"].update(vj._raw_user_types)
-        # Merge enums
-        merged_data["enums"].update(vj._raw_enums)
-        # Merge symbols
-        merged_data["symbols"].update(vj._raw_symbols)
-        # Merge metadata (keep first non-empty, or last if all empty)
-        if vj.metadata and (not merged_data["metadata"] or idx == len(json_inputs)-1):
-            merged_data["metadata"] = getattr(vj.metadata, "__dict__", {}) or {}
-    return VtypeJson(merged_data)
 
 
 if __name__ == '__main__':
