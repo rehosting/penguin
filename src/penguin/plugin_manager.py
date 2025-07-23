@@ -179,11 +179,13 @@ class ScriptingPlugin(Plugin):
         import runpy
         self.script_path = self.script
         self.logger.info(f"ScriptingPlugin loading script: {self.script_path}")
+        if not hasattr(self, 'args'):
+            self.args = {}
         self.init_globals = {
             "plugins": self.plugins,
             "logger": self.logger,
             "panda": self.panda,
-            "args": ArgsBox(self.args or {}),
+            "args": ArgsBox(self.args),
         }
         self.module = runpy.run_path(self.script_path, init_globals=self.init_globals)
 
