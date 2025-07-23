@@ -54,7 +54,7 @@ class Canary(Plugin):
         """
         self.outdir = self.get_arg("outdir")
 
-        if self.get_arg_bool("verbose"):
+        if self.get_arg_bool("penguin_verbose"):
             self.logger.setLevel("DEBUG")
 
     @plugins.SendHypercall.subscribe("canary")

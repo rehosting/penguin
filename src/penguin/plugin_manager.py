@@ -64,8 +64,30 @@ class Plugin:
         """
         self.plugins = plugins
         self.args = args
+        self._initialize_logger()
+
+    def _set_level_arg(self, level: Union[str, bool, int]) -> None:
+        # The verbose argument is used to set the logger level
+        verbose_arg = self.args.get("verbose", False)
+        if isinstance(verbose_arg, bool):
+            if verbose_arg is True:
+                self.logger.setLevel("DEBUG")
+        elif isinstance(verbose_arg, int) or isinstance(verbose_arg, str):
+            # If verbose is an int, set the logger level to that value
+            self.logger.setLevel(verbose_arg)
+        else:
+            raise ValueError(
+                f"Unsupported verbose argument type: {type(verbose_arg)}. Expected bool, int, or str.")
+
+    def _initialize_logger(self):
         logname = camel_to_snake(self.name)
         self.logger = getColoredLogger(f"plugins.{logname}")
+        if self.args.get("verbose", None) is not None:
+            # If verbose is set, set the logger level to DEBUG
+            self._set_level_arg(self.args["verbose"])
+        elif self.args.get("loglevel", None) is not None:
+            # If loglevel is set, set the logger level to that value
+            self._set_level_arg(self.args["loglevel"])
 
     @property
     def name(self) -> str:
@@ -262,6 +284,10 @@ class IGLOOPluginManager:
         self.panda = panda
         self.args = args
         self.logger = getColoredLogger("penguin.plugin_manger")
+
+        # Set the logger level based on the 'penguin_verbose' argument
+        if self.args.get("penguin_verbose", False):
+            self.logger.setLevel("DEBUG")
 
         self.plugin_cbs: Dict[Plugin, Dict[str, List[Callable]]] = {}
         self.registered_cbs: Dict[Tuple[Plugin, str], Callable] = {}

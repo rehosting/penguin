@@ -59,7 +59,7 @@ class UBoot(Plugin):
         open(os.path.join(self.outdir, UBOOT_LOG), "w").close()
         self.uboot_log = set()
 
-        if self.get_arg_bool("verbose"):
+        if self.get_arg_bool("penguin_verbose"):
             self.logger.setLevel("DEBUG")
 
         # U-Boot

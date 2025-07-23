@@ -10,8 +10,6 @@ class PortalTest(Plugin):
     def __init__(self, panda):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
-        # if self.get_arg_bool("verbose"):
-        #     self.logger.setLevel("DEBUG")
 
     '''
     This test checks that we can get information from our program, its arguments,

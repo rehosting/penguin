@@ -35,7 +35,7 @@ class Uprobes(Plugin):
     def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.projdir = self.get_arg("proj_dir")
-        if self.get_arg_bool("verbose"):
+        if self.get_arg_bool("penguin_verbose"):
             self.logger.setLevel("DEBUG")
         self.libsymbols = os.path.join(
             self.projdir, "static", "LibrarySymbols.json.xz")

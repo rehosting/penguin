@@ -140,7 +140,7 @@ class Pseudofiles(Plugin):
         self.outdir = self.get_arg("outdir")
         self.proj_dir = self.get_arg("proj_dir")
         self.written_data = {}  # filename -> data that was written to it
-        if self.get_arg_bool("verbose"):
+        if self.get_arg_bool("penguin_verbose"):
             self.logger.setLevel(logging.DEBUG)
         self.did_mtd_warn = False  # Set if we've warned about misconfigured MTD devices
         # XXX: It has seemed like this should be 1 for some architectures, but

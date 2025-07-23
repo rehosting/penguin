@@ -105,7 +105,7 @@ class VPN(Plugin):
 
         self.outdir = self.get_arg("outdir")
 
-        if self.get_arg_bool("verbose"):
+        if self.get_arg_bool("penguin_verbose"):
             self.logger.setLevel("DEBUG")
 
         # TODO: add option on whether or not to pass -o to host vpn

@@ -66,7 +66,7 @@ class MountTracker(Plugin):
         self.mounts = set()
         self.fake_mounts = self.get_arg("fake_mounts") or []
         self.all_succeed = self.get_arg("all_succeed") or False
-        if self.get_arg_bool("verbose"):
+        if self.get_arg_bool("penguin_verbose"):
             self.logger.setLevel("DEBUG")
 
         plugins.syscalls.syscall("on_sys_mount_return")(self.post_mount)

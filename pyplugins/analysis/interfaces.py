@@ -15,7 +15,7 @@ class Interfaces(Plugin):
     def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.conf = self.get_arg("conf")
-        if self.get_arg_bool("verbose"):
+        if self.get_arg_bool("penguin_verbose"):
             self.logger.setLevel("DEBUG")
 
         open(f"{self.outdir}/{iface_log}", "w").close()
