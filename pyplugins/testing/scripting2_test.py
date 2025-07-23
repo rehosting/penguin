@@ -10,7 +10,7 @@ getpid_ran = False
 
 
 @plugins.syscalls.syscall("on_sys_getpid_enter")
-def getpid_enter(*args):
+def getpid_enter(*all):
     """
     This function is registered as a syscall callback for 'on_sys_getpid_enter'.
     It writes a message to a file the first time it is called.
