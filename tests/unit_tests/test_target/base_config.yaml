@@ -58,6 +58,7 @@ plugins:
   send_hypercall: {}
   indiv_debug: {}
   syscalls_logger: {}
+  nvram2: {}
 
 static_files:
   /run_tests.sh:
