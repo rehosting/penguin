@@ -14,9 +14,8 @@ class IGLOODriver(Plugin):
         self.panda.hypercall(iconsts.IGLOO_MODULE_BASE)(self.hyp_report_igloo_module_baseaddr)
 
     def hyp_report_igloo_module_baseaddr(self, cpu):
-        igloo_hc_init_addr = self.panda.arch.get_arg(cpu, 1, convention="syscall")
-        # this address is normally 0, but we check
-        addr = plugins.kffi.get_function_address("igloo_hc_init")
-        offset = igloo_hc_init_addr - addr
+        igloo_test_function = self.panda.arch.get_arg(cpu, 1, convention="syscall")
+        addr = plugins.kffi.get_function_address("igloo_test_function")
+        offset = igloo_test_function - addr
         self.logger.debug(f"IGLOO module base address reported: {offset:#x}")
         plugins.kffi._fixup_igloo_module_baseaddr(offset)
