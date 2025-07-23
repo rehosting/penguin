@@ -576,9 +576,12 @@ class IGLOOPluginManager:
         if not plugin_classes:
             # No Plugin classes found, load as ScriptingPlugin
             name = basename(plugin_file).split('.')[0]
-            ScriptingPlugin.__name__ = name
-            ScriptingPlugin.script = plugin_file
-            plugin_classes.append((name, ScriptingPlugin))
+            DynamicScriptingPlugin = type(
+                name,
+                (ScriptingPlugin,),
+                {"script": plugin_file}
+            )
+            plugin_classes.append((name, DynamicScriptingPlugin))
 
         for name, cls in plugin_classes:
             cls.__name__ = name
