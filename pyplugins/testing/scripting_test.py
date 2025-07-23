@@ -12,7 +12,7 @@ assert args.key2 == "value2", "Expected argument 'key2' to be 'value2'"
 
 
 @plugins.syscalls.syscall("on_sys_getpid_enter")
-def getpid_enter(*args):
+def getpid_enter(*all):
     """
     This function is registered as a syscall callback for 'on_sys_getpid_enter'.
     It writes a message to a file the first time it is called.
