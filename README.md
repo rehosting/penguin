@@ -77,6 +77,10 @@ saw errors that you would like to fix, you can update your configuration to try 
 the errors. An example of such an iterative workflow is shown in
 [docs/workflow.md](docs/workflow.md).
 
+### Examples
+
+You may find examples of past rehostings useful for learning how to use penguin. Examples are available at [https://github.com/rehosting/examples](https://github.com/rehosting/examples)
+
 # Installation
 
 Penguin consists of two components, a container named `rehosting/penguin` and a wrapper
@@ -85,9 +89,8 @@ installed from a pre-built container.
 
 ## Pull container and install `penguin`
 
-First download the container from Docker Hub (requires authentication).
+First download the container from Docker Hub.
 ```sh
-docker login
 docker pull rehosting/penguin
 ```
 
@@ -138,7 +141,7 @@ DISTRIBUTION STATEMENT A. Approved for public release. Distribution is unlimited
 
 This material is based upon work supported under Air Force Contract No. FA8702-15-D-0001 or FA8702-25-D-B002. Any opinions, findings, conclusions or recommendations expressed in this material are those of the author(s) and do not necessarily reflect the views of the U.S. Air Force.
 
-© 2024 Massachusetts Institute of Technology
+© 2025 Massachusetts Institute of Technology
 
 The software/firmware is provided to you on an As-Is basis.
 
