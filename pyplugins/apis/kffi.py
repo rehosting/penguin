@@ -19,7 +19,7 @@ allowing other plugins to perform advanced kernel introspection and manipulation
 from penguin import plugins
 
 # Call a kernel function (e.g., do_sys_open) with arguments
-result = yield from plugins.kffi.call_function("do_sys_open", ["/etc/passwd", 0, 0])
+result = yield from plugins.kffi.call_function("do_sys_open", "/etc/passwd", 0, 0)
 
 # Read kernel memory at a specific address
 data = yield from plugins.kffi.read_kernel_memory(0xffff888000000000, 64)
@@ -34,7 +34,7 @@ from wrappers.ctypes_wrap import load_isf_json, Ptr
 from os.path import join, realpath, isfile
 from wrappers.generic import Wrapper
 import functools
-from typing import Any, Optional, Union, Generator
+from typing import Any, Optional, Union, Generator, Tuple
 
 
 class KFFI(Plugin):
@@ -68,26 +68,6 @@ class KFFI(Plugin):
         self.logger.debug(f"Loading ISF file: {self.isf}")
         self.ffi = load_isf_json(self.isf)
 
-    def _get_type(self, type_: str) -> Any:
-        """
-        ### Get type information from ISF
-
-        **Args:**
-        - `type_` (`str`): Name of the type to look up.
-
-        **Returns:**
-        - Type object or None if not found.
-        """
-        t = self.ffi.get_user_type(type_)
-        if not t:
-            t = self.ffi.get_base_type(type_)
-            if not t:
-                t = self.ffi.get_enum(type_)
-                if not t:
-                    self.logger.error(f"Type {type_} not found in ISF")
-                    return None
-        return t
-
     def new(self, type_: str) -> Any:
         """
         ### Create a new instance of a type
@@ -98,7 +78,7 @@ class KFFI(Plugin):
         **Returns:**
         - Instance of the type, or None if type not found.
         """
-        t = self._get_type(type_)
+        t = self.ffi.get_type(type_)
         if not t:
             return None
         size = t.size
@@ -118,7 +98,7 @@ class KFFI(Plugin):
         **Returns:**
         - Instance of the type.
         """
-        t = self._get_type(type_)
+        t = self.ffi.get_type(type_)
         return self.ffi.create_instance(t, buf, instance_offset_in_buffer)
 
     def read_type_panda(self, cpu: Any, addr: int, type_: str) -> Any:
@@ -133,7 +113,7 @@ class KFFI(Plugin):
         **Returns:**
         - Instance of the type, or None if read fails.
         """
-        t = self._get_type(type_)
+        t = self.ffi.get_type(type_)
         if not t:
             return None
         buf = self.panda.virtual_memory_read(cpu, addr, t.size)
@@ -153,7 +133,7 @@ class KFFI(Plugin):
         **Returns:**
         - Instance of the type, or None if read fails.
         """
-        t = self._get_type(type_)
+        t = self.ffi.get_type(type_)
         if not t:
             return None
         buf = yield from plugins.mem.read_bytes(addr, t.size)
@@ -235,36 +215,108 @@ class KFFI(Plugin):
         if sym:
             return sym.address
 
-    def _prepare_ffi_call(self, func_ptr: int, args: list) -> bytes:
+    def _prepare_ffi_call(self, func_ptr: int, args: list, func_name: str = None) -> Tuple[bytes, Optional[int], Optional[dict]]:
         """
-        ### Prepare FFI call structure for kernel execution
+        ### Prepare FFI call structure for kernel execution, using function signature if available
 
         **Args:**
         - `func_ptr` (`int`): Address of the kernel function to call.
         - `args` (`list`): List of arguments to pass to the function (max 8).
+        - `func_name` (`str`, optional): Name of the function (for signature lookup).
 
         **Returns:**
         - `bytes`: Serialized portal_ffi_call structure.
+        - `int` or None: Kernel memory address if allocated.
+        - `dict` or None: Function signature type_info if available.
         """
         self.logger.debug(
-            f"Preparing FFI call: func_ptr={func_ptr:#x}, args={args}")
+            f"Preparing FFI call: func_ptr={func_ptr:#x}, args={args}, func_name={func_name}")
 
+        # Lookup function signature if possible
+        func_typeinfo = None
+        if func_name:
+            sym = self.ffi.get_symbol(func_name)
+            if sym and sym.type_info and sym.type_info.get("kind") == "function":
+                func_typeinfo = sym.type_info
         # Validate arguments
         if len(args) > 8:
             raise ValueError(
                 f"Too many arguments for FFI call: {len(args)} > 8")
-
-        # Create FFI call structure
+        # Use signature to cast/corral arguments
+        marshalled_args = []
+        if func_typeinfo and "parameters" in func_typeinfo:
+            params = func_typeinfo["parameters"]
+            for i, arg in enumerate(args):
+                if i < len(params):
+                    param_type = params[i]["type"]
+                    kind = param_type.get("kind")
+                    # Unsigned base type: convert negative ints
+                    if kind == "base":
+                        base_type = self.ffi.get_base_type(param_type.get("name"))
+                        if base_type and base_type.signed is False and isinstance(arg, int) and arg < 0:
+                            arg = arg % (1 << (base_type.size * 8))
+                    # Pointer: allow int or Ptr
+                    elif kind == "pointer":
+                        if isinstance(arg, Ptr):
+                            arg = arg.address
+                        elif not isinstance(arg, int):
+                            raise TypeError(f"Argument {i} expected pointer/int, got {type(arg)}")
+                    # String: allow str/bytes
+                    elif kind == "base" and param_type.get("name") in ("char", "unsigned char"):
+                        if isinstance(arg, str):
+                            arg = arg.encode() + b"\x00"
+                        elif isinstance(arg, bytes):
+                            arg = arg if arg.endswith(b"\x00") else arg + b"\x00"
+                    # TODO: struct/array/enum
+                marshalled_args.append(arg)
+        else:
+            marshalled_args = list(args)
+        arg_bytes = []
+        arg_ptr_indices = []
+        total_bytes = 0
+        for i, arg in enumerate(marshalled_args):
+            if isinstance(arg, (int, float)) or hasattr(arg, '_value'):
+                arg_bytes.append(None)
+            elif isinstance(arg, str):
+                b = arg.encode() + b"\x00"
+                arg_bytes.append(b)
+                arg_ptr_indices.append((i, total_bytes, len(b)))
+                total_bytes += len(b)
+            elif isinstance(arg, bytes):
+                b = arg if arg.endswith(b"\x00") else arg + b"\x00"
+                arg_bytes.append(b)
+                arg_ptr_indices.append((i, total_bytes, len(b)))
+                total_bytes += len(b)
+            elif hasattr(arg, 'to_bytes') and hasattr(arg, 'size'):
+                b = arg.to_bytes()
+                arg_bytes.append(b)
+                arg_ptr_indices.append((i, total_bytes, len(b)))
+                total_bytes += len(b)
+            else:
+                raise TypeError(f"Unsupported argument type for FFI: {type(arg)}")
+        kmem_addr = None
+        if total_bytes > 0:
+            kmem_addr = yield from self.kmalloc(total_bytes)
+            if not kmem_addr:
+                raise RuntimeError("Failed to allocate kernel memory for FFI args")
+            for i, off, sz in arg_ptr_indices:
+                b = arg_bytes[i]
+                if b is not None and sz > 0:
+                    yield from plugins.mem.write_bytes(kmem_addr + off, b)
         ffi_call = self.new("portal_ffi_call")
         ffi_call.func_ptr = func_ptr
-        ffi_call.num_args = len(args)
-
-        # Set arguments
-        for i, arg in enumerate(args):
-            ffi_call.args[i] = arg
-
-        # Return serialized structure
-        return ffi_call.to_bytes()
+        ffi_call.num_args = len(marshalled_args)
+        for i, arg in enumerate(marshalled_args):
+            if isinstance(arg, (int, float)) or hasattr(arg, '_value'):
+                ffi_call.args[i] = int(arg) if not isinstance(arg, float) else arg
+            elif isinstance(arg, (str, bytes)) or (hasattr(arg, 'to_bytes') and hasattr(arg, 'size')):
+                for idx, off, sz in arg_ptr_indices:
+                    if idx == i:
+                        ffi_call.args[i] = kmem_addr + off
+                        break
+            else:
+                raise TypeError(f"Unsupported argument type for FFI: {type(arg)}")
+        return ffi_call.to_bytes(), kmem_addr, func_typeinfo
 
     def call_kernel_function(
             self, func: Union[int, str], *args: Any) -> Generator[Any, Any, Any]:
@@ -296,7 +348,8 @@ class KFFI(Plugin):
         self.logger.debug(
             f"call_kernel_function: func_ptr={func_ptr:#x}, args={args}")
 
-        buf = self._prepare_ffi_call(func_ptr, args)
+        func_name = func if isinstance(func, str) else None
+        buf, optsbuf, func_typeinfo = yield from self._prepare_ffi_call(func_ptr, args, func_name)
 
         # importing here to avoid circular import issues
         from hyper.portal import PortalCmd
@@ -311,8 +364,44 @@ class KFFI(Plugin):
         # Parse the response
         result_struct = self.from_buffer("portal_ffi_call", response)
         result = result_struct.result
-
-        self.logger.debug(f"FFI call returned: {result:#x}")
+        # Marshal return value if function signature is available
+        if func_typeinfo and "return_type" in func_typeinfo:
+            ret_type = func_typeinfo["return_type"]
+            kind = ret_type.get("kind")
+            name = ret_type.get("name")
+            if kind == "base":
+                base_type = self.ffi.get_base_type(name)
+                if base_type:
+                    # Unsigned fixup
+                    if base_type.signed is False and result < 0:
+                        result = result % (1 << (base_type.size * 8))
+                    # Convert to correct Python type
+                    if base_type.kind == "int" or base_type.kind == "pointer":
+                        result = int(result)
+                    elif base_type.kind == "float":
+                        result = float(result)
+                    elif base_type.kind == "bool":
+                        result = bool(result)
+            elif kind == "enum":
+                enum_type = self.ffi.get_enum(name)
+                if enum_type:
+                    result = enum_type and enum_type.base and self.ffi.get_base_type(enum_type.base)
+                    if enum_type:
+                        result = self.ffi.create_instance(enum_type, result.to_bytes(enum_type.size, 'little'))._value
+            elif kind == "pointer":
+                # Return a Ptr object
+                ptr_type = ret_type.get("subtype")
+                result = Ptr(result, ptr_type, self.ffi)
+            elif kind in ("struct", "union"):
+                # Read struct/union from kernel memory at returned address
+                struct_type = name
+                if result != 0:
+                    val = yield from self.read_type(result, struct_type)
+                    result = val
+                else:
+                    result = None
+        if optsbuf:
+            yield from self.kfree(optsbuf)
         return result
 
     def kmalloc(self, size: int) -> Generator[Any, Any, Any]:
