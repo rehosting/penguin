@@ -343,3 +343,26 @@ class KFFI(Plugin):
         - `None`
         """
         yield from self.call_kernel_function("igloo_kfree", addr)
+
+    def kallsyms_lookup(self, symbol: str) -> Generator[Any, Any, Any]:
+        """
+        ### Look up a kernel symbol address using the kallsyms_lookup portal operation (simplified)
+
+        **Args:**
+        - `symbol` (`str`): Name of the symbol to look up.
+
+        **Returns:**
+        - Address of the symbol as int, or None if not found.
+        """
+        if not symbol or not isinstance(symbol, str):
+            self.logger.error("Symbol name must be a non-empty string")
+            return None
+        # Send symbol name as null-terminated bytes
+        symbol_bytes = symbol.encode() + b"\x00"
+        from hyper.portal import PortalCmd
+        addr = yield PortalCmd("kallsyms_lookup", size=len(symbol_bytes), data=symbol_bytes)
+        if not addr:
+            self.logger.error(f"kallsyms_lookup: symbol not found: {symbol}")
+            return None
+        self.logger.debug(f"kallsyms_lookup: {symbol} -> {addr:#x}")
+        return addr
