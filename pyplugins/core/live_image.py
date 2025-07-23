@@ -4,7 +4,6 @@ from os import makedirs, chmod
 from os.path import join
 import shutil
 import os
-import keystone
 
 GEN_LIVE_IMAGE_ACTION_MAGIC = 0xf113c0df
 
@@ -32,6 +31,7 @@ class LiveImage(Plugin):
         self.copy_util("send_hypercall_raw")
         igloo_kernel_version = "6.13"
         self.copy_host_file_to_guest(join(static_dir, "kernels", igloo_kernel_version, f"igloo.ko.{self.arch_dir}"), "igloo.ko")
+        plugins.igloodriver.ensure_init()
     
     def ensure_init(self):
         pass
@@ -118,6 +118,7 @@ class LiveImage(Plugin):
         return d if d and d != '/' else None
     
     def gen_asm_patch_bytes(self, action, asm):
+        import keystone
         arch = self.config["core"]["arch"]
         arch_map = {
             "armel": getattr(keystone, "KS_ARCH_ARM"),
