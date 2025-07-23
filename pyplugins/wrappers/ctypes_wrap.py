@@ -434,6 +434,9 @@ class BoundTypeInstance:
             if compiled_struct_obj is None:
                 raise ValueError(
                     f"Cannot get compiled struct for base type '{base_type_def.name}' to write value.")
+            # Handle negative values for unsigned types
+            if base_type_def.signed is False and isinstance(new_value, int) and new_value < 0:
+                new_value = new_value % (1 << (base_type_def.size * 8))
             try:
                 compiled_struct_obj.pack_into(
                     self._instance_buffer, self._instance_offset, new_value)
