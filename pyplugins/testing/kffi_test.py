@@ -15,13 +15,27 @@ class KFFITest(Plugin):
     @syscalls.syscall("on_sys_ioctl_return", arg_filters=[0x14, 0x15, 0x16])
     def kffi(self, regs, proto, syscall, fd, op, arg):
         args = [3, 8, 9, 0x1338c0de, 12, 13, 14, 15]
-        val = yield from kffi.call_kernel_function("igloo_test_function", *args)
+        val = yield from kffi.call("igloo_test_function", *args)
         assert val == sum(args), f"Expected {sum(args)}, got {val}, r/w failed"
-
-        buf = yield from kffi.kmalloc(100)
         level = b"\x01\x03"
-        yield from mem.write_bytes(buf, level + b"test printk %d %d %d %d\x00")
+        yield from kffi.call("igloo_printk", level + b"test printk %d %d %d %d\x00", 1, 2, 3, 4)
 
-        yield from kffi.call_kernel_function("igloo_printk", buf, 1, 2, 3, 4)
+        # open our file
+        file_ptr = yield from kffi.call("filp_open", "/igloo/init", 0, 0)
+        
+        # allocate kernel buffer to read file content
+        buf = yield from kffi.kmalloc(64)
 
+        # read file content
+        val = yield from kffi.call("kernel_read", file_ptr, buf, 64, 0)
+
+        # read buffer
+        buf_bytes = yield from mem.read_bytes(buf, 64)
+        
+        # check buffer values
+        assert buf_bytes.startswith(b"#!/igloo/utils/busybox sh\n"), \
+            f"Expected file content to start with '#!/igloo/utils/busybox sh\\n', got {buf_bytes[:30]!r}"
+
+        # clean up
         yield from kffi.kfree(buf)
+        yield from kffi.call("filp_close", file_ptr, 0)
