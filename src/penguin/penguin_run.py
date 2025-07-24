@@ -18,6 +18,7 @@ from .common import yaml
 from .defaults import default_plugin_path, vnc_password
 from penguin.penguin_config import load_config
 from .utils import hash_image_inputs
+from .plugin_manager import ArgsBox
 
 
 # Note armel is just panda-system-arm and mipseb is just panda-system-mips
@@ -435,23 +436,22 @@ def run_config(
             "-display", "none",
         ]  # ttyS0: guest console output
 
-    if "shared_dir" in conf["core"]:
-        shared_dir = conf["core"]["shared_dir"]
-        if shared_dir[0] == "/":
-            shared_dir = shared_dir[1:]  # Ensure it's relative path to proj_dir
-        shared_dir = os.path.join(out_dir, shared_dir)
-        os.makedirs(shared_dir, exist_ok=True)
-        args += [
-            "-virtfs",
-            ",".join(
-                (
-                    "local",
-                    f"path={shared_dir}",
-                    "mount_tag=igloo_shared_dir",
-                    "security_model=mapped-xattr",
-                )
-            ),
-        ]
+    shared_dir = conf["core"].get("shared_dir", f"{out_dir}/shared")
+    if shared_dir[0] == "/":
+        shared_dir = shared_dir[1:]  # Ensure it's relative path to proj_dir
+    shared_dir = os.path.join(out_dir, shared_dir)
+    os.makedirs(shared_dir, exist_ok=True)
+    args += [
+        "-virtfs",
+        ",".join(
+            (
+                "local",
+                f"path={shared_dir}",
+                "mount_tag=igloo_shared_dir",
+                "security_model=mapped-xattr",
+            )
+        ),
+    ]
 
     args = args + console_out + root_shell
 
@@ -535,7 +535,7 @@ def run_config(
     logger.info("Loading plugins")
     args = {
         "plugins": conf_plugins,
-        "conf": conf,
+        "conf": ArgsBox(conf),
         "proj_name": os.path.basename(proj_dir).replace("host_", ""),
         "proj_dir": proj_dir,
         "plugin_path": plugin_path,
@@ -544,6 +544,7 @@ def run_config(
         "outdir": out_dir,
         "verbose": verbose,
         "telnet_port": telnet_port,
+        "shared_dir": shared_dir,
     }
     args.update(vpn_args)
 
