@@ -10,17 +10,18 @@ GEN_LIVE_IMAGE_ACTION_MAGIC = 0xf113c0df
 
 class LiveImage(Plugin):
     def __init__(self) -> None:
-        self.panda.hypercall(GEN_LIVE_IMAGE_ACTION_MAGIC)(self._live_image_action)
+        self.panda.hypercall(GEN_LIVE_IMAGE_ACTION_MAGIC)(
+            self._live_image_action)
         self.config = self.get_arg("conf")
         self.shared_dir = self.get_arg("shared_dir")
         self.host_files_dir = join(self.shared_dir, "host_files")
         makedirs(self.host_files_dir, exist_ok=True)
 
         self.file_counter = 0
-        self.busybox = ""#"/igloo/utils/busybox"
+        self.busybox = ""  # "/igloo/utils/busybox"
         self.proj_dir = self.get_arg("proj_dir")
         self.guest_shared_dir = "/igloo/shared/host_files"
-        
+
         arch = self.config["core"]["arch"]
         self.arch_dir = arch
         if arch == "intel64":
@@ -30,19 +31,21 @@ class LiveImage(Plugin):
         self.utils_dir = f"{static_dir}/{self.arch_dir}/"
         self.copy_util("send_hypercall_raw")
         igloo_kernel_version = "6.13"
-        self.copy_host_file_to_guest(join(static_dir, "kernels", igloo_kernel_version, f"igloo.ko.{self.arch_dir}"), "igloo.ko")
+        self.copy_host_file_to_guest(join(
+            static_dir, "kernels", igloo_kernel_version, f"igloo.ko.{self.arch_dir}"), "igloo.ko")
         plugins.igloodriver.ensure_init()
-    
+
     def ensure_init(self):
         pass
-    
+
     def copy_util(self, util_name):
         """
         Copy a utility file from the static directory to the guest's host_files directory.
         """
         util_path = join(self.utils_dir, util_name)
         if not os.path.exists(util_path):
-            print(f"[LiveImage] ERROR: Utility {util_name} does not exist at {util_path}")
+            print(
+                f"[LiveImage] ERROR: Utility {util_name} does not exist at {util_path}")
             return ""
         return self.copy_host_file_to_guest(util_path)
 
@@ -60,9 +63,10 @@ class LiveImage(Plugin):
             chmod(dst, 0o755)  # Make it executable
             return dst
         except Exception as e:
-            print(f"[LiveImage] ERROR: Failed to copy host file {host_path} to {dst}: {e}")
+            print(
+                f"[LiveImage] ERROR: Failed to copy host file {host_path} to {dst}: {e}")
             return ""
-    
+
     def _get_parse_action(self):
         # Sort files by the length of their path to ensure directories are created first
         # But we'll handle 'move_from' types first - we need to move these out *before* we
@@ -75,7 +79,7 @@ class LiveImage(Plugin):
         for file_path, file in sorted_mkdirs:
             files.pop(file_path, None)  # Remove from files after yielding
             yield (file_path, dict(file))
-        
+
         # Next, we'll do any move_from operations
         sorted_move_from_files = sorted(
             {k: v for k, v in files.items() if v["type"] == "move_from"},
@@ -107,16 +111,16 @@ class LiveImage(Plugin):
         for file_path, file in sorted_move_from_files:
             files.pop(file_path, None)
             yield (file_path, file)
-        
+
         assert len(files) == 0, f"Unhandled files remaining: {files.keys()}"
-    
+
     def octal_mode(self, mode):
         return oct(mode)[2:] if isinstance(mode, int) else str(mode)
-    
+
     def parent_dir(self, path):
         d = os.path.dirname(path)
         return d if d and d != '/' else None
-    
+
     def gen_asm_patch_bytes(self, action, asm):
         import keystone
         arch = self.config["core"]["arch"]
@@ -144,9 +148,11 @@ class LiveImage(Plugin):
         if arch == "armel":
             user_mode = action.get("mode", "arm")
             if user_mode == "thumb":
-                ks_mode = getattr(keystone, "KS_MODE_THUMB") | getattr(keystone, "KS_MODE_LITTLE_ENDIAN")
+                ks_mode = getattr(keystone, "KS_MODE_THUMB") | getattr(
+                    keystone, "KS_MODE_LITTLE_ENDIAN")
             else:
-                ks_mode = getattr(keystone, "KS_MODE_ARM") | getattr(keystone, "KS_MODE_LITTLE_ENDIAN")
+                ks_mode = getattr(keystone, "KS_MODE_ARM") | getattr(
+                    keystone, "KS_MODE_LITTLE_ENDIAN")
         else:
             ks_mode = mode_map.get(arch)
             if ks_mode is None:
@@ -158,7 +164,8 @@ class LiveImage(Plugin):
         return patch_bytes
 
     def get_unique_shared_name(self, src):
-        makedirs(os.path.join(self.host_files_dir, str(self.file_counter)),exist_ok=True)
+        makedirs(os.path.join(self.host_files_dir,
+                 str(self.file_counter)), exist_ok=True)
         unique_name = f"{self.file_counter}/{os.path.basename(src)}"
         self.file_counter += 1
         return unique_name
@@ -179,10 +186,11 @@ class LiveImage(Plugin):
                 shutil.copyfile(src, shared_dst)
                 self.logger.debug(f"Copied file {src} to {shared_dst}")
             except Exception as e:
-                self.logger.error(f"Failed to copy file {src} to {shared_dst}: {e}")
+                self.logger.error(
+                    f"Failed to copy file {src} to {shared_dst}: {e}")
                 return None
         return guest_shared_dst
-    
+
     def handle_generic_file(self, file_path, guest_shared_dst, mode=None):
         dir_path = self.parent_dir(file_path)
         mode_cmd = ""
@@ -198,10 +206,12 @@ class LiveImage(Plugin):
         src = action.get("host_path")
         if src and "*" in src:
             import glob
-            src_glob = src if os.path.isabs(src) else os.path.join(self.proj_dir, src)
+            src_glob = src if os.path.isabs(
+                src) else os.path.join(self.proj_dir, src)
             matches = glob.glob(src_glob)
             for match in matches:
-                target_path = os.path.join(os.path.dirname(file_path), os.path.basename(match))
+                target_path = os.path.join(os.path.dirname(
+                    file_path), os.path.basename(match))
                 if target_path == "/igloo/utils/busybox":
                     continue
                 guest_shared_dst = self.copy_host_to_shared(match)
@@ -224,10 +234,12 @@ class LiveImage(Plugin):
         if contents is not None:
             try:
                 with open(shared_dst, "wb") as f:
-                    f.write(contents if isinstance(contents, bytes) else contents.encode())
+                    f.write(contents if isinstance(
+                        contents, bytes) else contents.encode())
                 self.logger.debug(f"Wrote inline file {shared_dst}")
             except Exception as e:
-                self.logger.error(f"Failed to write inline file {shared_dst}: {e}")
+                self.logger.error(
+                    f"Failed to write inline file {shared_dst}: {e}")
                 return
         yield from self.handle_generic_file(file_path, guest_shared_dst, action.get("mode", 0o777))
 
@@ -240,7 +252,8 @@ class LiveImage(Plugin):
         hex_bytes = action.get("hex_bytes", "")
         asm = action.get("asm", None)
         if bool(hex_bytes) == bool(asm):
-            self.logger.error("Exactly one of 'hex_bytes' or 'asm' must be specified for binary_patch")
+            self.logger.error(
+                "Exactly one of 'hex_bytes' or 'asm' must be specified for binary_patch")
             return
         if asm:
             patch_bytes = self.gen_asm_patch_bytes(action, asm)
@@ -332,30 +345,35 @@ class LiveImage(Plugin):
         }
         for file_path, action in self._get_parse_action():
             if file_path.startswith("/dev/") or file_path == "/dev":
-                self.logger.warning("/dev/ must be populated dynamically in config.pseudofiles - ignoring request to modify %s", file_path)
+                self.logger.warning(
+                    f"/dev/ must be populated dynamically in config.pseudofiles - ignoring request to modify {file_path}")
                 continue
             t = action.get("type")
             if file_path == "/igloo/utils/busybox":
                 continue
             handler = handlers.get(t)
             if handler:
-               yield from handler(file_path, action)
+                yield from handler(file_path, action)
             else:
-                self.logger.error(f"Unhandled action type '{t}' for file {file_path}")
+                self.logger.error(
+                    f"Unhandled action type '{t}' for file {file_path}")
 
     def _live_image_action(self, cpu):
         if not hasattr(self, "script_written"):
             # Write all commands to a script in the shared dir
-            script_path = os.path.join(self.host_files_dir, "gen_live_image.sh")
+            script_path = os.path.join(
+                self.host_files_dir, "gen_live_image.sh")
             cmds = list(self.build_shell_commands())
             mkdirs = sorted(self.made_dirs)
             with open(script_path, "w") as f:
-                f.write(f"#!/igloo/utils/busybox sh\n")
+                f.write("#!/igloo/utils/busybox sh\n")
                 f.write("export PATH=/igloo/utils\n")
                 for util in ["chmod", "cp", "mkdir", "rm", "ln", "mknod", "tar"]:
-                    f.write(f"/igloo/utils/busybox ln -sf /igloo/utils/busybox /igloo/utils/{util}\n")
+                    f.write(
+                        f"/igloo/utils/busybox ln -sf /igloo/utils/busybox /igloo/utils/{util}\n")
                 if mkdirs:
-                    f.write(f"mkdir -p {' '.join([repr(d) for d in mkdirs])}\n")
+                    f.write(
+                        f"mkdir -p {' '.join([repr(d) for d in mkdirs])}\n")
                 for cmd in cmds:
                     f.write(cmd + "\n")
             os.chmod(script_path, 0o755)
