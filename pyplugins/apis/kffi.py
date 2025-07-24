@@ -404,6 +404,10 @@ class KFFI(Plugin):
             yield from self.kfree(optsbuf)
         return result
 
+    def call(self, func: Union[int, str], *args: Any) -> Generator[Any, Any, Any]:
+        val = yield from self.call_kernel_function(func, *args)
+        return val
+
     def kmalloc(self, size: int) -> Generator[Any, Any, Any]:
         """
         ### Allocate memory in the kernel using kmalloc
