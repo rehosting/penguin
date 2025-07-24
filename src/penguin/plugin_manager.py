@@ -67,7 +67,7 @@ class ArgsBox:
             return self.args[key]
         except KeyError:
             raise AttributeError(f"ArgsBox has no attribute '{key}'")
-    
+
     def __setitem__(self, key, value):
         self.args[key] = value
 

@@ -143,6 +143,7 @@ class LocalGuestFS:
         # gross, but the most accurate
         check_output(f"rm -rf {p}", shell=True)
 
+
 def _symlink_modify_guestfs(g, file_path, file):
     # file['target'] is what we point to
     linkpath = file_path  # This is what we create
@@ -250,6 +251,7 @@ def _modify_guestfs(g, file_path, file, project_dir, config):
             f"Exception modifying guest filesystem for {file_path}: {file}: {e}"
         )
         raise e
+
 
 def fs_make_min_config(fs_base, config, project_dir):
     g = LocalGuestFS(fs_base)
