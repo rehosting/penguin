@@ -67,7 +67,6 @@ class Health(Plugin):
             self.binds.add((ipvn, port))
             self.increment_event("nbound_sockets")
 
-    # @plugins.syscalls.syscall("")
     def health_detect_opens(self, cpu, fname, fd):
         if self.exiting:
             return
