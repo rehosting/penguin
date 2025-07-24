@@ -365,7 +365,7 @@ class Nvram2(Plugin):
         self.outdir = self.get_arg("outdir")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
-        
+
         config = self.get_arg("conf")
         prep_config(config)
         # Even at debug level, logging every nvram get/clear can be very verbose.
