@@ -49,7 +49,7 @@ files = {
 import struct
 from typing import Any, Dict, Tuple
 from penguin import Plugin
-from hyper.consts import igloo_base_hypercalls as bconsts 
+from hyper.consts import igloo_base_hypercalls as bconsts
 from hyper.consts import hyperfs_ops as hops
 from hyper.consts import hyperfs_file_ops as fops
 

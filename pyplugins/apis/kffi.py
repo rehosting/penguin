@@ -66,9 +66,9 @@ class KFFI(Plugin):
             raise FileNotFoundError(f"ISF file not found: {self.isf}")
 
         self.logger.debug(f"Loading ISF file: {self.isf}")
-        self.igloo_ko_isf  = realpath(join(kernel, f"../igloo.ko.{arch}.json.xz"))
+        self.igloo_ko_isf = realpath(join(kernel, f"../igloo.ko.{arch}.json.xz"))
         self.ffi = VtypeJsonGroup([self.igloo_ko_isf, self.isf])
-    
+
     def _fixup_igloo_module_baseaddr(self, addr):
         self.ffi.vtypejsons[self.igloo_ko_isf].shift_symbol_addresses(addr)
 

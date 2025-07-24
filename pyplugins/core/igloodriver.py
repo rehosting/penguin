@@ -4,6 +4,7 @@ Plugin to handle interaction from IGLOO driver to report its module base address
 
 from penguin import plugins, Plugin
 
+
 class IGLOODriver(Plugin):
     """
     Plugin to handle the IGLOO driver.
