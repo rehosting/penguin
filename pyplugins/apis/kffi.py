@@ -68,7 +68,6 @@ class KFFI(Plugin):
         self.logger.debug(f"Loading ISF file: {self.isf}")
         self.igloo_ko_isf  = realpath(join(kernel, f"../igloo.ko.{arch}.json.xz"))
         self.ffi = VtypeJsonGroup([self.igloo_ko_isf, self.isf])
-        self.call = self.call_kernel_function
     
     def _fixup_igloo_module_baseaddr(self, addr):
         self.ffi.vtypejsons[self.igloo_ko_isf].shift_symbol_addresses(addr)
@@ -408,6 +407,10 @@ class KFFI(Plugin):
         if optsbuf:
             yield from self.kfree(optsbuf)
         return result
+
+    def call(self, func: Union[int, str], *args: Any) -> Generator[Any, Any, Any]:
+        val = yield from self.call_kernel_function(func, *args)
+        return val
 
     def kmalloc(self, size: int) -> Generator[Any, Any, Any]:
         """
