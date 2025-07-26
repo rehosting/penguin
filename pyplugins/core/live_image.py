@@ -368,7 +368,7 @@ class LiveImage(Plugin):
             with open(script_path, "w") as f:
                 f.write("#!/igloo/utils/busybox sh\n")
                 f.write("export PATH=/igloo/utils\n")
-                for util in ["chmod", "cp", "mkdir", "rm", "ln", "mknod", "tar"]:
+                for util in ["chmod", "cp", "mkdir", "rm", "ln", "mknod", "tar", "mv"]:
                     f.write(
                         f"/igloo/utils/busybox ln -sf /igloo/utils/busybox /igloo/utils/{util}\n")
                 if mkdirs:
