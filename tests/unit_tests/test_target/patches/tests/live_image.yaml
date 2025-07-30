@@ -1,0 +1,157 @@
+plugins:
+  verifier:
+    conditions:
+      live_image+console:
+        type: file_contains
+        file: console.log
+        string: "/tests/live_image.sh PASS"
+
+static_files:
+  /testdir:
+    type: dir
+    mode: 0o755
+  /testdir/testfile.txt:
+    type: inline_file
+    contents: "Hello, world!"
+    mode: 0o644
+  /testdir/testlink:
+    type: symlink
+    target: /testdir/testfile.txt
+  /testdir/testdev:
+    type: dev
+    devtype: char
+    major: 1
+    minor: 3
+    mode: 0o666
+  /testdir/testhost.txt:
+    type: host_file
+    host_path: ./patches/tests/live_image.yaml
+    mode: 0o644
+  /testdir/nested:
+    type: dir
+    mode: 0o700
+  /testdir/nested/deepfile.txt:
+    type: inline_file
+    contents: "Deep file contents"
+    mode: 0o600
+  /testdir/hostfile_abs.txt:
+    type: host_file
+    host_path: /etc/passwd
+    mode: 0o600
+  /testdir/symlink_to_dir:
+    type: symlink
+    target: /testdir/nested
+  /testdir/symlink_to_nonexistent:
+    type: symlink
+    target: /testdir/does_not_exist
+  /testdir/blockdev:
+    type: dev
+    devtype: block
+    major: 8
+    minor: 0
+    mode: 0o660
+  /testdir/file_to_move.txt:
+    type: inline_file
+    contents: "Hello, world!"
+    mode: 0o644
+  /testdir/move_to_dir.txt:
+    type: move
+    from: /testdir/file_to_move.txt
+    mode: 0o644
+  /testdir/nested/multi_move.txt:
+    type: move
+    from: /testdir/file_to_move.txt
+    mode: 0o600
+  /testdir/deep_file_to_move.txt:
+    type: inline_file
+    contents: "Deep file contents"
+    mode: 0o644
+  /testdir/nested/move_to_nested.txt:
+    type: move
+    from: /testdir/deep_file_to_move.txt
+    mode: 0o600
+  /tests/live_image.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+      echo "Starting live_image static_files validation..."
+      # Check directory
+      if [ ! -d /testdir ]; then
+        echo "/testdir missing"; exit 1
+      fi
+      # Check inline file
+      if [ ! -f /testdir/testfile.txt ]; then
+        echo "/testdir/testfile.txt missing"; exit 1
+      fi
+      if [ "$(/igloo/utils/busybox cat /testdir/testfile.txt)" != "Hello, world!" ]; then
+        echo "/testdir/testfile.txt contents incorrect"; exit 1
+      fi
+      # Check symlink
+      if [ ! -L /testdir/testlink ]; then
+        echo "/testdir/testlink not a symlink"; exit 1
+      fi
+      if [ "$(/igloo/utils/busybox readlink /testdir/testlink)" != "/testdir/testfile.txt" ]; then
+        echo "/testdir/testlink target incorrect"; exit 1
+      fi
+      # Check device node
+      if [ ! -c /testdir/testdev ]; then
+        echo "/testdir/testdev not a char device"; exit 1
+      fi
+      # Check host file
+      if [ ! -f /testdir/testhost.txt ]; then
+        echo "/testdir/testhost.txt missing"; exit 1
+      fi
+      if [ "$(/igloo/utils/busybox cat /testdir/nested/deepfile.txt)" != "Deep file contents" ]; then
+        echo "/testdir/nested/deepfile.txt contents incorrect"; exit 1
+      fi
+      # Check absolute host file
+      if [ ! -f /testdir/hostfile_abs.txt ]; then
+        echo "/testdir/hostfile_abs.txt missing"; exit 1
+      fi
+      # Check symlink to directory
+      if [ ! -L /testdir/symlink_to_dir ]; then
+        echo "/testdir/symlink_to_dir not a symlink"; exit 1
+      fi
+      if [ "$(/igloo/utils/busybox readlink /testdir/symlink_to_dir)" != "/testdir/nested" ]; then
+        echo "/testdir/symlink_to_dir target incorrect"; exit 1
+      fi
+      # Check symlink to nonexistent
+      if [ ! -L /testdir/symlink_to_nonexistent ]; then
+        echo "/testdir/symlink_to_nonexistent not a symlink"; exit 1
+      fi
+      if [ "$(/igloo/utils/busybox readlink /testdir/symlink_to_nonexistent)" != "/testdir/does_not_exist" ]; then
+        echo "/testdir/symlink_to_nonexistent target incorrect"; exit 1
+      fi
+      # Check block device
+      if [ ! -b /testdir/blockdev ]; then
+        echo "/testdir/blockdev not a block device"; exit 1
+      fi
+      # Check move to directory
+      if [ ! -f /testdir/move_to_dir.txt ]; then
+        echo "/testdir/move_to_dir.txt missing"; exit 1
+      fi
+      if [ "$(/igloo/utils/busybox cat /testdir/move_to_dir.txt)" != "Hello, world!" ]; then
+        echo "/testdir/move_to_dir.txt contents incorrect"; exit 1
+      fi
+      # Check multi move to nested
+      if [ ! -f /testdir/nested/multi_move.txt ]; then
+        echo "/testdir/nested/multi_move.txt missing"; exit 1
+      fi
+      if [ "$(/igloo/utils/busybox cat /testdir/nested/multi_move.txt)" != "Hello, world!" ]; then
+        echo "/testdir/nested/multi_move.txt contents incorrect"; exit 1
+      fi
+      # Check move to nested
+      if [ ! -f /testdir/nested/move_to_nested.txt ]; then
+        echo "/testdir/nested/move_to_nested.txt missing"; exit 1
+      fi
+      if [ "$(/igloo/utils/busybox cat /testdir/nested/move_to_nested.txt)" != "Deep file contents" ]; then
+        echo "/testdir/nested/move_to_nested.txt contents incorrect"; exit 1
+      fi
+      # Check that source file_to_move.txt is removed
+      if [ -f /testdir/file_to_move.txt ]; then
+        echo "/testdir/file_to_move.txt should be removed after moves"; exit 1
+      fi
+      echo "live_image.sh PASS"
+      exit 0
+    mode: 73
