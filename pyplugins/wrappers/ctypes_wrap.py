@@ -1111,7 +1111,8 @@ class VtypeJsonGroup:
             res = self.vtypejsons[f].get_symbol(name)
             if hasattr(res, 'address') and res.address in [None, 0]:
                 continue
-            return res
+            if res:
+                return res
 
     def get_type(self, name: str):
         for f in self._file_order:
