@@ -327,7 +327,7 @@ def find_plugin_by_name(plugin_name: str, proj_dir: str,
                                  camel_to_snake(plugin_name)]
     if '_' in plugin_name:
         plugin_name_possibilities.append(snake_to_camel(plugin_name))
-    for pn in set(plugin_name_possibilities):
+    for pn in plugin_name_possibilities:
         if o := find_file(gen_search_locations(pn, proj_dir, plugin_path)):
             return o, o.startswith(proj_dir)
     raise ValueError(
