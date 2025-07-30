@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from subprocess import check_output
 from random import randint
-from penguin.defaults import default_init_script, static_dir as STATIC_DIR
+from penguin.defaults import default_preinit_script, static_dir as STATIC_DIR
 import tarfile
 import time
 import io
@@ -63,9 +63,9 @@ def tar_add_min_files(tf_path, config):
         igloo_utils_dir.uname = "root"
         igloo_utils_dir.gname = "root"
         tf.addfile(igloo_utils_dir)
-        # /igloo/init
-        init_bytes = default_init_script.encode()
-        ti = tarfile.TarInfo(name="igloo/init")
+        # /igloo/preinit
+        init_bytes = default_preinit_script.encode()
+        ti = tarfile.TarInfo(name="igloo/preinit")
         ti.size = len(init_bytes)
         ti.mode = 0o111
         ti.mtime = int(time.time())
