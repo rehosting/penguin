@@ -59,14 +59,14 @@ class Interfaces(Plugin):
         with open(f"{self.outdir}/{ioctl_log}", "a") as f:
             f.write(f"{hex(ioctl)},{iface or '[?]'},{rv}\n")
 
-    @plugins.syscalls.syscall("on_sys_ioctl_return", 
+    @plugins.syscalls.syscall("on_sys_ioctl_return",
                               arg_filters=[
-                                  None, 
-                                  ValueFilter.range(0x8000, 0x9000 - 1), 
+                                  None,
+                                  ValueFilter.range(0x8000, 0x9000 - 1),
                                   None
                                 ],
                               retval_filter=ValueFilter.error()
-                            )
+                              )
     def after_ioctl(self, regs, proto, syscall, fd, request, arg):
         iface = yield from plugins.mem.read_str(arg)
         rv = syscall.retval

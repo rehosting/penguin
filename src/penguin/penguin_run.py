@@ -434,7 +434,7 @@ def run_config(
             "-display", "none",
         ]  # ttyS0: guest console output
 
-    shared_dir = conf["core"].get("shared_dir", f"shared")
+    shared_dir = conf["core"].get("shared_dir", "shared")
     if shared_dir[0] == "/":
         shared_dir = shared_dir[1:]  # Ensure it's relative path to proj_dir
     shared_dir = os.path.join(out_dir, shared_dir)
