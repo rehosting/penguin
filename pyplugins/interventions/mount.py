@@ -69,8 +69,7 @@ class MountTracker(Plugin):
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
 
-        plugins.syscalls.syscall("on_sys_mount_return")(self.post_mount)
-
+    @plugins.syscalls.syscall("on_sys_mount_return")
     def post_mount(self, regs, proto, syscall, source, target, fs_type, flags, data):
         """
         Coroutine callback for the mount syscall return.
