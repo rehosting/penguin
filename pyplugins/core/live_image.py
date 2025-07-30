@@ -14,6 +14,7 @@ import tarfile
 
 GEN_LIVE_IMAGE_ACTION_MAGIC = 0xf113c0df
 BATCH_PATCH_FILES_ACTION_MAGIC = 0xf113c0e0 # Hypercall to patch all files at once
+REPORT_ERROR = 0xfa14487
 
 
 class LiveImage(Plugin):
@@ -26,6 +27,7 @@ class LiveImage(Plugin):
         super().__init__()
         self.panda.hypercall(GEN_LIVE_IMAGE_ACTION_MAGIC)(self._on_live_image_hypercall)
         self.panda.hypercall(BATCH_PATCH_FILES_ACTION_MAGIC)(self._on_batch_patch_hypercall)
+        self.panda.hypercall(REPORT_ERROR)(self._on_report_error)
 
         self.config = self.get_arg("conf")
         self.proj_dir = Path(self.get_arg("proj_dir")).resolve()
@@ -63,7 +65,7 @@ class LiveImage(Plugin):
 
         if not host_path.exists():
             self.logger.error(f"Host file not found: {host_path}")
-            return None
+            raise FileNotFoundError(f"Host file not found: {host_path}")
 
         final_dest_name = dest_name or host_path.name
         shared_dest_path = self.host_files_dir / final_dest_name
@@ -74,7 +76,7 @@ class LiveImage(Plugin):
             return f"{self.guest_shared_dir}/{final_dest_name}"
         except Exception as e:
             self.logger.error(f"Failed to copy {host_path} to {shared_dest_path}: {e}")
-            return None
+            raise RuntimeError(f"Failed to copy {host_path} to {shared_dest_path}: {e}")
 
     def _plan_actions(self) -> Iterator[Tuple[str, Dict]]:
         """
@@ -100,6 +102,7 @@ class LiveImage(Plugin):
         post_tar_commands = []
         paths_to_delete = []
         self.patch_queue = [] # Reset for this run
+        move_sources_to_remove = []
         
         with tempfile.TemporaryDirectory() as staging_dir_str:
             staging_dir = Path(staging_dir_str)
@@ -168,8 +171,8 @@ class LiveImage(Plugin):
                         else: # Handle single file
                             host_src = source_path_pattern
                             if not host_src.exists():
-                                self.logger.error(f"Host file not found: {host_src}")
-                                continue
+                                self.logger.error(f"Host file not found: {host_src} (static_files entry: {file_path} -> {action})")
+                                raise FileNotFoundError(f"Host file not found: {host_src} (static_files entry: {file_path} -> {action})")
                             staged_path.parent.mkdir(parents=True, exist_ok=True)
                             shutil.copy(host_src, staged_path)
                             staged_path.chmod(action['mode'])
@@ -186,9 +189,10 @@ class LiveImage(Plugin):
                     post_tar_commands.append(f"mv '{file_path}' '{orig_path}'")
                     post_tar_commands.append(f"ln -sf '{action['target']}' '{file_path}'")
                 elif action_type == "move":
-                    post_tar_commands.append(f"mv '{action['from']}' '{file_path}'")
+                    post_tar_commands.append(f"cp '{action['from']}' '{file_path}'")
                     if action.get('mode') is not None:
                         post_tar_commands.append(f"chmod {oct(action['mode'])[2:]} '{file_path}'")
+                    move_sources_to_remove.append(action['from'])
                 elif action_type == "dev":
                     dev_char = 'c' if action['devtype'] == 'char' else 'b'
                     post_tar_commands.append(f"mknod '{file_path}' {dev_char} {action['major']} {action['minor']}")
@@ -223,18 +227,28 @@ class LiveImage(Plugin):
         # --- Phase 3: Assemble the final guest script ---
         script_lines = [
             "#!/igloo/utils/busybox sh",
-            "set -e",
             "export PATH=/igloo/utils:$PATH",
-            "export LD_PRELOAD_OLD=$LD_PRELOAD"
+            "export LD_PRELOAD_OLD=$LD_PRELOAD",
             "export LD_PRELOAD=",
             "exec > /igloo/shared/host_files/live_image_guest.log 2>&1",
             "for util in chmod cp mkdir rm ln mknod tar mv stat; do /igloo/utils/busybox ln -sf /igloo/utils/busybox /igloo/utils/$util; done",
+            "",
+            "run_or_report() {",
+            "  cmd=\"$@\"",
+            "  eval $cmd",
+            "  rc=$?",
+            "  if [ $rc -ne 0 ]; then",
+            f"    /igloo/shared/host_files/send_hypercall_raw {REPORT_ERROR:#x}",
+            "    echo \"ERROR: Command failed: $cmd (exit $rc)\" >&2",
+            "    exit $rc",
+            "  fi",
+            "}",
+            ""
         ]
         
         if paths_to_delete:
-            script_lines.append(f"rm -rf {' '.join([f'{p}' for p in paths_to_delete])}")
-            
-        script_lines.append(f"tar -xf {tarball_guest_path} -C /")
+            script_lines.append(f"run_or_report rm -rf {' '.join([f'{p}' for p in paths_to_delete])}")
+        script_lines.append(f"run_or_report /igloo/utils/busybox time tar -xf {tarball_guest_path} -C /")
         
         # --- Phase 4: Batch-process binary patches ---
         if self.patch_queue:
@@ -244,22 +258,25 @@ class LiveImage(Plugin):
             for i, (file_path, _) in enumerate(self.patch_queue):
                 shared_file_name = f"patch_{i}"
                 shared_file_guest_path = f"{self.guest_shared_dir}/{shared_file_name}"
-                patch_staging_cmds.append(f"ORIG_PERMS_{i}=$(stat -c %a '{file_path}')")
-                patch_staging_cmds.append(f"mv '{file_path}' '{shared_file_guest_path}'")
-                patch_return_cmds.append(f"mv '{shared_file_guest_path}' '{file_path}'")
-                patch_return_cmds.append(f"chmod \"$ORIG_PERMS_{i}\" '{file_path}'")
+                patch_staging_cmds.append(f"run_or_report ORIG_PERMS_{i}=$(stat -c %a '{file_path}')")
+                patch_staging_cmds.append(f"run_or_report mv '{file_path}' '{shared_file_guest_path}'")
+                patch_return_cmds.append(f"run_or_report mv '{shared_file_guest_path}' '{file_path}'")
+                patch_return_cmds.append(f"run_or_report chmod \"$ORIG_PERMS_{i}\" '{file_path}'")
 
             script_lines.append("\n# Staging all files for patching")
             script_lines.extend(patch_staging_cmds)
             
             script_lines.append("\n# Triggering single batched patch hypercall")
-            script_lines.append(f"/igloo/shared/host_files/send_hypercall_raw {BATCH_PATCH_FILES_ACTION_MAGIC:#x}")
+            script_lines.append(f"run_or_report /igloo/shared/host_files/send_hypercall_raw {BATCH_PATCH_FILES_ACTION_MAGIC:#x}")
 
             script_lines.append("\n# Moving all patched files back")
             script_lines.extend(patch_return_cmds)
 
-        script_lines.extend(post_tar_commands)
-        script_lines.extend("export LD_PRELOAD=$LD_PRELOAD_OLD")
+        for cmd in post_tar_commands:
+            script_lines.append(f"run_or_report {cmd}")
+        if move_sources_to_remove:
+            script_lines.append(f"run_or_report rm -f {' '.join(move_sources_to_remove)}")
+        script_lines.append("export LD_PRELOAD=$LD_PRELOAD_OLD")
         return "\n".join(script_lines) + "\n"
 
     def _apply_patch_to_file_content(self, original_content: bytes, action: Dict) -> Optional[bytes]:
@@ -362,3 +379,20 @@ class LiveImage(Plugin):
             # Set error retval to max unsigned for register size
             max_unsigned = (1 << self.panda.bits) - 1
             self.panda.arch.set_retval(cpu, max_unsigned, convention="syscall")
+
+    def _on_report_error(self, cpu):
+        """Handles guest error reporting via hypercall."""
+        self.logger.error("LiveImage guest error reported via hypercall.")
+        # Print last few lines from guest log
+        log_path = Path(self.shared_dir) / "host_files" / "live_image_guest.log"
+        try:
+            with open(log_path, "r") as f:
+                lines = f.readlines()
+            self.logger.error("Last lines from live_image_guest.log:")
+            for line in lines[-10:]:
+                self.logger.error(line.rstrip())
+        except Exception as e:
+            self.logger.error(f"Could not read guest log: {e}")
+        # Stop the system
+        self.logger.error("Halting system due to guest error.")
+        self.panda.end_analysis()
