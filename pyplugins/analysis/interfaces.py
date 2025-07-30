@@ -1,5 +1,6 @@
 import re
 from penguin import plugins, Plugin
+from apis.syscalls import ValueFilter
 
 iface_log = "iface.log"
 ioctl_log = "iface_ioctl.log"
@@ -58,25 +59,24 @@ class Interfaces(Plugin):
         with open(f"{self.outdir}/{ioctl_log}", "a") as f:
             f.write(f"{hex(ioctl)},{iface or '[?]'},{rv}\n")
 
-    def get_iface_from_ioctl(self, cpu, arg):
-        try:
-            return self.panda.read_str(cpu, arg, max_length=16)
-        except ValueError:
-            return None
-
-    @plugins.syscalls.syscall("on_sys_ioctl_return")
+    @plugins.syscalls.syscall("on_sys_ioctl_return", 
+                              arg_filters=[
+                                  None, 
+                                  ValueFilter.range(0x8000, 0x9000 - 1), 
+                                  None
+                                ],
+                              retval_filter=ValueFilter.error()
+                            )
     def after_ioctl(self, regs, proto, syscall, fd, request, arg):
-        if 0x8000 < request < 0x9000:
-            iface = yield from plugins.mem.read_str(arg)
-            rv = syscall.retval
+        iface = yield from plugins.mem.read_str(arg)
+        rv = syscall.retval
 
-            # try to catch missing interfaces
-            if rv == -ENODEV:
-                self.handle_interface(iface)
+        # try to catch missing interfaces
+        if rv == -ENODEV:
+            self.handle_interface(iface)
 
-            if rv < 0:
-                # try to catch failing ioctls
-                self.failing_ioctl(request, iface, rv)
+        # try to catch failing ioctls
+        self.failing_ioctl(request, iface, rv)
 
     @plugins.subscribe(plugins.Execs, "exec_event")
     def iface_on_exec(self, event):
