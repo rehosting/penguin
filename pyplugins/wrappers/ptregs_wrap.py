@@ -165,6 +165,10 @@ class PtRegsWrapper(Wrapper):
         """Get return value (alias for get_return_value)."""
         return self.get_return_value()
 
+    def set_retval(self, value: int) -> None:
+        """Set the return value (typically in a0/r0/rax)."""
+        self.set_register("retval", value)
+
     def dump(self) -> Dict[str, Optional[int]]:
         """Dump all registers to a dictionary."""
         result = {}
