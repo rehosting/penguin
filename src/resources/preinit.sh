@@ -6,5 +6,4 @@ echo '[IGLOO INIT] Mounting shared directory';
 # /igloo/shared/host_files/gen_live_image
 /igloo/shared/host_files/send_hypercall_raw 0xf113c0df
 /igloo/utils/busybox sh /igloo/shared/host_files/gen_live_image.sh
-
-/igloo/init
+exec /igloo/init
