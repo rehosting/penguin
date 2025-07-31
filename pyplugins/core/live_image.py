@@ -253,8 +253,6 @@ class LiveImage(Plugin):
         script_lines = [
             "#!/igloo/utils/busybox sh",
             "export PATH=/igloo/utils:$PATH",
-            "export LD_PRELOAD_OLD=$LD_PRELOAD",
-            "export LD_PRELOAD=",
             "exec > /igloo/shared/host_files/live_image_guest.log 2>&1",
             "for util in chmod cp mkdir rm ln mknod tar mv stat; do /igloo/utils/busybox ln -sf /igloo/utils/busybox /igloo/utils/$util; done",
             "",
@@ -310,7 +308,6 @@ class LiveImage(Plugin):
         if move_sources_to_remove:
             script_lines.append(
                 f"run_or_report rm -f {' '.join(move_sources_to_remove)}")
-        script_lines.append("export LD_PRELOAD=$LD_PRELOAD_OLD")
         return "\n".join(script_lines) + "\n"
 
     def _apply_patch_to_file_content(self, original_content: bytes, action: Dict) -> Optional[bytes]:
