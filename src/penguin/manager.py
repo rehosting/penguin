@@ -132,7 +132,7 @@ class PandaRunner:
 
     def _send_sigusr1(self, pid):
         try:
-            os.killpg(os.getpgpid(pid), signal.SIGUSR1)
+            os.killpg(os.getpgid(pid), signal.SIGUSR1)
             return True
         except ProcessLookupError:
             self.logger.warning(f"Process {pid} not found when trying to send SIGUSR1")
