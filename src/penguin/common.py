@@ -113,9 +113,6 @@ def getColoredLogger(name):
     """
     Get or create a coloredlogger at INFO.
     """
-    if name in logging.Logger.manager.loggerDict:
-        # If the logger already exists, return it
-        return logging.getLogger(name)
     logger = logging.getLogger(name)
     level = logging.INFO
 
@@ -136,17 +133,20 @@ def getColoredLogger(name):
     # Prevent log messages from propagating to parent loggers (i.e., penguin.manager should not also log for penguin)
     logger.propagate = False
 
-    # Save the original setLevel method before replacing it
-    original_set_level = logger.setLevel
+    if not hasattr(logger, 'custom_set_level'):
+        # Save the original setLevel method before replacing it
+        original_set_level = logger.setLevel
 
-    def custom_set_level(level):
-        # Call the original method, not the monkeypatched one
-        original_set_level(level)
-        for handler in logger.handlers:
-            handler.setLevel(level)
+        def custom_set_level(level):
+            # Call the original method, not the monkeypatched one
+            original_set_level(level)
+            for handler in logger.handlers:
+                handler.setLevel(level)
 
-    # Replace the setLevel method with our custom one
-    logger.setLevel = custom_set_level
+        logger.custom_set_level = custom_set_level
+
+        # Replace the setLevel method with our custom one
+        logger.setLevel = custom_set_level
 
     return logger
 
