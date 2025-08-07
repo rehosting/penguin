@@ -34,7 +34,8 @@ from wrappers.ctypes_wrap import Ptr, VtypeJsonGroup
 from os.path import join, realpath, isfile
 from wrappers.generic import Wrapper
 import functools
-from typing import Any, Optional, Union, Generator, Tuple
+from typing import Any, Optional, Union, Generator, Tuple, Iterator
+from wrappers.ptregs_wrap import get_pt_regs_wrapper
 
 
 class KFFI(Plugin):
@@ -68,6 +69,20 @@ class KFFI(Plugin):
         self.logger.debug(f"Loading ISF file: {self.isf}")
         self.igloo_ko_isf = realpath(join(kernel, f"../igloo.ko.{arch}.json.xz"))
         self.ffi = VtypeJsonGroup([self.igloo_ko_isf, self.isf])
+
+    def __init_tramp_functionality(self):
+        if hasattr(self, 'tramp_init') and self.tramp_init:
+            return
+        self.tramp_init = True
+        # Register trampoline hit hypercall handler
+        IGLOO_HYP_TRAMP_HIT = 0x7903  # Update with correct value if needed
+        self.portal = plugins.portal
+        self._on_tramp_hit_hypercall = self.portal.wrap(self._on_tramp_hit_hypercall)
+        self.panda.hypercall(IGLOO_HYP_TRAMP_HIT)(self._on_tramp_hit_hypercall)
+
+        # Register with portal's interrupt handler system
+        self.portal.register_interrupt_handler(
+            "kffi", self._tramp_interrupt_handler)
 
     def _fixup_igloo_module_baseaddr(self, addr):
         self.ffi.vtypejsons[self.igloo_ko_isf].shift_symbol_addresses(addr)
@@ -145,6 +160,25 @@ class KFFI(Plugin):
             self.logger.error(f"Failed to read bytes from {addr:#x}")
             return None
         return self.ffi.create_instance(t, buf)
+    
+    def write_type(self, addr: int, instance: Any) -> Generator[Any, Any, None]:
+        """
+        ### Write a type instance to kernel memory
+        **Args:**
+        - `addr` (`int`): Address to write to.
+        - `instance` (`Any`): Instance of the type to write.
+
+        **Returns:**
+        - `None`
+        """
+        if not hasattr(instance, 'to_bytes'):
+            self.logger.error(f"Instance {instance} does not have to_bytes method")
+            return
+        buf = instance.to_bytes()
+        if not buf:
+            self.logger.error(f"Failed to convert instance {instance} to bytes")
+            return
+        yield from plugins.mem.write_bytes(addr, buf)
 
     def deref(self, ptr: Ptr) -> Generator[Any, Any, Any]:
         """
@@ -278,6 +312,7 @@ class KFFI(Plugin):
         arg_bytes = []
         arg_ptr_indices = []
         total_bytes = 0
+        boundtype_ptrs = {}
         for i, arg in enumerate(marshalled_args):
             if isinstance(arg, (int, float)) or hasattr(arg, '_value'):
                 arg_bytes.append(None)
@@ -291,6 +326,15 @@ class KFFI(Plugin):
                 arg_bytes.append(b)
                 arg_ptr_indices.append((i, total_bytes, len(b)))
                 total_bytes += len(b)
+            elif type(arg).__name__ == 'BoundTypeInstance':
+                if not hasattr(arg, 'address'):
+                    to_write = arg.to_bytes()
+                    raw_addr = yield from self.kmalloc(len(to_write) + 64)
+                    if not raw_addr:
+                        raise RuntimeError("Failed to allocate kernel memory for BoundTypeInstance")
+                    aligned_addr = (raw_addr + 63) & ~63
+                    yield from plugins.mem.write_bytes(aligned_addr, to_write)
+                    boundtype_ptrs[i] = aligned_addr
             elif hasattr(arg, 'to_bytes') and hasattr(arg, 'size'):
                 b = arg.to_bytes()
                 arg_bytes.append(b)
@@ -318,6 +362,11 @@ class KFFI(Plugin):
                     if idx == i:
                         ffi_call.args[i] = kmem_addr + off
                         break
+            elif type(arg).__name__ == 'BoundTypeInstance':
+                if hasattr(arg, 'address'):
+                    ffi_call.args[i] = arg.address
+                else:
+                    ffi_call.args[i] = boundtype_ptrs[i]
             else:
                 raise TypeError(f"Unsupported argument type for FFI: {type(arg)}")
         return ffi_call.to_bytes(), kmem_addr, func_typeinfo
@@ -338,6 +387,8 @@ class KFFI(Plugin):
 
         **Returns:**
         - Return value from the kernel function, or None if call fails.
+
+        TODO: This leaks memory. We should have a better policy on that.
         """
         if isinstance(func, str):
             func_ptr = self.get_function_address(func)
@@ -404,8 +455,6 @@ class KFFI(Plugin):
                     result = val
                 else:
                     result = None
-        if optsbuf:
-            yield from self.kfree(optsbuf)
         return result
 
     def call(self, func: Union[int, str], *args: Any) -> Generator[Any, Any, Any]:
@@ -423,6 +472,12 @@ class KFFI(Plugin):
         - Address of allocated memory, or None if allocation fails.
         """
         val = yield from self.call_kernel_function("igloo_kzalloc", size)
+        return val
+    
+    def copy_obj(self, obj) -> Generator[Any, Any, Any]:
+        to_write = obj.to_bytes()
+        val = yield from self.kmalloc(len(to_write))
+        yield from plugins.mem.write_bytes(val, to_write)
         return val
 
     def kfree(self, addr: int) -> Generator[Any, Any, Any]:
@@ -459,3 +514,199 @@ class KFFI(Plugin):
             return None
         self.logger.debug(f"kallsyms_lookup: {symbol} -> {addr:#x}")
         return addr
+
+    def generate_trampoline(self, count: int = 1) -> Generator[Any, Any, Any]:
+        """
+        ### Request trampolines from the kernel via portal
+
+        **Args:**
+        - `count` (`int`, optional): Number of trampolines to generate (default: 1).
+
+        **Returns:**
+        - dict with keys: tramp_id, tramp_addr, status, count, addresses (if count > 1)
+        """
+        from hyper.portal import PortalCmd
+        self.__init_tramp_functionality()
+        # Create the trampoline generation request structure
+        tramp_req = self.new("portal_tramp_generate")
+        tramp_req.count = count
+        tramp_req.tramp_id = 0
+        tramp_req.tramp_addr = 0
+        tramp_req.status = 0
+        
+        # Calculate size needed for request + address array
+        struct_size = len(tramp_req.to_bytes())
+        total_size = struct_size + (count * 8)  # 8 bytes per address (unsigned long)
+        
+        # Create buffer with structure + space for addresses
+        request_data = tramp_req.to_bytes() + b'\x00' * (count * 8)
+        
+        response = yield PortalCmd("tramp_generate", size=total_size, data=request_data)
+        if not response:
+            self.logger.error("Trampoline generation failed: no response")
+            return None
+            
+        tramp_struct = self.from_buffer("portal_tramp_generate", response)
+        result = {
+            "tramp_id": tramp_struct.tramp_id,
+            "tramp_addr": tramp_struct.tramp_addr,
+            "status": tramp_struct.status,
+            "count": tramp_struct.count,
+        }
+        
+        # If multiple trampolines were requested, extract the address array
+        if count > 1 and tramp_struct.count > 1:
+            addresses = []
+            addr_data = response[struct_size:]
+            for i in range(tramp_struct.count):
+                addr_bytes = addr_data[i*8:(i+1)*8]
+                if len(addr_bytes) == 8:
+                    addr = int.from_bytes(addr_bytes, byteorder='little')
+                    addresses.append(addr)
+            result["addresses"] = addresses
+            
+        return result
+
+    def callback(self, func) -> Generator[Any, Any, Any]:
+        """
+        ### Register a trampoline callback and return the trampoline address
+
+        Immediately generates the trampoline, sets up the interrupt handler, and returns the trampoline address.
+        
+        **Args:**
+        - `func`: The callback function to register
+        
+        **Returns:**
+        - `int`: The trampoline address
+        """
+        tramp_info = yield from self.generate_trampoline()
+        if tramp_info is None or tramp_info.get("status") != 0:
+            self.logger.error(f"Failed to generate trampoline for {func.__name__}")
+            return None
+            
+        tramp_id = tramp_info.get("tramp_id")
+        tramp_addr = tramp_info.get("tramp_addr")
+        self._tramp_callbacks = getattr(self, '_tramp_callbacks', {})
+        self._tramp_callbacks[tramp_id] = func
+        return tramp_addr
+
+    def callbacks(self, funcs: list) -> Generator[Any, Any, Any]:
+        """
+        ### Register multiple trampoline callbacks and return their addresses
+
+        Generates multiple trampolines in one call for efficiency.
+        
+        **Args:**
+        - `funcs` (`list`): List of callback functions to register
+        
+        **Returns:**
+        - `list`: List of trampoline addresses corresponding to the input functions
+        """
+        if not funcs:
+            return []
+            
+        count = len(funcs)
+        tramp_info = yield from self.generate_trampoline(count)
+        
+        if tramp_info is None or tramp_info.get("status") != 0:
+            self.logger.error(f"Failed to generate {count} trampolines")
+            return [None] * count
+            
+        self._tramp_callbacks = getattr(self, '_tramp_callbacks', {})
+        addresses = []
+        
+        if count == 1:
+            # Single trampoline case
+            tramp_id = tramp_info.get("tramp_id")
+            tramp_addr = tramp_info.get("tramp_addr")
+            self._tramp_callbacks[tramp_id] = funcs[0]
+            addresses.append(tramp_addr)
+        else:
+            # Multiple trampolines case
+            tramp_addrs = tramp_info.get("addresses", [])
+            base_id = tramp_info.get("tramp_id")
+            
+            for i, func in enumerate(funcs):
+                if i < len(tramp_addrs):
+                    tramp_id = base_id + i
+                    tramp_addr = tramp_addrs[i]
+                    self._tramp_callbacks[tramp_id] = func
+                    addresses.append(tramp_addr)
+                else:
+                    addresses.append(None)
+                    
+        return addresses
+    
+    def cb(self, func) -> 'KFFI.Callback':
+        """
+        ### Alias for callback method
+
+        This is a convenience method to register a trampoline callback.
+        """
+        return self.callback(func)
+
+    def _tramp_interrupt_handler(self):
+        """
+        Interrupt handler to register trampoline callbacks.
+        """
+        if not hasattr(self, '_pending_tramp_callbacks') or not self._pending_tramp_callbacks:
+            return False
+        while self._pending_tramp_callbacks:
+            func = self._pending_tramp_callbacks.pop(0)
+            tramp_info = yield from self.generate_trampoline()
+            tramp_id = tramp_info.get("tramp_id")
+            tramp_addr = tramp_info.get("tramp_addr")
+            tramp_status = tramp_info.get("status")
+            if tramp_id is not None and tramp_addr is not None:
+                self._tramp_callbacks[tramp_id] = func
+                self.logger.info(f"Registered trampoline callback {func.__name__} with id={tramp_id} addr={tramp_addr}")
+                # Set Callback info if exists
+                if hasattr(self, '_tramp_proxy_map') and func in self._tramp_proxy_map:
+                    cb = self._tramp_proxy_map[func]
+                    cb.address = tramp_addr
+                    cb.id = tramp_id
+                    cb.status = tramp_status
+                    cb.ready = True
+            else:
+                self.logger.error(f"Failed to register trampoline callback for {func.__name__}")
+        return False
+
+    def _on_tramp_hit_hypercall(self, cpu):
+        """
+        Handles trampoline hit hypercall and invokes the registered callback with pt_regs.
+        """
+        tramp_id = self.panda.arch.get_arg(cpu, 1, convention="syscall")
+        pt_regs_addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
+        if not hasattr(self, '_tramp_callbacks') or tramp_id not in self._tramp_callbacks:
+            self.logger.error(f"Trampoline hit for unknown id: {tramp_id}")
+            return
+        callback = self._tramp_callbacks[tramp_id]
+        self.logger.info(f"Invoking trampoline callback for id={tramp_id}: {callback.__name__}")
+        try:
+            import inspect
+            if not hasattr(self, '_callback_signatures'):
+                self._callback_signatures = {}
+            if callback in self._callback_signatures:
+                sig = self._callback_signatures[callback]
+            else:
+                sig = inspect.signature(callback)
+                self._callback_signatures[callback] = sig
+            pt_regs_raw = yield from self.read_type(pt_regs_addr, "pt_regs")
+            pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
+            original_bytes = pt_regs.to_bytes()[:]
+            num_args = len(sig.parameters)
+            # Get syscall args from pt_regs
+            if num_args > 1:
+                syscall_args = yield from pt_regs.get_args_portal(num_args - 1, convention="syscall")
+            else:
+                syscall_args = []
+            result = callback(pt_regs, *syscall_args)
+            if isinstance(result, Iterator):
+                result = yield from result
+            if isinstance(result, int):
+                pt_regs.set_retval(result)
+            new = pt_regs.to_bytes()
+            if original_bytes != new:
+                yield from plugins.mem.write_bytes(pt_regs_addr, new)
+        except Exception as e:
+            self.logger.error(f"Error in trampoline callback {callback.__name__}: {e}")
