@@ -47,14 +47,15 @@ class Read(Event):
     id: Mapped[int] = mapped_column(ForeignKey("event.id"), primary_key=True)
     fd: Mapped[int]
     fname: Mapped[str]
-    buffer: Mapped[Optional[str]]
+    buffer: Mapped[Optional[bytes]]
 
     __mapper_args__ = {
         "polymorphic_identity": "read",
     }
 
     def __str__(self):
-        return f'read({self.fd}, {self.fname}, "{self.buffer.strip()}")'
+        buf = self.buffer.decode('latin-1').strip() if self.buffer else ""
+        return f'read({self.fd}, {self.fname}, "{buf}")'
 
 
 class Write(Event):
@@ -71,14 +72,15 @@ class Write(Event):
     id: Mapped[int] = mapped_column(ForeignKey("event.id"), primary_key=True)
     fd: Mapped[int]
     fname: Mapped[Optional[str]]
-    buffer: Mapped[Optional[str]]
+    buffer: Mapped[Optional[bytes]]
 
     __mapper_args__ = {
         "polymorphic_identity": "write",
     }
 
     def __str__(self):
-        return f'write({self.fd}, {self.fname}, "{self.buffer.strip()}")'
+        buf = self.buffer.decode('latin-1').strip() if self.buffer else ""
+        return f'write({self.fd}, {self.fname}, "{buf}")'
 
 
 class Syscall(Event):
