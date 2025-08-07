@@ -32,7 +32,7 @@ The plugin manager provides a flexible, extensible, and event-driven system for 
 Penguin emulation environment, enabling modular analysis, automation, and extension of the emulation workflow.
 """
 
-from os.path import join, isfile, basename, splitext
+from os.path import join, isfile, basename, splitext, isdir
 from penguin import getColoredLogger
 from pandare2 import PyPlugin, Panda
 import shutil
@@ -313,11 +313,12 @@ def find_plugin_by_name(plugin_name: str, proj_dir: str,
             if '*' in f:
                 p = glob.glob(f, recursive=True)
                 if len(p) == 1:
-                    return p[0]
+                    if isfile(p[0]) and not isdir(p[0]):
+                        return p[0]
                 elif len(p) > 1:
                     raise ValueError(f"Multiple files found for {f}: {p}")
             else:
-                if isfile(f):
+                if isfile(f) and not isdir(f):
                     return f
         return None
 
