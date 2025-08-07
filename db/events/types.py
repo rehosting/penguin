@@ -54,7 +54,7 @@ class Read(Event):
     }
 
     def __str__(self):
-        buf = self.buffer.decode('latin-1').strip() if self.buffer else ""
+        buf = repr(self.buffer) if self.buffer is not None else ""
         return f'read({self.fd}, {self.fname}, "{buf}")'
 
 
@@ -79,7 +79,7 @@ class Write(Event):
     }
 
     def __str__(self):
-        buf = self.buffer.decode('latin-1').strip() if self.buffer else ""
+        buf = repr(self.buffer) if self.buffer is not None else ""
         return f'write({self.fd}, {self.fname}, "{buf}")'
 
 
