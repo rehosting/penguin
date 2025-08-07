@@ -27,6 +27,10 @@ default_netdevs = (
 default_init_script = open(
     f"{dirname(dirname(__file__))}/resources/init.sh").read()
 
+# Resolve current path then go to ../resources/preinit.sh
+default_preinit_script = open(
+    f"{dirname(dirname(__file__))}/resources/preinit.sh").read()
+
 default_plugins = {
     "core": {},
     "netbinds": {
