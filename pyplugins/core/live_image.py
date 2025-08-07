@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import keystone
 import tarfile
+import shlex
 
 GEN_LIVE_IMAGE_ACTION_MAGIC = 0xf113c0df
 GEN_LIVE_IMAGE_ACTION_FINISHED = 0xf113c1df
@@ -210,18 +211,18 @@ class LiveImage(Plugin):
                     paths_to_delete.append(file_path)
                 elif action_type == "symlink":
                     post_tar_commands.append(
-                        f"ln -sf '{action['target']}' '{file_path}'")
+                        f"ln -sf {shlex.quote(action['target'])} {shlex.quote(file_path)}")
                 elif action_type == "shim":
                     orig_path = f"/igloo/utils/{Path(file_path).name}.orig"
-                    post_tar_commands.append(f"mv '{file_path}' '{orig_path}'")
+                    post_tar_commands.append(f"mv {shlex.quote(file_path)} {shlex.quote(orig_path)}")
                     post_tar_commands.append(
-                        f"ln -sf '{action['target']}' '{file_path}'")
+                        f"ln -sf {shlex.quote(action['target'])} {shlex.quote(file_path)}")
                 elif action_type == "move":
                     post_tar_commands.append(
-                        f"cp '{action['from']}' '{file_path}'")
+                        f"cp {shlex.quote(action['from'])} {shlex.quote(file_path)}")
                     if action.get('mode') is not None:
                         post_tar_commands.append(
-                            f"chmod {oct(action['mode'])[2:]} '{file_path}'")
+                            f"chmod {oct(action['mode'])[2:]} {shlex.quote(file_path)}")
                     move_sources_to_remove.append(action['from'])
                 elif action_type == "dev":
                     # Ensure parent directory exists in the tarball
@@ -233,9 +234,9 @@ class LiveImage(Plugin):
                     dev_char = 'c' if action['devtype'] == 'char' else 'b'
                     paths_to_delete.append(file_path)
                     post_tar_commands.append(
-                        f"mknod '{file_path}' {dev_char} {action['major']} {action['minor']}")
+                        f"mknod {shlex.quote(file_path)} {dev_char} {action['major']} {action['minor']}")
                     post_tar_commands.append(
-                        f"chmod {oct(action['mode'])[2:]} '{file_path}'")
+                        f"chmod {oct(action['mode'])[2:]} {shlex.quote(file_path)}")
 
             # --- Phase 2: Ensure all staged files are readable before creating the tarball ---
             for root, dirs, files in os.walk(staging_dir):
@@ -288,9 +289,9 @@ class LiveImage(Plugin):
 
         if paths_to_delete:
             script_lines.append(
-                f"run_or_report rm -rf {' '.join([f'{p}' for p in paths_to_delete])}")
+                f"run_or_report rm -rf {' '.join([shlex.quote(p) for p in paths_to_delete])}")
         script_lines.append(
-            f"run_or_report /igloo/utils/busybox time tar -xf {tarball_guest_path} -C /")
+            f"run_or_report /igloo/utils/busybox time tar -xf {shlex.quote(tarball_guest_path)} -C /")
 
         # --- Phase 4: Batch-process binary patches ---
         if self.patch_queue:
@@ -301,13 +302,13 @@ class LiveImage(Plugin):
                 shared_file_name = f"patch_{i}"
                 shared_file_guest_path = f"{self.guest_shared_dir}/{shared_file_name}"
                 patch_staging_cmds.append(
-                    f"run_or_report ORIG_PERMS_{i}=$(stat -c %a '{file_path}')")
+                    f"run_or_report ORIG_PERMS_{i}=$(stat -c %a {shlex.quote(file_path)})")
                 patch_staging_cmds.append(
-                    f"run_or_report mv '{file_path}' '{shared_file_guest_path}'")
+                    f"run_or_report mv {shlex.quote(file_path)} {shlex.quote(shared_file_guest_path)}")
                 patch_return_cmds.append(
-                    f"run_or_report mv '{shared_file_guest_path}' '{file_path}'")
+                    f"run_or_report mv {shlex.quote(shared_file_guest_path)} {shlex.quote(file_path)}")
                 patch_return_cmds.append(
-                    f"run_or_report chmod \"$ORIG_PERMS_{i}\" '{file_path}'")
+                    f"run_or_report chmod \"$ORIG_PERMS_{i}\" {shlex.quote(file_path)}")
 
             script_lines.append("\n# Staging all files for patching")
             script_lines.extend(patch_staging_cmds)
@@ -324,7 +325,7 @@ class LiveImage(Plugin):
             script_lines.append(f"run_or_report {cmd}")
         if move_sources_to_remove:
             script_lines.append(
-                f"run_or_report rm -f {' '.join(move_sources_to_remove)}")
+                f"run_or_report rm -f {' '.join([shlex.quote(p) for p in move_sources_to_remove])}")
         return "\n".join(script_lines) + "\n"
 
     def _apply_patch_to_file_content(self, original_content: bytes, action: Dict) -> Optional[bytes]:
