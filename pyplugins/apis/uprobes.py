@@ -47,7 +47,7 @@ class Uprobes(Plugin):
         self.portal = plugins.portal
         self.portal.register_interrupt_handler(
             "uprobes", self._uprobe_interrupt_handler)
-        self.first_interrupt = True
+        self.fs_init = False
         self.panda.hypercall(iconsts.IGLOO_HYP_UPROBE_ENTER)(
             self._uprobe_enter_handler)
         self.panda.hypercall(iconsts.IGLOO_HYP_UPROBE_RETURN)(
@@ -278,6 +278,11 @@ class Uprobes(Plugin):
         **Returns:** None
         """
         self._uprobe_event(cpu, False)
+    
+    @plugins.liveimage.fs_init
+    def on_fs_init(self):
+        self.portal.queue_interrupt("uprobes")
+        self.fs_init = True
 
     def _uprobe_interrupt_handler(self) -> bool:
         """
@@ -289,14 +294,6 @@ class Uprobes(Plugin):
         **Returns:**
         - `bool`: True if more uprobes are pending, False otherwise.
         """
-        """
-        We have to skip the first interrupt because there isn't really a filesystem
-        yet, and we can't register uprobes until we have a filesystem.
-        """
-        if self.first_interrupt:
-            self.first_interrupt = False
-            self.portal.queue_interrupt("uprobes")
-            return True
         """
         Handle interrupts for pending uprobe registrations.
         Processes one pending uprobe registration per call.
@@ -489,7 +486,8 @@ class Uprobes(Plugin):
                     uprobe_config["is_method"] = is_method
                     uprobe_config["qualname"] = qualname
                     self._pending_uprobes.append((uprobe_config, func))
-                self.portal.queue_interrupt("uprobes")
+                if self.fs_init:
+                    self.portal.queue_interrupt("uprobes")
                 return func
             return decorator
 
