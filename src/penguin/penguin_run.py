@@ -238,8 +238,7 @@ def run_config(
     if not os.path.isfile(config_fs):
         raise ValueError(f"Missing filesystem archive in base directory: {config_fs}")
 
-    h = hash_image_inputs(proj_dir, conf)
-    image_filename = f"image_{h}.qcow2"
+    image_filename = "image.qcow2"
     config_image = os.path.join(qcow_dir, image_filename)
 
     # Make sure we have a clean out_dir every time. XXX should we raise an error here instead?
@@ -262,9 +261,9 @@ def run_config(
         open(lock_file, "a").close()  # create lock file
 
         try:
-            from .gen_image import fakeroot_gen_image
+            from .gen_image import make_image
 
-            fakeroot_gen_image(config_fs, config_image, qcow_dir, proj_dir, conf_yaml)
+            make_image(config_fs, config_image, qcow_dir, proj_dir, conf_yaml)
         except Exception as e:
             logger.error(
                 f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}"
