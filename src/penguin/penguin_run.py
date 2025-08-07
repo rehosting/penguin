@@ -17,7 +17,7 @@ from penguin import getColoredLogger, plugins
 from .common import yaml
 from .defaults import default_plugin_path, vnc_password
 from penguin.penguin_config import load_config
-from .utils import hash_image_inputs
+from .plugin_manager import ArgsBox
 
 
 # Note armel is just panda-system-arm and mipseb is just panda-system-mips
@@ -534,7 +534,7 @@ def run_config(
     logger.info("Loading plugins")
     args = {
         "plugins": conf_plugins,
-        "conf": conf,
+        "conf": ArgsBox(conf),
         "proj_name": os.path.basename(proj_dir).replace("host_", ""),
         "proj_dir": proj_dir,
         "plugin_path": plugin_path,
