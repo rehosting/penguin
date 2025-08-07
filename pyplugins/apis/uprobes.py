@@ -278,7 +278,7 @@ class Uprobes(Plugin):
         **Returns:** None
         """
         self._uprobe_event(cpu, False)
-    
+
     @plugins.liveimage.fs_init
     def on_fs_init(self):
         self.portal.queue_interrupt("uprobes")
