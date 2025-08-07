@@ -38,6 +38,7 @@ patches:
   - ./patches/tests/kffi.yaml
   - ./patches/tests/uprobes.yaml
   - ./patches/tests/scripting.yaml
+  - ./patches/tests/module.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 
@@ -58,6 +59,7 @@ plugins:
   send_hypercall: {}
   indiv_debug: {}
   syscalls_logger: {}
+  nvram2: {}
 
 static_files:
   /run_tests.sh:
