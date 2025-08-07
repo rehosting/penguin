@@ -41,20 +41,21 @@ class Read(Event):
     - `id` (`int`): Primary key, foreign key to event.id.
     - `fd` (`int`): File descriptor read from.
     - `fname` (`str`): Name of the file read.
-    - `buffer` (`Optional[str]`): Contents read from the file.
+    - `buffer` (`Optional[bytes]`): Contents read from the file.
     """
     __tablename__ = "read"
     id: Mapped[int] = mapped_column(ForeignKey("event.id"), primary_key=True)
     fd: Mapped[int]
     fname: Mapped[str]
-    buffer: Mapped[Optional[str]]
+    buffer: Mapped[Optional[bytes]]
 
     __mapper_args__ = {
         "polymorphic_identity": "read",
     }
 
     def __str__(self):
-        return f'read({self.fd}, {self.fname}, "{self.buffer.strip()}")'
+        buf = repr(self.buffer) if self.buffer is not None else ""
+        return f'read({self.fd}, {self.fname}, "{buf}")'
 
 
 class Write(Event):
@@ -65,20 +66,21 @@ class Write(Event):
     - `id` (`int`): Primary key, foreign key to event.id.
     - `fd` (`int`): File descriptor written to.
     - `fname` (`Optional[str]`): Name of the file written.
-    - `buffer` (`Optional[str]`): Contents written to the file.
+    - `buffer` (`Optional[bytes]`): Contents written to the file.
     """
     __tablename__ = "write"
     id: Mapped[int] = mapped_column(ForeignKey("event.id"), primary_key=True)
     fd: Mapped[int]
     fname: Mapped[Optional[str]]
-    buffer: Mapped[Optional[str]]
+    buffer: Mapped[Optional[bytes]]
 
     __mapper_args__ = {
         "polymorphic_identity": "write",
     }
 
     def __str__(self):
-        return f'write({self.fd}, {self.fname}, "{self.buffer.strip()}")'
+        buf = repr(self.buffer) if self.buffer is not None else ""
+        return f'write({self.fd}, {self.fname}, "{buf}")'
 
 
 class Syscall(Event):
