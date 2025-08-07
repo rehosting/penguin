@@ -1,0 +1,29 @@
+plugins:
+  module_test: {}
+  verifier:
+    conditions:
+      kffi+igloo_test_function:
+        type: file_contains
+        file: console.log
+        string: "igloo: test_function called with args: 3 8 9 322486494 12 13 14 15"
+      kffi+printk:
+        type: file_contains
+        file: console.log
+        string: "test printk 1 2 3 4"
+
+static_files:
+  /tests/module_test.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      /igloo/utils/busybox cat /proc/cpuinfo
+      /igloo/utils/busybox ifconfig snet0 up
+      /igloo/utils/test_send_raw snet0 "Hello world"
+
+      set -x
+      if [ "$(/igloo/utils/busybox cat /proc/pyproc)" != "Hello from Python procfs!\n" ]; then
+          echo "Unexpected content in /proc/pyproc"
+          exit 1
+      fi
+      exit 0
+    mode: 73

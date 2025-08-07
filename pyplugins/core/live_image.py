@@ -39,7 +39,7 @@ class LiveImage(Plugin):
         self.patch_queue = []
         self.ensure_init = lambda *args: None
         self._setup_arch_utils()
-        plugins.igloodriver.ensure_init()
+        plugins.module.ensure_init()
 
     def _setup_arch_utils(self):
         """Copies architecture-specific utilities to the shared directory."""

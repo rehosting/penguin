@@ -49,7 +49,7 @@ files = {
 import struct
 from typing import Any, Dict, Tuple
 from penguin import Plugin
-from hyper.consts import igloo_base_hypercalls as bconsts
+from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import hyperfs_ops as hops
 from hyper.consts import hyperfs_file_ops as fops
 
@@ -172,7 +172,7 @@ class HyperFile(Plugin):
 
         # On hypercall we dispatch to the appropriate handler: read, write,
         # ioctl
-        @panda.hypercall(bconsts.IGLOO_HYPERFS_MAGIC)
+        @panda.hypercall(iconsts.IGLOO_HYPERFS_MAGIC)
         def before_hypercall(cpu):
             # We pass args in the arch-syscall ABI specified in pypanda's arch.py
             # arm: x8/r7 r0, r1, r2
