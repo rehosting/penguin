@@ -324,8 +324,7 @@ def run_config(
         " clocksource=jiffies nohz_full nohz=off no_timer_check"  # Improve determinism?
     )
     if archend != "loongarch64":
-        append += " acpi=off"
-    append += " idle=poll nosoftlockup "  # Improve determinism?
+        append += " acpi=off idle=poll nosoftlockup "
     if vpn_enabled:
         append += f" CID={vpn_args['CID']} "
 
