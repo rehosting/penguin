@@ -2,13 +2,14 @@ from penguin import Plugin, plugins
 from penguin.defaults import static_dir
 import shutil
 import os
-from typing import Iterator, Dict, Tuple, Optional
+from typing import Iterator, Dict, Tuple, Optional, Callable
 from pathlib import Path
 import tempfile
 import keystone
 import tarfile
 
 GEN_LIVE_IMAGE_ACTION_MAGIC = 0xf113c0df
+GEN_LIVE_IMAGE_ACTION_FINISHED = 0xf113c1df
 # Hypercall to patch all files at once
 BATCH_PATCH_FILES_ACTION_MAGIC = 0xf113c0e0
 REPORT_ERROR = 0xfa14487
@@ -24,6 +25,8 @@ class LiveImage(Plugin):
         super().__init__()
         self.panda.hypercall(GEN_LIVE_IMAGE_ACTION_MAGIC)(
             self._on_live_image_hypercall)
+        self.panda.hypercall(GEN_LIVE_IMAGE_ACTION_FINISHED)(
+            self._on_live_image_finished)
         self.panda.hypercall(BATCH_PATCH_FILES_ACTION_MAGIC)(
             self._on_batch_patch_hypercall)
         self.panda.hypercall(REPORT_ERROR)(self._on_report_error)
@@ -36,10 +39,22 @@ class LiveImage(Plugin):
         self.host_files_dir.mkdir(parents=True, exist_ok=True)
 
         self.script_generated = False
+        self.fs_generated = False
         self.patch_queue = []
         self.ensure_init = lambda *args: None
         self._setup_arch_utils()
-        plugins.module.ensure_init()
+    
+    def fs_init(self, func: Optional[Callable] = None):
+        """
+        Decorator for registering fs init callbacks.
+        Can be used as @plugins.liveimage.fs_init
+        """
+        def decorator(f):
+            self._init_callbacks = getattr(self, '_init_callbacks', []) + [f]
+            return f
+        if func is not None:
+            return decorator(func)
+        return decorator
 
     def _setup_arch_utils(self):
         """Copies architecture-specific utilities to the shared directory."""
@@ -52,11 +67,6 @@ class LiveImage(Plugin):
 
         utils_base_path = Path(static_dir) / self.arch_dir_name
         self._copy_file_to_shared(utils_base_path / "send_hypercall_raw")
-
-        igloo_kernel_version = "6.13"
-        kernel_module_path = Path(
-            static_dir) / "kernels" / igloo_kernel_version / f"igloo.ko.{self.arch_dir_name}"
-        self._copy_file_to_shared(kernel_module_path, "igloo.ko")
 
     def _copy_file_to_shared(self, host_path: Path, dest_name: str = None) -> Optional[str]:
         """Copies a single file to the shared directory for the guest."""
@@ -404,6 +414,25 @@ class LiveImage(Plugin):
                 return  # Abort on first failure
 
         self.logger.info("Batch patching completed successfully.")
+        self.panda.arch.set_retval(cpu, 0, convention="syscall")
+    
+    def _on_live_image_finished(self, cpu):
+        self.fs_generated = True
+        for cb in self._init_callbacks:
+            # If class-level, resolve method
+            if hasattr(cb, '__self__') or (hasattr(cb, '__qualname__') and '.' in cb.__qualname__):
+                class_name = cb.__qualname__.split('.')[0]
+                method_name = cb.__qualname__.split('.')[-1]
+                instance = getattr(plugins, class_name, None)
+                if instance and hasattr(instance, method_name):
+                    bound_cb = getattr(instance, method_name)
+                    cb_to_call = bound_cb
+                else:
+                    self.logger.error(f"Could not resolve class method {cb.__qualname__} for module_init")
+                    continue
+            else:
+                cb_to_call = cb
+            cb_to_call(cpu)
         self.panda.arch.set_retval(cpu, 0, convention="syscall")
 
     def _on_live_image_hypercall(self, cpu):
