@@ -41,7 +41,7 @@ class Read(Event):
     - `id` (`int`): Primary key, foreign key to event.id.
     - `fd` (`int`): File descriptor read from.
     - `fname` (`str`): Name of the file read.
-    - `buffer` (`Optional[str]`): Contents read from the file.
+    - `buffer` (`Optional[bytes]`): Contents read from the file.
     """
     __tablename__ = "read"
     id: Mapped[int] = mapped_column(ForeignKey("event.id"), primary_key=True)
@@ -66,7 +66,7 @@ class Write(Event):
     - `id` (`int`): Primary key, foreign key to event.id.
     - `fd` (`int`): File descriptor written to.
     - `fname` (`Optional[str]`): Name of the file written.
-    - `buffer` (`Optional[str]`): Contents written to the file.
+    - `buffer` (`Optional[bytes]`): Contents written to the file.
     """
     __tablename__ = "write"
     id: Mapped[int] = mapped_column(ForeignKey("event.id"), primary_key=True)
