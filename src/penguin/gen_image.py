@@ -67,7 +67,7 @@ def tar_add_min_files(tf_path, config):
         init_bytes = default_preinit_script.encode()
         ti = tarfile.TarInfo(name="igloo/preinit")
         ti.size = len(init_bytes)
-        ti.mode = 0o111
+        ti.mode = 0o755
         ti.mtime = int(time.time())
         ti.uname = "root"
         ti.gname = "root"
