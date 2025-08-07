@@ -44,7 +44,7 @@ class LiveImage(Plugin):
         self.patch_queue = []
         self.ensure_init = lambda *args: None
         self._setup_arch_utils()
-    
+
     def fs_init(self, func: Optional[Callable] = None):
         """
         Decorator for registering fs init callbacks.
@@ -416,7 +416,7 @@ class LiveImage(Plugin):
 
         self.logger.info("Batch patching completed successfully.")
         self.panda.arch.set_retval(cpu, 0, convention="syscall")
-    
+
     def _on_live_image_finished(self, cpu):
         self.fs_generated = True
         for cb in self._init_callbacks:
