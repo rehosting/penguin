@@ -176,7 +176,7 @@ class VPN(Plugin):
         with open(join(self.outdir, BRIDGE_FILE), "w") as f:
             f.write("procname,ipvn,domain,guest_ip,guest_port,host_port\n")
 
-        # Whenever NetLog detects a bind, we'll set up bridges
+        # Whenever NetBinds detects a bind, we'll set up bridges
         plugins.subscribe(plugins.NetBinds, "on_bind", self.on_bind)
 
     def launch_host_vpn(self, CID: int, socket_path: str, uds_path: str, log: bool = False, pcap: bool = False) -> None:
@@ -240,9 +240,9 @@ class VPN(Plugin):
             # Empherial ports - not sure how to handle these
             return
 
-        listener_key = (sock_type, port)
+        listener_key = (sock_type, ip, port)
         if listener_key in self.active_listeners:
-            # Already forwarding this proto+port
+            # Already forwarding this proto+ip+port
             return
 
         self.active_listeners.add(listener_key)
