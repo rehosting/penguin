@@ -585,7 +585,7 @@ def run_config(
         """
         plugins.unload_all()
 
-    while not os.path.exists(socket_path):
+    while vpn_enabled and not os.path.exists(socket_path):
         logger.info(f"Waiting for socket {socket_path} to be created")
         sleep(0.1)
 
