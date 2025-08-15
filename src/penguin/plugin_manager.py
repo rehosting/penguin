@@ -32,7 +32,7 @@ The plugin manager provides a flexible, extensible, and event-driven system for 
 Penguin emulation environment, enabling modular analysis, automation, and extension of the emulation workflow.
 """
 
-from os.path import join, isfile, basename, splitext
+from os.path import join, isfile, basename, splitext, isdir
 from penguin import getColoredLogger
 from pandare2 import PyPlugin, Panda
 import shutil
@@ -55,16 +55,24 @@ class ArgsBox:
         Args:
             args (Dict[str, Any]): Dictionary of arguments.
         """
-        self.args = args
+        super().__setattr__('args', args)
 
     def __getitem__(self, key):
         return self.args[key]
 
     def __getattr__(self, key):
+        if key == 'args':
+            return super().__getattribute__('args')
         try:
             return self.args[key]
         except KeyError:
             raise AttributeError(f"ArgsBox has no attribute '{key}'")
+
+    def __setitem__(self, key, value):
+        self.args[key] = value
+
+    def __setattr__(self, key, value):
+        self.args[key] = value
 
     def get(self, key, default=None):
         return self.args.get(key, default)
@@ -305,11 +313,12 @@ def find_plugin_by_name(plugin_name: str, proj_dir: str,
             if '*' in f:
                 p = glob.glob(f, recursive=True)
                 if len(p) == 1:
-                    return p[0]
+                    if isfile(p[0]) and not isdir(p[0]):
+                        return p[0]
                 elif len(p) > 1:
                     raise ValueError(f"Multiple files found for {f}: {p}")
             else:
-                if isfile(f):
+                if isfile(f) and not isdir(f):
                     return f
         return None
 
