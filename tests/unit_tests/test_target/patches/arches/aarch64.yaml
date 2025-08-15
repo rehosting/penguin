@@ -10,3 +10,26 @@ static_files:
     host_path: /igloo_static/dylibs/arm64/*
     mode: 493
     type: host_file
+  /igloo/armel/*:
+    host_path: /igloo_static/armel/*
+    mode: 493
+    type: host_file
+  /tests/arm32_hypercall.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      /igloo/armel/send_hypercall_raw 1
+      exit 0
+    mode: 73
+
+plugins:
+  verifier:
+    conditions:
+      arm32hypercall+console:
+        type: file_contains
+        file: console.log
+        string: "/tests/arm32_hypercall.sh PASS"
+      arm32hypercall+stdout:
+        type: file_contains
+        file: shared/tests/arm32_hypercall.sh/stdout
+        string: "do_hypercall returned: "
