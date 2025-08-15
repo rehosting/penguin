@@ -1,4 +1,4 @@
-#!/igloo/utils/sh
+#!/igloo/utils/busybox sh
 
 # First, source all the scripts in /igloo/source.d
 for f in /igloo/source.d/*; do

@@ -7,6 +7,7 @@ import json
 from typing import Dict, List, Any, Callable, Optional, Iterator
 from hyper.consts import value_filter_type as vft
 from hyper.consts import igloo_hypercall_constants as iconsts
+from hyper.consts import igloo_base_hypercalls as bconsts
 from hyper.portal import PortalCmd
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
 
@@ -253,7 +254,7 @@ class Syscalls(Plugin):
             "syscalls", self._syscall_interrupt_handler)
 
         # Register handlers for syscall setup and events
-        self.panda.hypercall(iconsts.IGLOO_HYP_SETUP_SYSCALL)(
+        self.panda.hypercall(bconsts.IGLOO_HYP_SETUP_SYSCALL)(
             self._setup_syscall_handler)
 
         # Register syscall enter/return hypercalls
