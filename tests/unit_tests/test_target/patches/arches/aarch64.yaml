@@ -18,9 +18,18 @@ static_files:
     type: inline_file
     contents: |
       #!/igloo/utils/sh
-      /igloo/armel/send_hypercall_raw 1
-      exit 0
+      set -x
+      set +e # ignore non-zero exit code
+      /igloo/armel/send_hypercall_raw 0xcafebab3 0xdeadbeeff1f1f1f1 0x1337c0defeedc0de 0xdeadbeeff1f1f1f2 0x1337c0def2f2f2f2
+      if [ $? -ne 13 ]; then
+        echo "Error: Hypercall failed"
+        exit 1
+      else
+        echo "send_hypercall_raw retval correct"
+        exit 0
+      fi
     mode: 73
+
 
 plugins:
   verifier:
