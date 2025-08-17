@@ -30,7 +30,6 @@ RUN apt-get update && apt-get install -y -q build-essential libfontconfig1-dev l
 RUN cargo install binwalk --target x86_64-unknown-linux-gnu --locked
 
 ARG FW2TAR_TAG
-ARG DOWNLOAD_TOKEN
 RUN cargo install --target x86_64-unknown-linux-gnu \
     --tag ${FW2TAR_TAG} \
     --git https://github.com/rehosting/fw2tar.git
@@ -282,7 +281,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       ujson \
       cxxfilt \
       zstandard \
-      pdoc
+      pdoc \
+      ratarmountcore[full] \
+      ratarmount[gzip]
 
 FROM python_builder AS version_generator
 ARG OVERRIDE_VERSION=""
@@ -499,6 +500,10 @@ RUN if [ -d /tmp/local_packages ]; then \
         if [ -f /tmp/local_packages/kernels-latest.tar.gz ]; then \
             rm -rf /igloo_static/kernels && \
             tar xvf /tmp/local_packages/kernels-latest.tar.gz -C /igloo_static/; \
+        fi; \
+        if [ -f /tmp/local_packages/igloo_driver.tar.gz ]; then \
+            rm -rf /igloo_static/drivers && \
+            tar xvf /tmp/local_packages/igloo_driver.tar.gz -C /igloo_static/; \
         fi; \
         if [ -f /tmp/local_packages/pandare_22.04.deb ]; then \
             dpkg -i /tmp/local_packages/pandare_22.04.deb; \
