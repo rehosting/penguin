@@ -34,60 +34,8 @@ jobs:
         }
       env:
         LINTLY_API_KEY: ${{ secrets.GITHUB_TOKEN }}
-
-  build_container:
-    runs-on: rehosting-arc
-    permissions:
-      contents: write
-      packages: write
-    needs: lint
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Trust Harbor's self-signed certificate
-        run: |
-          echo "Fetching certificate from ${{ secrets.REHOSTING_ARC_REGISTRY }}"
-          openssl s_client -showcerts -connect ${{ secrets.REHOSTING_ARC_REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
-          sudo update-ca-certificates
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:master
-            network=host
-          buildkitd-config-inline: |
-            [registry."${{ secrets.REHOSTING_ARC_REGISTRY }}"]
-              insecure = true
-              http = true
-      
-      - name: Log in to Rehosting Arc Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
-          username: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
-          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
-      
-      - name: Build Docker image and push to Docker Hub
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:${{ github.sha }}
-          build-args: |
-            REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy
-          cache-from: |
-            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache,mode=max
-            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache-PR-${{github.event.number}},mode=max
-          cache-to: |
-            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache,mode=max
-            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache-PR-${{ github.event.number }}
-
   run_tests:
-    needs: build_container
+    needs: lint
     runs-on: rehosting-arc
     strategy:
       fail-fast: false
@@ -118,6 +66,37 @@ jobs:
           registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
           username: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
           password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
+      
+      - name: Build Docker image
+        if: matrix.arch == 'mips64eb'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:${{ github.sha }}
+          outputs: type=docker
+          build-args: |
+            REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy
+          cache-from: |
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache,mode=max
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache-PR-${{github.event.number}},mode=max
+          cache-to: |
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache,mode=max
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache-PR-${{ github.event.number }}
+      
+      - name: Build Docker image
+        if: matrix.arch != 'mips64eb'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          outputs: type=docker
+          tags: ${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:${{ github.sha }}
+          build-args: |
+            REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy
+          cache-from: |
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache,mode=max
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache-PR-${{github.event.number}},mode=max
       
       
       # Locally tag as latest, just for testing
