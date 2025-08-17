@@ -69,10 +69,16 @@ class ArgsBox:
             raise AttributeError(f"ArgsBox has no attribute '{key}'")
 
     def __setitem__(self, key, value):
-        self.args[key] = value
+        if key == 'args':
+            super().__setattr__('args', value)
+        else:
+            self.args[key] = value
 
     def __setattr__(self, key, value):
-        self.args[key] = value
+        if key == 'args':
+            super().__setattr__('args', value)
+        else:
+            self.args[key] = value
 
     def get(self, key, default=None):
         return self.args.get(key, default)
