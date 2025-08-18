@@ -213,8 +213,8 @@ RUN if [ -f /tmp/local_packages/nmap.tar.gz ]; then \
 FROM $BASE_IMAGE AS python_builder
 ARG PANDANG_VERSION
 
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y python3-pip git wget liblzo2-dev
 RUN wget -O /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl \
     https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare2-${PANDANG_VERSION}-py3-none-any.whl
