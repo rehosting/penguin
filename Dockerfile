@@ -171,25 +171,6 @@ WORKDIR /source
 RUN wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h
 RUN make all
 
-#### QEMU BUILDER: Build qemu-img ####
-FROM $BASE_IMAGE AS qemu_builder
-ENV DEBIAN_FRONTEND=noninteractive
-# Enable source repos
-RUN sed -Ei 's/^# deb-src /deb-src /' /etc/apt/sources.list
-RUN apt-get update && apt-get build-dep -y qemu-utils qemu && \
-    apt-get install -q -y --no-install-recommends ninja-build git \
-    && rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 --no-checkout https://github.com/qemu/qemu.git /src && \
-  cd /src && \
-  git fetch --depth 1 origin tag v7.2.0 && \
-  git checkout v7.2.0
-RUN mkdir /src/build && cd /src/build && ../configure \
-    --without-default-features \
-    --disable-system \
-    --disable-user \
-    --enable-tools \
-    && make -j$(nproc)
-
 #### NMAP BUILDER: Build nmap ####
 FROM $BASE_IMAGE AS nmap_builder
 ENV DEBIAN_FRONTEND=noninteractive
@@ -393,10 +374,6 @@ RUN rm /wheels/python_lzo*
 RUN pip install --no-cache /wheels/*
 
 RUN poetry config virtualenvs.create false
-
-
-# qemu-img
-COPY --from=qemu_builder /src/build/qemu-img /usr/local/bin/qemu-img
 
 # VPN, libnvram, kernels, console
 COPY --from=downloader /igloo_static/ /igloo_static/
