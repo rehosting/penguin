@@ -67,8 +67,10 @@ jobs:
               push: true
               cache-from: |
                 type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache,mode=max
+                type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache_last_published,mode=max
               cache-to: |
                 type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache,mode=max
+                type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache_last_published,mode=max
               tags: rehosting/penguin:${{ github.sha }},rehosting/penguin:${{ steps.version.outputs.v-version }},rehosting/penguin:latest
               build-args: |
                 OVERRIDE_VERSION=${{ steps.version.outputs.v-version }}

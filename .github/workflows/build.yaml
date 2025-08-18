@@ -1,4 +1,4 @@
-name: Test and Release Container
+name: Test Container
 
 on:
   pull_request:
@@ -82,6 +82,7 @@ jobs:
           cache-from: |
             type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache,mode=max
             type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache-PR-${{github.event.number}},mode=max
+            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache_last_published,mode=max
           cache-to: |
             type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache,mode=max
             type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache-PR-${{ github.event.number }}
