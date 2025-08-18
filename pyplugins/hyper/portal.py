@@ -220,10 +220,11 @@ class Portal(Plugin):
             return False
 
         # Add plugin to pending set
-        self._pending_interrupts.add(plugin_name)
+        if plugin_name not in self._pending_interrupts:
+            # Trigger an interrupt to process the item
+            self._portal_set_interrupt()
 
-        # Trigger an interrupt to process the item
-        self._portal_set_interrupt()
+        self._pending_interrupts.add(plugin_name)
         return True
 
     def _cleanup_all_interrupts(self) -> None:
@@ -246,8 +247,13 @@ class Portal(Plugin):
         """
         if self.portal_interrupt:
             buf = struct.pack(f"{self.endian_format}Q", value)
-            self.panda.virtual_memory_write(
-                self.panda.get_cpu(), self.portal_interrupt, buf)
+            try:
+                self.panda.virtual_memory_write(
+                    self.panda.get_cpu(), self.portal_interrupt, buf)
+            except ValueError as e:
+                # Failures are fine, we get them on the next portal interrupt
+                # as long as we've queued an interrupt
+                self.logger.debug(f"Failed to write portal interrupt: {e}")
 
     def _portal_set_interrupt(self) -> None:
         """
@@ -447,6 +453,9 @@ class Portal(Plugin):
 
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
+            if self._pending_interrupts:
+                self.logger.debug("Pending interrupts detected, setting interrupt")
+                self._portal_set_interrupt()
             cpu = self.panda.get_cpu()
             cpu_memregion = self.panda.arch.get_arg(
                 cpu, 3, convention="syscall")
