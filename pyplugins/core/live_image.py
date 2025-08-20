@@ -9,10 +9,13 @@ import keystone
 import tarfile
 import shlex
 
-GEN_LIVE_IMAGE_ACTION_MAGIC = 0xf113c0df
 GEN_LIVE_IMAGE_ACTION_FINISHED = 0xf113c1df
 # Hypercall to patch all files at once
 BATCH_PATCH_FILES_ACTION_MAGIC = 0xf113c0e0
+MAGIC_GET  = 0xf113c0e1
+MAGIC_PUT = 0xf113c0e2
+MAGIC_GET_PERM = 0xf113c0e3
+MAGIC_GETSIZE = 0xf113c0e4
 REPORT_ERROR = 0xfa14487
 
 
@@ -23,27 +26,14 @@ class LiveImage(Plugin):
     """
 
     def __init__(self) -> None:
-        super().__init__()
-        self.panda.hypercall(GEN_LIVE_IMAGE_ACTION_MAGIC)(
-            self._on_live_image_hypercall)
-        self.panda.hypercall(GEN_LIVE_IMAGE_ACTION_FINISHED)(
-            self._on_live_image_finished)
-        self.panda.hypercall(BATCH_PATCH_FILES_ACTION_MAGIC)(
-            self._on_batch_patch_hypercall)
-        self.panda.hypercall(REPORT_ERROR)(self._on_report_error)
-
-        self.config = self.get_arg("conf")
+        self.logger.setLevel("DEBUG")
+        self._staging_dir_obj = tempfile.TemporaryDirectory()
+        self.staged_dir = self._staging_dir_obj.name
         self.proj_dir = Path(self.get_arg("proj_dir")).resolve()
-        self.shared_dir = Path(self.get_arg("shared_dir")).resolve()
-        self.host_files_dir = self.shared_dir / "host_files"
-        self.guest_shared_dir = "/igloo/shared/host_files"
-        self.host_files_dir.mkdir(parents=True, exist_ok=True)
-
         self.script_generated = False
         self.fs_generated = False
         self.patch_queue = []
         self.ensure_init = lambda *args: None
-        self._setup_arch_utils()
 
     def fs_init(self, func: Optional[Callable] = None):
         """
@@ -57,45 +47,11 @@ class LiveImage(Plugin):
             return decorator(func)
         return decorator
 
-    def _setup_arch_utils(self):
-        """Copies architecture-specific utilities to the shared directory."""
-        core_config = self.config.get("core", {})
-        arch = core_config.get("arch", "intel64")
-
-        arch_map = {"intel64": "x86_64", "powerpc64el": "powerpc64"}
-        self.arch = arch
-        self.arch_dir_name = arch_map.get(arch, arch)
-
-        utils_base_path = Path(static_dir) / self.arch_dir_name
-        self._copy_file_to_shared(utils_base_path / "send_hypercall_raw")
-
-    def _copy_file_to_shared(self, host_path: Path, dest_name: str = None) -> Optional[str]:
-        """Copies a single file to the shared directory for the guest."""
-        if not host_path.is_absolute():
-            host_path = self.proj_dir / host_path
-
-        if not host_path.exists():
-            self.logger.error(f"Host file not found: {host_path}")
-            raise FileNotFoundError(f"Host file not found: {host_path}")
-
-        final_dest_name = dest_name or host_path.name
-        shared_dest_path = self.host_files_dir / final_dest_name
-
-        try:
-            shutil.copy(host_path, shared_dest_path)
-            shared_dest_path.chmod(0o755)
-            return f"{self.guest_shared_dir}/{final_dest_name}"
-        except Exception as e:
-            self.logger.error(
-                f"Failed to copy {host_path} to {shared_dest_path}: {e}")
-            raise RuntimeError(
-                f"Failed to copy {host_path} to {shared_dest_path}: {e}")
-
     def _plan_actions(self) -> Iterator[Tuple[str, Dict]]:
         """
         Sorts 'static_files' actions into a logical execution order without validation.
         """
-        actions = self.config.get("static_files", {}).items()
+        actions = self.get_arg("conf").get("static_files", {}).items()
 
         action_order = ["delete", "move", "shim", "dir", "host_file",
                         "inline_file", "binary_patch", "dev", "symlink"]
@@ -112,175 +68,174 @@ class LiveImage(Plugin):
                 yield path, action
 
     def _generate_setup_script(self) -> str:
-        """Builds an efficient setup script using a tarball and a single, batched patch hypercall."""
+        """Builds an efficient setup script using hyp_file_op for file transfer, not shared_dir."""
         post_tar_commands = []
         paths_to_delete = []
         self.patch_queue = []  # Reset for this run
         move_sources_to_remove = []
+        staging_dir = Path(self.staged_dir)
 
-        with tempfile.TemporaryDirectory() as staging_dir_str:
-            staging_dir = Path(staging_dir_str)
+        # --- Phase 1: Plan and Stage for Tarball ---
+        for file_path, action in self._plan_actions():
+            action_type = action.get("type")
+            if file_path.startswith("/dev/") or file_path == "/dev" or file_path == "/igloo/utils/busybox":
+                pass  # These actions are handled post-tar
 
-            # --- Phase 1: Plan and Stage for Tarball ---
-            for file_path, action in self._plan_actions():
-                action_type = action.get("type")
-                if file_path.startswith("/dev/") or file_path == "/dev" or file_path == "/igloo/utils/busybox":
-                    pass  # These actions are handled post-tar
-
-                if action_type in ["dir", "host_file", "inline_file"]:
-                    staged_path = staging_dir / file_path.lstrip('/')
-                    staged_path.parent.mkdir(parents=True, exist_ok=True)
-                    if action_type == "dir":
-                        staged_path.mkdir(exist_ok=True)
-                        staged_path.chmod(action['mode'])
-                    elif action_type == "inline_file":
-                        # Write as text or bytes depending on type
-                        if isinstance(action['contents'], bytes):
-                            staged_path.write_bytes(action['contents'])
+            if action_type in ["dir", "host_file", "inline_file"]:
+                staged_path = staging_dir / file_path.lstrip('/')
+                staged_path.parent.mkdir(parents=True, exist_ok=True)
+                if action_type == "dir":
+                    staged_path.mkdir(exist_ok=True)
+                    staged_path.chmod(action['mode'])
+                elif action_type == "inline_file":
+                    # Write as text or bytes depending on type
+                    if isinstance(action['contents'], bytes):
+                        staged_path.write_bytes(action['contents'])
+                    else:
+                        staged_path.write_text(action['contents'])
+                    staged_path.chmod(action['mode'])
+                elif action_type == "host_file":
+                    host_path_str = action['host_path']
+                    dest_path_str = file_path
+                    # Path resolution: relative to proj_dir if not absolute
+                    if not os.path.isabs(host_path_str):
+                        source_path_pattern = self.proj_dir / host_path_str
+                    else:
+                        source_path_pattern = Path(host_path_str)
+                    dest_path = Path(dest_path_str)
+                    # If the destination contains a wildcard, treat it as a directory and copy each source file into it
+                    if '*' in dest_path.name or '?' in dest_path.name:
+                        dest_dir = dest_path.parent
+                        if dest_dir.is_absolute():
+                            dest_dir_path = staging_dir / \
+                                dest_dir.relative_to('/')
                         else:
-                            staged_path.write_text(action['contents'])
+                            dest_dir_path = staging_dir / dest_dir
+                        dest_dir_path.mkdir(parents=True, exist_ok=True)
+                        self.logger.debug(
+                            f"Globbing for host_file: {source_path_pattern.parent}/{source_path_pattern.name}")
+                        glob_matches = list(
+                            source_path_pattern.parent.glob(source_path_pattern.name))
+                        self.logger.debug(
+                            f"Found {len(glob_matches)} files for host_file source glob: {source_path_pattern}")
+                        if not glob_matches:
+                            self.logger.warning(
+                                f"No files matched for host_file source glob: {source_path_pattern}")
+                        for host_src in glob_matches:
+                            if host_src.is_file():
+                                staged_file_path = dest_dir_path / host_src.name
+                                shutil.copy(host_src, staged_file_path)
+                                if 'mode' in action:
+                                    staged_file_path.chmod(action['mode'])
+                    # Only expand globs in the source, never in the destination
+                    elif '*' in source_path_pattern.name or '?' in source_path_pattern.name:
+                        self.logger.debug(
+                            f"Globbing for host_file: {source_path_pattern.parent}/{source_path_pattern.name}")
+                        glob_matches = list(
+                            source_path_pattern.parent.glob(source_path_pattern.name))
+                        self.logger.debug(
+                            f"Found {len(glob_matches)} files for host_file source glob: {source_path_pattern}")
+                        if not glob_matches:
+                            self.logger.warning(
+                                f"No files matched for host_file source glob: {source_path_pattern}")
+                        for host_src in glob_matches:
+                            if host_src.is_file():
+                                staged_file_path = staged_path / host_src.name
+                                staged_file_path.parent.mkdir(
+                                    parents=True, exist_ok=True)
+                                shutil.copy(host_src, staged_file_path)
+                                if 'mode' in action:
+                                    staged_file_path.chmod(action['mode'])
+                    else:  # Handle single file
+                        host_src = source_path_pattern
+                        if not host_src.exists():
+                            self.logger.error(
+                                f"Host file not found: {host_src} (static_files entry: {file_path} -> {action})")
+                            raise FileNotFoundError(
+                                f"Host file not found: {host_src} (static_files entry: {file_path} -> {action})")
+                        staged_path.parent.mkdir(
+                            parents=True, exist_ok=True)
+                        shutil.copy(host_src, staged_path)
                         staged_path.chmod(action['mode'])
-                    elif action_type == "host_file":
-                        host_path_str = action['host_path']
-                        dest_path_str = file_path
-                        # Path resolution: relative to proj_dir if not absolute
-                        if not os.path.isabs(host_path_str):
-                            source_path_pattern = self.proj_dir / host_path_str
-                        else:
-                            source_path_pattern = Path(host_path_str)
-                        dest_path = Path(dest_path_str)
-                        # If the destination contains a wildcard, treat it as a directory and copy each source file into it
-                        if '*' in dest_path.name or '?' in dest_path.name:
-                            dest_dir = dest_path.parent
-                            if dest_dir.is_absolute():
-                                dest_dir_path = staging_dir / \
-                                    dest_dir.relative_to('/')
-                            else:
-                                dest_dir_path = staging_dir / dest_dir
-                            dest_dir_path.mkdir(parents=True, exist_ok=True)
-                            self.logger.debug(
-                                f"Globbing for host_file: {source_path_pattern.parent}/{source_path_pattern.name}")
-                            glob_matches = list(
-                                source_path_pattern.parent.glob(source_path_pattern.name))
-                            self.logger.debug(
-                                f"Found {len(glob_matches)} files for host_file source glob: {source_path_pattern}")
-                            if not glob_matches:
-                                self.logger.warning(
-                                    f"No files matched for host_file source glob: {source_path_pattern}")
-                            for host_src in glob_matches:
-                                if host_src.is_file():
-                                    staged_file_path = dest_dir_path / host_src.name
-                                    shutil.copy(host_src, staged_file_path)
-                                    if 'mode' in action:
-                                        staged_file_path.chmod(action['mode'])
-                        # Only expand globs in the source, never in the destination
-                        elif '*' in source_path_pattern.name or '?' in source_path_pattern.name:
-                            self.logger.debug(
-                                f"Globbing for host_file: {source_path_pattern.parent}/{source_path_pattern.name}")
-                            glob_matches = list(
-                                source_path_pattern.parent.glob(source_path_pattern.name))
-                            self.logger.debug(
-                                f"Found {len(glob_matches)} files for host_file source glob: {source_path_pattern}")
-                            if not glob_matches:
-                                self.logger.warning(
-                                    f"No files matched for host_file source glob: {source_path_pattern}")
-                            for host_src in glob_matches:
-                                if host_src.is_file():
-                                    staged_file_path = staged_path / host_src.name
-                                    staged_file_path.parent.mkdir(
-                                        parents=True, exist_ok=True)
-                                    shutil.copy(host_src, staged_file_path)
-                                    if 'mode' in action:
-                                        staged_file_path.chmod(action['mode'])
-                        else:  # Handle single file
-                            host_src = source_path_pattern
-                            if not host_src.exists():
-                                self.logger.error(
-                                    f"Host file not found: {host_src} (static_files entry: {file_path} -> {action})")
-                                raise FileNotFoundError(
-                                    f"Host file not found: {host_src} (static_files entry: {file_path} -> {action})")
-                            staged_path.parent.mkdir(
-                                parents=True, exist_ok=True)
-                            shutil.copy(host_src, staged_path)
-                            staged_path.chmod(action['mode'])
 
-                # Queue or generate commands for post-tar execution
-                elif action_type == "binary_patch":
-                    self.patch_queue.append((file_path, action))
-                elif action_type == "delete":
-                    paths_to_delete.append(file_path)
-                elif action_type == "symlink":
-                    post_tar_commands.append(
-                        f"ln -sf {shlex.quote(action['target'])} {shlex.quote(file_path)}")
-                elif action_type == "shim":
-                    orig_path = f"/igloo/utils/{Path(file_path).name}.orig"
-                    post_tar_commands.append(f"mv {shlex.quote(file_path)} {shlex.quote(orig_path)}")
-                    post_tar_commands.append(
-                        f"ln -sf {shlex.quote(action['target'])} {shlex.quote(file_path)}")
-                elif action_type == "move":
-                    post_tar_commands.append(
-                        f"cp {shlex.quote(action['from'])} {shlex.quote(file_path)}")
-                    if action.get('mode') is not None:
-                        post_tar_commands.append(
-                            f"chmod {oct(action['mode'])[2:]} {shlex.quote(file_path)}")
-                    move_sources_to_remove.append(action['from'])
-                elif action_type == "dev":
-                    # Ensure parent directory exists in the tarball
-                    parent_dir = Path(file_path).parent
-                    if str(parent_dir) != '.':
-                        staged_parent_dir = staging_dir / str(parent_dir).lstrip('/')
-                        staged_parent_dir.mkdir(parents=True, exist_ok=True)
-
-                    dev_char = 'c' if action['devtype'] == 'char' else 'b'
-                    paths_to_delete.append(file_path)
-                    post_tar_commands.append(
-                        f"mknod {shlex.quote(file_path)} {dev_char} {action['major']} {action['minor']}")
+            # Queue or generate commands for post-tar execution
+            elif action_type == "binary_patch":
+                self.patch_queue.append((file_path, action))
+            elif action_type == "delete":
+                paths_to_delete.append(file_path)
+            elif action_type == "symlink":
+                post_tar_commands.append(
+                    f"ln -sf {shlex.quote(action['target'])} {shlex.quote(file_path)}")
+            elif action_type == "shim":
+                orig_path = f"/igloo/utils/{Path(file_path).name}.orig"
+                post_tar_commands.append(f"mv {shlex.quote(file_path)} {shlex.quote(orig_path)}")
+                post_tar_commands.append(
+                    f"ln -sf {shlex.quote(action['target'])} {shlex.quote(file_path)}")
+            elif action_type == "move":
+                post_tar_commands.append(
+                    f"cp {shlex.quote(action['from'])} {shlex.quote(file_path)}")
+                if action.get('mode') is not None:
                     post_tar_commands.append(
                         f"chmod {oct(action['mode'])[2:]} {shlex.quote(file_path)}")
+                move_sources_to_remove.append(action['from'])
+            elif action_type == "dev":
+                # Ensure parent directory exists in the tarball
+                parent_dir = Path(file_path).parent
+                if str(parent_dir) != '.':
+                    staged_parent_dir = staging_dir / str(parent_dir).lstrip('/')
+                    staged_parent_dir.mkdir(parents=True, exist_ok=True)
 
-            # --- Phase 2: Ensure all staged files are readable before creating the tarball ---
-            for root, dirs, files in os.walk(staging_dir):
-                for name in files:
-                    fpath = os.path.join(root, name)
-                    try:
-                        st = os.stat(fpath)
-                        if not (st.st_mode & 0o400):
-                            os.chmod(fpath, st.st_mode | 0o400)
-                    except Exception as e:
-                        self.logger.warning(
-                            f"Could not set read permission on {fpath}: {e}")
-                for name in dirs:
-                    dpath = os.path.join(root, name)
-                    try:
-                        st = os.stat(dpath)
-                        if not (st.st_mode & 0o400):
-                            os.chmod(dpath, st.st_mode | 0o400)
-                    except Exception as e:
-                        self.logger.warning(
-                            f"Could not set read permission on {dpath}: {e}")
+                dev_char = 'c' if action['devtype'] == 'char' else 'b'
+                paths_to_delete.append(file_path)
+                post_tar_commands.append(
+                    f"mknod {shlex.quote(file_path)} {dev_char} {action['major']} {action['minor']}")
+                post_tar_commands.append(
+                    f"chmod {oct(action['mode'])[2:]} {shlex.quote(file_path)}")
 
-            # --- Phase 2: Create and copy the tarball ---
-            tarball_host_path = self.host_files_dir / "filesystem.tar.gz"
-            self.logger.info(
-                f"Creating filesystem tarball at {tarball_host_path}...")
-            with tarfile.open(tarball_host_path, "w") as tar:
-                tar.add(staging_dir, arcname='.')
-            tarball_guest_path = f"{self.guest_shared_dir}/filesystem.tar.gz"
+        # --- Phase 2: Ensure all staged files are readable before creating the tarball ---
+        for root, dirs, files in os.walk(staging_dir):
+            for name in files:
+                fpath = os.path.join(root, name)
+                try:
+                    st = os.stat(fpath)
+                    if not (st.st_mode & 0o400):
+                        os.chmod(fpath, st.st_mode | 0o400)
+                except Exception as e:
+                    self.logger.warning(
+                        f"Could not set read permission on {fpath}: {e}")
+            for name in dirs:
+                dpath = os.path.join(root, name)
+                try:
+                    st = os.stat(dpath)
+                    if not (st.st_mode & 0o400):
+                        os.chmod(dpath, st.st_mode | 0o400)
+                except Exception as e:
+                    self.logger.warning(
+                        f"Could not set read permission on {dpath}: {e}")
+
+        # --- Phase 2: Create and copy the tarball ---
+        tarball_host_path = Path(staging_dir) / "filesystem.tar"
+        self.logger.info(f"Creating filesystem tarball at {tarball_host_path}...")
+        with tarfile.open(tarball_host_path, "w") as tar:
+            tar.add(staging_dir, arcname='.')
 
         # --- Phase 3: Assemble the final guest script ---
         script_lines = [
             "#!/igloo/utils/busybox sh",
             "export PATH=/igloo/utils:$PATH",
-            "exec > /igloo/shared/host_files/live_image_guest.log 2>&1",
-            "for util in chmod cp mkdir rm ln mknod tar mv stat; do /igloo/utils/busybox ln -sf /igloo/utils/busybox /igloo/utils/$util; done",
+            "exec > /igloo/live_image_guest.log 2>&1",
+            "for util in chmod echo cp mkdir rm ln mknod tar mv stat; do /igloo/utils/busybox ln -sf /igloo/utils/busybox /igloo/utils/$util; done",
             "",
             "run_or_report() {",
+            "  err_line=$1; shift",
+            "  hex_line=$(printf '%x' \"$err_line\")",
             "  cmd=\"$@\"",
             "  eval $cmd",
             "  rc=$?",
             "  if [ $rc -ne 0 ]; then",
-            f"    /igloo/shared/host_files/send_hypercall_raw {REPORT_ERROR:#x}",
-            "    echo \"ERROR: Command failed: $cmd (exit $rc)\" >&2",
+            f"    /igloo/utils/hyp_file_op put /igloo/live_image_guest.log live_image_guest.log", 
+            f"    /igloo/utils/send_portalcall {REPORT_ERROR:#x} $hex_line",
+            "    echo \"ERROR: Command failed: $cmd (exit $rc) at line $err_line ($hex_line)\" >&2",
             "    exit $rc",
             "  fi",
             "}",
@@ -289,9 +244,12 @@ class LiveImage(Plugin):
 
         if paths_to_delete:
             script_lines.append(
-                f"run_or_report rm -rf {' '.join([shlex.quote(p) for p in paths_to_delete])}")
-        script_lines.append(
-            f"run_or_report /igloo/utils/busybox time tar -xf {shlex.quote(tarball_guest_path)} -C /")
+                f"run_or_report $LINENO rm -rf {' '.join([shlex.quote(p) for p in paths_to_delete])}")
+        # Use hyp_file_op to get the tarball and extract
+        script_lines.extend([
+            "run_or_report $LINENO /igloo/utils/hyp_file_op get filesystem.tar /igloo/filesystem.tar",
+            "run_or_report $LINENO /igloo/utils/busybox tar -xf /igloo/filesystem.tar -C /",
+        ])
 
         # --- Phase 4: Batch-process binary patches ---
         if self.patch_queue:
@@ -302,13 +260,13 @@ class LiveImage(Plugin):
                 shared_file_name = f"patch_{i}"
                 shared_file_guest_path = f"{self.guest_shared_dir}/{shared_file_name}"
                 patch_staging_cmds.append(
-                    f"run_or_report ORIG_PERMS_{i}=$(stat -c %a {shlex.quote(file_path)})")
+                    f"run_or_report $LINENO ORIG_PERMS_{i}=$(stat -c %a {shlex.quote(file_path)})")
                 patch_staging_cmds.append(
-                    f"run_or_report mv {shlex.quote(file_path)} {shlex.quote(shared_file_guest_path)}")
+                    f"run_or_report $LINENO mv {shlex.quote(file_path)} {shlex.quote(shared_file_guest_path)}")
                 patch_return_cmds.append(
-                    f"run_or_report mv {shlex.quote(shared_file_guest_path)} {shlex.quote(file_path)}")
+                    f"run_or_report $LINENO mv {shlex.quote(shared_file_guest_path)} {shlex.quote(file_path)}")
                 patch_return_cmds.append(
-                    f"run_or_report chmod \"$ORIG_PERMS_{i}\" {shlex.quote(file_path)}")
+                    f"run_or_report $LINENO chmod \"$ORIG_PERMS_{i}\" {shlex.quote(file_path)}")
 
             script_lines.append("\n# Staging all files for patching")
             script_lines.extend(patch_staging_cmds)
@@ -316,16 +274,17 @@ class LiveImage(Plugin):
             script_lines.append(
                 "\n# Triggering single batched patch hypercall")
             script_lines.append(
-                f"run_or_report /igloo/shared/host_files/send_hypercall_raw {BATCH_PATCH_FILES_ACTION_MAGIC:#x}")
+                f"run_or_report /igloo/utils/send_portalcall {BATCH_PATCH_FILES_ACTION_MAGIC:#x}")
 
             script_lines.append("\n# Moving all patched files back")
             script_lines.extend(patch_return_cmds)
 
         for cmd in post_tar_commands:
-            script_lines.append(f"run_or_report {cmd}")
+            script_lines.append(f"run_or_report $LINENO {cmd}")
         if move_sources_to_remove:
             script_lines.append(
-                f"run_or_report rm -f {' '.join([shlex.quote(p) for p in move_sources_to_remove])}")
+                f"run_or_report $LINENO rm -f {' '.join([shlex.quote(p) for p in move_sources_to_remove])}")
+        script_lines.append(f"run_or_report $LINENO /igloo/utils/send_portalcall {GEN_LIVE_IMAGE_ACTION_FINISHED:#x}")
         return "\n".join(script_lines) + "\n"
 
     def _apply_patch_to_file_content(self, original_content: bytes, action: Dict) -> Optional[bytes]:
@@ -384,6 +343,7 @@ class LiveImage(Plugin):
                 f"Keystone assembly failed for arch {self.arch}: {e}")
             return None
 
+    @plugins.portalcall.portalcall(BATCH_PATCH_FILES_ACTION_MAGIC)
     def _on_batch_patch_hypercall(self, cpu):
         """Handles a single hypercall to patch all files in the queue."""
         self.logger.info(f"Batch patching {len(self.patch_queue)} files...")
@@ -417,7 +377,8 @@ class LiveImage(Plugin):
         self.logger.info("Batch patching completed successfully.")
         self.panda.arch.set_retval(cpu, 0, convention="syscall")
 
-    def _on_live_image_finished(self, cpu):
+    @plugins.portalcall.portalcall(GEN_LIVE_IMAGE_ACTION_FINISHED)
+    def _on_live_image_finished(self):
         self.fs_generated = True
         for cb in self._init_callbacks:
             # If class-level, resolve method
@@ -433,50 +394,120 @@ class LiveImage(Plugin):
                     continue
             else:
                 cb_to_call = cb
-            cb_to_call(cpu)
-        self.panda.arch.set_retval(cpu, 0, convention="syscall")
+            cb_to_call()
+        return 0
 
-    def _on_live_image_hypercall(self, cpu):
-        """The main entry point triggered by the guest's hypercall."""
-        if self.script_generated:
-            self.panda.arch.set_retval(cpu, 0, convention="syscall")
-            return
 
-        self.logger.info(
-            "Live image hypercall received. Generating setup script...")
-
-        try:
-            script_content = self._generate_setup_script()
-            script_path = self.host_files_dir / "gen_live_image.sh"
-            script_path.write_text(script_content)
-            script_path.chmod(0o755)
-
-            self.logger.info(
-                f"Successfully generated setup script at {script_path}")
-            self.script_generated = True
-            self.panda.arch.set_retval(cpu, 0, convention="syscall")
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to generate live image script: {e}", exc_info=True)
-            # Set error retval to max unsigned for register size
-            max_unsigned = (1 << self.panda.bits) - 1
-            self.panda.arch.set_retval(cpu, max_unsigned, convention="syscall")
-
-    def _on_report_error(self, cpu):
+    @plugins.portalcall.portalcall(REPORT_ERROR)
+    def _on_report_error(self, line_num):
         """Handles guest error reporting via hypercall."""
         self.logger.error("LiveImage guest error reported via hypercall.")
+        self.logger.error(f"Error reported at line {line_num} in guest script.")
+        # Print gen_live_image.sh script bytes
+        script_bytes = self._get_gen_live_image_script_bytes()
+        output = "gen_live_image.sh contents:\n"
+        for i, line in enumerate(script_bytes.decode("utf-8", errors="replace").splitlines()):
+            output += f"{i+1}\t| {line.rstrip()}\n"
+        self.logger.error(output)
         # Print last few lines from guest log
-        log_path = Path(self.shared_dir) / "host_files" / \
-            "live_image_guest.log"
+        log_path = Path(self.staged_dir) / "live_image_guest.log"
         try:
+            output = "live_image_guest.log contents:\n"
             with open(log_path, "r") as f:
-                lines = f.readlines()
-            self.logger.error("Last lines from live_image_guest.log:")
-            for line in lines[-10:]:
-                self.logger.error(line.rstrip())
+                for line in f.readlines():
+                    output += f"{line.rstrip()}\n"
+            self.logger.error(output)
         except Exception as e:
             self.logger.error(f"Could not read guest log: {e}")
         # Stop the system
         self.logger.error("Halting system due to guest error.")
         self.panda.end_analysis()
+
+    def _get_gen_live_image_script_bytes(self):
+        if not hasattr(self, '_gen_live_image_script_bytes') or self._gen_live_image_script_bytes is None:
+            script_content = self._generate_setup_script()
+            self._gen_live_image_script_bytes = script_content.encode()
+        return self._gen_live_image_script_bytes
+
+    @plugins.portalcall.portalcall(MAGIC_GET)
+    def portalcall_get(self, path_ptr, offset, chunk_size, buffer_ptr):
+        path = yield from plugins.mem.read_str(path_ptr)
+        self.logger.debug(f"portalcall_get: path={path}, offset={offset}, chunk_size={chunk_size}, buffer_ptr={buffer_ptr}")
+        # On-demand generation for gen_live_image.sh
+        if path == "gen_live_image.sh":
+            script_bytes = self._get_gen_live_image_script_bytes()
+            script_len = len(script_bytes)
+            if offset >= script_len:
+                self.logger.debug(f"portalcall_get: offset {offset} >= script_len {script_len}, returning 0 bytes")
+                return 0
+            end = min(offset + chunk_size, script_len)
+            data = script_bytes[offset:end]
+            self.logger.debug(f"portalcall_get: gen_live_image.sh, writing {len(data)} bytes")
+            yield from plugins.mem.write_bytes(buffer_ptr, data)
+            return len(data)
+        staged_dir = getattr(self, "staged_dir", None)
+        if staged_dir is None:
+            staged_dir = tempfile.gettempdir()
+        file_path = Path(staged_dir) / path.lstrip("/")
+        if offset == 0 and chunk_size == 0:
+            if not file_path.exists():
+                self.logger.debug(f"portalcall_get: file not found {file_path}")
+                return -1
+            size = file_path.stat().st_size
+            self.logger.debug(f"portalcall_get: file size {size}")
+            return size
+        if not file_path.exists():
+            self.logger.debug(f"portalcall_get: file not found {file_path}")
+            return -1
+        with open(file_path, "rb") as f:
+            f.seek(offset)
+            data = f.read(chunk_size)
+        self.logger.debug(f"portalcall_get: writing {len(data)} bytes from file {file_path}")
+        yield from plugins.mem.write_bytes(buffer_ptr, data)
+        return len(data)
+
+    @plugins.portalcall.portalcall(MAGIC_PUT)
+    def portalcall_put(self, path_ptr, offset, chunk_size, buffer_ptr):
+        path = yield from plugins.mem.read_str(path_ptr)
+        staged_dir = getattr(self, "staged_dir", None)
+        if staged_dir is None:
+            staged_dir = tempfile.gettempdir()
+        file_path = Path(staged_dir) / path.lstrip("/")
+        data = yield from plugins.mem.read_bytes(buffer_ptr, chunk_size)
+        with open(file_path, "r+b" if file_path.exists() else "wb") as f:
+            f.seek(offset)
+            f.write(data)
+        return len(data)
+
+    @plugins.portalcall.portalcall(MAGIC_GET_PERM)
+    def portalcall_get_perm(self, path_ptr):
+        path = yield from plugins.mem.read_str(path_ptr)
+        staged_dir = getattr(self, "staged_dir", None)
+        if staged_dir is None:
+            staged_dir = tempfile.gettempdir()
+        file_path = Path(staged_dir) / path.lstrip("/")
+        if not file_path.exists():
+            return -1
+        try:
+            mode = file_path.stat().st_mode & 0o7777
+            return mode
+        except Exception:
+            return -1
+
+    @plugins.portalcall.portalcall(MAGIC_GETSIZE)
+    def portalcall_getsize(self, path_ptr):
+        path = yield from plugins.mem.read_str(path_ptr)
+        if path == "gen_live_image.sh":
+            script_bytes = self._get_gen_live_image_script_bytes()
+            return len(script_bytes)
+        staged_dir = getattr(self, "staged_dir", None)
+        if staged_dir is None:
+            staged_dir = tempfile.gettempdir()
+        file_path = Path(staged_dir) / path.lstrip("/")
+        if not file_path.exists():
+            return -1
+        try:
+            size = file_path.stat().st_size
+            return size
+        except Exception:
+            return -1
