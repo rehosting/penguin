@@ -1,5 +1,4 @@
 from penguin import Plugin, plugins
-from penguin.defaults import static_dir
 import shutil
 import os
 from typing import Iterator, Dict, Tuple, Optional, Callable
@@ -236,7 +235,7 @@ class LiveImage(Plugin):
             "  eval $cmd",
             "  rc=$?",
             "  if [ $rc -ne 0 ]; then",
-            f"    /igloo/utils/hyp_file_op put /igloo/live_image_guest.log live_image_guest.log",
+            "    /igloo/utils/hyp_file_op put /igloo/live_image_guest.log live_image_guest.log",
             f"    /igloo/utils/send_portalcall {REPORT_ERROR:#x} $hex_line",
             "    echo \"ERROR: Command failed: $cmd (exit $rc) at line $err_line ($hex_line)\" >&2",
             "    exit $rc",
