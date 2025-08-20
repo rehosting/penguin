@@ -434,7 +434,7 @@ class Mem(Plugin):
         return (yield from self.write_bytes(addr, data, pid))
 
     def read_long_array(self, addr: int, count: int,
-                       pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
+                        pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
         """
         ### Read an array of 8-byte long integers from guest memory
 
