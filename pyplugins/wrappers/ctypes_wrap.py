@@ -610,6 +610,18 @@ class BoundTypeInstance:
             if compiled_struct_obj is None:
                 raise ValueError(
                     f"Cannot get compiled struct for base type '{name}' to write field '{field_name_for_error}'.")
+            # Handle negative values for unsigned types
+            if base_type_def.signed is False and isinstance(value_to_write, int) and value_to_write < 0:
+                value_to_write = value_to_write % (1 << (base_type_def.size * 8))
+            # Handle wrapping for signed types
+            if base_type_def.signed is True and isinstance(value_to_write, int):
+                bits = base_type_def.size * 8
+                max_signed = (1 << (bits - 1)) - 1
+                min_signed = -(1 << (bits - 1))
+                if value_to_write > max_signed:
+                    value_to_write = value_to_write - (1 << bits)
+                if value_to_write < min_signed:
+                    value_to_write = ((value_to_write + (1 << bits)) % (1 << bits)) + min_signed
             try:
                 compiled_struct_obj.pack_into(
                     self._instance_buffer, absolute_field_offset, value_to_write)
