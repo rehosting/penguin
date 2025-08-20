@@ -261,22 +261,19 @@ class LiveImage(Plugin):
                 shared_file_name = f"patch_{i}"
                 shared_file_guest_path = f"{self.guest_shared_dir}/{shared_file_name}"
                 patch_staging_cmds.append(
-                    f"run_or_report $LINENO ORIG_PERMS_{i}=$(stat -c %a {shlex.quote(file_path)})")
-                patch_staging_cmds.append(
-                    f"run_or_report $LINENO mv {shlex.quote(file_path)} {shlex.quote(shared_file_guest_path)}")
-                patch_return_cmds.append(
-                    f"run_or_report $LINENO mv {shlex.quote(shared_file_guest_path)} {shlex.quote(file_path)}")
-                patch_return_cmds.append(
-                    f"run_or_report $LINENO chmod \"$ORIG_PERMS_{i}\" {shlex.quote(file_path)}")
-
+                    f"run_or_report $LINENO /igloo/utils/hyp_file_op put {shlex.quote(file_path)} {shlex.quote(os.path.basename(shared_file_guest_path))}")
             script_lines.append("\n# Staging all files for patching")
             script_lines.extend(patch_staging_cmds)
 
+            script_lines.append("\n# Triggering single batched patch hypercall")
             script_lines.append(
-                "\n# Triggering single batched patch hypercall")
-            script_lines.append(
-                f"run_or_report /igloo/utils/send_portalcall {BATCH_PATCH_FILES_ACTION_MAGIC:#x}")
+                f"run_or_report $LINENO /igloo/utils/send_portalcall {BATCH_PATCH_FILES_ACTION_MAGIC:#x}")
 
+            for i, (file_path, _) in enumerate(self.patch_queue):
+                shared_file_name = f"patch_{i}"
+                shared_file_guest_path = f"{self.guest_shared_dir}/{shared_file_name}"
+                patch_return_cmds.append(
+                    f"run_or_report $LINENO /igloo/utils/hyp_file_op get {shlex.quote(shared_file_guest_path)} {shlex.quote(file_path)}")
             script_lines.append("\n# Moving all patched files back")
             script_lines.extend(patch_return_cmds)
 
@@ -350,12 +347,16 @@ class LiveImage(Plugin):
         """Handles a single hypercall to patch all files in the queue."""
         self.logger.info(f"Batch patching {len(self.patch_queue)} files...")
 
+        staged_dir = getattr(self, "staged_dir", None)
+        if staged_dir is None:
+            staged_dir = tempfile.gettempdir()
+
         for i, (guest_path, action) in enumerate(self.patch_queue):
             shared_file_name = f"patch_{i}"
-            host_side_path = self.host_files_dir / shared_file_name
+            host_side_path = Path(staged_dir) / shared_file_name
 
             self.logger.debug(
-                f"Patching guest file '{guest_path}' via shared file '{host_side_path}'")
+                f"Patching guest file '{guest_path}' via staged file '{host_side_path}'")
 
             try:
                 original_content = host_side_path.read_bytes()
@@ -365,19 +366,17 @@ class LiveImage(Plugin):
                 if patched_content is None:
                     self.logger.error(
                         f"Failed to generate patch for {guest_path}")
-                    self.panda.arch.set_retval(cpu, -1, convention="syscall")
-                    return  # Abort on first failure
+                    return -1
 
                 host_side_path.write_bytes(patched_content)
 
             except Exception as e:
                 self.logger.error(
                     f"Error during file patch of {host_side_path}: {e}", exc_info=True)
-                self.panda.arch.set_retval(cpu, -1, convention="syscall")
-                return  # Abort on first failure
+                return -1
 
         self.logger.info("Batch patching completed successfully.")
-        self.panda.arch.set_retval(cpu, 0, convention="syscall")
+        return 0
 
     @plugins.portalcall.portalcall(GEN_LIVE_IMAGE_ACTION_FINISHED)
     def _on_live_image_finished(self):
