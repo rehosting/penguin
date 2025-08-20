@@ -75,6 +75,12 @@ def tar_add_min_files(tf_path, config):
         # /igloo/utils/busybox
         busybox_path = f"{STATIC_DIR}/{arch_dir}/busybox"
         tf.add(busybox_path, arcname="igloo/utils/busybox", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
+        # /igloo/utils/hyp_file_op
+        shr = f"{STATIC_DIR}/{arch_dir}/hyp_file_op"
+        tf.add(shr, arcname="igloo/utils/hyp_file_op", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
+        # /igloo/utils/send_portalcall
+        shr = f"{STATIC_DIR}/{arch_dir}/send_portalcall"
+        tf.add(shr, arcname="igloo/utils/send_portalcall", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
         # /igloo/utils/sh (symlink)
         symlink_info = tarfile.TarInfo(name="igloo/utils/sh")
         symlink_info.type = tarfile.SYMTYPE
@@ -107,13 +113,13 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
         TARBALL = MODIFIED_TARBALL
         # 1GB of padding. XXX is this a good amount - does it slow things down if it's too much?
         # Our disk images are sparse, so this doesn't actually take up any space?
-        PADDING_MB = 1024
+        PADDING_MB = 4096  # Was 1024
         BLOCK_SIZE = 4096
 
         # Calculate image and filesystem size
         UNPACKED_SIZE = int(check_output(f'zcat "{TARBALL}" | wc -c', shell=True))
         UNPACKED_SIZE = UNPACKED_SIZE + 1024 * 1024 * PADDING_MB
-        REQUIRED_BLOCKS = int((UNPACKED_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE + 1024)
+        REQUIRED_BLOCKS = int((UNPACKED_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE + 4096)  # Was +1024
         FILESYSTEM_SIZE = int(REQUIRED_BLOCKS * BLOCK_SIZE)
 
         # Calculate the number of inodes - err on the side of too big since we'll add more to the FS later
