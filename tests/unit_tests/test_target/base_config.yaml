@@ -39,6 +39,7 @@ patches:
   - ./patches/tests/uprobes.yaml
   - ./patches/tests/scripting.yaml
   - ./patches/tests/module.yaml
+  - ./patches/tests/live_image.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 
