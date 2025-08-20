@@ -25,7 +25,6 @@ class LiveImage(Plugin):
     """
 
     def __init__(self) -> None:
-        self.logger.setLevel("DEBUG")
         self._staging_dir_obj = tempfile.TemporaryDirectory()
         self.staged_dir = self._staging_dir_obj.name
         self.proj_dir = Path(self.get_arg("proj_dir")).resolve()
