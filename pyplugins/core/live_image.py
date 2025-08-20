@@ -12,7 +12,7 @@ import shlex
 GEN_LIVE_IMAGE_ACTION_FINISHED = 0xf113c1df
 # Hypercall to patch all files at once
 BATCH_PATCH_FILES_ACTION_MAGIC = 0xf113c0e0
-MAGIC_GET  = 0xf113c0e1
+MAGIC_GET = 0xf113c0e1
 MAGIC_PUT = 0xf113c0e2
 MAGIC_GET_PERM = 0xf113c0e3
 MAGIC_GETSIZE = 0xf113c0e4
@@ -168,7 +168,8 @@ class LiveImage(Plugin):
                     f"ln -sf {shlex.quote(action['target'])} {shlex.quote(file_path)}")
             elif action_type == "shim":
                 orig_path = f"/igloo/utils/{Path(file_path).name}.orig"
-                post_tar_commands.append(f"mv {shlex.quote(file_path)} {shlex.quote(orig_path)}")
+                post_tar_commands.append(
+                    f"mv {shlex.quote(file_path)} {shlex.quote(orig_path)}")
                 post_tar_commands.append(
                     f"ln -sf {shlex.quote(action['target'])} {shlex.quote(file_path)}")
             elif action_type == "move":
@@ -182,7 +183,8 @@ class LiveImage(Plugin):
                 # Ensure parent directory exists in the tarball
                 parent_dir = Path(file_path).parent
                 if str(parent_dir) != '.':
-                    staged_parent_dir = staging_dir / str(parent_dir).lstrip('/')
+                    staged_parent_dir = staging_dir / \
+                        str(parent_dir).lstrip('/')
                     staged_parent_dir.mkdir(parents=True, exist_ok=True)
 
                 dev_char = 'c' if action['devtype'] == 'char' else 'b'
@@ -215,7 +217,8 @@ class LiveImage(Plugin):
 
         # --- Phase 2: Create and copy the tarball ---
         tarball_host_path = Path(staging_dir) / "filesystem.tar"
-        self.logger.info(f"Creating filesystem tarball at {tarball_host_path}...")
+        self.logger.info(
+            f"Creating filesystem tarball at {tarball_host_path}...")
         with tarfile.open(tarball_host_path, "w") as tar:
             tar.add(staging_dir, arcname='.')
 
@@ -233,7 +236,7 @@ class LiveImage(Plugin):
             "  eval $cmd",
             "  rc=$?",
             "  if [ $rc -ne 0 ]; then",
-            f"    /igloo/utils/hyp_file_op put /igloo/live_image_guest.log live_image_guest.log", 
+            f"    /igloo/utils/hyp_file_op put /igloo/live_image_guest.log live_image_guest.log",
             f"    /igloo/utils/send_portalcall {REPORT_ERROR:#x} $hex_line",
             "    echo \"ERROR: Command failed: $cmd (exit $rc) at line $err_line ($hex_line)\" >&2",
             "    exit $rc",
@@ -284,7 +287,8 @@ class LiveImage(Plugin):
         if move_sources_to_remove:
             script_lines.append(
                 f"run_or_report $LINENO rm -f {' '.join([shlex.quote(p) for p in move_sources_to_remove])}")
-        script_lines.append(f"run_or_report $LINENO /igloo/utils/send_portalcall {GEN_LIVE_IMAGE_ACTION_FINISHED:#x}")
+        script_lines.append(
+            f"run_or_report $LINENO /igloo/utils/send_portalcall {GEN_LIVE_IMAGE_ACTION_FINISHED:#x}")
         return "\n".join(script_lines) + "\n"
 
     def _apply_patch_to_file_content(self, original_content: bytes, action: Dict) -> Optional[bytes]:
@@ -390,19 +394,20 @@ class LiveImage(Plugin):
                     bound_cb = getattr(instance, method_name)
                     cb_to_call = bound_cb
                 else:
-                    self.logger.error(f"Could not resolve class method {cb.__qualname__} for module_init")
+                    self.logger.error(
+                        f"Could not resolve class method {cb.__qualname__} for module_init")
                     continue
             else:
                 cb_to_call = cb
             cb_to_call()
         return 0
 
-
     @plugins.portalcall.portalcall(REPORT_ERROR)
     def _on_report_error(self, line_num):
         """Handles guest error reporting via hypercall."""
         self.logger.error("LiveImage guest error reported via hypercall.")
-        self.logger.error(f"Error reported at line {line_num} in guest script.")
+        self.logger.error(
+            f"Error reported at line {line_num} in guest script.")
         # Print gen_live_image.sh script bytes
         script_bytes = self._get_gen_live_image_script_bytes()
         output = "gen_live_image.sh contents:\n"
@@ -432,17 +437,20 @@ class LiveImage(Plugin):
     @plugins.portalcall.portalcall(MAGIC_GET)
     def portalcall_get(self, path_ptr, offset, chunk_size, buffer_ptr):
         path = yield from plugins.mem.read_str(path_ptr)
-        self.logger.debug(f"portalcall_get: path={path}, offset={offset}, chunk_size={chunk_size}, buffer_ptr={buffer_ptr}")
+        self.logger.debug(
+            f"portalcall_get: path={path}, offset={offset}, chunk_size={chunk_size}, buffer_ptr={buffer_ptr}")
         # On-demand generation for gen_live_image.sh
         if path == "gen_live_image.sh":
             script_bytes = self._get_gen_live_image_script_bytes()
             script_len = len(script_bytes)
             if offset >= script_len:
-                self.logger.debug(f"portalcall_get: offset {offset} >= script_len {script_len}, returning 0 bytes")
+                self.logger.debug(
+                    f"portalcall_get: offset {offset} >= script_len {script_len}, returning 0 bytes")
                 return 0
             end = min(offset + chunk_size, script_len)
             data = script_bytes[offset:end]
-            self.logger.debug(f"portalcall_get: gen_live_image.sh, writing {len(data)} bytes")
+            self.logger.debug(
+                f"portalcall_get: gen_live_image.sh, writing {len(data)} bytes")
             yield from plugins.mem.write_bytes(buffer_ptr, data)
             return len(data)
         staged_dir = getattr(self, "staged_dir", None)
@@ -451,7 +459,8 @@ class LiveImage(Plugin):
         file_path = Path(staged_dir) / path.lstrip("/")
         if offset == 0 and chunk_size == 0:
             if not file_path.exists():
-                self.logger.debug(f"portalcall_get: file not found {file_path}")
+                self.logger.debug(
+                    f"portalcall_get: file not found {file_path}")
                 return -1
             size = file_path.stat().st_size
             self.logger.debug(f"portalcall_get: file size {size}")
@@ -462,7 +471,8 @@ class LiveImage(Plugin):
         with open(file_path, "rb") as f:
             f.seek(offset)
             data = f.read(chunk_size)
-        self.logger.debug(f"portalcall_get: writing {len(data)} bytes from file {file_path}")
+        self.logger.debug(
+            f"portalcall_get: writing {len(data)} bytes from file {file_path}")
         yield from plugins.mem.write_bytes(buffer_ptr, data)
         return len(data)
 
