@@ -131,55 +131,24 @@ def run_command_with_output(cmd: List[str], ignore1, ignore2) -> Tuple[str, str]
 
 
 def hash_image_inputs(proj_dir, conf):
-    """Create a hash of all the inputs of the image creation process"""
+    """
+    Create a hash of all the inputs of the image creation process
 
-    static_files = conf["static_files"]
+    In the new build process this is just the preinit script and the
+    modification time of the base filesystem (since we don't control
+    its contents).
 
-    # Hash contents of fs
-    #
-    # TODO: Replace this with Python 3.11's hashlib.hash_file()
-    with open(os.path.join(proj_dir, conf["core"]["fs"]), "rb") as f:
-        fs_hash = hashlib.sha256()
-        while True:
-            data = f.read(0x1000)
-            if not data:
-                break
-            fs_hash.update(data)
-
-    # Include nvram keys in the hash
-    config_nvram = conf["nvram"] if "nvram" in conf else {}
-    for k, val in config_nvram.items():
-        if isinstance(val, str):
-            encoded = val.encode()
-        elif isinstance(val, int):
-            encoded = str(val).encode()
-        else:
-            raise ValueError(f"Unknown type for nvram value {k}: {type(val)}")
-        fs_hash.update(encoded)
-
-    # If we ever add other ways to import static files, this assert should
-    # remind us that the file contents need to be hashed
-    assert all(
-        "contents" in f or "host_path"
-        for f in static_files.values()
-        if f["type"] == "file"
-    )
-
-    # We'll include the files in our hash by reading them into our temporary
-    # dict of data. This seems safer than doing hashing ourselves and merging.
-    for f in static_files.values():
-        if f["type"] == "host_file":
-            host_path = os.path.join(proj_dir, f["host_path"])
-            for file_path in glob.glob(host_path):
-                with open(file_path, "rb") as f:
-                    fs_hash.update(f.read())
-
-    fs_hash = fs_hash.hexdigest()
-
-    with open("/igloo_static/container_timestamp.txt") as f:
-        container_timestamp = f.read()
-
-    return hash_yaml([container_timestamp, static_files, fs_hash, conf.get("lib_inject")])
+    We specifically do NOT include the busybox binary in this hash despite
+    its potential effect on the image because we expect them to be fairly
+    standard at least over the very small number of lines.
+    """
+    from penguin.defaults import default_preinit_script
+    hsh = hashlib.sha256()
+    hsh.update(default_preinit_script.encode())
+    fs = os.path.join(proj_dir, conf["core"]["fs"])
+    modification_timestamp = os.path.getmtime(fs)
+    hsh.update(f"{modification_timestamp}".encode())
+    return hsh.hexdigest()
 
 
 def _load_penguin_analysis_from(plugin_file):

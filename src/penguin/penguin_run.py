@@ -17,6 +17,7 @@ from penguin import getColoredLogger, plugins
 from .common import yaml
 from .defaults import default_plugin_path, vnc_password
 from penguin.penguin_config import load_config
+from .plugin_manager import ArgsBox
 from .utils import hash_image_inputs
 
 
@@ -237,7 +238,6 @@ def run_config(
 
     if not os.path.isfile(config_fs):
         raise ValueError(f"Missing filesystem archive in base directory: {config_fs}")
-
     h = hash_image_inputs(proj_dir, conf)
     image_filename = f"image_{h}.qcow2"
     config_image = os.path.join(qcow_dir, image_filename)
@@ -262,9 +262,9 @@ def run_config(
         open(lock_file, "a").close()  # create lock file
 
         try:
-            from .gen_image import fakeroot_gen_image
+            from .gen_image import make_image
 
-            fakeroot_gen_image(config_fs, config_image, qcow_dir, proj_dir, conf_yaml)
+            make_image(config_fs, config_image, qcow_dir, proj_dir, conf_yaml)
         except Exception as e:
             logger.error(
                 f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}"
@@ -315,7 +315,7 @@ def run_config(
         if "mips" not in q_config["arch"]:   # and "ppc" not in q_config["arch"]:
             vsock_args.extend(["-numa", "node,memdev=mem0",])
 
-    append = f"root={ROOTFS} init=/igloo/init console=ttyS0 rw panic=1"  # Required
+    append = f"root={ROOTFS} init=/igloo/preinit console=ttyS0 rw panic=1"  # Required
     if "kernel_quiet" in conf["core"] and conf["core"]["kernel_quiet"]:
         append += " quiet"
 
@@ -535,7 +535,7 @@ def run_config(
     logger.info("Loading plugins")
     args = {
         "plugins": conf_plugins,
-        "conf": conf,
+        "conf": ArgsBox(conf),
         "proj_name": os.path.basename(proj_dir).replace("host_", ""),
         "proj_dir": proj_dir,
         "plugin_path": plugin_path,
