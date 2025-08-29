@@ -18,6 +18,7 @@ from .common import yaml
 from .defaults import default_plugin_path, vnc_password
 from penguin.penguin_config import load_config
 from .plugin_manager import ArgsBox
+from .utils import hash_image_inputs
 
 
 # Note armel is just panda-system-arm and mipseb is just panda-system-mips
@@ -237,8 +238,8 @@ def run_config(
 
     if not os.path.isfile(config_fs):
         raise ValueError(f"Missing filesystem archive in base directory: {config_fs}")
-
-    image_filename = "image.qcow2"
+    h = hash_image_inputs(proj_dir, conf)
+    image_filename = f"image_{h}.qcow2"
     config_image = os.path.join(qcow_dir, image_filename)
 
     # Make sure we have a clean out_dir every time. XXX should we raise an error here instead?
