@@ -73,6 +73,8 @@ class LiveImage(Plugin):
         move_sources_to_remove = []
         staging_dir = Path(self.staged_dir)
 
+        shim_orig_names = set()
+        shim_orig_counts = {}
         # --- Phase 1: Plan and Stage for Tarball ---
         for file_path, action in self._plan_actions():
             action_type = action.get("type")
@@ -165,7 +167,18 @@ class LiveImage(Plugin):
                 post_tar_commands.append(
                     f"ln -sf {shlex.quote(action['target'])} {shlex.quote(file_path)}")
             elif action_type == "shim":
-                orig_path = f"/igloo/utils/{Path(file_path).name}.orig"
+                # Place .orig in /igloo/shims and ensure unique name
+                base_name = Path(file_path).name
+                orig_dir = "/igloo/shims"
+                orig_base = f"{base_name}.orig"
+                orig_path = f"{orig_dir}/{orig_base}"
+                if orig_path in shim_orig_names:
+                    count = shim_orig_counts.get(orig_path, 1)
+                    while f"{orig_dir}/{base_name}_{count}.orig" in shim_orig_names:
+                        count += 1
+                    orig_path = f"{orig_dir}/{base_name}_{count}.orig"
+                    shim_orig_counts[orig_path] = count
+                shim_orig_names.add(orig_path)
                 post_tar_commands.append(
                     f"mv {shlex.quote(file_path)} {shlex.quote(orig_path)}")
                 post_tar_commands.append(
