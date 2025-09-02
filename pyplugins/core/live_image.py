@@ -181,8 +181,9 @@ class LiveImage(Plugin):
                 shim_orig_names.add(orig_path)
                 post_tar_commands.append(
                     f"mv {shlex.quote(file_path)} {shlex.quote(orig_path)}")
+                # Symlink to the new .orig path
                 post_tar_commands.append(
-                    f"ln -sf {shlex.quote(action['target'])} {shlex.quote(file_path)}")
+                    f"ln -sf {shlex.quote(orig_path)} {shlex.quote(file_path)}")
             elif action_type == "move":
                 post_tar_commands.append(
                     f"cp {shlex.quote(action['from'])} {shlex.quote(file_path)}")
