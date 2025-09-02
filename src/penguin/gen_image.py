@@ -55,36 +55,36 @@ def tar_add_min_files(tf_path, config):
         igloo_dir.uname = "root"
         igloo_dir.gname = "root"
         tf.addfile(igloo_dir)
-        # Add igloo/utils/ directory
-        igloo_utils_dir = tarfile.TarInfo(name="igloo/utils/")
-        igloo_utils_dir.type = tarfile.DIRTYPE
-        igloo_utils_dir.mode = 0o755
-        igloo_utils_dir.mtime = int(time.time())
-        igloo_utils_dir.uname = "root"
-        igloo_utils_dir.gname = "root"
-        tf.addfile(igloo_utils_dir)
-        # /igloo/preinit
+        # Add igloo/boot/ directory
+        igloo_boot_dir = tarfile.TarInfo(name="igloo/boot/")
+        igloo_boot_dir.type = tarfile.DIRTYPE
+        igloo_boot_dir.mode = 0o755
+        igloo_boot_dir.mtime = int(time.time())
+        igloo_boot_dir.uname = "root"
+        igloo_boot_dir.gname = "root"
+        tf.addfile(igloo_boot_dir)
+        # /igloo/boot/preinit
         init_bytes = default_preinit_script.encode()
-        ti = tarfile.TarInfo(name="igloo/preinit")
+        ti = tarfile.TarInfo(name="igloo/boot/preinit")
         ti.size = len(init_bytes)
         ti.mode = 0o755
         ti.mtime = int(time.time())
         ti.uname = "root"
         ti.gname = "root"
         tf.addfile(ti, fileobj=io.BytesIO(init_bytes))
-        # /igloo/utils/busybox
+        # /igloo/boot/busybox
         busybox_path = f"{STATIC_DIR}/{arch_dir}/busybox"
-        tf.add(busybox_path, arcname="igloo/utils/busybox", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
-        # /igloo/utils/hyp_file_op
+        tf.add(busybox_path, arcname="igloo/boot/busybox", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
+        # /igloo/boot/hyp_file_op
         shr = f"{STATIC_DIR}/{arch_dir}/hyp_file_op"
-        tf.add(shr, arcname="igloo/utils/hyp_file_op", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
-        # /igloo/utils/send_portalcall
-        shr = f"{STATIC_DIR}/{arch_dir}/send_portalcall"
-        tf.add(shr, arcname="igloo/utils/send_portalcall", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
-        # /igloo/utils/sh (symlink)
-        symlink_info = tarfile.TarInfo(name="igloo/utils/sh")
+        tf.add(shr, arcname="igloo/boot/hyp_file_op", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
+        # /igloo/boot/send_portalcall
+        spc = f"{STATIC_DIR}/{arch_dir}/send_portalcall"
+        tf.add(spc, arcname="igloo/boot/send_portalcall", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
+        # /igloo/boot/sh (symlink)
+        symlink_info = tarfile.TarInfo(name="igloo/boot/sh")
         symlink_info.type = tarfile.SYMTYPE
-        symlink_info.linkname = "/igloo/utils/busybox"
+        symlink_info.linkname = "/igloo/boot/busybox"
         symlink_info.mode = 0o777
         symlink_info.mtime = int(time.time())
         symlink_info.uname = "root"
