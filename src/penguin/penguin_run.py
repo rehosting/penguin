@@ -315,7 +315,7 @@ def run_config(
         if "mips" not in q_config["arch"]:   # and "ppc" not in q_config["arch"]:
             vsock_args.extend(["-numa", "node,memdev=mem0",])
 
-    append = f"root={ROOTFS} init=/igloo/preinit console=ttyS0 rw panic=1"  # Required
+    append = f"root={ROOTFS} init=/igloo/boot/preinit console=ttyS0 rw panic=1"  # Required
     if "kernel_quiet" in conf["core"] and conf["core"]["kernel_quiet"]:
         append += " quiet"
 

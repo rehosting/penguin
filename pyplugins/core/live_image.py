@@ -76,7 +76,7 @@ class LiveImage(Plugin):
         # --- Phase 1: Plan and Stage for Tarball ---
         for file_path, action in self._plan_actions():
             action_type = action.get("type")
-            if file_path.startswith("/dev/") or file_path == "/dev" or file_path == "/igloo/utils/busybox":
+            if file_path.startswith("/dev/") or file_path == "/dev":
                 pass  # These actions are handled post-tar
 
             if action_type in ["dir", "host_file", "inline_file"]:
@@ -222,10 +222,10 @@ class LiveImage(Plugin):
 
         # --- Phase 3: Assemble the final guest script ---
         script_lines = [
-            "#!/igloo/utils/busybox sh",
-            "export PATH=/igloo/utils:$PATH",
+            "#!/igloo/boot/busybox sh",
+            "export PATH=/igloo/boot:$PATH",
             "exec > /igloo/live_image_guest.log 2>&1",
-            "for util in chmod echo cp mkdir rm ln mknod tar mv stat; do /igloo/utils/busybox ln -sf /igloo/utils/busybox /igloo/utils/$util; done",
+            "for util in chmod echo cp mkdir rm ln mknod tar mv stat; do /igloo/boot/busybox ln -sf /igloo/boot/busybox /igloo/boot/$util; done",
             "",
             "run_or_report() {",
             "  err_line=$1; shift",
@@ -234,8 +234,8 @@ class LiveImage(Plugin):
             "  eval $cmd",
             "  rc=$?",
             "  if [ $rc -ne 0 ]; then",
-            "    /igloo/utils/hyp_file_op put /igloo/live_image_guest.log live_image_guest.log",
-            f"    /igloo/utils/send_portalcall {REPORT_ERROR:#x} $hex_line",
+            "    /igloo/boot/hyp_file_op put /igloo/live_image_guest.log live_image_guest.log",
+            f"    /igloo/boot/send_portalcall {REPORT_ERROR:#x} $hex_line",
             "    echo \"ERROR: Command failed: $cmd (exit $rc) at line $err_line ($hex_line)\" >&2",
             "    exit $rc",
             "  fi",
@@ -248,8 +248,8 @@ class LiveImage(Plugin):
                 f"run_or_report $LINENO rm -rf {' '.join([shlex.quote(p) for p in paths_to_delete])}")
         # Use hyp_file_op to get the tarball and extract
         script_lines.extend([
-            "run_or_report $LINENO /igloo/utils/hyp_file_op get filesystem.tar /igloo/filesystem.tar",
-            "run_or_report $LINENO /igloo/utils/busybox tar -xf /igloo/filesystem.tar -C /",
+            "run_or_report $LINENO /igloo/boot/hyp_file_op get filesystem.tar /igloo/filesystem.tar",
+            "run_or_report $LINENO /igloo/boot/busybox tar -xf /igloo/filesystem.tar -C /",
         ])
 
         # --- Phase 4: Batch-process binary patches ---
@@ -261,19 +261,19 @@ class LiveImage(Plugin):
                 shared_file_name = f"patch_{i}"
                 shared_file_guest_path = f"{self.guest_shared_dir}/{shared_file_name}"
                 patch_staging_cmds.append(
-                    f"run_or_report $LINENO /igloo/utils/hyp_file_op put {shlex.quote(file_path)} {shlex.quote(os.path.basename(shared_file_guest_path))}")
+                    f"run_or_report $LINENO /igloo/boot/hyp_file_op put {shlex.quote(file_path)} {shlex.quote(os.path.basename(shared_file_guest_path))}")
             script_lines.append("\n# Staging all files for patching")
             script_lines.extend(patch_staging_cmds)
 
             script_lines.append("\n# Triggering single batched patch hypercall")
             script_lines.append(
-                f"run_or_report $LINENO /igloo/utils/send_portalcall {BATCH_PATCH_FILES_ACTION_MAGIC:#x}")
+                f"run_or_report $LINENO /igloo/boot/send_portalcall {BATCH_PATCH_FILES_ACTION_MAGIC:#x}")
 
             for i, (file_path, _) in enumerate(self.patch_queue):
                 shared_file_name = f"patch_{i}"
                 shared_file_guest_path = f"{self.guest_shared_dir}/{shared_file_name}"
                 patch_return_cmds.append(
-                    f"run_or_report $LINENO /igloo/utils/hyp_file_op get {shlex.quote(shared_file_guest_path)} {shlex.quote(file_path)}")
+                    f"run_or_report $LINENO /igloo/boot/hyp_file_op get {shlex.quote(shared_file_guest_path)} {shlex.quote(file_path)}")
             script_lines.append("\n# Moving all patched files back")
             script_lines.extend(patch_return_cmds)
 
@@ -283,7 +283,7 @@ class LiveImage(Plugin):
             script_lines.append(
                 f"run_or_report $LINENO rm -f {' '.join([shlex.quote(p) for p in move_sources_to_remove])}")
         script_lines.append(
-            f"run_or_report $LINENO /igloo/utils/send_portalcall {GEN_LIVE_IMAGE_ACTION_FINISHED:#x}")
+            f"run_or_report $LINENO /igloo/boot/send_portalcall {GEN_LIVE_IMAGE_ACTION_FINISHED:#x}")
         return "\n".join(script_lines) + "\n"
 
     def _apply_patch_to_file_content(self, original_content: bytes, action: Dict) -> Optional[bytes]:
