@@ -89,8 +89,10 @@ class Mem(Plugin):
                 if cpu is None:
                     cpu = self.panda.get_cpu()
                 try:
+                    # Mask address for 32-bit architectures to avoid OverflowError
+                    panda_addr = chunk_addr & 0xFFFFFFFF if self.panda.bits == 32 else chunk_addr
                     self.panda.virtual_memory_write(
-                        cpu, chunk_addr, chunk_data)
+                        cpu, panda_addr, chunk_data)
                     success = True
                 except ValueError:
                     pass
@@ -129,8 +131,10 @@ class Mem(Plugin):
                 if cpu is None:
                     cpu = self.panda.get_cpu()
                 try:
+                    # Mask address for 32-bit architectures to avoid OverflowError
+                    panda_addr = chunk_addr & 0xFFFFFFFF if self.panda.bits == 32 else chunk_addr
                     chunk = self.panda.virtual_memory_read(
-                        cpu, chunk_addr, chunk_size)
+                        cpu, panda_addr, chunk_size)
                 except ValueError:
                     pass
             if not chunk:
