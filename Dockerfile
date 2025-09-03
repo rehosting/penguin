@@ -18,12 +18,13 @@ ARG FW2TAR_TAG="v2.0.6"
 ARG PANDA_VERSION="pandav0.0.47"
 ARG PANDANG_VERSION="0.0.32"
 ARG RIPGREP_VERSION="14.1.1"
+ARG IGLOO_DRIVER_VERSION="0.0.1"
 
 FROM ${REGISTRY}/rust:1.86 AS rust_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
 ARG VHOST_DEVICE_VERSION
 ENV PATH="/root/.cargo/bin:$PATH"
-ENV CARGO_INSTALL_ROOT="/usr/local" 
+ENV CARGO_INSTALL_ROOT="/usr/local"
 
 RUN apt-get update && apt-get install -y -q build-essential libfontconfig1-dev liblzma-dev
 
@@ -144,6 +145,11 @@ RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} hyperfs.tar.gz | \
 # Download guesthopper from CI. Populate /igloo_static/guesthopper
 ARG GUESTHOPPER_VERSION
 RUN /get_release.sh rehosting guesthopper ${GUESTHOPPER_VERSION} guesthopper.tar.gz | \
+    tar xzf - -C /igloo_static
+
+# Download igloo_driver. Populate /igloo_static/igloo_driver
+ARG IGLOO_DRIVER_VERSION
+RUN /get_release.sh rehosting igloo_driver ${IGLOO_DRIVER_VERSION} igloo_driver.tar.gz | \
     tar xzf - -C /igloo_static
 
 RUN wget https://github.com/wtdcode/DebianOnQEMU/releases/download/v2024.01.05/bios-loong64-8.1.bin -O /igloo_static/loongarch64/bios-loong64-8.1.bin
@@ -510,6 +516,10 @@ RUN if [ -d /tmp/local_packages ]; then \
         if [ -f /tmp/local_packages/guesthopper.tar.gz ]; then \
             rm -rf /igloo_static/guesthopper; \
             tar xzf /tmp/local_packages/guesthopper.tar.gz -C /igloo_static; \
+        fi; \
+        if [ -f /tmp/local_packages/igloo_driver.tar.gz ]; then \
+            rm -rf /igloo_static/igloo_driver; \
+            tar xzf /tmp/local_packages/igloo_driver.tar.gz -C /igloo_static; \
         fi; \
     fi
 RUN mkdir /igloo_static/utils.source && \
