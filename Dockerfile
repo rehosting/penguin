@@ -368,7 +368,7 @@ RUN git clone --depth=1 https://github.com/ReFirmLabs/binwalk /binwalk && \
 COPY --from=python_builder /app/wheels /wheels
 
 # Remove python_lzo 1.0 to resolve depdency collision with vmlinux-to-elf
-RUN rm /wheels/python_lzo*
+RUN rm -rf /wheels/python_lzo*
 
 RUN pip install --no-cache /wheels/*
 
