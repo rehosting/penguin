@@ -30,17 +30,18 @@ All NVRAM operations are logged to `nvram.csv` in the specified output directory
 from penguin import Plugin, plugins
 from penguin.abi_info import ARCH_ABI_INFO
 import subprocess
+import os
+import hashlib
+from pathlib import Path
 
 log = "nvram.csv"
 
 # access: 0 = miss get, 1 = hit get, 2 = set, 3 = clear
 
-
-def add_lib_inject_for_abi(config, abi):
-    """Compile lib_inject for the ABI and put it in /igloo"""
+def add_lib_inject_for_abi(config, abi, cache_dir):
+    """Compile lib_inject for the ABI and put it in /igloo, using cache_dir for caching"""
 
     arch = config["core"]["arch"]
-
     lib_inject = config.get("lib_inject", dict())
     arch_info = ARCH_ABI_INFO[arch]
     abi_info = arch_info["abis"][abi]
@@ -48,6 +49,9 @@ def add_lib_inject_for_abi(config, abi):
     libnvram_arch_name = abi_info.get(
         'libnvram_arch_name', None) or arch_info['libnvram_arch_name']
     aliases = lib_inject.get("aliases", dict())
+
+    cache_dir = Path(cache_dir)
+    os.makedirs(cache_dir, exist_ok=True)
 
     hash_options = "-Wl,--hash-style=both" if "mips" not in arch else ""
 
@@ -83,32 +87,42 @@ def add_lib_inject_for_abi(config, abi):
          )])
         + abi_info.get("extra_flags", [])
     )
-    p = subprocess.run(
-        args,
-        input=lib_inject.get("extra", "").encode(),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    if p.returncode != 0:
-        print("FATAL: Failed to build lib_inject. Did your config specify an invalid alias target in libinject.aliases? Did you create a new function in libinject.extra with a syntax error?")
-        print("Compiler stderr output:")
-        print(p.stderr.decode(errors="replace"))
-        raise Exception("Failed to build lib_inject")
+    # Create a hash of all relevant inputs for caching
+    hash_input = str((arch, abi, aliases, lib_inject.get("extra", ""), args)).encode()
+    cache_key = hashlib.sha256(hash_input).hexdigest()
+    cache_path = cache_dir / f"lib_inject_{arch}_{abi}_{cache_key}.so"
+
+    if cache_path.exists():
+        so_data = cache_path.read_bytes()
+    else:
+        p = subprocess.run(
+            args,
+            input=lib_inject.get("extra", "").encode(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if p.returncode != 0:
+            print("FATAL: Failed to build lib_inject. Did your config specify an invalid alias target in libinject.aliases? Did you create a new function in libinject.extra with a syntax error?")
+            print("Compiler stderr output:")
+            print(p.stderr.decode(errors="replace"))
+            raise Exception("Failed to build lib_inject")
+        so_data = p.stdout
+        cache_path.write_bytes(so_data)
 
     config["static_files"][f"/igloo/lib_inject_{abi}.so"] = dict(
         type="inline_file",
-        contents=p.stdout,
+        contents=so_data,
         mode=0o444,
     )
 
 
-def add_lib_inject_all_abis(conf):
+def add_lib_inject_all_abis(conf, cache_dir):
     """Add lib_inject for all supported ABIs to /igloo"""
 
     arch = conf["core"]["arch"]
     arch_info = ARCH_ABI_INFO[arch]
     for abi in arch_info["abis"].keys():
-        add_lib_inject_for_abi(conf, abi)
+        add_lib_inject_for_abi(conf, abi, cache_dir)
 
     # This isn't covered by the automatic symlink-adding code,
     # so do it manually here.
@@ -120,7 +134,7 @@ def add_lib_inject_all_abis(conf):
     )
 
 
-def prep_config(conf):
+def prep_config(conf, cache_dir):
     config_files = conf["static_files"] if "static_files" in conf else {}
     config_nvram = conf["nvram"] if "nvram" in conf else {}
 
@@ -144,7 +158,7 @@ def prep_config(conf):
             "mode": 0o644,
         }
 
-    add_lib_inject_all_abis(conf)
+    add_lib_inject_all_abis(conf, cache_dir)
 
 
 class Nvram2(Plugin):
@@ -178,7 +192,10 @@ class Nvram2(Plugin):
             self.logger.setLevel("DEBUG")
 
         config = self.get_arg("conf")
-        prep_config(config)
+        proj_dir = self.get_arg("proj_dir")
+        cache_dir = Path(proj_dir).resolve() / "qcows" / "cache" if proj_dir else Path(os.path.dirname(os.path.abspath(__file__))).resolve() / "qcows" / "cache"
+        os.makedirs(cache_dir, exist_ok=True)
+        prep_config(config, cache_dir)
         # Even at debug level, logging every nvram get/clear can be very verbose.
         # As such, we only debug log nvram sets
 
