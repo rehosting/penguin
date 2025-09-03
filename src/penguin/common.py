@@ -80,28 +80,37 @@ def patch_config(base_config, patch):
             if hasattr(section_model_class, '__origin__') and hasattr(section_model_class, '__args__'):
                 section_model_class = section_model_class.__args__[0]
 
-            # Now get the field info from the section model
-            field_info = section_model_class.model_fields.get(field_name)
-            if field_info and hasattr(field_info, 'annotation'):
-                annotation = field_info.annotation
-                if hasattr(annotation, '__metadata__'):
+            # Look at the raw annotations from the class definition (Pydantic will strip these)
+            if hasattr(section_model_class, '__annotations__'):
+                raw_annotation = section_model_class.__annotations__.get(field_name)
+                if raw_annotation and hasattr(raw_annotation, '__metadata__'):
                     # Look for PatchPolicy in the metadata tuple
-                    for metadata_item in annotation.__metadata__:
+                    for metadata_item in raw_annotation.__metadata__:
                         if isinstance(metadata_item, PatchPolicy):
                             return metadata_item
+
         except Exception:
             pass
 
-        return PatchPolicy.OVERRIDE    # Merge configs.
-    def _recursive_update(base, new):
+        return PatchPolicy.OVERRIDE
+
+    def _recursive_update(base, new, section_name=None):
         for k, v in new.items():
             if isinstance(v, dict):
-                base[k] = _recursive_update(base.get(k, {}), v)
+                base[k] = _recursive_update(base.get(k, {}), v, section_name)
             elif isinstance(v, list):
                 # Append
                 base[k] = base.get(k, []) + v
             else:
-                base[k] = v
+                # Handle string merging with patch policy lookup
+                if (isinstance(v, str) and k in base and isinstance(base[k], str) and section_name):
+                    merge_policy = _get_field_patch_policy(section_name, k)
+                    if merge_policy != PatchPolicy.OVERRIDE:
+                        base[k] = _merge_string_value(base[k], v, merge_policy)
+                    else:
+                        base[k] = v
+                else:
+                    base[k] = v
         return base
 
     if issubclass(type(patch), Path):
@@ -115,19 +124,8 @@ def patch_config(base_config, patch):
         if key in base_config:
             # If the value is a dictionary, update subfields
             if isinstance(value, dict):
-                # Handle field-level merge policies for this section
-                for field_name, field_value in value.items():
-                    if (isinstance(field_value, str) and field_name in base_config[key]
-                            and isinstance(base_config[key][field_name], str)):
-                        merge_policy = _get_field_patch_policy(key, field_name)
-                        if merge_policy != PatchPolicy.OVERRIDE:
-                            base_config[key][field_name] = _merge_string_value(
-                                base_config[key][field_name], field_value, merge_policy)
-                            # Remove this field from the patch since we handled it
-                            value = {k: v for k, v in value.items() if k != field_name}
-
                 # Recursive update to handle nested dictionaries
-                base_config[key] = _recursive_update(base_config.get(key, {}), value)
+                base_config[key] = _recursive_update(base_config.get(key, {}), value, key)
             elif isinstance(value, list):
                 # Merge lists
                 seen = set()
