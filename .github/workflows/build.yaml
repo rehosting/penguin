@@ -111,17 +111,27 @@ jobs:
           tar xzf "$SCRATCH/penguin-src-${{ github.sha }}.tar.gz" -C "$GITHUB_WORKSPACE"
       - name: Install dependencies and label git workspace safe
         run: |
-          sudo apt-get update && sudo apt-get -y install python3-pip git curl gzip tmux
-          python3 -m pip install click pyyaml
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Check for built image tarball
+          sudo apt-get update && sudo apt-get -y install pigz
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        if: github.event_name == 'pull_request'
+        run: pip install click pyyaml
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Trust Harbor's self-signed certificate
         run: |
           if [ ! -f "$SCRATCH/penguin-image-${{ github.sha }}.tar.gz" ]; then
             echo "Image tarball not found. Aborting tests.";
             exit 1;
           fi
       - name: Load Docker image from tarball
-        run: gunzip -c "$SCRATCH/penguin-image-${{ github.sha }}.tar.gz" | docker load
+        run: pigz -dc "$SCRATCH/penguin-image-${{ github.sha }}.tar.gz" | docker load
       - name: Tag loaded image as latest
         run: |
           IMAGE_ID=$(docker images --format '{{.ID}}' rehosting/penguin | head -n1)
