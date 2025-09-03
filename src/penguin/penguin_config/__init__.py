@@ -17,19 +17,30 @@ from yamlcore import CoreLoader
 from pydantic import BaseModel, Field, RootModel
 from pydantic.config import ConfigDict
 
-import penguin
-try:
-    from penguin.common import patch_config
-    from penguin.utils import construct_empty_fs
-except ImportError:
-    pass
+from importlib import import_module
+import logging
 from pathlib import Path
 
 from . import versions
 from . import structure
 
 
-logger = penguin.getColoredLogger("config")
+def _resolve_logger():
+    """Attempt to get the colored logger without forcing early penguin attribute access.
+
+    Falls back to a plain stdlib logger during penguin module partial initialization.
+    """
+    try:
+        penguin_mod = import_module("penguin")  # May be partially initialized
+        get_colored = getattr(penguin_mod, "getColoredLogger", None)
+        if get_colored:
+            return get_colored("config")
+    except Exception:
+        pass
+    return logging.getLogger("config")
+
+
+logger = _resolve_logger()
 
 
 def _jsonify_dict(d):
@@ -121,7 +132,8 @@ def _validate_config_options(config):
 def _validate_config_version(config, path):
     """Check if config is too old, and show changes and ask to auto-fix"""
 
-    latest_version = penguin.defaults.default_version
+    penguin_mod = import_module("penguin")
+    latest_version = penguin_mod.defaults.default_version
     assert latest_version == len(versions.CHANGELOG)
 
     v = config["core"]["version"]
@@ -189,6 +201,8 @@ def load_unpatched_config(path):
 
 def load_config(proj_dir, path, validate=True):
     """Load penguin config from path"""
+    from penguin.utils import construct_empty_fs
+    from penguin.common import patch_config
     with open(path, "r") as f:
         config = yaml.load(f, Loader=CoreLoader)
     # look for files called patch_*.yaml in the same directory as the config file
