@@ -91,7 +91,7 @@ jobs:
             type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache,mode=max
             type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache-PR-${{ github.event.number }}
           outputs:
-            type=docker,dest=$SCRATCH/penguin-image-${{ github.sha }}.tar.gz
+            type=docker,dest=${{env.SCRATCH}}/penguin-image-${{ github.sha }}.tar.gz
 
   run_tests:
     needs: build_container
