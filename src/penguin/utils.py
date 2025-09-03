@@ -2,13 +2,11 @@ import hashlib
 import heapq
 import importlib
 import os
-import glob
 import subprocess
 from threading import Lock
 from typing import List, Tuple
 
 from .analyses import PenguinAnalysis
-from .common import hash_yaml
 from .defaults import default_plugin_path
 
 
