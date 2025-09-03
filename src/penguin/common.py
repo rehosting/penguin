@@ -6,6 +6,7 @@ import coloredlogs
 import yaml
 from os.path import join, isfile
 from yamlcore import CoreLoader, CoreDumper
+from penguin.penguin_config.structure import PatchPolicy, Main as ConfigSchema
 
 
 # Hex integers
@@ -53,7 +54,45 @@ def hash_yaml(section_to_hash):
 
 
 def patch_config(base_config, patch):
-    # Merge configs.
+    def _merge_string_value(base_val, new_val, policy):
+        """Merge string values according to the specified policy"""
+        if not isinstance(base_val, str) or not isinstance(new_val, str):
+            return new_val  # Fall back to override for non-strings
+
+        if policy == PatchPolicy.MERGE_SPACE:
+            return f"{base_val} {new_val}".strip()
+        elif policy == PatchPolicy.MERGE_NEWLINE:
+            return f"{base_val}\n{new_val}".strip()
+        else:  # default to OVERRIDE
+            return new_val
+
+    def _get_field_patch_policy(section_name: str, field_name: str) -> PatchPolicy:
+        """Extract patch policy from schema metadata"""
+        try:
+            # Get the section model class from Main's fields
+            main_field_info = ConfigSchema.model_fields.get(section_name)
+            if not main_field_info or not hasattr(main_field_info, 'annotation'):
+                return PatchPolicy.OVERRIDE
+
+            # Extract the actual model class from the annotation
+            section_model_class = main_field_info.annotation
+            # Handle Optional[ModelClass] annotations
+            if hasattr(section_model_class, '__origin__') and hasattr(section_model_class, '__args__'):
+                section_model_class = section_model_class.__args__[0]
+
+            # Now get the field info from the section model
+            field_info = section_model_class.model_fields.get(field_name)
+            if field_info and hasattr(field_info, 'annotation'):
+                annotation = field_info.annotation
+                if hasattr(annotation, '__metadata__'):
+                    # Look for PatchPolicy in the metadata tuple
+                    for metadata_item in annotation.__metadata__:
+                        if isinstance(metadata_item, PatchPolicy):
+                            return metadata_item
+        except Exception:
+            pass
+
+        return PatchPolicy.OVERRIDE    # Merge configs.
     def _recursive_update(base, new):
         for k, v in new.items():
             if isinstance(v, dict):
@@ -76,6 +115,17 @@ def patch_config(base_config, patch):
         if key in base_config:
             # If the value is a dictionary, update subfields
             if isinstance(value, dict):
+                # Handle field-level merge policies for this section
+                for field_name, field_value in value.items():
+                    if (isinstance(field_value, str) and field_name in base_config[key]
+                            and isinstance(base_config[key][field_name], str)):
+                        merge_policy = _get_field_patch_policy(key, field_name)
+                        if merge_policy != PatchPolicy.OVERRIDE:
+                            base_config[key][field_name] = _merge_string_value(
+                                base_config[key][field_name], field_value, merge_policy)
+                            # Remove this field from the patch since we handled it
+                            value = {k: v for k, v in value.items() if k != field_name}
+
                 # Recursive update to handle nested dictionaries
                 base_config[key] = _recursive_update(base_config.get(key, {}), value)
             elif isinstance(value, list):

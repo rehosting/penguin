@@ -1,6 +1,7 @@
 from typing import Annotated, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Field, RootModel
 from pydantic.config import ConfigDict
+from enum import Enum
 
 '''
 We cannot import anything from penguin here as its used to generate the schema
@@ -9,6 +10,13 @@ functions that use them.
 '''
 
 ENV_MAGIC_VAL = "DYNVALDYNVALDYNVAL"
+
+
+class PatchPolicy(str, Enum):
+    """How to handle string field merging during patch application"""
+    OVERRIDE = "override"  # Default behavior - replace completely
+    MERGE_SPACE = "merge_space"  # Merge with space separator
+    MERGE_NEWLINE = "merge_newline"  # Merge with newline separator
 
 
 def _newtype(class_name, type_, title, description=None, default=None, examples=None):
@@ -229,11 +237,12 @@ class Core(BaseModel):
     extra_qemu_args: Annotated[
         Optional[str],
         Field(
-            None,
+            default=None,
             title="Extra QEMU arguments",
             description="A list of additional QEMU command-line arguments to use when booting the guest",
             examples=["-vnc :0 -vga std -device usb-kbd -device usb-tablet"],
         ),
+        PatchPolicy.MERGE_SPACE,
     ]
     mem: Annotated[
         Optional[str],
@@ -617,10 +626,11 @@ class LibInject(BaseModel):
     extra: Annotated[
         Optional[str],
         Field(
-            None,
+            default=None,
             title="Extra injected library code",
             description="Custom source code for library functions to intercept and model",
         ),
+        PatchPolicy.MERGE_NEWLINE,
     ]
 
 
