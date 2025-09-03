@@ -97,11 +97,13 @@ jobs:
         arch: ["armel", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc64", "riscv64", "loongarch64", "aarch64", "x86_64"]
 
     steps:
-      - name: Install dependencies and label git workspace safe
-        run: |
-          sudo apt-get update && sudo apt-get -y install python3-pip git curl gzip tmux
-          python3 -m pip install click pyyaml
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        if: github.event_name == 'pull_request'
+        run: pip install click pyyaml
       - name: Checkout code
         uses: actions/checkout@v4
         with:
