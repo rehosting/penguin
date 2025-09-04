@@ -38,7 +38,7 @@ class PortalcallTest(Plugin):
         if success:
             self.report_32b(success)
         return 13
-    
+
     @plugins.portalcall.portalcall(PORTALCALL_MAGIC)
     def portalcall_test(self, a1, a2, a3, a4):
         if self.reported:
