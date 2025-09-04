@@ -89,8 +89,10 @@ class Mem(Plugin):
                 if cpu is None:
                     cpu = self.panda.get_cpu()
                 try:
+                    # Mask address for 32-bit architectures to avoid OverflowError
+                    panda_addr = chunk_addr & 0xFFFFFFFF if self.panda.bits == 32 else chunk_addr
                     self.panda.virtual_memory_write(
-                        cpu, chunk_addr, chunk_data)
+                        cpu, panda_addr, chunk_data)
                     success = True
                 except ValueError:
                     pass
@@ -129,8 +131,10 @@ class Mem(Plugin):
                 if cpu is None:
                     cpu = self.panda.get_cpu()
                 try:
+                    # Mask address for 32-bit architectures to avoid OverflowError
+                    panda_addr = chunk_addr & 0xFFFFFFFF if self.panda.bits == 32 else chunk_addr
                     chunk = self.panda.virtual_memory_read(
-                        cpu, chunk_addr, chunk_size)
+                        cpu, panda_addr, chunk_size)
                 except ValueError:
                     pass
             if not chunk:
@@ -432,6 +436,49 @@ class Mem(Plugin):
         """
         data = pack(f"{self.endian_format}{len(values)}I", *values)
         return (yield from self.write_bytes(addr, data, pid))
+
+    def read_long_array(self, addr: int, count: int,
+                        pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
+        """
+        ### Read an array of 8-byte long integers from guest memory
+
+        Reads an array of 8-byte long integers from guest memory.
+
+        **Args:**
+        - `addr` (`int`): Address to start reading from.
+        - `count` (`int`): Number of longs to read.
+        - `pid` (`int`, optional): Process ID for context.
+
+        **Returns:**
+        - `list[int]`: List of long integers read from memory.
+        """
+        data = yield from self.read_bytes(addr, 8 * count, pid)
+        if len(data) != 8 * count:
+            self.logger.error(
+                f"Failed to read long array at addr={addr}, expected {8*count} bytes, got {len(data)}")
+            return []
+        return list(unpack(f"{self.endian_format}{count}Q", data))
+
+    def read_uint64_array(self, addr: int, count: int, pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
+        """
+        ### Read an array of 8-byte unsigned integers from guest memory
+
+        Reads an array of 8-byte unsigned integers from guest memory.
+
+        **Args:**
+        - `addr` (`int`): Address to start reading from.
+        - `count` (`int`): Number of uint64s to read.
+        - `pid` (`int`, optional): Process ID for context.
+
+        **Returns:**
+        - `list[int]`: List of uint64s read from memory.
+        """
+        data = yield from self.read_bytes(addr, 8 * count, pid)
+        if len(data) != 8 * count:
+            self.logger.error(
+                f"Failed to read uint64 array at addr={addr}, expected {8*count} bytes, got {len(data)}")
+            return []
+        return list(unpack(f"{self.endian_format}{count}Q", data))
 
     def read_utf8_str(
             self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, str]:

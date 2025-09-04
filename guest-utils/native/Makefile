@@ -50,6 +50,14 @@ out/%/send_hypercall: send_hypercall.c hypercall.h
 	@mkdir -p $(dir $@)
 	$(CC_$*) $(CFLAGS_$*) $< -o $@
 
+out/%/hyp_file_op: hyp_file_op.c hypercall.h
+	@mkdir -p $(dir $@)
+	$(CC_$*) $(CFLAGS_$*) $< -o $@
+
+out/%/send_portalcall: send_portalcall.c hypercall.h
+	@mkdir -p $(dir $@)
+	$(CC_$*) $(CFLAGS_$*) $< -o $@
+
 out/%/send_hypercall_raw: send_hypercall_raw.c hypercall.h
 	@mkdir -p $(dir $@)
 	$(CC_$*) $(CFLAGS_$*) $< -o $@
