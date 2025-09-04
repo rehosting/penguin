@@ -4,7 +4,7 @@
 #include <sys/syscall.h>
 #include <stdarg.h>
 
-#define PORTAL_MAGIC 0xc1d1e1f1
+#define PORTAL_MAGIC ((unsigned long long)0xc1d1e1f1)
 
 static inline long portal_call(unsigned long user_magic, int argc, uint64_t *args) {
     return syscall(SYS_sendto, PORTAL_MAGIC, user_magic, argc, args);
