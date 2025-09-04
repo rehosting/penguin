@@ -5,7 +5,7 @@ plugins:
       portalcall_hypervisor_test:
         type: file_contains
         file: portalcall_test.txt
-        string: "Portalcall test: passed"
+        string: "PORTALCALL test: passed"
       portalcall_guest+stdout:
         type: file_contains
         file: shared/tests/portalcall.sh/stdout
