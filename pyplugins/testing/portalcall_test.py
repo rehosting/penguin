@@ -29,8 +29,7 @@ class PortalcallTest(Plugin):
         success = True
         for i, constant in enumerate(constants):
             arg = values[i]
-            mask = 0xFFFFFFFF
-            if arg != constant & mask:
+            if arg != constant:
                 self.logger.error(
                     f"PORTALCALL test failed: arg{i + 1} = {arg:#x}, expected {constant:#x}")
                 success = False
@@ -49,11 +48,7 @@ class PortalcallTest(Plugin):
         success = True
         for i, constant in enumerate(constants):
             arg = values[i]
-            mask = 0xFFFFFFFFFFFFFFFF
-            if self.panda.bits == 32:
-                mask = 0xFFFFFFFF
-            if arg != constant & mask:
-                breakpoint()
+            if arg != constant:
                 self.logger.error(
                     f"PORTALCALL test failed: arg{i + 1} = {arg:#x}, expected {constant:#x}")
                 success = False
