@@ -19,6 +19,7 @@ patches:
   - ./patches/tests/env_unset.yaml
   - ./patches/tests/hostfile.yaml
   - ./patches/tests/hypercall.yaml
+  - ./patches/tests/portalcall.yaml
   - ./patches/tests/net_missing.yaml
   - ./patches/tests/netbinds.yaml
   - ./patches/tests/netdevs.yaml

@@ -29,6 +29,21 @@ static_files:
         exit 0
       fi
     mode: 73
+  /tests/arm32_portalcall.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -x
+      set +e # ignore non-zero exit code
+      /igloo/armel/send_portalcall 0xcafebab3 0xdeadbeeff1f1f1f1 0x1337c0defeedc0de 0xdeadbeeff1f1f1f2 0x1337c0def2f2f2f2
+      if [ $? -ne 13 ]; then
+        echo "Error: Portalcall failed"
+        exit 1
+      else
+        echo "send_portalcall retval correct"
+        exit 0
+      fi
+    mode: 73
 
 
 plugins:
@@ -42,3 +57,11 @@ plugins:
         type: file_contains
         file: shared/tests/arm32_hypercall.sh/stdout
         string: "do_hypercall returned: "
+      arm32portalcall+console:
+        type: file_contains
+        file: console.log
+        string: "/tests/arm32_portalcall.sh PASS"
+      arm32portalcall+stdout:
+        type: file_contains
+        file: shared/tests/arm32_portalcall.sh/stdout
+        string: "do_portalcall returned: "
