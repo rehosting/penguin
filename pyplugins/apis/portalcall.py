@@ -33,6 +33,8 @@ class PortalCall(Plugin):
                 f"No handler registered for user_magic {user_magic:#x}")
             return
         fn_to_call = self._resolve_portalcall_callback(handler)
+        if handler != fn_to_call:
+            self._portalcall_registry[user_magic] = fn_to_call
         if argc == 0:
             argv = []
         else:
