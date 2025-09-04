@@ -35,8 +35,8 @@
              printf("arg[%d] = 0x%lx\n", i, args[i]);
          }
      }
-     unsigned long ret = portal_callN(args[0], argc - 2, args[1], args[2], 
-                            args[2], args[4], args[5], args[6],
+     unsigned long ret = portal_callN(args[0], argc - 2,
+                            args[1], args[2], args[3], args[4], args[5], args[6],
                             args[7], args[8], args[9]);
      printf("do_hypercall returned: %lu\n", ret);
      return (int)ret;
