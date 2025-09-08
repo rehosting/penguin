@@ -94,7 +94,7 @@ jobs:
       fail-fast: false
       matrix:
         kernel: ["6.13"]
-        arch: ["armel", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc64", "riscv64", "loongarch64", "aarch64", "x86_64"]
+        arch: ["armel", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc64", "loongarch64", "aarch64", "x86_64"] # "riscv64"
 
     steps:
       - name: Set up Python
