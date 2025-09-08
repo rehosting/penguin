@@ -35,6 +35,7 @@ class LiveImage(Plugin):
         core_config = self.config.get("core", {})
         self.arch = core_config.get("arch", "intel64")
         self.ensure_init = lambda *args: None
+        self._init_callbacks = []
 
     def fs_init(self, func: Optional[Callable] = None):
         """
@@ -42,7 +43,7 @@ class LiveImage(Plugin):
         Can be used as @plugins.live_image.fs_init
         """
         def decorator(f):
-            self._init_callbacks = getattr(self, '_init_callbacks', []) + [f]
+            self._init_callbacks = self._init_callbacks + [f]
             return f
         if func is not None:
             return decorator(func)
