@@ -40,8 +40,33 @@ def penguin_run(config, image):
         sys.exit(1)
 
 
+def create_tar_gz_with_binaries(dest_tar_gz, files_dict):
+    """
+    Create a tar.gz archive at dest_tar_gz containing binary files at the root.
+    files_dict: dict of {filename: bytes_content}
+    """
+    import tarfile
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        for fname, content in files_dict.items():
+            fpath = tmpdir_path / fname
+            with open(fpath, "wb") as f:
+                f.write(content)
+        with tarfile.open(dest_tar_gz, "w:gz") as tar:
+            for fname in files_dict:
+                tar.add(tmpdir_path / fname, arcname=fname)
+
+
 def run_test(kernel, arch, image):
-    subprocess.check_output(f"tar -czvf {TEST_DIR}/empty_fs.tar.gz -T /dev/null", shell=True)
+    # Create tar.gz with several binary files at the root
+    files_dict = {
+        "helloworld": b"helloworld\0",
+        "testfile1.bin": b"\x01\x02\x03\x04",
+        "testfile2.bin": b"\x10\x20\x30\x40",
+    }
+    create_tar_gz_with_binaries(f"{TEST_DIR}/empty_fs.tar.gz", files_dict)
     base_config = str(Path(TEST_DIR, "base_config.yaml"))
     new_config = str(Path(TEST_DIR, "config.yaml"))
     os.makedirs(str(Path(TEST_DIR, "base")), exist_ok=True)

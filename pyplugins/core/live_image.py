@@ -31,6 +31,9 @@ class LiveImage(Plugin):
         self.script_generated = False
         self.fs_generated = False
         self.patch_queue = []
+        self.config = self.get_arg("conf")
+        core_config = self.config.get("core", {})
+        self.arch = core_config.get("arch", "intel64")
         self.ensure_init = lambda *args: None
 
     def fs_init(self, func: Optional[Callable] = None):
@@ -274,9 +277,8 @@ class LiveImage(Plugin):
 
             for i, (file_path, _) in enumerate(self.patch_queue):
                 shared_file_name = f"patch_{i}"
-                shared_file_guest_path = f"{self.guest_shared_dir}/{shared_file_name}"
                 patch_staging_cmds.append(
-                    f"/igloo/boot/hyp_file_op put {shlex.quote(file_path)} {shlex.quote(os.path.basename(shared_file_guest_path))}")
+                    f"/igloo/boot/hyp_file_op put {shlex.quote(file_path)} {shlex.quote(os.path.basename(shared_file_name))}")
             script_lines.append("\n# Staging all files for patching")
             for cmd in patch_staging_cmds:
                 add_run_or_report(cmd)
@@ -286,9 +288,8 @@ class LiveImage(Plugin):
 
             for i, (file_path, _) in enumerate(self.patch_queue):
                 shared_file_name = f"patch_{i}"
-                shared_file_guest_path = f"{self.guest_shared_dir}/{shared_file_name}"
                 patch_return_cmds.append(
-                    f"/igloo/boot/hyp_file_op get {shlex.quote(shared_file_guest_path)} {shlex.quote(file_path)}")
+                    f"/igloo/boot/hyp_file_op get {shlex.quote(shared_file_name)} {shlex.quote(file_path)}")
             script_lines.append("\n# Moving all patched files back")
             for cmd in patch_return_cmds:
                 add_run_or_report(cmd)
@@ -357,7 +358,7 @@ class LiveImage(Plugin):
             return None
 
     @plugins.portalcall.portalcall(BATCH_PATCH_FILES_ACTION_MAGIC)
-    def _on_batch_patch_hypercall(self, cpu):
+    def _on_batch_patch_hypercall(self):
         """Handles a single hypercall to patch all files in the queue."""
         self.logger.info(f"Batch patching {len(self.patch_queue)} files...")
 

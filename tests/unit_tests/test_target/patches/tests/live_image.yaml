@@ -70,6 +70,18 @@ static_files:
     type: move
     from: /testdir/deep_file_to_move.txt
     mode: 0o600
+  /helloworld:
+    type: binary_patch
+    file_offset: 0
+    hex_bytes: "7061746368656400"  # "patched\0" in hex
+  /testfile1.bin:
+    type: binary_patch
+    file_offset: 0
+    hex_bytes: "aabbccdd"
+  /testfile2.bin:
+    type: binary_patch
+    file_offset: 0
+    hex_bytes: "11223344"
   /tests/live_image.sh:
     type: inline_file
     contents: |
@@ -151,6 +163,18 @@ static_files:
       # Check that source file_to_move.txt is removed
       if [ -f /testdir/file_to_move.txt ]; then
         echo "/testdir/file_to_move.txt should be removed after moves"; exit 1
+      fi
+      # Check binary patch for /helloworld
+      if [ "$(/igloo/utils/busybox head -c 7 /helloworld)" != "patched" ]; then
+        echo "/helloworld binary patch failed"; exit 1
+      fi
+      # Check binary patch for /testfile1.bin
+      if ! /igloo/utils/busybox head -c 4 /testfile1.bin | /igloo/utils/busybox hexdump -v -e '4/1 "%02X"' | /igloo/utils/busybox grep -q "AABBCCDD"; then
+        echo "/testfile1.bin binary patch failed"; exit 1
+      fi
+      # Check binary patch for /testfile2.bin
+      if ! /igloo/utils/busybox head -c 4 /testfile2.bin | /igloo/utils/busybox hexdump -v -e '4/1 "%02X"' | /igloo/utils/busybox grep -q "11223344"; then
+        echo "/testfile2.bin binary patch failed"; exit 1
       fi
       echo "live_image.sh PASS"
       exit 0
