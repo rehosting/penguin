@@ -39,7 +39,7 @@ class LiveImage(Plugin):
     def fs_init(self, func: Optional[Callable] = None):
         """
         Decorator for registering fs init callbacks.
-        Can be used as @plugins.liveimage.fs_init
+        Can be used as @plugins.live_image.fs_init
         """
         def decorator(f):
             self._init_callbacks = getattr(self, '_init_callbacks', []) + [f]
@@ -208,6 +208,10 @@ class LiveImage(Plugin):
                     f"mknod {shlex.quote(file_path)} {dev_char} {action['major']} {action['minor']}")
                 post_tar_commands.append(
                     f"chmod {oct(action['mode'])[2:]} {shlex.quote(file_path)}")
+
+        # /igloo/shims is guaranteed to exist in the base image
+        igloo_shims = staging_dir / "igloo" / "shims"
+        igloo_shims.mkdir(parents=True, exist_ok=True)
 
         # --- Phase 2: Ensure all staged files are readable before creating the tarball ---
         for root, dirs, files in os.walk(staging_dir):
