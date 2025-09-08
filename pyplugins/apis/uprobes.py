@@ -279,7 +279,7 @@ class Uprobes(Plugin):
         """
         self._uprobe_event(cpu, False)
 
-    @plugins.liveimage.fs_init
+    @plugins.live_image.fs_init
     def on_fs_init(self):
         self.portal.queue_interrupt("uprobes")
         self.fs_init = True
