@@ -77,8 +77,8 @@ class LiveImage(Plugin):
         move_sources_to_remove = []
         staging_dir = Path(self.staged_dir)
 
-        shim_orig_names = set()
-        shim_orig_counts = {}
+        shim_entries = []  # List of (shim_index, file_path)
+        shim_count = 0
         # --- Phase 1: Plan and Stage for Tarball ---
         for file_path, action in self._plan_actions():
             action_type = action.get("type")
@@ -171,23 +171,9 @@ class LiveImage(Plugin):
                 post_tar_commands.append(
                     f"ln -sf {shlex.quote(action['target'])} {shlex.quote(file_path)}")
             elif action_type == "shim":
-                # Place .orig in /igloo/shims and ensure unique name
-                base_name = Path(file_path).name
-                orig_dir = "/igloo/shims"
-                orig_base = f"{base_name}.orig"
-                orig_path = f"{orig_dir}/{orig_base}"
-                if orig_path in shim_orig_names:
-                    count = shim_orig_counts.get(orig_path, 1)
-                    while f"{orig_dir}/{base_name}_{count}.orig" in shim_orig_names:
-                        count += 1
-                    orig_path = f"{orig_dir}/{base_name}_{count}.orig"
-                    shim_orig_counts[orig_path] = count
-                shim_orig_names.add(orig_path)
-                post_tar_commands.append(
-                    f"mv {shlex.quote(file_path)} {shlex.quote(orig_path)}")
-                # Symlink to the new .orig path
-                post_tar_commands.append(
-                    f"ln -sf {shlex.quote(orig_path)} {shlex.quote(file_path)}")
+                # Place in numbered folder under /igloo/shims
+                shim_entries.append((shim_count, file_path))
+                shim_count += 1
             elif action_type == "move":
                 post_tar_commands.append(
                     f"cp {shlex.quote(action['from'])} {shlex.quote(file_path)}")
@@ -213,6 +199,13 @@ class LiveImage(Plugin):
         # /igloo/shims is guaranteed to exist in the base image
         igloo_shims = staging_dir / "igloo" / "shims"
         igloo_shims.mkdir(parents=True, exist_ok=True)
+        # Create numbered folders for shims
+        for idx, file_path in shim_entries:
+            shim_dir = igloo_shims / str(idx)
+            shim_dir.mkdir(parents=True, exist_ok=True)
+            staged_path = shim_dir / Path(file_path).name
+            staged_path.touch()
+            staged_path.chmod(0o755)  # or use a default mode
 
         # --- Phase 2: Ensure all staged files are readable before creating the tarball ---
         for root, dirs, files in os.walk(staging_dir):
@@ -248,6 +241,20 @@ class LiveImage(Plugin):
             "export PATH=/igloo/boot:$PATH",
             "exec > /igloo/boot/live_image_guest.log 2>&1",
             "for util in chmod echo cp mkdir rm ln mknod tar mv time stat; do /igloo/boot/busybox ln -sf /igloo/boot/busybox /igloo/boot/$util; done",
+            "",
+            # Improved shim creation function
+            "make_shim() {",
+            "  target=$1; shim_path=$2;",
+            "  if [ -L \"$target\" ]; then",
+            "    link_dest=$(readlink \"$target\")",
+            "    ln -sf \"$link_dest\" \"$shim_path\" || return $?",
+            "    rm -f \"$target\" || return $?",
+            "    ln -sf \"$shim_path\" \"$target\" || return $?",
+            "    return 0",
+            "  fi",
+            "  mv \"$target\" \"$shim_path\" || return $?",
+            "  ln -sf \"$shim_path\" \"$target\" || return $?",
+            "}",
             "",
             "run_or_report() {",
             "  err_line=$1; shift",
@@ -298,6 +305,11 @@ class LiveImage(Plugin):
             script_lines.append("\n# Moving all patched files back")
             for cmd in patch_return_cmds:
                 add_run_or_report(cmd)
+
+        # Add shim creation commands using the function
+        for idx, file_path in shim_entries:
+            shim_path = f"/igloo/shims/{idx}/{Path(file_path).name}"
+            add_run_or_report(f"make_shim {shlex.quote(file_path)} {shlex.quote(shim_path)}")
 
         for cmd in post_tar_commands:
             add_run_or_report(cmd)
