@@ -7,7 +7,7 @@ from threading import Lock
 from typing import List, Tuple
 
 from .analyses import PenguinAnalysis
-from .defaults import default_plugin_path
+from .defaults import default_plugin_path, static_dir as STATIC_DIR
 
 
 class WeightedItem:
@@ -128,6 +128,20 @@ def run_command_with_output(cmd: List[str], ignore1, ignore2) -> Tuple[str, str]
         return -1, "", f"An exception occurred: {str(e)}"
 
 
+def get_arch_subdir(config):
+    arch = config["core"]["arch"]
+    if arch == "intel64":
+        return "x86_64"
+    elif arch == "powerpc64el":
+        return "powerpc64"
+    else:
+        return arch
+
+
+def get_arch_dir(config):
+    return f"{STATIC_DIR}/{get_arch_subdir(config)}"
+
+
 def hash_image_inputs(proj_dir, conf):
     """
     Create a hash of all the inputs of the image creation process
@@ -144,6 +158,10 @@ def hash_image_inputs(proj_dir, conf):
     hsh = hashlib.sha256()
     hsh.update(default_preinit_script.encode())
     fs = os.path.join(proj_dir, conf["core"]["fs"])
+    arch_dir = get_arch_dir(conf)
+    for FILE in ["busybox", "hyp_file_op", "send_portalcall"]:
+        path = os.path.join(arch_dir, FILE)
+        hsh.update(get_file_hash(path).encode())
     modification_timestamp = os.path.getmtime(fs)
     hsh.update(f"{modification_timestamp}".encode())
     return hsh.hexdigest()

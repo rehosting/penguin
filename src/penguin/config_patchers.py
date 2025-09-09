@@ -22,6 +22,7 @@ from .defaults import (
     DEFAULT_KERNEL,
     static_dir as STATIC_DIR
 )
+from .utils import get_arch_subdir
 
 logger = getColoredLogger("penguin.config_patchers")
 
@@ -372,35 +373,21 @@ class BasePatch(PatchGenerator):
         if arch is None:
             raise NotImplementedError(f"Architecture {arch_identified} not supported ({arch}, {endian})")
 
-        self.dylib_dir = None
-        if arch == "aarch64":
-            # TODO: We should use a consistent name here. Perhaps aarch64eb?
-            self.arch_name = "aarch64"
-            self.arch_dir = "aarch64"
+        mock_config = {"core": {"arch": arch_identified}}
+
+        self.arch_name = arch_identified
+        self.arch_dir = get_arch_subdir(mock_config)
+
+        if arch_identified == "aarch64":
             self.dylib_dir = "arm64"
-        elif arch == "intel64":
-            self.arch_name = "intel64"
-            self.arch_dir = "x86_64"
-        elif arch == "loongarch64":
-            self.arch_name = "loongarch64"
-            self.arch_dir = "loongarch64"
+        elif arch_identified == "intel64":
+            self.dylib_dir = "x86_64"
+        elif arch_identified == "loongarch64":
             self.dylib_dir = "loongarch"
-        elif arch == "riscv64":
-            self.arch_name = "riscv64"
-            self.arch_dir = "riscv64"
-        elif arch == "powerpc":
-            self.arch_name = "powerpc"
-            self.arch_dir = "powerpc"
-        elif arch == "powerpc64":
-            self.arch_name = "powerpc64"
-            self.arch_dir = "powerpc64"
+        elif arch_identified in ["powerpc64", "powerpc64el"]:
             self.dylib_dir = "ppc64"
-        elif arch == "powerpc64el":
-            self.arch_name = "powerpc64"
-            self.arch_dir = "powerpc64"
         else:
-            self.arch_name = arch + endian
-            self.arch_dir = f"{arch}{endian}"
+            self.dylib_dir = self.arch_dir
 
     def generate(self, patches):
         # Add serial device in pseudofiles
