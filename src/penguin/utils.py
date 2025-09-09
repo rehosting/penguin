@@ -132,7 +132,7 @@ def get_arch_subdir(config):
     arch = config["core"]["arch"]
     if arch == "intel64":
         return "x86_64"
-    elif arch == "powerpc64el":
+    elif arch in ["powerpc64el", "powerpc64le"]:
         return "powerpc64"
     else:
         return arch

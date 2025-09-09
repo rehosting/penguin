@@ -373,9 +373,10 @@ class BasePatch(PatchGenerator):
         if arch is None:
             raise NotImplementedError(f"Architecture {arch_identified} not supported ({arch}, {endian})")
 
-        mock_config = {"core": {"arch": arch_identified}}
+        # We use 'powerpc64le' for now. TODO: consider 'powerpc64el'
+        self.arch_name = arch_identified.replace("powerpc64el", "powerpc64le")
 
-        self.arch_name = arch_identified
+        mock_config = {"core": {"arch": self.arch_name}}
         self.arch_dir = get_arch_subdir(mock_config)
 
         if arch_identified == "aarch64":
