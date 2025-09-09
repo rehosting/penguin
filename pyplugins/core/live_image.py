@@ -247,7 +247,7 @@ class LiveImage(Plugin):
             "#!/igloo/boot/busybox sh",
             "export PATH=/igloo/boot:$PATH",
             "exec > /igloo/boot/live_image_guest.log 2>&1",
-            "for util in chmod echo cp mkdir rm ln mknod tar mv time stat; do /igloo/boot/busybox ln -sf /igloo/boot/busybox /igloo/boot/$util; done",
+            "for util in chmod echo cp mkdir rm ln mknod tar mv time stat insmod; do /igloo/boot/busybox ln -sf /igloo/boot/busybox /igloo/boot/$util; done",
             "",
             "run_or_report() {",
             "  err_line=$1; shift",
