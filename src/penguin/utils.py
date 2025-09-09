@@ -142,6 +142,12 @@ def get_arch_dir(config):
     return f"{STATIC_DIR}/{get_arch_subdir(config)}"
 
 
+def get_driver_kmod_path(config):
+    kernel_path = os.path.dirname(config["core"]["kernel"])
+    arch_dir = get_arch_subdir(config)
+    return f"{kernel_path}/igloo.ko.{arch_dir}"
+
+
 def hash_image_inputs(proj_dir, conf):
     """
     Create a hash of all the inputs of the image creation process
@@ -162,6 +168,8 @@ def hash_image_inputs(proj_dir, conf):
     for FILE in ["busybox", "hyp_file_op", "send_portalcall"]:
         path = os.path.join(arch_dir, FILE)
         hsh.update(get_file_hash(path).encode())
+    kmod = get_driver_kmod_path(conf)
+    hsh.update(get_file_hash(kmod).encode())
     modification_timestamp = os.path.getmtime(fs)
     hsh.update(f"{modification_timestamp}".encode())
     return hsh.hexdigest()

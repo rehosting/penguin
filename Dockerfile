@@ -18,7 +18,7 @@ ARG FW2TAR_TAG="v2.0.6"
 ARG PANDA_VERSION="pandav0.0.47"
 ARG PANDANG_VERSION="0.0.32"
 ARG RIPGREP_VERSION="14.1.1"
-ARG IGLOO_DRIVER_VERSION="0.0.1"
+ARG IGLOO_DRIVER_VERSION="0.0.2"
 
 FROM ${REGISTRY}/rust:1.86 AS rust_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
@@ -147,7 +147,7 @@ ARG GUESTHOPPER_VERSION
 RUN /get_release.sh rehosting guesthopper ${GUESTHOPPER_VERSION} guesthopper.tar.gz | \
     tar xzf - -C /igloo_static
 
-# Download igloo_driver. Populate /igloo_static/igloo_driver
+# Download igloo_driver. Should fill in to kernel directories
 ARG IGLOO_DRIVER_VERSION
 RUN /get_release.sh rehosting igloo_driver ${IGLOO_DRIVER_VERSION} igloo_driver.tar.gz | \
     tar xzf - -C /igloo_static
@@ -479,7 +479,6 @@ RUN if [ -d /tmp/local_packages ]; then \
             tar xvf /tmp/local_packages/console.tar.gz -C /igloo_static/; \
         fi; \
         if [ -f /tmp/local_packages/kernels-latest.tar.gz ]; then \
-            rm -rf /igloo_static/kernels && \
             tar xvf /tmp/local_packages/kernels-latest.tar.gz -C /igloo_static/; \
         fi; \
         if [ -f /tmp/local_packages/pandare_22.04.deb ]; then \
@@ -518,7 +517,6 @@ RUN if [ -d /tmp/local_packages ]; then \
             tar xzf /tmp/local_packages/guesthopper.tar.gz -C /igloo_static; \
         fi; \
         if [ -f /tmp/local_packages/igloo_driver.tar.gz ]; then \
-            rm -rf /igloo_static/igloo_driver; \
             tar xzf /tmp/local_packages/igloo_driver.tar.gz -C /igloo_static; \
         fi; \
     fi

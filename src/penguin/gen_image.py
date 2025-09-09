@@ -7,7 +7,7 @@ from pathlib import Path
 from subprocess import check_output
 from random import randint
 from penguin.defaults import default_preinit_script
-from penguin.utils import get_arch_dir
+from penguin.utils import get_arch_dir, get_driver_kmod_path
 import tarfile
 import time
 import io
@@ -85,9 +85,12 @@ def tar_add_min_files(tf_path, config):
         symlink_info.uname = "root"
         symlink_info.gname = "root"
         tf.addfile(symlink_info)
+        # /igloo/boot/igloo.ko
+        driver = get_driver_kmod_path(config)
+        tf.add(driver, arcname="igloo/boot/igloo.ko", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
 
 
-def make_image(fs, out, artifacts, proj_dir, config_path):
+def make_image(fs, out, artifacts, proj_dir, config):
     logger.debug("Generating new image from config...")
     IN_TARBALL = Path(fs)
     ARTIFACTS = Path(artifacts or "/tmp")
@@ -98,7 +101,6 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
     suffix = randint(0, 1000000)
     delete_tar = True
     MODIFIED_TARBALL = Path(ARTIFACTS, f"fs_out_{suffix}.tar")
-    config = load_config(proj_dir, config_path)
     with tempfile.TemporaryDirectory() as TMP_DIR:
         uncompressed_tar = Path(TMP_DIR, f"uncompressed_{suffix}.tar")
         check_output(f"pigz -dc '{str(IN_TARBALL)}' > '{uncompressed_tar}'", shell=True)

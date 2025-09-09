@@ -264,7 +264,7 @@ def run_config(
         try:
             from .gen_image import make_image
 
-            make_image(config_fs, config_image, qcow_dir, proj_dir, conf_yaml)
+            make_image(config_fs, config_image, qcow_dir, proj_dir, conf)
         except Exception as e:
             logger.error(
                 f"Failed to make image: for {config_fs} / {os.path.dirname(qcow_dir)}"
