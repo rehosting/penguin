@@ -373,8 +373,25 @@ class BasePatch(PatchGenerator):
         if arch is None:
             raise NotImplementedError(f"Architecture {arch_identified} not supported ({arch}, {endian})")
 
-        # We use 'powerpc64le' for now. TODO: consider 'powerpc64el'
-        self.arch_name = arch_identified.replace("powerpc64el", "powerpc64le")
+        # Map architecture names to config schema valid names
+        if arch == "aarch64":
+            self.arch_name = "aarch64"
+        elif arch == "intel64":
+            self.arch_name = "intel64"
+        elif arch == "loongarch64":
+            self.arch_name = "loongarch64"
+        elif arch == "riscv64":
+            self.arch_name = "riscv64"
+        elif arch == "powerpc":
+            self.arch_name = "powerpc"
+        elif arch == "powerpc64":
+            if endian == "el":
+                self.arch_name = "powerpc64le"  # powerpc64el -> powerpc64le for config schema
+            else:
+                self.arch_name = "powerpc64"  # powerpc64eb -> powerpc64
+        else:
+            # For architectures like mips with endianness, construct the name
+            self.arch_name = arch + endian
 
         mock_config = {"core": {"arch": self.arch_name}}
         self.arch_dir = get_arch_subdir(mock_config)
