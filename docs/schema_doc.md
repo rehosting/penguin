@@ -10,7 +10,7 @@ Core configuration options for this rehosting
 
 |||
 |-|-|
-|__Type__|`"armel"` or `"aarch64"` or `"mipsel"` or `"mipseb"` or `"mips64el"` or `"mips64eb"` or `"powerpc"` or `"powerpc64"` or `"powerpc64le"` or `"riscv64"` or `"loongarch64"` or `"intel64"` or null|
+|__Type__|`"armel"` or `"aarch64"` or `"mipsel"` or `"mipseb"` or `"mips64el"` or `"mips64eb"` or `"powerpc"` or `"powerpc64"` or `"powerpc64el"` or `"riscv64"` or `"loongarch64"` or `"intel64"` or null|
 |__Default__|`null`|
 
 

@@ -1,4 +1,4 @@
-ARCHS = mipseb mips64eb mipsel mips64el armel aarch64 x86_64 powerpc powerpcle powerpc64 powerpc64le riscv32 riscv64 loongarch64
+ARCHS = mipseb mips64eb mipsel mips64el armel aarch64 x86_64 powerpc powerpcle powerpc64 powerpc64el riscv32 riscv64 loongarch64
 
 CC_mipseb = mipseb-linux-musl-gcc
 CFLAGS_mipseb = -mips32r3 -s -static
@@ -30,8 +30,8 @@ CFLAGS_powerpcle = -s -static
 CC_powerpc64 = powerpc64-linux-musl-gcc
 CFLAGS_powerpc64 = -s -static
 
-CC_powerpc64le = powerpc64le-linux-musl-gcc
-CFLAGS_powerpc64le = -s -static
+CC_powerpc64el = powerpc64le-linux-musl-gcc
+CFLAGS_powerpc64el = -s -static
 
 CC_riscv32 = riscv32-linux-musl-gcc
 CFLAGS_riscv32 = -s -static

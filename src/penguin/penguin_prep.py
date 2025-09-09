@@ -77,7 +77,7 @@ ARCH_ABI_INFO = dict(
             ),
         ),
     ),
-    powerpc64le=dict(
+    powerpc64el=dict(
         target_triple="powerpc64le-linux-musl",
         libnvram_arch_name="ppc64le",
         default_abi="default",

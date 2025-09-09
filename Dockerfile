@@ -23,7 +23,7 @@ FROM ${REGISTRY}/rust:1.86 AS rust_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
 ARG VHOST_DEVICE_VERSION
 ENV PATH="/root/.cargo/bin:$PATH"
-ENV CARGO_INSTALL_ROOT="/usr/local" 
+ENV CARGO_INSTALL_ROOT="/usr/local"
 
 RUN apt-get update && apt-get install -y -q build-essential libfontconfig1-dev liblzma-dev
 
@@ -523,7 +523,7 @@ RUN  cd /igloo_static &&  \
     mv arm64/* aarch64/ && rm -rf arm64 && \
     ln -sf /igloo_static/armel/vpn /igloo_static/aarch64/vpn && \
     mkdir -p utils.bin && \
-    for arch in "aarch64" "armel" "loongarch64" "mipsel" "mips64eb" "mips64el" "mipseb" "powerpc" "powerpcle" "powerpc64" "powerpc64le" "riscv32" "riscv64" "x86_64"; do \
+    for arch in "aarch64" "armel" "loongarch64" "mipsel" "mips64eb" "mips64el" "mipseb" "powerpc" "powerpcle" "powerpc64" "powerpc64el" "riscv32" "riscv64" "x86_64"; do \
         mkdir -p /igloo_static/vpn /igloo_static/console; \
         for file in /igloo_static/"$arch"/* ; do \
             if [ $(basename "$file") = *"vpn"* ]; then \
