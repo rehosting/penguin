@@ -6,7 +6,8 @@ import tempfile
 from pathlib import Path
 from subprocess import check_output
 from random import randint
-from penguin.defaults import default_preinit_script, static_dir as STATIC_DIR
+from penguin.defaults import default_preinit_script
+from penguin.utils import get_arch_dir
 import tarfile
 import time
 import io
@@ -39,13 +40,7 @@ def get_mount_type(path):
 
 
 def tar_add_min_files(tf_path, config):
-    arch = config["core"]["arch"]
-    if arch == "intel64":
-        arch_dir = "x86_64"
-    elif arch == "powerpc64el":
-        arch_dir = "powerpc64"
-    else:
-        arch_dir = arch
+    arch_dir = get_arch_dir(config)
     with tarfile.open(tf_path, "a") as tf:
         # Add igloo/ directory
         igloo_dir = tarfile.TarInfo(name="igloo/")
@@ -73,13 +68,13 @@ def tar_add_min_files(tf_path, config):
         ti.gname = "root"
         tf.addfile(ti, fileobj=io.BytesIO(init_bytes))
         # /igloo/boot/busybox
-        busybox_path = f"{STATIC_DIR}/{arch_dir}/busybox"
+        busybox_path = os.path.join(arch_dir, "busybox")
         tf.add(busybox_path, arcname="igloo/boot/busybox", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
         # /igloo/boot/hyp_file_op
-        shr = f"{STATIC_DIR}/{arch_dir}/hyp_file_op"
+        shr = os.path.join(arch_dir, "hyp_file_op")
         tf.add(shr, arcname="igloo/boot/hyp_file_op", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
         # /igloo/boot/send_portalcall
-        spc = f"{STATIC_DIR}/{arch_dir}/send_portalcall"
+        spc = os.path.join(arch_dir, "send_portalcall")
         tf.add(spc, arcname="igloo/boot/send_portalcall", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
         # /igloo/boot/sh (symlink)
         symlink_info = tarfile.TarInfo(name="igloo/boot/sh")
