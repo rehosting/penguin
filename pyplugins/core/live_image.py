@@ -265,7 +265,7 @@ class LiveImage(Plugin):
         script_lines = [
             "#!/igloo/boot/busybox sh",
             "export PATH=/igloo/boot:$PATH",
-            # "exec > /igloo/boot/live_image_guest.log 2>&1",
+            "exec > /igloo/boot/live_image_guest.log 2>&1",
             "for util in chmod echo cp mkdir rm ln mknod tar mv time stat readlink dirname sh; do /igloo/boot/busybox ln -sf /igloo/boot/busybox /igloo/boot/$util; done",
             "",
             "run_or_report() {",
