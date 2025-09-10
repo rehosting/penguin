@@ -78,12 +78,21 @@ class LiveImage(Plugin):
         staging_dir = Path(self.staged_dir)
         from collections import defaultdict
         mode_groups = defaultdict(list)  # mode(str without leading 0) -> [paths]
+        needed_parent_dirs = set()
+        path_modes = {}  # track mode per path for later glob compression
 
         def record_mode(path: str, mode_val: int):
             if mode_val is None:
                 return
-            # store as oct without leading 0o
-            mode_groups[oct(mode_val)[2:]].append(path)
+            mode_str = oct(mode_val)[2:]
+            mode_groups[mode_str].append(path)
+            path_modes[path] = mode_str
+
+        def record_parent_dirs(p: str):
+            # Record the immediate parent; deeper parents will be recorded as we see their children.
+            parent = str(Path(p).parent)
+            if parent != '/' and parent != '.':
+                needed_parent_dirs.add(parent)
 
         shim_orig_names = set()
         shim_orig_counts = {}
@@ -94,6 +103,7 @@ class LiveImage(Plugin):
                 pass  # These actions are handled post-tar
 
             if action_type in ["dir", "host_file", "inline_file"]:
+                record_parent_dirs(file_path)
                 staged_path = staging_dir / file_path.lstrip('/')
                 staged_path.parent.mkdir(parents=True, exist_ok=True)
                 if action_type == "dir":
@@ -255,20 +265,30 @@ class LiveImage(Plugin):
         script_lines = [
             "#!/igloo/boot/busybox sh",
             "export PATH=/igloo/boot:$PATH",
-            "exec > /igloo/boot/live_image_guest.log 2>&1",
-            "for util in chmod echo cp mkdir rm ln mknod tar mv time stat; do /igloo/boot/busybox ln -sf /igloo/boot/busybox /igloo/boot/$util; done",
+            # "exec > /igloo/boot/live_image_guest.log 2>&1",
+            "for util in chmod echo cp mkdir rm ln mknod tar mv time stat readlink dirname sh; do /igloo/boot/busybox ln -sf /igloo/boot/busybox /igloo/boot/$util; done",
             "",
             "run_or_report() {",
             "  err_line=$1; shift",
             "  hex_line=$(printf '%x' \"$err_line\")",
-            "  cmd=\"$@\"",
-            "  eval $cmd",
+            "  \"$@\"",
             "  rc=$?",
             "  if [ $rc -ne 0 ]; then",
             "    /igloo/boot/hyp_file_op put /igloo/boot/live_image_guest.log live_image_guest.log",
             f"    /igloo/boot/send_portalcall {REPORT_ERROR:#x} $hex_line",
-            "    echo \"ERROR: Command failed: $cmd (exit $rc) at line $err_line ($hex_line)\" >&2",
+            "    echo \"ERROR: Command failed: $* (exit $rc) at line $err_line ($hex_line)\" >&2",
             "    exit $rc",
+            "  fi",
+            "}",
+            "",
+            "ensure_dir() {",
+            "  d=\"$1\"",
+            "  if [ -L \"$d\" ]; then",
+            "    t=$(readlink \"$d\")",
+            "    case \"$t\" in /*) tgt=\"$t\" ;; *) tgt=\"$(dirname \"$d\")/$t\" ;; esac",
+            "    mkdir -p \"$tgt\"",
+            "  else",
+            "    mkdir -p \"$d\" 2>/dev/null || true",
             "  fi",
             "}",
             ""
@@ -282,6 +302,9 @@ class LiveImage(Plugin):
             add_run_or_report(f"rm -rf {' '.join([shlex.quote(p) for p in paths_to_delete])}")
         # Use hyp_file_op to get the tarball and extract
         add_run_or_report("/igloo/boot/hyp_file_op get filesystem.tar /igloo/boot/filesystem.tar")
+        # Replace inline symlink logic with ensure_dir calls
+        for d in sorted(needed_parent_dirs):
+            add_run_or_report(f"ensure_dir {shlex.quote(d)}")
         add_run_or_report("tar x -om -f /igloo/boot/filesystem.tar -C / --no-same-permissions")
 
         # --- Phase 4: Batch-process binary patches ---
@@ -310,9 +333,61 @@ class LiveImage(Plugin):
 
         for cmd in post_tar_commands:
             add_run_or_report(cmd)
-        # Add grouped chmod commands
+        # Add grouped chmod commands with /igloo/<folder>/* compression
+        # Build map folder -> set of modes for its descendant paths
+        igloo_folder_modes = defaultdict(set)  # /igloo/<folder> -> {mode_str}
+        igloo_folder_paths = defaultdict(list)  # /igloo/<folder> -> [paths]
+        for p, m in path_modes.items():
+            if p.startswith('/igloo/'):
+                parts = p.split('/')
+                if len(parts) >= 3:  # / igloo <folder> ...
+                    folder_root = '/'.join(parts[:3])  # /igloo/<folder>
+                    # Consider only descendants, not the folder root itself for wildcard scope
+                    if p != folder_root:
+                        igloo_folder_modes[folder_root].add(m)
+                        igloo_folder_paths[folder_root].append(p)
+        # Determine compressible folders
+        compress_globs = []  # (mode_str, glob_pattern)
+        compressed_paths = set()
+        MIN_COMPRESS_COUNT = 10
+        for folder, modeset in igloo_folder_modes.items():
+            # Build per-mode lists for this folder
+            per_mode_paths = defaultdict(list)
+            for p in igloo_folder_paths[folder]:
+                per_mode_paths[path_modes[p]].append(p)
+            # Case 1: all descendants same mode -> single wildcard
+            if len(per_mode_paths) == 1:
+                mode_str = next(iter(per_mode_paths.keys()))
+                compress_globs.append((mode_str, f"{folder}/*"))
+                compressed_paths.update(per_mode_paths[mode_str])
+            else:
+                # Case 2: multiple modes; compress any mode with large count
+                for mode_str, plist in per_mode_paths.items():
+                    if len(plist) >= MIN_COMPRESS_COUNT:
+                        compress_globs.append((mode_str, f"{folder}/*"))
+                        compressed_paths.update(plist)
+        # Remove compressed paths from mode_groups
+        for mode_str, paths in list(mode_groups.items()):
+            if paths:
+                mode_groups[mode_str] = [p for p in paths if p not in compressed_paths]
+        # Emit compressed glob chmods first per mode
+        by_mode_globs = defaultdict(list)
+        for mode_str, glob_pat in compress_globs:
+            by_mode_globs[mode_str].append(glob_pat)
+        for mode_str, globs in by_mode_globs.items():
+            # combine globs in chunks
+            chunk = []
+            for g in globs:
+                chunk.append(g)
+                if len(chunk) >= 20:
+                    add_run_or_report(f"chmod {mode_str} {' '.join(chunk)}")
+                    chunk = []
+            if chunk:
+                add_run_or_report(f"chmod {mode_str} {' '.join(chunk)}")
+        # Emit remaining explicit paths
         for mode_str, paths in mode_groups.items():
-            # chunk paths to avoid excessively long lines (arbitrary 50 per command)
+            if not paths:
+                continue
             chunk = []
             for p in paths:
                 chunk.append(shlex.quote(p))
