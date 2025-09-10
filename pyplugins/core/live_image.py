@@ -76,6 +76,14 @@ class LiveImage(Plugin):
         self.patch_queue = []  # Reset for this run
         move_sources_to_remove = []
         staging_dir = Path(self.staged_dir)
+        from collections import defaultdict
+        mode_groups = defaultdict(list)  # mode(str without leading 0) -> [paths]
+
+        def record_mode(path: str, mode_val: int):
+            if mode_val is None:
+                return
+            # store as oct without leading 0o
+            mode_groups[oct(mode_val)[2:]].append(path)
 
         shim_orig_names = set()
         shim_orig_counts = {}
@@ -90,14 +98,15 @@ class LiveImage(Plugin):
                 staged_path.parent.mkdir(parents=True, exist_ok=True)
                 if action_type == "dir":
                     staged_path.mkdir(exist_ok=True)
-                    staged_path.chmod(action['mode'])
+                    if 'mode' in action:
+                        record_mode(file_path, action['mode'])
                 elif action_type == "inline_file":
-                    # Write as text or bytes depending on type
                     if isinstance(action['contents'], bytes):
                         staged_path.write_bytes(action['contents'])
                     else:
                         staged_path.write_text(action['contents'])
-                    staged_path.chmod(action['mode'])
+                    if 'mode' in action:
+                        record_mode(file_path, action['mode'])
                 elif action_type == "host_file":
                     host_path_str = action['host_path']
                     dest_path_str = file_path
@@ -130,7 +139,7 @@ class LiveImage(Plugin):
                                 staged_file_path = dest_dir_path / host_src.name
                                 shutil.copy(host_src, staged_file_path)
                                 if 'mode' in action:
-                                    staged_file_path.chmod(action['mode'])
+                                    record_mode(str(Path(dest_dir) / host_src.name if dest_dir.is_absolute() else (dest_dir / host_src.name)), action['mode'])
                     # Only expand globs in the source, never in the destination
                     elif '*' in source_path_pattern.name or '?' in source_path_pattern.name:
                         self.logger.debug(
@@ -149,7 +158,7 @@ class LiveImage(Plugin):
                                     parents=True, exist_ok=True)
                                 shutil.copy(host_src, staged_file_path)
                                 if 'mode' in action:
-                                    staged_file_path.chmod(action['mode'])
+                                    record_mode(str(Path(file_path) / host_src.name), action['mode'])
                     else:  # Handle single file
                         host_src = source_path_pattern
                         if not host_src.exists():
@@ -160,7 +169,8 @@ class LiveImage(Plugin):
                         staged_path.parent.mkdir(
                             parents=True, exist_ok=True)
                         shutil.copy(host_src, staged_path)
-                        staged_path.chmod(action['mode'])
+                        if 'mode' in action:
+                            record_mode(file_path, action['mode'])
 
             # Queue or generate commands for post-tar execution
             elif action_type == "binary_patch":
@@ -192,8 +202,7 @@ class LiveImage(Plugin):
                 post_tar_commands.append(
                     f"cp {shlex.quote(action['from'])} {shlex.quote(file_path)}")
                 if action.get('mode') is not None:
-                    post_tar_commands.append(
-                        f"chmod {oct(action['mode'])[2:]} {shlex.quote(file_path)}")
+                    record_mode(file_path, action['mode'])
                 move_sources_to_remove.append(action['from'])
             elif action_type == "dev":
                 # Ensure parent directory exists in the tarball
@@ -207,8 +216,8 @@ class LiveImage(Plugin):
                 paths_to_delete.append(file_path)
                 post_tar_commands.append(
                     f"mknod {shlex.quote(file_path)} {dev_char} {action['major']} {action['minor']}")
-                post_tar_commands.append(
-                    f"chmod {oct(action['mode'])[2:]} {shlex.quote(file_path)}")
+                if action.get('mode') is not None:
+                    record_mode(file_path, action['mode'])
 
         # /igloo/shims is guaranteed to exist in the base image
         igloo_shims = staging_dir / "igloo" / "shims"
@@ -301,6 +310,17 @@ class LiveImage(Plugin):
 
         for cmd in post_tar_commands:
             add_run_or_report(cmd)
+        # Add grouped chmod commands
+        for mode_str, paths in mode_groups.items():
+            # chunk paths to avoid excessively long lines (arbitrary 50 per command)
+            chunk = []
+            for p in paths:
+                chunk.append(shlex.quote(p))
+                if len(chunk) >= 50:
+                    add_run_or_report(f"chmod {mode_str} {' '.join(chunk)}")
+                    chunk = []
+            if chunk:
+                add_run_or_report(f"chmod {mode_str} {' '.join(chunk)}")
         if move_sources_to_remove:
             add_run_or_report(f"rm -f {' '.join([shlex.quote(p) for p in move_sources_to_remove])}")
         add_run_or_report(f"/igloo/boot/send_portalcall {GEN_LIVE_IMAGE_ACTION_FINISHED:#x}")
