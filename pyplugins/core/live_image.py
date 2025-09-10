@@ -272,8 +272,8 @@ class LiveImage(Plugin):
         if paths_to_delete:
             add_run_or_report(f"rm -rf {' '.join([shlex.quote(p) for p in paths_to_delete])}")
         # Use hyp_file_op to get the tarball and extract
-        add_run_or_report("/igloo/boot/hyp_file_op get filesystem.tar /igloo/filesystem.tar")
-        add_run_or_report("tar -xf /igloo/filesystem.tar -C /")
+        add_run_or_report("/igloo/boot/hyp_file_op get filesystem.tar /igloo/boot/filesystem.tar")
+        add_run_or_report("tar x -om -f /igloo/boot/filesystem.tar -C / --no-same-permissions")
 
         # --- Phase 4: Batch-process binary patches ---
         if self.patch_queue:
