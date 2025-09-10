@@ -1,4 +1,6 @@
 #!/igloo/boot/sh
+/igloo/boot/busybox insmod /igloo/boot/igloo.ko
+/igloo/boot/busybox echo "igloo.ko module loaded"
 /igloo/boot/hyp_file_op get gen_live_image.sh /igloo/boot/gen_live_image.sh
 /igloo/boot/busybox sh /igloo/boot/gen_live_image.sh
 if [ $? -ne 0 ]; then

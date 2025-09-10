@@ -271,7 +271,6 @@ class LiveImage(Plugin):
 
         if paths_to_delete:
             add_run_or_report(f"rm -rf {' '.join([shlex.quote(p) for p in paths_to_delete])}")
-        add_run_or_report("/igloo/boot/insmod /igloo/boot/igloo.ko")
         # Use hyp_file_op to get the tarball and extract
         add_run_or_report("/igloo/boot/hyp_file_op get filesystem.tar /igloo/filesystem.tar")
         add_run_or_report("tar -xf /igloo/filesystem.tar -C /")
