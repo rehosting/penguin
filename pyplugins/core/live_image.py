@@ -96,6 +96,8 @@ class LiveImage(Plugin):
 
         shim_orig_names = set()
         shim_orig_counts = {}
+        libnvram = staging_dir / "igloo" / "libnvram"
+        libnvram.mkdir(parents=True, exist_ok=True)
         # --- Phase 1: Plan and Stage for Tarball ---
         for file_path, action in self._plan_actions():
             action_type = action.get("type")
@@ -288,7 +290,7 @@ class LiveImage(Plugin):
             "    case \"$t\" in /*) tgt=\"$t\" ;; *) tgt=\"$(dirname \"$d\")/$t\" ;; esac",
             "    mkdir -p \"$tgt\"",
             "  else",
-            "    mkdir -p \"$d\" 2>/dev/null || true",
+            "    mkdir -p \"$d\" || true",
             "  fi",
             "}",
             ""
@@ -358,13 +360,13 @@ class LiveImage(Plugin):
             # Case 1: all descendants same mode -> single wildcard
             if len(per_mode_paths) == 1:
                 mode_str = next(iter(per_mode_paths.keys()))
-                compress_globs.append((mode_str, f"{folder}/*"))
+                compress_globs.append((mode_str, f"{folder}"))
                 compressed_paths.update(per_mode_paths[mode_str])
             else:
                 # Case 2: multiple modes; compress any mode with large count
                 for mode_str, plist in per_mode_paths.items():
                     if len(plist) >= MIN_COMPRESS_COUNT:
-                        compress_globs.append((mode_str, f"{folder}/*"))
+                        compress_globs.append((mode_str, f"{folder}"))
                         compressed_paths.update(plist)
         # Remove compressed paths from mode_groups
         for mode_str, paths in list(mode_groups.items()):
@@ -380,10 +382,10 @@ class LiveImage(Plugin):
             for g in globs:
                 chunk.append(g)
                 if len(chunk) >= 20:
-                    add_run_or_report(f"chmod {mode_str} {' '.join(chunk)}")
+                    add_run_or_report(f"chmod -R {mode_str} {' '.join(chunk)}")
                     chunk = []
             if chunk:
-                add_run_or_report(f"chmod {mode_str} {' '.join(chunk)}")
+                add_run_or_report(f"chmod -R {mode_str} {' '.join(chunk)}")
         # Emit remaining explicit paths
         for mode_str, paths in mode_groups.items():
             if not paths:
@@ -392,10 +394,10 @@ class LiveImage(Plugin):
             for p in paths:
                 chunk.append(shlex.quote(p))
                 if len(chunk) >= 50:
-                    add_run_or_report(f"chmod {mode_str} {' '.join(chunk)}")
+                    add_run_or_report(f"chmod -R {mode_str} {' '.join(chunk)}")
                     chunk = []
             if chunk:
-                add_run_or_report(f"chmod {mode_str} {' '.join(chunk)}")
+                add_run_or_report(f"chmod -R {mode_str} {' '.join(chunk)}")
         if move_sources_to_remove:
             add_run_or_report(f"rm -f {' '.join([shlex.quote(p) for p in move_sources_to_remove])}")
         add_run_or_report(f"/igloo/boot/send_portalcall {GEN_LIVE_IMAGE_ACTION_FINISHED:#x}")
