@@ -47,6 +47,7 @@ enum_names: list[str] = [
     "HYPER_OP",
     "portal_type",
     "igloo_hypercall_constants",
+    "igloo_base_hypercalls",
     "hyperfs_ops",
     "hyperfs_file_ops",
     "value_filter_type",
