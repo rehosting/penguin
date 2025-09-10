@@ -284,7 +284,8 @@ class VtypeSymbol:
     def __repr__(self) -> str:
         type_kind = self.type_info.get(
             'kind', 'N/A') if self.type_info else 'N/A'
-        return f"<VtypeSymbol Name='{self.name}' Address={self.address:#x if self.address is not None else 'N/A'} TypeKind='{type_kind}'>"
+        addr = f"{self.address:#x}" if self.address is not None else 'N/A'
+        return f"<VtypeSymbol Name='{self.name}' Address={addr} TypeKind='{type_kind}'>"
 
 
 class BoundArrayView:
@@ -298,7 +299,7 @@ class BoundArrayView:
         self._array_subtype_info = array_type_info.get("subtype")
         if self._array_subtype_info is None:
             raise ValueError(
-                f"Array field '{array_field_name}' has no subtype information.")
+                f"Array field '{array_field_name}' has no subtype information. type_info={array_type_info}")
         self._array_count = array_type_info.get("count", 0)
 
         # Pre-calculate element size for efficiency
@@ -306,7 +307,12 @@ class BoundArrayView:
             self._array_subtype_info)
         if self._element_size is None:
             raise ValueError(
-                f"Cannot determine element size for array '{array_field_name}'.")
+                f"Cannot determine element size for array '{array_field_name}'.\n"
+                f"  Parent struct: {getattr(parent_instance, '_instance_type_name', None)}\n"
+                f"  Array type_info: {array_type_info}\n"
+                f"  Subtype info: {self._array_subtype_info}\n"
+                f"  get_type_size(subtype_info) returned None.\n"
+                f"  Check that the subtype is defined in the ISF and has a valid size.")
 
         self._array_start_offset_in_parent = array_start_offset_in_parent
 
@@ -429,6 +435,9 @@ class BoundTypeInstance:
             if compiled_struct_obj is None:
                 raise ValueError(
                     f"Cannot get compiled struct for base type '{base_type_def.name}' to write value.")
+            # Handle negative values for unsigned types
+            if base_type_def.signed is False and isinstance(new_value, int) and new_value < 0:
+                new_value = new_value % (1 << (base_type_def.size * 8))
             try:
                 compiled_struct_obj.pack_into(
                     self._instance_buffer, self._instance_offset, new_value)
@@ -613,15 +622,6 @@ class BoundTypeInstance:
             # Handle negative values for unsigned types
             if base_type_def.signed is False and isinstance(value_to_write, int) and value_to_write < 0:
                 value_to_write = value_to_write % (1 << (base_type_def.size * 8))
-            # Handle wrapping for signed types
-            if base_type_def.signed is True and isinstance(value_to_write, int):
-                bits = base_type_def.size * 8
-                max_signed = (1 << (bits - 1)) - 1
-                min_signed = -(1 << (bits - 1))
-                if value_to_write > max_signed:
-                    value_to_write = value_to_write - (1 << bits)
-                if value_to_write < min_signed:
-                    value_to_write = ((value_to_write + (1 << bits)) % (1 << bits)) + min_signed
             try:
                 compiled_struct_obj.pack_into(
                     self._instance_buffer, absolute_field_offset, value_to_write)
@@ -896,6 +896,21 @@ class VtypeJson:
         self._address_to_symbol_list_cache: Optional[Dict[int,
                                                           List[VtypeSymbol]]] = None
 
+    def shift_symbol_addresses(self, delta: int):
+        """
+        Shift all symbol addresses by the given delta. Updates both raw symbol data and cached VtypeSymbol objects.
+        """
+        # Update raw symbol data
+        for sym_name, sym_data in self._raw_symbols.items():
+            if sym_data is not None and "address" in sym_data and sym_data["address"] not in [None, 0]:
+                sym_data["address"] += delta
+        # Update cached VtypeSymbol objects
+        for sym_obj in self._parsed_symbols_cache.values():
+            if sym_obj.address not in [None, 0]:
+                sym_obj.address += delta
+        # Invalidate address-to-symbol cache
+        self._address_to_symbol_list_cache = None
+
     def get_base_type(self, name: str) -> Optional[VtypeBaseType]:
         if name in self._parsed_base_types_cache:
             return self._parsed_base_types_cache[name]
@@ -1052,6 +1067,96 @@ class VtypeJson:
                 f"RawEnums={len(self._raw_enums)} RawSymbols={len(self._raw_symbols)} (Lazy Loaded)>")
 
 
+class VtypeJsonGroup:
+    """
+    Container for multiple related VtypeJson objects, loaded from a list of file paths or file-like objects.
+    Methods are dispatched in order to each VtypeJson until a result is found.
+    """
+    def __init__(self, file_list: list):
+        self._file_order = list(file_list)
+        self.vtypejsons = {}
+        for f in self._file_order:
+            self.vtypejsons[f] = load_isf_json(f)
+
+    @property
+    def paths(self):
+        return list(self._file_order)
+
+    def get_vtypejson(self, path):
+        return self.vtypejsons[path]
+
+    def get_base_type(self, name: str):
+        for f in self._file_order:
+            res = self.vtypejsons[f].get_base_type(name)
+            if res is not None:
+                return res
+        return None
+
+    def get_user_type(self, name: str):
+        for f in self._file_order:
+            res = self.vtypejsons[f].get_user_type(name)
+            if res is not None:
+                return res
+        return None
+
+    def get_enum(self, name: str):
+        for f in self._file_order:
+            res = self.vtypejsons[f].get_enum(name)
+            if res is not None:
+                return res
+        return None
+
+    def get_symbol(self, name: str):
+        for f in self._file_order:
+            res = self.vtypejsons[f].get_symbol(name)
+            if hasattr(res, 'address') and res.address in [None, 0]:
+                continue
+            if res:
+                return res
+
+    def get_type(self, name: str):
+        for f in self._file_order:
+            res = self.vtypejsons[f].get_type(name)
+            if res is not None:
+                return res
+        return None
+
+    def get_symbols_by_address(self, target_address: int):
+        results = []
+        for f in self._file_order:
+            results.extend(self.vtypejsons[f].get_symbols_by_address(target_address))
+        return results
+
+    def get_type_size(self, type_info: dict):
+        for f in self._file_order:
+            res = self.vtypejsons[f].get_type_size(type_info)
+            if res is not None:
+                return res
+        return None
+
+    def create_instance(self, type_input, buffer, instance_offset_in_buffer=0):
+        for f in self._file_order:
+            try:
+                return self.vtypejsons[f].create_instance(type_input, buffer, instance_offset_in_buffer)
+            except ValueError:
+                continue
+        raise ValueError(f"Type definition for '{type_input if isinstance(type_input, str) else getattr(type_input, 'name', type(type_input))}' not found in any VtypeJson.")
+
+    def shift_symbol_addresses(self, delta: int, path: str = None):
+        """
+        Shift symbol addresses for all or a specific VtypeJson in the group.
+        If path is None, shift all; else shift only the VtypeJson for the given path.
+        """
+        if path is None:
+            for f in self._file_order:
+                self.vtypejsons[f].shift_symbol_addresses(delta)
+        else:
+            self.vtypejsons[path].shift_symbol_addresses(delta)
+
+    def __repr__(self):
+        return f"<VtypeJsonGroup: {len(self.vtypejsons)} VtypeJsons>"
+
+
 def load_isf_json(json_input: Union[str, object]) -> VtypeJson:
     raw_data: Any
     input_is_path_str = isinstance(json_input, str)
@@ -1090,6 +1195,182 @@ def load_isf_json(json_input: Union[str, object]) -> VtypeJson:
             "ISF JSON root must be an object, not a list or other type.")
     return VtypeJson(raw_data)
 
+
+if __name__ == '__main__':
+    cli_parser = argparse.ArgumentParser(
+        description="Load and parse a dwarf2json ISF (Intermediate Symbol File) JSON or JSON.XZ.",
+        epilog=f"This script uses the '{_JSON_LIB_USED}' library for JSON parsing."
+    )
+    cli_parser.add_argument("json_file_path", type=str,
+                            help="Path to the ISF JSON or JSON.XZ file.")
+    cli_parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Print detailed info.")
+    cli_parser.add_argument("--find-symbol-at", type=lambda x: int(x, 0),
+                            metavar="ADDRESS", help="Find symbols at address.")
+    cli_parser.add_argument(
+        "--test-write", action="store_true", help="Run field write test.")
+    cli_parser.add_argument(
+        "--test-to-bytes", action="store_true", help="Run to_bytes() test.")
+    cli_parser.add_argument("--test-base-enum-instance", action="store_true",
+                            help="Test creating instances of base/enum types.")
+    cli_parser.add_argument(
+        "--get-type", type=str, help="Test the generic get_type method with the provided type name.")
+    cli_parser.add_argument(
+        "--test-array-write", action="store_true", help="Test writing to array elements.")
+
+    args = cli_parser.parse_args()
+    print(
+        f"Attempting to load ISF file: {args.json_file_path} (using {_JSON_LIB_USED})")
+
+    try:
+        isf_data: VtypeJson = load_isf_json(args.json_file_path)
+        print("\nSuccessfully loaded ISF JSON.")
+        print(f"  ISF Representation: {isf_data}")
+
+        if args.get_type:
+            print(f"\n--- Testing get_type('{args.get_type}') ---")
+            found_type_obj = isf_data.get_type(args.get_type)
+            if found_type_obj:
+                print(f"  Found type: {found_type_obj}")
+                print(f"  Type class: {found_type_obj.__class__.__name__}")
+            else:
+                print(f"  Type '{args.get_type}' not found.")
+
+        if args.find_symbol_at is not None:
+            print(
+                f"\n--- Finding symbols at address {args.find_symbol_at:#x} ---")
+            symbols_at_addr = isf_data.get_symbols_by_address(
+                args.find_symbol_at)
+            if symbols_at_addr:
+                print(
+                    f"  Found {len(symbols_at_addr)} symbol(s) at {args.find_symbol_at:#x}:")
+                for sym_obj in symbols_at_addr:
+                    print(f"    - {sym_obj}")
+            else:
+                print(
+                    f"  No symbols found at address {args.find_symbol_at:#x}.")
+            if isf_data._address_to_symbol_list_cache is not None:
+                print(
+                    f"  Address-to-symbol cache is now populated with {len(isf_data._address_to_symbol_list_cache)} entries.")
+
+        if args.verbose:
+            print("\n--- Verbose Information ---")
+            print(
+                f"  Metadata Producer: {isf_data.metadata.producer.get('name', 'N/A')}, Version: {isf_data.metadata.producer.get('version', 'N/A')}")
+            print(f"  ISF Format Version: {isf_data.metadata.format_version}")
+            print(
+                f"  Number of raw base types defined: {len(isf_data._raw_base_types)}")
+            print(
+                f"  Number of raw user types defined: {len(isf_data._raw_user_types)}")
+            print(f"  Number of raw enums defined: {len(isf_data._raw_enums)}")
+            print(
+                f"  Number of raw symbols defined: {len(isf_data._raw_symbols)}")
+
+        if args.test_write or args.test_to_bytes or args.test_array_write:
+            print(
+                "\n--- Testing Field Write, To Bytes, and/or Array Write Functionality ---")
+            # This test assumes 'my_struct' and 'portal_ffi_call' are defined as in previous examples or in your ISF.
+            # Adjust struct name and fields as necessary.
+            struct_to_test = "my_struct"  # or "portal_ffi_call" if that's in your ISF
+            struct_def = isf_data.get_user_type(struct_to_test)
+
+            if struct_def and struct_def.size is not None:
+                buffer_data = bytearray(struct_def.size)
+
+                # Initialize buffer for "my_struct" (example)
+                if struct_to_test == "my_struct":
+                    struct.pack_into("<i", buffer_data, 0, 100)  # id
+                    # status_flags=1, type_flag=0
+                    struct.pack_into("<B", buffer_data, 4, 0b00000001)
+                    # ... (initialize other fields of my_struct if needed)
+
+                instance = isf_data.create_instance(
+                    struct_to_test, buffer_data)
+
+                if args.test_write:
+                    print(f"  Testing writes for '{struct_to_test}':")
+                    if "id" in struct_def.fields:
+                        print(f"    Initial id: {instance.id}")
+                        instance.id = 999
+                        print(
+                            f"    Modified id: {instance.id} (Buffer check: {struct.unpack_from('<i', buffer_data, 0)[0]})")
+                    # ... (more write tests as before) ...
+
+                if args.test_array_write and "args" in struct_def.fields:  # Test for portal_ffi_call like structure
+                    print(
+                        f"  Testing array writes for '{struct_to_test}.args':")
+                    # Assuming 'args' is an array field, e.g., of unsigned long (pointer size)
+                    # This requires 'args' field to exist and be an array.
+                    args_array_view = instance.args
+                    print(
+                        f"    Initial args_array_view[0] (if applicable): {args_array_view[0] if len(args_array_view) > 0 else 'N/A'}")
+                    if len(args_array_view) > 0:
+                        args_array_view[0] = 0xAAAAAAAAAAAAAAAA
+                        print(
+                            "    Set args_array_view[0] = 0xAAAAAAAAAAAAAAAA")
+                        print(
+                            f"    New args_array_view[0]: {args_array_view[0]}")
+                    if len(args_array_view) > 1:
+                        args_array_view[1] = 0xBBBBBBBBBBBBBBBB
+                        print(
+                            "    Set args_array_view[1] = 0xBBBBBBBBBBBBBBBB")
+                        print(
+                            f"    New args_array_view[1]: {args_array_view[1]}")
+
+                    # Verify directly from buffer if possible (assuming 'args' field offset and element size)
+                    args_field_def = struct_def.fields.get("args")
+                    if args_field_def and args_field_def.offset is not None:
+                        subtype_info = args_field_def.type_info.get("subtype")
+                        if subtype_info:
+                            element_size = isf_data.get_type_size(subtype_info)
+                            if element_size:
+                                if len(args_array_view) > 0:
+                                    val0 = struct.unpack_from(
+                                        f"<{isf_data.get_base_type(subtype_info.get('name')).get_compiled_struct().format[-1]}", buffer_data, instance._instance_offset + args_field_def.offset)[0]
+                                    print(
+                                        f"    Buffer check args[0]: {val0:#x}")
+                                if len(args_array_view) > 1:
+                                    val1 = struct.unpack_from(
+                                        f"<{isf_data.get_base_type(subtype_info.get('name')).get_compiled_struct().format[-1]}", buffer_data, instance._instance_offset + args_field_def.offset + element_size)[0]
+                                    print(
+                                        f"    Buffer check args[1]: {val1:#x}")
+
+                if args.test_to_bytes:
+                    instance_bytes = instance.to_bytes()
+                    print(
+                        f"  instance.to_bytes() (hex) for '{struct_to_test}': {instance_bytes.hex()}")
+            else:
+                print(
+                    f"  Skipping write/to_bytes/array_write test: '{struct_to_test}' not found or has no size.")
+
+        if args.test_base_enum_instance:
+            # ... (base/enum instance test as before) ...
+            print("\n--- Testing Base/Enum Instance Creation ---")
+            int_def = isf_data.get_base_type("int")
+            if int_def and int_def.size is not None:
+                int_buffer = bytearray(int_def.size)
+                struct.pack_into("<i", int_buffer, 0, 12345)
+                int_instance = isf_data.create_instance("int", int_buffer)
+                print(f"  Created int_instance: {int_instance}")
+                print(f"  int_instance._value: {int_instance._value}")
+                int_instance._value = 54321
+                print(f"  Modified int_instance._value: {int_instance._value}")
+                print(
+                    f"  int_instance.to_bytes() (hex): {int_instance.to_bytes().hex()}")
+            else:
+                print("  Skipping 'int' instance test: 'int' not found or has no size.")
+
+    except FileNotFoundError as e:
+        print(f"\nError: {e}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
+        print(f"\nError loading or parsing ISF file: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"\nAn unexpected error occurred: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == '__main__':
     cli_parser = argparse.ArgumentParser(
