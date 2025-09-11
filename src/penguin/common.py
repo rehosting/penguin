@@ -1,11 +1,10 @@
 import hashlib
 import logging
 import re
-from pathlib import Path
 import coloredlogs
 import yaml
 from os.path import join, isfile
-from yamlcore import CoreLoader, CoreDumper
+from yamlcore import CoreDumper
 
 
 # Hex integers
