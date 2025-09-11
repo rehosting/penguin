@@ -173,14 +173,6 @@ Mapping between names of programs and ports for gdbserver. When a program in thi
 lighttpd: 9999
 ```
 
-```yaml
-{}
-```
-
-```yaml
-lighttpd: 9999
-```
-
 #### `core.gdbserver.<string>` Port
 
 |||
@@ -781,26 +773,6 @@ model: from_plugin
 plugin: my_plugin
 ```
 
-```yaml
-'*':
-  model: return_const
-  val: 0
-'1000':
-  model: return_const
-  val: 5
-```
-
-```yaml
-'*':
-  model: return_const
-```
-
-```yaml
-function: ioctl_handler
-model: from_plugin
-plugin: my_plugin
-```
-
 ##### `pseudofiles.<string>.ioctl.<integer or "*">` Ioctl
 
 |||
@@ -932,11 +904,6 @@ Library functions to be intercepted
 |__Default__|`{}`|
 
 Mapping between names of external library functions and names of functions defined in the injected library. This allows replacing arbitrary library functions with your own code.
-
-```yaml
-fputs: 'false'
-nvram_load: nvram_init
-```
 
 ```yaml
 fputs: 'false'

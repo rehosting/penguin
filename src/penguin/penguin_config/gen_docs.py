@@ -156,7 +156,11 @@ class DocsField:
             self.title or other.title,
             self.description or other.description,
             other.default if self.default is PydanticUndefined else self.default,
-            self.examples + other.examples,
+            (
+                self.examples
+                if self.examples == other.examples
+                else self.examples + other.examples
+            ),
         )
 
 
