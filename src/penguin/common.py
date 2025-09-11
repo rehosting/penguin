@@ -1,11 +1,10 @@
 import hashlib
 import logging
 import re
-from pathlib import Path
 import coloredlogs
 import yaml
 from os.path import join, isfile
-from yamlcore import CoreLoader, CoreDumper
+from yamlcore import CoreDumper
 
 
 # Hex integers
@@ -52,44 +51,87 @@ def hash_yaml(section_to_hash):
     return hash_digest
 
 
-def patch_config(base_config, patch):
-    # Merge configs.
-    def _recursive_update(base, new):
-        for k, v in new.items():
-            if isinstance(v, dict):
-                base[k] = _recursive_update(base.get(k, {}), v)
-            elif isinstance(v, list):
-                # Append
-                base[k] = base.get(k, []) + v
-            else:
-                base[k] = v
-        return base
-
-    if issubclass(type(patch), Path):
-        with open(patch, "r") as f:
-            patch = yaml.load(f, Loader=CoreLoader)
+def patch_config(logger, base_config, patch):
     if not patch:
         # Empty patch, possibly an empty file or one with all comments
         return base_config
-    for key, value in patch.items():
-        # Check if the key already exists in the base_config
-        if key in base_config:
-            # If the value is a dictionary, update subfields
-            if isinstance(value, dict):
-                # Recursive update to handle nested dictionaries
-                base_config[key] = _recursive_update(base_config.get(key, {}), value)
-            elif isinstance(value, list):
-                # Merge lists
-                seen = set()
-                combined = base_config[key] + value
-                base_config[key] = [x for x in combined if not (x in seen or seen.add(x))]
-            else:
-                # Replace the base value with the incoming value
-                base_config[key] = value
-        else:
-            # New key, add all data directly
-            base_config[key] = value
-    return base_config
+
+    # Merge configs.
+    def _recursive_update(base, new, config_option):
+        if base is None:
+            return new
+        if new is None:
+            return base
+
+        assert type(base) is type(new)
+
+        if hasattr(base, "merge"):
+            return base.merge(new)
+
+        if hasattr(base, "model_fields_set"):
+            result = dict()
+            for base_key in base.model_fields_set:
+                result[base_key] = getattr(base, base_key)
+            if base.model_extra is not None:
+                for base_key, base_value in base.model_extra.items():
+                    result[base_key] = base_value
+            for new_key in new.model_fields_set:
+                new_value = getattr(new, new_key)
+                if new_key in result:
+                    result[new_key] = _recursive_update(
+                        result[new_key],
+                        new_value,
+                        f"{config_option}.{new_key}" if config_option else new_key,
+                    )
+                else:
+                    result[new_key] = new_value
+            if new.model_extra is not None:
+                for new_key, new_value in new.model_extra.items():
+                    if new_key in result:
+                        result[new_key] = _recursive_update(
+                            result[new_key],
+                            new_value,
+                            f"{config_option}.{new_key}" if config_option else new_key,
+                        )
+                    else:
+                        result[new_key] = new_value
+            return type(base)(**result)
+
+        if isinstance(base, list):
+            return base + new
+
+        if isinstance(base, dict):
+            result = dict()
+            for key, base_value in base.items():
+                if key in new:
+                    new_value = new[key]
+                    result[key] = _recursive_update(
+                        base_value,
+                        new_value,
+                        f"{config_option}.{key}" if config_option else key,
+                    )
+                else:
+                    result[key] = base_value
+            for new_key, new_value in new.items():
+                if new_key not in base:
+                    result[new_key] = new_value
+            return result
+
+        if base == new:
+            return base
+
+        base_str = yaml.dump(base).strip().removesuffix("...").strip()
+        new_str = yaml.dump(new).strip().removesuffix("...").strip()
+        change_str = (
+            f"\n```\n{base_str}\n```↓\n```\n{new_str}\n```"
+            if "\n" in base_str + new_str
+            else f"`{base_str}` → `{new_str}`"
+        )
+        logger.warning(f"patch conflict: {config_option}: {change_str}")
+
+        return new
+
+    return _recursive_update(base_config, patch, None)
 
 
 class PathHighlightingFormatter(coloredlogs.ColoredFormatter):

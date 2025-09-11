@@ -75,6 +75,8 @@ def gen_docs_field(path, docs_field, include_type=True):
         out += "|-|-|\n"
     if include_type:
         out += f"|__Type__|{gen_docs_type_name(docs_field.type_)}|\n"
+    if docs_field.merge_behavior is not None:
+        out += f"|__Patch merge behavior__|{docs_field.merge_behavior}|\n"
     if include_docs:
         out += f"|__Default__|`{gen_docs_yaml_dump(docs_field.default)}`|\n"
     out += "\n"
@@ -94,6 +96,7 @@ class DocsField:
     """Information about a field of the config, for generating docs"""
 
     type_: type
+    merge_behavior: Optional[str]
     title: Optional[str]
     description: Optional[str]
     default: Union[PydanticUndefinedType, Any]
@@ -112,7 +115,11 @@ class DocsField:
 
         if hasattr(type_, "model_config"):
             # Inherits BaseModel or RootModel
-            title = type_.model_config["title"]
+            try:
+                merge_behavior = type_.merge_behavior()
+            except AttributeError:
+                merge_behavior = None
+            title = type_.model_config.get("title")
             description = type_.__doc__
             try:
                 default = type_.model_config["default"]
@@ -124,16 +131,17 @@ class DocsField:
                 examples = []
         else:
             # Doesn't inherit BaseModel or RootModel, so make all values empty
-            title = description = None
+            merge_behavior = title = description = None
             default = PydanticUndefined
             examples = []
-        return DocsField(type_, title, description, default, examples)
+        return DocsField(type_, merge_behavior, title, description, default, examples)
 
     def from_field(field) -> "DocsField":
         """Create a `DocsField` from a Pydantic `Field`"""
 
         return DocsField(
             field.annotation,
+            None,
             field.title,
             field.description,
             field.default,
@@ -144,10 +152,15 @@ class DocsField:
         """Create a `DocsField` by combining two `DocsField`s, using the second to fill in gaps in the first"""
         return DocsField(
             self.type_,
+            self.merge_behavior or other.merge_behavior,
             self.title or other.title,
             self.description or other.description,
             other.default if self.default is PydanticUndefined else self.default,
-            self.examples + other.examples,
+            (
+                self.examples
+                if self.examples == other.examples
+                else self.examples + other.examples
+            ),
         )
 
 
@@ -229,7 +242,7 @@ def gen_docs(path=[], docs_field=DocsField.from_type(structure.Main)):
         # The type is `Optional[T]`. Try again with just `T`.
         out += gen_docs(
             path=path,
-            docs_field=DocsField.from_type(first_model_arg),
+            docs_field=DocsField.from_type(first_model_arg).merge(docs_field),
         )
     else:
         # The type does not inherit from `BaseModel` and it doesn't have an argument that does.
