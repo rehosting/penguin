@@ -216,6 +216,9 @@ class KFFI(Plugin):
         if sym:
             return sym.address
 
+    def _fixup_igloo_module_baseaddr(self, addr):
+        self.ffi.vtypejsons[self.igloo_ko_isf].shift_symbol_addresses(addr)
+
     def _prepare_ffi_call(self, func_ptr: int, args: list, func_name: str = None) -> Tuple[bytes, Optional[int], Optional[dict]]:
         """
         ### Prepare FFI call structure for kernel execution, using function signature if available
