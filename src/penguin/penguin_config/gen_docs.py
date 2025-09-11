@@ -38,7 +38,9 @@ def gen_docs_type_name(t):
     og = typing.get_origin(t)
     args = typing.get_args(t)
 
-    if t == structure.Star:
+    if hasattr(t, "type_name"):
+        return t.type_name()
+    elif t == structure.Star:
         return '"*"'
     elif og is Union:
         return " or ".join(map(gen_docs_type_name, args))
@@ -112,6 +114,7 @@ class DocsField:
 
         if hasattr(type_, "model_config"):
             # Inherits BaseModel or RootModel
+            print(type_, type_.model_config)
             title = type_.model_config["title"]
             description = type_.__doc__
             try:

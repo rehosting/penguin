@@ -509,7 +509,7 @@ class ConfigPopulation(ConfigSearch):
         for p in patched_config.get("patches", []):
             # kinda funny how the names wound up...
             p_yaml = load_unpatched_config(os.path.join(self.proj_dir, p))
-            patched_config = patch_config(patched_config, p_yaml)
+            patched_config = patch_config(self.logger, patched_config, p_yaml)
         return patched_config
 
     def run_config(self, config: ConfigChromosome, run_index: int) -> Tuple[List[Failure], float]:
