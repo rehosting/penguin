@@ -16,8 +16,9 @@ class StrSep(RootModel):
     root: str
     separator: ClassVar = None
 
-    def type_name():
-        return f"strings concatenated with {repr(separator)}"
+    @classmethod
+    def merge_behavior(cls):
+        return f"Concatenate strings separated by `{repr(cls.separator)}`"
 
     def merge(self, other):
         return self.root + self.separator + other.root

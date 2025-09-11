@@ -173,6 +173,14 @@ Mapping between names of programs and ports for gdbserver. When a program in thi
 lighttpd: 9999
 ```
 
+```yaml
+{}
+```
+
+```yaml
+lighttpd: 9999
+```
+
 #### `core.gdbserver.<string>` Port
 
 |||
@@ -317,7 +325,8 @@ true
 
 |||
 |-|-|
-|__Type__|string or null|
+|__Type__|string|
+|__Patch merge behavior__|Concatenate strings separated by `' '`|
 |__Default__|`null`|
 
 A list of additional QEMU command-line arguments to use when booting the guest
@@ -772,6 +781,26 @@ model: from_plugin
 plugin: my_plugin
 ```
 
+```yaml
+'*':
+  model: return_const
+  val: 0
+'1000':
+  model: return_const
+  val: 5
+```
+
+```yaml
+'*':
+  model: return_const
+```
+
+```yaml
+function: ioctl_handler
+model: from_plugin
+plugin: my_plugin
+```
+
 ##### `pseudofiles.<string>.ioctl.<integer or "*">` Ioctl
 
 |||
@@ -909,6 +938,11 @@ fputs: 'false'
 nvram_load: nvram_init
 ```
 
+```yaml
+fputs: 'false'
+nvram_load: nvram_init
+```
+
 #### `lib_inject.aliases.<string>` Injected library alias target
 
 |||
@@ -934,7 +968,8 @@ nvram_init
 
 |||
 |-|-|
-|__Type__|string or null|
+|__Type__|string|
+|__Patch merge behavior__|Concatenate strings separated by `'\n'`|
 |__Default__|`null`|
 
 Custom source code for library functions to intercept and model
@@ -1241,7 +1276,7 @@ thumb
 
 |||
 |-|-|
-|__Type__|string|
+|__Type__|string or null|
 |__Default__|`null`|
 
 
@@ -1263,6 +1298,10 @@ Whether to enable this plugin (default depends on plugin)
 
 
 ## `network` Network Configuration
+
+|||
+|-|-|
+|__Default__|`null`|
 
 Configuration for networks to attach to guest
 
