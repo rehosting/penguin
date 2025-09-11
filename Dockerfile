@@ -4,6 +4,7 @@ ARG BASE_IMAGE="${REGISTRY}/ubuntu:22.04"
 ARG VPN_VERSION="1.0.25"
 ARG BUSYBOX_VERSION="0.0.15"
 ARG LINUX_VERSION="3.3.3-beta"
+ARG IGLOO_DRIVER_VERSION="0.0.2"
 ARG LIBNVRAM_VERSION="0.0.22"
 ARG CONSOLE_VERSION="1.0.7"
 ARG GUESTHOPPER_VERSION="1.0.17"
@@ -144,6 +145,11 @@ RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} hyperfs.tar.gz | \
 # Download guesthopper from CI. Populate /igloo_static/guesthopper
 ARG GUESTHOPPER_VERSION
 RUN /get_release.sh rehosting guesthopper ${GUESTHOPPER_VERSION} guesthopper.tar.gz | \
+    tar xzf - -C /igloo_static
+
+# Download igloo_driver. Should fill in to kernel directories
+ARG IGLOO_DRIVER_VERSION
+RUN /get_release.sh rehosting igloo_driver ${IGLOO_DRIVER_VERSION} igloo_driver.tar.gz | \
     tar xzf - -C /igloo_static
 
 RUN wget https://github.com/wtdcode/DebianOnQEMU/releases/download/v2024.01.05/bios-loong64-8.1.bin -O /igloo_static/loongarch64/bios-loong64-8.1.bin
@@ -511,6 +517,9 @@ RUN if [ -d /tmp/local_packages ]; then \
         if [ -f /tmp/local_packages/guesthopper.tar.gz ]; then \
             rm -rf /igloo_static/guesthopper; \
             tar xzf /tmp/local_packages/guesthopper.tar.gz -C /igloo_static; \
+        fi; \
+        if [ -f /tmp/local_packages/igloo_driver.tar.gz ]; then \
+            tar xzf /tmp/local_packages/igloo_driver.tar.gz -C /igloo_static; \
         fi; \
     fi
 RUN mkdir /igloo_static/utils.source && \
