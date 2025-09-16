@@ -150,13 +150,7 @@ def run_config(
             )
 
     archend = conf["core"]["arch"]
-    try:
-        q_config = qemu_configs[archend]
-        q_config["kconf_group"] = q_config.get("kconf_group", archend)
-        q_config["arch"] = q_config.get("arch", archend)
-    except KeyError:
-        raise ValueError(f"Unknown architecture: {archend}")
-    conf["core"]["kernel"] = get_kernel(conf, q_config)
+    q_config = load_q_config(conf)
     config_fs = os.path.join(proj_dir, conf["core"]["fs"])  # Path to tar filesystem
     plugin_path = (
         conf["core"]["plugin_path"]
