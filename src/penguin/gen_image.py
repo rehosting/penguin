@@ -87,7 +87,7 @@ def tar_add_min_files(tf_path, config):
         tf.addfile(symlink_info)
 
 
-def make_image(fs, out, artifacts, proj_dir, config_path):
+def make_image(fs, out, artifacts, config):
     logger.debug("Generating new image from config...")
     IN_TARBALL = Path(fs)
     ARTIFACTS = Path(artifacts or "/tmp")
@@ -98,7 +98,6 @@ def make_image(fs, out, artifacts, proj_dir, config_path):
     suffix = randint(0, 1000000)
     delete_tar = True
     MODIFIED_TARBALL = Path(ARTIFACTS, f"fs_out_{suffix}.tar")
-    config = load_config(proj_dir, config_path)
     with tempfile.TemporaryDirectory() as TMP_DIR:
         uncompressed_tar = Path(TMP_DIR, f"uncompressed_{suffix}.tar")
         check_output(f"pigz -dc '{str(IN_TARBALL)}' > '{uncompressed_tar}'", shell=True)
@@ -200,7 +199,8 @@ def makeImage(fs, out, artifacts, proj, config, verbose):
         sys.exit(1)
 
     try:
-        make_image(fs, out, artifacts, proj, config)
+        c = load_config(proj, config)
+        make_image(fs, out, artifacts, c)
     except Exception as e:
         logger.error("Failed to generate image")
         # Show exception
