@@ -7,7 +7,7 @@ from pathlib import Path
 from subprocess import check_output
 from random import randint
 from penguin.defaults import default_preinit_script
-from penguin.utils import get_arch_dir
+from penguin.utils import get_arch_dir, get_driver_kmod_path
 import tarfile
 import time
 import io
@@ -85,6 +85,9 @@ def tar_add_min_files(tf_path, config):
         symlink_info.uname = "root"
         symlink_info.gname = "root"
         tf.addfile(symlink_info)
+        # /igloo/boot/igloo.ko
+        driver = get_driver_kmod_path(config)
+        tf.add(driver, arcname="igloo/boot/igloo.ko", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
 
 
 def make_image(fs, out, artifacts, config):
