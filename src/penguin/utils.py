@@ -244,3 +244,26 @@ def get_mitigation_providers(config: dict):
 
         # print(f"Loaded {plugin_name} at version {details['version']}")
     return mitigation_providers
+
+
+def get_kernel(conf):
+    if kernel := conf["core"].get("kernel", None):
+        return kernel
+    from penguin.q_config import load_q_config
+    from glob import glob
+    q_config = load_q_config(conf)
+    kernel_fmt = q_config.get("kernel_fmt", "vmlinux")
+    kernel_whole = q_config.get('kernel_whole', f"vmlinux.{q_config['arch']}")
+    options = [
+        f"/igloo_static/kernels/*/{kernel_fmt}.{q_config['arch']}",
+        f"/igloo_static/kernels/*/{kernel_whole}",
+    ]
+    for opt in options:
+        kernels = glob(opt)
+        if len(kernels) == 1:
+            return kernels[0]
+        elif len(kernels) != 0:
+            raise ValueError(f"Multiple kernels found for {q_config['arch']}: {kernels}")
+    if len(kernels) == 0:
+        raise ValueError(f"Kernel not found for {q_config['arch']}")
+

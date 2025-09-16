@@ -65,25 +65,6 @@ def redirect_stdout_stderr(stdout_path, stderr_path):
             print("stdout or stderr is None - cannot restore")
 
 
-def get_kernel(conf, q_config):
-    if kernel := conf["core"].get("kernel", None):
-        return kernel
-
-    kernel_fmt = q_config.get("kernel_fmt", "vmlinux")
-    kernel_whole = q_config.get('kernel_whole', f"vmlinux.{q_config['arch']}")
-    options = [
-        f"/igloo_static/kernels/*/{kernel_fmt}.{q_config['arch']}",
-        f"/igloo_static/kernels/*/{kernel_whole}",
-    ]
-    for opt in options:
-        kernels = glob(opt)
-        if len(kernels) == 1:
-            return kernels[0]
-        elif len(kernels) != 0:
-            raise ValueError(f"Multiple kernels found for {q_config['arch']}: {kernels}")
-    if len(kernels) == 0:
-        raise ValueError(f"Kernel not found for {q_config['arch']}")
-
 
 def run_config(
     proj_dir,
