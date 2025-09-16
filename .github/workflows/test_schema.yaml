@@ -11,7 +11,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - run: pip install pydantic pyyaml yamlcore
+    - run: pip install pydantic pydantic-partial pyyaml yamlcore
     - run: python3 src/penguin/penguin_config/gen_docs.py docs > schema_doc.md
     # Ensure generated schema_doc.md matches the one in the repo at docs/schema_doc.md
     - run: |
