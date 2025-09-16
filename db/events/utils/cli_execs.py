@@ -78,7 +78,10 @@ def exec_filter(sess, procname, fd, filename):
 @click.option(
     "--output", default="/dev/stdout", help="Output to file instead of stdout"
 )
-def query_execs(results, procname, follow, fd, filename, output):
+@click.option(
+    "--index", "show_index", default=False, is_flag=True, help="Show indexes (event ids) in output"
+)
+def query_execs(results, procname, follow, fd, filename, output, show_index):
     """
     ### Query execution events from the database with optional filters and output options.
 
@@ -92,7 +95,7 @@ def query_execs(results, procname, follow, fd, filename, output):
     """
     print_procname = procname is None
     args = (procname, fd, filename)
-    wrapper(results, output, print_procname, follow, exec_filter, args)
+    wrapper(results, output, print_procname, follow, show_index, exec_filter, args)
 
 
 if __name__ == "__main__":

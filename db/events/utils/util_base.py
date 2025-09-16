@@ -32,7 +32,7 @@ from os.path import join, exists
 from events import Event
 
 
-def wrapper(results, output, print_procname, follow, filter_func, args):
+def wrapper(results, output, print_procname, follow, show_index, filter_func, args):
     """
     ### Wrapper function to execute a filtered query and output results.
 
@@ -41,6 +41,7 @@ def wrapper(results, output, print_procname, follow, filter_func, args):
     - `output` (`str`): Output file path (default: /dev/stdout).
     - `print_procname` (`bool`): Whether to print the process name in output.
     - `follow` (`bool`): Whether to show latest results as they appear.
+    - `show_index` (`bool`): If True, prepend the Event.id (row index) to each line.
     - `filter_func` (`callable`): Function to filter the query. Should accept (sess, *args).
     - `args` (`tuple`): Arguments to pass to the filter function.
 
@@ -73,10 +74,11 @@ def wrapper(results, output, print_procname, follow, filter_func, args):
                     query = query.filter(Event.id > highest_id)
 
                 for event in query.all():
+                    prefix = f"{event.id} " if show_index else ""
                     if print_procname:
-                        printer(f"({event.procname}) {event}", file=f)
+                        printer(f"{prefix}({event.procname}) {event}", file=f)
                     else:
-                        printer(event, file=f)
+                        printer(f"{prefix}{event}", file=f)
                     highest_id = max(highest_id, event.id)
 
                 if not follow:

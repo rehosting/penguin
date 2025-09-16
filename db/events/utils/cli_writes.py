@@ -73,7 +73,10 @@ def write_filter(sess, procname, fd, filename):
 @click.option(
     "--output", default="/dev/stdout", help="Output to file instead of stdout"
 )
-def query_writes(results, procname, follow, fd, filename, output):
+@click.option(
+    "--index", "show_index", default=False, is_flag=True, help="Show indexes (event ids) in output"
+)
+def query_writes(results, procname, follow, fd, filename, output, show_index):
     """
     ### Query file write events from the database with optional filters and output options.
 
@@ -84,10 +87,11 @@ def query_writes(results, procname, follow, fd, filename, output):
     - `fd` (`str` or `None`): File descriptor to filter for.
     - `filename` (`str` or `None`): File name substring to filter for.
     - `output` (`str`): Output file path (default: /dev/stdout).
+    - `show_index` (`bool`): Whether to show indexes (event ids) in output.
     """
     print_procname = procname is None
     args = (procname, fd, filename)
-    wrapper(results, output, print_procname, follow, write_filter, args)
+    wrapper(results, output, print_procname, follow, show_index, write_filter, args)
 
 
 if __name__ == "__main__":

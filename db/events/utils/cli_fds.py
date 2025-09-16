@@ -53,7 +53,10 @@ from os.path import join, exists
 @click.option(
     "--output", default="/dev/stdout", help="Output to file instead of stdout"
 )
-def query_fds(results, procname, follow, fd, output):
+@click.option(
+    "--index", "show_index", default=False, is_flag=True, help="Show indexes (event ids) in output"
+)
+def query_fds(results, procname, follow, fd, output, show_index):
     """
     ### Query file descriptor write events from the database with optional filters and output options.
 
@@ -92,17 +95,20 @@ def query_fds(results, procname, follow, fd, output):
                 if fd:
                     query = query.filter(Write.fd == fd)
 
-                seen = set()
+                seen = {}
                 for event in query.all():
-                    if (event.procname, event.fd, event.fname) not in seen:
-                        seen.add((event.procname, event.fd, event.fname))
+                    key = (event.procname, event.fd, event.fname)
+                    if key not in seen or event.id < seen[key]:
+                        seen[key] = event.id
                     highest_id = max(highest_id, event.id)
 
-                for e in sorted(seen):
+                for e in sorted(seen.items(), key=lambda x: x[1]):
+                    (pname, efd, fname), evid = e
+                    prefix = f"{evid} " if show_index else ""
                     if print_procname:
-                        print(f"({e[0]}) {e[1]} {e[2]}", file=f)
+                        print(f"{prefix}({pname}) {efd} {fname}", file=f)
                     else:
-                        print(f"{e[1]} {e[2]}", file=f)
+                        print(f"{prefix}{efd} {fname}", file=f)
 
                 if not follow:
                     break

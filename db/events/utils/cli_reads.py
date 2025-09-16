@@ -73,7 +73,10 @@ def read_filter(sess, procname, fd, filename):
 @click.option(
     "--output", default="/dev/stdout", help="Output to file instead of stdout"
 )
-def query_reads(results, procname, follow, fd, filename, output):
+@click.option(
+    "--index", "show_index", default=False, is_flag=True, help="Show indexes (event ids) in output"
+)
+def query_reads(results, procname, follow, fd, filename, output, show_index):
     """
     ### Query file read events from the database with optional filters and output options.
 
@@ -87,7 +90,7 @@ def query_reads(results, procname, follow, fd, filename, output):
     """
     print_procname = procname is None
     args = (procname, fd, filename)
-    wrapper(results, output, print_procname, follow, read_filter, args)
+    wrapper(results, output, print_procname, follow, show_index, read_filter, args)
 
 
 if __name__ == "__main__":

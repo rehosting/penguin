@@ -24,7 +24,7 @@ tasks --results ./results/latest --output tasks.txt
 
 import click
 from sqlalchemy.orm import Session
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func
 from rich import print as rprint
 from events import Event
 from os.path import join, exists
@@ -39,7 +39,10 @@ from os.path import join, exists
 @click.option(
     "--output", default="/dev/stdout", help="Output to file instead of stdout"
 )
-def query_tasks(results, output):
+@click.option(
+    "--index", "show_index", default=False, is_flag=True, help="Show indexes (first event id) in output"
+)
+def query_tasks(results, output, show_index):
     """
     ### Query and list unique process names (tasks) from the events database.
 
@@ -60,9 +63,18 @@ def query_tasks(results, output):
             else:
                 printer = print
 
-            query = sess.query(Event.procname).distinct().order_by(Event.id)
-            for event in query.all():
-                printer(event.procname, file=f)
+            if show_index:
+                query = (
+                    sess.query(func.min(Event.id).label("min_id"), Event.procname)
+                    .group_by(Event.procname)
+                    .order_by(func.min(Event.id))
+                )
+                for row in query.all():
+                    printer(f"{row.min_id} {row.procname}", file=f)
+            else:
+                query = sess.query(Event.procname).distinct().order_by(Event.id)
+                for event in query.all():
+                    printer(event.procname, file=f)
 
 
 if __name__ == "__main__":

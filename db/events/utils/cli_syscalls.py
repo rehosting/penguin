@@ -20,6 +20,7 @@ syscalls --procname myproc --syscall open --errors --output results.txt
 - `--errors`: Show only syscalls that returned an error
 - `--output`: Output file (default: `/dev/stdout`)
 - `--follow`: Show latest results as they appear
+- `--index`: Show indexes of the output
 
 ## Functions
 
@@ -84,7 +85,10 @@ def syscall_filter(sess, procname, syscall, errors):
 @click.option(
     "--output", default="/dev/stdout", help="Output to file instead of stdout"
 )
-def query_syscalls(results, procname, syscall, errors, follow, output):
+@click.option(
+    "--index", "show_index", default=False, is_flag=True, help="Show indexes (event ids) in output"
+)
+def query_syscalls(results, procname, syscall, errors, follow, output, show_index):
     """
     ### Query syscall events from the database with optional filters and output options.
 
@@ -98,7 +102,7 @@ def query_syscalls(results, procname, syscall, errors, follow, output):
     """
     print_procname = procname is None
     args = (procname, syscall, errors)
-    wrapper(results, output, print_procname, follow, syscall_filter, args)
+    wrapper(results, output, print_procname, follow, show_index, syscall_filter, args)
 
 
 if __name__ == "__main__":
