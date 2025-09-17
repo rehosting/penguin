@@ -33,8 +33,8 @@ class KFFITest(Plugin):
         buf_bytes = yield from mem.read_bytes(buf, 64)
 
         # check buffer values
-        assert buf_bytes.startswith(b"#!/igloo/utils/busybox sh\n"), \
-            f"Expected file content to start with '#!/igloo/utils/busybox sh\\n', got {buf_bytes[:30]!r}"
+        assert buf_bytes.startswith(b"#!/igloo/utils/sh\n"), \
+            f"Expected file content to start with '#!/igloo/utils/sh\\n', got {buf_bytes[:30]!r}"
 
         # clean up
         yield from kffi.kfree(buf)
