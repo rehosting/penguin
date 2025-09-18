@@ -264,6 +264,7 @@ def get_kernel(conf):
         f"/igloo_static/kernels/*/{kernel_fmt}.{q_config['arch']}",
         f"/igloo_static/kernels/*/{kernel_whole}",
     ]
+    kernels = []
     for opt in options:
         kernels = glob(opt)
         if len(kernels) == 1:
