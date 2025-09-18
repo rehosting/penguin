@@ -1,5 +1,6 @@
 from penguin import plugins, Plugin
 
+
 class KmodTracker(Plugin):
 
     def track_kmod(self, kmod_path):
@@ -18,7 +19,7 @@ class KmodTracker(Plugin):
         igloo_mod_args = ['/igloo/utils/busybox', 'insmod', '/igloo/boot/igloo.ko']
         if args == igloo_mod_args:
             return
-        
+
         # We never allow actual module loading other than igloo.ko
         # So we just fake success here.
         syscall.retval = 0
@@ -33,18 +34,18 @@ class KmodTracker(Plugin):
             self.track_kmod(matching_ko[-1])
             return
 
-        # Check open fds for .ko file        
+        # Check open fds for .ko file
         fds = yield from plugins.osi.get_fds()
         for fd, fdname in fds.items():
             if fdname.endswith('.ko'):
                 self.track_kmod(fdname)
                 return
-        
+
         # We can give up here or try to read the module image from memory
         # for now we give up
         # module = yield from plugins.mem.read_bytes(module_image, size)
         self.logger.info(f"Could not determine kernel module path from args: {args} or fds: {fds}")
-    
+
     @plugins.syscalls.syscall("on_sys_finit_module_enter")
     def finit_module(self, regs, proto, syscall, fd, param_values, flags):
         # We never allow actual module loading other than igloo.ko

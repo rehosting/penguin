@@ -8,7 +8,6 @@ import socket
 from contextlib import contextmanager, closing
 from pathlib import Path
 from time import sleep
-from glob import glob
 
 from pandare2 import Panda
 
@@ -20,6 +19,7 @@ from penguin.penguin_config import load_config
 from .plugin_manager import ArgsBox
 from .utils import hash_image_inputs
 from .q_config import load_q_config, ROOTFS
+
 
 @contextmanager
 def print_to_log(out, err):
@@ -63,7 +63,6 @@ def redirect_stdout_stderr(stdout_path, stderr_path):
             # Record that we failed to restore stdout/stderr, this goes into
             # the log file (not stdout/stderr)?
             print("stdout or stderr is None - cannot restore")
-
 
 
 def run_config(

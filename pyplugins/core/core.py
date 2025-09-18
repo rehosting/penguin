@@ -63,9 +63,7 @@ class Core(Plugin):
 
         telnet_port = self.get_arg("telnet_port")
 
-
         # Essential plugins are always loaded with core
-
         essential_plugins = [
             "live_image",
             "igloodriver",
