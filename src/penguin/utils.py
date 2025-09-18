@@ -145,6 +145,8 @@ def get_arch_dir(config):
 def get_driver_kmod_path(config):
     kernel_path = os.path.dirname(config["core"]["kernel"])
     arch_dir = get_arch_subdir(config)
+    if arch_dir == "aarch64":
+        arch_dir = "arm64"
     return f"{kernel_path}/igloo.ko.{arch_dir}"
 
 
