@@ -60,6 +60,7 @@ qemu_configs = {
     },
 }
 
+
 def load_q_config(conf):
     archend = conf["core"]["arch"]
     try:
