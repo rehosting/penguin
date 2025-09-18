@@ -63,8 +63,19 @@ class Core(Plugin):
 
         telnet_port = self.get_arg("telnet_port")
 
-        plugins.live_image.ensure_init()
-        plugins.igloodriver.ensure_init()
+
+        # Essential plugins are always loaded with core
+
+        essential_plugins = [
+            "live_image",
+            "igloodriver",
+            "kmods",
+        ]
+
+        for essential_plugin in essential_plugins:
+            p = getattr(plugins, essential_plugin)
+            if hasattr(p, "ensure_init"):
+                p.ensure_init()
 
         # If we have an option of root_shell we need to add ROOT_SHELL=1 into env
         # so that the init script knows to start a root shell
