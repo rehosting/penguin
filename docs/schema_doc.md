@@ -79,7 +79,7 @@ intel64
 |||
 |-|-|
 |__Type__|string or null|
-|__Default__|`null`|
+|__Default__|`./base/fs.tar.gz`|
 
 
 ```yaml
