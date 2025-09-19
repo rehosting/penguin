@@ -240,10 +240,14 @@ def load_config(proj_dir, path, validate=True):
             raise ValueError("No core.arch specified in config")
 
         if config["core"].get("fs", None) is None:
-            config["core"]["fs"] = "./base/empty_fs.tar.gz"
-            empty_fs_path = os.path.join(proj_dir, "./base/empty_fs.tar.gz")
-            if not os.path.exists(empty_fs_path):
-                construct_empty_fs(empty_fs_path)
+            if Path(proj_dir, "base/fs.tar.gz").exists():
+                config["core"]["fs"] = "./base/fs.tar.gz"
+            else:
+                logger.info("No core.fs specified in config - using empty fs - most likely a test")
+                config["core"]["fs"] = "./base/empty_fs.tar.gz"
+                empty_fs_path = os.path.join(proj_dir, "./base/empty_fs.tar.gz")
+                if not os.path.exists(empty_fs_path):
+                    construct_empty_fs(empty_fs_path)
     return config
 
 
