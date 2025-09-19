@@ -126,7 +126,7 @@ class Core(PartialModelMixin, BaseModel):
     fs: Annotated[
         Optional[str],
         Field(
-            None,
+            "./base/fs.tar.gz",
             title="Project-relative path to filesystem tarball",
             examples=["base/fs.tar.gz"],
         ),
