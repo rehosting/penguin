@@ -24,7 +24,7 @@ FROM ${REGISTRY}/rust:1.86 AS rust_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
 ARG VHOST_DEVICE_VERSION
 ENV PATH="/root/.cargo/bin:$PATH"
-ENV CARGO_INSTALL_ROOT="/usr/local" 
+ENV CARGO_INSTALL_ROOT="/usr/local"
 
 RUN apt-get update && apt-get install -y -q build-essential libfontconfig1-dev liblzma-dev
 
@@ -308,6 +308,9 @@ RUN mkdir /fakeroot || true
 
 ### MAIN CONTAINER ###
 FROM $BASE_IMAGE AS penguin
+# Build argument to control whether to keep wheels for downstream processes
+ARG KEEP_WHEELS=false
+
 # Environment setup
 ENV PIP_ROOT_USER_ACTION=ignore
 ENV DEBIAN_FRONTEND=noninteractive
@@ -377,7 +380,9 @@ COPY --from=python_builder /app/wheels /wheels
 # Remove python_lzo 1.0 to resolve depdency collision with vmlinux-to-elf
 RUN rm -rf /wheels/python_lzo*
 
-RUN pip install --no-cache /wheels/* && rm -rf /wheels
+RUN pip install --no-cache /wheels/*
+
+RUN if [ "$KEEP_WHEELS" != "true" ]; then rm -rf /wheels; fi
 
 RUN poetry config virtualenvs.create false
 
