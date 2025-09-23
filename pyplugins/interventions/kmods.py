@@ -30,13 +30,16 @@ class KmodTracker(Plugin):
         # Check args for .ko file
         matching_ko = [arg for arg in args if arg.endswith('.ko')]
         if any(matching_ko):
-            self.logger.info(f"Detected kernel module load: {matching_ko[-1]}")
             self.track_kmod(matching_ko[-1])
+            return
+        if any(arg for arg in args if arg.endswith('modprobe')):
+            self.logger.info(f"modprobe detected, cannot determine module path from args: {args}")
             return
 
         # Check open fds for .ko file
         fds = yield from plugins.osi.get_fds()
-        for fd, fdname in fds.items():
+        for i in range(len(fds)):
+            fdname = fds[i].name
             if fdname.endswith('.ko'):
                 self.track_kmod(fdname)
                 return
