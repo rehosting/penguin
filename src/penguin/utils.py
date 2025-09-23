@@ -255,8 +255,10 @@ def get_mitigation_providers(config: dict):
 
 
 def get_kernel(conf):
-    if kernel := conf["core"].get("kernel", None):
-        return kernel
+    kernel = conf["core"].get("kernel", None)
+    if kernel:
+        if os.path.exists(kernel) and os.path.isfile(kernel):
+            return kernel
     from penguin.q_config import load_q_config
     from glob import glob
     q_config = load_q_config(conf)
@@ -272,6 +274,12 @@ def get_kernel(conf):
         if len(kernels) == 1:
             return kernels[0]
         elif len(kernels) != 0:
+            # kernel can be a substring of the version
+            # but must match exactly one
+            if kernel is not None:
+                options = [i for i in kernels if kernel in i]
+                if len(options) == 1:
+                    return options[0]
             raise ValueError(f"Multiple kernels found for {q_config['arch']}: {kernels}")
     if len(kernels) == 0:
         raise ValueError(f"Kernel not found for {q_config['arch']}")
