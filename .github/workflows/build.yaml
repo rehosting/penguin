@@ -134,19 +134,19 @@ jobs:
       - name: Test for ${{ matrix.arch }} all kernels
         run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py --arch ${{ matrix.arch }}
       
-      - name: Find the results
-        id: results
-        run: |
-          verifier=$(realpath $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/\*/verifier.xml)
-          echo "Found verifier xml at $verifier"
-          echo "output_verifier=${verifier}" >> "$GITHUB_OUTPUT"
+      # - name: Find the results
+      #   id: results
+      #   run: |
+      #     verifier=$(realpath $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/\*/verifier.xml)
+      #     echo "Found verifier xml at $verifier"
+      #     echo "output_verifier=${verifier}" >> "$GITHUB_OUTPUT"
       
       - name: Test Report
         uses: dorny/test-reporter@v1.9.1
         if: success() || failure()
         with: 
           name: ${{ matrix.arch }}-test-results
-          path: ${{ steps.results.outputs.output_verifier}} 
+          path: ${{ github.workspace }}/tests/unit_tests/test_target/results/*/verifier.xml
           reporter: java-junit
 
       - name: Get artifact path
