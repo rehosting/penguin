@@ -17,7 +17,7 @@ from .common import yaml
 from .defaults import default_plugin_path, vnc_password
 from penguin.penguin_config import load_config
 from .plugin_manager import ArgsBox
-from .utils import hash_image_inputs
+from .utils import hash_image_inputs, get_penguin_kernel_version
 from .q_config import load_q_config, ROOTFS
 
 
@@ -108,6 +108,7 @@ def run_config(
     # of configs files section - we'll hash it to get a path
     # Read input config and validate
     conf = load_config(proj_dir, conf_yaml)
+    pkversion = get_penguin_kernel_version(conf)
 
     if timeout is not None and conf.get("plugins", {}).get("core", None) is not None:
         # An arugument setting a timeout overrides the config's timeout
@@ -254,6 +255,10 @@ def run_config(
         machine_args = q_config["qemu_machine"]+",memory-backend=mem0"
     else:
         machine_args = q_config["qemu_machine"]
+    
+    if q_config["arch"] == "arm" and pkversion <= (4, 19):
+        machine_args += ",highmem=off,highmem-ecam=off,highmem-mmio=off"
+
     if q_config["arch"] in ["arm", "aarch64"]:
         drive += ",if=none"
         drive_args = [
