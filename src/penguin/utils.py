@@ -283,3 +283,46 @@ def get_kernel(conf):
             raise ValueError(f"Multiple kernels found for {q_config['arch']}: {kernels}")
     if len(kernels) == 0:
         raise ValueError(f"Kernel not found for {q_config['arch']}")
+
+def get_penguin_kernel_version(conf):
+    """
+    Extract kernel version tuple from conf['core']['kernel'].
+
+    Expected path format:
+        /igloo_static/kernels/<VERSION>/<kernel_filename>
+
+    <VERSION> may have a suffix (e.g., 6.1.55-custom); the suffix after the first
+    '-' is ignored. Only leading dot-separated numeric components are returned.
+
+    Returns:
+        tuple[int, ...]  e.g., (6, 1, 55)
+
+    Raises:
+        ValueError if the version cannot be determined.
+    """
+    kernel_path = conf["core"].get("kernel")
+    if not kernel_path:
+        raise ValueError("Missing conf['core']['kernel']")
+
+    parts = [p for p in kernel_path.split("/") if p]
+    try:
+        k_idx = parts.index("kernels")
+        version_part = parts[k_idx + 1]
+    except (ValueError, IndexError):
+        raise ValueError(f"Kernel path does not contain a version segment: {kernel_path}")
+
+    # Drop suffix after '-' if present (e.g., 6.1.55-custom -> 6.1.55)
+    base_version = version_part.split("-", 1)[0]
+
+    nums = []
+    for token in base_version.split("."):
+        if token.isdigit():
+            nums.append(int(token))
+        else:
+            break
+
+    if not nums:
+        raise ValueError(f"Unable to parse numeric version from: {version_part}")
+
+    return tuple(nums)
+
