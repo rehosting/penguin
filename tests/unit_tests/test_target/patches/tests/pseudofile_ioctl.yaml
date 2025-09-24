@@ -11,16 +11,13 @@ plugins:
         subkeys: 
           /dev/foo/present:
             ioctl:
-              799:
-                count: 2
+              799: {}
           /dev/fs/present:
             ioctl:
-              799:
-                count: 2
+              799: {}
           /dev/present:
             ioctl:
-              799:
-                count: 2
+              799: {}
 
 pseudofiles:
   /dev/present: {}
