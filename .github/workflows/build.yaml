@@ -132,7 +132,7 @@ jobs:
         run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/basic_target/test.py --arch ${{ matrix.arch }}
           
       - name: Test for ${{ matrix.arch }} all kernels
-        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py--arch ${{ matrix.arch }}
+        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py --arch ${{ matrix.arch }}
       
       - name: Find the results
         id: results
