@@ -93,7 +93,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        kernel: ["6.13"]
         arch: ["armel", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc64", "loongarch64", "aarch64", "x86_64"] # "riscv64"
 
     steps:
@@ -132,8 +131,8 @@ jobs:
       - name: Basic test for ${{ matrix.arch }}
         run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/basic_target/test.py --arch ${{ matrix.arch }}
           
-      - name: Test for ${{ matrix.arch }} kernel v${{ matrix.kernel }}
-        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py --kernel ${{ matrix.kernel }} --arch ${{ matrix.arch }}
+      - name: Test for ${{ matrix.arch }} all kernels
+        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py--arch ${{ matrix.arch }}
       
       - name: Find the results
         id: results
