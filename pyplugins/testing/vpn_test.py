@@ -10,25 +10,30 @@ connections.
 
 from penguin import plugins, Plugin
 import threading
-import requests, time
+import requests
+import time
+
 
 class VPNTest(Plugin):
     def __init__(self) -> None:
         self.outdir = self.get_arg("outdir")
         plugins.subscribe(plugins.VPN, "on_bind", self.on_bind)
         self.success = False
-    
+
     def on_bind(self, proto: str, guest_ip: str, guest_port: int, host_port: int, host_ip: str, procname: str) -> None:
         if guest_port == 8000 and proto == "tcp":
             if not hasattr(self, 't'):
-                self.logger.info(f"Starting VPN test thread to {host_ip}:{host_port}")
-                self.t = threading.Thread(target=self.scan_thread, args=(host_ip, host_port))
+                self.logger.info(
+                    f"Starting VPN test thread to {host_ip}:{host_port}")
+                self.t = threading.Thread(
+                    target=self.scan_thread, args=(host_ip, host_port))
                 self.t.start()
-    
+
     def scan_thread(self, host_ip: str, host_port: int) -> None:
         while True:
             try:
-                response = requests.get(f"http://{host_ip}:{host_port}/igloo/boot/preinit", timeout=1)
+                response = requests.get(
+                    f"http://{host_ip}:{host_port}/igloo/boot/preinit", timeout=1)
                 if "#!/igloo/boot/sh" in response.text:
                     self.success = True
                     with open(f"{self.outdir}/vpn_test.txt", "w") as f:
@@ -36,7 +41,8 @@ class VPNTest(Plugin):
                     self.logger.info("VPN connection successful!")
                     return
             except Exception as e:
-                self.logger.info(f"VPN test connection failed: {e} retrying...")
+                self.logger.info(
+                    f"VPN test connection failed: {e} retrying...")
             time.sleep(1)
 
     def uninit(self):
@@ -44,4 +50,3 @@ class VPNTest(Plugin):
             with open(f"{self.outdir}/vpn_test.txt", "w") as f:
                 f.write("VPN connection failed.\n")
             print("VPN connection failed.")
-
