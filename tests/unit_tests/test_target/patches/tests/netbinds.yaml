@@ -9,7 +9,11 @@ plugins:
         type: file_contains 
         file: netbinds.csv
         string: "busybox,6,tcp,[::],8000,"
-
+      vpn_connection:
+        type: file_contains
+        file: vpn_test.txt
+        string: "VPN connection successful!"
+  vpn_test: {}
 static_files:
   /tests/netbinds.sh:
     type: inline_file
@@ -18,7 +22,7 @@ static_files:
       set -ex
 
       # start server
-      /igloo/utils/busybox httpd -f -p 8000 &
+      /igloo/utils/busybox httpd -f -p 8000 -h / &
       sleep 1
       # echo "tests pass"
       exit 0
