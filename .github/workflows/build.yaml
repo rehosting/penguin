@@ -136,9 +136,8 @@ jobs:
       
       - name: Find the results
         id: results
-          
         run: |
-          verifier=$(realpath $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/latest/verifier.xml)
+          verifier=$(realpath $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/\*/verifier.xml)
           echo "Found verifier xml at $verifier"
           echo "output_verifier=${verifier}" >> "$GITHUB_OUTPUT"
       
