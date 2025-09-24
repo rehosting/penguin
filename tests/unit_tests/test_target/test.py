@@ -87,13 +87,14 @@ def run_test(kernel, arch, image):
 
 DEFAULT_KERNELS = ['4.10', '6.13']
 DEFAULT_ARCHES = ['armel', 'aarch64',
-                'mipsel', 'mipseb', 'mips64el', 'mips64eb',
-                'powerpc64', 'x86_64']
+                  'mipsel', 'mipseb', 'mips64el', 'mips64eb',
+                  'powerpc64', 'x86_64']
 
 # these are the architectures that only work with certain kernels
 NONDEFAULT_KERNEL_ARCHES = {
     '6.13': ['loongarch64', 'riscv64'],
 }
+
 
 @click.command()
 @click.option("--kernel", "-k", multiple=True, default=DEFAULT_KERNELS)
@@ -108,16 +109,19 @@ def test(kernel, arch, image):
         allowed_arches.update(arches)
 
     if any(a not in allowed_arches for a in arch):
-        logger.error(f"Unsupported architectures specified. Allowed: {sorted(allowed_arches)}")
+        logger.error(
+            f"Unsupported architectures specified. Allowed: {sorted(allowed_arches)}")
         return
 
     # Run tests for each kernel and architecture
     for k in kernel:
         for a in arch:
             # If this architecture is restricted to specific kernels, enforce it
-            restricted_kernels = {kern for kern, arches in NONDEFAULT_KERNEL_ARCHES.items() if a in arches}
+            restricted_kernels = {
+                kern for kern, arches in NONDEFAULT_KERNEL_ARCHES.items() if a in arches}
             if restricted_kernels and k not in restricted_kernels:
-                logger.info(f"Skipping kernel {k} for arch {a} (requires kernels: {sorted(restricted_kernels)})")
+                logger.info(
+                    f"Skipping kernel {k} for arch {a} (requires kernels: {sorted(restricted_kernels)})")
                 continue
 
             logger.info(f"Running tests for kernel {k} on arch {a}")
