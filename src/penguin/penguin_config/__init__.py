@@ -228,8 +228,7 @@ def load_config(proj_dir, path, validate=True):
             contents="RUST_LOG=info /igloo/utils/guesthopper &",
             mode=0o755,
         )
-    if config["core"].get("kernel", None) is None:
-        config["core"]["kernel"] = get_kernel(config)
+    config["core"]["kernel"] = get_kernel(config)
 
     # when loading a patch we don't need a completely valid config
     if validate:
