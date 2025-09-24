@@ -95,6 +95,7 @@ def run_test(kernel, arch, image):
         bconfig = yaml.safe_load(file)
 
     bconfig["patches"].append("patch.yaml")
+    bconfig["core"]["kernel"] = str(kernel)
 
     with open(base_config, "w") as file:
         yaml.dump(bconfig, file, sort_keys=False)
@@ -104,11 +105,16 @@ def run_test(kernel, arch, image):
     logger.info("Test completed")
 
 
-DEFAULT_KERNELS = ['6.13']
+DEFAULT_KERNELS = ['4.10', '6.13']
 DEFAULT_ARCHES = ['armel', 'aarch64',
                   'mipsel', 'mipseb', 'mips64el', 'mips64eb',
                   'powerpc64', 'riscv64', 'loongarch64',
                   'x86_64']
+
+# architectures that only work with specific kernels
+NONDEFAULT_KERNEL_ARCHES = {
+    '6.13': ['loongarch64', 'riscv64'],
+}
 
 
 @click.command()
@@ -118,13 +124,24 @@ DEFAULT_ARCHES = ['armel', 'aarch64',
 def test(kernel, arch, image):
     logger.info(f"Running tests for {kernel} on {arch}")
 
-    if any(a not in DEFAULT_ARCHES for a in arch):
-        logger.error(f"We only support {DEFAULT_ARCHES} at the moment")
+    # Allow DEFAULT_ARCHES plus any arches referenced in NONDEFAULT_KERNEL_ARCHES
+    allowed_arches = set(DEFAULT_ARCHES)
+    for arches in NONDEFAULT_KERNEL_ARCHES.values():
+        allowed_arches.update(arches)
+
+    if any(a not in allowed_arches for a in arch):
+        logger.error(f"Unsupported architectures specified. Allowed: {sorted(allowed_arches)}")
         return
 
     # Run tests for each kernel and architecture
     for k in kernel:
         for a in arch:
+            # If this architecture is restricted to specific kernels, enforce it
+            restricted_kernels = {kern for kern, arches in NONDEFAULT_KERNEL_ARCHES.items() if a in arches}
+            if restricted_kernels and k not in restricted_kernels:
+                logger.info(f"Skipping kernel {k} for arch {a} (requires kernels: {sorted(restricted_kernels)})")
+                continue
+
             logger.info(f"Running tests for kernel {k} on arch {a}")
             run_test(k, a, image)
             run_cmd(f"rm -rf {proj_dir}/projects", shell=True)
