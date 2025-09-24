@@ -284,6 +284,7 @@ def get_kernel(conf):
     if len(kernels) == 0:
         raise ValueError(f"Kernel not found for {q_config['arch']}")
 
+
 def get_penguin_kernel_version(conf):
     """
     Extract kernel version tuple from conf['core']['kernel'].
@@ -325,4 +326,3 @@ def get_penguin_kernel_version(conf):
         raise ValueError(f"Unable to parse numeric version from: {version_part}")
 
     return tuple(nums)
-

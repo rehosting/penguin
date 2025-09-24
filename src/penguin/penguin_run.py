@@ -255,7 +255,7 @@ def run_config(
         machine_args = q_config["qemu_machine"]+",memory-backend=mem0"
     else:
         machine_args = q_config["qemu_machine"]
-    
+
     if q_config["arch"] == "arm" and pkversion <= (4, 19):
         machine_args += ",highmem=off,highmem-ecam=off,highmem-mmio=off"
 
