@@ -43,6 +43,14 @@ class ConfigBuilder:
         extracted_fs.mkdir()
         subprocess.check_output(["tar", "-xf", archive_fs, "-C", str(extracted_fs)])
 
+        # ensure every file is readable by the current user
+        subprocess.check_output(
+            ["find", str(extracted_fs), "-type", "f", "-exec", "chmod", "u+r", "{}", "+"])
+
+        # ensure every directory is readable by the current user (requires exec)
+        subprocess.check_output(
+            ["find", str(extracted_fs), "-type", "d", "-exec", "chmod", "u+rx", "{}", "+"])
+
         try:
             # First run static analyses and produce info about the filesystem
             # This informs how we generate configs (e.g., what's the arch, what's the init prog)
