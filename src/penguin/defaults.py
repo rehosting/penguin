@@ -9,7 +9,7 @@ vnc_password = "IGLOOPassw0rd!"
 default_version = 2
 static_dir = "/igloo_static/"
 # XXX in config_patchers we append .0 to this - may need to update
-DEFAULT_KERNEL = "6.13"
+DEFAULT_KERNEL = "4.10"
 
 # Where are plugins in the filesystem. These are our standard pyplugins
 # that we use for env, pseudofiles, etc.
