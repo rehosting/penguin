@@ -414,7 +414,11 @@ class Syscalls(Plugin):
         `Tuple[Any, bytes]`: The syscall event object and its original bytes.
         """
         sce = plugins.kffi.read_type_panda(cpu, arg, "syscall_event")
-        sce.name = bytes(sce.syscall_name).decode("latin-1").rstrip("\x00")
+        sce.name = ""
+        for i in range(len(sce.syscall_name)):
+            if sce.syscall_name[i] == 0:
+                break
+            sce.name += chr(sce.syscall_name[i])
         original = sce.to_bytes()[:]
         return sce, original
 
