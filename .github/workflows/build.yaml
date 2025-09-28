@@ -134,12 +134,10 @@ jobs:
       - name: Test for ${{ matrix.arch }} all kernels
         run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py --arch ${{ matrix.arch }}
       
-      # - name: Find the results
-      #   id: results
-      #   run: |
-      #     verifier=$(realpath $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/\*/verifier.xml)
-      #     echo "Found verifier xml at $verifier"
-      #     echo "output_verifier=${verifier}" >> "$GITHUB_OUTPUT"
+      - name: Drop latest symlink
+        run: |
+          # Remove the 'latest' symlink to ensure we do not double-count results
+          rm -rf $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/latest
       
       - name: Test Report
         uses: dorny/test-reporter@v1.9.1
