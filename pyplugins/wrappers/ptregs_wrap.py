@@ -296,6 +296,9 @@ class PtRegsWrapper(Wrapper):
                 if self._panda.bits == 32:
                     return struct.unpack(endian_fmt + 'I', data)[0]
                 else:  # 64-bit
+                    # Handle case where we might be reading 4 bytes on a 64-bit system
+                    if len(data) == 4:
+                        return struct.unpack(endian_fmt + 'I', data)[0]
                     return struct.unpack(endian_fmt + 'Q', data)[0]
         except ValueError:  # This is what PANDA's virtual_memory_read raises on failure
             raise PandaMemReadFail(addr, size)
