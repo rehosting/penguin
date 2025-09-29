@@ -48,6 +48,25 @@ T = TypeVar('T', bound='Plugin')
 PluginManagerType = TypeVar('PluginManagerType', bound='IGLOOPluginManager')
 
 
+def resolve_bound_method_from_class(f: Callable) -> Callable:
+    """
+    Resolve a method from a class given a function reference.
+    Args:
+        f (Callable): The function reference to resolve.
+
+    Returns:
+        Callable: The resolved method or the original function if not found.
+    """
+    if hasattr(f, '__qualname__') and '.' in f.__qualname__:
+        class_name = f.__qualname__.split('.')[0]
+        method_name = f.__qualname__.split('.')[-1]
+        instance = getattr(plugins, class_name)
+        if instance:
+            if hasattr(instance, method_name):
+                return getattr(instance, method_name)
+    return f
+
+
 class ArgsBox:
     def __init__(self, args: Dict[str, Any]) -> None:
         """
