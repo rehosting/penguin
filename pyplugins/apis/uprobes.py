@@ -5,6 +5,7 @@
 import os
 import lzma
 from penguin import Plugin, plugins
+from penguin.plugin_manager import resolve_bound_method_from_class
 from typing import Dict, List, Any, Union, Callable, Optional, Iterator
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import portal_type
@@ -224,33 +225,12 @@ class Uprobes(Plugin):
             return
 
         probe_info = self.probes[sce.id]
-        fn = probe_info["callback"]
-        is_method = probe_info.get("is_method", False)
-        qualname = probe_info.get("qualname", None)
-
-        # Handle method callbacks (resolve class instance from plugins)
-        if is_method and qualname and '.' in qualname:
-            class_name = qualname.split('.')[0]
-            method_name = qualname.split('.')[-1]
-            try:
-                instance = getattr(plugins, class_name)
-                if instance and hasattr(instance, method_name):
-                    bound_method = getattr(instance, method_name)
-                    fn_ret = bound_method(pt_regs)
-                    if isinstance(fn_ret, Iterator):
-                        fn_ret = yield from bound_method(pt_regs)
-                else:
-                    self.logger.error(
-                        f"Could not find method {method_name} on instance for {qualname}")
-                    return
-            except AttributeError:
-                self.logger.error(
-                    f"Could not find instance for class {class_name} from {qualname}")
-                return
-        else:
-            fn_ret = fn(pt_regs)
-            if isinstance(fn_ret, Iterator):
-                fn_ret = yield from fn(pt_regs)
+        cb = probe_info["callback"]
+        fn = resolve_bound_method_from_class(cb)
+        probe_info["callback"] = fn  # Cache resolved function
+        fn_ret = fn(pt_regs)
+        if isinstance(fn_ret, Iterator):
+            fn_ret = yield from fn(pt_regs)
 
         new = pt_regs.to_bytes()
         if original_bytes != new:
