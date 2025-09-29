@@ -1,4 +1,5 @@
 from penguin import Plugin, plugins
+from penguin.plugin_manager import resolve_bound_method_from_class
 import shutil
 import os
 from typing import Iterator, Dict, Tuple, Optional, Callable
@@ -501,20 +502,7 @@ class LiveImage(Plugin):
     def _on_live_image_finished(self):
         self.fs_generated = True
         for cb in self._init_callbacks:
-            # If class-level, resolve method
-            if hasattr(cb, '__self__') or (hasattr(cb, '__qualname__') and '.' in cb.__qualname__):
-                class_name = cb.__qualname__.split('.')[0]
-                method_name = cb.__qualname__.split('.')[-1]
-                instance = getattr(plugins, class_name, None)
-                if instance and hasattr(instance, method_name):
-                    bound_cb = getattr(instance, method_name)
-                    cb_to_call = bound_cb
-                else:
-                    self.logger.error(
-                        f"Could not resolve class method {cb.__qualname__} for module_init")
-                    continue
-            else:
-                cb_to_call = cb
+            cb_to_call = resolve_bound_method_from_class(cb)
             cb_to_call()
         return 0
 

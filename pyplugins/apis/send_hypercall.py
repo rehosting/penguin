@@ -39,6 +39,7 @@ class MyPlugin:
 
 import struct
 from penguin import Plugin, plugins
+from penguin.plugin_manager import resolve_bound_method_from_class
 from typing import Callable, Union, Tuple, Dict, Any
 
 
@@ -142,17 +143,13 @@ class SendHypercall(Plugin):
             self.logger.error(f"Unregistered send_hypercall command {cmd}")
             return
 
-        # If cb is an unbound method, try to resolve the class and bind it
-        if hasattr(cb, "__qualname__") and "." in cb.__qualname__ and not hasattr(
-                cb, "__self__"):
-            class_name = cb.__qualname__.split(".")[0]
-            # Try to get the class instance from plugins singleton
-            instance = getattr(plugins, class_name, None)
-            if instance and hasattr(instance, cb.__name__):
-                cb = getattr(instance, cb.__name__)
+        cb_to_call = resolve_bound_method_from_class(cb)
+
+        if cb != cb_to_call:
+            self.registered_events[cmd] = cb_to_call
 
         try:
-            ret_val, out = cb(*args)
+            ret_val, out = cb_to_call(*args)
         except Exception as e:
             self.logger.error(f"Exception while processing {cmd}:")
             self.logger.exception(e)

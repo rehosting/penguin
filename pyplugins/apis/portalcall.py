@@ -1,4 +1,5 @@
 from penguin import plugins, Plugin
+from penguin.plugin_manager import resolve_bound_method_from_class
 from typing import Callable, Dict, Iterator
 
 PORTAL_MAGIC = 0xc1d1e1f1
@@ -13,18 +14,6 @@ class PortalCall(Plugin):
         self._portalcall_registry: Dict[int, Callable] = {}
         # Register with syscalls plugin for portalcall filtering
 
-    def _resolve_portalcall_callback(self, f):
-        if hasattr(f, '__qualname__') and '.' in f.__qualname__:
-            class_name = f.__qualname__.split('.')[0]
-            method_name = f.__qualname__.split('.')[-1]
-            try:
-                instance = getattr(plugins, class_name)
-                if instance and hasattr(instance, method_name):
-                    return getattr(instance, method_name)
-            except Exception:
-                pass
-        return f
-
     @plugins.syscalls.syscall("on_sys_sendto_enter", arg_filters=[PORTAL_MAGIC, None, None, None, None])
     def _portalcall_syscall_handler(self, regs, proto, syscall, magic, user_magic, argc, args, dest_addr, addrlen):
         handler = self._portalcall_registry.get(user_magic)
@@ -32,7 +21,7 @@ class PortalCall(Plugin):
             self.logger.error(
                 f"No handler registered for user_magic {user_magic:#x}")
             return
-        fn_to_call = self._resolve_portalcall_callback(handler)
+        fn_to_call = resolve_bound_method_from_class(handler)
         if handler != fn_to_call:
             self._portalcall_registry[user_magic] = fn_to_call
         if argc == 0:
