@@ -436,18 +436,22 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
         # Flag to prevent recursion in _is_compatibility_mode
         self._checking_mode = False
 
+    def _get_x86_delegate(self) -> 'X86PtRegsWrapper':
+        """
+        Get or create an X86PtRegsWrapper delegate for 32-bit compatibility mode access.
+        """
+        if self._x86_delegate is None:
+            self._x86_delegate = X86PtRegsWrapper(self._obj, panda=self._panda)
+        return self._x86_delegate
+
     def _is_compatibility_mode(self) -> bool:
         """
         Check if the CPU is running in 32-bit compatibility mode
         based on the code segment (CS) register value.
 
-        In 64-bit mode, CS is typically 0x33, while in 32-bit mode it's 0x23.
-        The second-lowest bit (bit 1) of CS indicates the privilege level:
-        - When 0, kernel mode
-        - When 1, user mode
-        The third-lowest bit (bit 2) indicates the execution mode:
-        - When 0, compatibility mode (16/32-bit)
-        - When 1, 64-bit long mode
+        In 64-bit mode, CS is typically 0x33 for user-space and 0x10 for kernel-space.
+        In 32-bit compatibility mode, it's typically 0x23 for user-space.
+        This check is a heuristic based on these common values.
         """
         # Prevent recursion
         if self._checking_mode:
@@ -456,16 +460,17 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
         self._checking_mode = True
         try:
             # Check if the cs field is actually available in the structure
-            # Access it directly as a field - not via masked access
             if hasattr(self._obj, "cs"):
                 cs = self._obj.cs
-                # If bit 2 is 0, we're in compatibility mode
-                return (cs & 0x4) == 0
+                # Heuristic: 64-bit user mode CS is 0x33. 64-bit kernel is 0x10.
+                # If it's not one of these, we assume it's compatibility mode (e.g., 0x23).
+                return cs not in [0x33, 0x10]
 
             # Fallback to using flags register if cs isn't directly accessible
             elif hasattr(self._obj, "flags"):
                 flags = self._obj.flags
-                return (flags & (1 << 17)) != 0  # VM8086 mode check
+                # Check for VM86 mode flag in EFLAGS
+                return (flags & (1 << 17)) != 0
 
             # Default: assume not in compatibility mode if we can't determine
             return False
