@@ -83,12 +83,6 @@ def run_test(kernel, arch, image, test_file=None):
         base_config["patches"] = [p for p in base_config["patches"] if "patches/tests" not in p]
         base_config["patches"].append(f"patches/tests/{test_file}")
         base_config["core"]["auto_patching"] = False
-    else:
-        # Add all tests in the patches/tests directory
-        tests_dir = Path(TEST_DIR, "patches/tests")
-        if tests_dir.exists():
-            for test_yaml in tests_dir.glob("*.yaml"):
-                base_config["patches"].append(f"patches/tests/{test_yaml.name}")
 
     with open(new_config, "w") as file:
         yaml.dump(base_config, file, sort_keys=False)

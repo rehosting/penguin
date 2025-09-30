@@ -9,6 +9,10 @@ from junit_xml import TestSuite, TestCase
 import threading
 import time
 
+from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
+from db.events.utils.cli_syscalls import syscall_filter
+
 
 class Verifier(Plugin):
     def __init__(self):
@@ -111,6 +115,59 @@ class Verifier(Plugin):
             return True
 
         return check_subkeys(data, subkeys_l)
+
+    def test_syscall_log_contains(self, name, test_case):
+        """
+        Test that syscalls from database contain specific strings when formatted.
+
+        Expected test_case format:
+        {
+            "type": "syscall_log_contains",
+            "procname": "optional process name filter",
+            "syscall": "optional syscall name filter",
+            "errors": true/false (optional, filter for error syscalls),
+            "strings": ["string1", "string2"] or "string": "single_string"
+        }
+        """
+        db_path = join(self.outdir, "plugins.db")
+        if not exists(db_path):
+            self.logger.error(f"Test {name}: Database not found at {db_path}")
+            return False
+
+        try:
+            engine = create_engine(f"sqlite:///{db_path}")
+            with Session(engine) as sess:
+                procname = test_case.get("procname")
+                syscall = test_case.get("syscall")
+                errors = test_case.get("errors", False)
+
+                query = syscall_filter(sess, procname, syscall, errors)
+                results = query.all()
+
+                # Convert all syscall events to their string representation
+                syscall_text = "\n".join(str(result) for result in results)
+
+                # Check for required strings
+                if "strings" in test_case:
+                    test_strs = test_case["strings"]
+                    missing_strings = [s for s in test_strs if s not in syscall_text]
+                    if missing_strings:
+                        self.logger.debug(f"Test {name}: Missing strings in syscall log: {missing_strings}")
+                        return False
+                    return True
+                elif "string" in test_case:
+                    test_str = test_case["string"]
+                    if test_str not in syscall_text:
+                        self.logger.debug(f"Test {name}: String '{test_str}' not found in syscall log")
+                        return False
+                    return True
+                else:
+                    self.logger.error(f"Test {name}: No strings to test for")
+                    return False
+
+        except Exception as e:
+            self.logger.error(f"Test {name}: Database query failed: {e}")
+            return False
 
     def get_test_case_output(self, name, kind):
         if "+" in name:
