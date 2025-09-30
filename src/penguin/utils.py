@@ -285,6 +285,28 @@ def get_kernel(conf):
         raise ValueError(f"Kernel not found for {q_config['arch']}")
 
 
+def get_available_kernel_versions():
+    """
+    Scan /igloo_static/kernels and return a list of available kernel versions
+    as tuples of integers, e.g., [(5, 15, 0), (6, 1, 55)]
+    """
+    kernels_dir = os.path.join(STATIC_DIR, "kernels")
+    if not os.path.isdir(kernels_dir):
+        return []
+
+    versions = []
+    for entry in os.listdir(kernels_dir):
+        entry_path = os.path.join(kernels_dir, entry)
+        if os.path.isdir(entry_path):
+            try:
+                version_tuple = get_penguin_kernel_version({"core": {"kernel": entry_path}})
+                versions.append(version_tuple)
+            except ValueError:
+                continue  # Skip directories that don't represent valid versions
+
+    return versions
+
+
 def get_penguin_kernel_version(conf):
     """
     Extract kernel version tuple from conf['core']['kernel'].
