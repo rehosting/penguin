@@ -1,0 +1,34 @@
+plugins:
+  syscalls_logger: {}
+  verifier:
+    conditions:
+      syscalls_logger_write:
+        type: syscall_log_contains
+        procname: /igloo/utils/sh
+        string: "Hello World"
+        syscall: sys_write
+      syscalls_logger_open:
+        type: syscall_log_contains
+        procname: /igloo/utils/sh
+        string: "/tests/syscall_test.sh"
+        syscall: sys_open
+      syscalls_logger_read:
+        type: syscall_log_contains
+        procname: /igloo/utils/sh
+        string: "sleep 1"
+        syscall: sys_read
+      syscalls_logger_execve:
+        type: syscall_log_contains
+        procname: /igloo/utils/sh
+        string: "/tests/syscall_test.sh"
+        syscall: sys_execve
+
+static_files:
+  /tests/syscall_test.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      echo "Hello World"
+      sleep 1
+      exit 0
+    mode: 73
