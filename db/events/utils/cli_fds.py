@@ -33,13 +33,14 @@ from sqlalchemy.orm import Session
 from rich import print
 from time import sleep
 from os.path import join, exists
+from events.utils.util_base import get_default_results_path
 
 
 @click.command()
 @click.option(
     "--results",
-    default="./results/latest",
-    help="Path to results folder (default is ./results/latest)",
+    default=get_default_results_path(),
+    help="Path to results folder (default is ./results)",
 )
 @click.option(
     "--procname", default=None, help="Process name to filter for (looks for substring)"

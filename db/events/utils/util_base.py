@@ -32,6 +32,18 @@ from os.path import join, exists
 from events import Event
 
 
+def get_default_results_path():
+    """Get the default results path"""
+    import os
+
+    project_dir = os.getenv("PENGUIN_PROJECT_DIR")
+    if project_dir:
+        return os.path.join(project_dir, "results/latest")
+
+    # Fall back to current directory (old default)
+    return "./results"
+
+
 def wrapper(results, output, print_procname, follow, filter_func, args):
     """
     ### Wrapper function to execute a filtered query and output results.

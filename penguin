@@ -372,15 +372,6 @@ penguin_run() {
         # Add env variable CONTAINER_IP=ip
         docker_cmd+=("-e" "CONTAINER_IP=$ip")
 
-	# Add env variable of penguin bash script hash
-        hash=$(sha256sum "$0" | awk '{print $1}')
-        docker_cmd+=("-e" "PENGUIN_HASH=$hash")
-
-        # Add container name if set
-        if [ -n "$container_name" ]; then
-            docker_cmd+=("-e" "CONTAINER_NAME=$container_name")
-        fi
-
         if $verbose; then
             echo "${BOLD}Docker network setup:${RESET}"
             echo "  Network name: $network_name"
@@ -393,6 +384,46 @@ penguin_run() {
         if $verbose; then
             echo "${BOLD}Docker network setup:${RESET}"
             echo "  Skipped due to --subnet none flag"
+            echo
+        fi
+    fi
+
+    # Add penguin bash script hash environment variable
+    hash=$(sha256sum "$0" | awk '{print $1}')
+    docker_cmd+=("-e" "PENGUIN_HASH=$hash")
+
+    # Add container name if set
+    if [ -n "$container_name" ]; then
+        docker_cmd+=("-e" "CONTAINER_NAME=$container_name")
+    fi
+
+    project_dir=""
+    for ((i=${#cmd[@]}-1; i>0; i--)); do
+        if [[ -e "${cmd[$i]}" ]]; then
+            local host_realpath=$(realpath "${cmd[$i]}")
+            if [[ -f "$host_realpath" ]]; then
+                host_realpath=$(dirname "$host_realpath")
+            fi
+
+            # Convert host path to container path using same logic as mappings
+            local host_parent=$(dirname "$host_realpath")
+            local container_path="/host_$(basename "$host_parent")"
+            local relative_path="${host_realpath#$host_parent/}"
+
+            # If the relative path is empty (i.e., we're at the mapped directory), use just the container path
+            if [ -z "$relative_path" ] || [ "$relative_path" = "$host_realpath" ]; then
+                project_dir="$container_path"
+            else
+                project_dir="$container_path/$relative_path"
+            fi
+            break
+        fi
+    done
+    if [ -n "$project_dir" ]; then
+        docker_cmd+=("-e" "PENGUIN_PROJECT_DIR=$project_dir")
+        if $verbose; then
+            echo "${BOLD}Setting environment variables:${RESET}"
+            echo "  PENGUIN_PROJECT_DIR=$project_dir"
             echo
         fi
     fi
