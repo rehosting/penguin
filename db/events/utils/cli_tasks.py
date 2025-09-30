@@ -28,13 +28,14 @@ from sqlalchemy import create_engine
 from rich import print as rprint
 from events import Event
 from os.path import join, exists
+from events.utils.util_base import get_default_results_path
 
 
 @click.command()
 @click.option(
     "--results",
-    default="./results/latest",
-    help="Path to results folder (default is ./results/latest/)",
+    default=get_default_results_path(),
+    help="Path to results folder (default is ./results/)",
 )
 @click.option(
     "--output", default="/dev/stdout", help="Output to file instead of stdout"

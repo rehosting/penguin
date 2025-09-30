@@ -615,6 +615,11 @@ contains details on the configuration file format and options.
     parser_cmd_run = subparsers.add_parser("run", help="Run from a config")
     add_run_arguments(parser_cmd_run)
 
+    parser_cmd_shell = subparsers.add_parser(
+        "shell", help="Get a shell inside the penguin container (will attach to running container if available)"
+    )
+    add_run_arguments(parser_cmd_shell)
+
     parser_cmd_docs = subparsers.add_parser("docs", help="Show documentation")
     add_docs_arguments(parser_cmd_docs)
 
@@ -627,10 +632,6 @@ contains details on the configuration file format and options.
         "guest_cmd", help="Execute a command inside a guest and capture stdout/stderr"
     )
     parser_cmd_guest_cmd.add_argument('args', nargs=argparse.REMAINDER, help='Pass remaining arguments as a command to the guest')
-    parser_cmd_shell = subparsers.add_parser(
-        "shell", help="Get a shell inside the penguin container (will attach to running container if available)"
-    )
-    add_run_arguments(parser_cmd_shell)
     parser_cmd_ga_explore = subparsers.add_parser(
         "ga_explore", help="Search for alternative configurations to improve system health by using a genetic algorithm."
     )

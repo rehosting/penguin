@@ -30,7 +30,7 @@ syscalls --procname myproc --syscall open --errors --output results.txt
 
 import click
 from events import Syscall
-from events.utils.util_base import wrapper
+from events.utils.util_base import wrapper, get_default_results_path
 
 
 def syscall_filter(sess, procname, syscall, errors):
@@ -63,8 +63,8 @@ def syscall_filter(sess, procname, syscall, errors):
 @click.command()
 @click.option(
     "--results",
-    default="./results/latest",
-    help="Path to results folder (default is ./results/latest)",
+    default=get_default_results_path(),
+    help="Path to results folder (default is ./results)",
 )
 @click.option(
     "--procname", default=None, help="Process name to filter for (looks for substring)"

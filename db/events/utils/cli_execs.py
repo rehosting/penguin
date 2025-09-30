@@ -35,7 +35,7 @@ execs --procname myproc --fd 3 --filename log.txt --output results.txt
 
 import click
 from events import Exec
-from events.utils.util_base import wrapper
+from events.utils.util_base import wrapper, get_default_results_path
 
 
 def exec_filter(sess, procname, fd, filename):
@@ -64,8 +64,8 @@ def exec_filter(sess, procname, fd, filename):
 @click.command()
 @click.option(
     "--results",
-    default="./results/latest",
-    help="Path to results folder (default is ./results/latest/)",
+    default=get_default_results_path(),
+    help="Path to results folder (default is ./results/)",
 )
 @click.option(
     "--procname", default=None, help="Process name to filter for (looks for substring)"
