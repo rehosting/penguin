@@ -262,6 +262,8 @@ class LiveImage(Plugin):
             f"Creating filesystem tarball at {tarball_host_path}...")
         with tarfile.open(tarball_host_path, "w") as tar:
             tar.add(staging_dir, arcname='.')
+        self.logger.info(
+            f"Filesystem tarball created at {tarball_host_path}")
 
         # --- Phase 3: Assemble the final guest script ---
         script_lines = [

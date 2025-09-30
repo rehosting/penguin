@@ -627,6 +627,10 @@ contains details on the configuration file format and options.
         "guest_cmd", help="Execute a command inside a guest and capture stdout/stderr"
     )
     parser_cmd_guest_cmd.add_argument('args', nargs=argparse.REMAINDER, help='Pass remaining arguments as a command to the guest')
+    parser_cmd_shell = subparsers.add_parser(
+        "shell", help="Get a shell inside the penguin container (will attach to running container if available)"
+    )
+    add_run_arguments(parser_cmd_shell)
     parser_cmd_ga_explore = subparsers.add_parser(
         "ga_explore", help="Search for alternative configurations to improve system health by using a genetic algorithm."
     )
@@ -692,8 +696,9 @@ contains details on the configuration file format and options.
         guest_cmd(args)
     elif args.cmd in ["explore", "ga_explore", "patch_explore", "minimize"]:
         penguin_explore(args)
-    elif args.cmd == "guest_cmd":
-        pass
+    elif args.cmd == "shell":
+        logger.error("The 'shell' command is not available in this context. Please use the 'penguin' wrapper script to start a container shell.")
+        return 1
     else:
         parser.print_help()
 

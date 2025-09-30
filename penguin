@@ -67,6 +67,7 @@ penguin_run() {
     local pydev=false
     local verbose=false
     local reproduce=false
+    local shell_mode=false
     local subnet=""
     local container_name="" # Name of the instance
     local image="rehosting/penguin" # Container to run
@@ -269,8 +270,8 @@ penguin_run() {
      # Build Docker command
     docker_cmd=("docker" "run" "--rm")
 
-    # If we have a name set, ensure it's available. We only really care about this for run/guest_cmd (and maybe explore) action
-    if [[ ${#cmd[@]} -gt 1 && ( "${cmd[0]}" == "run" || "${cmd[0]}" == "guest_cmd" ) ]]; then
+    # If we have a name set, ensure it's available. We only really care about this for run/guest_cmd/shell (and maybe explore) action
+    if [[ ${#cmd[@]} -gt 1 && ( "${cmd[0]}" == "run" || "${cmd[0]}" == "guest_cmd" || "${cmd[0]}" == "shell" ) ]]; then
         if [ -z "$container_name" ]; then
             # No name set - try to grab it - find last argument with host path and use that
             for ((i=${#cmd[@]}-1; i>0; i--)); do
@@ -311,7 +312,7 @@ penguin_run() {
             fi
         fi
 
-        if [[ -n "$container_name" && "${cmd[0]}" != "guest_cmd" ]]; then
+        if [[ -n "$container_name" && "${cmd[0]}" != "guest_cmd" && "${cmd[0]}" != "shell" ]]; then
             if docker ps --all --format '{{.Names}}' | grep -q "^$container_name$"; then
                 echo "${BOLD}ERROR: Container name ${RED}$container_name${RESET}${BOLD} is already in use!${RESET}"
                 echo "  Please specify a different name with ${BOLD}--name${RESET}"
@@ -329,6 +330,21 @@ penguin_run() {
         docker_cmd=("docker" "exec" "-it" "${container_name}" "python3" "/igloo_static/guesthopper/guest_cmd.py" "${cmd[@]:2}")
         "${docker_cmd[@]}"
         exit $?
+    fi
+
+    # Similarly if we are running a shell in the container, start it if it's not already running, otherwise exec into that container
+    if [[ ${#cmd[@]} -gt 1 && ( "${cmd[0]}" == "shell" ) ]]; then
+        # Check if container is running
+        if [[ -n "$container_name" ]] && docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
+            # Container is running, exec into it and bail
+            docker_cmd=("docker" "exec" "-it" "${container_name}" "bash")
+            "${docker_cmd[@]}"
+            exit $?
+        else
+            # Container is not running, we need to start it
+            # We'll continue with the normal docker run flow but override the command to be bash
+            shell_mode=true
+        fi
     fi
 
     # Check if we're in an interactive terminal, if so add -it
@@ -475,8 +491,12 @@ penguin_run() {
 
         # reproduce runs the default commmand
         if ! $reproduce; then
-            docker_cmd+=("penguin")
-            docker_cmd+=("${new_cmd[@]}")
+            if $shell_mode; then
+                docker_cmd+=("bash")
+            else
+                docker_cmd+=("penguin")
+                docker_cmd+=("${new_cmd[@]}")
+            fi
         fi
     fi
 
