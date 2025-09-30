@@ -93,6 +93,7 @@ class ConfigBuilder:
             STATIC.InterfaceFinder,
             STATIC.ClusterCollector,
             STATIC.LibrarySymbols,
+            STATIC.KernelVersionFinder,
         ]
 
         USE_JSON_XZ = [
@@ -187,7 +188,7 @@ class ConfigBuilder:
         # Instantiate and apply patch generators
         # Later patches will override earlier ones
         patch_generators = [
-            CP.BasePatch(static_results['ArchId'], static_results['InitFinder']),
+            CP.BasePatch(static_results['ArchId'], static_results['InitFinder'], static_results['KernelVersionFinder']),
             CP.RootShell(),
             CP.DynamicExploration(),
             CP.SingleShotFICD(),
@@ -207,7 +208,7 @@ class ConfigBuilder:
             CP.GenerateMissingFiles(extract_dir),
             CP.DeleteFiles(extract_dir),
             CP.LinksysHack(extract_dir),
-            CP.KernelModules(extract_dir),
+            CP.KernelModules(extract_dir, static_results['KernelVersionFinder']),
             CP.ShimStopBins(archive_files),
             CP.ShimNoModules(archive_files),
             CP.ShimBusybox(archive_files),
