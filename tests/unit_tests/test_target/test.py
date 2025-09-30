@@ -59,7 +59,7 @@ def create_tar_gz_with_binaries(dest_tar_gz, files_dict):
                 tar.add(tmpdir_path / fname, arcname=fname)
 
 
-def run_test(kernel, arch, image):
+def run_test(kernel, arch, image, test_file=None):
     # Create tar.gz with several binary files at the root
     files_dict = {
         "helloworld": b"helloworld\0",
@@ -76,6 +76,19 @@ def run_test(kernel, arch, image):
 
     base_config["patches"].append(f"patches/arches/{arch}.yaml")
     base_config["core"]["kernel"] = str(kernel)
+
+    if test_file:
+        logger.info(f"Running specific test: {test_file}")
+        # Ensure only our specific test is included
+        base_config["patches"] = [p for p in base_config["patches"] if "patches/tests" not in p]
+        base_config["patches"].append(f"patches/tests/{test_file}")
+        base_config["core"]["auto_patching"] = False
+    else:
+        # Add all tests in the patches/tests directory
+        tests_dir = Path(TEST_DIR, "patches/tests")
+        if tests_dir.exists():
+            for test_yaml in tests_dir.glob("*.yaml"):
+                base_config["patches"].append(f"patches/tests/{test_yaml.name}")
 
     with open(new_config, "w") as file:
         yaml.dump(base_config, file, sort_keys=False)
@@ -100,8 +113,12 @@ NONDEFAULT_KERNEL_ARCHES = {
 @click.option("--kernel", "-k", multiple=True, default=DEFAULT_KERNELS)
 @click.option("--arch", "-a", multiple=True, default=DEFAULT_ARCHES)
 @click.option("--image", "-i", default="rehosting/penguin:latest")
-def test(kernel, arch, image):
-    logger.info(f"Running tests for {kernel} on {arch}")
+@click.option("--test-file", "-t", default=None, help="Run specific test file from patches/tests/ - no prefix needed (e.g., bash.yaml)")
+def test(kernel, arch, image, test_file):
+    if test_file:
+        logger.info(f"Running specific test: {test_file} for {kernel} on {arch}")
+    else:
+        logger.info(f"Running all tests for {kernel} on {arch}")
 
     # Allow DEFAULT_ARCHES plus any arches referenced in NONDEFAULT_KERNEL_ARCHES
     allowed_arches = set(DEFAULT_ARCHES)
@@ -125,7 +142,7 @@ def test(kernel, arch, image):
                 continue
 
             logger.info(f"Running tests for kernel {k} on arch {a}")
-            run_test(k, a, image)
+            run_test(k, a, image, test_file)
 
 
 if __name__ == "__main__":
