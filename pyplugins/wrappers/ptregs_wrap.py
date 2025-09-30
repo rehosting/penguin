@@ -878,29 +878,33 @@ class PowerPCPtRegsWrapper(PtRegsWrapper):
 
     def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
         super().__init__(obj, panda=panda)
+        if hasattr(obj, "unnamed_field_0"):
+            obj_container = obj.unnamed_field_0.unnamed_field_0
+        else:
+            obj_container = obj
         # PowerPC has numbered registers in the gpr array, nested two levels deep in unions/structs
         self._register_map = {
             # General purpose registers are in the gpr array inside two levels of anonymous struct/union
-            **{f"r{i}": ("computed", lambda obj, i=i: obj.unnamed_field_0.unnamed_field_0.gpr[i]) for i in range(32)},
+            **{f"r{i}": ("computed", lambda obj, i=i: obj_container.gpr[i]) for i in range(32)},
             # Special registers are direct fields in the anonymous struct
-            "nip": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.nip),
-            "msr": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.msr),
-            "orig_r3": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.orig_gpr3),
-            "ctr": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.ctr),
-            "lr": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.link),
-            "xer": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.xer),
-            "ccr": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.ccr),
-            "softe": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.softe),
-            "trap": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.trap),
-            "dar": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.dar),
-            "dsisr": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.dsisr),
-            "result": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.result),
+            "nip": ("computed", lambda obj: obj_container.nip),
+            "msr": ("computed", lambda obj: obj_container.msr),
+            "orig_r3": ("computed", lambda obj: obj_container.orig_gpr3),
+            "ctr": ("computed", lambda obj: obj_container.ctr),
+            "lr": ("computed", lambda obj: obj_container.link),
+            "xer": ("computed", lambda obj: obj_container.xer),
+            "ccr": ("computed", lambda obj: obj_container.ccr),
+            "softe": ("computed", lambda obj: obj_container.softe),
+            "trap": ("computed", lambda obj: obj_container.trap),
+            "dar": ("computed", lambda obj: obj_container.dar),
+            "dsisr": ("computed", lambda obj: obj_container.dsisr),
+            "result": ("computed", lambda obj: obj_container.result),
             # Aliases
             # r1 is stack pointer
-            "sp": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.gpr[1]),
-            "pc": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.nip),
+            "sp": ("computed", lambda obj: obj_container.gpr[1]),
+            "pc": ("computed", lambda obj: obj_container.nip),
             # r3 holds return values
-            "retval": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.gpr[3]),
+            "retval": ("computed", lambda obj: obj_container.gpr[3]),
         }
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
