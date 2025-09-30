@@ -19,7 +19,6 @@ from .defaults import (
     default_plugins,
     expert_knowledge_pseudofiles,
     default_libinject_string_introspection,
-    DEFAULT_KERNEL,
     static_dir as STATIC_DIR
 )
 from .utils import get_arch_subdir
@@ -349,11 +348,12 @@ class BasePatch(PatchGenerator):
     '''
     UNKNOWN_INIT = "UNKNOWN_FIX_ME"  # Could also use /igloo/utils/exit0.sh?
 
-    def __init__(self, arch_info, inits):
+    def __init__(self, arch_info, inits, kernel_versions):
         self.patch_name = "base"
         self.enabled = True
 
         self.set_arch_info(arch_info)
+        self.kernel_versions = kernel_versions
 
         if len(inits):
             self.igloo_init = inits[0]
@@ -431,6 +431,7 @@ class BasePatch(PatchGenerator):
         result = {
             "core": {
                 "arch": self.arch_name,
+                "kernel": self.kernel_versions["selected_kernel"],
             },
             "env": {
                 "igloo_init": self.igloo_init,
@@ -1289,10 +1290,11 @@ class KernelModules(PatchGenerator):
     Create a symlink from the guest kernel module path to our kernel's module path (ie.., /lib/modules/1.2.0-custom -> /lib/modules/4.10.0)
     """
 
-    def __init__(self, extract_dir):
+    def __init__(self, extract_dir, kernel_version):
         self.patch_name = "static.kernel_modules"
         self.enabled = True
         self.extract_dir = extract_dir
+        self.kernel_version = kernel_version
 
     @staticmethod
     def is_kernel_version(name):
@@ -1343,7 +1345,7 @@ class KernelModules(PatchGenerator):
 
         if kernel_version:
             # We have a kernel version, add it to our config
-            result["static_files"][f"/lib/modules/{DEFAULT_KERNEL}.0"] = {
+            result["static_files"][f"/lib/modules/{self.kernel_version['selected_kernel']}"] = {
                 "type": "symlink",
                 "target": f"/lib/modules/{kernel_version}",
             }
