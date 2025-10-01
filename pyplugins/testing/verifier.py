@@ -142,25 +142,35 @@ class Verifier(Plugin):
                 errors = test_case.get("errors", False)
 
                 query = syscall_filter(sess, procname, syscall, errors)
-                results = query.all()
 
-                # Convert all syscall events to their string representation
-                syscall_text = "\n".join(str(result) for result in results)
-
-                # Check for required strings
                 if "strings" in test_case:
                     test_strs = test_case["strings"]
-                    missing_strings = [s for s in test_strs if s not in syscall_text]
+                    found_strings = set()
+
+                    for result in query:
+                        result_str = str(result)
+                        for test_str in test_strs:
+                            if test_str in result_str:
+                                found_strings.add(test_str)
+
+                        if len(found_strings) == len(test_strs):
+                            return True
+
+                    missing_strings = [s for s in test_strs if s not in found_strings]
                     if missing_strings:
                         self.logger.debug(f"Test {name}: Missing strings in syscall log: {missing_strings}")
                         return False
                     return True
+
                 elif "string" in test_case:
                     test_str = test_case["string"]
-                    if test_str not in syscall_text:
-                        self.logger.debug(f"Test {name}: String '{test_str}' not found in syscall log")
-                        return False
-                    return True
+
+                    for result in query:
+                        if test_str in str(result):
+                            return True
+
+                    self.logger.debug(f"Test {name}: String '{test_str}' not found in syscall log")
+                    return False
                 else:
                     self.logger.error(f"Test {name}: No strings to test for")
                     return False
