@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - src/penguin/penguin_config
+      - src/penguin/penguin_config/**
       - .github/workflows/upload_config_schema.yaml
 
 jobs:
