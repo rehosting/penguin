@@ -108,12 +108,12 @@ def run_test(kernel, arch, image):
 DEFAULT_KERNELS = ['4.10', '6.13']
 DEFAULT_ARCHES = ['armel', 'aarch64',
                   'mipsel', 'mipseb', 'mips64el', 'mips64eb',
-                  'powerpc64', 'riscv64', 'loongarch64',
+                  'riscv64', 'loongarch64',
                   'x86_64']
 
 # architectures that only work with specific kernels
 NONDEFAULT_KERNEL_ARCHES = {
-    '6.13': ['loongarch64', 'riscv64'],
+    '6.13': ['powerpc64', 'loongarch64', 'riscv64'],
 }
 
 
