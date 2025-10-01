@@ -63,7 +63,7 @@ def patch_config(logger, base_config, patch):
         if new is None:
             return base
 
-        assert type(base) is type(new)
+        # assert type(base) is type(new)
 
         if hasattr(base, "merge"):
             return base.merge(new)
