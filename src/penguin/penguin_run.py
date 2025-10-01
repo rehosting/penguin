@@ -283,7 +283,7 @@ def run_config(
         *drive_args,
     ]
     if q_config["arch"] == "loongarch64":
-        args += ["-bios", "/igloo_static/loongarch64/bios-loong64-8.1.bin"]
+        args += ["-bios", "/igloo_static/loongarch64/QEMU_EFI.fd"]
 
     args += ["-no-reboot"]
 

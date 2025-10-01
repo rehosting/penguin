@@ -19,6 +19,7 @@ ARG FW2TAR_TAG="v2.0.6"
 ARG PANDA_VERSION="pandav0.0.49"
 ARG PANDANG_VERSION="0.0.34"
 ARG RIPGREP_VERSION="14.1.1"
+ARG LOONGARCH64_BIOS_URL="https://kojipkgs.fedoraproject.org/compose/43/Fedora-43-20250910.2/compose/Everything/x86_64/os/Packages/e/edk2-loongarch64-20250523-18.fc43.noarch.rpm"
 
 FROM ${REGISTRY}/rust:1.86 AS rust_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
@@ -49,6 +50,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y \
     bzip2 \
+    libarchive-tools \
     ca-certificates \
     curl \
     jq \
@@ -152,7 +154,9 @@ ARG IGLOO_DRIVER_VERSION
 RUN /get_release.sh rehosting igloo_driver ${IGLOO_DRIVER_VERSION} igloo_driver.tar.gz | \
     tar xzf - -C /igloo_static
 
-RUN wget https://github.com/wtdcode/DebianOnQEMU/releases/download/v2024.01.05/bios-loong64-8.1.bin -O /igloo_static/loongarch64/bios-loong64-8.1.bin
+ARG LOONGARCH64_BIOS_URL
+RUN wget -qO- ${LOONGARCH64_BIOS_URL} | \
+    bsdtar -xOf - ./usr/share/edk2/loongarch64/QEMU_EFI.fd > /igloo_static/loongarch64/QEMU_EFI.fd
 
 # Download prototype files for ltrace.
 #
