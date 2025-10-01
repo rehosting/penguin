@@ -1301,6 +1301,15 @@ class KernelModules(PatchGenerator):
         # Regex to match typical kernel version patterns
         return re.match(r"^\d+\.\d+\.\d+(-[\w\.]+)?$", name) is not None
 
+    # Always use a.b.c format for the symlink target
+    @staticmethod
+    def pad_kernel_version(ver):
+        base = ver.split("-", 1)[0]
+        tokens = base.split(".")
+        while len(tokens) < 3:
+            tokens.append("0")
+        return ".".join(tokens)
+
     def generate(self, patches):
         result = defaultdict(dict)
 
@@ -1345,9 +1354,11 @@ class KernelModules(PatchGenerator):
 
         if kernel_version:
             # We have a kernel version, add it to our config
-            result["static_files"][f"/lib/modules/{self.kernel_version['selected_kernel']}"] = {
+            padded_selected = self.pad_kernel_version(self.kernel_version["selected_kernel"])
+            padded_target = self.pad_kernel_version(kernel_version)
+            result["static_files"][f"/lib/modules/{padded_selected}"] = {
                 "type": "symlink",
-                "target": f"/lib/modules/{kernel_version}",
+                "target": f"/lib/modules/{padded_target}",
             }
 
         return result
