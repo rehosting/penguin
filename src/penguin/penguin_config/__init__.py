@@ -264,7 +264,7 @@ def dump_config(config, path):
     _validate_config(config)
     with open(path, "w") as f:
         f.write(
-            "# yaml-language-server: $schema=https://rehosti.ng/igloo/config_schema.yaml\n"
+            "# yaml-language-server: $schema=https://github.com/rehosting/penguin/releases/latest/download/config_schema.yaml\n"
         )
         yaml.dump(config, f, sort_keys=False, default_flow_style=False, width=None)
 
