@@ -3,6 +3,7 @@ import heapq
 import importlib
 import os
 import subprocess
+import penguin
 from threading import Lock
 from typing import List, Tuple
 
@@ -254,7 +255,7 @@ def get_mitigation_providers(config: dict):
     return mitigation_providers
 
 
-def get_kernel(conf):
+def get_kernel(conf, proj_dir):
     kernel = conf["core"].get("kernel", None)
     if kernel:
         if os.path.exists(kernel) and os.path.isfile(kernel):
@@ -269,6 +270,7 @@ def get_kernel(conf):
         f"/igloo_static/kernels/*/{kernel_whole}",
     ]
     kernels = []
+    logger = penguin.getColoredLogger("utils.get_kernel")
     for opt in options:
         kernels = glob(opt)
         if len(kernels) == 1:
@@ -280,6 +282,35 @@ def get_kernel(conf):
                 options = [i for i in kernels if kernel in i]
                 if len(options) == 1:
                     return options[0]
+
+            # For old configurations without kernel specified, try using KernelVersionFinder
+            if kernel is None:
+                try:
+                    logger.info("Multiple kernels found, trying to suggest one using static analysis")
+                    from .static_analyses import KernelVersionFinder
+                    fs_path = os.path.join(proj_dir, conf["core"].get("fs"))
+                    if fs_path and os.path.exists(fs_path):
+                        # Extract filesystem to temporary location and analyze
+                        import tempfile
+                        import tarfile
+                        with tempfile.TemporaryDirectory() as temp_dir:
+                            with tarfile.open(fs_path, 'r:*') as tar:
+                                tar.extractall(temp_dir)
+                            finder = KernelVersionFinder()
+                            result = finder.run(temp_dir, {})
+                            if result and result.get("selected_kernel"):
+                                suggested_version = result["selected_kernel"]
+                                # Find matching kernel from available options
+                                for k in kernels:
+                                    if suggested_version in k:
+                                        logger.info(f"Suggested kernel: {k} based on static analysis")
+                                        return k
+                    else:
+                        logger.error(f"Could not open {fs_path} to analyze for kernel version")
+                except Exception as e:
+                    print(f"Error during KernelVersionFinder analysis: {e}")
+                    continue
+
             raise ValueError(f"Multiple kernels found for {q_config['arch']}: {kernels}")
     if len(kernels) == 0:
         raise ValueError(f"Kernel not found for {q_config['arch']}")
