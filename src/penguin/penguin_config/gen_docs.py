@@ -260,7 +260,7 @@ def main():
     sp.add_parser(
         "schema",
         help="Write JSON schema for config to stdout",
-    ).set_defaults(func=lambda: print(yaml.dump(structure.Main.model_json_schema(), indent=2)))
+    ).set_defaults(func=lambda: print(yaml.dump(structure.Patch.model_json_schema(), indent=2)))
 
     sp.add_parser(
         "docs",
