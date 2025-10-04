@@ -228,7 +228,7 @@ def load_config(proj_dir, path, validate=True):
             contents="RUST_LOG=info /igloo/utils/guesthopper &",
             mode=0o755,
         )
-    config["core"]["kernel"] = get_kernel(config)
+    config["core"]["kernel"] = get_kernel(config, proj_dir)
 
     # when loading a patch we don't need a completely valid config
     if validate:
