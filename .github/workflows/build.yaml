@@ -148,8 +148,8 @@ jobs:
           rm -rf $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/latest
       
       - name: Test Report
-        uses: dorny/test-reporter@v1.9.1
-        if: success() || failure()
+        uses: dorny/test-reporter@v2.1.1
+        if: (success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository
         with: 
           name: ${{ matrix.arch }}-test-results
           path: ${{ github.workspace }}/tests/unit_tests/test_target/results/*/verifier.xml
