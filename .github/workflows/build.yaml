@@ -1,26 +1,13 @@
 name: Test Container
 
 on:
-  pull_request_target:
-    branches:
-      - main
   pull_request:
     branches:
       - main
 
 jobs:
-  authorize:
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
-    runs-on: ubuntu-latest
-    environment:
-      ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository && 'external' || 'internal' }}
-    steps:
-      - run: |
-          true
   lint:
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
     runs-on: rehosting-arc
-    needs: authorize
     steps:
     - uses: actions/checkout@v5
       with:
@@ -49,7 +36,6 @@ jobs:
 
   build_container:
     runs-on: rehosting-arc
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
     needs: lint
 
     steps:
@@ -63,6 +49,23 @@ jobs:
           openssl s_client -showcerts -connect ${{ secrets.REHOSTING_ARC_REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
           sudo update-ca-certificates
       
+      - name: Set registry variables
+        id: extern
+        run: |
+          if [ -z "${{ secrets.REHOSTING_ARC_REGISTRY }}" ]; then
+            echo "Using external registry"
+            echo "REGISTRY=${{ env.EXTERNAL_REGISTRY }}" >> $GITHUB_ENV
+            echo "USER=${{ env.EXTERNAL_REGISTRY_USER }}" >> $GITHUB_ENV
+            echo "CACHE=docker.io" >> $GITHUB_ENV
+            echo "TARGET=${{ env.EXTERNAL_REGISTRY }}/external" >> $GITHUB_ENV
+          else
+            echo "Using internal registry"
+            echo "REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}" >> $GITHUB_ENV
+            echo "USER=${{ secrets.REHOSTING_ARC_REGISTRY_USER }}" >> $GITHUB_ENV
+            echo "CACHE=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy" >> $GITHUB_ENV
+            echo "TARGET=${{ secrets.REHOSTING_ARC_REGISTRY }}" >> $GITHUB_ENV
+          fi
+      
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -70,32 +73,32 @@ jobs:
             image=moby/buildkit:master
             network=host
           buildkitd-config-inline: |
-            [registry."${{ secrets.REHOSTING_ARC_REGISTRY }}"]
+            [registry."${{ steps.extern.outputs.REGISTRY }}"]
               insecure = true
               http = true
       
       - name: Log in to Rehosting Arc Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
-          username: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
-          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
+          registry: ${{ steps.extern.outputs.REGISTRY }}
+          username: ${{ steps.extern.outputs.USER }}
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASSWORD }}
       
       - name: Build Docker image and push to Docker Hub
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:${{ github.sha }}
+          tags: ${{ steps.extern.outputs.TARGET }}/rehosting/penguin:${{ github.sha }}
           build-args: |
-            REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy
+            REGISTRY=${{ steps.extern.outputs.CACHE }}
           cache-from: |
-            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache,mode=max
-            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache-PR-${{github.event.number}},mode=max
-            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache_last_published,mode=max
+            type=registry,ref=${{ steps.extern.outputs.REGISTRY }}/rehosting/penguin:cache,mode=max
+            type=registry,ref=${{ steps.extern.outputs.REGISTRY }}/rehosting/penguin:cache-PR-${{github.event.number}},mode=max
+            type=registry,ref=${{ steps.extern.outputs.REGISTRY }}/rehosting/penguin:cache_last_published,mode=max
           cache-to: |
-            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache,mode=max
-            type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache-PR-${{ github.event.number }}
+            type=registry,ref=${{ steps.extern.outputs.REGISTRY }}/rehosting/penguin:cache,mode=max
+            type=registry,ref=${{ steps.extern.outputs.REGISTRY }}/rehosting/penguin:cache-PR-${{ github.event.number }}
 
   run_tests:
     if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
@@ -119,26 +122,42 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+      - name: Set registry variables
+        id: extern
+        run: |
+          if [ -z "${{ secrets.REHOSTING_ARC_REGISTRY }}" ]; then
+            echo "Using external registry"
+            echo "REGISTRY=${{ env.EXTERNAL_REGISTRY }}" >> $GITHUB_ENV
+            echo "USER=${{ env.EXTERNAL_REGISTRY_USER }}" >> $GITHUB_ENV
+            echo "CACHE=docker.io" >> $GITHUB_ENV
+            echo "TARGET=${{ env.EXTERNAL_REGISTRY }}/external" >> $GITHUB_ENV
+          else
+            echo "Using internal registry"
+            echo "REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}" >> $GITHUB_ENV
+            echo "USER=${{ secrets.REHOSTING_ARC_REGISTRY_USER }}" >> $GITHUB_ENV
+            echo "CACHE=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy" >> $GITHUB_ENV
+            echo "TARGET=${{ secrets.REHOSTING_ARC_REGISTRY }}" >> $GITHUB_ENV
+          fi
       
       - name: Trust Harbor's self-signed certificate
         run: |
-          echo "Fetching certificate from ${{ secrets.REHOSTING_ARC_REGISTRY }}"
-          openssl s_client -showcerts -connect ${{ secrets.REHOSTING_ARC_REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
+          echo "Fetching certificate from ${{ steps.extern.outputs.REGISTRY }}"
+          openssl s_client -showcerts -connect ${{ steps.extern.outputs.REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
           sudo update-ca-certificates
       
       - name: Log in to Rehosting Arc Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
-          username: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
-          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
+          registry: ${{ steps.extern.outputs.REGISTRY }}
+          username: ${{ steps.extern.outputs.USER }}
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASSWORD }}
       
       
       # Locally tag as latest, just for testing
       - name: Pull the image from Rehosting Arc Registry
         run: |
-              docker pull ${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:${{ github.sha }};
-              docker tag ${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
+              docker pull ${{ steps.extern.outputs.TARGET }}/rehosting/penguin:${{ github.sha }};
+              docker tag ${{ steps.extern.outputs.TARGET }}/rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
       
       - name: Basic test for ${{ matrix.arch }}
         run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/basic_target/test.py --arch ${{ matrix.arch }}
