@@ -101,7 +101,6 @@ jobs:
             type=registry,ref=${{ env.REGISTRY }}/rehosting/penguin:cache-PR-${{ github.event.number }}
 
   run_tests:
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
     needs: build_container
     runs-on: rehosting-arc
     strategy:
