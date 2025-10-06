@@ -10,6 +10,8 @@ from typing import List, Tuple
 from .analyses import PenguinAnalysis
 from .defaults import default_plugin_path, static_dir as STATIC_DIR
 
+logger = penguin.getColoredLogger("utils.get_kernel")
+
 
 class WeightedItem:
     def __init__(self, item, weight):
@@ -256,7 +258,6 @@ def get_mitigation_providers(config: dict):
 
 
 def get_kernel(conf, proj_dir):
-    logger = penguin.getColoredLogger("utils.get_kernel")
 
     kernel = conf["core"].get("kernel", None)
     if kernel:
@@ -312,7 +313,6 @@ def get_kernel(conf, proj_dir):
                         logger.error(f"Could not open {fs_path} to analyze for kernel version")
                 except Exception as e:
                     logger.error(f"Error during KernelVersionFinder analysis: {e}")
-                    pass
 
             raise ValueError(f"Multiple kernels found for {q_config['arch']}: {kernels}")
     if len(kernels) == 0:
