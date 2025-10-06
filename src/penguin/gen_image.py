@@ -128,26 +128,24 @@ def make_image(fs, out, artifacts, config):
 
         def _make_img(work_dir, qcow, delete_tar):
             IMAGE = Path(work_dir, "image.raw")
+            EXTRACT_DIR = Path(work_dir, "fsdir")
+            EXTRACT_DIR.mkdir(exist_ok=True)
+            # Extract tarball to directory
+            check_output(["tar", "-xf", str(TARBALL), "-C", str(EXTRACT_DIR)])
+            # Create raw image file
             check_output(["truncate", "-s", str(FILESYSTEM_SIZE), IMAGE])
-            subprocess.run([
-                "genext2fs",
-                "--faketime",
-                "-N",
-                str(NUMBER_OF_INODES),
-                "-b",
-                str(REQUIRED_BLOCKS),
-                "-B",
-                str(BLOCK_SIZE),
-                "-a",
-                str(TARBALL),
-                str(IMAGE),
-            ],
-                stderr=subprocess.DEVNULL,
-                check=True
-            )
+            # Format as ext4 and populate from EXTRACT_DIR.
+            # Disable features that may prevent older kernels from mounting.
+            check_output([
+                "mke2fs", "-t", "ext4",
+                "-N", str(NUMBER_OF_INODES),
+                "-d", str(EXTRACT_DIR),
+                str(IMAGE)
+            ])
+            # Convert to qcow2
             check_output(["qemu-img", "convert", "-f", "raw", "-O", "qcow2", str(IMAGE), str(qcow)])
             if delete_tar:
-                check_output(["rm", TARBALL])
+                check_output(["rm", str(TARBALL)])
 
         # if our QCOW path is a lustrefs we need to operate within the workdir and copy the qcow out
         if get_mount_type(QCOW.parent) == "lustre":
