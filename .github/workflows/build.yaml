@@ -16,7 +16,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: "3.10"
+        python-version: "3.10.12"
     - name: Install dependencies
       run: pip install flake8 lintly markupsafe==2.0.1
     - name: Lint with flake8
@@ -109,10 +109,12 @@ jobs:
         arch: ["armel", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc64", "loongarch64", "aarch64", "x86_64"] # "riscv64"
 
     steps:
+      # using the version from here https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md
+      # makes things faster
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          python-version: "3.10"
+          python-version: "3.10.12" 
       - name: Install dependencies
         if: github.event_name == 'pull_request'
         run: pip install click pyyaml
