@@ -236,7 +236,7 @@ def run_config(
     if "kernel_quiet" in conf["core"] and conf["core"]["kernel_quiet"]:
         append += " quiet"
 
-    append += " rootfstype=ext2 norandmaps nokaslr"  # Nice to have
+    append += " rootfstype=ext4 norandmaps nokaslr"  # Nice to have
     append += (
         " clocksource=jiffies nohz_full nohz=off no_timer_check"  # Improve determinism?
     )
