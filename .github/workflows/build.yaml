@@ -22,7 +22,10 @@ jobs:
     environment:
       ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository && 'external' || 'internal' }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+        ref: ${{ github.event.pull_request.head.sha || github.ref }}
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
@@ -114,9 +117,10 @@ jobs:
         if: github.event_name == 'pull_request'
         run: pip install click pyyaml
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
       
       - name: Trust Harbor's self-signed certificate
         run: |
