@@ -188,7 +188,7 @@ def load_unpatched_config(path):
     return config
 
 
-def load_config(proj_dir, path, validate=True):
+def load_config(proj_dir, path, validate=True, resolved_kernel=None):
     """Load penguin config from path"""
     with open(path, "r") as f:
         config = yaml.load(f, Loader=CoreLoader)
@@ -228,7 +228,11 @@ def load_config(proj_dir, path, validate=True):
             contents="RUST_LOG=info /igloo/utils/guesthopper &",
             mode=0o755,
         )
-    config["core"]["kernel"] = get_kernel(config, proj_dir)
+    # Use pre-resolved kernel if provided, otherwise resolve it
+    if resolved_kernel:
+        config["core"]["kernel"] = resolved_kernel
+    else:
+        config["core"]["kernel"] = get_kernel(config, proj_dir)
 
     # when loading a patch we don't need a completely valid config
     if validate:
