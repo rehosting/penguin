@@ -1,26 +1,38 @@
 name: Test Container
 
 on:
+  pull_request_target:
+    branches:
+      - main
   pull_request:
     branches:
       - main
 
 jobs:
-  lint:
-    runs-on: rehosting-arc
+  authorize:
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    environment:
+      ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository && 'external' || 'internal' }}
     steps:
-    - uses: actions/checkout@v4
-      if: github.event_name == 'pull_request'
+      - run: |
+          true
+  lint:
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: rehosting-arc
+    needs: authorize
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+        ref: ${{ github.event.pull_request.head.sha || github.ref }}
     - name: Set up Python
-      if: github.event_name == 'pull_request'
       uses: actions/setup-python@v2
       with:
         python-version: "3.10"
     - name: Install dependencies
-      if: github.event_name == 'pull_request'
       run: pip install flake8 lintly markupsafe==2.0.1
     - name: Lint with flake8
-      if: github.event_name == 'pull_request'
       run: |
         set -o pipefail
         (flake8 | lintly) 2>lintly.err || {
@@ -37,9 +49,7 @@ jobs:
 
   build_container:
     runs-on: rehosting-arc
-    permissions:
-      contents: write
-      packages: write
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
     needs: lint
 
     steps:
@@ -88,6 +98,7 @@ jobs:
             type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache-PR-${{ github.event.number }}
 
   run_tests:
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
     needs: build_container
     runs-on: rehosting-arc
     strategy:
@@ -104,9 +115,10 @@ jobs:
         if: github.event_name == 'pull_request'
         run: pip install click pyyaml
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
       
       - name: Trust Harbor's self-signed certificate
         run: |
