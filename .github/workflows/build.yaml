@@ -5,6 +5,12 @@ on:
     branches:
       - main
 
+env:
+  REGISTRY: ${{ secrets.REHOSTING_ARC_REGISTRY || vars.EXTERNAL_REGISTRY }}
+  USER: ${{ secrets.REHOSTING_ARC_REGISTRY_USER || vars.EXTERNAL_REGISTRY_USERNAME }}
+  CACHE: ${{ secrets.REHOSTING_ARC_REGISTRY && format('{0}/proxy', secrets.REHOSTING_ARC_REGISTRY) || 'docker.io' }}
+  TARGET: ${{ secrets.REHOSTING_ARC_REGISTRY || format('{0}/external', vars.EXTERNAL_REGISTRY) }}
+
 jobs:
   lint:
     runs-on: rehosting-arc
@@ -47,25 +53,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Set registry variables
-        id: extern
-        run: |
-          if [ -z "${{ secrets.REHOSTING_ARC_REGISTRY }}" ]; then
-            echo "Using external registry"
-            echo "REGISTRY=${{ vars.EXTERNAL_REGISTRY }}" >> $GITHUB_ENV
-            echo "USER=${{ vars.EXTERNAL_REGISTRY_USERNAME }}" >> $GITHUB_ENV
-            echo "PASS=${{ vars.EXTERNAL_REGISTRY_PASSWORD }}" >> $GITHUB_ENV
-            echo "CACHE=docker.io" >> $GITHUB_ENV
-            echo "TARGET=${{ vars.EXTERNAL_REGISTRY }}/external" >> $GITHUB_ENV
-          else
-            echo "Using internal registry"
-            echo "REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}" >> $GITHUB_ENV
-            echo "USER=${{ secrets.REHOSTING_ARC_REGISTRY_USER }}" >> $GITHUB_ENV
-            echo "PASS=${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}" >> $GITHUB_ENV
-            echo "CACHE=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy" >> $GITHUB_ENV
-            echo "TARGET=${{ secrets.REHOSTING_ARC_REGISTRY }}" >> $GITHUB_ENV
-          fi
-      
       - name: Trust Harbor's self-signed certificate
         run: |
           echo "Fetching certificate from ${{ env.REGISTRY }}"
@@ -88,7 +75,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ env.USER }}
-          password: ${{ env.PASS }}
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || vars.EXTERNAL_REGISTRY_PASSWORD }}
       
       - name: Build Docker image and push to Docker Hub
         uses: docker/build-push-action@v6
@@ -129,25 +116,6 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
-      - name: Set registry variables
-        id: extern
-        run: |
-          if [ -z "${{ secrets.REHOSTING_ARC_REGISTRY }}" ]; then
-            echo "Using external registry"
-            echo "REGISTRY=${{ vars.EXTERNAL_REGISTRY }}" >> $GITHUB_ENV
-            echo "USER=${{ vars.EXTERNAL_REGISTRY_USERNAME }}" >> $GITHUB_ENV
-            echo "PASS=${{ vars.EXTERNAL_REGISTRY_PASSWORD }}" >> $GITHUB_ENV
-            echo "CACHE=docker.io" >> $GITHUB_ENV
-            echo "TARGET=${{ vars.EXTERNAL_REGISTRY }}/external" >> $GITHUB_ENV
-          else
-            echo "Using internal registry"
-            echo "REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}" >> $GITHUB_ENV
-            echo "USER=${{ secrets.REHOSTING_ARC_REGISTRY_USER }}" >> $GITHUB_ENV
-            echo "PASS=${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}" >> $GITHUB_ENV
-            echo "CACHE=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy" >> $GITHUB_ENV
-            echo "TARGET=${{ secrets.REHOSTING_ARC_REGISTRY }}" >> $GITHUB_ENV
-          fi
-      
       - name: Trust Harbor's self-signed certificate
         run: |
           echo "Fetching certificate from ${{ env.REGISTRY }}"
@@ -159,8 +127,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ env.USER }}
-          password: ${{ env.PASS }}
-      
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || vars.EXTERNAL_REGISTRY_PASSWORD }}
       
       # Locally tag as latest, just for testing
       - name: Pull the image from Rehosting Arc Registry
