@@ -175,6 +175,8 @@ def hash_image_inputs(proj_dir, conf):
         hsh.update(get_file_hash(path).encode())
     modification_timestamp = os.path.getmtime(fs)
     hsh.update(f"{modification_timestamp}".encode())
+    # add the fstype - if it changes we need to rebuild
+    hsh.update("ext4".encode())
     return hsh.hexdigest()
 
 
