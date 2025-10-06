@@ -73,15 +73,15 @@ jobs:
             image=moby/buildkit:master
             network=host
           buildkitd-config-inline: |
-            [registry."${{ steps.extern.outputs.REGISTRY }}"]
+            [registry."${{ env.REGISTRY }}"]
               insecure = true
               http = true
       
       - name: Log in to Rehosting Arc Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ steps.extern.outputs.REGISTRY }}
-          username: ${{ steps.extern.outputs.USER }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.USER }}
           password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASSWORD }}
       
       - name: Build Docker image and push to Docker Hub
@@ -89,16 +89,16 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ steps.extern.outputs.TARGET }}/rehosting/penguin:${{ github.sha }}
+          tags: ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }}
           build-args: |
-            REGISTRY=${{ steps.extern.outputs.CACHE }}
+            REGISTRY=${{ env.CACHE }}
           cache-from: |
-            type=registry,ref=${{ steps.extern.outputs.REGISTRY }}/rehosting/penguin:cache,mode=max
-            type=registry,ref=${{ steps.extern.outputs.REGISTRY }}/rehosting/penguin:cache-PR-${{github.event.number}},mode=max
-            type=registry,ref=${{ steps.extern.outputs.REGISTRY }}/rehosting/penguin:cache_last_published,mode=max
+            type=registry,ref=${{ env.REGISTRY }}/rehosting/penguin:cache,mode=max
+            type=registry,ref=${{ env.REGISTRY }}/rehosting/penguin:cache-PR-${{github.event.number}},mode=max
+            type=registry,ref=${{ env.REGISTRY }}/rehosting/penguin:cache_last_published,mode=max
           cache-to: |
-            type=registry,ref=${{ steps.extern.outputs.REGISTRY }}/rehosting/penguin:cache,mode=max
-            type=registry,ref=${{ steps.extern.outputs.REGISTRY }}/rehosting/penguin:cache-PR-${{ github.event.number }}
+            type=registry,ref=${{ env.REGISTRY }}/rehosting/penguin:cache,mode=max
+            type=registry,ref=${{ env.REGISTRY }}/rehosting/penguin:cache-PR-${{ github.event.number }}
 
   run_tests:
     if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
@@ -141,23 +141,23 @@ jobs:
       
       - name: Trust Harbor's self-signed certificate
         run: |
-          echo "Fetching certificate from ${{ steps.extern.outputs.REGISTRY }}"
-          openssl s_client -showcerts -connect ${{ steps.extern.outputs.REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
+          echo "Fetching certificate from ${{ env.REGISTRY }}"
+          openssl s_client -showcerts -connect ${{ env.REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
           sudo update-ca-certificates
       
       - name: Log in to Rehosting Arc Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ steps.extern.outputs.REGISTRY }}
-          username: ${{ steps.extern.outputs.USER }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.USER }}
           password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASSWORD }}
       
       
       # Locally tag as latest, just for testing
       - name: Pull the image from Rehosting Arc Registry
         run: |
-              docker pull ${{ steps.extern.outputs.TARGET }}/rehosting/penguin:${{ github.sha }};
-              docker tag ${{ steps.extern.outputs.TARGET }}/rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
+              docker pull ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }};
+              docker tag ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
       
       - name: Basic test for ${{ matrix.arch }}
         run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/basic_target/test.py --arch ${{ matrix.arch }}
