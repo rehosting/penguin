@@ -310,6 +310,29 @@ RUN --mount=type=ssh git clone git@github.com:rehosting/fakeroot.git /fakeroot &
 # Create empty directory to copy if it doesn't exist
 RUN mkdir /fakeroot || true
 
+### E2FSPROGS BUILDER: Build newer e2fsprogs with mke2fs tarball support ###
+FROM $BASE_IMAGE AS e2fsprogs_builder
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    autoconf \
+    automake \
+    libtool \
+    pkg-config \
+    uuid-dev \
+    libblkid-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone and build e2fsprogs from git (latest version with mke2fs tarball support)
+RUN git clone https://git.kernel.org/pub/scm/fs/ext2/e2fsprogs.git /tmp/e2fsprogs && \
+    cd /tmp/e2fsprogs && \
+    ./configure --prefix=/opt/e2fsprogs && \
+    make -j$(nproc) && \
+    make install
+
 ### MAIN CONTAINER ###
 FROM $BASE_IMAGE AS penguin
 # Build argument to control whether to keep wheels for downstream processes
@@ -368,6 +391,11 @@ RUN apt-get update && apt-get install -q -y \
     apt install -yy -f /tmp/pandare.deb -f /tmp/pandare-plugins.deb \
     -f /tmp/glow.deb -f /tmp/gum.deb -f /tmp/ripgrep.deb && \
     rm -rf /var/lib/apt/lists/* /tmp/*.deb
+
+# Copy newer e2fsprogs binaries with mke2fs tarball support to /opt
+# System e2fsprogs remains available for dependencies that need it
+COPY --from=e2fsprogs_builder /opt/e2fsprogs /opt/e2fsprogs
+ENV PATH="/opt/e2fsprogs/bin:/opt/e2fsprogs/sbin:$PATH"
 
 # Binwalk v3 runtime dependencies
 RUN git clone --depth=1 https://github.com/ReFirmLabs/binwalk /binwalk && \
