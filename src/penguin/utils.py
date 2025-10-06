@@ -308,10 +308,8 @@ def get_kernel(conf, proj_dir):
                     else:
                         logger.error(f"Could not open {fs_path} to analyze for kernel version")
                 except Exception as e:
-                    print(f"Error during KernelVersionFinder analysis: {e}")
-                    continue
-
-            raise ValueError(f"Multiple kernels found for {q_config['arch']}: {kernels}")
+                    logger.error(f"Error during KernelVersionFinder analysis: {e}")
+                    pass  # Fall back to error message below            raise ValueError(f"Multiple kernels found for {q_config['arch']}: {kernels}")
     if len(kernels) == 0:
         raise ValueError(f"Kernel not found for {q_config['arch']}")
 
