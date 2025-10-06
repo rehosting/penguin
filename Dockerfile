@@ -323,6 +323,7 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     uuid-dev \
     libblkid-dev \
+    libarchive-dev \
     git \
     && rm -rf /var/lib/apt/lists/*
 
@@ -386,7 +387,7 @@ RUN curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /us
 
 # Install apt dependencies - first line for penguin - second for fw2tar
 RUN apt-get update && apt-get install -q -y \
-    fakeroot genext2fs graphviz graphviz-dev libarchive13 libgcc-s1 liblinear4 liblua5.3-0 libpcap0.8 libpcre3 libssh2-1 libssl3 libstdc++6 libxml2 lua-lpeg nmap python3 python3-lxml python3-venv sudo telnet vim wget zlib1g pigz clang-20 lld-20 \
+    fakeroot graphviz graphviz-dev libarchive13 libgcc-s1 liblinear4 liblua5.3-0 libpcap0.8 libpcre3 libssh2-1 libssl3 libstdc++6 libxml2 lua-lpeg nmap python3 python3-lxml python3-venv sudo telnet vim wget zlib1g pigz clang-20 lld-20 \
     android-sdk-libsparse-utils arj automake build-essential bzip2 cabextract cpio cramfsswap curl default-jdk e2fsprogs fakeroot gcc git gzip lhasa libarchive-dev libfontconfig1-dev libacl1-dev libcap-dev liblzma-dev liblzo2-dev liblz4-dev libbz2-dev libssl-dev libmagic1 locales lz4 lziprecover lzop mtd-utils openssh-client p7zip p7zip-full python3 python3-pip qtbase5-dev sleuthkit squashfs-tools srecord tar unar unrar unrar-free unyaffs unzip xz-utils zlib1g-dev zstd && \
     apt install -yy -f /tmp/pandare.deb -f /tmp/pandare-plugins.deb \
     -f /tmp/glow.deb -f /tmp/gum.deb -f /tmp/ripgrep.deb && \

@@ -129,22 +129,24 @@ def make_image(fs, out, artifacts, config):
         def _make_img(work_dir, qcow, delete_tar):
             IMAGE = Path(work_dir, "image.raw")
             check_output(["truncate", "-s", str(FILESYSTEM_SIZE), IMAGE])
-            subprocess.run([
-                "genext2fs",
-                "--faketime",
-                "-N",
-                str(NUMBER_OF_INODES),
-                "-b",
-                str(REQUIRED_BLOCKS),
-                "-B",
-                str(BLOCK_SIZE),
-                "-a",
-                str(TARBALL),
+
+            mke2fs_path = "/opt/e2fsprogs/sbin/mke2fs"
+            if not os.path.exists(mke2fs_path):
+                mke2fs_path = "mke2fs"
+
+            # Use fakeroot to handle unprivileged execution
+            cmd = [
+                mke2fs_path,
+                "-t", "ext4",           # Use ext4 filesystem type
+                "-F",                   # Force creation (equivalent to genext2fs behavior)
+                "-N", str(NUMBER_OF_INODES),
+                "-b", str(BLOCK_SIZE),
+                "-d", str(uncompressed_tar),
                 str(IMAGE),
-            ],
-                stderr=subprocess.DEVNULL,
-                check=True
-            )
+                str(REQUIRED_BLOCKS)
+            ]
+
+            subprocess.run(cmd, stderr=subprocess.DEVNULL, check=True)
             check_output(["qemu-img", "convert", "-f", "raw", "-O", "qcow2", str(IMAGE), str(qcow)])
             if delete_tar:
                 check_output(["rm", TARBALL])
