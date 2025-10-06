@@ -314,7 +314,7 @@ RUN mkdir /fakeroot || true
 FROM $BASE_IMAGE AS e2fsprogs_builder
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install build dependencies
+# Install build dependencies (add libarchive-dev and zlib1g-dev)
 RUN apt-get update && apt-get install -y \
     build-essential \
     autoconf \
@@ -323,13 +323,15 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     uuid-dev \
     libblkid-dev \
+    libarchive-dev \
+    zlib1g-dev \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone and build e2fsprogs from git (latest version with mke2fs tarball support)
+# Clone and build e2fsprogs with libarchive support (tarball population)
 RUN git clone https://git.kernel.org/pub/scm/fs/ext2/e2fsprogs.git /tmp/e2fsprogs && \
     cd /tmp/e2fsprogs && \
-    ./configure --prefix=/opt/e2fsprogs && \
+    ./configure --prefix=/opt/e2fsprogs --with-libarchive && \
     make -j$(nproc) && \
     make install
 
