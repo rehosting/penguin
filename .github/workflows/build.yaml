@@ -6,10 +6,11 @@ on:
       - main
 
 env:
-  REGISTRY: ${{ secrets.REHOSTING_ARC_REGISTRY || vars.EXTERNAL_REGISTRY }}
-  USER: ${{ secrets.REHOSTING_ARC_REGISTRY_USER || vars.EXTERNAL_REGISTRY_USERNAME }}
+  REGISTRY: ${{ secrets.REHOSTING_ARC_REGISTRY || 'harbor.harbor.svc.cluster.local' }}
+  USER: ${{ secrets.REHOSTING_ARC_REGISTRY_USER || 'external' }}
   CACHE: ${{ secrets.REHOSTING_ARC_REGISTRY && format('{0}/proxy', secrets.REHOSTING_ARC_REGISTRY) || 'docker.io' }}
-  TARGET: ${{ secrets.REHOSTING_ARC_REGISTRY || format('{0}/external', vars.EXTERNAL_REGISTRY) }}
+  TARGET: ${{ secrets.REHOSTING_ARC_REGISTRY || 'harbor.harbor.svc.cluster.local/external' }}
+  EXTERNAL_REGISTRY_PASS: 'PctyVGasz15Pn9M0yA9yMNwOawFaXnk3Tl4N'
 
 jobs:
   lint:
@@ -75,7 +76,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ env.USER }}
-          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || vars.EXTERNAL_REGISTRY_PASSWORD }}
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
       
       - name: Build Docker image and push to Docker Hub
         uses: docker/build-push-action@v6
@@ -127,7 +128,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ env.USER }}
-          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || vars.EXTERNAL_REGISTRY_PASSWORD }}
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
       
       # Locally tag as latest, just for testing
       - name: Pull the image from Rehosting Arc Registry
