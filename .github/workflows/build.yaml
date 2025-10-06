@@ -47,28 +47,30 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Trust Harbor's self-signed certificate
-        run: |
-          echo "Fetching certificate from ${{ secrets.REHOSTING_ARC_REGISTRY }}"
-          openssl s_client -showcerts -connect ${{ secrets.REHOSTING_ARC_REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
-          sudo update-ca-certificates
-      
       - name: Set registry variables
         id: extern
         run: |
           if [ -z "${{ secrets.REHOSTING_ARC_REGISTRY }}" ]; then
             echo "Using external registry"
-            echo "REGISTRY=${{ env.EXTERNAL_REGISTRY }}" >> $GITHUB_ENV
-            echo "USER=${{ env.EXTERNAL_REGISTRY_USER }}" >> $GITHUB_ENV
+            echo "REGISTRY=${{ vars.EXTERNAL_REGISTRY }}" >> $GITHUB_ENV
+            echo "USER=${{ vars.EXTERNAL_REGISTRY_USERNAME }}" >> $GITHUB_ENV
+            echo "PASS=${{ vars.EXTERNAL_REGISTRY_PASSWORD }}" >> $GITHUB_ENV
             echo "CACHE=docker.io" >> $GITHUB_ENV
-            echo "TARGET=${{ env.EXTERNAL_REGISTRY }}/external" >> $GITHUB_ENV
+            echo "TARGET=${{ vars.EXTERNAL_REGISTRY }}/external" >> $GITHUB_ENV
           else
             echo "Using internal registry"
             echo "REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}" >> $GITHUB_ENV
             echo "USER=${{ secrets.REHOSTING_ARC_REGISTRY_USER }}" >> $GITHUB_ENV
+            echo "PASS=${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}" >> $GITHUB_ENV
             echo "CACHE=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy" >> $GITHUB_ENV
             echo "TARGET=${{ secrets.REHOSTING_ARC_REGISTRY }}" >> $GITHUB_ENV
           fi
+      
+      - name: Trust Harbor's self-signed certificate
+        run: |
+          echo "Fetching certificate from ${{ env.REGISTRY }}"
+          openssl s_client -showcerts -connect ${{ env.REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
+          sudo update-ca-certificates
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -86,7 +88,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ env.USER }}
-          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASSWORD }}
+          password: ${{ env.PASS }}
       
       - name: Build Docker image and push to Docker Hub
         uses: docker/build-push-action@v6
@@ -132,14 +134,16 @@ jobs:
         run: |
           if [ -z "${{ secrets.REHOSTING_ARC_REGISTRY }}" ]; then
             echo "Using external registry"
-            echo "REGISTRY=${{ env.EXTERNAL_REGISTRY }}" >> $GITHUB_ENV
-            echo "USER=${{ env.EXTERNAL_REGISTRY_USER }}" >> $GITHUB_ENV
+            echo "REGISTRY=${{ vars.EXTERNAL_REGISTRY }}" >> $GITHUB_ENV
+            echo "USER=${{ vars.EXTERNAL_REGISTRY_USERNAME }}" >> $GITHUB_ENV
+            echo "PASS=${{ vars.EXTERNAL_REGISTRY_PASSWORD }}" >> $GITHUB_ENV
             echo "CACHE=docker.io" >> $GITHUB_ENV
-            echo "TARGET=${{ env.EXTERNAL_REGISTRY }}/external" >> $GITHUB_ENV
+            echo "TARGET=${{ vars.EXTERNAL_REGISTRY }}/external" >> $GITHUB_ENV
           else
             echo "Using internal registry"
             echo "REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}" >> $GITHUB_ENV
             echo "USER=${{ secrets.REHOSTING_ARC_REGISTRY_USER }}" >> $GITHUB_ENV
+            echo "PASS=${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}" >> $GITHUB_ENV
             echo "CACHE=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy" >> $GITHUB_ENV
             echo "TARGET=${{ secrets.REHOSTING_ARC_REGISTRY }}" >> $GITHUB_ENV
           fi
@@ -155,7 +159,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ env.USER }}
-          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASSWORD }}
+          password: ${{ env.PASS }}
       
       
       # Locally tag as latest, just for testing
