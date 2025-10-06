@@ -74,6 +74,7 @@ def run_config(
     timeout=None,
     show_output=False,
     verbose=False,
+    resolved_kernel=None,
 ):
     """
     conf_yaml a path to our config within proj_dir
@@ -107,7 +108,12 @@ def run_config(
     # Image isn't in our config, but the path we use is a property
     # of configs files section - we'll hash it to get a path
     # Read input config and validate
-    conf = load_config(proj_dir, conf_yaml)
+    if resolved_kernel:
+        logger.info(f"Using pre-resolved kernel: {resolved_kernel}")
+        conf = load_config(proj_dir, conf_yaml, resolved_kernel=resolved_kernel)
+    else:
+        conf = load_config(proj_dir, conf_yaml)
+
     pkversion = get_penguin_kernel_version(conf)
 
     if timeout is not None and conf.get("plugins", {}).get("core", None) is not None:
@@ -562,6 +568,13 @@ def main():
     timeout = int(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] != "None" else None
     show_output = sys.argv[6] == "show" if len(sys.argv) > 6 else False
 
+    # Check for resolved kernel flag (internal use - passed from main process to subprocess)
+    resolved_kernel = None
+    if "--resolved-kernel" in sys.argv:
+        idx = sys.argv.index("--resolved-kernel")
+        if idx + 1 < len(sys.argv):
+            resolved_kernel = sys.argv[idx + 1]
+
     logger.debug("penguin_run start:")
     logger.debug(f"proj_dir={proj_dir}")
     logger.debug(f"config={config}")
@@ -569,9 +582,10 @@ def main():
     logger.debug(f"init={init}")
     logger.debug(f"timeout={timeout}")
     logger.debug(f"show_output={show_output}")
+    logger.debug(f"resolved_kernel={resolved_kernel}")
 
     run_config(
-        proj_dir, config, out_dir, logger, init, timeout, show_output, verbose=verbose
+        proj_dir, config, out_dir, logger, init, timeout, show_output, verbose=verbose, resolved_kernel=resolved_kernel
     )
 
 

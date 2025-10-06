@@ -85,6 +85,7 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
             timeout=timeout,
             show_output=True,
             verbose=verbose,
+            resolved_kernel=config["core"]["kernel"],
         )  # niters is 1
     except RuntimeError:
         logger.error("No post-run analysis since there was no .run file")

@@ -167,6 +167,7 @@ class PandaRunner:
         timeout=None,
         show_output=False,
         verbose=False,
+        resolved_kernel=None,
     ):
         """
         If init or timeout are set they override config
@@ -229,6 +230,11 @@ class PandaRunner:
 
         if verbose:
             cmd.append("verbose")
+
+        # Add resolved kernel if provided to avoid duplicate analysis
+        if resolved_kernel:
+            cmd.append("--resolved-kernel")
+            cmd.append(resolved_kernel)
 
         start = time.time()
         try:
