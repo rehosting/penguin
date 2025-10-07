@@ -513,11 +513,11 @@ class KFFI(Plugin):
             "status": tramp_struct.status,
         }
 
-    def callback(self, func) -> 'KFFI.Callback':
+    def callback(self, func) -> Generator[Any, Any, Any]:
         """
-        ### Register a trampoline callback and return a Callback object
+        ### Register a trampoline callback and return an integer guest virtual address
 
-        Immediately generates the trampoline, sets up the interrupt handler, and returns the Callback object.
+        Immediately generates the trampoline, sets up the interrupt handler, and returns an integer address.
         """
         if func in self._tramp_addresses:
             return self._tramp_addresses[func]
