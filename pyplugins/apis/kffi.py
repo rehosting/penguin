@@ -541,9 +541,7 @@ class KFFI(Plugin):
         **Returns:**
         - `int` or `None`: Trampoline ID, or None if not found.
         """
-        if isinstance(f, int):
-            return self._tramp_callbacks.get(f)
-        return self._tramp_callbacks.get(f)
+        return self._tramp_callbacks.get(f, None)
 
     def _tramp_interrupt_handler(self):
         """
