@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from penguin import Plugin, plugins
+from os.path import join
 
 kffi = plugins.kffi
 mem = plugins.mem
@@ -11,6 +12,11 @@ class KFFITest(Plugin):
         self.outdir = self.get_arg("outdir")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
+    def callback(self, pt_regs, a, b, c, d):
+        assert (a, b, c, d) == (1, 2, 3, 4), f"Expected (1, 2, 3, 4), got {(a, b, c, d)}"
+        with open(join(self.outdir, "kffi_test.txt"), "a") as f:
+            f.write(f"Callback called with {a}, {b}, {c}, {d}\n")
+        return 42
 
     @syscalls.syscall("on_sys_ioctl_return", arg_filters=[0x14, 0x15, 0x16])
     def test_kffi(self, regs, proto, syscall, fd, op, arg):
@@ -19,6 +25,15 @@ class KFFITest(Plugin):
         assert val == sum(args), f"Expected {sum(args)}, got {val}, r/w failed"
         level = b"\x01\x03"
         yield from kffi.call("igloo_printk", level + b"test printk %d %d %d %d\x00", 1, 2, 3, 4)
+
+        tramp_addr = yield from kffi.callback(self.callback)
+        print(tramp_addr)
+        ret = yield from kffi.call(tramp_addr, 1, 2, 3, 4)
+
+        assert ret == 42, f"Expected 42 from callback, got {ret}"
+        
+        tramp_addr2 = yield from kffi.callback(self.callback)
+        assert tramp_addr == tramp_addr2, "Expected same trampoline address for same callback"
 
         # we've commented this out for now since it needs to be updated for 4.10
         # # open our file

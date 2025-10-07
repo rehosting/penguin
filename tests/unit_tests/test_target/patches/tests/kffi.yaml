@@ -12,6 +12,10 @@ plugins:
         type: file_contains
         file: console.log
         string: "test printk 1 2 3 4"
+      kffi+callback:
+        type: file_contains
+        file: kffi_test.txt
+        string: "Callback called with 1, 2, 3, 4"
 
 static_files:
   /tests/kffi_test.sh:
