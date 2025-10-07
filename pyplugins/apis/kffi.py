@@ -71,9 +71,10 @@ class KFFI(Plugin):
         self.ffi = VtypeJsonGroup([self.igloo_ko_isf, self.isf])
         self._tramp_callbacks = {}
         self._tramp_addresses = {}
+        self.tramp_init = False
 
     def __init_tramp_functionality(self):
-        if hasattr(self, 'tramp_init') and self.tramp_init:
+        if self.tramp_init:
             return
         self.tramp_init = True
         # Register trampoline hit hypercall handler
