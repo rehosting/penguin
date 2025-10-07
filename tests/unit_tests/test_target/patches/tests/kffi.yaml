@@ -15,7 +15,7 @@ plugins:
       kffi+callback:
         type: file_contains
         file: kffi_test.txt
-        string: "Callback called with 1, 2, 3, 4"
+        string: "Callback called with expected values!"
 
 static_files:
   /tests/kffi_test.sh:
