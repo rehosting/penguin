@@ -530,6 +530,20 @@ class KFFI(Plugin):
         self._tramp_addresses[func] = tramp_addr
         return tramp_addr
 
+    def get_callback_id(self, f: Union[int, Any]) -> Optional[int]:
+        """
+        ### Get the trampoline ID for a registered callback function or trampoline address
+
+        **Args:**
+        - `f` (`int` or `Any`): Callback function or trampoline address.
+
+        **Returns:**
+        - `int` or `None`: Trampoline ID, or None if not found.
+        """
+        if isinstance(f, int):
+            return self._tramp_callbacks.get(f)
+        return self._tramp_callbacks.get(f)
+
     def _tramp_interrupt_handler(self):
         """
         Interrupt handler to register trampoline callbacks.
