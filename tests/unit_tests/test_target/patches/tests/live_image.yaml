@@ -82,6 +82,9 @@ static_files:
     type: binary_patch
     file_offset: 0
     hex_bytes: "11223344"
+  /shim.txt:
+    type: shim
+    target: /shimtarget.txt
   /tests/live_image.sh:
     type: inline_file
     contents: |
@@ -175,6 +178,10 @@ static_files:
       # Check binary patch for /testfile2.bin
       if ! /igloo/utils/busybox head -c 4 /testfile2.bin | /igloo/utils/busybox hexdump -v -e '4/1 "%02X"' | /igloo/utils/busybox grep -q "11223344"; then
         echo "/testfile2.bin binary patch failed"; exit 1
+      fi
+      # Check shim
+      if ! /igloo/utils/busybox grep target /shim.txt ; then
+        echo "/shim.txt contents are incorrect"; exit 1
       fi
       echo "live_image.sh PASS"
       exit 0
