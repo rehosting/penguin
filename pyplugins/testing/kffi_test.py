@@ -12,6 +12,7 @@ class KFFITest(Plugin):
         self.outdir = self.get_arg("outdir")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
+
     def callback(self, pt_regs, a, b, c, d):
         assert (a, b, c, d) == (1, 2, 3, 4), f"Expected (1, 2, 3, 4), got {(a, b, c, d)}"
         with open(join(self.outdir, "kffi_test.txt"), "a") as f:
@@ -31,9 +32,15 @@ class KFFITest(Plugin):
         ret = yield from kffi.call(tramp_addr, 1, 2, 3, 4)
 
         assert ret == 42, f"Expected 42 from callback, got {ret}"
-        
+
         tramp_addr2 = yield from kffi.callback(self.callback)
         assert tramp_addr == tramp_addr2, "Expected same trampoline address for same callback"
+
+        id = kffi.get_callback_id(self.callback)
+
+        fn_name = f"portal_tramp_fn_{id:x}"
+        rv = yield from kffi.kallsyms_lookup(fn_name)
+        assert rv == tramp_addr, f"Expected {tramp_addr:x} from kallsyms_lookup, got {rv:x}"
 
         # we've commented this out for now since it needs to be updated for 4.10
         # # open our file
