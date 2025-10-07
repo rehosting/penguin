@@ -51,7 +51,6 @@ class KFFITest(Plugin):
         yield from kffi.call("igloo_printk", level + b"test printk %d %d %d %d\x00", 1, 2, 3, 4)
 
         tramp_addr = yield from kffi.callback(self.callback)
-        print(tramp_addr)
         ret = yield from kffi.call(tramp_addr, *self.cb_args)
 
         assert ret == 42, f"Expected 42 from callback, got {ret}"
