@@ -65,6 +65,8 @@ def run_test(kernel, arch, image, test_file=None):
         "helloworld": b"helloworld\0",
         "testfile1.bin": b"\x01\x02\x03\x04",
         "testfile2.bin": b"\x10\x20\x30\x40",
+        "shim.txt": b"original data\0",
+        "shimtarget.txt": b"target data\0",
     }
     create_tar_gz_with_binaries(f"{TEST_DIR}/empty_fs.tar.gz", files_dict)
     base_config = str(Path(TEST_DIR, "base_config.yaml"))
