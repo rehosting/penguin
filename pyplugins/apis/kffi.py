@@ -588,14 +588,14 @@ class KFFI(Plugin):
             # Determine callback arg count
             sig = inspect.signature(callback)
             num_args = len(sig.parameters)
-            # Get syscall args from pt_regs
+            # Get args from pt_regs
             if num_args > 1:
-                # Get syscall args from pt_regs
-                syscall_args = yield from pt_regs.get_args_portal(num_args - 1, convention="syscall")
+                # Get args from pt_regs
+                args = yield from pt_regs.get_args_portal(num_args - 1, convention="userland")
             else:
-                syscall_args = []
-            # Call callback with pt_regs and syscall args
-            result = callback(pt_regs, *syscall_args)
+                args = []
+            # Call callback with pt_regs and args
+            result = callback(pt_regs, *args)
             if isinstance(result, Iterator):
                 result = yield from result
             # If callback returns int, set as return value
