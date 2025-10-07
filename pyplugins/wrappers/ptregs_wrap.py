@@ -627,22 +627,37 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         self._register_map = {
             # Access through the nested union and struct
             # regs array for general registers x0-x30
-            **{f"x{i}": ("computed", lambda obj, i=i: obj.unnamed_field_0.unnamed_field_0.regs[i]) for i in range(31)},
+            **{f"x{i}": ("computed", 
+                        lambda obj, i=i: obj.unnamed_field_0.unnamed_field_0.regs[i],
+                        lambda obj, val, i=i: obj.unnamed_field_0.unnamed_field_0.regs.__setitem__(i, val)) 
+               for i in range(31)},
             # Special registers
-            "sp": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.sp),
-            "pc": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.pc),
-            "pstate": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.pstate),
+            "sp": ("computed", 
+                  lambda obj: obj.unnamed_field_0.unnamed_field_0.sp,
+                  lambda obj, val: setattr(obj.unnamed_field_0.unnamed_field_0, 'sp', val)),
+            "pc": ("computed", 
+                  lambda obj: obj.unnamed_field_0.unnamed_field_0.pc,
+                  lambda obj, val: setattr(obj.unnamed_field_0.unnamed_field_0, 'pc', val)),
+            "pstate": ("computed", 
+                      lambda obj: obj.unnamed_field_0.unnamed_field_0.pstate,
+                      lambda obj, val: setattr(obj.unnamed_field_0.unnamed_field_0, 'pstate', val)),
             # Other fields directly in pt_regs
             "syscallno": "syscallno",
             "orig_x0": "orig_x0",
             # Aliases
             # x0 holds the return value
-            "retval": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.regs[0]),
+            "retval": ("computed", 
+                      lambda obj: obj.unnamed_field_0.unnamed_field_0.regs[0],
+                      lambda obj, val: obj.unnamed_field_0.unnamed_field_0.regs.__setitem__(0, val)),
             # Common aliases for named registers
             # x29
-            "fp": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.regs[29]),
+            "fp": ("computed", 
+                  lambda obj: obj.unnamed_field_0.unnamed_field_0.regs[29],
+                  lambda obj, val: obj.unnamed_field_0.unnamed_field_0.regs.__setitem__(29, val)),
             # x30
-            "lr": ("computed", lambda obj: obj.unnamed_field_0.unnamed_field_0.regs[30]),
+            "lr": ("computed", 
+                  lambda obj: obj.unnamed_field_0.unnamed_field_0.regs[30],
+                  lambda obj, val: obj.unnamed_field_0.unnamed_field_0.regs.__setitem__(30, val)),
         }
 
         # Create a delegate for ARM mode access (but don't initialize it yet)
@@ -885,26 +900,59 @@ class PowerPCPtRegsWrapper(PtRegsWrapper):
         # PowerPC has numbered registers in the gpr array, nested two levels deep in unions/structs
         self._register_map = {
             # General purpose registers are in the gpr array inside two levels of anonymous struct/union
-            **{f"r{i}": ("computed", lambda obj, i=i: obj_container.gpr[i]) for i in range(32)},
+            **{f"r{i}": ("computed", 
+                        lambda obj, i=i: obj_container.gpr[i],
+                        lambda obj, val, i=i: obj_container.gpr.__setitem__(i, val)) 
+               for i in range(32)},
             # Special registers are direct fields in the anonymous struct
-            "nip": ("computed", lambda obj: obj_container.nip),
-            "msr": ("computed", lambda obj: obj_container.msr),
-            "orig_r3": ("computed", lambda obj: obj_container.orig_gpr3),
-            "ctr": ("computed", lambda obj: obj_container.ctr),
-            "lr": ("computed", lambda obj: obj_container.link),
-            "xer": ("computed", lambda obj: obj_container.xer),
-            "ccr": ("computed", lambda obj: obj_container.ccr),
-            "softe": ("computed", lambda obj: obj_container.softe),
-            "trap": ("computed", lambda obj: obj_container.trap),
-            "dar": ("computed", lambda obj: obj_container.dar),
-            "dsisr": ("computed", lambda obj: obj_container.dsisr),
-            "result": ("computed", lambda obj: obj_container.result),
+            "nip": ("computed", 
+                   lambda obj: obj_container.nip,
+                   lambda obj, val: setattr(obj_container, 'nip', val)),
+            "msr": ("computed", 
+                   lambda obj: obj_container.msr,
+                   lambda obj, val: setattr(obj_container, 'msr', val)),
+            "orig_r3": ("computed", 
+                       lambda obj: obj_container.orig_gpr3,
+                       lambda obj, val: setattr(obj_container, 'orig_gpr3', val)),
+            "ctr": ("computed", 
+                   lambda obj: obj_container.ctr,
+                   lambda obj, val: setattr(obj_container, 'ctr', val)),
+            "lr": ("computed", 
+                  lambda obj: obj_container.link,
+                  lambda obj, val: setattr(obj_container, 'link', val)),
+            "xer": ("computed", 
+                   lambda obj: obj_container.xer,
+                   lambda obj, val: setattr(obj_container, 'xer', val)),
+            "ccr": ("computed", 
+                   lambda obj: obj_container.ccr,
+                   lambda obj, val: setattr(obj_container, 'ccr', val)),
+            "softe": ("computed", 
+                     lambda obj: obj_container.softe,
+                     lambda obj, val: setattr(obj_container, 'softe', val)),
+            "trap": ("computed", 
+                    lambda obj: obj_container.trap,
+                    lambda obj, val: setattr(obj_container, 'trap', val)),
+            "dar": ("computed", 
+                   lambda obj: obj_container.dar,
+                   lambda obj, val: setattr(obj_container, 'dar', val)),
+            "dsisr": ("computed", 
+                     lambda obj: obj_container.dsisr,
+                     lambda obj, val: setattr(obj_container, 'dsisr', val)),
+            "result": ("computed", 
+                      lambda obj: obj_container.result,
+                      lambda obj, val: setattr(obj_container, 'result', val)),
             # Aliases
             # r1 is stack pointer
-            "sp": ("computed", lambda obj: obj_container.gpr[1]),
-            "pc": ("computed", lambda obj: obj_container.nip),
+            "sp": ("computed", 
+                  lambda obj: obj_container.gpr[1],
+                  lambda obj, val: obj_container.gpr.__setitem__(1, val)),
+            "pc": ("computed", 
+                  lambda obj: obj_container.nip,
+                  lambda obj, val: setattr(obj_container, 'nip', val)),
             # r3 holds return values
-            "retval": ("computed", lambda obj: obj_container.gpr[3]),
+            "retval": ("computed", 
+                      lambda obj: obj_container.gpr[3],
+                      lambda obj, val: obj_container.gpr.__setitem__(3, val)),
         }
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
@@ -1118,8 +1166,8 @@ class Riscv32PtRegsWrapper(PtRegsWrapper):
             "x31": "t6",
 
             # Alias for x0 (always zero)
-            "x0": ("computed", lambda obj: 0),
-            "zero": ("computed", lambda obj: 0),
+            "x0": ("computed", lambda obj: 0, lambda obj, val: None),  # x0 is hardwired to zero
+            "zero": ("computed", lambda obj: 0, lambda obj, val: None),  # x0 is hardwired to zero
 
             # Common aliases
             "pc": "epc",
