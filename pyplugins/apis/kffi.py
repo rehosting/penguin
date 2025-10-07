@@ -34,6 +34,7 @@ from wrappers.ctypes_wrap import Ptr, VtypeJsonGroup
 from os.path import join, realpath, isfile
 from wrappers.generic import Wrapper
 import functools
+import inspect
 from typing import Any, Optional, Union, Generator, Tuple, Iterator
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
 
@@ -525,7 +526,8 @@ class KFFI(Plugin):
         tramp_info = yield from self.generate_trampoline()
         tramp_id = tramp_info.get("tramp_id")
         tramp_addr = tramp_info.get("tramp_addr")
-        self._tramp_callbacks[tramp_id] = func
+        num_args = len(inspect.signature(func).parameters)
+        self._tramp_callbacks[tramp_id] = (func, num_args)
         self._tramp_callbacks[func] = tramp_id
         self._tramp_addresses[tramp_id] = tramp_addr
         self._tramp_addresses[func] = tramp_addr
@@ -556,7 +558,8 @@ class KFFI(Plugin):
             tramp_addr = tramp_info.get("tramp_addr")
             tramp_status = tramp_info.get("status")
             if tramp_id is not None and tramp_addr is not None:
-                self._tramp_callbacks[tramp_id] = func
+                num_args = len(inspect.signature(func).parameters)
+                self._tramp_callbacks[tramp_id] = (func, num_args)
                 self.logger.debug(f"Registered trampoline callback {func.__name__} with id={tramp_id} addr={tramp_addr}")
                 # Set Callback info if exists
                 if hasattr(self, '_tramp_proxy_map') and func in self._tramp_proxy_map:
@@ -578,16 +581,14 @@ class KFFI(Plugin):
         if not hasattr(self, '_tramp_callbacks') or tramp_id not in self._tramp_callbacks:
             self.logger.error(f"Trampoline hit for unknown id: {tramp_id}")
             return
-        callback = self._tramp_callbacks[tramp_id]
-        self.logger.debug(f"Invoking trampoline callback for id={tramp_id}: {callback.__name__}")
+        entry = self._tramp_callbacks[tramp_id]
+        callback, num_args = entry
+
+        self.logger.debug(f"Invoking trampoline callback for id={tramp_id}: {getattr(callback, '__name__', repr(callback))}")
         try:
-            import inspect
             pt_regs_raw = yield from self.read_type(pt_regs_addr, "pt_regs")
             pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
             original_bytes = pt_regs.to_bytes()[:]
-            # Determine callback arg count
-            sig = inspect.signature(callback)
-            num_args = len(sig.parameters)
             # Get args from pt_regs
             if num_args > 1:
                 # Get args from pt_regs
