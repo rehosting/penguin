@@ -23,12 +23,12 @@ class KFFITest(Plugin):
         self.outdir = self.get_arg("outdir")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
-        
+
         if self.panda.bits == 32:
             self.mask = 0xffffffff
         else:
             self.mask = 0xffffffffffffffff
-        
+
         self.cb_args = [
             i & self.mask for i in CALLBACK_ARGS
         ]
@@ -39,7 +39,7 @@ class KFFITest(Plugin):
                 raise ValueError(f"Expected {CALLBACK_ARGS[i]} for arg {i}, got {val}")
 
         with open(join(self.outdir, "kffi_test.txt"), "a") as f:
-            f.write(f"Callback called with expected values!\n")
+            f.write("Callback called with expected values!\n")
         return 42
 
     @syscalls.syscall("on_sys_ioctl_return", arg_filters=[0x14, 0x15, 0x16])
