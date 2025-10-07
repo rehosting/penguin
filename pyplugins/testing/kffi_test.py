@@ -6,17 +6,40 @@ kffi = plugins.kffi
 mem = plugins.mem
 syscalls = plugins.syscalls
 
+CALLBACK_ARGS = [
+    1,
+    0xffffffff,
+    0xf0f0f0f0f0f0f0f0,
+    2,
+    3,
+    4,
+    9,
+    0x1337c0de,
+]
+
 
 class KFFITest(Plugin):
     def __init__(self):
         self.outdir = self.get_arg("outdir")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
+        
+        if self.panda.bits == 32:
+            self.mask = 0xffffffff
+        else:
+            self.mask = 0xffffffffffffffff
+        
+        self.cb_args = [
+            i & self.mask for i in CALLBACK_ARGS
+        ]
 
-    def callback(self, pt_regs, a, b, c, d):
-        assert (a, b, c, d) == (1, 2, 3, 4), f"Expected (1, 2, 3, 4), got {(a, b, c, d)}"
+    def callback(self, pt_regs, a, b, c, d, e, f, g, h):
+        for i, val in enumerate([a, b, c, d, e, f, g, h]):
+            if self.cb_args[i] != val:
+                raise ValueError(f"Expected {CALLBACK_ARGS[i]} for arg {i}, got {val}")
+
         with open(join(self.outdir, "kffi_test.txt"), "a") as f:
-            f.write(f"Callback called with {a}, {b}, {c}, {d}\n")
+            f.write(f"Callback called with expected values!\n")
         return 42
 
     @syscalls.syscall("on_sys_ioctl_return", arg_filters=[0x14, 0x15, 0x16])
@@ -29,7 +52,7 @@ class KFFITest(Plugin):
 
         tramp_addr = yield from kffi.callback(self.callback)
         print(tramp_addr)
-        ret = yield from kffi.call(tramp_addr, 1, 2, 3, 4)
+        ret = yield from kffi.call(tramp_addr, *self.cb_args)
 
         assert ret == 42, f"Expected 42 from callback, got {ret}"
 
