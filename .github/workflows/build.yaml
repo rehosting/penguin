@@ -100,7 +100,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: ["armel", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc64", "loongarch64", "aarch64", "x86_64"] # "riscv64"
+        arch: ["armel", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc64", "loongarch64", "aarch64", "x86_64", "riscv64"]
 
     steps:
       # using the version from here https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md
