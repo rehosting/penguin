@@ -38,7 +38,7 @@ import inspect
 from os.path import isfile, join, realpath
 from typing import Any, Generator, Iterator, Optional, Tuple, Union
 
-from wrappers.ctypes_wrap import Ptr, VtypeJsonGroup
+from wrappers.ctypes_wrap import Ptr, VtypeJsonGroup, BoundTypeInstance
 from wrappers.generic import Wrapper
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
 
@@ -90,8 +90,9 @@ class KFFI(Plugin):
         # Register trampoline hit hypercall handler
         from hyper.consts import igloo_hypercall_constants as iconsts
         self.portal = plugins.portal
-        self._on_tramp_hit_hypercall = self.portal.wrap(self._on_tramp_hit_hypercall)
-        self.panda.hypercall(iconsts.IGLOO_HYP_TRAMP_HIT)(self._on_tramp_hit_hypercall)
+        self._on_tramp_hit_hypercall =  \
+                self.panda.hypercall(iconsts.IGLOO_HYP_TRAMP_HIT)(
+                self.portal.wrap(self._on_tramp_hit_hypercall))
 
         # Register with portal's interrupt handler system
         self.portal.register_interrupt_handler(
@@ -664,3 +665,10 @@ class KFFI(Plugin):
 
         except Exception as e:
             self.logger.error(f"Error in trampoline callback {callback.__name__}: {e}")
+    
+    def write_struct(self, addr: Union[int, Ptr], instance: BoundTypeInstance):
+        if isinstance(addr, Ptr):
+            addr = addr.address
+        
+        data = instance.to_bytes()
+        yield from plugins.mem.write_bytes(addr, data)
