@@ -388,6 +388,14 @@ class PtRegsWrapper(Wrapper):
         """
         return None
 
+    def in_kernel(self) -> bool:
+        """
+        Returns True if the pt_regs represents kernel mode, False otherwise.
+        Subclasses should override for architecture-specific logic.
+        """
+        return False
+
+
 class X86PtRegsWrapper(PtRegsWrapper):
     """Wrapper for x86 (32-bit) pt_regs"""
 
@@ -444,6 +452,12 @@ class X86PtRegsWrapper(PtRegsWrapper):
         if sp is not None:
             return self._read_memory(sp, 4, 'ptr')
         return None
+
+    def in_kernel(self) -> bool:
+        # On x86, check CPL from eflags. CPL is in bits 12-13.
+        # CPL=0 is kernel mode.
+        eflags = self.get_register("eflags")
+        return eflags is not None and ((eflags >> 12) & 3) == 0
 
 
 class X86_64PtRegsWrapper(PtRegsWrapper):
@@ -619,6 +633,12 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
             return self._read_memory(sp, 8, 'ptr')
         return None
 
+    def in_kernel(self) -> bool:
+        # On x86_64, check CPL from eflags. CPL is in bits 12-13.
+        # CPL=0 is kernel mode.
+        eflags = self.get_register("eflags")
+        return eflags is not None and ((eflags >> 12) & 3) == 0
+
 
 class ArmPtRegsWrapper(PtRegsWrapper):
     """Wrapper for ARM pt_regs"""
@@ -676,6 +696,12 @@ class ArmPtRegsWrapper(PtRegsWrapper):
     def _get_retaddr(self):
         # On ARM, link register (lr/r14) holds return address
         return self.get_register("lr")
+
+    def in_kernel(self) -> bool:
+        # On ARM, check CPSR mode bits (lowest 5 bits)
+        cpsr = self.get_register("cpsr")
+        # User mode is 0b10000 (0x10). Any other mode is privileged.
+        return cpsr is not None and (cpsr & 0x1F) != 0x10
 
 
 class AArch64PtRegsWrapper(PtRegsWrapper):
@@ -832,6 +858,12 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         # On AArch64, link register (x30/lr) holds return address
         return self.get_register("lr")
 
+    def in_kernel(self) -> bool:
+        # On AArch64, check PSTATE Exception Level bits (bits 2-3)
+        pstate = self.get_register("pstate")
+        # EL0 (user) is 0. EL1, EL2, EL3 are kernel/hypervisor.
+        return pstate is not None and ((pstate >> 2) & 3) != 0
+
 
 class MipsPtRegsWrapper(PtRegsWrapper):
     """Wrapper for MIPS pt_regs"""
@@ -916,6 +948,12 @@ class MipsPtRegsWrapper(PtRegsWrapper):
     def _get_retaddr(self):
         # On MIPS, ra (r31) holds return address
         return self.get_register("ra")
+
+    def in_kernel(self) -> bool:
+        # On MIPS, check status register KUc bit (bit 1)
+        status = self.get_register("cp0_status")
+        # KUc == 0 means kernel mode.
+        return status is not None and ((status >> 1) & 1) == 0
 
 
 class Mips64PtRegsWrapper(MipsPtRegsWrapper):
@@ -1072,6 +1110,12 @@ class PowerPCPtRegsWrapper(PtRegsWrapper):
         # On PowerPC, link register (lr) holds return address
         return self.get_register("lr")
 
+    def in_kernel(self) -> bool:
+        # On PowerPC, check MSR PR bit (bit 14).
+        msr = self.get_register("msr")
+        # PR (Problem state) == 0 means supervisor (kernel) mode.
+        return msr is not None and ((msr >> 14) & 1) == 0
+
 
 class PowerPC64PtRegsWrapper(PowerPCPtRegsWrapper):
     """Wrapper for PowerPC64 pt_regs - same structure as PowerPC"""
@@ -1165,6 +1209,12 @@ class LoongArch64PtRegsWrapper(PtRegsWrapper):
     def _get_retaddr(self):
         # On LoongArch64, ra (r1) holds return address
         return self.get_register("ra")
+
+    def in_kernel(self) -> bool:
+        # On LoongArch64, check CSR_PRMD's PPLV field (bits 0-1).
+        prmd = self.get_register("csr_prmd")
+        # PPLV == 0 means kernel mode (PLV0).
+        return prmd is not None and (prmd & 0x3) == 0
 
 
 class Riscv32PtRegsWrapper(PtRegsWrapper):
@@ -1288,6 +1338,12 @@ class Riscv32PtRegsWrapper(PtRegsWrapper):
     def _get_retaddr(self):
         # On RISC-V, ra (x1) holds return address
         return self.get_register("ra")
+
+    def in_kernel(self) -> bool:
+        # On RISC-V, check status register SPP bit (bit 8).
+        status = self.get_register("status")
+        # If SPP is 1, previous mode was Supervisor (kernel).
+        return status is not None and ((status >> 8) & 1) == 1
 
 
 class Riscv64PtRegsWrapper(Riscv32PtRegsWrapper):
