@@ -134,7 +134,7 @@ IOCTLs have a command number and each command can be modeled distinctly. A wildc
 
 **return_const**: Return the specified `val`
 
-**return_symex**: Coming soon.
+**symex**: Perform symbolic execution on the IOCTL to identify distinct reachable paths. This is an advanced feature that requires the symex plugin to be enabled.
 
 ### How to model pseudofiles:
 In your config file, you'll insert new keys under `pseudofiles` for each file you want to model. By specifying a key (which must start with `/dev/` or `/proc/`), you'll
