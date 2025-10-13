@@ -86,7 +86,7 @@ Beyond allowing you to add pseudofiles into a system, penguin also allows
 you to specify how `read`s, `write`s, and `ioctl`s of these files should be modeled.
 
 After adding a pseudofile to a config and running it, you might see
-guest applications try to interact with this newly created psueodfile. The
+guest applications try to interact with this newly created pseudofile. The
 `pseudofiles` plugin will collect the details of these accesses in the `pseudofiles_modeled.yaml`.
 
 In this file, you'll see keys of device paths with a list of interactions that
@@ -98,6 +98,10 @@ documentation for these fields which will always be the most up to date. However
 following descriptions may be of value.
 
 #### Read modeling
+
+**zero**: Read a zero (returns a single zero byte).
+
+**empty**: Read an empty file (returns empty data).
 
 **default**: Return an empty string with return value `-EINVAL`.
 
@@ -111,6 +115,8 @@ Provide a dictionary in `vals` with keys as an integer offset into the buffer an
 
 **from_file**: Given a host (container) file path in `filename` read from that file
 
+**from_plugin**: Read from a custom PyPlugin. Specify the `plugin` name and optionally the `function` to call (defaults to `read`).
+
 #### Write modeling
 
 **default**: Return value `-EINVAL`
@@ -118,6 +124,8 @@ Provide a dictionary in `vals` with keys as an integer offset into the buffer an
 **discard**: Do nothing with the value and return as if the write was successful.
 
 **to_file**: Given a host (container) file path in `filename` write to that file
+
+**from_plugin**: Write to a custom PyPlugin. Specify the `plugin` name and optionally the `function` to call (defaults to `write`).
 
 #### IOCTL modeling
 IOCTLs have a command number and each command can be modeled distinctly. A wildcard `*` can be used as a command number to indicate that all other ioctls should be modeled in a given way.
@@ -129,10 +137,10 @@ IOCTLs have a command number and each command can be modeled distinctly. A wildc
 **return_symex**: Coming soon.
 
 ### How to model pseudofiles:
-In your config file, you'll insert new keys udner `pseudofiles` for each file you want to model. By specifying a key (which must start with `/dev/` or `/proc/`), you'll
+In your config file, you'll insert new keys under `pseudofiles` for each file you want to model. By specifying a key (which must start with `/dev/` or `/proc/`), you'll
 change the system so that a pseudofile is present at the specified location. If this is
 all you wish to do, you'll specify the key as having a value of `{}`.
-Otherwise, if you'd like to model the behavior of the pseudofile, you'll add one or more subkeys of `read`, `write,` and `ioctl` and specify the model details.
+Otherwise, if you'd like to model the behavior of the pseudofile, you'll add one or more subkeys of `read`, `write`, and `ioctl` and specify the model details.
 
 To just add `/dev/missing` into the filesystem:
 
