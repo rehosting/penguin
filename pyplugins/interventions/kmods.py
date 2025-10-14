@@ -199,6 +199,7 @@ class KmodTracker(Plugin):
             kmod_path = matching_ko[-1]
         elif any(arg for arg in args if arg.endswith('modprobe')):
             self.logger.info(f"modprobe detected, cannot determine module path from args: {args}")
+            return
         else:
             # Check open fds for .ko file
             fds = yield from plugins.osi.get_fds()
@@ -209,7 +210,7 @@ class KmodTracker(Plugin):
                     break
 
         if not kmod_path:
-            self.logger.info(f"Could not determine kernel module path from args: {args} or fds: {fds}")
+            self.logger.info(f"Could not determine kernel module path from args: {args}")
 
         # Track the module
         if kmod_path:
@@ -253,6 +254,9 @@ class KmodTracker(Plugin):
         """
         # Analyze information to determine the module path
         fdname = yield from plugins.osi.get_fd_name(fd)
+        if not fdname:
+            self.logger.error(f"Could not determine kernel module path from fd: {fd}")
+            return
         self.track_kmod(fdname)
 
         # Check if module is explicitly denied (denylist takes precedence)
