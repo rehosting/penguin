@@ -142,4 +142,6 @@ class Lifeguard(Plugin):
         self.logger.debug(f"{pname}({ppid}) kill({kpname}({pid}), {expl}({sig})) {'blocked' if save else ''}")
 
         if save:
-            syscall.args[1] = signals["SIGCONT"]
+            # Old approach was to change to SIGCONT, but some architectures (e.g., mips64eb/powerpc64) have syscall contexts that cause that to break
+            syscall.skip_syscall = True
+            syscall.retval = 0
