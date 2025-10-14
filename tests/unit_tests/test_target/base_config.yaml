@@ -42,6 +42,7 @@ patches:
   - ./patches/tests/module.yaml
   - ./patches/tests/live_image.yaml
   - ./patches/tests/syscalls_logger.yaml
+  - ./patches/tests/lifeguard.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 
@@ -50,7 +51,7 @@ pseudofiles: {}
 nvram: {}
 lib_inject: {}
 
-plugins: 
+plugins:
   verifier: {}
   core: {}
   netbinds: {}
@@ -69,17 +70,17 @@ static_files:
   /run_tests.sh:
     type: host_file
     host_path: ./scripts/run_tests.sh
-    mode: 73  
+    mode: 73
 
   /igloo/utils/sh:
     type: symlink
     target: /igloo/utils/busybox
-  
+
   /igloo/source.d/*:
     host_path: /pkg/resources/source.d/*
     mode: 493
     type: host_file
-  
+
   /igloo/init:
     host_path: /pkg/resources/init.sh
     mode: 493

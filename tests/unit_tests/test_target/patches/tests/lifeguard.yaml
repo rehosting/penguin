@@ -1,0 +1,25 @@
+plugins:
+  verifier:
+    conditions:
+      lifeguard:
+        type: file_contains
+        file: console.log
+        string: "/tests/lifeguard.sh PASS"
+
+blocked_signals:
+- 15
+
+static_files:
+  /tests/lifeguard.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+
+      /igloo/utils/busybox mkfifo /tmp/meowmix
+      /igloo/utils/busybox cat /tmp/meowmix &
+      pid=$!
+      kill -15 $pid
+      kill -18 $pid # Resume in background
+      /igloo/utils/busybox grep meowmix /proc/${pid}/cmdline || exit 1
+      exit 0
+    mode: 73
