@@ -327,7 +327,7 @@ penguin_run() {
     if [[ ${#cmd[@]} -gt 1 && ( "${cmd[0]}" == "guest_cmd" ) ]]; then
 
         # Kludgy, but lets us reuse the $container_name mechanism above
-        docker_cmd=("docker" "exec" "-it" "${container_name}" "python3" "/igloo_static/guesthopper/guest_cmd.py" "${cmd[@]:2}")
+        docker_cmd=("docker" "exec" "-it" "${container_name}" "python3" "/igloo_static/guesthopper/guest_cmd.py" "${cmd[@]:1}")
         "${docker_cmd[@]}"
         exit $?
     fi
