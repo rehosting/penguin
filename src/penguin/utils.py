@@ -265,8 +265,6 @@ def get_kernel(conf, proj_dir):
     if kernel:
         if os.path.exists(kernel) and os.path.isfile(kernel):
             return kernel
-        # If kernel path was set but doesn't exist, treat as unset
-        kernel = None
     from penguin.q_config import load_q_config
     from glob import glob
     q_config = load_q_config(conf)
@@ -288,6 +286,12 @@ def get_kernel(conf, proj_dir):
                 options = [i for i in kernels if kernel in i]
                 if len(options) == 1:
                     return options[0]
+                elif len(options) == 0:
+                    logger.warning(f"Kernel input '{kernel}' did not match any of the options.")
+                else:
+                    logger.warning(f"Kernel '{kernel}' matched {len(options)} options: {options}. It must match exactly one.")
+                # If kernel path was set but doesn't exist, treat as unset
+                kernel = None
 
             # For old configurations without kernel specified, try using KernelVersionFinder
             if kernel is None:
