@@ -74,16 +74,14 @@ class Lifeguard(Plugin):
     Plugin to block specified signals by replacing them with SIGCONT.
 
     **Attributes**
-    - `panda`: The PANDA instance.
     - `outdir` (`str`): Output directory for logs.
     - `blocked_signals` (`list[int]`): List of blocked signal numbers.
     """
 
-    panda: object
     outdir: str
     blocked_signals: list[int]
 
-    def __init__(self, panda: object) -> None:
+    def __init__(self) -> None:
         """
         **Initialize the Lifeguard plugin.**
 
@@ -93,7 +91,6 @@ class Lifeguard(Plugin):
         **Returns**
         - `None`
         """
-        self.panda = panda
         self.outdir = self.get_arg("outdir")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
@@ -109,51 +106,40 @@ class Lifeguard(Plugin):
         if len(self.blocked_signals) > 0:
             self.logger.info(f"Blocking signals: {self.blocked_signals}")
 
-    def get_proc_by_pid(self, cpu: object, pid: int) -> str:
-        """
-        **Get the process name for a given PID.**
-
-        **Args**
-        - `cpu` (`object`): The CPU context.
-        - `pid` (`int`): The process ID.
-
-        **Returns**
-        - `str`: The process name, or None if not found.
-        """
-        for p in self.panda.get_processes(cpu):
-            if p.pid == abs(pid):
-                return self.panda.ffi.string(p.name).decode("latin-1", errors="ignore")
-
-    @plugins.syscalls.syscall("on_sys_kill_enter")
-    def on_sys_kill_enter(self, regs, proto: object, sysret: object, pid: int, sig: int) -> None:
+    @plugins.syscalls.syscall(
+        name_or_pattern="sys_kill",
+        on_enter=True,
+        on_return=False,
+    )
+    def on_sys_kill_enter(self, pt_regs, proto, syscall, *args):
         """
         **Handler for the kill syscall. Blocks signals if configured.**
 
         **Args**
+        - `pt_regs` (`object`): The CPU registers at syscall entry.
         - `proto` (`object`): The syscall prototype.
-        - `sysret` (`object`): The syscall return object.
-        - `pid` (`int`): The target process ID.
-        - `sig` (`int`): The signal number.
+        - `syscall` (`object`): The syscall event object.
+        - `args` (`tuple`): The arguments passed to the syscall.
 
         **Returns**
         - `None`
         """
-        cpu = self.panda.get_cpu()
+        (pid, sig) = args[0:2]
         save = sig in self.blocked_signals
         with open(f"{self.outdir}/{LIFELOG}", "a") as f:
             f.write(f"{sig},{pid},{1 if save else 0}\n")
 
-        proc = self.panda.plugins['osi'].get_current_process(cpu)
-        if proc != self.panda.ffi.NULL:
-            pname = self.panda.ffi.string(proc.name).decode("latin-1", errors="ignore")
+        proc = yield from plugins.osi.get_proc()
+        if proc:
+            pname = proc.name
             ppid = proc.pid
         else:
             pname = "[?]"
             ppid = "[?]"
         pname = yield from plugins.osi.get_proc_name()
-        kpname = self.get_proc_by_pid(cpu, pid) or "[?]"
+        kpname = yield from plugins.osi.get_proc_name(pid) or "[?]"
         expl = signals.get(sig, "[?]")
         self.logger.debug(f"{pname}({ppid}) kill({kpname}({pid}), {expl}({sig})) {'blocked' if save else ''}")
 
         if save:
-            sysret.args[2] = 18
+            syscall.args[1] = signals["SIGCONT"]
