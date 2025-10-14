@@ -59,7 +59,7 @@ def create_tar_gz_with_binaries(dest_tar_gz, files_dict):
                 tar.add(tmpdir_path / fname, arcname=fname)
 
 
-def run_test(kernel, arch, image, test_file=None):
+def run_test(kernel, arch, image, test_file=None, docs_only=False):
     # Create tar.gz with several binary files at the root
     files_dict = {
         "helloworld": b"helloworld\0",
@@ -78,6 +78,9 @@ def run_test(kernel, arch, image, test_file=None):
 
     base_config["patches"].append(f"patches/arches/{arch}.yaml")
     base_config["core"]["kernel"] = str(kernel)
+
+    if docs_only:
+        base_config["plugins"]["pdoc_generator"] = {}
 
     if test_file:
         logger.info(f"Running specific test: {test_file}")
@@ -110,11 +113,17 @@ NONDEFAULT_KERNEL_ARCHES = {
 @click.option("--arch", "-a", multiple=True, default=DEFAULT_ARCHES)
 @click.option("--image", "-i", default="rehosting/penguin:latest")
 @click.option("--test-file", "-t", default=None, help="Run specific test file from patches/tests/ - no prefix needed (e.g., bash.yaml)")
-def test(kernel, arch, image, test_file):
+@click.option("--docs-only", is_flag=True, help="Only build the docs and leave. Useful for CI.")
+def test(kernel, arch, image, test_file, docs_only):
+    if docs_only:
+        logger.info("Docs only mode enabled, will only build docs and exit")
+        kernel = ['4.10',]
+        arch = ['armel',]
     if test_file:
         logger.info(f"Running specific test: {test_file} for {kernel} on {arch}")
     else:
         logger.info(f"Running all tests for {kernel} on {arch}")
+
 
     # Allow DEFAULT_ARCHES plus any arches referenced in NONDEFAULT_KERNEL_ARCHES
     allowed_arches = set(DEFAULT_ARCHES)
@@ -138,7 +147,7 @@ def test(kernel, arch, image, test_file):
                 continue
 
             logger.info(f"Running tests for kernel {k} on arch {a}")
-            run_test(k, a, image, test_file)
+            run_test(k, a, image, test_file, docs_only)
 
 
 if __name__ == "__main__":
