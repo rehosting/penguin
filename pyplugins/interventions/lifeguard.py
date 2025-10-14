@@ -131,13 +131,13 @@ class Lifeguard(Plugin):
 
         proc = yield from plugins.osi.get_proc()
         if proc:
-            pname = proc.name
             ppid = proc.pid
         else:
-            pname = "[?]"
             ppid = "[?]"
         pname = yield from plugins.osi.get_proc_name()
-        kpname = yield from plugins.osi.get_proc_name(pid) or "[?]"
+        kpname = yield from plugins.osi.get_proc_name(pid)
+        if not kpname:
+            kpname = "[?]"
         expl = signals.get(sig, "[?]")
         self.logger.debug(f"{pname}({ppid}) kill({kpname}({pid}), {expl}({sig})) {'blocked' if save else ''}")
 

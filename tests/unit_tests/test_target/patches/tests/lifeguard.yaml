@@ -5,6 +5,14 @@ plugins:
         type: file_contains
         file: console.log
         string: "/tests/lifeguard.sh PASS"
+      lifeguard_csv_sigterm:
+        type: file_contains
+        file: lifeguard.csv
+        string: "15,"
+      lifeguard_csv_blocked:
+        type: file_contains
+        file: lifeguard.csv
+        string: ",1"
 
 blocked_signals:
 - 15
