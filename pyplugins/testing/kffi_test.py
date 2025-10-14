@@ -5,6 +5,7 @@ from os.path import join
 kffi = plugins.kffi
 mem = plugins.mem
 syscalls = plugins.syscalls
+repl = plugins.repl
 
 CALLBACK_ARGS = [
     1,
@@ -48,8 +49,11 @@ class KFFITest(Plugin):
         val = yield from kffi.call("igloo_test_function", *args)
         assert val == sum(args), f"Expected {sum(args)}, got {val}, r/w failed"
         level = b"\x01\x03"
-        yield from kffi.call("igloo_printk", level + b"test printk %d %d %d %d\x00", 1, 2, 3, 4)
+        print(locals())
 
+        print_string =  b"test printk %d %d %d %d\x00"
+        yield from repl.code('yield from kffi.call("igloo_printk", level + print_string, 1, 2, 3, 4)', {'kffi':kffi,'level':level,'print_string':print_string})
+        print("ended repl")
         tramp_addr = yield from kffi.callback(self.callback)
         ret = yield from kffi.call(tramp_addr, *self.cb_args)
 
