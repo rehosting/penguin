@@ -1,21 +1,22 @@
 """
-# Kernel Version Utilities
+Kernel Version Utilities
+========================
 
 This module provides utilities for parsing, comparing, and representing Linux kernel
 version strings. It is intended to help plugins and scripts that need to reason about
 kernel versions in the Penguin framework or similar environments.
 
-## Features
+Features
+--------
 
 - Parse kernel version strings into structured objects
 - Compare kernel versions for ordering and equality
 - Convert kernel version objects back to string representation
 
-```
+Classes
+-------
 
-## Classes
-
-- `KernelVersion`: Represents a parsed kernel version and supports comparison.
+- KernelVersion: Represents a parsed kernel version and supports comparison.
 
 """
 

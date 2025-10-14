@@ -1,41 +1,46 @@
 """
-# Hypervisor Constants Loader (`consts.py`)
+Hypervisor Constants Loader (consts.py)
+=======================================
 
 This module provides a convenient interface for accessing hypervisor-related constants and enumerations
 used by plugins in the Penguin hypervisor environment. It dynamically loads enums from the kernel FFI
 and exposes them as Python objects for easy and type-safe access.
 
-## Overview
+Overview
+--------
 
-- Loads and exposes enums such as `HYPER_OP`, `portal_type`, `igloo_hypercall_constants`, and others.
-- Wraps each enum in a `Wrapper` object for attribute-style access.
+- Loads and exposes enums such as HYPER_OP, portal_type, igloo_hypercall_constants, and others.
+- Wraps each enum in a Wrapper object for attribute-style access.
 - Ensures that all required enums are present and raises an assertion error if any are missing.
 
-## Example Usage
+Example Usage
+-------------
 
-```python
-from hyper import consts
+.. code-block:: python
 
-# Access a constant from HYPER_OP
-op_code = consts.HYPER_OP.READ
+    from hyper import consts
 
-# Access a constant from igloo_hypercall_constants
-hypercall_num = consts.igloo_hypercall_constants.IGLOO_HYPER_REGISTER_MEM_REGION
-```
+    # Access a constant from HYPER_OP
+    op_code = consts.HYPER_OP.READ
 
-## Exposed Enums
+    # Access a constant from igloo_hypercall_constants
+    hypercall_num = consts.igloo_hypercall_constants.IGLOO_HYPER_REGISTER_MEM_REGION
 
-- `HYPER_OP`
-- `portal_type`
-- `igloo_hypercall_constants`
-- `hyperfs_ops`
-- `hyperfs_file_ops`
-- `value_filter_type`
+Exposed Enums
+-------------
 
-## Implementation Details
+- HYPER_OP
+- portal_type
+- igloo_hypercall_constants
+- hyperfs_ops
+- hyperfs_file_ops
+- value_filter_type
 
-- Uses `plugins.kffi.get_enum_dict` to fetch enum values from the kernel FFI.
-- Wraps each enum dictionary in a `Wrapper` for attribute-style access.
+Implementation Details
+----------------------
+
+- Uses plugins.kffi.get_enum_dict to fetch enum values from the kernel FFI.
+- Wraps each enum dictionary in a Wrapper for attribute-style access.
 - All enums are loaded at module import time.
 
 """

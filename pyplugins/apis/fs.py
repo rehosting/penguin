@@ -1,11 +1,13 @@
 """
-# FS API Plugin
+FS API Plugin
+=============
 
 This module provides the FS plugin for the penguin framework, enabling interaction with the guest filesystem.
 It exposes methods for reading, writing, and querying files and directories in the guest, and can be used
 by other plugins to perform filesystem operations.
 
-## Features
+Features
+--------
 
 - Read files from the guest filesystem.
 - Write data to files in the guest.
@@ -13,20 +15,21 @@ by other plugins to perform filesystem operations.
 - Supports chunked operations for large files.
 - Abstracts guest filesystem access for analysis and automation.
 
-## Example Usage
+Example Usage
+-------------
 
-```python
-from penguin import plugins
+::
 
-# Read a file from the guest
-content = yield from plugins.fs.read_file("/etc/passwd")
+    from penguin import plugins
 
-# Write to a file in the guest
-yield from plugins.fs.write_file("/tmp/test.txt", "hello world")
+    # Read a file from the guest
+    content = yield from plugins.fs.read_file("/etc/passwd")
 
-# Execute a program in the guest
-yield from plugins.fs.exec_program("/bin/ls", argv=["ls", "-l", "/"])
-```
+    # Write to a file in the guest
+    yield from plugins.fs.write_file("/tmp/test.txt", "hello world")
+
+    # Execute a program in the guest
+    yield from plugins.fs.exec_program("/bin/ls", argv=["ls", "-l", "/"])
 """
 
 from penguin import Plugin
@@ -36,35 +39,49 @@ from hyper.portal import PortalCmd
 
 class FS(Plugin):
     """
-    # FS Plugin
+    FS Plugin
+    =========
 
     Provides methods for interacting with the guest filesystem, including reading, writing,
     and listing files and directories.
 
-    ## Methods
+    Methods
+    -------
+    read_file
+        Read a file from the guest filesystem.
+    write_file
+        Write data to a file in the guest filesystem.
+    exec_program
+        Execute a program in the guest environment.
 
-    - `read_file`: Read a file from the guest filesystem.
-    - `write_file`: Write data to a file in the guest filesystem.
-    - `exec_program`: Execute a program in the guest environment.
-
-    > **Note:** All methods are generated and their signatures and types are enforced.
+    Note
+    ----
+    All methods are generated and their signatures and types are enforced.
     """
 
     def read_file(self, fname: str, size: int = None,
                   offset: int = 0) -> bytes:
         """
-        ## Read a file from the guest filesystem
+        Read a file from the guest filesystem.
 
-        **Args:**
-        - `fname` (`str`): Path to the file in the guest.
-        - `size` (`int`, optional): Size limit. If None, reads entire file.
-        - `offset` (`int`, optional): Offset in bytes where to start reading (default: 0).
+        Parameters
+        ----------
+        fname : str
+            Path to the file in the guest.
+        size : int, optional
+            Size limit. If None, reads entire file.
+        offset : int, optional
+            Offset in bytes where to start reading (default: 0).
 
-        **Returns:**
-        - `bytes`: The file data as bytes.
+        Returns
+        -------
+        bytes
+            The file data as bytes.
 
-        **Raises:**
-        - Exception: If the file cannot be read.
+        Raises
+        ------
+        Exception
+            If the file cannot be read.
 
         Reads the specified file from the guest filesystem, optionally limiting the read to a specific size and offset.
         If `size` is not specified, the entire file is read in chunks.
@@ -138,21 +155,28 @@ class FS(Plugin):
 
         return all_data
 
-    def write_file(self, fname: str, data: bytes |
-                   str, offset: int = 0) -> int:
+    def write_file(self, fname: str, data: bytes | str, offset: int = 0) -> int:
         """
-        ## Write data to a file in the guest filesystem
+        Write data to a file in the guest filesystem.
 
-        **Args:**
-        - `fname` (`str`): Path to the file in the guest.
-        - `data` (`bytes` or `str`): Data to write to the file.
-        - `offset` (`int`, optional): Offset in bytes where to start writing (default: 0).
+        Parameters
+        ----------
+        fname : str
+            Path to the file in the guest.
+        data : bytes or str
+            Data to write to the file.
+        offset : int, optional
+            Offset in bytes where to start writing (default: 0).
 
-        **Returns:**
-        - `int`: Number of bytes written.
+        Returns
+        -------
+        int
+            Number of bytes written.
 
-        **Raises:**
-        - Exception: If the file cannot be written.
+        Raises
+        ------
+        Exception
+            If the file cannot be written.
 
         Overwrites the file if it exists, or creates it if it does not. Handles large writes in chunks.
 
@@ -218,19 +242,28 @@ class FS(Plugin):
         wait: bool = False
     ) -> int:
         """
-        ## Execute a program in the guest environment
+        Execute a program in the guest environment.
 
-        **Args:**
-        - `exe_path` (`str`, optional): Path to executable. If not provided, uses `argv[0]`.
-        - `argv` (`list[str]`, optional): List of arguments (including program name as first arg).
-        - `envp` (`dict[str, str]`, optional): Dictionary of environment variables.
-        - `wait` (`bool`, optional): Whether to wait for program to complete.
+        Parameters
+        ----------
+        exe_path : str, optional
+            Path to executable. If not provided, uses `argv[0]`.
+        argv : list of str, optional
+            List of arguments (including program name as first arg).
+        envp : dict of str, optional
+            Dictionary of environment variables.
+        wait : bool, optional
+            Whether to wait for program to complete.
 
-        **Returns:**
-        - `int`: Return code from execution.
+        Returns
+        -------
+        int
+            Return code from execution.
 
-        **Raises:**
-        - Exception: If the program cannot be executed.
+        Raises
+        ------
+        Exception
+            If the program cannot be executed.
 
         Executes a program in the guest using the kernel's `call_usermodehelper` function. Optionally waits for completion.
 

@@ -1,25 +1,35 @@
 """
-nmap.py - Nmap Plugin for Penguin
+Nmap Plugin (nmap.py) for Penguin
+=================================
 
 This module provides the Nmap plugin, which automatically performs service and vulnerability scans
 on guest services exposed to the host via the VPN plugin. It listens for 'on_bind' events published
-by the VPN plugin and launches nmap scans against the corresponding host ports. The plugin is responsible for:
+by the VPN plugin and launches nmap scans against the corresponding host ports.
 
-- Subscribing to VPN 'on_bind' events to detect new guest services exposed to the host.
-- Launching nmap scans (in a separate thread) for each new TCP service, storing results as XML files in the output directory.
-- Supporting custom nmap configurations if present.
-- Managing and cleaning up subprocesses for running nmap scans.
+Features
+--------
 
-Arguments:
-    - None
+- Subscribes to VPN 'on_bind' events to detect new guest services exposed to the host.
+- Launches nmap scans (in a separate thread) for each new TCP service, storing results as XML files in the output directory.
+- Supports custom nmap configurations if present.
+- Manages and cleans up subprocesses for running nmap scans.
 
-Plugin Interface:
-    - Subscribes to the VPN plugin's 'on_bind' event to trigger scans.
-    - Does not provide a direct interface for other plugins, but writes scan results to files in the output directory.
+Arguments
+---------
 
-Overall Purpose:
-    The Nmap plugin automates the discovery and analysis of guest services exposed to the host, aiding
-    in security assessment and service enumeration during emulation.
+- None
+
+Plugin Interface
+----------------
+
+- Subscribes to the VPN plugin's 'on_bind' event to trigger scans.
+- Does not provide a direct interface for other plugins, but writes scan results to files in the output directory.
+
+Overall Purpose
+---------------
+
+The Nmap plugin automates the discovery and analysis of guest services exposed to the host, aiding
+in security assessment and service enumeration during emulation.
 """
 
 import os

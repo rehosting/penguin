@@ -1,3 +1,36 @@
+"""
+PortalCall Plugin (portalcall.py) for Penguin
+=============================================
+
+This module provides the PortalCall plugin for the Penguin framework, enabling registration and handling of portalcalls via syscall filtering. It allows plugins to register handlers for specific portalcall magic values and process arguments from guest syscalls.
+
+Features
+--------
+
+- Register portalcall handlers for specific magic values.
+- Handle portalcall syscalls and dispatch to registered handlers.
+- Safely read arguments from guest memory and return results.
+- Supports coroutine-style handler functions.
+
+Example Usage
+-------------
+
+.. code-block:: python
+
+    from penguin import plugins
+
+    @plugins.portalcall.portalcall(0x12345678)
+    def my_portalcall_handler(arg1, arg2):
+        # Process arguments and return result
+        return arg1 + arg2
+
+Classes
+-------
+
+- PortalCall: Main plugin class for portalcall registration and handling.
+
+"""
+
 from penguin import plugins, Plugin
 from penguin.plugin_manager import resolve_bound_method_from_class
 from typing import Callable, Dict, Iterator

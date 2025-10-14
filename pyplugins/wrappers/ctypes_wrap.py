@@ -8,6 +8,7 @@ specifically its Intermediate Symbol File (ISF) format.
 
 Key Features:
 -------------
+
 - Fast parsing with ujson if available
 - Lazy loading and caching of types, enums, and symbols
 - .json.xz compressed file support
@@ -20,68 +21,70 @@ Key Features:
 
 How to Use:
 -----------
+
 1. Load an ISF file (JSON or JSON.XZ):
 
-    from wrappers.ctypes_wrap import load_isf_json
-    isf = load_isf_json("vmlinux.isf.json.xz")
+   from wrappers.ctypes_wrap import load_isf_json
+   isf = load_isf_json("vmlinux.isf.json.xz")
 
 2. Access type definitions:
 
-    my_struct_def = isf.get_user_type("my_struct")
-    int_def = isf.get_base_type("int")
-    enum_def = isf.get_enum("my_enum")
+   my_struct_def = isf.get_user_type("my_struct")
+   int_def = isf.get_base_type("int")
+   enum_def = isf.get_enum("my_enum")
 
 3. Create an instance of a type bound to a buffer:
 
-    buf = bytearray(my_struct_def.size)
-    instance = isf.create_instance("my_struct", buf)
-    print(instance.field1)
-    instance.field1 = 42
-    print(instance.to_bytes())
+   buf = bytearray(my_struct_def.size)
+   instance = isf.create_instance("my_struct", buf)
+   print(instance.field1)
+   instance.field1 = 42
+   print(instance.to_bytes())
 
 4. Work with arrays and enums:
 
-    arr = instance.array_field
-    arr[0] = 123
-    print(arr[0])
-    print(instance.enum_field.name)
+   arr = instance.array_field
+   arr[0] = 123
+   print(arr[0])
+   print(instance.enum_field.name)
 
 5. Lookup symbols by address:
 
-    syms = isf.get_symbols_by_address(0xffffffffdeadbeef)
-    for sym in syms:
-        print(sym.name, sym.address)
+   syms = isf.get_symbols_by_address(0xffffffffdeadbeef)
+   for sym in syms:
+       print(sym.name, sym.address)
 
 6. Create and manipulate base/enum type instances:
 
-    int_buf = bytearray(int_def.size)
-    int_instance = isf.create_instance("int", int_buf)
-    int_instance._value = 123
-    print(int_instance._value)
+   int_buf = bytearray(int_def.size)
+   int_instance = isf.create_instance("int", int_buf)
+   int_instance._value = 123
+   print(int_instance._value)
 
 Command Line Usage:
 -------------------
-    python -m wrappers.ctypes_wrap vmlinux.isf.json.xz [options]
+
+   python -m wrappers.ctypes_wrap vmlinux.isf.json.xz [options]
 
 Options:
-    --find-symbol-at ADDRESS   Find symbols at a given address
-    --get-type TYPE_NAME       Test the generic get_type method
-    --test-write               Test writing to struct fields
-    --test-to-bytes            Test to_bytes() on an instance
-    --test-array-write         Test writing to array elements
-    --test-base-enum-instance  Test creating base/enum type instances
-    -v, --verbose              Print detailed info
+   --find-symbol-at ADDRESS   Find symbols at a given address
+   --get-type TYPE_NAME       Test the generic get_type method
+   --test-write               Test writing to struct fields
+   --test-to-bytes            Test to_bytes() on an instance
+   --test-array-write         Test writing to array elements
+   --test-base-enum-instance  Test creating base/enum type instances
+   -v, --verbose              Print detailed info
 
 See the __main__ section for more CLI details and test examples.
 
 Main Classes and Functions:
 ---------------------------
+
 - load_isf_json(path_or_file): Load and parse an ISF file, returning a VtypeJson accessor.
 - VtypeJson: Main accessor for types, enums, symbols, and instance creation.
 - BoundTypeInstance: Represents a struct/union/base/enum instance bound to a buffer.
 - BoundArrayView: View for array fields, supporting element access and assignment.
 - EnumInstance: Wrapper for enum values, supporting name and value access.
-
 """
 
 try:

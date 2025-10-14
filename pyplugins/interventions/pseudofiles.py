@@ -475,7 +475,7 @@ class Pseudofiles(Plugin):
             self.dump_results()
             self.logger.debug(f"New ioctl failure observed: {cmd:x} on {path}")
 
-    def read_zero(self, filename, buffer, length, offset, details=None):
+    def read_zero(self, filename, buffer, length, offset, contents, details=None):
         # Simple peripheral model inspired by firmadyne/firmae. Just return 0.
         # If we've seen a write to this device, mix that data in with 0s
         # padding around it
@@ -686,11 +686,12 @@ class Pseudofiles(Plugin):
     # but implements what it's told for others
     def ioctl_default(self, filename, cmd, arg, ioctl_details):
         """
-        Given a cmd and arg, return a value
-        filename is device path
+        Given a cmd and arg, return a value.
+
+        filename is device path.
         ioctl_details is a dict of:
-            cmd -> {'model': 'return_const'|'symex',
-                     'val': X}
+            cmd -> {'model': 'return_const'|'symex'|'from_plugin',
+                    'val': X}
         """
         # Try to use cmd as our key, but '*' is a fallback
         # is_wildcard = False

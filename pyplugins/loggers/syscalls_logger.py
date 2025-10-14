@@ -1,34 +1,38 @@
 """
-# Syscalls Logger Plugin
+Syscalls Logger Plugin
+======================
 
 This plugin records system call events to the penguin database. It parses Linux error codes from header files,
 maps error numbers to names and explanations, and logs detailed syscall information including arguments,
 return values, and process context.
 
-## Purpose
+Purpose
+-------
 
 - Monitors all system call return events and execve/execveat entries in the guest.
 - Records syscall arguments, return values, and error codes with explanations.
 - Enables later analysis of system call activity and process behavior.
 
-## Usage
+Usage
+-----
 
-```python
-from pyplugins.loggers.syscalls_logger import PyPandaSysLog
+.. code-block:: python
 
-syscalls_logger = PyPandaSysLog(panda)
-# Syscall events will be logged automatically.
-```
+    from pyplugins.loggers.syscalls_logger import PyPandaSysLog
 
-This plugin is loaded automatically as part of the penguin plugin system. It requires the `syscalls`, `mem`,
-`portal`, and `osi` plugins to be active.
+    syscalls_logger = PyPandaSysLog(panda)
+    # Syscall events will be logged automatically.
 
-The plugin extracts relevant fields and stores them in the database using the `Syscall` event type.
+This plugin is loaded automatically as part of the penguin plugin system. It requires the syscalls, mem,
+portal, and osi plugins to be active.
 
-## Arguments
+The plugin extracts relevant fields and stores them in the database using the Syscall event type.
 
-- `outdir`: Output directory for the SQLite database file.
-- `procs`: Optional list of process names to filter syscall logging. If not provided, all processes are logged.
+Arguments
+---------
+
+- outdir: Output directory for the SQLite database file.
+- procs: Optional list of process names to filter syscall logging. If not provided, all processes are logged.
 
 """
 

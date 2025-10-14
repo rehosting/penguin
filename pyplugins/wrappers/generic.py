@@ -1,39 +1,44 @@
 """
-# generic.py - Base wrappers for plugin data structures
+generic.py - Base wrappers for plugin data structures
+=====================================================
 
 This module provides generic Python wrapper classes for plugin data structures, such as those returned by PANDA or other emulation/analysis frameworks. These wrappers provide a uniform interface for accessing fields, converting to dicts, and working with arrays of wrapped objects.
 
-## Overview
+Overview
+--------
 
 The main classes are:
-- `Wrapper`: A base class for wrapping a single object, providing attribute access, dict conversion, and pretty-printing.
-- `ArrayWrapper`: A base class for wrapping a list/array of objects, providing list-like access and iteration.
+- Wrapper: A base class for wrapping a single object, providing attribute access, dict conversion, and pretty-printing.
+- ArrayWrapper: A base class for wrapping a list/array of objects, providing list-like access and iteration.
 
 These classes are intended to be subclassed for specific data structures, but can also be used directly for simple cases.
 
-## Typical Usage
+Typical Usage
+-------------
 
 Suppose you have a plugin that returns a C struct or dict-like object:
 
-```python
-from wrappers.generic import Wrapper, ArrayWrapper
+.. code-block:: python
 
-# Wrap a single object
-data = plugin.get_struct()
-obj = Wrapper(data)
-print(obj.field1)
-print(obj.to_dict())
+    from wrappers.generic import Wrapper, ArrayWrapper
 
-# Wrap an array of objects
-array_data = plugin.get_array()
-objs = ArrayWrapper([Wrapper(x) for x in array_data])
-for o in objs:
-    print(o)
-```
+    # Wrap a single object
+    data = plugin.get_struct()
+    obj = Wrapper(data)
+    print(obj.field1)
+    print(obj.to_dict())
 
-## Classes
-- `Wrapper`: Base class for single-object wrappers.
-- `ArrayWrapper`: Base class for array/list wrappers.
+    # Wrap an array of objects
+    array_data = plugin.get_array()
+    objs = ArrayWrapper([Wrapper(x) for x in array_data])
+    for o in objs:
+        print(o)
+
+Classes
+-------
+
+- Wrapper: Base class for single-object wrappers.
+- ArrayWrapper: Base class for array/list wrappers.
 """
 
 from typing import Any, Dict, Iterator, List, Sequence, TypeVar, Generic

@@ -1,28 +1,37 @@
 """
-netbinds.py - NetBinds Plugin for Penguin
+NetBinds Plugin (netbinds.py) for Penguin
+=========================================
 
 This module provides the NetBinds plugin, which monitors and records all network bind events
 within the guest during emulation. It tracks both IPv4 and IPv6 binds, logs detailed information
 about each bind, and publishes 'on_bind' events for other plugins to react to new network services.
-The plugin is responsible for:
 
-- Subscribing to low-level bind/setup/release events for IPv4 and IPv6 sockets.
-- Tracking and deduplicating all bind events, including process name, IP version, socket type, IP, and port.
-- Logging bind details and summary statistics to CSV files in the output directory.
-- Publishing 'on_bind' events for other plugins (such as VPN, Nmap, FetchWeb) to consume.
-- Optionally shutting down emulation when a web service (port 80) is bound, if configured.
+Features
+--------
 
-Arguments:
-    - shutdown_on_www (bool, optional): If True, shut down emulation when a bind occurs on port 80.
+- Subscribes to low-level bind/setup/release events for IPv4 and IPv6 sockets.
+- Tracks and deduplicates all bind events, including process name, IP version, socket type, IP, and port.
+- Logs bind details and summary statistics to CSV files in the output directory.
+- Publishes 'on_bind' events for other plugins (such as VPN, Nmap, FetchWeb) to consume.
+- Optionally shuts down emulation when a web service (port 80) is bound, if configured.
 
-Plugin Interface:
-    - Publishes 'on_bind' events with (sock_type, ipvn, ip, port, procname) for other plugins to consume.
-    - Does not subscribe to other plugin events, but listens to low-level system events.
-    - Writes bind logs and summaries to files in the output directory.
+Arguments
+---------
 
-Overall Purpose:
-    The NetBinds plugin provides a comprehensive record of all network services started by the guest,
-    enabling automation, analysis, and integration with other actuation plugins.
+- shutdown_on_www (bool, optional): If True, shut down emulation when a bind occurs on port 80.
+
+Plugin Interface
+----------------
+
+- Publishes 'on_bind' events with (sock_type, ipvn, ip, port, procname) for other plugins to consume.
+- Does not subscribe to other plugin events, but listens to low-level system events.
+- Writes bind logs and summaries to files in the output directory.
+
+Overall Purpose
+---------------
+
+The NetBinds plugin provides a comprehensive record of all network services started by the guest,
+enabling automation, analysis, and integration with other actuation plugins.
 """
 
 import socket

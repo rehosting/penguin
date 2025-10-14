@@ -1,9 +1,11 @@
 """
-# SendHypercall Plugin (`send_hypercall.py`) for Penguin
+SendHypercall Plugin (send_hypercall.py) for Penguin
+====================================================
 
-This module provides the `SendHypercall` plugin for the Penguin framework, enabling the registration and handling of custom hypercalls from the guest OS. It allows plugins to subscribe to specific hypercall events, receive arguments from the guest, process them, and return results back to the guest memory. The plugin is designed for extensibility and safe event-driven communication between guest and host.
+This module provides the SendHypercall plugin for the Penguin framework, enabling the registration and handling of custom hypercalls from the guest OS. It allows plugins to subscribe to specific hypercall events, receive arguments from the guest, process them, and return results back to the guest memory. The plugin is designed for extensibility and safe event-driven communication between guest and host.
 
-## Features
+Features
+--------
 
 - Register and handle custom hypercall events from the guest.
 - Safely read arguments and write results to guest memory.
@@ -11,30 +13,31 @@ This module provides the `SendHypercall` plugin for the Penguin framework, enabl
 - Handles architecture-specific pointer sizes and endianness.
 - Provides error handling and logging for robust operation.
 
-## Example Usage
+Example Usage
+-------------
 
-```python
-from penguin import plugins
+.. code-block:: python
 
-def my_hypercall_handler(arg1, arg2):
-    # Process arguments and return (retval, output)
-    return 0, f"Received: {arg1}, {arg2}"
+    from penguin import plugins
 
-# Direct registration
-plugins.send_hypercall.subscribe("mycmd", my_hypercall_handler)
+    def my_hypercall_handler(arg1, arg2):
+        # Process arguments and return (retval, output)
+        return 0, f"Received: {arg1}, {arg2}"
 
-# --- Decorator usage ---
-@plugins.send_hypercall.subscribe("mycmd2")
-def my_hypercall_handler2(arg1):
-    # Process arguments and return (retval, output)
-    return 0, f"Handled by decorator: {arg1}"
+    # Direct registration
+    plugins.send_hypercall.subscribe("mycmd", my_hypercall_handler)
 
-# You can also use a bound method as a decorator:
-class MyPlugin:
-    @plugins.send_hypercall.subscribe("mycmd3")
-    def my_method(self, arg):
-        return 0, f"Handled in class: {arg}"
-```
+    # Decorator usage
+    @plugins.send_hypercall.subscribe("mycmd2")
+    def my_hypercall_handler2(arg1):
+        # Process arguments and return (retval, output)
+        return 0, f"Handled by decorator: {arg1}"
+
+    # You can also use a bound method as a decorator:
+    class MyPlugin:
+        @plugins.send_hypercall.subscribe("mycmd3")
+        def my_method(self, arg):
+            return 0, f"Handled in class: {arg}"
 """
 
 import struct
@@ -45,18 +48,21 @@ from typing import Callable, Union, Tuple, Dict, Any
 
 class SendHypercall(Plugin):
     """
-    ## SendHypercall Plugin
-
+    SendHypercall Plugin
+    ====================
     Handles registration and processing of custom hypercall events from the guest OS.
 
-    ### Attributes
-    - `outdir` (`str`): Output directory for plugin data.
-    - `registered_events` (`Dict[str, Callable[..., Tuple[int, Union[str, bytes]]]]`): Registered event handlers.
+    Attributes
+    ----------
+    outdir : str
+        Output directory for plugin data.
+    registered_events : Dict[str, Callable[..., Tuple[int, Union[str, bytes]]]]
+        Registered event handlers.
     """
 
     def __init__(self) -> None:
         """
-        ### Initialize the SendHypercall plugin
+        Initialize the SendHypercall plugin.
 
         Sets up logging, event registration, and subscribes to the igloo_send_hypercall event.
         """
@@ -71,20 +77,27 @@ class SendHypercall(Plugin):
     def subscribe(self, event: str,
                   callback: Callable[..., Tuple[int, Union[str, bytes]]] = None):
         """
-        ### Register a callback for a specific hypercall event
+        Register a callback for a specific hypercall event.
 
         Can be used as a decorator or called directly.
 
-        **Args:**
-        - `event` (`str`): Event name to subscribe to.
-        - `callback` (`Callable[..., Tuple[int, Union[str, bytes]]]`, optional): Callback function that processes the event.
+        Parameters
+        ----------
+        event : str
+            Event name to subscribe to.
+        callback : Callable[..., Tuple[int, Union[str, bytes]]], optional
+            Callback function that processes the event.
 
-        **Raises:**
-        - `ValueError`: If already subscribed to the event.
+        Raises
+        ------
+        ValueError
+            If already subscribed to the event.
 
-        **Returns:**
-        - If used as a decorator, returns the decorator function.
-        - If called directly, returns `None`.
+        Returns
+        -------
+        decorator or None
+            If used as a decorator, returns the decorator function.
+            If called directly, returns None.
         """
         if callback is None:
             def decorator(cb):
@@ -103,17 +116,22 @@ class SendHypercall(Plugin):
     def on_send_hypercall(self, cpu: Any, buf_addr: int,
                           buf_num_ptrs: int) -> None:
         """
-        ### Handle an incoming hypercall from the guest
+        Handle an incoming hypercall from the guest.
 
         Reads arguments from guest memory, dispatches to the registered handler, and writes the result back.
 
-        **Args:**
-        - `cpu` (`Any`): CPU context from PANDA.
-        - `buf_addr` (`int`): Address of the pointer array in guest memory.
-        - `buf_num_ptrs` (`int`): Number of pointers in the array.
+        Parameters
+        ----------
+        cpu : Any
+            CPU context from PANDA.
+        buf_addr : int
+            Address of the pointer array in guest memory.
+        buf_num_ptrs : int
+            Number of pointers in the array.
 
-        **Returns:**
-        - `None`
+        Returns
+        -------
+        None
         """
         arch_bytes = self.panda.bits // 8
 

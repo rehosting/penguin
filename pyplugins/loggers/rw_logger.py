@@ -1,21 +1,24 @@
 """
-# Read/Write Logger Plugin
+Read/Write Logger Plugin
+========================
 
 This plugin records read and write system call events to the penguin database. It hooks into the system call
-return events for `read` and `write`, extracts relevant details such as file descriptor, buffer content, and
-process name, and stores them as `Read` and `Write` events in the database.
+return events for ``read`` and ``write``, extracts relevant details such as file descriptor, buffer content, and
+process name, and stores them as ``Read`` and ``Write`` events in the database.
 
-## Purpose
+Purpose
+-------
 
 - Monitors file descriptor read and write operations in the guest.
 - Records buffer contents, file descriptor names, and process names for each event.
 - Enables later analysis of file I/O activity and data flow.
 
-## Usage
+Usage
+-----
 
 Simply add this plugin by name to your config.
 
-The plugin extracts relevant fields and stores them in the database using the `Read` and `Write` event types.
+The plugin extracts relevant fields and stores them in the database using the ``Read`` and ``Write`` event types.
 """
 
 from penguin import plugins, Plugin

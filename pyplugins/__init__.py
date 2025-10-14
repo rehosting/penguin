@@ -1,17 +1,22 @@
 """
-.. include:: README.md
+PyPlugins package
+=================
 
-## Importing in PyPlugins
+This package contains optional, pluggable features for Penguin. It is discovered
+and loaded by the main application at runtime.
 
-To import modules in your PyPlugin, you can use the following syntax:
-```python
-from apis.events import EVENTS
-```
+Importing in PyPlugins
+----------------------
 
-Where the `apis` directory exists in the pyplugins directory.
+To import modules inside a PyPlugin, use standard package imports. For example:
 
-.. include:: ../docs/pyplugin_architecture.md
-    :start-after: Plugins are a way to extend the functionality of penguin.
+.. code-block:: python
+
+   from apis.events import EVENTS
+
+Where the ``apis`` directory exists in the ``pyplugins`` directory.
+
+For general architecture and usage information, see the repository documentation.
 """
 
 import sys

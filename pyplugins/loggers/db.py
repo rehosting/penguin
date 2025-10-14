@@ -1,10 +1,12 @@
 """
-# DB Logger Plugin
+DB Logger Plugin
+================
 
 This module implements a database-backed event logger plugin for the framework.
 It uses SQLAlchemy to persist events to a SQLite database in a buffered, asynchronous manner.
 
-## Features
+Features
+--------
 
 - Buffers events in memory and flushes them to disk in batches for performance.
 - Uses a background thread to periodically flush events or when the buffer is full.
@@ -12,21 +14,23 @@ It uses SQLAlchemy to persist events to a SQLite database in a buffered, asynchr
 - Schema is auto-created on first flush.
 - Configurable buffer size and output directory.
 
-## Usage
+Usage
+-----
 
-```python
-from pyplugins.loggers.db import DB
+.. code-block:: python
 
-db_logger = DB()
-db_logger.add_event(event)
-db_logger.uninit()
-```
+    from pyplugins.loggers.db import DB
 
-## Arguments
+    db_logger = DB()
+    db_logger.add_event(event)
+    db_logger.uninit()
 
-- `outdir`: Output directory for the SQLite database file.
-- `bufsize`: Buffer size before flushing to disk (default: 100000).
-- `verbose`: Enable debug logging.
+Arguments
+---------
+
+- outdir: Output directory for the SQLite database file.
+- bufsize: Buffer size before flushing to disk (default: 100000).
+- verbose: Enable debug logging.
 
 """
 

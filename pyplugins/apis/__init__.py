@@ -1,9 +1,11 @@
 """
-# Penguin APIs Package
+Penguin APIs Package
+====================
 
 This package contains core API plugins for the Penguin framework, providing interfaces for interacting with guest memory, user-space probes, and other hypervisor-level features.
 
-## Overview
+Overview
+--------
 
 - **mem.py**: Safe and efficient guest memory access and manipulation.
 - **uprobes.py**: User-space probe (uprobe) registration and event handling.

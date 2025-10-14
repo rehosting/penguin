@@ -1,5 +1,6 @@
 """
 core.py - Core plugin for Penguin
+=================================
 
 This module provides the Core plugin, which performs basic sanity checks, configuration management,
 and core logic for the penguin emulation environment. It is responsible for:
@@ -12,19 +13,24 @@ and core logic for the penguin emulation environment. It is responsible for:
 - Setting up environment variables for features like root shell, graphics, shared directory, strace, ltrace, and forced WWW.
 - Logging information about available services (e.g., root shell, VNC) based on configuration and environment.
 
-Arguments:
+Arguments
+---------
 
 - timeout (int, optional): Timeout in seconds for automatic shutdown.
 
-Plugin Interface:
-    This plugin does not provide a direct interface for other plugins, but it writes configuration
-    and plugin information to files in the output directory, which other plugins or tools may read.
-    It also sets environment variables in the configuration dictionary that may be used by other
-    components or plugins.
+Plugin Interface
+----------------
 
-Overall Purpose:
-    The Core plugin ensures the emulation environment is correctly set up, manages shutdown
-    procedures, and records essential information for reproducibility and debugging.
+This plugin does not provide a direct interface for other plugins, but it writes configuration
+and plugin information to files in the output directory, which other plugins or tools may read.
+It also sets environment variables in the configuration dictionary that may be used by other
+components or plugins.
+
+Overall Purpose
+---------------
+
+The Core plugin ensures the emulation environment is correctly set up, manages shutdown
+procedures, and records essential information for reproducibility and debugging.
 """
 
 import os

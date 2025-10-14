@@ -1,49 +1,53 @@
 """
-# Events API Plugin
+Events API Plugin
+=================
 
 This plugin provides a generic interface for handling hypercall-based events in the penguin system.
 It maps event numbers (MAGIC values) to named events and their argument types, sets up hypercall handlers,
 and allows other plugins to register callbacks for these events.
 
-## Purpose
+Purpose
+-------
 
 - Maps hypercall event numbers to named events and argument types.
 - Sets up hypercall handlers that parse arguments and publish events.
 - Allows plugins to register for named events and receive parsed arguments.
 
-## Usage
+Usage
+-----
 
 This plugin is loaded automatically as part of the penguin plugin system. Other plugins can register
-for named events (e.g., `igloo_open`, `igloo_string_cmp`) and receive callbacks with parsed arguments.
+for named events (e.g., igloo_open, igloo_string_cmp) and receive callbacks with parsed arguments.
 
-## Event Format
+Event Format
+------------
 
-Each event is published with the parsed arguments as specified in the `EVENTS` mapping.
+Each event is published with the parsed arguments as specified in the EVENTS mapping.
 
-```python
-EVENTS = {
-    MAGIC_NUMBER: ('event_name', (arg_type1, arg_type2, ...)),
-    ...
-}
-```
+.. code-block:: python
+
+    EVENTS = {
+        MAGIC_NUMBER: ('event_name', (arg_type1, arg_type2, ...)),
+        ...
+    }
 
 For example:
 
-```python
-0xB335A535: ('igloo_send_hypercall', (None, int, int)),
-```
+.. code-block:: python
 
-## Example
+    0xB335A535: ('igloo_send_hypercall', (None, int, int)),
 
-```python
-from penguin import plugins
+Example
+-------
 
-def on_open(cpu, filename, flags):
-    print(f"Open: {filename} (flags={flags})")
+.. code-block:: python
 
-plugins.subscribe(plugin_instance, "igloo_open", on_open)
-```
+    from penguin import plugins
 
+    def on_open(cpu, filename, flags):
+        print(f"Open: {filename} (flags={flags})")
+
+    plugins.subscribe(plugin_instance, "igloo_open", on_open)
 """
 
 from penguin import plugins, Plugin
@@ -78,11 +82,12 @@ EVENTS = {
 
 class Events(Plugin):
     """
-    # Events Plugin
-
+    Events Plugin
+    =============
     Handles hypercall-based events and publishes them as named events for other plugins to subscribe to.
 
-    ## Features
+    Features
+    --------
 
     - Registers all known event names for notification.
     - Sets up hypercall handlers for each event.
@@ -91,7 +96,7 @@ class Events(Plugin):
 
     def __init__(self):
         """
-        ## Initialize the Events plugin
+        Initialize the Events plugin.
 
         Registers all known event names for notification and sets up callback storage.
         """
@@ -103,11 +108,14 @@ class Events(Plugin):
 
     def _setup_hypercall_handler(self, magic, arg_types):
         """
-        ## Set up a hypercall handler for a given magic number and argument types
+        Set up a hypercall handler for a given magic number and argument types.
 
-        **Args:**
-        - `magic` (`int`): The hypercall magic number.
-        - `arg_types` (`tuple`): Tuple of argument types (int, str, bool, or None).
+        Parameters
+        ----------
+        magic : int
+            The hypercall magic number.
+        arg_types : tuple
+            Tuple of argument types (int, str, bool, or None).
 
         The handler parses arguments from the CPU context and publishes the event.
         """
@@ -141,11 +149,14 @@ class Events(Plugin):
 
     def register_notify(self, name, callback):
         """
-        ## Register a callback for an event
+        Register a callback for an event.
 
-        **Args:**
-        - `name` (`str`): The event name.
-        - `callback` (`callable`): The callback function to register.
+        Parameters
+        ----------
+        name : str
+            The event name.
+        callback : callable
+            The callback function to register.
 
         Registers the callback for the specified event name.
         Raises a ValueError if the event name is not found.

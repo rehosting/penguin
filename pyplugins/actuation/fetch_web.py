@@ -1,5 +1,6 @@
 """
-fetch_web.py - FetchWeb Plugin for Penguin
+FetchWeb Plugin (fetch_web.py) for Penguin
+==========================================
 
 This module provides the FetchWeb plugin, which automatically fetches web pages from guest services
 exposed to the host (typically on ports 80 and 443) via the VPN plugin. It listens for 'on_bind' events
@@ -11,18 +12,24 @@ The plugin is responsible for:
 - Fetching web content using wget and logging the response size and entropy.
 - Optionally shutting down the emulation after a successful fetch or after failure, based on arguments.
 
-Arguments:
-    outdir (str): Output directory for storing fetched web content.
-    shutdown_after_www (bool, optional): If True, shut down emulation after a successful fetch.
-    shutdown_on_failure (bool, optional): If True, shut down emulation if no responsive servers are found.
+Arguments
+---------
 
-Plugin Interface:
-    - Subscribes to the VPN plugin's 'on_bind' event to trigger web fetches.
-    - Does not provide a direct interface for other plugins, but writes fetched content to files in the output directory.
+- outdir (str): Output directory for storing fetched web content.
+- shutdown_after_www (bool, optional): If True, shut down emulation after a successful fetch.
+- shutdown_on_failure (bool, optional): If True, shut down emulation if no responsive servers are found.
 
-Overall Purpose:
-    The FetchWeb plugin automates the retrieval and analysis of web content from guest services exposed to the host,
-    aiding in service validation and content inspection during emulation.
+Plugin Interface
+----------------
+
+- Subscribes to the VPN plugin's 'on_bind' event to trigger web fetches.
+- Does not provide a direct interface for other plugins, but writes fetched content to files in the output directory.
+
+Overall Purpose
+---------------
+
+The FetchWeb plugin automates the retrieval and analysis of web content from guest services exposed to the host,
+aiding in service validation and content inspection during emulation.
 """
 
 import os

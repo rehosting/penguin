@@ -14,8 +14,10 @@ except ImportError:
 
 def gen_docs_yaml_dump(x):
     """
-    Convert `x` to YAML for use in generated docs.
-    We can't use `yaml.dump(x)` alone for this, becuase it appends "\n...\n".
+    Convert x to YAML for use in generated docs.
+
+    We can't use yaml.dump(x) alone for this, because it appends "\n...\n".
+
     """
 
     s = yaml.dump(x)
@@ -149,7 +151,9 @@ class DocsField:
         ).merge(DocsField.from_type(field.annotation))
 
     def merge(self, other: "DocsField") -> "DocsField":
-        """Create a `DocsField` by combining two `DocsField`s, using the second to fill in gaps in the first"""
+        """
+        Create a DocsField by combining two DocsFields, using the second to fill in gaps in the first.
+        """
         return DocsField(
             self.type_,
             self.merge_behavior or other.merge_behavior,

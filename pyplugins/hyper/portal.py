@@ -1,28 +1,33 @@
 """
-# Portal Plugin
+Portal Plugin
+=============
 
 This module implements the Portal plugin for the Penguin hypervisor environment. It provides a mechanism for plugins to communicate with the hypervisor and each other using memory-mapped regions and hypercalls. The Portal plugin manages command and data transfer, interrupt handling, and memory region state for efficient and flexible plugin communication.
 
-## Usage
+Usage
+-----
 
 The Portal plugin is loaded by the Penguin framework and is not intended for direct invocation. It provides an API for other plugins to register interrupt handlers, queue interrupts, and send/receive commands via the portal mechanism.
 
-### Example
+Example
+-------
 
-```python
-# Register an interrupt handler
-portal.register_interrupt_handler("my_plugin", my_handler_fn)
+.. code-block:: python
 
-# Queue an interrupt for a plugin
-portal.queue_interrupt("my_plugin")
-```
+    # Register an interrupt handler
+    portal.register_interrupt_handler("my_plugin", my_handler_fn)
 
-## Classes
+    # Queue an interrupt for a plugin
+    portal.queue_interrupt("my_plugin")
 
-- `PortalCmd`: Encapsulates a command to be sent through the portal mechanism.
-- `Portal`: Main plugin class for handling portal communication and interrupts.
+Classes
+-------
 
-## Key Features
+- PortalCmd: Encapsulates a command to be sent through the portal mechanism.
+- Portal: Main plugin class for handling portal communication and interrupts.
+
+Key Features
+------------
 
 - Memory-mapped command and data transfer
 - Plugin interrupt registration and handling
@@ -190,12 +195,13 @@ class Portal(Plugin):
         """
         Register a plugin to handle portal interrupts.
 
-        **Parameters:**
-        - `plugin_name` (str): Name of the plugin.
-        - `handler_fn` (Callable[[], Iterator]): Function to handle interrupts for this plugin.
-          Must be a generator function that can be used with yield from.
+        Parameters:
+        - plugin_name (str): Name of the plugin.
+        - handler_fn (Callable[[], Iterator]): Function to handle interrupts for this plugin.
+        
+        Must be a generator function that can be used with yield from.
 
-        **Returns:** None
+        Returns: None
         """
         self.logger.debug(f"Registering interrupt handler for {plugin_name}")
         # The handler function should be a wrapped generator

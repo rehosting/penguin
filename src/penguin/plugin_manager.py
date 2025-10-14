@@ -51,6 +51,7 @@ PluginManagerType = TypeVar('PluginManagerType', bound='IGLOOPluginManager')
 def resolve_bound_method_from_class(f: Callable) -> Callable:
     """
     Resolve a method from a class given a function reference.
+
     Args:
         f (Callable): The function reference to resolve.
 
@@ -71,6 +72,7 @@ class ArgsBox:
     def __init__(self, args: Dict[str, Any]) -> None:
         """
         Initialize ArgsBox with a dictionary of arguments.
+
         Args:
             args (Dict[str, Any]): Dictionary of arguments.
         """
@@ -105,9 +107,11 @@ class ArgsBox:
     def get_bool(self, key: str, default: bool = False) -> bool:
         """
         Get a boolean argument value by name.
+
         Args:
             key (str): The argument name.
             default (bool): Default value if the argument is not set.
+
         Returns:
             bool: The argument value interpreted as a boolean.
         """
@@ -127,6 +131,7 @@ class ArgsBox:
 class Plugin:
     """
     Base class for all IGLOO plugins.
+
     Plugins should inherit from this class to be managed by the plugin manager.
     Provides argument access, logging, and Panda instance access.
     """
@@ -134,6 +139,7 @@ class Plugin:
     def __preinit__(self, plugins: 'IGLOOPluginManager', args: Dict) -> None:
         """
         Internal initialization method called by the plugin manager before __init__.
+
         Args:
             plugins (IGLOOPluginManager): The plugin manager instance.
             args (Dict): Dictionary of arguments for this plugin.
@@ -147,6 +153,7 @@ class Plugin:
     def name(self) -> str:
         """
         Returns the name of this plugin, which is its class name.
+
         Returns:
             str: The class name of this plugin.
         """
@@ -156,6 +163,7 @@ class Plugin:
     def panda(self) -> Panda:
         """
         Returns the Panda instance associated with this plugin.
+
         Returns:
             Panda: The Panda instance.
         """
@@ -165,6 +173,7 @@ class Plugin:
     def panda(self, panda: Panda) -> None:
         """
         Setter for Panda instance (for compatibility, does nothing).
+
         Args:
             panda (Panda): The Panda instance.
         """
@@ -173,8 +182,10 @@ class Plugin:
     def get_arg(self, arg_name: str) -> Any:
         """
         Get an argument value by name.
+
         Args:
             arg_name (str): The argument name.
+
         Returns:
             Any: The argument value or None if not set.
         """
@@ -186,10 +197,13 @@ class Plugin:
     def get_arg_bool(self, arg_name: str) -> bool:
         """
         Returns True if the argument is set and has a truthy value.
+
         Args:
             arg_name (str): The name of the argument to retrieve.
+
         Returns:
             bool: True if the argument exists and has a truthy value, False otherwise.
+
         Raises:
             ValueError: If the argument exists but has an unsupported type.
         """
@@ -204,6 +218,7 @@ class Plugin:
 class ScriptingPlugin(Plugin):
     """
     A plugin that loads and executes a Python script as its __init__.
+
     The script will have access to 'plugins' and 'self' (the plugin instance).
     """
     script = None
@@ -226,6 +241,7 @@ class ScriptingPlugin(Plugin):
     def name(self) -> str:
         """
         Returns the name of this plugin, which is its class name.
+
         Returns:
             str: The class name of this plugin.
         """
@@ -237,44 +253,23 @@ class ScriptingPlugin(Plugin):
     def uninit(self) -> None:
         """
         Uninitialize the plugin, if needed.
+
         This method can be overridden by subclasses to perform cleanup.
         """
         if hasattr(self, "module") and self.module.get("uninit", None) is not None:
             self.module["uninit"]()
 
 
-def gen_search_locations(plugin_name: str, proj_dir: str,
-                         plugin_path: str) -> List[str]:
-    """
-    @private
-    Generate a list of possible file paths to look for a plugin.
-
-    Args:
-        plugin_name: The name of the plugin to search for
-        proj_dir: The project directory
-        plugin_path: The plugin path
-
-    Returns:
-        List of possible file paths to search for the plugin
-    """
-    search_locations = [
-        join(plugin_path, '**', plugin_name),
-        join(plugin_path, '**', plugin_name + ".py"),
-        join(proj_dir, plugin_name),
-        join(proj_dir, plugin_name + ".py"),
-        join(proj_dir, "plugins", plugin_name),
-        join(proj_dir, "plugins", plugin_name + ".py"),
-    ]
-    return search_locations
-
-
 def interpret_bool(val: Any) -> bool:
     """
     Interpret a value as a boolean, supporting bool, str, and int types.
+
     Args:
         val (Any): The value to interpret.
+
     Returns:
         bool: The interpreted boolean value.
+
     Raises:
         ValueError: If the value has an unsupported type.
     """
@@ -313,6 +308,31 @@ def snake_to_camel(name: str) -> str:
         The converted CamelCase string
     """
     return ''.join(word.capitalize() for word in name.split('_'))
+
+
+def gen_search_locations(plugin_name: str, proj_dir: str,
+                         plugin_path: str) -> List[str]:
+    """
+    @private
+    Generate a list of possible file paths to look for a plugin.
+
+    Args:
+        plugin_name: The name of the plugin to search for
+        proj_dir: The project directory
+        plugin_path: The plugin path
+
+    Returns:
+        List of possible file paths to search for the plugin
+    """
+    search_locations = [
+        join(plugin_path, '**', plugin_name),
+        join(plugin_path, '**', plugin_name + ".py"),
+        join(proj_dir, plugin_name),
+        join(proj_dir, plugin_name + ".py"),
+        join(proj_dir, "plugins", plugin_name),
+        join(proj_dir, "plugins", plugin_name + ".py"),
+    ]
+    return search_locations
 
 
 def find_plugin_by_name(plugin_name: str, proj_dir: str,
@@ -363,11 +383,13 @@ def find_plugin_by_name(plugin_name: str, proj_dir: str,
 class IGLOOPluginManager:
     """
     Singleton class that manages the loading, unloading, and interaction with plugins.
+
     Provides event registration, subscription, publishing, and plugin lifecycle management.
     """
     def __new__(cls) -> 'IGLOOPluginManager':
         """
         Singleton pattern implementation.
+
         Returns:
             IGLOOPluginManager: The singleton instance of IGLOOPluginManager.
         """
@@ -378,6 +400,7 @@ class IGLOOPluginManager:
     def initialize(self, panda: Panda, args: Dict[str, Any]) -> None:
         """
         Initialize the plugin manager with a Panda instance and arguments.
+
         Args:
             panda (Panda): The Panda instance.
             args (Dict[str, Any]): Dictionary of arguments.
@@ -395,6 +418,7 @@ class IGLOOPluginManager:
              Tuple[str, List[str]]], args: Dict[str, Any] = None) -> None:
         """
         Load one or more plugin classes.
+
         Args:
             pluginclasses (Union[Type[T], List[Type[T]], Tuple[str, List[str]]]): Plugin class(es) or (file, classnames) tuple.
             args (Dict[str, Any], optional): Arguments to pass to the plugins.
@@ -449,8 +473,10 @@ class IGLOOPluginManager:
     def load_plugin(self, plugin_name: str) -> None:
         """
         Load a plugin by name.
+
         Args:
             plugin_name (str): Name of the plugin to load.
+
         Raises:
             ValueError: If plugin loading fails.
         """
@@ -505,6 +531,7 @@ class IGLOOPluginManager:
     def load_plugins(self, conf_plugins: List[str]) -> None:
         """
         Load multiple plugins from a list of names.
+
         Args:
             conf_plugins (List[str]): List of plugin names to load.
         """
@@ -514,8 +541,10 @@ class IGLOOPluginManager:
     def get_plugin_by_name(self, plugin_name: str) -> Union[Plugin, None]:
         """
         Retrieve a loaded plugin by name.
+
         Args:
             plugin_name (str): Name of the plugin.
+
         Returns:
             Plugin or None: The plugin instance if found, else None.
         """
@@ -528,8 +557,10 @@ class IGLOOPluginManager:
     def __contains__(self, plugin: str) -> bool:
         """
         Check if a plugin is loaded by name.
+
         Args:
             plugin (str): Plugin name.
+
         Returns:
             bool: True if loaded, False otherwise.
         """
@@ -538,8 +569,10 @@ class IGLOOPluginManager:
     def __getitem__(self, plugin: str) -> Plugin:
         """
         Get a plugin by name, loading it if necessary.
+
         Args:
             plugin (str): Plugin name.
+
         Returns:
             Plugin: The plugin instance.
         """
@@ -550,8 +583,10 @@ class IGLOOPluginManager:
     def __getattr__(self, plugin: str) -> Plugin:
         """
         Attribute access for plugins by name or class name.
+
         Args:
             plugin (str): Plugin name or class name.
+
         Returns:
             Plugin: The plugin instance.
         """
@@ -572,11 +607,14 @@ class IGLOOPluginManager:
                  args: Optional[Dict[str, Any]] = None) -> List[str]:
         """
         Load all Plugin classes from a Python file. If no Plugin classes are found, load as ScriptingPlugin.
+
         Args:
             plugin_file (str): Path to the Python file.
             args (Optional[Dict[str, Any]]): Arguments to pass to the Plugin.
+
         Returns:
             List[str]: List of Plugin class names loaded from the file.
+
         Raises:
             ValueError: If the plugin file cannot be loaded.
         """
@@ -636,8 +674,10 @@ class IGLOOPluginManager:
     def unload(self, pluginclass: Union[Type[Plugin], Type[PyPlugin]]) -> None:
         """
         Unload a plugin by class or name.
+
         Args:
             pluginclass (Union[Type[Plugin], Type[PyPlugin], str]): Plugin class or name.
+
         Raises:
             ValueError: If the argument is not a loaded plugin.
         """
@@ -671,6 +711,7 @@ class IGLOOPluginManager:
                  register_notify: Callable[[str, Callable[..., None]], None] = None) -> None:
         """
         Register a plugin event for callbacks.
+
         Args:
             plugin (Plugin): The plugin instance.
             event (str): Event name.
@@ -691,11 +732,13 @@ class IGLOOPluginManager:
             event (str): Event name.
             callback (Callable, optional): Callback function.
 
-        Usage:
-            @plugins.subscribe(plugin, "event_name")
-            def handler(...): ...
+        Usage::
 
-            or
+            @plugins.subscribe(plugin, "event_name")
+            def handler(...):
+                ...
+
+            # or
 
             plugins.subscribe(plugin, "event_name", handler)
         """
@@ -727,6 +770,7 @@ class IGLOOPluginManager:
     def publish(self, plugin: Plugin, event: str, *args, **kwargs):
         """
         Publish an event to all registered callbacks for a plugin event.
+
         Args:
             plugin (Plugin): The plugin instance.
             event (str): Event name.
@@ -761,6 +805,7 @@ class IGLOOPluginManager:
     def portal_publish(self, plugin: Plugin, event: str, *args, **kwargs):
         """
         Publish an event to all registered callbacks for a plugin event, handling generators properly.
+
         Args:
             plugin (Plugin): The plugin instance.
             event (str): Event name.
@@ -803,6 +848,7 @@ class IGLOOPluginManager:
     def resources(self) -> str:
         """
         Returns the path to the plugin resources directory.
+
         Returns:
             str: Path to the resources directory.
         """
@@ -811,8 +857,10 @@ class IGLOOPluginManager:
     def get_arg(self, arg_name: str) -> Any:
         """
         Get an argument value by name.
+
         Args:
             arg_name (str): The argument name.
+
         Returns:
             Any: The argument value or None if not set.
         """
@@ -824,10 +872,13 @@ class IGLOOPluginManager:
     def get_arg_bool(self, arg_name: str) -> bool:
         """
         Returns True if the argument is set and has a truthy value.
+
         Args:
             arg_name (str): The name of the argument to retrieve.
+
         Returns:
             bool: True if the argument exists and has a truthy value, False otherwise.
+
         Raises:
             ValueError: If the argument exists but has an unsupported type.
         """

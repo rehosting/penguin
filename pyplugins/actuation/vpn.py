@@ -1,40 +1,50 @@
 """
-vpn.py - VPN Plugin for Penguin
+VPN Plugin (vpn.py) for Penguin
+===============================
 
 This module provides the VPN plugin, which enables vsock-based VPN bridging between the emulated guest
 and the host. It manages port mappings, source IP spoofing, and dynamic forwarding of guest network
-services to the host. The plugin is responsible for:
+services to the host.
 
-- Launching and managing host-side VPN and vsock bridge processes.
-- Handling port mappings from guest to host, including privileged ports and user-defined mappings.
-- Supporting source IP spoofing for guest services.
-- Dynamically bridging guest network binds to the host and exposing them.
-- Logging and tracking active network bridges and listeners.
-- Cleaning up VPN processes on exit.
+Features
+--------
 
-Arguments:
+- Launches and manages host-side VPN and vsock bridge processes.
+- Handles port mappings from guest to host, including privileged ports and user-defined mappings.
+- Supports source IP spoofing for guest services.
+- Dynamically bridges guest network binds to the host and exposes them.
+- Logs and tracks active network bridges and listeners.
+- Cleans up VPN processes on exit.
+
+Arguments
+---------
+
 - log (bool, optional): Enable logging of VPN traffic.
 - pcap (bool, optional): Enable PCAP capture of VPN traffic.
 - verbose (bool, optional): Enable verbose logging.
 - IGLOO_VPN_PORT_MAPS (str, optional): Comma-separated port mapping rules.
--     This variable allows explicit mapping of guest services to host ports. The format is:
--         <proto>:<host_port>:<guest_ip>:<guest_port>
--     For example:
--         IGLOO_VPN_PORT_MAPS="TCP:80:192.168.0.1:80,udp:20002:192.168.0.1:20002"
--     This maps TCP port 80 on the host to TCP port 80 on the guest at 192.168.0.1, and UDP port 20002 on the host to UDP port 20002 on the guest at 192.168.0.1.
--     If not provided as an argument, the plugin will look for it in the environment variables. If neither is set, default port mapping logic is used.
+    This variable allows explicit mapping of guest services to host ports. The format is:
+        <proto>:<host_port>:<guest_ip>:<guest_port>
+    For example:
+        IGLOO_VPN_PORT_MAPS="TCP:80:192.168.0.1:80,udp:20002:192.168.0.1:20002"
+    This maps TCP port 80 on the host to TCP port 80 on the guest at 192.168.0.1, and UDP port 20002 on the host to UDP port 20002 on the guest at 192.168.0.1.
+    If not provided as an argument, the plugin will look for it in the environment variables. If neither is set, default port mapping logic is used.
 - spoof (dict, optional): Source IP spoofing configuration.
 - conf (dict): Configuration dictionary for the emulation environment.
 
-Plugin Interface:
-    - Registers for the "on_bind" event to dynamically bridge guest network binds.
-    - Publishes "on_bind" events for other plugins to react to new host-exposed services.
-    - Writes bridge information to a CSV file in the output directory.
+Plugin Interface
+----------------
 
-Overall Purpose:
-    The VPN plugin enables flexible, dynamic, and secure exposure of guest network services to the host,
-    supporting advanced features like port mapping and source IP spoofing, and integrates with the
-    Penguin plugin system for event-driven networking.
+- Registers for the "on_bind" event to dynamically bridge guest network binds.
+- Publishes "on_bind" events for other plugins to react to new host-exposed services.
+- Writes bridge information to a CSV file in the output directory.
+
+Overall Purpose
+---------------
+
+The VPN plugin enables flexible, dynamic, and secure exposure of guest network services to the host,
+supporting advanced features like port mapping and source IP spoofing, and integrates with the
+Penguin plugin system for event-driven networking.
 """
 
 import atexit
