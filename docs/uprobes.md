@@ -57,12 +57,15 @@ def my_handler(pt_regs):
 ### Decorator Parameters
 
 #### `path` (str or None)
+
 Path to the executable or library file. Supports wildcards (`*`). If `None`, will search all known libraries for the symbol.
 
 #### `symbol` (str or int)
+
 Function name (string) or file offset (integer) at which to place the probe.
 
 #### `process_filter` (Optional[str])
+
 Filter by process name (comm):
 
 ```python
@@ -72,6 +75,7 @@ def monitor_main(pt_regs):
 ```
 
 #### `pid_filter` (Optional[int])
+
 Filter by specific process ID:
 
 ```python
@@ -81,6 +85,7 @@ def monitor_pid(pt_regs):
 ```
 
 #### `on_enter` / `on_return` (bool)
+
 Control when the probe triggers:
 
 ```python
@@ -95,6 +100,7 @@ Control when the probe triggers:
 ```
 
 #### `fail_register_ok` (bool)
+
 If True, do not raise an error if the symbol is not found.
 
 ### Handler Function Signature

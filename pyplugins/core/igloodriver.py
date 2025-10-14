@@ -1,4 +1,7 @@
 """
+IGLOODriver Plugin
+==================
+
 Plugin to handle interaction from IGLOO driver to report its module base address.
 """
 

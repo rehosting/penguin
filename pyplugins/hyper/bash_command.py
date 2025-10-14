@@ -1,28 +1,33 @@
 """
-# Bash Command Plugin
+Bash Command Plugin
+===================
 
 This module provides a plugin for capturing and logging Bash command executions within the Penguin hypervisor environment.
 It listens for Bash command events and writes details to a CSV file for coverage or auditing purposes.
 
-## Usage
+Usage
+-----
 
 The plugin is typically loaded by the Penguin framework and does not require direct invocation.
 
-### Example CSV Output
+Example CSV Output
+------------------
 
-```csv
-filename,lineno,pid,command
-/home/user/script.sh,12,1234,ls -l
-```
+.. code-block:: csv
 
-## Arguments
+    filename,lineno,pid,command
+    /home/user/script.sh,12,1234,ls -l
 
-- `outdir`: Output directory for the CSV file.
-- `verbose`: If set, enables debug logging.
+Arguments
+---------
 
-## Classes
+- ``outdir``: Output directory for the CSV file.
+- ``verbose``: If set, enables debug logging.
 
-- `BashCommand`: Main plugin class for handling Bash command events.
+Classes
+-------
+
+- BashCommand: Main plugin class for handling Bash command events.
 
 """
 

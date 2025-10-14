@@ -1,31 +1,36 @@
 """
-# U-Boot Plugin
+U-Boot Plugin
+=============
 
 This module implements a plugin for the Penguin hypervisor environment that simulates U-Boot environment variable
-management. It provides handlers for U-Boot hypercalls such as `fw_setenv`, `fw_getenv`, and `fw_printenv`, allowing
+management. It provides handlers for U-Boot hypercalls such as ``fw_setenv``, ``fw_getenv``, and ``fw_printenv``, allowing
 the guest to set, get, and print U-Boot environment variables. All changes are logged to a file for auditing.
 
-## Usage
+Usage
+-----
 
 The plugin is loaded by the Penguin framework and responds to U-Boot-related hypercalls.
 
-### Example Log Output
+Example Log Output
+------------------
 
-```
-bootcmd=run boot_flash
-baudrate=115200
-ethaddr
-```
+::
 
-## Arguments
+    bootcmd=run boot_flash
+    baudrate=115200
+    ethaddr
 
-- `outdir`: Output directory for the U-Boot log file.
-- `conf`: Configuration dictionary, may contain `uboot_env` for initial environment.
-- `verbose`: If set, enables debug logging.
+Arguments
+---------
 
-## Classes
+- ``outdir``: Output directory for the U-Boot log file.
+- ``conf``: Configuration dictionary, may contain ``uboot_env`` for initial environment.
+- ``verbose``: If set, enables debug logging.
 
-- `UBoot`: Main plugin class for handling U-Boot environment variable operations.
+Classes
+-------
+
+- UBoot: Main plugin class for handling U-Boot environment variable operations.
 
 """
 

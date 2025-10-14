@@ -1,30 +1,37 @@
 """
-# Execs
+Execs
+=====
 
 This plugin provides a generic interface for monitoring process execution events in the guest.
-It subscribes to syscall events for both `execve` and `execveat`, extracts execution details (process name,
+It subscribes to syscall events for both ``execve`` and ``execveat``, extracts execution details (process name,
 arguments, environment), and publishes this information to listeners via the plugin event system.
 Other plugins can subscribe to these events for custom analysis, logging, or automation.
 
-## Arguments
-- `outdir` (`str`): Output directory for any optional logging or artifacts.
+Arguments
+---------
 
-## Plugin Interface
-- Publishes `exec_event` with a dictionary containing execution details:
+- ``outdir`` (``str``): Output directory for any optional logging or artifacts.
 
-```python
-{
-    'procname': str or None,      # Name of the executed program (target of exec), resolved via OSI if AT_EMPTY_PATH
-    'argv': list[str],            # Argument vector for the new program
-    'envp': dict[str, str],       # Environment for the new program
-    'raw_args': tuple,            # Raw arguments to the handler
-    'parent': Wrapper or None,    # Process info wrapper for the process making the exec call
-}
-```
+Plugin Interface
+----------------
+
+Publishes ``exec_event`` with a dictionary containing execution details:
+
+::
+
+    {
+        'procname': str or None,      # Name of the executed program (target of exec), resolved via OSI if AT_EMPTY_PATH
+        'argv': list[str],            # Argument vector for the new program
+        'envp': dict[str, str],       # Environment for the new program
+        'raw_args': tuple,            # Raw arguments to the handler
+        'parent': Wrapper or None,    # Process info wrapper for the process making the exec call
+    }
 
 Both execve and execveat syscalls are tracked and normalized into this unified event format.
 
-## Overall Purpose
+Overall Purpose
+---------------
+
 The Execs plugin provides a flexible, extensible interface for tracking process execution events
 in the guest, enabling downstream plugins to implement their own analysis or response logic.
 """
@@ -41,7 +48,10 @@ AT_EMPTY_PATH: int = 0x1000  # Placeholder, define actual value as needed
 
 class Execs(Plugin):
     """
-    Plugin for monitoring execve and execveat syscalls and publishing normalized execution events.
+    Execs Plugin
+    ============
+
+    Monitors execve and execveat syscalls and publishes normalized execution events.
 
     Publishes 'exec_event' with a dictionary containing:
         procname (str or None): Name of the executed program (target of exec), resolved via OSI if AT_EMPTY_PATH
@@ -57,7 +67,7 @@ class Execs(Plugin):
 
     def __init__(self) -> None:
         """
-        ### Initialize Execs plugin and subscribe to execve/execveat syscalls.
+        Initialize Execs plugin and subscribe to execve/execveat syscalls.
 
         Registers the plugin and sets up syscall hooks.
         """
@@ -65,13 +75,17 @@ class Execs(Plugin):
 
     def _parse_envp(self, envp_list: List[str]) -> Dict[str, str]:
         """
-        ### Convert envp list to a dictionary, handling both 'key=value' and 'key' (empty value) cases.
+        Convert envp list to a dictionary, handling both 'key=value' and 'key' (empty value) cases.
 
-        **Args:**
-        - `envp_list` (`List[str]`): List of environment variable strings.
+        Parameters
+        ----------
+        envp_list : List[str]
+            List of environment variable strings.
 
-        **Returns:**
-        - `Dict[str, str]`: Dictionary of environment variables.
+        Returns
+        -------
+        Dict[str, str]
+            Dictionary of environment variables.
         """
         env_dict = {}
         for entry in envp_list:
@@ -85,16 +99,21 @@ class Execs(Plugin):
     def _parse_args_env(
             self, argv_ptr: int, envp_ptr: int) -> Generator[Any, None, tuple[List[str], Dict[str, str]]]:
         """
-        ### Unified parsing for argv and envp pointers using the portal's optimized handler.
+        Unified parsing for argv and envp pointers using the portal's optimized handler.
 
-        Coroutine: use `yield from` to call.
+        Coroutine: use ``yield from`` to call.
 
-        **Args:**
-        - `argv_ptr` (`int`): Pointer to argv list.
-        - `envp_ptr` (`int`): Pointer to envp list.
+        Parameters
+        ----------
+        argv_ptr : int
+            Pointer to argv list.
+        envp_ptr : int
+            Pointer to envp list.
 
-        **Returns:**
-        - `Tuple[List[str], Dict[str, str]]`: argv list and envp dictionary.
+        Returns
+        -------
+        Tuple[List[str], Dict[str, str]]
+            argv list and envp dictionary.
         """
         argv_list = yield from plugins.mem.read_ptr_array(argv_ptr)
         envp_list = yield from plugins.mem.read_ptr_array(envp_ptr)
@@ -104,17 +123,23 @@ class Execs(Plugin):
     def _resolve_procname_val(
             self, procname: str, dirfd: Optional[int], flags: Optional[int]) -> Generator[Any, None, Optional[str]]:
         """
-        ### Helper to resolve the effective procname value for execve/execveat, handling dirfd and flags.
+        Helper to resolve the effective procname value for execve/execveat, handling dirfd and flags.
 
-        Coroutine: use `yield from` to call.
+        Coroutine: use ``yield from`` to call.
 
-        **Args:**
-        - `procname` (`str`): The raw procname string from memory.
-        - `dirfd` (`Optional[int]`): Directory file descriptor (for execveat).
-        - `flags` (`Optional[int]`): Flags for execveat.
+        Parameters
+        ----------
+        procname : str
+            The raw procname string from memory.
+        dirfd : Optional[int]
+            Directory file descriptor (for execveat).
+        flags : Optional[int]
+            Flags for execveat.
 
-        **Returns:**
-        - `str` or `None`: The resolved procname value.
+        Returns
+        -------
+        str or None
+            The resolved procname value.
         """
         if dirfd is not None and flags is not None:
             def is_at_fdcwd(val):
@@ -155,20 +180,30 @@ class Execs(Plugin):
         flags: Optional[int] = None,
     ) -> Generator[Any, None, None]:
         """
-        ### Shared handler for execve and execveat syscalls. Handles argument parsing and event publishing.
+        Shared handler for execve and execveat syscalls. Handles argument parsing and event publishing.
 
-        **Args:**
-        - `cpu` (`int`): CPU id.
-        - `proto` (`Any`): Protocol object.
-        - `syscall` (`int`): Syscall number.
-        - `fname_ptr` (`int`): Pointer to filename string.
-        - `argv_ptr` (`int`): Pointer to argv list.
-        - `envp_ptr` (`int`): Pointer to envp list.
-        - `dirfd` (`Optional[int]`): Directory file descriptor (for execveat).
-        - `flags` (`Optional[int]`): Flags for execveat.
+        Parameters
+        ----------
+        cpu : int
+            CPU id.
+        proto : Any
+            Protocol object.
+        syscall : int
+            Syscall number.
+        fname_ptr : int
+            Pointer to filename string.
+        argv_ptr : int
+            Pointer to argv list.
+        envp_ptr : int
+            Pointer to envp list.
+        dirfd : Optional[int]
+            Directory file descriptor (for execveat).
+        flags : Optional[int]
+            Flags for execveat.
 
-        **Returns:**
-        - `None`
+        Returns
+        -------
+        None
         """
         procname = yield from plugins.mem.read_str(fname_ptr)
         argv_list, envp_dict = yield from self._parse_args_env(argv_ptr, envp_ptr)
@@ -187,7 +222,11 @@ class Execs(Plugin):
     def on_execve(self, regs: PtRegsWrapper, proto: Any, syscall: int,
                   fname_ptr: int, argv_ptr: int, envp_ptr: int) -> Generator[Any, None, None]:
         """
-        ### Callback for execve syscall. Delegates to shared handler.
+        Callback for execve syscall. Delegates to shared handler.
+
+        Returns
+        -------
+        None
         """
         yield from self._handle_exec_event(regs, proto, syscall, fname_ptr, argv_ptr, envp_ptr)
 
@@ -195,6 +234,10 @@ class Execs(Plugin):
     def on_execveat(self, regs: PtRegsWrapper, proto: Any, syscall: int, dirfd: int,
                     fname_ptr: int, argv_ptr: int, envp_ptr: int, flags: int) -> Generator[Any, None, None]:
         """
-        ### Callback for execveat syscall. Delegates to shared handler.
+        Callback for execveat syscall. Delegates to shared handler.
+
+        Returns
+        -------
+        None
         """
         yield from self._handle_exec_event(regs, proto, syscall, fname_ptr, argv_ptr, envp_ptr, dirfd, flags)

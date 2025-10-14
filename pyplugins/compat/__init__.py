@@ -1,4 +1,7 @@
 """
+Compatibility Plugins
+=====================
+
 Older required plugins can be added here to maintain compatibility with
 previous configurations. These plugins are not intended to be used in
 current versions of Penguin, but rather to ensure that older configurations

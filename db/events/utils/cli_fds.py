@@ -1,28 +1,33 @@
 """
-# FDs Utility
+FDs Utility
+===========
 
 This module provides a command-line interface (CLI) for querying file descriptor (FD) write events from a database.
 It allows filtering by process name and file descriptor, supports outputting results to a file or stdout, and can
-follow new events as they appear. The CLI is built using [Click](https://click.palletsprojects.com/) and is intended
-to be run as a script or imported as a module.
+follow new events as they appear. The CLI is built using Click_ and is intended to be run as a script or imported as a module.
 
-## Example usage
+.. _Click: https://click.palletsprojects.com/
 
-```bash
-fds --procname myproc --fd 3 --output results.txt
-```
+Example usage
+-------------
 
-## Options
+.. code-block:: bash
 
-- `--results`: Path to results folder (default: `./results/latest`)
-- `--procname`: Filter by process name (substring match)
-- `--fd`: File descriptor number to filter
-- `--output`: Output file (default: `/dev/stdout`)
-- `--follow`: Show latest results as they appear
+    fds --procname myproc --fd 3 --output results.txt
 
-## Functions
+Options
+-------
 
-- `query_fds`: Main CLI command for querying FD write events.
+- ``--results``: Path to results folder (default: ``./results/latest``)
+- ``--procname``: Filter by process name (substring match)
+- ``--fd``: File descriptor number to filter
+- ``--output``: Output file (default: ``/dev/stdout``)
+- ``--follow``: Show latest results as they appear
+
+Functions
+---------
+
+- query_fds: Main CLI command for querying FD write events.
 
 """
 
@@ -56,14 +61,20 @@ from events.utils.util_base import get_default_results_path
 )
 def query_fds(results, procname, follow, fd, output):
     """
-    ### Query file descriptor write events from the database with optional filters and output options.
+    Query file descriptor write events from the database with optional filters and output options.
 
-    **Args:**
-    - `results` (`str`): Path to results folder.
-    - `procname` (`str` or `None`): Process name substring to filter for.
-    - `follow` (`bool`): Whether to show latest results as they appear.
-    - `fd` (`str` or `None`): File descriptor number to filter for.
-    - `output` (`str`): Output file path (default: /dev/stdout).
+    Parameters
+    ----------
+    results : str
+        Path to results folder.
+    procname : str or None
+        Process name substring to filter for.
+    follow : bool
+        Whether to show latest results as they appear.
+    fd : str or None
+        File descriptor number to filter for.
+    output : str
+        Output file path (default: /dev/stdout).
     """
     db_path = join(results, "plugins.db")
     if not exists(db_path):

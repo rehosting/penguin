@@ -1,48 +1,54 @@
 """
-# HyperFile Plugin
+HyperFile Plugin
+================
 
-This module implements the `HyperFile` plugin for the Penguin framework, enabling
+This module implements the HyperFile plugin for the Penguin framework, enabling
 hypercall-based file operations between a guest and the host. It provides a model
 for virtual files that can be read, written, or controlled via ioctl/getattr
 operations from the guest OS. The plugin is designed to be flexible and extensible,
 allowing users to specify custom file behaviors via models.
 
-## Features
+Features
+--------
 
-- Handles hypercalls for file operations (`read`, `write`, `ioctl`, `getattr`)
+- Handles hypercalls for file operations (read, write, ioctl, getattr)
 - Supports dynamic file models for custom device/file behaviors
 - Logs and tracks file operation results for analysis
 - Provides default behaviors for unhandled operations
 
-## Example Usage
+Example Usage
+-------------
 
-```python
-from pyplugins.interventions.hyperfile import HyperFile
+.. code-block:: python
 
-# Register the plugin with Penguin, specifying file models and log file
-plugin = HyperFile()
-```
+    from pyplugins.interventions.hyperfile import HyperFile
 
-## File Model Example
+    # Register the plugin with Penguin, specifying file models and log file
+    plugin = HyperFile()
 
-```python
-files = {
-    "/dev/zero": {
-        fops.HYP_READ: HyperFile.read_zero,
-        fops.HYP_WRITE: HyperFile.write_discard,
-        "size": 0,
+File Model Example
+------------------
+
+.. code-block:: python
+
+    files = {
+        "/dev/zero": {
+            fops.HYP_READ: HyperFile.read_zero,
+            fops.HYP_WRITE: HyperFile.write_discard,
+            "size": 0,
+        }
     }
-}
-```
 
-## Classes
+Classes
+-------
 
-- `HyperFile`: Main plugin class implementing the hypercall interface.
+- HyperFile: Main plugin class implementing the hypercall interface.
 
-## Functions
+Functions
+---------
 
-- `hyper(name: str) -> int`: Map operation name to hyperfile operation constant.
-- `hyper2name(num: int) -> str`: Map hyperfile operation constant to operation name.
+- hyper(name: str) -> int: Map operation name to hyperfile operation constant.
+- hyper2name(num: int) -> str: Map hyperfile operation constant to operation name.
 
 """
 

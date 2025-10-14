@@ -1,3 +1,37 @@
+"""
+LiveImage Plugin
+================
+
+Generates a guest filesystem live by creating a setup script that runs on boot.
+This version uses a tarball for file deployment and a single, batched hypercall for patching.
+
+Overview
+--------
+
+- Stages files and directories for deployment using a tarball.
+- Supports various file actions: delete, move, shim, dir, host_file, inline_file, binary_patch, dev, symlink.
+- Efficient setup script generation using hyp_file_op for file transfer.
+- Batch processing of binary patches via a single hypercall.
+- Handles permissions, symlinks, device nodes, and error reporting.
+
+Usage
+-----
+
+The plugin is loaded by the Penguin framework and manages guest filesystem setup and patching.
+
+Arguments
+---------
+
+- ``proj_dir``: Project directory for resolving host files.
+- ``conf``: Configuration dictionary specifying static files and actions.
+
+Classes
+-------
+
+- LiveImage: Main plugin class for guest filesystem setup and patching.
+
+"""
+
 from penguin import Plugin, plugins
 from penguin.plugin_manager import resolve_bound_method_from_class
 import shutil

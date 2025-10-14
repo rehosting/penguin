@@ -1,3 +1,45 @@
+"""
+Interfaces Plugin (interfaces.py) for Penguin
+=============================================
+
+This module provides the Interfaces plugin, which tracks and logs missing network interfaces and failing ioctl operations in the guest environment. It is intended for use with the Penguin analysis framework and is implemented as a plugin.
+
+Features
+--------
+
+- Detects and logs missing network interfaces accessed by the guest.
+- Tracks and logs failing ioctl operations related to network interfaces.
+- Integrates with syscall and exec event hooks for comprehensive coverage.
+- Supports filtering and validation of interface names.
+
+Usage
+-----
+
+The plugin is loaded by the Penguin framework and responds to relevant syscall and exec events.
+
+Arguments
+---------
+
+- outdir: Output directory for logs.
+- conf: Configuration dictionary.
+- verbose: Enables debug logging.
+
+Output
+------
+
+- Logs missing interfaces to `iface.log`.
+- Logs failing ioctl operations to `iface_ioctl.log`.
+
+Example
+-------
+
+.. code-block:: python
+
+    from penguin import plugins
+    plugins.load("analysis.interfaces", outdir="/tmp", verbose=True)
+
+"""
+
 import re
 from penguin import plugins, Plugin
 from apis.syscalls import ValueFilter

@@ -1,30 +1,35 @@
 """
-# Shell Coverage Plugin
+Shell Coverage Plugin
+=====================
 
 This module implements the Shell Coverage (BBCov) plugin for the Penguin hypervisor environment.
 It tracks shell script execution coverage, traces, and environment variable usage by listening to
 hypercall events from the guest. The plugin writes coverage, trace, and environment information
 to CSV files for later analysis.
 
-## Usage
+Usage
+-----
 
 The plugin is loaded by the Penguin framework and responds to "igloo_shell" events.
 
-### Output Files
+Output Files
+------------
 
-- `shell_cov.csv`: Coverage data (filename, line number, pid)
-- `shell_cov_trace.csv`: Trace data (filename:lineno, contents)
-- `shell_env.csv`: Environment variable data (filename, lineno, pid, envs)
+- ``shell_cov.csv``: Coverage data (filename, line number, pid)
+- ``shell_cov_trace.csv``: Trace data (filename:lineno, contents)
+- ``shell_env.csv``: Environment variable data (filename, lineno, pid, envs)
 
-## Arguments
+Arguments
+---------
 
-- `outdir`: Output directory for generated CSV files.
-- `fs`: Path to the tar archive containing the filesystem.
-- `verbose`: If set, enables debug logging.
+- ``outdir``: Output directory for generated CSV files.
+- ``fs``: Path to the tar archive containing the filesystem.
+- ``verbose``: If set, enables debug logging.
 
-## Classes
+Classes
+-------
 
-- `BBCov`: Main plugin class for handling shell coverage and environment logging.
+- BBCov: Main plugin class for handling shell coverage and environment logging.
 
 """
 

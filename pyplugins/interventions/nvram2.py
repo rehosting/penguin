@@ -1,27 +1,31 @@
 """
-# NVRAM Tracker Plugin
+NVRAM Tracker Plugin
+====================
 
 This module provides a plugin for tracking NVRAM (non-volatile RAM) operations in the guest environment.
 It is intended for use with the Penguin analysis framework and is implemented as a plugin.
 
-## Purpose
+Purpose
+-------
 
 - Tracks NVRAM get (hit/miss), set, and clear operations.
 - Logs all operations to a CSV file for later analysis.
 - Optionally enables debug logging for set operations.
 
-## Usage
+Usage
+-----
 
 The plugin can be configured with the following arguments:
 - `outdir`: Output directory for logs.
 - `verbose`: Enables debug logging for set operations.
 
-## Example
+Example
+-------
 
-```python
-from penguin import plugins
-plugins.load("interventions.nvram2", outdir="/tmp", verbose=True)
-```
+.. code-block:: python
+
+    from penguin import plugins
+    plugins.load("interventions.nvram2", outdir="/tmp", verbose=True)
 
 All NVRAM operations are logged to `nvram.csv` in the specified output directory.
 
@@ -164,12 +168,18 @@ def prep_config(conf, cache_dir):
 
 class Nvram2(Plugin):
     """
-    Nvram2 is a Penguin plugin that tracks and logs NVRAM operations in the guest.
+    Nvram2 Plugin
+    =============
 
-    ## Attributes
-    - outdir (`str`): Output directory for logs.
+    Tracks and logs NVRAM operations in the guest.
 
-    ## Behavior
+    Attributes
+    ----------
+    outdir : str
+        Output directory for logs.
+
+    Behavior
+    --------
     - Subscribes to NVRAM get (hit/miss), set, and clear events.
     - Logs each operation to a CSV file.
     """
@@ -178,15 +188,11 @@ class Nvram2(Plugin):
         """
         Initialize the Nvram2 plugin.
 
-        - Reads configuration arguments.
-        - Subscribes to NVRAM events.
-        - Sets up logging and internal state.
+        Reads configuration arguments, subscribes to NVRAM events, sets up logging and internal state.
 
-        **Arguments**:
-        - None (uses plugin argument interface)
-
-        **Returns**:
-        - None
+        Returns
+        -------
+        None
         """
         self.outdir = self.get_arg("outdir")
         if self.get_arg_bool("verbose"):
@@ -208,12 +214,16 @@ class Nvram2(Plugin):
         """
         Handles an NVRAM get hit event.
 
-        **Arguments**:
-        - regs: CPU register/context (opaque, framework-specific)
-        - key (`str`): NVRAM key accessed
+        Parameters
+        ----------
+        regs : object
+            CPU register/context (opaque, framework-specific)
+        key : str
+            NVRAM key accessed
 
-        **Returns**:
-        - None
+        Returns
+        -------
+        None
         """
         self.on_nvram_get(regs, key, True)
 
@@ -222,12 +232,16 @@ class Nvram2(Plugin):
         """
         Handles an NVRAM get miss event.
 
-        **Arguments**:
-        - regs: CPU register/context (opaque, framework-specific)
-        - key (`str`): NVRAM key accessed
+        Parameters
+        ----------
+        regs : object
+            CPU register/context (opaque, framework-specific)
+        key : str
+            NVRAM key accessed
 
-        **Returns**:
-        - None
+        Returns
+        -------
+        None
         """
         self.on_nvram_get(regs, key, False)
 
@@ -235,13 +249,18 @@ class Nvram2(Plugin):
         """
         Logs an NVRAM get operation (hit or miss).
 
-        **Arguments**:
-        - regs: CPU register/context (opaque, framework-specific)
-        - key (`str`): NVRAM key accessed
-        - hit (`bool`): True if get was a hit, False if miss
+        Parameters
+        ----------
+        regs : object
+            CPU register/context (opaque, framework-specific)
+        key : str
+            NVRAM key accessed
+        hit : bool
+            True if get was a hit, False if miss
 
-        **Returns**:
-        - None
+        Returns
+        -------
+        None
         """
         if "/" not in key:
             return
@@ -258,13 +277,18 @@ class Nvram2(Plugin):
         """
         Handles and logs an NVRAM set operation.
 
-        **Arguments**:
-        - regs: CPU register/context (opaque, framework-specific)
-        - key (`str`): NVRAM key being set
-        - newval (`str`): New value being set
+        Parameters
+        ----------
+        regs : object
+            CPU register/context (opaque, framework-specific)
+        key : str
+            NVRAM key being set
+        newval : str
+            New value being set
 
-        **Returns**:
-        - None
+        Returns
+        -------
+        None
         """
         if "/" not in key:
             return
@@ -279,12 +303,16 @@ class Nvram2(Plugin):
         """
         Handles and logs an NVRAM clear operation.
 
-        **Arguments**:
-        - regs: CPU register/context (opaque, framework-specific)
-        - key (`str`): NVRAM key being cleared
+        Parameters
+        ----------
+        regs : object
+            CPU register/context (opaque, framework-specific)
+        key : str
+            NVRAM key being cleared
 
-        **Returns**:
-        - None
+        Returns
+        -------
+        None
         """
         if "/" not in key:
             return

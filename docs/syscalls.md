@@ -37,8 +37,8 @@ class MySyscallMonitor(Plugin):
 
 Every syscall generates events that can be intercepted at two points:
 
-- **Entry (`on_enter`)**: Before the syscall executes in the kernel
-- **Return (`on_return`)**: After the syscall completes
+- **Entry (on_enter)**: Before the syscall executes in the kernel
+- **Return (on_return)**: After the syscall completes
 
 ### Hook Registration
 
@@ -504,27 +504,30 @@ def test_skip_retval(pt_regs, proto, syscall, fd, op, arg):
 ### Common Issues
 
 1. **Hook not triggering**: Check syscall name normalization
-   ```python
-   # These are equivalent:
-   "sys_openat"
-   "openat"
-   "_sys_openat"
-   ```
+
+    ```python
+    # These are equivalent:
+    "sys_openat"
+    "openat"
+    "_sys_openat"
+    ```
 
 2. **Argument mismatch**: Verify syscall prototype
-   ```python
-   proto = syscalls.get_syscall_info_by_name("openat")
-   print(f"Expected args: {proto.nargs}")
-   ```
+
+    ```python
+    proto = syscalls.get_syscall_info_by_name("openat")
+    print(f"Expected args: {proto.nargs}")
+    ```
 
 3. **Memory read failures**: Handle invalid pointers
-   ```python
-   if addr and addr != 0:
-       try:
-           data = yield from plugins.mem.read_str(addr)
-       except:
-           print("Invalid memory address")
-   ```
+
+    ```python
+    if addr and addr != 0:
+        try:
+            data = yield from plugins.mem.read_str(addr)
+        except:
+            print("Invalid memory address")
+    ```
 
 ### Debugging
 

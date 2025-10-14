@@ -1,64 +1,68 @@
 """
-# Kernel Module Tracker
+Kernel Module Tracker
+=====================
 
 This plugin tracks and controls kernel module loading attempts in the guest system.
 By default, it blocks all kernel module loading except for igloo.ko (the internal
 framework module). Optionally, an allowlist can be configured to allow specific
 kernel modules to load, or a denylist to explicitly block specific modules.
 
-## Features
+Features
+--------
 
-- Intercepts `init_module` and `finit_module` syscalls
-- Tracks all kernel module loading attempts to `modules.log`
+- Intercepts init_module and finit_module syscalls
+- Tracks all kernel module loading attempts to modules.log
 - Blocks module loading (except igloo.ko) by default
 - Supports allowlist for specific modules to allow them to load
 - Supports denylist for explicit blocking of specific modules
 
-## Configuration
+Configuration
+-------------
 
 To enable the plugin with default behavior (block all except igloo.ko):
 
-```yaml
-plugins:
-  kmods: {}
-```
+.. code-block:: yaml
+
+    plugins:
+      kmods: {}
 
 To allow specific modules to load, provide an allowlist:
 
-```yaml
-plugins:
-  kmods:
-    allowlist:
-      - wireguard
-      - nf_conntrack
-      - xt_TCPMSS
-```
+.. code-block:: yaml
+
+    plugins:
+      kmods:
+        allowlist:
+          - wireguard
+          - nf_conntrack
+          - xt_TCPMSS
 
 To explicitly block specific modules, provide a denylist:
 
-```yaml
-plugins:
-  kmods:
-    denylist:
-      - suspicious_module
-      - untrusted_driver
-```
+.. code-block:: yaml
+
+    plugins:
+      kmods:
+        denylist:
+          - suspicious_module
+          - untrusted_driver
 
 To reduce logging verbosity, enable quiet mode:
 
-```yaml
-plugins:
-  kmods:
-    quiet: true
-```
+.. code-block:: yaml
+
+    plugins:
+      kmods:
+        quiet: true
 
 Both lists can be used together. Denylist takes precedence over allowlist.
-Module names should not include the `.ko` extension or path.
-When `quiet` is set to `true`, only errors are logged; otherwise, info-level logs are shown (default).
+Module names should not include the .ko extension or path.
+When quiet is set to true, only errors are logged; otherwise, info-level logs are shown (default).
 
-## Outputs
+Outputs
+-------
 
-- `modules.log`: List of all kernel modules that were attempted to be loaded
+- modules.log: List of all kernel modules that were attempted to be loaded
 """
 
 import logging

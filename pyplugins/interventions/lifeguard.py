@@ -1,27 +1,30 @@
 """
-# Lifeguard: Signal Blocking Plugin
+Lifeguard: Signal Blocking Plugin
+=================================
 
 This module provides a plugin for the Penguin framework to block specified Linux signals
-by replacing them with a harmless `SIGCONT`. It is useful for preventing certain signals
+by replacing them with a harmless SIGCONT. It is useful for preventing certain signals
 from terminating or interrupting processes during analysis or emulation.
 
-## Features
+Features
+--------
 
 - Block user-specified signals (e.g., SIGKILL, SIGTERM) for target processes.
 - Log all signal delivery attempts to a CSV file.
 - Optionally enable verbose logging for debugging.
 
-## Usage
+Usage
+-----
 
 To use this plugin, specify the signals to block in the configuration:
 
-```json
-{
-    "blocked_signals": [9, 15]  # Block SIGKILL and SIGTERM
-}
-```
+.. code-block:: json
 
-The plugin will log all signal attempts to `lifeguard.csv` in the specified output directory.
+    {
+        "blocked_signals": [9, 15]  # Block SIGKILL and SIGTERM
+    }
+
+The plugin will log all signal attempts to lifeguard.csv in the specified output directory.
 """
 
 from penguin import plugins, Plugin

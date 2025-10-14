@@ -1,21 +1,24 @@
 """
-# Exec Logger Plugin
+Exec Logger Plugin
+==================
 
-This plugin records process execution (exec) events to the penguin database. It subscribes to `exec_event`
-events published by the `execs` plugin, extracts relevant execution details, and stores them as `Exec` events
+This plugin records process execution (exec) events to the penguin database. It subscribes to ``exec_event``
+events published by the ``execs`` plugin, extracts relevant execution details, and stores them as ``Exec`` events
 in the database.
 
-## Purpose
+Purpose
+-------
 
 - Monitors process execution events in the guest.
 - Records argument vectors, environment, and process credentials for each exec event.
 - Enables later analysis of process launches and their context.
 
-## Usage
+Usage
+-----
 
 Simply add this plugin by name to your config.
 
-The plugin extracts relevant fields and stores them in the database using the `Exec` event type.
+The plugin extracts relevant fields and stores them in the database using the ``Exec`` event type.
 """
 
 from penguin import plugins, Plugin

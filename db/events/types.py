@@ -1,28 +1,32 @@
 """
-# Event Types
+Event Types
+===========
 
 This module defines the main event types for the penguin event database, each as a subclass of `Event`.
 These types represent different kinds of system events (read, write, syscall, exec) and are mapped to
 corresponding tables in the database using SQLAlchemy ORM.
 
-## Example usage
+Example usage
+-------------
 
-```python
-from events.types import Read, Write, Syscall, Exec
-```
+.. code-block:: python
 
-## Classes
+    from events.types import Read, Write, Syscall, Exec
 
-- `Read`: Represents a file read event.
-- `Write`: Represents a file write event.
-- `Syscall`: Represents a syscall event with arguments and return value.
-- `Exec`: Represents an exec event (process execution).
+Classes
+-------
 
-Each class provides a `__str__` method for human-readable representation.
+- Read: Represents a file read event.
+- Write: Represents a file write event.
+- Syscall: Represents a syscall event with arguments and return value.
+- Exec: Represents an exec event (process execution).
 
-## Table Structure
+Each class provides a ``__str__`` method for human-readable representation.
 
-Each event type is mapped to its own table and linked to the base `event` table via a foreign key.
+Table Structure
+---------------
+
+Each event type is mapped to its own table and linked to the base ``event`` table via a foreign key.
 
 """
 
@@ -35,13 +39,20 @@ from typing import Optional
 
 class Read(Event):
     """
-    ### Represents a file read event.
+    Read Event
+    ==========
+    Represents a file read event.
 
-    **Attributes:**
-    - `id` (`int`): Primary key, foreign key to event.id.
-    - `fd` (`int`): File descriptor read from.
-    - `fname` (`str`): Name of the file read.
-    - `buffer` (`Optional[bytes]`): Contents read from the file.
+    Attributes
+    ----------
+    id : int
+        Primary key, foreign key to event.id.
+    fd : int
+        File descriptor read from.
+    fname : str
+        Name of the file read.
+    buffer : Optional[bytes]
+        Contents read from the file.
     """
     __tablename__ = "read"
     id: Mapped[int] = mapped_column(ForeignKey("event.id"), primary_key=True)
@@ -54,19 +65,34 @@ class Read(Event):
     }
 
     def __str__(self):
+        """
+        Return a human-readable string representation of the read event.
+
+        Returns
+        -------
+        str
+            String representation.
+        """
         buf = repr(self.buffer) if self.buffer is not None else ""
         return f'read({self.fd}, {self.fname}, "{buf}")'
 
 
 class Write(Event):
     """
-    ### Represents a file write event.
+    Write Event
+    ===========
+    Represents a file write event.
 
-    **Attributes:**
-    - `id` (`int`): Primary key, foreign key to event.id.
-    - `fd` (`int`): File descriptor written to.
-    - `fname` (`Optional[str]`): Name of the file written.
-    - `buffer` (`Optional[bytes]`): Contents written to the file.
+    Attributes
+    ----------
+    id : int
+        Primary key, foreign key to event.id.
+    fd : int
+        File descriptor written to.
+    fname : Optional[str]
+        Name of the file written.
+    buffer : Optional[bytes]
+        Contents written to the file.
     """
     __tablename__ = "write"
     id: Mapped[int] = mapped_column(ForeignKey("event.id"), primary_key=True)
@@ -79,21 +105,38 @@ class Write(Event):
     }
 
     def __str__(self):
+        """
+        Return a human-readable string representation of the write event.
+
+        Returns
+        -------
+        str
+            String representation.
+        """
         buf = repr(self.buffer) if self.buffer is not None else ""
         return f'write({self.fd}, {self.fname}, "{buf}")'
 
 
 class Syscall(Event):
     """
-    ### Represents a syscall event, including arguments and return value.
+    Syscall Event
+    =============
+    Represents a syscall event, including arguments and return value.
 
-    **Attributes:**
-    - `id` (`int`): Primary key, foreign key to event.id.
-    - `name` (`str`): Name of the syscall.
-    - `retno` (`Optional[int]`): Return value of the syscall.
-    - `retno_repr` (`Optional[str]`): String representation of the return value.
-    - `arg0-arg5` (`Optional[int]`): Argument values.
-    - `arg0_repr-arg5_repr` (`Optional[str]`): String representations of arguments.
+    Attributes
+    ----------
+    id : int
+        Primary key, foreign key to event.id.
+    name : str
+        Name of the syscall.
+    retno : Optional[int]
+        Return value of the syscall.
+    retno_repr : Optional[str]
+        String representation of the return value.
+    arg0-arg5 : Optional[int]
+        Argument values.
+    arg0_repr-arg5_repr : Optional[str]
+        String representations of arguments.
     """
     __tablename__ = "syscall"
     id: Mapped[int] = mapped_column(ForeignKey("event.id"), primary_key=True)
@@ -118,6 +161,14 @@ class Syscall(Event):
     }
 
     def __str__(self):
+        """
+        Return a human-readable string representation of the syscall event.
+
+        Returns
+        -------
+        str
+            String representation.
+        """
         args = []
         for i in range(6):
             arg, arg_repr = getattr(self, f"arg{i}"), getattr(self, f"arg{i}_repr")
@@ -128,16 +179,26 @@ class Syscall(Event):
 
 class Exec(Event):
     """
-    ### Represents a process execution (exec) event.
+    Exec Event
+    ==========
+    Represents a process execution (exec) event.
 
-    **Attributes:**
-    - `id` (`int`): Primary key, foreign key to event.id.
-    - `calltree` (`str`): Call tree information.
-    - `argc` (`str`): Argument count.
-    - `argv` (`str`): Argument values.
-    - `envp` (`str`): Environment variables.
-    - `euid` (`int`): Effective user ID.
-    - `egid` (`int`): Effective group ID.
+    Attributes
+    ----------
+    id : int
+        Primary key, foreign key to event.id.
+    calltree : str
+        Call tree information.
+    argc : str
+        Argument count.
+    argv : str
+        Argument values.
+    envp : str
+        Environment variables.
+    euid : int
+        Effective user ID.
+    egid : int
+        Effective group ID.
     """
     __tablename__ = "exec"
     id: Mapped[int] = mapped_column(ForeignKey("event.id"), primary_key=True)
@@ -153,4 +214,12 @@ class Exec(Event):
     }
 
     def __str__(self):
+        """
+        Return a human-readable string representation of the exec event.
+
+        Returns
+        -------
+        str
+            String representation.
+        """
         return f'Exec: "{self.argv}" {self.calltree}'

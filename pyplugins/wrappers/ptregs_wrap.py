@@ -1,54 +1,59 @@
 """
-# ptregs_wrap.py - Architecture-agnostic wrappers for Linux pt_regs structures
+ptregs_wrap.py - Architecture-agnostic wrappers for Linux pt_regs structures
+===========================================================================
 
 This module provides Pythonic, type-annotated wrappers for Linux kernel pt_regs structures across multiple CPU architectures. It enables convenient, architecture-independent access to process register state, such as that captured at system call entry/exit, exceptions, or context switches. The wrappers abstract away the raw struct layout and provide a unified interface for reading/writing registers, extracting syscall arguments, and handling calling conventions.
 
-## Overview
+Overview
+--------
 
-The module defines a base `PtRegsWrapper` class and a set of subclasses for each supported architecture (`x86`, `x86_64`, `ARM`, `AArch64`, `MIPS`, `PowerPC`, `LoongArch64`, `RISC-V`, etc). Each subclass knows how to access registers and arguments according to its architecture's ABI and pt_regs layout. The wrappers can be used with PANDA or other emulation/analysis frameworks that expose pt_regs-like objects.
+The module defines a base PtRegsWrapper class and a set of subclasses for each supported architecture (x86, x86_64, ARM, AArch64, MIPS, PowerPC, LoongArch64, RISC-V, etc). Each subclass knows how to access registers and arguments according to its architecture's ABI and pt_regs layout. The wrappers can be used with PANDA or other emulation/analysis frameworks that expose pt_regs-like objects.
 
-The module also provides a `get_pt_regs_wrapper()` factory function to select the correct wrapper for a given architecture.
+The module also provides a get_pt_regs_wrapper() factory function to select the correct wrapper for a given architecture.
 
-## Typical Usage
+Typical Usage
+-------------
 
 Suppose you have a PANDA plugin or other tool that provides a pt_regs struct (e.g., at a syscall, exception, or context switch):
 
-```python
-from wrappers.ptregs_wrap import get_pt_regs_wrapper
-# Assume 'regs' is a pt_regs struct and 'panda' is a PANDA object
-wrapper = get_pt_regs_wrapper(panda, regs, arch_name=panda.arch_name)
+.. code-block:: python
 
-# Access registers in an architecture-agnostic way
-pc = wrapper.get_pc()
-sp = wrapper.get_sp()
-retval = wrapper.get_retval()
+    from wrappers.ptregs_wrap import get_pt_regs_wrapper
+    # Assume 'regs' is a pt_regs struct and 'panda' is a PANDA object
+    wrapper = get_pt_regs_wrapper(panda, regs, arch_name=panda.arch_name)
 
-# Get syscall arguments (handles calling convention automatically)
-arg0 = wrapper.get_syscall_arg(0)
-arg1 = wrapper.get_syscall_arg(1)
-# Or get userland function arguments
-user_arg0 = wrapper.get_userland_arg(0)
+    # Access registers in an architecture-agnostic way
+    pc = wrapper.get_pc()
+    sp = wrapper.get_sp()
+    retval = wrapper.get_retval()
 
-# Dump all registers as a dictionary
-reg_dict = wrapper.dump()
+    # Get syscall arguments (handles calling convention automatically)
+    arg0 = wrapper.get_syscall_arg(0)
+    arg1 = wrapper.get_syscall_arg(1)
+    # Or get userland function arguments
+    user_arg0 = wrapper.get_userland_arg(0)
 
-# Coroutine-style argument access (portal):
-# get_args_portal and get_arg_portal are generator-based and can yield if a memory read is required (e.g., stack argument).
-# Use 'yield from' to drive these coroutines in a portal/coroutine context.
-args = yield from wrapper.get_args_portal(3)
-```
+    # Dump all registers as a dictionary
+    reg_dict = wrapper.dump()
 
-The wrappers also support advanced features such as handling 32-bit compatibility mode on x86_64/AArch64, stack argument extraction, and portal-style coroutine memory reads. The `get_args_portal` and `get_arg_portal` methods are generator-based and will yield if a memory read is required (such as when reading stack arguments that may fail and need to be retried or handled asynchronously).
+    # Coroutine-style argument access (portal):
+    # get_args_portal and get_arg_portal are generator-based and can yield if a memory read is required (e.g., stack argument).
+    # Use 'yield from' to drive these coroutines in a portal/coroutine context.
+    args = yield from wrapper.get_args_portal(3)
 
-## Classes
+The wrappers also support advanced features such as handling 32-bit compatibility mode on x86_64/AArch64, stack argument extraction, and portal-style coroutine memory reads. The get_args_portal and get_arg_portal methods are generator-based and will yield if a memory read is required (such as when reading stack arguments may fail and need to be retried or handled asynchronously).
 
-- `PtRegsWrapper`: Base class for all pt_regs wrappers, provides generic register access and argument extraction.
-- `X86PtRegsWrapper`, `X86_64PtRegsWrapper`, `ArmPtRegsWrapper`, ...: Architecture-specific subclasses.
-- `PandaMemReadFail`: Exception for failed memory reads (for portal/coroutine use).
+Classes
+-------
 
-## Functions
+- PtRegsWrapper: Base class for all pt_regs wrappers, provides generic register access and argument extraction.
+- X86PtRegsWrapper, X86_64PtRegsWrapper, ArmPtRegsWrapper, ...: Architecture-specific subclasses.
+- PandaMemReadFail: Exception for failed memory reads (for portal/coroutine use).
 
-- `get_pt_regs_wrapper(panda: Optional[Any], regs: Any, arch_name: Optional[str] = None) -> PtRegsWrapper`: Factory to select the correct wrapper for a given architecture.
+Functions
+---------
+
+- get_pt_regs_wrapper(panda: Optional[Any], regs: Any, arch_name: Optional[str] = None) -> PtRegsWrapper: Factory to select the correct wrapper for a given architecture.
 
 These wrappers are useful for dynamic analysis, syscall tracing, emulation, and any tool that needs to reason about process register state in a cross-architecture way.
 """

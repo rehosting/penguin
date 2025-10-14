@@ -1,49 +1,56 @@
 """
-# osi_wrap.py - Wrappers for process memory mappings (Operating System Introspection)
+osi_wrap.py - Wrappers for process memory mappings (Operating System Introspection)
+==================================================================================
 
 This module provides Pythonic wrappers for handling process memory mappings, typically as returned by a plugin or API that exposes Linux process memory map information. The wrappers are designed to make it easy to inspect, filter, and display memory mappings, such as those found in /proc/<pid>/maps.
 
-## Overview
+Overview
+--------
+
 This module defines two main classes:
-- **MappingWrapper**: Wraps a single memory mapping, providing properties for permissions, addresses, and device info.
-- **MappingsWrapper**: Wraps a list of MappingWrapper objects, providing search and display utilities.
+- MappingWrapper: Wraps a single memory mapping, providing properties for permissions, addresses, and device info.
+- MappingsWrapper: Wraps a list of MappingWrapper objects, providing search and display utilities.
 
 These wrappers are useful for analyzing process memory layouts, debugging, or building tools that need to inspect memory regions of Linux processes. They abstract away the raw dictionary or struct data and provide convenient Pythonic accessors and search methods.
 
-## Typical Usage
-Suppose you have a plugin or API that returns a list of memory mapping dictionaries for a process (e.g., from `/proc/<pid>/maps` or a similar source):
+Typical Usage
+-------------
 
-```python
-from wrappers.osi_wrap import MappingWrapper, MappingsWrapper
+Suppose you have a plugin or API that returns a list of memory mapping dictionaries for a process (e.g., from /proc/<pid>/maps or a similar source):
 
-# Example: plugin.get_mappings() returns a list of dicts, one per mapping
-raw_mappings = plugin.get_mappings()  # Each dict should have keys: flags, base, size, dev, pgoff, inode, name
-mappings = [MappingWrapper(m) for m in raw_mappings]
-all_mappings = MappingsWrapper(mappings)
-```
+.. code-block:: python
+
+    from wrappers.osi_wrap import MappingWrapper, MappingsWrapper
+
+    # Example: plugin.get_mappings() returns a list of dicts, one per mapping
+    raw_mappings = plugin.get_mappings()  # Each dict should have keys: flags, base, size, dev, pgoff, inode, name
+    mappings = [MappingWrapper(m) for m in raw_mappings]
+    all_mappings = MappingsWrapper(mappings)
 
 You can then perform various queries and inspections:
 
-```python
-# Find a mapping by address:
-mapping = all_mappings.get_mapping_by_addr(0x7f1234567000)
-if mapping:
-    print(f"Permissions: {mapping.perms}, Name: {mapping.name}")
+.. code-block:: python
 
-# List all mappings for a library:
-libc_maps = all_mappings.get_mappings_by_name('libc')
-for m in libc_maps:
-    print(m)
+    # Find a mapping by address:
+    mapping = all_mappings.get_mapping_by_addr(0x7f1234567000)
+    if mapping:
+        print(f"Permissions: {mapping.perms}, Name: {mapping.name}")
 
-# Print all mappings in a format similar to /proc/<pid>/maps:
-print(all_mappings)
-```
+    # List all mappings for a library:
+    libc_maps = all_mappings.get_mappings_by_name('libc')
+    for m in libc_maps:
+        print(m)
 
-The MappingWrapper exposes properties such as `.perms`, `.start`, `.end`, `.dev_major`, `.dev_minor`, and `.name`, making it easy to work with mapping attributes.
+    # Print all mappings in a format similar to /proc/<pid>/maps:
+    print(all_mappings)
 
-## Classes
-- **MappingWrapper**: Wraps a single memory mapping, providing properties for permissions, addresses, and device info.
-- **MappingsWrapper**: Wraps a list of MappingWrapper objects, providing search and display utilities.
+The MappingWrapper exposes properties such as .perms, .start, .end, .dev_major, .dev_minor, and .name, making it easy to work with mapping attributes.
+
+Classes
+-------
+
+- MappingWrapper: Wraps a single memory mapping, providing properties for permissions, addresses, and device info.
+- MappingsWrapper: Wraps a list of MappingWrapper objects, providing search and display utilities.
 """
 
 from typing import List, Optional

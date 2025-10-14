@@ -1,31 +1,36 @@
 """
-# Canary Plugin
+Canary Plugin
+=============
 
 This module implements a plugin for the Penguin hypervisor environment that listens for "canary" hypercalls.
 It is used to monitor and record the status of a canary value, typically for security or integrity checking.
 
-## Usage
+Usage
+-----
 
 The plugin is loaded by the Penguin framework and responds to "canary" events.
 
-### Example Output
+Example Output
+--------------
 
-If a canary status of `0` is received, the plugin writes a file named `canary.txt` containing `1` to the specified output directory.
+If a canary status of ``0`` is received, the plugin writes a file named ``canary.txt`` containing ``1`` to the specified output directory.
 
-```text
-canary.txt
------------
-1
-```
+::
 
-## Arguments
+    canary.txt
+    -----------
+    1
 
-- `outdir`: Output directory for the canary status file.
-- `verbose`: If set, enables debug logging.
+Arguments
+---------
 
-## Classes
+- ``outdir``: Output directory for the canary status file.
+- ``verbose``: If set, enables debug logging.
 
-- `Canary`: Main plugin class for handling canary status events.
+Classes
+-------
+
+- Canary: Main plugin class for handling canary status events.
 
 """
 

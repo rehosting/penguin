@@ -1,32 +1,36 @@
 """
-# KFFI API Plugin
+KFFI API Plugin
+================
 
-This module provides the KFFI (Kernel Foreign Function Interface) plugin for the penguin framework.
-It enables calling kernel-space functions and interacting with kernel memory from user-space plugins.
-The KFFI plugin abstracts low-level kernel function invocation, argument marshalling, and result handling,
-allowing other plugins to perform advanced kernel introspection and manipulation.
+This module provides the KFFI (Kernel Foreign Function Interface) plugin for the
+Penguin framework. It enables calling kernel-space functions and interacting with
+kernel memory from user-space plugins. The KFFI plugin abstracts low-level kernel
+function invocation, argument marshalling, and result handling, allowing other
+plugins to perform advanced kernel introspection and manipulation.
 
-## Features
+Features
+--------
 
-- Call arbitrary kernel functions with specified arguments.
-- Read and write kernel memory.
-- Marshal arguments and results between user-space and kernel-space.
-- Supports type-safe function signatures and return values.
+* Call arbitrary kernel functions with specified arguments.
+* Read and write kernel memory.
+* Marshal arguments and results between user-space and kernel-space.
+* Supports type-safe function signatures and return values.
 
-## Example Usage
+Example usage
+-------------
 
-```python
-from penguin import plugins
+.. code-block:: python
 
-# Call a kernel function (e.g., do_sys_open) with arguments
-result = yield from plugins.kffi.call_function("do_sys_open", "/etc/passwd", 0, 0)
+    from penguin import plugins
 
-# Read kernel memory at a specific address
-data = yield from plugins.kffi.read_kernel_memory(0xffff888000000000, 64)
+    # Call a kernel function (e.g., do_sys_open) with arguments
+    result = yield from plugins.kffi.call_function("do_sys_open", "/etc/passwd", 0, 0)
 
-# Write to kernel memory
-yield from plugins.kffi.write_kernel_memory(0xffff888000000000, b"\x90\x90\x90\x90")
-```
+    # Read kernel memory at a specific address
+    data = yield from plugins.kffi.read_kernel_memory(0xffff888000000000, 64)
+
+    # Write to kernel memory
+    yield from plugins.kffi.write_kernel_memory(0xffff888000000000, b"\x90\x90\x90\x90")
 """
 
 from penguin import plugins, getColoredLogger, Plugin
@@ -41,15 +45,17 @@ from wrappers.ptregs_wrap import get_pt_regs_wrapper
 
 class KFFI(Plugin):
     """
-    # KFFI Plugin
+    KFFI Plugin
+    -----------
 
     Provides methods for calling kernel functions and interacting with kernel memory.
 
-    ## Methods
+    Methods
+    ~~~~~~~
 
-    - `call_function`: Call a kernel function with arguments.
-    - `read_kernel_memory`: Read bytes from kernel memory.
-    - `write_kernel_memory`: Write bytes to kernel memory.
+    - ``call_function``: Call a kernel function with arguments.
+    - ``read_kernel_memory``: Read bytes from kernel memory.
+    - ``write_kernel_memory``: Write bytes to kernel memory.
     """
 
     def __init__(self) -> None:
@@ -90,13 +96,13 @@ class KFFI(Plugin):
 
     def new(self, type_: str) -> Any:
         """
-        ### Create a new instance of a type
+        Create a new instance of a type.
 
-        **Args:**
-        - `type_` (`str`): Name of the type.
+        Args:
+            type_ (str): Name of the type.
 
-        **Returns:**
-        - Instance of the type, or None if type not found.
+        Returns:
+            Any: Instance of the type, or None if type not found.
         """
         t = self.ffi.get_type(type_)
         if not t:
@@ -108,30 +114,30 @@ class KFFI(Plugin):
     def from_buffer(self, type_: str, buf: bytes,
                     instance_offset_in_buffer: int = 0) -> Any:
         """
-        ### Create an instance of a type from a buffer
+        Create an instance of a type from a buffer.
 
-        **Args:**
-        - `type_` (`str`): Name of the type.
-        - `buf` (`bytes`): Buffer containing the data.
-        - `instance_offset_in_buffer` (`int`, optional): Offset in buffer (default: 0).
+        Args:
+            type_ (str): Name of the type.
+            buf (bytes): Buffer containing the data.
+            instance_offset_in_buffer (int): Offset in buffer (default: 0).
 
-        **Returns:**
-        - Instance of the type.
+        Returns:
+            Any: Instance of the type.
         """
         t = self.ffi.get_type(type_)
         return self.ffi.create_instance(t, buf, instance_offset_in_buffer)
 
     def read_type_panda(self, cpu: Any, addr: int, type_: str) -> Any:
         """
-        ### Read a type from kernel memory using PANDA
+        Read a type from kernel memory using PANDA.
 
-        **Args:**
-        - `cpu` (`Any`): CPU context.
-        - `addr` (`int`): Address to read from.
-        - `type_` (`str`): Name of the type.
+        Args:
+            cpu (Any): CPU context.
+            addr (int): Address to read from.
+            type_ (str): Name of the type.
 
-        **Returns:**
-        - Instance of the type, or None if read fails.
+        Returns:
+            Any: Instance of the type, or None if read fails.
         """
         t = self.ffi.get_type(type_)
         if not t:
@@ -144,14 +150,14 @@ class KFFI(Plugin):
 
     def read_type(self, addr: int, type_: str) -> Generator[Any, Any, Any]:
         """
-        ### Read a type from kernel memory
+        Read a type from kernel memory.
 
-        **Args:**
-        - `addr` (`int`): Address to read from.
-        - `type_` (`str`): Name of the type.
+        Args:
+            addr (int): Address to read from.
+            type_ (str): Name of the type.
 
-        **Returns:**
-        - Instance of the type, or None if read fails.
+        Returns:
+            Any: Instance of the type, or None if read fails.
         """
         t = self.ffi.get_type(type_)
         if not t:
@@ -164,13 +170,13 @@ class KFFI(Plugin):
 
     def deref(self, ptr: Ptr) -> Generator[Any, Any, Any]:
         """
-        ### Dereference a pointer to a type
+        Dereference a pointer to a type.
 
-        **Args:**
-        - `ptr` (`Ptr`): Pointer object.
+        Args:
+            ptr (Ptr): Pointer object.
 
-        **Returns:**
-        - Value pointed to, or None if pointer is null.
+        Returns:
+            Any: Value pointed to, or None if pointer is null.
         """
         if ptr.address == 0:
             self.logger.error(f"Pointer address is 0: {ptr}")
@@ -180,13 +186,13 @@ class KFFI(Plugin):
 
     def get_enum_dict(self, enum_name: str) -> Wrapper:
         """
-        ### Get dictionary of enum constants
+        Get dictionary of enum constants.
 
-        **Args:**
-        - `enum_name` (`str`): Name of the enum.
+        Args:
+            enum_name (str): Name of the enum.
 
-        **Returns:**
-        - `Wrapper`: Wrapper containing enum constants.
+        Returns:
+            Wrapper: Wrapper containing enum constants.
         """
         enum = self.ffi.get_enum(enum_name)
         if not enum:
@@ -197,13 +203,13 @@ class KFFI(Plugin):
     @functools.lru_cache
     def get_struct_size(self, struct_name: str) -> Optional[int]:
         """
-        ### Get the size of a struct
+        Get the size of a struct.
 
-        **Args:**
-        - `struct_name` (`str`): Name of the struct.
+        Args:
+            struct_name (str): Name of the struct.
 
-        **Returns:**
-        - `int` or `None`: Size of the struct, or None if not found.
+        Returns:
+            Optional[int]: Size of the struct, or None if not found.
         """
         struct = self.ffi.get_user_type(struct_name)
         if struct:
@@ -211,25 +217,25 @@ class KFFI(Plugin):
 
     def sizeof(self, struct_name: str) -> Optional[int]:
         """
-        ### Alias for get_struct_size
+        Alias for get_struct_size.
 
-        **Args:**
-        - `struct_name` (`str`): Name of the struct.
+        Args:
+            struct_name (str): Name of the struct.
 
-        **Returns:**
-        - `int` or `None`: Size of the struct, or None if not found.
+        Returns:
+            Optional[int]: Size of the struct, or None if not found.
         """
         return self.get_struct_size(struct_name)
 
     def get_function_address(self, function: str) -> Optional[int]:
         """
-        ### Get the address of a kernel function
+        Get the address of a kernel function.
 
-        **Args:**
-        - `function` (`str`): Name of the function.
+        Args:
+            function (str): Name of the function.
 
-        **Returns:**
-        - `int` or `None`: Address of the function, or None if not found.
+        Returns:
+            Optional[int]: Address of the function, or None if not found.
         """
         sym = self.ffi.get_symbol(function)
         if sym:
@@ -238,19 +244,18 @@ class KFFI(Plugin):
     def _fixup_igloo_module_baseaddr(self, addr):
         self.ffi.vtypejsons[self.igloo_ko_isf].shift_symbol_addresses(addr)
 
-    def _prepare_ffi_call(self, func_ptr: int, args: list, func_name: str = None) -> Tuple[bytes, Optional[int], Optional[dict]]:
+    def _prepare_ffi_call(self, func_ptr: int, args: list, func_name: str = None) -> Generator[Tuple[bytes, Optional[int], Optional[dict]], Any, Any]:
         """
-        ### Prepare FFI call structure for kernel execution, using function signature if available
+        Prepare FFI call structure for kernel execution, using function signature if available.
 
-        **Args:**
-        - `func_ptr` (`int`): Address of the kernel function to call.
-        - `args` (`list`): List of arguments to pass to the function (max 8).
-        - `func_name` (`str`, optional): Name of the function (for signature lookup).
+        Args:
+            func_ptr (int): Address of the kernel function to call.
+            args (list): List of arguments to pass to the function (max 8).
+            func_name (str, optional): Name of the function (for signature lookup).
 
-        **Returns:**
-        - `bytes`: Serialized portal_ffi_call structure.
-        - `int` or None: Kernel memory address if allocated.
-        - `dict` or None: Function signature type_info if available.
+        Returns:
+            Tuple[bytes, Optional[int], Optional[dict]]: Serialized ``portal_ffi_call`` structure,
+            kernel memory address if allocated, and function signature ``type_info`` if available.
         """
         self.logger.debug(
             f"Preparing FFI call: func_ptr={func_ptr:#x}, args={args}, func_name={func_name}")
@@ -359,21 +364,22 @@ class KFFI(Plugin):
     def call_kernel_function(
             self, func: Union[int, str], *args: Any) -> Generator[Any, Any, Any]:
         """
-        ### Call a kernel function dynamically with the given arguments
+        Call a kernel function dynamically with the given arguments.
 
         This uses the FFI mechanism to directly call kernel functions.
         CAUTION: This is extremely powerful and can easily crash the kernel
-        if used incorrectly. Only call functions that are safe to call
-        from arbitrary contexts.
+        if used incorrectly. Only call functions that are safe to call from
+        arbitrary contexts.
 
-        **Args:**
-        - `func` (`int` or `str`): Function address or name.
-        - `*args` (`Any`): Arguments to pass to the function (max 8).
+        Args:
+            func (int or str): Function address or name.
+            *args (Any): Arguments to pass to the function (max 8).
 
-        **Returns:**
-        - Return value from the kernel function, or None if call fails.
+        Returns:
+            Any: Return value from the kernel function, or None if call fails.
 
-        TODO: This leaks memory. We should have a better policy on that.
+        Note:
+            This leaks memory. We should have a better policy on that.
         """
         if isinstance(func, str):
             func_ptr = self.get_function_address(func)
@@ -448,38 +454,38 @@ class KFFI(Plugin):
 
     def kmalloc(self, size: int) -> Generator[Any, Any, Any]:
         """
-        ### Allocate memory in the kernel using kmalloc
+        Allocate memory in the kernel using ``kmalloc``.
 
-        **Args:**
-        - `size` (`int`): Size of memory to allocate.
+        Args:
+            size (int): Size of memory to allocate.
 
-        **Returns:**
-        - Address of allocated memory, or None if allocation fails.
+        Returns:
+            Any: Address of allocated memory, or None if allocation fails.
         """
         val = yield from self.call_kernel_function("igloo_kzalloc", size)
         return val
 
     def kfree(self, addr: int) -> Generator[Any, Any, Any]:
         """
-        ### Free memory in the kernel using kfree
+        Free memory in the kernel using ``kfree``.
 
-        **Args:**
-        - `addr` (`int`): Address of memory to free.
+        Args:
+            addr (int): Address of memory to free.
 
-        **Returns:**
-        - `None`
+        Returns:
+            None
         """
         yield from self.call_kernel_function("igloo_kfree", addr)
 
     def kallsyms_lookup(self, symbol: str) -> Generator[Any, Any, Any]:
         """
-        ### Look up a kernel symbol address using the kallsyms_lookup portal operation (simplified)
+        Look up a kernel symbol address using the ``kallsyms_lookup`` portal operation (simplified).
 
-        **Args:**
-        - `symbol` (`str`): Name of the symbol to look up.
+        Args:
+            symbol (str): Name of the symbol to look up.
 
-        **Returns:**
-        - Address of the symbol as int, or None if not found.
+        Returns:
+            Any: Address of the symbol as int, or None if not found.
         """
         if not symbol or not isinstance(symbol, str):
             self.logger.error("Symbol name must be a non-empty string")
@@ -496,10 +502,10 @@ class KFFI(Plugin):
 
     def generate_trampoline(self) -> Generator[Any, Any, Any]:
         """
-        ### Request a trampoline from the kernel via portal
+        Request a trampoline from the kernel via portal.
 
-        **Returns:**
-        - dict with keys: tramp_id, tramp_addr, status
+        Returns:
+            dict: Keys include ``tramp_id``, ``tramp_addr``, and ``status``.
         """
         from hyper.portal import PortalCmd
         self.__init_tramp_functionality()
@@ -517,7 +523,7 @@ class KFFI(Plugin):
 
     def callback(self, func) -> Generator[Any, Any, Any]:
         """
-        ### Register a trampoline callback and return an integer guest virtual address
+        Register a trampoline callback and return an integer guest virtual address.
 
         Immediately generates the trampoline, sets up the interrupt handler, and returns an integer address.
         """
@@ -535,13 +541,13 @@ class KFFI(Plugin):
 
     def get_callback_id(self, f: Union[int, Any]) -> Optional[int]:
         """
-        ### Get the trampoline ID for a registered callback function or trampoline address
+        Get the trampoline ID for a registered callback function or trampoline address.
 
-        **Args:**
-        - `f` (`int` or `Any`): Callback function or trampoline address.
+        Args:
+            f (int | Any): Callback function or trampoline address.
 
-        **Returns:**
-        - `int` or `None`: Trampoline ID, or None if not found.
+        Returns:
+            Optional[int]: Trampoline ID, or None if not found.
         """
         return self._tramp_callbacks.get(f, None)
 

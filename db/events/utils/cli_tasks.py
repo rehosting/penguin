@@ -1,24 +1,28 @@
 """
-# Tasks Utility
+Tasks Utility
+=============
 
 This module provides a command-line interface (CLI) for listing unique process names (tasks) from the events database.
 It outputs the distinct process names, optionally to a file or to stdout, and is intended to be run as a script or imported as a module.
-The CLI is built using [Click](https://click.palletsprojects.com/).
+The CLI is built using `Click <https://click.palletsprojects.com/>`_.
 
-## Example usage
+Example usage
+-------------
 
-```bash
-tasks --results ./results/latest --output tasks.txt
-```
+.. code-block:: bash
 
-## Options
+    tasks --results ./results/latest --output tasks.txt
 
-- `--results`: Path to results folder (default: `./results/latest/`)
-- `--output`: Output file (default: `/dev/stdout`)
+Options
+-------
 
-## Functions
+- ``--results``: Path to results folder (default: ``./results/latest/``)
+- ``--output``: Output file (default: ``/dev/stdout``)
 
-- `query_tasks`: Main CLI command for listing unique process names.
+Functions
+---------
+
+- ``query_tasks``: Main CLI command for listing unique process names.
 
 """
 
@@ -42,11 +46,12 @@ from events.utils.util_base import get_default_results_path
 )
 def query_tasks(results, output):
     """
-    ### Query and list unique process names (tasks) from the events database.
+    Query and list unique process names (tasks) from the events database.
 
-    **Args:**
-    - `results` (`str`): Path to results folder.
-    - `output` (`str`): Output file path (default: /dev/stdout).
+    :param results: Path to results folder.
+    :type results: str
+    :param output: Output file path (default: /dev/stdout).
+    :type output: str
     """
     db_path = join(results, "plugins.db")
     if not exists(db_path):

@@ -1,35 +1,41 @@
 """
-# Execs Utility
+Execs Utility
+=============
 
 This module provides a command-line interface (CLI) for querying execution events from a database.
 It allows filtering by process name, file descriptor, and file name, and supports outputting results
-to a file or stdout. The CLI is built using [Click](https://click.palletsprojects.com/) and is intended
-to be run as a script or imported as a module.
+to a file or stdout. The CLI is built using Click_ and is intended to be run as a script or imported as a module.
 
-## Running Commands
+.. _Click: https://click.palletsprojects.com/
 
-Commands should be run from the root of your penguin workspace or any directory where the `results` folder is accessible.
-You can specify a different results directory using the `--results` option if your data is stored elsewhere.
+Running Commands
+----------------
 
-## Example usage
+Commands should be run from the root of your penguin workspace or any directory where the ``results`` folder is accessible.
+You can specify a different results directory using the ``--results`` option if your data is stored elsewhere.
 
-```bash
-execs --procname myproc --fd 3 --filename log.txt --output results.txt
-```
+Example usage
+-------------
 
-## Options
+.. code-block:: bash
 
-- `--results`: Path to results folder (default: `./results/latest/`)
-- `--procname`: Filter by process name (substring match)
-- `--fd`: Filter by file descriptor
-- `--filename`: Filter by file name (substring match)
-- `--output`: Output file (default: `/dev/stdout`)
-- `--follow`: Show latest results as they appear
+    execs --procname myproc --fd 3 --filename log.txt --output results.txt
 
-## Functions
+Options
+-------
 
-- `exec_filter`: Helper to filter Exec queries.
-- `query_execs`: Main CLI command.
+- ``--results``: Path to results folder (default: ``./results/latest/``)
+- ``--procname``: Filter by process name (substring match)
+- ``--fd``: Filter by file descriptor
+- ``--filename``: Filter by file name (substring match)
+- ``--output``: Output file (default: ``/dev/stdout``)
+- ``--follow``: Show latest results as they appear
+
+Functions
+---------
+
+- exec_filter: Helper to filter Exec queries.
+- query_execs: Main CLI command.
 
 """
 
@@ -40,16 +46,23 @@ from events.utils.util_base import wrapper, get_default_results_path
 
 def exec_filter(sess, procname, fd, filename):
     """
-    ### Filter Exec query based on process name, file descriptor, and file name.
+    Filter Exec query based on process name, file descriptor, and file name.
 
-    **Args:**
-    - `sess`: SQLAlchemy session object.
-    - `procname` (`str` or `None`): Substring to match in process name.
-    - `fd` (`str` or `None`): File descriptor to filter for.
-    - `filename` (`str` or `None`): Substring to match in file name.
+    Parameters
+    ----------
+    sess : Session
+        SQLAlchemy session object.
+    procname : str or None
+        Substring to match in process name.
+    fd : str or None
+        File descriptor to filter for.
+    filename : str or None
+        Substring to match in file name.
 
-    **Returns:**
-    - `sqlalchemy.orm.query.Query`: Filtered query object.
+    Returns
+    -------
+    sqlalchemy.orm.query.Query
+        Filtered query object.
     """
     query = sess.query(Exec)
     if procname:
@@ -80,15 +93,22 @@ def exec_filter(sess, procname, fd, filename):
 )
 def query_execs(results, procname, follow, fd, filename, output):
     """
-    ### Query execution events from the database with optional filters and output options.
+    Query execution events from the database with optional filters and output options.
 
-    **Args:**
-    - `results` (`str`): Path to results folder.
-    - `procname` (`str` or `None`): Process name substring to filter for.
-    - `follow` (`bool`): Whether to show latest results as they appear.
-    - `fd` (`str` or `None`): File descriptor to filter for.
-    - `filename` (`str` or `None`): File name substring to filter for.
-    - `output` (`str`): Output file path (default: /dev/stdout).
+    Parameters
+    ----------
+    results : str
+        Path to results folder.
+    procname : str or None
+        Process name substring to filter for.
+    follow : bool
+        Whether to show latest results as they appear.
+    fd : str or None
+        File descriptor to filter for.
+    filename : str or None
+        File name substring to filter for.
+    output : str
+        Output file path (default: /dev/stdout).
     """
     print_procname = procname is None
     args = (procname, fd, filename)
