@@ -1,0 +1,32 @@
+plugins:
+  verifier:
+    conditions:
+      indiv_debug+console:
+        type: file_contains 
+        file: console.log
+        string: "/tests/indiv_debug.sh PASS"
+      indiv_debug+gdbserver:
+        type: file_contains 
+        file: netbinds.csv
+        string: "gdbserver,4,tcp,0.0.0.0,1234,"
+  vpn_test: {}
+
+core:
+  guest_cmd: true
+  gdbserver:
+    trace_me: 1234
+
+static_files:
+  /trace_me:
+    type: symlink
+    target: /igloo/utils/busybox
+
+  /tests/indiv_debug.sh:
+    type: inline_file
+    mode: 73
+    contents: |
+      #!/igloo/utils/sh
+
+      /trace_me &
+
+      exit 0

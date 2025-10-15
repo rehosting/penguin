@@ -225,7 +225,7 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None):
         )
         config["static_files"]["/igloo/init.d/guesthopper"] = dict(
             type="inline_file",
-            contents="RUST_LOG=info /igloo/utils/guesthopper &",
+            contents="RUST_LOG=info /igloo/utils/guesthopper --shell /igloo/utils/busybox &",
             mode=0o755,
         )
     # Use pre-resolved kernel if provided, otherwise resolve it

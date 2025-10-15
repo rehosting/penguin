@@ -1,14 +1,22 @@
-from penguin import Plugin
+from penguin import Plugin, plugins
 import subprocess
 import os
 import shlex
-from hyper.consts import igloo_hypercall_constants as iconsts
 
 
 def guest_cmd(cmd):
     """Run a command in the guest, logging output to a file"""
 
     subprocess.Popen(["python3", "/igloo_static/guesthopper/guest_cmd.py", cmd])
+
+
+def check_guesthopper_running():
+    proc_handles = yield from plugins.osi.get_proc_handles()
+    for handle in proc_handles:
+        name = yield from plugins.osi.get_proc_name(handle.pid)
+        if name == "/igloo/utils/guesthopper":
+            return True
+    return False
 
 
 class IndivDebug(Plugin):
@@ -20,53 +28,45 @@ class IndivDebug(Plugin):
     You might want to do this if, for example, you want to debug the HTTP server process
     without the overhead or loss of fidelity from tracing the entire system.
     """
+
     def __init__(self, panda):
         self.conf = self.get_arg("conf")
-        self.args_tmp = []
-        self.filename = None
 
-        # These three hypercalls are sent by the kernel on execve(),
-        # to give this plugin information about the process and ask whether it
-        # should start paused
+    @plugins.syscalls.syscall("on_sys_execve_return")
+    def on_execve(self, pt_regs, proto, syscall, path, argv, envp):
+        yield from self.on_execve_common(syscall)
 
-        @panda.hypercall(iconsts.IGLOO_SIGSTOP_KTHREAD)
-        def indiv_debug_get_filename(cpu):
-            filename_ptr = panda.arch.get_arg(cpu, 1, convention="syscall")
-            self.filename = panda.read_str(cpu, filename_ptr)
+    @plugins.syscalls.syscall("on_sys_execveat_return")
+    def on_execveat(self, pt_regs, proto, syscall, dirfd, path, argv, envp, flags):
+        yield from self.on_execve_common(syscall)
 
-        @panda.hypercall(iconsts.IGLOO_SIGSTOP_ARGV)
-        def indiv_debug_get_arg(cpu):
-            arg_ptr = panda.arch.get_arg(cpu, 1, convention="syscall")
-            i = panda.arch.get_arg(cpu, 2, convention="syscall")
-            if i == 0:
-                self.args_tmp = []
-            assert len(self.args_tmp) == i
-            arg = panda.read_str(cpu, arg_ptr)
-            self.args_tmp.append(arg)
+    def on_execve_common(self, syscall):
+        if syscall.retval < 0:
+            # exec failed, so nothing to debug
+            return
 
-        @panda.hypercall(iconsts.IGLOO_SIGSTOP_QUERY)
-        def indiv_debug_ask_sig_stop(cpu):
-            if self.filename is None:
-                return
+        guesthopper_running = yield from check_guesthopper_running()
+        if not guesthopper_running:
+            # Guesthopper either wasn't started yet or exited.
+            # Either way we can't do anything unless it's running.
+            return
 
-            pause_flag_ptr = panda.arch.get_arg(cpu, 1, convention="syscall")
-            pid = panda.arch.get_arg(cpu, 2, convention="syscall")
+        path = yield from plugins.osi.get_proc_name()
+        proc = yield from plugins.osi.get_proc()
+        pid = proc.pid
 
-            # Check whether we should pause the process, and tell the kernel if so.
-            # These functions return True if they detect the process should start paused.
-            pause_flag = (
-                self.maybe_trace_common(pid, "strace")
-                or self.maybe_trace_common(pid, "ltrace")
-                or self.maybe_gdbserver(pid)
-            )
-            if pause_flag:
-                panda.virtual_memory_write(cpu, pause_flag_ptr, bytes([pause_flag]))
+        # Check whether we should pause the process.
+        # These functions return True if they detect the process should start paused.
+        should_pause = (
+            self.maybe_trace(pid, path, "strace")
+            or self.maybe_trace(pid, path, "ltrace")
+            or self.maybe_gdbserver(pid, path)
+        )
 
-            # Reset state
-            self.filename = None
-            self.args_tmp = []
+        if should_pause:
+            yield from plugins.signals.self_signal("SIGSTOP")
 
-    def maybe_trace_common(self, pid: int, trace_tool: str) -> bool:
+    def maybe_trace(self, pid: int, path: str, trace_tool: str) -> bool:
         """Common helper function for tools like strace and ltrace"""
 
         trace = self.conf["core"][trace_tool]
@@ -74,12 +74,12 @@ class IndivDebug(Plugin):
         # Bail if process shouldn't be traced
         if (
             not isinstance(trace, list)
-            or (self.filename not in trace and os.path.basename(self.filename) not in trace)
+            or (path not in trace and os.path.basename(path) not in trace)
         ):
             return False
 
         # Create output dir and launch tool to trace process
-        log_name = f"{trace_tool}_{self.filename.replace('/', '_')}_{pid}.txt"
+        log_name = f"{trace_tool}_{path.replace('/', '_')}_{pid}.txt"
         guest_cmd(f"""
             /igloo/utils/busybox mkdir -p /igloo/shared/trace
             /igloo/utils/{trace_tool} -p {str(pid)} \
@@ -98,14 +98,14 @@ class IndivDebug(Plugin):
 
         return True
 
-    def maybe_gdbserver(self, pid: int) -> bool:
+    def maybe_gdbserver(self, pid: int, path: str) -> bool:
         gdbserver = self.conf["core"].get("gdbserver", dict())
-        port = gdbserver.get(self.filename) or gdbserver.get(os.path.basename(self.filename))
+        port = gdbserver.get(path) or gdbserver.get(os.path.basename(path))
 
         # Bail if user doesn't want gdbserver for this process
         if port is None:
             return False
 
-        guest_cmd(f"/igloo/utils/gdbserver --attach localhost:{port} {str(pid)}")
+        guest_cmd(f"/igloo/utils/gdbserver --attach 0.0.0.0:{port} {str(pid)}")
 
         return True
