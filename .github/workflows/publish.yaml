@@ -4,6 +4,19 @@ on:
   push:
     branches:
       - main
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+concurrency:
+  group: "release"
+  cancel-in-progress: false
+
 jobs:
     build_container:
         runs-on: rehosting-arc
@@ -87,7 +100,67 @@ jobs:
             run: pip install pydantic pydantic-partial pyyaml yamlcore
           - name: Generate config schema
             run: python3 src/penguin/penguin_config/gen_docs.py schema > config_schema.yaml
+
+          - name: Upload config schema to server
+            uses: easingthemes/ssh-deploy@main
+            with:
+              SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+              ARGS: "-rlgoDzvc -i --delete"
+              SOURCE: config_schema.yaml
+              REMOTE_HOST: rehosti.ng
+              REMOTE_USER: github
+              TARGET: /var/www/igloo
           
+          # ACTIONS: deploy docs to GitHub Pages
+
+          - name: Setup Pages
+            uses: actions/configure-pages@v5
+
+          - name: Add dependencies
+            run: |
+              cat <<'EOF' > Dockerfile
+              FROM penguin AS docs
+
+              RUN pip install sphinx \
+                  sphinx-autobuild \
+                  sphinx-rtd-theme \
+                  myst-parser \
+                  sphinx-copybutton \
+                  furo \
+                  linkify-it-py \
+                  sphinx-prompt \
+                  sphinxemoji \
+                  sphinx-notfound-page \
+                  sphinx-last-updated-by-git
+              RUN apt-get update && apt-get install -y texlive-latex-base texlive-latex-recommended texlive-fonts-recommended texlive-latex-extra
+              EOF
+          - name: Build Docker image and push to Docker Hub
+            uses: docker/build-push-action@v6
+            with:
+              context: .
+              load: true
+              push: false
+              tags: rehosting/penguin:docs
+              build-args: |
+                REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy
+              cache-from: |
+                type=registry,ref=${{ secrets.REHOSTING_ARC_REGISTRY }}/rehosting/penguin:cache,mode=max
+                type=registry,ref=${{ secrets.REHOSTING_ARC_REGISTRY }}/rehosting/penguin:cache_docs,mode=max
+                type=registry,ref=${{ secrets.REHOSTING_ARC_REGISTRY }}/rehosting/penguin:cache_last_published,mode=max
+              cache-to: |
+                type=registry,ref=${{ secrets.REHOSTING_ARC_REGISTRY }}/rehosting/penguin:cache_docs,mode=max
+          
+          - name: Generate Docs
+            run: |
+              timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py -i rehosting/penguin:docs --docs-only
+              cp $GITUB_WORKSPACE/tests/unit_tests/test_target/results/latest/sphinx/latex/penguin.pdf $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/latest/sphinx/html
+
+          - name: Upload artifact
+            uses: actions/upload-artifact@v4
+            with:
+              name: html
+              path: ${{ github.workspace }}/tests/unit_tests/test_target/results/latest/sphinx/html.zip
+
           - name: Create release
             id: create_release
             uses: softprops/action-gh-release@v2.3.3
@@ -101,14 +174,33 @@ jobs:
               draft: false
               generate_release_notes: true
               prerelease: false
-              files: config_schema.yaml
-                  
-          - name: Upload config schema to server
-            uses: easingthemes/ssh-deploy@main
-            with:
-              SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-              ARGS: "-rlgoDzvc -i --delete"
-              SOURCE: config_schema.yaml
-              REMOTE_HOST: rehosti.ng
-              REMOTE_USER: github
-              TARGET: /var/www/igloo
+              files: |
+                config_schema.yaml
+                ${{ github.workspace }}/tests/unit_tests/test_target/results/latest/sphinx/latex/penguin.pdf 
+                ${{ github.workspace }}/tests/unit_tests/test_target/results/latest/sphinx/html.zip
+    
+    deploy_static:
+      needs: build_container
+      runs-on: ubuntu-latest
+      environment:
+        name: github-pages
+        url: ${{ steps.deployment.outputs.page_url }}
+      steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: html
+      - name: Unzip HTML
+        run: unzip html -d html_content
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Upload entire repository
+          path: 'html_content'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
