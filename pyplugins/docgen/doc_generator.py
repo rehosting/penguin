@@ -239,7 +239,7 @@ def setup(app):
         ])
 
         # Add top-level modules (pyplugins, penguin, events)
-        for mod in top_level_modules[::-1]:
+        for mod in top_level_modules:
             lines.append(f"   {mod}")
 
         # Write index file
