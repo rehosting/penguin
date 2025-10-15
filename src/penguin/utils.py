@@ -1,3 +1,14 @@
+"""
+penguin.utils
+=============
+
+Utility functions and classes for the Penguin emulation environment.
+
+This module provides helpers for file hashing, weighted lists, atomic counters,
+filesystem and kernel management, plugin analysis loading, and mitigation provider discovery.
+
+"""
+
 import hashlib
 import heapq
 import importlib
@@ -5,7 +16,7 @@ import os
 import subprocess
 import penguin
 from threading import Lock
-from typing import List, Tuple
+from typing import List, Tuple, Any, Optional, Dict
 
 from .analyses import PenguinAnalysis
 from .defaults import default_plugin_path, static_dir as STATIC_DIR
@@ -14,25 +25,55 @@ logger = penguin.getColoredLogger("utils.get_kernel")
 
 
 class WeightedItem:
-    def __init__(self, item, weight):
-        self.item = item
-        self.weight = weight
+    def __init__(self, item: Any, weight: float) -> None:
+        """
+        :param item: The item to store.
+        :type item: Any
+        :param weight: The weight associated with the item.
+        :type weight: float
+        """
+        self.item: Any = item
+        self.weight: float = weight
 
-    def __lt__(self, other):
+    def __lt__(self, other: "WeightedItem") -> bool:
+        """
+        Compare WeightedItems by their weight.
+
+        :param other: Another WeightedItem.
+        :type other: WeightedItem
+        :return: True if self is less than other.
+        :rtype: bool
+        """
         return -self.weight < -other.weight
 
 
 class WeightedList:
-    def __init__(self):
-        self.items = []
-        self.lock = Lock()
+    def __init__(self) -> None:
+        """
+        Initialize an empty WeightedList.
+        """
+        self.items: List[WeightedItem] = []
+        self.lock: Lock = Lock()
 
-    def insert(self, weight, item):
+    def insert(self, weight: float, item: Any) -> None:
+        """
+        Insert an item with a given weight.
+
+        :param weight: The weight for the item.
+        :type weight: float
+        :param item: The item to insert.
+        :type item: Any
+        """
         with self.lock:
             heapq.heappush(self.items, WeightedItem(item, weight))
 
-    def pop(self):
-        # Returns item, weight
+    def pop(self) -> Tuple[Optional[float], Optional[Any]]:
+        """
+        Pop the item with the highest weight.
+
+        :return: Tuple of (weight, item) or (None, None) if empty.
+        :rtype: tuple[Optional[float], Optional[Any]]
+        """
         with self.lock:
             if self.items:
                 weighted_item = heapq.heappop(self.items)
@@ -42,26 +83,58 @@ class WeightedList:
 
 
 class AtomicCounter:
-    def __init__(self, initial=0):
-        self.value = initial
-        self._lock = Lock()
+    def __init__(self, initial: int = 0) -> None:
+        """
+        Atomic integer counter.
 
-    def increment(self):
+        :param initial: Initial value.
+        :type initial: int
+        """
+        self.value: int = initial
+        self._lock: Lock = Lock()
+
+    def increment(self) -> int:
+        """
+        Atomically increment the counter.
+
+        :return: The new value.
+        :rtype: int
+        """
         with self._lock:
             self.value += 1
             return self.value
 
-    def decrement(self):
+    def decrement(self) -> int:
+        """
+        Atomically decrement the counter.
+
+        :return: The new value.
+        :rtype: int
+        """
         with self._lock:
             self.value -= 1
             return self.value
 
-    def get(self):
+    def get(self) -> int:
+        """
+        Get the current value atomically.
+
+        :return: The current value.
+        :rtype: int
+        """
         with self._lock:
             return self.value
 
 
 def get_file_hash(filepath: str) -> str:
+    """
+    Compute the MD5 hash of a file.
+
+    :param filepath: Path to the file.
+    :type filepath: str
+    :return: Hex digest string.
+    :rtype: str
+    """
     hasher = hashlib.md5()
     with open(filepath, "rb") as afile:
         buf = afile.read()
@@ -70,6 +143,16 @@ def get_file_hash(filepath: str) -> str:
 
 
 def read_output_files(stdout_file: str, stderr_file: str) -> Tuple[str, str]:
+    """
+    Read the contents of stdout and stderr files.
+
+    :param stdout_file: Path to stdout file.
+    :type stdout_file: str
+    :param stderr_file: Path to stderr file.
+    :type stderr_file: str
+    :return: Tuple of (stdout_data, stderr_data).
+    :rtype: tuple[str, str]
+    """
     stdout_data, stderr_data = "", ""
     if os.path.isfile(stdout_file):
         with open(stdout_file, "r") as file:
@@ -82,7 +165,19 @@ def read_output_files(stdout_file: str, stderr_file: str) -> Tuple[str, str]:
 
 def REAL_run_command_with_output(
     cmd: List[str], stdout_file: str, stderr_file: str
-) -> Tuple[str, str]:
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Run a command and write output to files.
+
+    :param cmd: Command as a list of arguments.
+    :type cmd: list[str]
+    :param stdout_file: Path to stdout file.
+    :type stdout_file: str
+    :param stderr_file: Path to stderr file.
+    :type stderr_file: str
+    :return: Tuple of (error_msg, stderr) or (None, None) on success.
+    :rtype: tuple[Optional[str], Optional[str]]
+    """
     with open(stdout_file, "w") as stdout, open(stderr_file, "w") as stderr:
         try:
             # Start the process
@@ -114,7 +209,17 @@ def REAL_run_command_with_output(
         return None, None
 
 
-def run_command_with_output(cmd: List[str], ignore1, ignore2) -> Tuple[str, str]:
+def run_command_with_output(cmd: List[str], ignore1: Any, ignore2: Any) -> Tuple[Any, Any]:
+    """
+    Run a command and capture stdout/stderr.
+
+    :param cmd: Command as a list of arguments.
+    :type cmd: list[str]
+    :param ignore1: Ignored.
+    :param ignore2: Ignored.
+    :return: Tuple of (None, None) on success, or (-1, "", error_msg) on exception.
+    :rtype: tuple[Any, Any]
+    """
     try:
         # Start the subprocess and capture stdout and stderr directly
         process = subprocess.Popen(
@@ -131,7 +236,15 @@ def run_command_with_output(cmd: List[str], ignore1, ignore2) -> Tuple[str, str]
         return -1, "", f"An exception occurred: {str(e)}"
 
 
-def get_arch_subdir(config):
+def get_arch_subdir(config: Dict[str, Any]) -> str:
+    """
+    Get the architecture subdirectory name for the given config.
+
+    :param config: Configuration dictionary.
+    :type config: dict[str, Any]
+    :return: Architecture subdirectory string.
+    :rtype: str
+    """
     arch = config["core"]["arch"]
     if arch == "intel64":
         return "x86_64"
@@ -141,11 +254,27 @@ def get_arch_subdir(config):
         return arch
 
 
-def get_arch_dir(config):
+def get_arch_dir(config: Dict[str, Any]) -> str:
+    """
+    Get the full architecture directory path.
+
+    :param config: Configuration dictionary.
+    :type config: dict[str, Any]
+    :return: Directory path string.
+    :rtype: str
+    """
     return f"{STATIC_DIR}/{get_arch_subdir(config)}"
 
 
-def get_driver_kmod_path(config):
+def get_driver_kmod_path(config: Dict[str, Any]) -> str:
+    """
+    Get the path to the driver kernel module.
+
+    :param config: Configuration dictionary.
+    :type config: dict[str, Any]
+    :return: Path string.
+    :rtype: str
+    """
     kernel_path = os.path.dirname(config["core"]["kernel"])
     arch_dir = get_arch_subdir(config)
     if arch_dir == "aarch64":
@@ -153,9 +282,9 @@ def get_driver_kmod_path(config):
     return f"{kernel_path}/igloo.ko.{arch_dir}"
 
 
-def hash_image_inputs(proj_dir, conf):
+def hash_image_inputs(proj_dir: str, conf: Dict[str, Any]) -> str:
     """
-    Create a hash of all the inputs of the image creation process
+    Create a hash of all the inputs of the image creation process.
 
     In the new build process this is just the preinit script and the
     modification time of the base filesystem (since we don't control
@@ -164,6 +293,13 @@ def hash_image_inputs(proj_dir, conf):
     We specifically do NOT include the busybox binary in this hash despite
     its potential effect on the image because we expect them to be fairly
     standard at least over the very small number of lines.
+
+    :param proj_dir: Project directory.
+    :type proj_dir: str
+    :param conf: Configuration dictionary.
+    :type conf: dict[str, Any]
+    :return: Hex digest string.
+    :rtype: str
     """
     from penguin.defaults import default_preinit_script
     hsh = hashlib.sha256()
@@ -180,11 +316,17 @@ def hash_image_inputs(proj_dir, conf):
     return hsh.hexdigest()
 
 
-def _load_penguin_analysis_from(plugin_file):
+def _load_penguin_analysis_from(plugin_file: str) -> PenguinAnalysis:
     """
     Given a path to a python file, load it and find the first class
     that subclasses PenguinAnalysis. Instantiate it with run_dir and
     return it.
+
+    :param plugin_file: Path to the plugin file.
+    :type plugin_file: str
+    :return: Instance of PenguinAnalysis subclass.
+    :rtype: PenguinAnalysis
+    :raises ValueError: If no subclass is found.
     """
 
     # Absolute path to the plugin
@@ -219,7 +361,15 @@ def _load_penguin_analysis_from(plugin_file):
     raise ValueError(f"Unable to find a PenguinAnalysis subclass in {plugin_file}")
 
 
-def get_mount_type(path):
+def get_mount_type(path: str) -> Optional[str]:
+    """
+    Get the filesystem type of the mount at the given path.
+
+    :param path: Path to check.
+    :type path: str
+    :return: Filesystem type string or None.
+    :rtype: str or None
+    """
     try:
         stat_output = subprocess.check_output(["stat", "-f", "-c", "%T", path])
         return stat_output.decode("utf-8").strip().lower()
@@ -227,17 +377,29 @@ def get_mount_type(path):
         return None
 
 
-def construct_empty_fs(path):
+def construct_empty_fs(path: str) -> None:
+    """
+    Construct an empty filesystem archive at the given path.
+
+    :param path: Path to create the archive.
+    :type path: str
+    """
     subprocess.check_output(f"tar -czf {path} -T /dev/null", shell=True)
 
 
-def get_mitigation_providers(config: dict):
+def get_mitigation_providers(config: dict) -> Dict[str, Any]:
     """
     Given a config, pull out all the enabled mitigation providers,
     load them and return a dict of {ANALYSIS_TYPE: analysis class object}
 
     Skip plugins that are disabled in config.
-    Raise an error if version of a plugin mismatches the config version
+    Raise an error if version of a plugin mismatches the config version.
+
+    :param config: Configuration dictionary.
+    :type config: dict
+    :return: Dictionary mapping ANALYSIS_TYPE to analysis class object.
+    :rtype: dict[str, Any]
+    :raises ValueError: On version mismatch.
     """
     mitigation_providers = {}  # ANALYSIS_TYPE -> analysis class object
     for plugin_name, details in config["plugins"].items():
@@ -259,8 +421,18 @@ def get_mitigation_providers(config: dict):
     return mitigation_providers
 
 
-def get_kernel(conf, proj_dir):
+def get_kernel(conf: dict, proj_dir: str) -> str:
+    """
+    Get the kernel path for the given configuration and project directory.
 
+    :param conf: Configuration dictionary.
+    :type conf: dict
+    :param proj_dir: Project directory.
+    :type proj_dir: str
+    :return: Path to the kernel file.
+    :rtype: str
+    :raises ValueError: If kernel cannot be found or multiple kernels found.
+    """
     kernel = conf["core"].get("kernel", None)
     if kernel:
         if os.path.exists(kernel) and os.path.isfile(kernel):
@@ -325,10 +497,13 @@ def get_kernel(conf, proj_dir):
         raise ValueError(f"Kernel not found for {q_config['arch']}")
 
 
-def get_available_kernel_versions():
+def get_available_kernel_versions() -> List[Tuple[int, ...]]:
     """
     Scan /igloo_static/kernels and return a list of available kernel versions
     as tuples of integers, e.g., [(5, 15, 0), (6, 1, 55)]
+
+    :return: List of kernel version tuples.
+    :rtype: list[tuple[int, ...]]
     """
     kernels_dir = os.path.join(STATIC_DIR, "kernels")
     if not os.path.isdir(kernels_dir):
@@ -347,7 +522,7 @@ def get_available_kernel_versions():
     return versions
 
 
-def get_penguin_kernel_version(conf):
+def get_penguin_kernel_version(conf: dict) -> Tuple[int, ...]:
     """
     Extract kernel version tuple from conf['core']['kernel'].
 
@@ -357,11 +532,11 @@ def get_penguin_kernel_version(conf):
     <VERSION> may have a suffix (e.g., 6.1.55-custom); the suffix after the first
     '-' is ignored. Only leading dot-separated numeric components are returned.
 
-    Returns:
-        tuple[int, ...]  e.g., (6, 1, 55)
-
-    Raises:
-        ValueError if the version cannot be determined.
+    :param conf: Configuration dictionary.
+    :type conf: dict
+    :return: Tuple of integers representing the version, e.g., (6, 1, 55)
+    :rtype: tuple[int, ...]
+    :raises ValueError: If the version cannot be determined.
     """
     kernel_path = conf["core"].get("kernel")
     if not kernel_path:

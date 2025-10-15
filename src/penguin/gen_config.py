@@ -1,3 +1,14 @@
+"""
+penguin.gen_config
+==================
+
+Configuration generation utilities for the Penguin emulation environment.
+
+This module provides functions and classes for analyzing extracted filesystems,
+running static analyses, generating configuration files and patches, and handling
+config creation via CLI or programmatically.
+"""
+
 import click
 import logging
 import os
@@ -29,9 +40,9 @@ class ConfigBuilder:
     Given a filesystem and an output directory, create a configuration
     and initialize the output directory as necessary.
     '''
-    PATCH_DIR = "static_patches"
+    PATCH_DIR: str = "static_patches"
 
-    def __init__(self, fs_archive, output_dir):
+    def __init__(self, fs_archive: str, output_dir: str | Path) -> None:
         # Create a 'base' directory for analysis results, copy fs into it
         base_dir = Path(output_dir, "base")
         base_dir.mkdir(exist_ok=True, parents=True)
@@ -71,9 +82,23 @@ class ConfigBuilder:
             # Always clean up extracted filesystem
             shutil.rmtree(extracted_fs)
 
-    def run_static_analyses(self, output_dir, extracted_dir, static_dir_name="static"):
+    def run_static_analyses(
+        self,
+        output_dir: str | Path,
+        extracted_dir: str | Path,
+        static_dir_name: str = "static"
+    ) -> dict:
         '''
-        Run static analysis on the extracted filesystem and write results to output_dir/static
+        Run static analysis on the extracted filesystem and write results to output_dir/static.
+
+        :param output_dir: Output directory for results.
+        :type output_dir: str or Path
+        :param extracted_dir: Directory containing extracted filesystem.
+        :type extracted_dir: str or Path
+        :param static_dir_name: Name of static results subdirectory.
+        :type static_dir_name: str
+        :return: Dictionary of static analysis results.
+        :rtype: dict
         '''
         results_dir = Path(output_dir, static_dir_name)
         results_dir.mkdir(exist_ok=True, parents=True)
@@ -117,9 +142,14 @@ class ConfigBuilder:
 
         return results
 
-    def render_patches(self, output_dir, patches):
+    def render_patches(self, output_dir: str | Path, patches: dict) -> None:
         '''
-        Given a dictionary of patches, render them into output_dir / patches
+        Given a dictionary of patches, render them into output_dir / patches.
+
+        :param output_dir: Output directory.
+        :type output_dir: str or Path
+        :param patches: Dictionary of patches.
+        :type patches: dict
         '''
         patch_dir = Path(output_dir, self.PATCH_DIR)
 
@@ -149,7 +179,15 @@ class ConfigBuilder:
             with open(patch_dir / f"{name}.yaml", "w") as f:
                 yaml.dump(data, f, default_flow_style=False)
 
-    def generate_initial_config(self, patches):
+    def generate_initial_config(self, patches: dict) -> dict:
+        '''
+        Generate the initial configuration dictionary.
+
+        :param patches: Dictionary of patches.
+        :type patches: dict
+        :return: Initial configuration dictionary.
+        :rtype: dict
+        '''
 
         patch_filenames = []
 
@@ -177,9 +215,23 @@ class ConfigBuilder:
             "nvram": {},
         }
 
-    def create_patches(self, fs_archive, static_results, extract_dir):
+    def create_patches(
+        self,
+        fs_archive: str | Path,
+        static_results: dict,
+        extract_dir: str | Path
+    ) -> dict:
         """
         Generate a patch that ensures we have all directories in a fixed list.
+
+        :param fs_archive: Path to filesystem archive.
+        :type fs_archive: str or Path
+        :param static_results: Static analysis results.
+        :type static_results: dict
+        :param extract_dir: Directory containing extracted filesystem.
+        :type extract_dir: str or Path
+        :return: Dictionary of generated patches.
+        :rtype: dict
         """
 
         # Collect a list of all files in advance so we don't regenerate
@@ -234,16 +286,28 @@ class ConfigBuilder:
         return patches
 
 
-###################################
-
-def initialize_and_build_config(fs, out=None, artifacts_dir=None):
+def initialize_and_build_config(
+    fs: str,
+    out: str | None = None,
+    artifacts_dir: str | None = None
+) -> str:
     """
     Given a filesystem as a .tar.gz analyze it to create a configuration file.
     Out is the path to the config to produce.
     Use artifacts_dir as scratch space while analyzing.
 
-    Returns the path to the config file.
-    Raises an exception with a user-friendly message if it fails.
+    :param fs: Path to filesystem archive (.tar.gz).
+    :type fs: str
+    :param out: Path to output config file.
+    :type out: str or None
+    :param artifacts_dir: Path to artifacts directory.
+    :type artifacts_dir: str or None
+
+    :return: Path to generated config file.
+    :rtype: str
+
+    :raises RuntimeError: If firmware file is not found.
+    :raises ValueError: If input file is not a .tar.gz archive.
     """
     logger.info(f"Generating new configuration for {fs}...")
 
@@ -285,7 +349,26 @@ def initialize_and_build_config(fs, out=None, artifacts_dir=None):
     return out
 
 
-def fakeroot_gen_config(fs, out, artifacts_dir, verbose):
+def fakeroot_gen_config(
+    fs: str,
+    out: str,
+    artifacts_dir: str,
+    verbose: int
+) -> str | None:
+    """
+    Run config generation under fakeroot.
+
+    :param fs: Path to filesystem archive.
+    :type fs: str
+    :param out: Path to output config file.
+    :type out: str
+    :param artifacts_dir: Path to artifacts directory.
+    :type artifacts_dir: str
+    :param verbose: Verbosity level.
+    :type verbose: int
+    :return: Path to generated config file or None.
+    :rtype: str or None
+    """
     o = Path(out)
     cmd = [
         "fakeroot",
@@ -307,7 +390,21 @@ def fakeroot_gen_config(fs, out, artifacts_dir, verbose):
 @click.option("--out", required=True, help="Path to a config to be created")
 @click.option("--artifacts", default=None, help="Path to a directory for artifacts")
 @click.option("-v", "--verbose", count=True)
-def main(fs, out, artifacts, verbose):
+def main(fs: str, out: str, artifacts: str | None, verbose: int) -> str | None:
+    """
+    CLI entrypoint for configuration generation.
+
+    :param fs: Path to filesystem archive.
+    :type fs: str
+    :param out: Path to output config file.
+    :type out: str
+    :param artifacts: Path to artifacts directory.
+    :type artifacts: str or None
+    :param verbose: Verbosity level.
+    :type verbose: int
+    :return: Path to generated config file or None.
+    :rtype: str or None
+    """
     if verbose:
         logger.setLevel(logging.DEBUG)
 
