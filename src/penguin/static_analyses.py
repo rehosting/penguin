@@ -1,3 +1,12 @@
+"""
+penguin.static_analyses
+=======================
+
+Static analysis utilities for the Penguin emulation environment.
+
+This module provides classes and helpers for analyzing extracted filesystems.
+"""
+
 import os
 import re
 import stat
@@ -22,11 +31,18 @@ logger = getColoredLogger("penguin.static_analyses")
 
 class FileSystemHelper:
     @staticmethod
-    def find_regex(target_regex, extract_root, ignore=None):
+    def find_regex(
+        target_regex: re.Pattern,
+        extract_root: str,
+        ignore: list | tuple | None = None
+    ) -> dict:
         """
-        Given a regex pattern to match against, search the filesystem
-        using ripgrep with subprocess.check_output for high performance.
-        Returns a dict of {match: {count: int, files: [str]}
+        Search the filesystem for matches to a regex pattern using ripgrep.
+
+        :param target_regex: Compiled regex pattern to match.
+        :param extract_root: Root directory to search.
+        :param ignore: Optional list/tuple of matches to ignore.
+        :return: Dict of {match: {"count": int, "files": [str]}}
         """
         results = {}
         if not ignore:
@@ -77,10 +93,18 @@ class FileSystemHelper:
         return results
 
     @staticmethod
-    def _find_regex_python(target_regex, extract_root, ignore=None):
+    def _find_regex_python(
+        target_regex: re.Pattern,
+        extract_root: str,
+        ignore: list | None = None
+    ) -> dict:
         """
         Fallback implementation using Python's built-in regex.
-        Used when hyperscan fails to compile the pattern.
+
+        :param target_regex: Compiled regex pattern to match.
+        :param extract_root: Root directory to search.
+        :param ignore: Optional list of matches to ignore.
+        :return: Dict of {match: {"count": int, "files": [str]}}
         """
         results = {}
         if not ignore:
@@ -121,21 +145,40 @@ class FileSystemHelper:
 
 
 class StaticAnalysis(ABC):
-    def __init__(self):
+    """
+    Abstract base class for static analyses.
+    """
+    def __init__(self) -> None:
+        """
+        Initialize the static analysis.
+        """
         pass
 
-    def run(self, extract_dir, prior_results):
+    def run(self, extract_dir: str, prior_results: dict) -> None:
+        """
+        Run the static analysis.
+
+        :param extract_dir: Directory containing extracted filesystem.
+        :param prior_results: Results from previous analyses.
+        """
         pass
 
 
 class ArchId(StaticAnalysis):
-    def run(self, extracted_fs, prior_results):
+    """
+    Identify the most common architecture in the extracted filesystem.
+    """
+    def run(self, extracted_fs: str, prior_results: dict) -> str:
         '''
         Count architectures to identify most common.
-        If we have both 32 and 64 bit binaries from the most common architecture
-        we'll take 64-bit even if 32 is more common -> likely 64-bit with backwards compatibility
 
-        If we do not support the architecture, we'll raise an error
+        If both 32 and 64 bit binaries from the most common architecture are present,
+        prefer 64-bit. Raise an error if architecture cannot be determined or is unsupported.
+
+        :param extracted_fs: Path to extracted filesystem.
+        :param prior_results: Results from previous analyses.
+        :return: Most common architecture string.
+        :raises ValueError: If unable to determine architecture.
         '''
 
         arch_counts = {32: Counter(), 64: Counter(), "unknown": 0}
@@ -206,7 +249,14 @@ class ArchId(StaticAnalysis):
         return best
 
     @staticmethod
-    def _binary_filter(fsbase, name):
+    def _binary_filter(fsbase: str, name: str) -> bool:
+        """
+        Filter for binary files of interest.
+
+        :param fsbase: Base directory.
+        :param name: File path.
+        :return: True if file is a relevant binary.
+        """
         base_directories = ["sbin", "bin", "usr/sbin", "usr/bin"]
         for base in base_directories:
             if name.startswith(os.path.join(fsbase, base)):
@@ -219,13 +269,15 @@ class ArchId(StaticAnalysis):
 
 class InitFinder(StaticAnalysis):
     '''
-    Given an extracted filesystem, find potential init scripts and binaries
+    Find potential init scripts and binaries in an extracted filesystem.
     '''
-
-    def run(self, filesystem_root_path, prior_results):
+    def run(self, filesystem_root_path: str, prior_results: dict) -> list[str]:
         '''
-        Search the filesystem, find any binaries that might be inits. Return
-        a sorted list.
+        Search the filesystem for binaries that might be init scripts.
+
+        :param filesystem_root_path: Root path of extracted filesystem.
+        :param prior_results: Results from previous analyses.
+        :return: Sorted list of init script paths.
         '''
         inits = []
 
@@ -291,9 +343,13 @@ class InitFinder(StaticAnalysis):
         return inits
 
     @staticmethod
-    def _is_init_script(filepath, fsroot):
+    def _is_init_script(filepath: str, fsroot: str) -> bool:
         '''
         Determine if a file is a potential init script.
+
+        :param filepath: Path to file.
+        :param fsroot: Filesystem root.
+        :return: True if file is a potential init script.
         '''
         if filepath.startswith("./igloo"):
             return False
@@ -338,17 +394,26 @@ class InitFinder(StaticAnalysis):
 
 
 class KernelVersionFinder(StaticAnalysis):
+    """
+    Find and select the best kernel version from extracted filesystem.
+    """
     @staticmethod
-    def is_kernel_version(name):
-        # Regex to match typical kernel version patterns
+    def is_kernel_version(name: str) -> bool:
+        """
+        Check if a string matches a kernel version pattern.
+
+        :param name: Version string.
+        :return: True if matches kernel version pattern.
+        """
         return re.match(r"^\d+\.\d+\.\d+(-[\w\.]+)?$", name) is not None
 
     @staticmethod
-    def select_best_kernel(kernel_versions):
+    def select_best_kernel(kernel_versions: set[str]) -> str:
         """
-        Given a set of kernel version strings, select the most recent,
-        then find the nearest available kernel version using get_available_kernel_versions.
-        If none are provided, use the default kernel version.
+        Select the most recent kernel version and match to available kernels.
+
+        :param kernel_versions: Iterable of kernel version strings.
+        :return: Best matching kernel version string.
         """
         if not kernel_versions:
             return DEFAULT_KERNEL
@@ -386,7 +451,14 @@ class KernelVersionFinder(StaticAnalysis):
         best_str = ".".join(str(x) for x in best)
         return best_str
 
-    def run(self, extract_dir, prior_results):
+    def run(self, extract_dir: str, prior_results: dict) -> dict[str, list[str] | str]:
+        """
+        Run kernel version analysis.
+
+        :param extract_dir: Directory containing extracted filesystem.
+        :param prior_results: Results from previous analyses.
+        :return: Dict with potential and selected kernel versions.
+        """
         potential_kernels = set()
 
         # Only look at the top-level directories in self.extract_dir / lib / modules
@@ -407,11 +479,18 @@ class KernelVersionFinder(StaticAnalysis):
 
 
 class EnvFinder(StaticAnalysis):
-    BORING_VARS = ["TERM"]
+    """
+    Identify potential environment variables and their values in the filesystem.
+    """
+    BORING_VARS: list[str] = ["TERM"]
 
-    def run(self, extract_dir, prior_results):
+    def run(self, extract_dir: str, prior_results: dict) -> dict[str, list | None]:
         """
-        Identify potential environment variables and values we find them compared to
+        Find environment variables and their possible values.
+
+        :param extract_dir: Directory containing extracted filesystem.
+        :param prior_results: Results from previous analyses.
+        :return: Dict of environment variable names to possible values.
         """
 
         # To start, we know there's `igloo_task_size` (a knob we created to configure), and
@@ -445,7 +524,10 @@ class EnvFinder(StaticAnalysis):
 
 
 class PseudofileFinder(StaticAnalysis):
-    IGLOO_ADDED_DEVICES = ["autofs", "btrfs-control", "cfs0", "cfs1", "cfs2", "cfs3",
+    """
+    Find device and proc pseudofiles in the extracted filesystem.
+    """
+    IGLOO_ADDED_DEVICES: list[str] = ["autofs", "btrfs-control", "cfs0", "cfs1", "cfs2", "cfs3",
                            "cfs4", "console", "cpu_dma_latency", "full", "fuse", "input", "kmsg",
                            "loop-control", "loop0", "loop1", "loop2", "loop3", "loop4",
                            "loop5", "loop6", "loop7", "mem", "memory_bandwidth", "mice", "net",
@@ -476,7 +558,7 @@ class PseudofileFinder(StaticAnalysis):
                            "stdin", "stdout", "stderr",  # Symlinks to /proc/self/fd/X
                            ]
 
-    IGLOO_PROCFS = [
+    IGLOO_PROCFS: list[str] = [
         "buddyinfo",
         "cgroups",
         "cmdline",
@@ -582,22 +664,33 @@ class PseudofileFinder(StaticAnalysis):
     # Directories that we want to just ignore entirely - don't create any entries
     # within these directories. IRQs and device-tree are related to the emulated CPU
     # self and PID are related to the process itself and dynamically created
-    PROC_IGNORE = ["irq", "self", "PID", "device-tree", "net", "vmcore"]
+    PROC_IGNORE: list[str] = ["irq", "self", "PID", "device-tree", "net", "vmcore"]
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """
+        Initialize PseudofileFinder and load additional procfs entries.
+        """
         # Load ../resources/proc_sys.txt, add each line to IGLOO_PROCFS
         resources = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources")
         with open(os.path.join(resources, "proc_sys.txt"), "r") as f:
             for line in f.readlines():
                 self.IGLOO_PROCFS.append(line.strip())
 
-    def _filter_files(self, extract_dir, pattern, ignore_list, remove_list):
+    def _filter_files(
+        self,
+        extract_dir: str,
+        pattern: re.Pattern,
+        ignore_list: list[str],
+        remove_list: list[str]
+    ) -> list[str]:
         """
-        Filters files in a directory based on a regex pattern, an ignore list, and a remove list.
+        Filter files in a directory based on regex, ignore, and remove lists.
 
-        Ignored list is a prefix - anything that starts with an ignored prefix is removed.
-
-        Remove list is an absolute match - anything in the remove list is removed.
+        :param extract_dir: Directory to search.
+        :param pattern: Regex pattern to match.
+        :param ignore_list: List of prefixes to ignore.
+        :param remove_list: List of absolute matches to remove.
+        :return: Filtered list of file paths.
         """
         # Find all files matching the pattern
         found_files = list(FileSystemHelper.find_regex(pattern, extract_dir).keys())
@@ -632,7 +725,14 @@ class PseudofileFinder(StaticAnalysis):
 
         return [k for k in filtered_files if k not in directories_to_remove]
 
-    def run(self, extract_dir, prior_results):
+    def run(self, extract_dir: str, prior_results: dict) -> dict[str, list[str]]:
+        """
+        Run pseudofile analysis.
+
+        :param extract_dir: Directory containing extracted filesystem.
+        :param prior_results: Results from previous analyses.
+        :return: Dict with lists of device and proc files.
+        """
         # Regex patterns for dev and proc files
         dev_pattern = re.compile(r"/dev/([a-zA-Z0-9_/]+)", re.MULTILINE)
         proc_pattern = re.compile(r"/proc/([a-zA-Z0-9_/]+)", re.MULTILINE)
@@ -654,11 +754,12 @@ class PseudofileFinder(StaticAnalysis):
         }
 
     @staticmethod
-    def _get_devfiles_in_fs(extracted_dir):
+    def _get_devfiles_in_fs(extracted_dir: str) -> list[str]:
         """
-        Get a list of all device files in extracted_dir/dev.
-        Note that fw2tar might not actually package up devices (depends on version)
-        so this could often be empty.
+        Get all device files in extracted_dir/dev.
+
+        :param extracted_dir: Directory containing extracted filesystem.
+        :return: List of device file paths.
         """
         dev_dir = os.path.join(extracted_dir, "dev")
         results = []
@@ -673,9 +774,16 @@ class PseudofileFinder(StaticAnalysis):
 
 
 class InterfaceFinder(StaticAnalysis):
-    def run(self, extract_dir, prior_results):
+    """
+    Identify network interfaces in the filesystem.
+    """
+    def run(self, extract_dir: str, prior_results: dict) -> dict[str, list[str]] | None:
         """
-        Identify network interfaces in the filesystem.
+        Find network interfaces using sysfs and command references.
+
+        :param extract_dir: Directory containing extracted filesystem.
+        :param prior_results: Results from previous analyses.
+        :return: Dict of interfaces found via sysfs and commands.
         """
         # Find all network interfaces in the filesystem
         pattern = re.compile(r"/sys/class/net/([a-zA-Z0-9_]+)", re.MULTILINE)
@@ -733,10 +841,16 @@ class InterfaceFinder(StaticAnalysis):
 
 class ClusterCollector(StaticAnalysis):
     '''
-    Collect summary statistics for this filesystem to help us later identify clusters
+    Collect summary statistics for the filesystem to help identify clusters.
     '''
+    def run(self, extract_dir: str, prior_results: dict) -> dict[str, list[str]]:
+        """
+        Collect basename and hash of every executable file.
 
-    def run(self, extract_dir, prior_results):
+        :param extract_dir: Directory containing extracted filesystem.
+        :param prior_results: Results from previous analyses.
+        :return: Dict with lists of files, executables, and hashes.
+        """
         # Collect the basename + hash of every executable file in the system
         all_files = set()
         executables = set()
@@ -763,7 +877,13 @@ class ClusterCollector(StaticAnalysis):
         }
 
     @staticmethod
-    def compute_file_hash(file_path):
+    def compute_file_hash(file_path: str) -> str | None:
+        """
+        Compute SHA256 hash of a file.
+
+        :param file_path: Path to file.
+        :return: Hex digest string or None on failure.
+        """
         try:
             # Use the system's sha256sum binary for better performance
             output = check_output(["sha256sum", file_path], stderr=STDOUT)
@@ -776,13 +896,20 @@ class ClusterCollector(StaticAnalysis):
 
 class LibrarySymbols(StaticAnalysis):
     """
-    Examine all the libraries (.so, .so.* files) in the filesystem. Use pyelftools
-    to find definitions for any of the NVRAM_KEYS variables.
-    Also track all exported function names
-    """
-    NVRAM_KEYS = ["Nvrams", "router_defaults"]
+    Examine libraries in the filesystem for NVRAM keys and exported symbols.
 
-    def run(self, extract_dir, prior_results):
+    Uses pyelftools to find definitions for NVRAM_KEYS variables and tracks exported function names.
+    """
+    NVRAM_KEYS: list[str] = ["Nvrams", "router_defaults"]
+
+    def run(self, extract_dir: str, prior_results: dict) -> dict[str, dict]:
+        """
+        Analyze libraries for NVRAM keys and symbols.
+
+        :param extract_dir: Directory containing extracted filesystem.
+        :param prior_results: Results from previous analyses.
+        :return: Dict with nvram values and symbol paths.
+        """
         self.extract_dir = extract_dir
         self.archend = arch_end(prior_results['ArchId'])
 
@@ -831,7 +958,17 @@ class LibrarySymbols(StaticAnalysis):
                 'symbols': sym_paths}
 
     @staticmethod
-    def _find_symbol_address(elffile, symbol_name):
+    def _find_symbol_address(
+        elffile: ELFFile,
+        symbol_name: str
+    ) -> tuple[int | None, int | str | None]:
+        """
+        Find the address and section index of a symbol in an ELF file.
+
+        :param elffile: ELFFile object.
+        :param symbol_name: Name of the symbol.
+        :return: Tuple of (address, section_index) or (None, None).
+        """
         try:
             symbol_tables = [
                 s
@@ -851,7 +988,21 @@ class LibrarySymbols(StaticAnalysis):
         return None, None
 
     @staticmethod
-    def _get_string_from_address(elffile, address, is_64=False, is_eb=False):
+    def _get_string_from_address(
+        elffile: ELFFile,
+        address: int,
+        is_64: bool = False,
+        is_eb: bool = False
+    ) -> str | None:
+        """
+        Get a string from a given address in an ELF file.
+
+        :param elffile: ELFFile object.
+        :param address: Address to read string from.
+        :param is_64: True if 64-bit ELF.
+        :param is_eb: True if big-endian.
+        :return: Decoded string or None.
+        """
         for section in elffile.iter_sections():
             start_addr = section["sh_addr"]
             end_addr = start_addr + section.data_size
@@ -868,7 +1019,13 @@ class LibrarySymbols(StaticAnalysis):
         return None
 
     @staticmethod
-    def _is_elf(filename):
+    def _is_elf(filename: str) -> bool:
+        """
+        Check if a file is an ELF binary.
+
+        :param filename: Path to file.
+        :return: True if ELF, False otherwise.
+        """
         try:
             with open(filename, "rb") as f:
                 magic = f.read(4)
@@ -877,7 +1034,17 @@ class LibrarySymbols(StaticAnalysis):
             return False
 
     @staticmethod
-    def get_nvram_info(elf_path, archend):
+    def get_nvram_info(
+        elf_path: str,
+        archend: str
+    ) -> dict[str, str | None]:
+        """
+        Extract NVRAM key-value pairs from an ELF file.
+
+        :param elf_path: Path to ELF file.
+        :param archend: Architecture/endianness info.
+        :return: Dict of NVRAM key-value pairs.
+        """
         nvram_data = {}
         is_eb = "eb" in archend
         is_64 = "64" in archend
@@ -960,12 +1127,16 @@ class LibrarySymbols(StaticAnalysis):
             return nvram_data
 
     @staticmethod
-    def _analyze_library(elf_path, archend):
+    def _analyze_library(
+        elf_path: str,
+        archend: str
+    ) -> tuple[dict, dict]:
         """
-        Examine a single library. Is there anything we care about in here?
+        Analyze a single library for exported tables and function names.
 
-        1) look for exported tables: router_defaults and Nvrams to place in default nvram config
-        2) report all exported function names
+        :param elf_path: Path to library file.
+        :param archend: Architecture/endianness info.
+        :return: Tuple of (nvram_data, symbols).
         """
 
         symbols = {}  # Symbol name -> relative(?) address

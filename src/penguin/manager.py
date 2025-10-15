@@ -1,3 +1,20 @@
+"""
+penguin.manager
+===============
+
+Management utilities for running and scoring Penguin emulation experiments.
+
+This module provides functions and classes for calculating experiment scores,
+handling subprocess execution and timeouts, and managing Panda emulation runs.
+
+Functions
+---------
+- calculate_score
+
+Classes
+-------
+- PandaRunner
+"""
 import csv
 import os
 import signal
@@ -8,7 +25,7 @@ from penguin import getColoredLogger
 
 from .common import yaml
 
-SCORE_CATEGORIES = [
+SCORE_CATEGORIES: list[str] = [
     "execs",
     "bound_sockets",
     "devices_accessed",
@@ -21,14 +38,23 @@ SCORE_CATEGORIES = [
 ]
 
 
-def calculate_score(result_dir, have_console=True):
+def calculate_score(result_dir: str, have_console: bool = True) -> dict[str, int]:
     """
-    Return a dict of the distinct metrics we care about name: value
-    XXX should have a global of how many fields this is
+    Return a dict of the distinct metrics we care about name: value.
 
-    XXX: We should call into our loaded plugins to calculate
-    this score metric! Plugins could raise a fatal error
-    or return a dict with names and values
+    This function loads experiment results and computes a score based on
+    various health and coverage metrics.
+
+    :param result_dir: Directory containing experiment results.
+    :type result_dir: str
+    :param have_console: Whether console output is available.
+    :type have_console: bool
+
+    :return: Dictionary of score metrics.
+    :rtype: dict[str, int]
+
+    :raises RuntimeError: If required files are missing.
+    :raises ValueError: If an unknown score type is encountered.
     """
     if not os.path.isfile(os.path.join(result_dir, ".ran")):
         raise RuntimeError(
@@ -121,16 +147,27 @@ def calculate_score(result_dir, have_console=True):
 
 class PandaRunner:
     """
-    This class is a gross wrapper around the fact that we want to call penguin_run
-    in a subprocess because it might hang/crash (from C code) which would kill
-    our python process. From this class we kill the subprocess if it takes too long
-    (deadlock) or if it crashes.
+    Wrapper class for running penguin_run in a subprocess.
+
+    This class manages subprocess execution, timeouts, and signal handling
+    to ensure robust experiment runs even in the presence of crashes or hangs.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """
+        Initialize the PandaRunner.
+        """
         self.logger = getColoredLogger("penguin.run_manager")
 
-    def _send_sigusr1(self, pid):
+    def _send_sigusr1(self, pid: int) -> bool:
+        """
+        Send SIGUSR1 to the process group of the given PID.
+
+        :param pid: Process ID.
+        :type pid: int
+        :return: True if successful, False otherwise.
+        :rtype: bool
+        """
         try:
             os.killpg(os.getpgid(pid), signal.SIGUSR1)
             return True
@@ -138,8 +175,13 @@ class PandaRunner:
             self.logger.warning(f"Process {pid} not found when trying to send SIGUSR1")
             return False
 
-    def catch_and_forward_sigint(self, p):
-        """Install a SIGINT handler that escalates to SIGKILL on repeated Ctrl+C."""
+    def catch_and_forward_sigint(self, p: subprocess.Popen) -> None:
+        """
+        Install a SIGINT handler that escalates to SIGKILL on repeated Ctrl+C.
+
+        :param p: Subprocess to forward signals to.
+        :type p: subprocess.Popen
+        """
         self._sigint_count = 0
 
         def handler(signum, frame):
@@ -160,18 +202,38 @@ class PandaRunner:
 
     def run(
         self,
-        conf_yaml,
-        proj_dir,
-        out_dir,
-        init=None,
-        timeout=None,
-        show_output=False,
-        verbose=False,
-        resolved_kernel=None,
-    ):
+        conf_yaml: str,
+        proj_dir: str,
+        out_dir: str,
+        init: str | None = None,
+        timeout: int | None = None,
+        show_output: bool = False,
+        verbose: bool = False,
+        resolved_kernel: str | None = None,
+    ) -> None:
         """
-        If init or timeout are set they override config
+        Run the penguin emulation experiment in a subprocess.
+
+        :param conf_yaml: Path to configuration YAML file.
+        :type conf_yaml: str
+        :param proj_dir: Project directory.
+        :type proj_dir: str
+        :param out_dir: Output directory.
+        :type out_dir: str
+        :param init: Optional init script.
+        :type init: str or None
+        :param timeout: Optional timeout in seconds.
+        :type timeout: int or None
+        :param show_output: Whether to show output.
+        :type show_output: bool
+        :param verbose: Whether to enable verbose output.
+        :type verbose: bool
+        :param resolved_kernel: Optional resolved kernel path.
+        :type resolved_kernel: str or None
+
+        :raises RuntimeError: If the run was not successful.
         """
+        # If init or timeout are set they override config
         # penguin_run will run panda directly which might exit (or crash/hang)
         # and definitely will close stdout/stderr which will break subsequent
         # python prints.

@@ -1,3 +1,13 @@
+"""
+penguin.gen_image
+=================
+
+Filesystem image generation utilities for the Penguin emulation environment.
+
+This module provides functions for generating disk images, adding required files,
+and handling image creation via CLI or programmatically.
+"""
+
 import logging
 import os
 import subprocess
@@ -31,7 +41,15 @@ is another file system
 logger = getColoredLogger("penguin.gen_image")
 
 
-def get_mount_type(path):
+def get_mount_type(path: str) -> str | None:
+    """
+    Get the filesystem type of the mount at the given path.
+
+    :param path: Path to check.
+    :type path: str
+    :return: Filesystem type string or None.
+    :rtype: str or None
+    """
     try:
         stat_output = subprocess.check_output(["stat", "-f", "-c", "%T", path])
         return stat_output.decode("utf-8").strip().lower()
@@ -39,7 +57,15 @@ def get_mount_type(path):
         return None
 
 
-def tar_add_min_files(tf_path, config):
+def tar_add_min_files(tf_path: str, config: dict) -> None:
+    """
+    Add minimal required files to a tar archive for the image.
+
+    :param tf_path: Path to the tar file.
+    :type tf_path: str
+    :param config: Configuration dictionary.
+    :type config: dict
+    """
     arch_dir = get_arch_dir(config)
     with tarfile.open(tf_path, "a") as tf:
         # Add igloo/ directory
@@ -90,7 +116,19 @@ def tar_add_min_files(tf_path, config):
         tf.add(driver, arcname="igloo/boot/igloo.ko", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
 
 
-def make_image(fs, out, artifacts, config):
+def make_image(fs: str, out: str, artifacts: str | None, config: dict) -> None:
+    """
+    Generate a new disk image from the given filesystem and configuration.
+
+    :param fs: Path to input filesystem tarball.
+    :type fs: str
+    :param out: Path to output qcow image.
+    :type out: str
+    :param artifacts: Path to artifacts directory.
+    :type artifacts: str or None
+    :param config: Configuration dictionary.
+    :type config: dict
+    """
     logger.debug("Generating new image from config...")
     IN_TARBALL = Path(fs)
     ARTIFACTS = Path(artifacts or "/tmp")
@@ -151,7 +189,24 @@ def make_image(fs, out, artifacts, config):
             _make_img(TMP_DIR, QCOW, delete_tar)
 
 
-def fakeroot_gen_image(fs, out, artifacts, proj_dir, config):
+def fakeroot_gen_image(fs: str, out: str, artifacts: str, proj_dir: str, config: str) -> str:
+    """
+    Run image generation under fakeroot.
+
+    :param fs: Path to input filesystem tarball.
+    :type fs: str
+    :param out: Path to output qcow image.
+    :type out: str
+    :param artifacts: Path to artifacts directory.
+    :type artifacts: str
+    :param proj_dir: Path to project directory.
+    :type proj_dir: str
+    :param config: Path to config file.
+    :type config: str
+    :return: Path to generated image.
+    :rtype: str
+    :raises Exception: If image generation fails.
+    """
     o = Path(out)
     cmd = [
         "fakeroot",
@@ -186,7 +241,23 @@ def fakeroot_gen_image(fs, out, artifacts, proj_dir, config):
 @click.option("--proj", required=True, help="Path to a project directory")
 @click.option("--config", default=None, help="Path to config file")
 @click.option("-v", "--verbose", count=True)
-def makeImage(fs, out, artifacts, proj, config, verbose):
+def makeImage(fs: str, out: str, artifacts: str | None, proj: str, config: str, verbose: int) -> None:
+    """
+    CLI entrypoint for image generation.
+
+    :param fs: Path to input filesystem tarball.
+    :type fs: str
+    :param out: Path to output qcow image.
+    :type out: str
+    :param artifacts: Path to artifacts directory.
+    :type artifacts: str or None
+    :param proj: Path to project directory.
+    :type proj: str
+    :param config: Path to config file.
+    :type config: str
+    :param verbose: Verbosity level.
+    :type verbose: int
+    """
     if verbose:
         logger.setLevel(logging.DEBUG)
 

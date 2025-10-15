@@ -1,21 +1,28 @@
-# This file contains default values for penguin configuration
-# We specify a default init script, and a set of default plugins
-# along with their descriptions and default settings.
+"""
+penguin.defaults
+================
+
+Default values and configuration templates for the Penguin emulation environment.
+
+This module provides default scripts, plugin settings, device models, and
+library injection mappings used throughout Penguin.
+"""
+
 from copy import deepcopy
 from os.path import dirname
 
-vnc_password = "IGLOOPassw0rd!"
+vnc_password: str = "IGLOOPassw0rd!"
 
-default_version = 2
-static_dir = "/igloo_static/"
+default_version: int = 2
+static_dir: str = "/igloo_static/"
 # XXX in config_patchers we append .0 to this - may need to update
-DEFAULT_KERNEL = "4.10"
+DEFAULT_KERNEL: str = "4.10"
 
 # Where are plugins in the filesystem. These are our standard pyplugins
 # that we use for env, pseudofiles, etc.
-default_plugin_path = "/pyplugins"
+default_plugin_path: str = "/pyplugins"
 
-default_netdevs = (
+default_netdevs: list[str] = (
     [f"eth{x}" for x in range(6)]
     + [f"wlan{x}" for x in range(6)]
     + [f"eno{x}" for x in range(3)]
@@ -24,14 +31,14 @@ default_netdevs = (
 )
 
 # Resolve current path then go to ../resources/init.sh
-default_init_script = open(
+default_init_script: str = open(
     f"{dirname(dirname(__file__))}/resources/init.sh").read()
 
 # Resolve current path then go to ../resources/preinit.sh
-default_preinit_script = open(
+default_preinit_script: str = open(
     f"{dirname(dirname(__file__))}/resources/preinit.sh").read()
 
-default_plugins = {
+default_plugins: dict[str, dict] = {
     "core": {},
     "netbinds": {
     },
@@ -59,7 +66,7 @@ default_plugins = {
 
 # Hardcoded device list and acos ioctls are from Firmadyne/FirmAE
 # https://github.com/pr0v3rbs/FirmAE_kernel-v4.1/blob/master/drivers/firmadyne/devfs_stubs.c#L37-L52
-_default_pseudo_model = {
+_default_pseudo_model: dict = {
     "read": {
         "model": "zero",
     },
@@ -68,7 +75,7 @@ _default_pseudo_model = {
     }
 }
 
-_default_dev_model = deepcopy(_default_pseudo_model)
+_default_dev_model: dict = deepcopy(_default_pseudo_model)
 _default_dev_model["ioctl"] = {
     "*": {
         "model": "return_const",
@@ -77,7 +84,7 @@ _default_dev_model["ioctl"] = {
 }
 
 # Hardcoded ioctl models for some devices from FirmAE
-_dev_acos_pseudo_model = deepcopy(_default_dev_model)
+_dev_acos_pseudo_model: dict = deepcopy(_default_dev_model)
 _dev_acos_pseudo_model["ioctl"].update({
     0x40046431: {"model": "return_const", "val": 1},
     0x80046431: {"model": "return_const", "val": 1},
@@ -85,7 +92,7 @@ _dev_acos_pseudo_model["ioctl"].update({
     0x80046432: {"model": "return_const", "val": 1},
 })
 
-expert_knowledge_pseudofiles = {
+expert_knowledge_pseudofiles: dict[str, dict] = {
     # Reasonable generic /dev entries
     "/dev/gpio": _default_dev_model,
     "/dev/nvram": _default_dev_model,
@@ -125,14 +132,14 @@ expert_knowledge_pseudofiles = {
 }
 
 # LIB INJECT MAPPINGS
-default_libinject_string_introspection = {
+default_libinject_string_introspection: dict[str, str] = {
     "strcmp": "libinject_strcmp",
     "strncmp": "libinject_strncmp",
     "getenv": "libinject_getenv",
     "strstr": "libinject_strstr"
 }
 
-atheros_broadcom = {
+atheros_broadcom: dict[str, str] = {
     "nvram_get_nvramspace": "libinject_nvram_get_nvramspace",
     "nvram_nget": "libinject_nvram_nget",
     "nvram_nset": "libinject_nvram_nset",
@@ -140,16 +147,16 @@ atheros_broadcom = {
     "nvram_nmatch": "libinject_nvram_nmatch"
 }
 
-realtek = {
+realtek: dict[str, str] = {
     "apmib_get": "libinject_apmib_get",
     "apmib_set": "libinject_apmib_set"
 }
 
-netgear_acos = {
+netgear_acos: dict[str, str] = {
     "WAN_ith_CONFIG_GET": "libinject_WAN_ith_CONFIG_GET"
 }
 
-zyxel_or_edimax = {
+zyxel_or_edimax: dict[str, str] = {
     "nvram_getall_adv": "libinject_nvram_getall_adv",
     "nvram_get_adv": "libinject_nvram_get_adv",
     "nvram_set_adv": "libinject_nvram_set_adv",
@@ -166,13 +173,13 @@ zyxel_or_edimax = {
     "envram_unset": "libinject_envram_unset"
 }
 
-ralink = {
+ralink: dict[str, str] = {
     "nvram_bufget": "libinject_nvram_bufget",
     "nvram_bufset": "libinject_nvram_bufset"
 }
 
 # One to one mappings of orig fn to shim
-base_names = {
+base_names: dict[str, str] = {
     "nvram_init": "libinject_nvram_init",
     "nvram_reset": "libinject_nvram_reset",
     "nvram_clear": "libinject_nvram_clear",
@@ -197,7 +204,7 @@ base_names = {
 }
 
 # Alternative names for the same function
-base_aliases = {
+base_aliases: dict[str, str] = {
     # Some seem sort of reasonable/generic (load -> init?)
     "nvram_load": "libinject_nvram_init",
     "nvram_loaddefault": "libinject_ret_1",
@@ -271,7 +278,7 @@ base_aliases = {
 }
 
 # All variables together
-default_lib_aliases = {k: v for x in [
+default_lib_aliases: dict[str, str] = {k: v for x in [
     atheros_broadcom,
     realtek,
     netgear_acos,

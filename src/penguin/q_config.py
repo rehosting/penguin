@@ -1,6 +1,16 @@
+"""
+penguin.q_config
+================
+
+QEMU configuration utilities for the Penguin emulation environment.
+
+This module provides architecture-specific QEMU configuration mappings and
+a helper function to load the configuration for a given architecture.
+"""
+
 # Note armel is just panda-system-arm and mipseb is just panda-system-mips
-ROOTFS = "/dev/vda"  # Common to all
-qemu_configs = {
+ROOTFS: str = "/dev/vda"  # Common to all
+qemu_configs: dict[str, dict[str, str]] = {
     "armel": {
         "qemu_machine": "virt",
         "arch": "arm",
@@ -61,7 +71,18 @@ qemu_configs = {
 }
 
 
-def load_q_config(conf):
+def load_q_config(conf: dict) -> dict[str, str]:
+    """
+    Load the QEMU configuration for the given architecture.
+
+    :param conf: Configuration dictionary containing 'core' and 'arch' keys.
+    :type conf: dict
+
+    :return: QEMU configuration dictionary for the specified architecture.
+    :rtype: dict[str, str]
+
+    :raises ValueError: If the architecture is unknown.
+    """
     archend = conf["core"]["arch"]
     try:
         q_config = qemu_configs[archend]
