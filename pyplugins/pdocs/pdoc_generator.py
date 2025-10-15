@@ -53,6 +53,9 @@ class SphinxGenerator(Plugin):
         # Build HTML
         self._build_html()
 
+        # Build PDF
+        self._build_pdf()
+
         # Zip result
         zip_path = shutil.make_archive(str(self.html_dir), "zip", str(self.html_dir))
         self.logger.info(f"Zipped documentation at: {zip_path}")
@@ -97,13 +100,17 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx.ext.todo",
     "myst_parser",
+    'notfound.extension',
+    'sphinx_copybutton',
+    'sphinxemoji.sphinxemoji',
+    'sphinx_last_updated_by_git',
 ]
 autosummary_generate = True
 templates_path = ["_templates"]
 exclude_patterns = []
 html_theme = "furo"
 html_static_path = ["_static"]
-html_title = "Penguin Auto Docs"
+html_title = "Penguin Docs"
 html_theme_options = {{
     "sidebar_hide_name": False,
     "navigation_with_keys": True,
@@ -143,6 +150,15 @@ suppress_warnings = [
     "autodoc.import_object",
     "ref.ref",
 ]
+
+autodoc_default_options = {{
+    "members": True,
+    "undoc-members": True,
+    "show-inheritance": True,
+}}
+autodoc_docstring_signature = True
+autodoc_typehints = "description"
+
 
 master_doc = "index"
 language = "en"
@@ -199,7 +215,7 @@ def setup(app):
 
         # Header
         lines = [
-            "Welcome to Penguin Documentation",
+            "Penguin Documentation",
             "=================================\n",
             ".. toctree::",
             "   :maxdepth: 3",
@@ -223,7 +239,7 @@ def setup(app):
         ])
 
         # Add top-level modules (pyplugins, penguin, events)
-        for mod in top_level_modules:
+        for mod in top_level_modules[::-1]:
             lines.append(f"   {mod}")
 
         # Write index file
@@ -241,3 +257,39 @@ def setup(app):
             str(self.html_dir),
         ])
         self.logger.info(f"Sphinx documentation built successfully at: {self.html_dir}")
+
+    def _build_pdf(self):
+        self.logger.info("Building Sphinx PDF documentation...")
+
+        latex_dir = self.outdir / "sphinx" / "latex"
+        pdf_path = latex_dir / "PenguinDocumentation.pdf"
+
+        # Step 1: Build LaTeX source files
+        sphinx_build.main([
+            "-b", "latex",
+            str(self.source_dir),
+            str(latex_dir),
+        ])
+        
+        sphinx_build.main([
+            "-b", "latex",
+            str(self.source_dir),
+            str(latex_dir),
+        ])
+
+        # Step 2: Find the main .tex file (usually named after the project)
+        tex_files = list(latex_dir.glob("*.tex"))
+        if not tex_files:
+            self.logger.error("No .tex file found after LaTeX build.")
+            return
+        main_tex = tex_files[0]
+
+        # Step 3: Run pdflatex (twice for references)
+        self.logger.info(f"Compiling {main_tex.name} to PDF...")
+        subprocess.run(["pdflatex", "-interaction=nonstopmode", str(main_tex)], cwd=latex_dir, check=True)
+        subprocess.run(["pdflatex", "-interaction=nonstopmode", str(main_tex)], cwd=latex_dir, check=True)
+
+        if pdf_path.exists():
+            self.logger.info(f"✅ PDF documentation built successfully: {pdf_path}")
+        else:
+            self.logger.warning(f"⚠️ PDF build finished but {pdf_path} not found.")
