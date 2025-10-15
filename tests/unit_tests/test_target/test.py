@@ -80,7 +80,7 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False):
     base_config["core"]["kernel"] = str(kernel)
 
     if docs_only:
-        base_config["plugins"]["pdoc_generator"] = {}
+        base_config["plugins"]["doc_generator"] = {}
 
     if test_file:
         logger.info(f"Running specific test: {test_file}")
