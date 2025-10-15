@@ -18,22 +18,22 @@ Example programmatic usage
 
 .. code-block:: python
 
-	from events import Event, Read, Write, Syscall, Exec
+    from events import Event, Read, Write, Syscall, Exec
 
-	# Querying events (using SQLAlchemy session):
-	session.query(Read).filter(Read.procname == "myproc").all()
+    # Querying events (using SQLAlchemy session):
+    session.query(Read).filter(Read.procname == "myproc").all()
 
 Example CLI usage
 -----------------
 
 .. code-block:: bash
 
-	execs --procname myproc --fd 3 --filename log.txt --output results.txt
-	reads --procname myproc --fd 4 --filename input.txt --output reads.txt
-	writes --procname myproc --fd 5 --filename output.txt --output writes.txt
-	syscalls --procname myproc --syscall open --errors --output syscalls.txt
-	fds --procname myproc --fd 3 --output fds.txt
-	tasks --results ./results/latest --output tasks.txt
+    execs --procname myproc --fd 3 --filename log.txt --output results.txt
+    reads --procname myproc --fd 4 --filename input.txt --output reads.txt
+    writes --procname myproc --fd 5 --filename output.txt --output writes.txt
+    syscalls --procname myproc --syscall open --errors --output syscalls.txt
+    fds --procname myproc --fd 3 --output fds.txt
+    tasks --results ./results/latest --output tasks.txt
 
 Available Types
 ---------------

@@ -15,7 +15,6 @@ import shutil
 import subprocess
 from pathlib import Path
 from penguin import Plugin, VERSION
-import sphinx
 from sphinx.cmd import build as sphinx_build
 
 
@@ -85,7 +84,7 @@ class SphinxGenerator(Plugin):
     def _generate_conf_py(self):
         conf_path = self.source_dir / "conf.py"
         conf_path.write_text(
-        f"""
+            f"""
 import os
 import sys
 from pathlib import Path
@@ -174,9 +173,8 @@ def setup(app):
         print(f"⚠️ Skipping parser registration: {{e}}")
 
 """
-    )
+        )
         self.logger.info(f"✅ Wrote patched Sphinx conf.py to {conf_path}")
-
 
     # -------------------------------------------------------------------------
     # Step 3: Generate .rst files for each module
@@ -270,7 +268,7 @@ def setup(app):
             str(self.source_dir),
             str(latex_dir),
         ])
-        
+
         sphinx_build.main([
             "-b", "latex",
             str(self.source_dir),
