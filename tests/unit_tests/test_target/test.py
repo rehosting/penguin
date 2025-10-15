@@ -124,7 +124,6 @@ def test(kernel, arch, image, test_file, docs_only):
     else:
         logger.info(f"Running all tests for {kernel} on {arch}")
 
-
     # Allow DEFAULT_ARCHES plus any arches referenced in NONDEFAULT_KERNEL_ARCHES
     allowed_arches = set(DEFAULT_ARCHES)
     for arches in NONDEFAULT_KERNEL_ARCHES.values():
