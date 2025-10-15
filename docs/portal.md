@@ -30,12 +30,10 @@ struct mem_region {
 ### Basic Usage Pattern
 
 ```python
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import getColoredLogger, plugins, Plugin
 
-class MemoryAccess(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class MemoryAccess(Plugin):
+    def __init__(self):
         self.logger = getColoredLogger("plugins.memory_access")
         
         self.panda.hsyscall("on_sys_read_return")(self.on_read)
@@ -114,8 +112,7 @@ void table_del(int argc, char *argv[])
 Using Hypermem combined with hypersyscalls filtering capabilities, we can create a plugin that specifically targets IOCTL system calls for the RALink Ethernet device and provides appropriate register values to allow the device to boot:
 
 ```python
-from pandare2 import PyPlugin
-from penguin import getColoredLogger, plugins
+from penguin import getColoredLogger, plugins, Plugin
 
 # RALink Ethernet register definitions
 RAETH_ESW_REG_READ = 0x89F1
@@ -123,9 +120,8 @@ REG_ESW_WT_MAC_AD0 = 0x34
 REG_ESW_WT_MAC_ATC = 0x80
 REG_ESW_TABLE_STATUS0 = 0x90
 
-class RAEthPlugin(PyPlugin):
-    def __init__(self, panda):
-        self.panda = panda
+class RAEthPlugin(Plugin):
+    def __init__(self):
         self.logger = getColoredLogger("plugins.raeth")
         
         # Register our callback for IOCTL syscalls with specific filtering
