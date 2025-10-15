@@ -120,7 +120,8 @@ class ArgsBox:
         """
         if key not in self.args:
             return default
-        if x := interpret_bool(self.args[key]) is not None:
+        x = interpret_bool(self.args[key])
+        if x is not None:
             return x
         raise ValueError(f"Unsupported arg type: {type(self.args[key])}")
 
