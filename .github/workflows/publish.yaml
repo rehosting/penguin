@@ -7,7 +7,7 @@ on:
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -89,9 +89,6 @@ jobs:
                 OVERRIDE_VERSION=${{ steps.version.outputs.v-version }}
                 REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy
           
-          - name: Check out code for config generation
-            uses: actions/checkout@v4
-
           - name: Set up Python for config schema
             uses: actions/setup-python@v5
             with:
@@ -153,13 +150,14 @@ jobs:
           - name: Generate Docs
             run: |
               timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py -i rehosting/penguin:docs --docs-only
-              cp $GITUB_WORKSPACE/tests/unit_tests/test_target/results/latest/sphinx/latex/penguin.pdf $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/latest/sphinx/html
+              cp $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/latest/sphinx/latex/penguin.pdf $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/latest/sphinx/html
+              tar -czvf $GITHUB_WORKSPACE/docs.tar.gz -C $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/latest/sphinx/html .
 
           - name: Upload artifact
             uses: actions/upload-artifact@v4
             with:
               name: html
-              path: ${{ github.workspace }}/tests/unit_tests/test_target/results/latest/sphinx/html.zip
+              path: ${{ github.workspace }}/docs.tar.gz
 
           - name: Create release
             id: create_release
@@ -177,7 +175,7 @@ jobs:
               files: |
                 config_schema.yaml
                 ${{ github.workspace }}/tests/unit_tests/test_target/results/latest/sphinx/latex/penguin.pdf 
-                ${{ github.workspace }}/tests/unit_tests/test_target/results/latest/sphinx/html.zip
+                ${{ github.workspace }}/tests/unit_tests/test_target/results/latest/sphinx/docs.tar.gz
     
     deploy_static:
       needs: build_container
@@ -186,8 +184,6 @@ jobs:
         name: github-pages
         url: ${{ steps.deployment.outputs.page_url }}
       steps:
-      - name: Checkout
-        uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Download artifact
@@ -195,7 +191,9 @@ jobs:
         with:
           name: html
       - name: Unzip HTML
-        run: unzip html -d html_content
+        run: |
+          mkdir html_content
+          tar -xvf docs.tar.gz -C html_content
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
