@@ -148,6 +148,9 @@ jobs:
               cache-to: |
                 type=registry,ref=${{ secrets.REHOSTING_ARC_REGISTRY }}/rehosting/penguin:cache_docs,mode=max
           
+          - name: Install dependencies
+            run: pip install click pyyaml
+          
           - name: Generate Docs
             run: |
               timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py -i rehosting/penguin:docs --docs-only
