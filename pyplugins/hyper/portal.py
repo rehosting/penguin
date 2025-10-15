@@ -198,7 +198,7 @@ class Portal(Plugin):
         Parameters:
         - plugin_name (str): Name of the plugin.
         - handler_fn (Callable[[], Iterator]): Function to handle interrupts for this plugin.
-        
+
         Must be a generator function that can be used with yield from.
 
         Returns: None

@@ -475,7 +475,7 @@ class Pseudofiles(Plugin):
             self.dump_results()
             self.logger.debug(f"New ioctl failure observed: {cmd:x} on {path}")
 
-    def read_zero(self, filename, buffer, length, offset, contents, details=None):
+    def read_zero(self, filename, buffer, length, offset, details=None):
         # Simple peripheral model inspired by firmadyne/firmae. Just return 0.
         # If we've seen a write to this device, mix that data in with 0s
         # padding around it

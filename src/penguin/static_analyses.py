@@ -527,36 +527,37 @@ class PseudofileFinder(StaticAnalysis):
     """
     Find device and proc pseudofiles in the extracted filesystem.
     """
-    IGLOO_ADDED_DEVICES: list[str] = ["autofs", "btrfs-control", "cfs0", "cfs1", "cfs2", "cfs3",
-                           "cfs4", "console", "cpu_dma_latency", "full", "fuse", "input", "kmsg",
-                           "loop-control", "loop0", "loop1", "loop2", "loop3", "loop4",
-                           "loop5", "loop6", "loop7", "mem", "memory_bandwidth", "mice", "net",
-                           "network_latency", "network_throughput", "null", "port", "ppp",
-                           "psaux", "ptmx", "pts", "ptyp0", "ptyp1", "ptyp2", "ptyp3", "ptyp4",
-                           "ptyp5", "ptyp6", "ptyp7", "ptyp8", "ptyp9", "ptypa", "ptypb",
-                           "ptypc", "ptypd", "ptype", "ptypf", "ram", "ram0", "ram1", "ram10",
-                           "ram11", "ram12", "ram13", "ram14", "ram15", "ram2", "ram3",
-                           "ram4", "ram5", "ram6", "ram7", "ram8", "ram9", "random", "root",
-                           "tty", "tty0", "tty1", "tty10", "tty11", "tty12", "tty13",
-                           "tty14", "tty15", "tty16", "tty17", "tty18", "tty19", "tty2",
-                           "tty20", "tty21", "tty22", "tty23", "tty24", "tty25", "tty26",
-                           "tty27", "tty28", "tty29", "tty3", "tty30", "tty31", "tty32",
-                           "tty33", "tty34", "tty35", "tty36", "tty37", "tty38", "tty39",
-                           "tty4", "tty40", "tty41", "tty42", "tty43", "tty44", "tty45",
-                           "tty46", "tty47", "tty48", "tty49", "tty5", "tty50", "tty51",
-                           "tty52", "tty53", "tty54", "tty55", "tty56", "tty57", "tty58",
-                           "tty59", "tty6", "tty60", "tty61", "tty62", "tty63", "tty7",
-                           "tty8", "tty9",
-                           "ttyS0", "ttyS1", "ttyS2", "ttyS3",
-                           "ttyp0",
-                           "ttyp1", "ttyp2", "ttyp3", "ttyp4", "ttyp5", "ttyp6", "ttyp7",
-                           "ttyp8", "ttyp9", "ttypa", "ttypb", "ttypc", "ttypd", "ttype",
-                           "ttypf", "tun", "urandom", "vcs", "vcs1", "vcsa", "vcsa1", "vda",
-                           "vga_arbiter", "vsock", "zero",
-                           "root", "pts",  # Added in init
-                           "ttyAMA0", "ttyAMA1",  # ARM
-                           "stdin", "stdout", "stderr",  # Symlinks to /proc/self/fd/X
-                           ]
+    IGLOO_ADDED_DEVICES: list[str] = [
+        "autofs", "btrfs-control", "cfs0", "cfs1", "cfs2", "cfs3",
+        "cfs4", "console", "cpu_dma_latency", "full", "fuse", "input", "kmsg",
+        "loop-control", "loop0", "loop1", "loop2", "loop3", "loop4",
+        "loop5", "loop6", "loop7", "mem", "memory_bandwidth", "mice", "net",
+        "network_latency", "network_throughput", "null", "port", "ppp",
+        "psaux", "ptmx", "pts", "ptyp0", "ptyp1", "ptyp2", "ptyp3", "ptyp4",
+        "ptyp5", "ptyp6", "ptyp7", "ptyp8", "ptyp9", "ptypa", "ptypb",
+        "ptypc", "ptypd", "ptype", "ptypf", "ram", "ram0", "ram1", "ram10",
+        "ram11", "ram12", "ram13", "ram14", "ram15", "ram2", "ram3",
+        "ram4", "ram5", "ram6", "ram7", "ram8", "ram9", "random", "root",
+        "tty", "tty0", "tty1", "tty10", "tty11", "tty12", "tty13",
+        "tty14", "tty15", "tty16", "tty17", "tty18", "tty19", "tty2",
+        "tty20", "tty21", "tty22", "tty23", "tty24", "tty25", "tty26",
+        "tty27", "tty28", "tty29", "tty3", "tty30", "tty31", "tty32",
+        "tty33", "tty34", "tty35", "tty36", "tty37", "tty38", "tty39",
+        "tty4", "tty40", "tty41", "tty42", "tty43", "tty44", "tty45",
+        "tty46", "tty47", "tty48", "tty49", "tty5", "tty50", "tty51",
+        "tty52", "tty53", "tty54", "tty55", "tty56", "tty57", "tty58",
+        "tty59", "tty6", "tty60", "tty61", "tty62", "tty63", "tty7",
+        "tty8", "tty9",
+        "ttyS0", "ttyS1", "ttyS2", "ttyS3",
+        "ttyp0",
+        "ttyp1", "ttyp2", "ttyp3", "ttyp4", "ttyp5", "ttyp6", "ttyp7",
+        "ttyp8", "ttyp9", "ttypa", "ttypb", "ttypc", "ttypd", "ttype",
+        "ttypf", "tun", "urandom", "vcs", "vcs1", "vcsa", "vcsa1", "vda",
+        "vga_arbiter", "vsock", "zero",
+        "root", "pts",  # Added in init
+        "ttyAMA0", "ttyAMA1",  # ARM
+        "stdin", "stdout", "stderr",  # Symlinks to /proc/self/fd/X
+    ]
 
     IGLOO_PROCFS: list[str] = [
         "buddyinfo",
