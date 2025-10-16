@@ -569,7 +569,7 @@ The string with the contents of the pseudofile
 ###### `pseudofiles.<string>.read.<model=const_map>.vals` Mapping from file offsets to data
 
 
-####### `pseudofiles.<string>.read.<model=const_map>.vals.<integer>` Data to place in the file at an offset
+###### `pseudofiles.<string>.read.<model=const_map>.vals.<integer>` Data to place in the file at an offset
 
 |||
 |-|-|
@@ -614,7 +614,7 @@ When this is a list of integers, it treated as a byte array. When this is a list
 ###### `pseudofiles.<string>.read.<model=const_map_file>.vals` Mapping from file offsets to data
 
 
-####### `pseudofiles.<string>.read.<model=const_map_file>.vals.<integer>` Data to place in the file at an offset
+###### `pseudofiles.<string>.read.<model=const_map_file>.vals.<integer>` Data to place in the file at an offset
 
 |||
 |-|-|
@@ -783,14 +783,14 @@ plugin: my_plugin
 ###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=return_const>` Return a constant
 
 
-####### `pseudofiles.<string>.ioctl.<integer or "*">.<model=return_const>.model` ioctl modelling method (return a constant)
+###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=return_const>.model` ioctl modelling method (return a constant)
 
 |||
 |-|-|
 |__Type__|`"return_const"`|
 
 
-####### `pseudofiles.<string>.ioctl.<integer or "*">.<model=return_const>.val` Constant to return
+###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=return_const>.val` Constant to return
 
 |||
 |-|-|
@@ -800,7 +800,7 @@ plugin: my_plugin
 ###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=symex>` Symbolic execution
 
 
-####### `pseudofiles.<string>.ioctl.<integer or "*">.<model=symex>.model` ioctl modelling method (symbolic execution)
+###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=symex>.model` ioctl modelling method (symbolic execution)
 
 |||
 |-|-|
@@ -810,21 +810,21 @@ plugin: my_plugin
 ###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>` ioctl from a custom PyPlugin
 
 
-####### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>.model` ioctl modelling method (ioctl from a custom pyplugin)
+###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>.model` ioctl modelling method (ioctl from a custom pyplugin)
 
 |||
 |-|-|
 |__Type__|`"from_plugin"`|
 
 
-####### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>.plugin` Name of the loaded PyPlugin
 
 |||
 |-|-|
 |__Type__|string|
 
 
-####### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>.function` Function to call
+###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>.function` Function to call
 
 |||
 |-|-|
