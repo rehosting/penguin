@@ -66,7 +66,7 @@ def gen_docs_field(path, docs_field, include_type=True):
     assert (
         docs_field.title is not None
     ), f"config option {path} has no title: {docs_field}"
-    heading_hashes = "#" * (len(path) + 1)
+    heading_hashes = "#" * min(len(path) + 1, 6)
     include_docs = docs_field.default is not PydanticUndefined
     path_prefix = f"`{'.'.join(path)}` " if path else ""
     out = ""
