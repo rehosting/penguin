@@ -12,6 +12,17 @@ except ImportError:
     import structure
 
 
+def type_has_simple_name(ty):
+    """
+    Determine whether a type is a regular Python type and not a Pydantic model class.
+    """
+    try:
+        gen_docs_type_name(ty)
+        return True
+    except ValueError:
+        return False
+
+
 def gen_docs_yaml_dump(x):
     """
     Convert x to YAML for use in generated docs.
@@ -90,6 +101,17 @@ def gen_docs_field(path, docs_field, include_type=True):
         out += gen_docs_yaml_dump(e) + "\n"
         out += "```\n"
         out += "\n"
+    return out
+
+
+def gen_docs_compact_field_table(fields):
+    out = "|Field|Type|Default|Description|\n"
+    out += "|-|-|-|-|\n"
+    for name, field in fields.items():
+        field = DocsField.from_field(field)
+        type_name = gen_docs_type_name(field.type_)
+        default = "" if field.default is PydanticUndefined else "`" + gen_docs_yaml_dump(field.default) + "`"
+        out += f"|`{name}`|{type_name}|{default}|{field.title}|\n"
     return out
 
 
@@ -223,12 +245,23 @@ def gen_docs(path=[], docs_field=DocsField.from_type(structure.Main)):
     elif is_model:
         # The type inherits `BaseModel` but not `RootModel`
 
+        # Render high-level info before specific sub-fields
         out += gen_docs_field(path=path, docs_field=docs_field, include_type=False)
-        for name, info in type_.model_fields.items():
-            out += gen_docs(
-                path=path + [name],
-                docs_field=DocsField.from_field(info),
-            )
+
+        all_fields_have_simple_types = all(
+            type_has_simple_name(field.annotation)
+            for field in type_.model_fields.values()
+        )
+        if all_fields_have_simple_types:
+            # We can render this as one compact table since there is no recursive structure here
+            out += gen_docs_compact_field_table(type_.model_fields)
+        else:
+            # Recursively render docs for each field
+            for name, info in type_.model_fields.items():
+                out += gen_docs(
+                    path=path + [name],
+                    docs_field=DocsField.from_field(info),
+                )
     elif type_origin is dict:
         # The type is `dict[T, U]`.
 
