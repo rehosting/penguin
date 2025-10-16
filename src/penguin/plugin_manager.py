@@ -199,12 +199,15 @@ class Plugin:
 
         return None
 
-    def get_arg_bool(self, arg_name: str) -> bool:
+    def get_arg_bool(self, arg_name: str, default: bool = False) -> bool:
         """
         Returns True if the argument is set and has a truthy value.
 
         :param arg_name: The name of the argument to retrieve.
         :type arg_name: str
+
+        :param default: The default value to return if the argument is not set.
+        :type arg_name: bool
 
         :return: True if the argument exists and has a truthy value, False otherwise.
         :rtype: bool
@@ -212,7 +215,7 @@ class Plugin:
         :raises ValueError: If the argument exists but has an unsupported type.
         """
         if arg_name not in self.args:
-            return False
+            return default
         if (x := interpret_bool(self.args[arg_name])) is not None:
             return x
 
@@ -882,12 +885,15 @@ class IGLOOPluginManager:
 
         return None
 
-    def get_arg_bool(self, arg_name: str) -> bool:
+    def get_arg_bool(self, arg_name: str, default: bool = False) -> bool:
         """
         Returns True if the argument is set and has a truthy value.
 
         :param arg_name: The name of the argument to retrieve.
         :type arg_name: str
+
+        :param default: The default value to return if the argument is not set.
+        :type arg_name: bool
 
         :return: True if the argument exists and has a truthy value, False otherwise.
         :rtype: bool
@@ -895,7 +901,7 @@ class IGLOOPluginManager:
         :raises ValueError: If the argument exists but has an unsupported type.
         """
         if arg_name not in self.args:
-            return False
+            return default
         if (x := interpret_bool(self.args[arg_name])) is not None:
             return x
 
