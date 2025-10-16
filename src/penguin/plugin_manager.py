@@ -213,7 +213,7 @@ class Plugin:
         """
         if arg_name not in self.args:
             return False
-        if x := interpret_bool(self.args[arg_name]) is not None:
+        if (x := interpret_bool(self.args[arg_name])) is not None:
             return x
 
         raise ValueError(f"Unsupported arg type: {type(self.args[arg_name])}")
@@ -896,7 +896,7 @@ class IGLOOPluginManager:
         """
         if arg_name not in self.args:
             return False
-        if x := interpret_bool(self.args[arg_name]) is not None:
+        if (x := interpret_bool(self.args[arg_name])) is not None:
             return x
 
         raise ValueError(f"Unsupported arg type: {type(self.args[arg_name])}")
