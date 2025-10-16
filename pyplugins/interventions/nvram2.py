@@ -36,6 +36,7 @@ from penguin.abi_info import ARCH_ABI_INFO
 import subprocess
 import os
 import hashlib
+import glob
 from pathlib import Path
 
 log = "nvram.csv"
@@ -93,7 +94,18 @@ def add_lib_inject_for_abi(config, abi, cache_dir):
         + abi_info.get("extra_flags", [])
     )
     # Create a hash of all relevant inputs for caching
+    source_files_content = []
+    for pattern in ["/igloo_static/libnvram/*.c", "/igloo_static/libnvram/*.h"]:
+        for file_path in glob.glob(pattern):
+            try:
+                with open(file_path, 'rb') as f:
+                    source_files_content.append(f.read())
+            except Exception:
+                pass  # Ignore files that can't be read
+
     hash_input = str((arch, abi, aliases, lib_inject.get("extra", ""), args)).encode()
+    for content in source_files_content:
+        hash_input += content
     cache_key = hashlib.sha256(hash_input).hexdigest()
     cache_path = cache_dir / f"lib_inject_{arch}_{abi}_{cache_key}.so"
 
