@@ -56,6 +56,9 @@ def calculate_score(result_dir: str, have_console: bool = True) -> dict[str, int
     :raises RuntimeError: If required files are missing.
     :raises ValueError: If an unknown score type is encountered.
     """
+    health_data = {}
+    config = {}
+    blocked_signals = 0
     if not os.path.isfile(os.path.join(result_dir, ".ran")):
         raise RuntimeError(
             f"calculate_score: {result_dir} does not have a .ran file - check logs for error"
@@ -96,8 +99,11 @@ def calculate_score(result_dir: str, have_console: bool = True) -> dict[str, int
                     break
 
     # Shell cov: number of lines (minus one) in shell_cov.csv
-    with open(f"{result_dir}/shell_cov.csv") as f:
-        shell_cov = len(f.readlines()) - 1
+    if os.path.isfile(f"{result_dir}/shell_cov.csv"):
+        with open(f"{result_dir}/shell_cov.csv") as f:
+            shell_cov = len(f.readlines()) - 1
+    else:
+        shell_cov = 0
 
     # Coverage: processes, modules, blocks
     if os.path.isfile(f"{result_dir}/coverage.csv"):
@@ -125,18 +131,19 @@ def calculate_score(result_dir: str, have_console: bool = True) -> dict[str, int
         modules_loaded = 0
         blocks_covered = 0
 
+    if config:
+        blocked_signals = -len(config.get("blocked_signals", []))
+
     score = {
-        "execs": health_data["nexecs"],
-        "bound_sockets": health_data["nbound_sockets"],
-        "devices_accessed": health_data["nuniquedevs"],
+        "execs": health_data.get("nexecs", 0),
+        "bound_sockets": health_data.get("nbound_sockets", 0),
+        "devices_accessed": health_data.get("nuniquedevs", 0),
         "processes_run": processes_run,
         "modules_loaded": modules_loaded,
         "blocks_covered": blocks_covered,
         "script_lines_covered": shell_cov,
         "nopanic": 1 if not panic else 0,
-        "blocked_signals": -len(
-            config["blocked_signals"] if "blocked_signals" in config else []
-        ),  # Negative because we want to minimize!
+        "blocked_signals": blocked_signals,  # Negative because we want to minimize!
     }
 
     for k in score.keys():
