@@ -163,6 +163,11 @@ class MappingsWrapper(ArrayWrapper):
             if name in mapping.name:
                 mappings.append(mapping)
         return mappings
+    
+    def get_first_mapping_by_name(self, name: str) -> Optional[MappingWrapper]:
+        """Find the first (lowest in memory) mapping whose name contains the given string."""
+        if m := self.get_mappings_by_name(name):
+            return sorted(m, key=lambda x: x.start)[0]
 
     def __str__(self) -> str:
         """Return a string representation of all mappings."""
