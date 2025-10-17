@@ -1,10 +1,25 @@
-from .arch_id import ArchId
-from .init_finder import InitFinder
-from .kernel_version_finder import KernelVersionFinder
-from .env_finder import EnvFinder
-from .pseudofile_finder import PseudofileFinder
-from .interface_finder import InterfaceFinder
-from .cluster_collector import ClusterCollector
-from .library_symbols import LibrarySymbols
+import importlib
+import pkgutil
+import sys
 
-# ...add future static analysis classes here...
+__all__ = []
+
+# Dynamically import all modules and expose their StaticAnalysis subclasses
+package = __name__
+for _, modname, ispkg in pkgutil.iter_modules(__path__):
+    if not ispkg:
+        module = importlib.import_module(f"{package}.{modname}")
+        for attr in dir(module):
+            obj = getattr(module, attr)
+            # Check for StaticAnalysis subclasses (excluding the base class itself)
+            try:
+                from .base import StaticAnalysis
+                if (
+                    isinstance(obj, type)
+                    and issubclass(obj, StaticAnalysis)
+                    and obj is not StaticAnalysis
+                ):
+                    globals()[attr] = obj
+                    __all__.append(attr)
+            except ImportError:
+                pass
