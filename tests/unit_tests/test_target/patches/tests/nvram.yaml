@@ -1,0 +1,52 @@
+plugins:
+  verifier:
+    conditions:
+      nvram_pass:
+        type: file_contains
+        file: console.log
+        string: "/tests/nvram.sh PASS"
+nvram:
+  test_1: 1
+  test_foo: "foo"
+lib_inject:
+  aliases:
+    nvram_get: libinject_nvram_get
+    nvram_set: libinject_nvram_set
+
+static_files:
+  /tests/nvram.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      export LD_PRELOAD="/igloo/dylibs/lib_inject.so"
+
+      # Find the ld-musl loader, kinda hacky - sorry!
+      LD_MUSL=$(/igloo/utils/busybox ls /igloo/dylibs/ld-musl-*.so.1 | /igloo/utils/busybox head -1)
+      test_nvram="$LD_MUSL --preload $LD_PRELOAD /igloo/utils/test_nvram"
+
+      nvram_get() {
+          [ $# -eq 1 ] || { echo "Usage: nvram_get <key>" >&2; return 1; }
+          $test_nvram get "$1"
+      }
+
+      nvram_set() {
+          [ $# -eq 2 ] || { echo "Usage: nvram_get <key>" >&2; return 1; }
+          $test_nvram set "$1" "$2"
+      }
+
+      nvram_match() {
+          [ $# -eq 2 ] || { echo "Usage: nvram_match <key> <expected_value>" >&2; return 1; }
+          val=$(nvram_get "$1")
+          [ "$val" = "$2" ] || { echo "ERROR: $1 = '$val', expected '$2'" >&2; return 1; }
+      }
+
+      nvram_match test_1 "1" || exit 1
+      nvram_match test_foo "foo" || exit 1
+      nvram_set test_1 "42" || exit 1
+      nvram_match test_1 "42" || exit 1
+      nvram_set newkey "newval" || exit 1
+      nvram_match newkey "newval" || exit 1
+
+      echo "/tests/nvram.sh PASS"
+      exit 0
+    mode: 73
