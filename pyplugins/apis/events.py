@@ -66,6 +66,7 @@ EVENTS = {
     108:                ('igloo_nvram_get_hit',   (str,)),
     109:                ('igloo_nvram_set',       (str, str)),
     110:                ('igloo_nvram_clear',     (str,)),
+    111:                ('igloo_nvram_logging_enabled',     ()),
     iconsts.IGLOO_IPV4_SETUP:   ('igloo_ipv4_setup',      (str, int)),
     iconsts.IGLOO_IPV4_BIND:    ('igloo_ipv4_bind',       (int, bool)),
     iconsts.IGLOO_IPV6_SETUP:   ('igloo_ipv6_setup',      (str, int)),
