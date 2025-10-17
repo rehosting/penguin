@@ -642,29 +642,25 @@ class KFFI(Plugin):
         callback, num_args = entry
 
         self.logger.debug(f"Invoking trampoline callback for id={tramp_id}: {getattr(callback, '__name__', repr(callback))}")
-        try:
-            pt_regs_raw = yield from self.read_type(pt_regs_addr, "pt_regs")
-            pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
-            original_bytes = pt_regs.to_bytes()[:]
+        pt_regs_raw = yield from self.read_type(pt_regs_addr, "pt_regs")
+        pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
+        original_bytes = pt_regs.to_bytes()[:]
+        # Get args from pt_regs
+        if num_args > 1:
             # Get args from pt_regs
-            if num_args > 1:
-                # Get args from pt_regs
-                args = yield from pt_regs.get_args_portal(num_args - 1, convention="userland")
-            else:
-                args = []
-            # Call callback with pt_regs and args
-            result = callback(pt_regs, *args)
-            if isinstance(result, Iterator):
-                result = yield from result
-            # If callback returns int, set as return value
-            if isinstance(result, int):
-                pt_regs.set_retval(result)
-            new = pt_regs.to_bytes()
-            if original_bytes != new:
-                yield from plugins.mem.write_bytes(pt_regs_addr, new)
-
-        except Exception as e:
-            self.logger.error(f"Error in trampoline callback {callback.__name__}: {e}")
+            args = yield from pt_regs.get_args_portal(num_args - 1, convention="userland")
+        else:
+            args = []
+        # Call callback with pt_regs and args
+        result = callback(pt_regs, *args)
+        if isinstance(result, Iterator):
+            result = yield from result
+        # If callback returns int, set as return value
+        if isinstance(result, int):
+            pt_regs.set_retval(result)
+        new = pt_regs.to_bytes()
+        if original_bytes != new:
+            yield from plugins.mem.write_bytes(pt_regs_addr, new)
     
     def write_struct(self, addr: Union[int, Ptr], instance: BoundTypeInstance):
         if isinstance(addr, Ptr):
