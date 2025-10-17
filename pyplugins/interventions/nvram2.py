@@ -18,6 +18,7 @@ Usage
 The plugin can be configured with the following arguments:
 - `outdir`: Output directory for logs.
 - `verbose`: Enables debug logging for set operations.
+- `logging`: Enables or disables logging of NVRAM operations (default: True).
 
 Example
 -------
@@ -27,7 +28,7 @@ Example
     from penguin import plugins
     plugins.load("interventions.nvram2", outdir="/tmp", verbose=True)
 
-All NVRAM operations are logged to `nvram.csv` in the specified output directory.
+If logging is enabled, NVRAM operations are logged to `nvram.csv` in the specified output directory.
 
 """
 
@@ -212,14 +213,32 @@ class Nvram2(Plugin):
 
         config = self.get_arg("conf")
         proj_dir = self.get_arg("proj_dir")
+        self.logging_enabled = self.get_arg_bool("logging", default=True)
+        self.logger.info(f"logging nvram accesses: {self.logging_enabled}")
         cache_dir = Path(proj_dir).resolve() / "qcows" / "cache" if proj_dir else Path(os.path.dirname(os.path.abspath(__file__))).resolve() / "qcows" / "cache"
         os.makedirs(cache_dir, exist_ok=True)
         prep_config(config, cache_dir)
         # Even at debug level, logging every nvram get/clear can be very verbose.
         # As such, we only debug log nvram sets
 
-        with open(f"{self.outdir}/{log}", "w") as f:
-            f.write("key,access,value\n")
+        self.log_write("key,operation,value\n")
+
+    def log_write(self, entry: str) -> None:
+        """
+        Write a log entry to the CSV file.
+
+        Parameters
+        ----------
+        entry : str
+            Log entry to write
+
+        Returns
+        -------
+        None
+        """
+        if self.logging_enabled:
+            with open(f"{self.outdir}/{log}", "a") as f:
+                f.write(entry)
 
     @plugins.subscribe(plugins.Events, "igloo_nvram_get_hit")
     def on_nvram_get_hit(self, regs, key: str) -> None:
@@ -279,8 +298,7 @@ class Nvram2(Plugin):
         key = key.split("/")[-1]  # It's the full /igloo/libnvram_tmpfs/keyname path
 
         status = "hit" if hit else "miss"
-        with open(f"{self.outdir}/{log}", "a") as f:
-            f.write(f"{key},{status},\n")
+        self.log_write(f"{key},{status},\n")
         self.panda.arch.set_arg(regs, 1, 0)
         # self.logger.debug(f"nvram get {key} {status}")
 
@@ -305,8 +323,7 @@ class Nvram2(Plugin):
         if "/" not in key:
             return
         key = key.split("/")[-1]  # It's the full /igloo/libnvram_tmpfs/keyname path
-        with open(f"{self.outdir}/{log}", "a") as f:
-            f.write(f"{key},set,{newval}\n")
+        self.log_write(f"{key},set,{newval}\n")
         self.panda.arch.set_arg(regs, 1, 0)
         self.logger.debug(f"nvram set {key} {newval}")
 
@@ -329,8 +346,25 @@ class Nvram2(Plugin):
         if "/" not in key:
             return
         key = key.split("/")[-1]  # It's the full /igloo/libnvram_tmpfs/keyname path
-        with open(f"{self.outdir}/{log}", "a") as f:
-            f.write(f"{key},clear,\n")
+        self.log_write(f"{key},clear,\n")
         self.panda.arch.set_arg(regs, 1, 0)
         # self.logger.debug(f"nvram clear {key}")
         # self.logger.debug(f"nvram clear {key}")
+
+    @plugins.subscribe(plugins.Events, "igloo_nvram_logging_enabled")
+    def on_nvram_logging_enabled(self, regs,) -> None:
+        """
+        Handles and logs an NVRAM clear operation. Sets return value register to 1 if logging is enabled, 0 otherwise.
+
+        Parameters
+        ----------
+        regs : object
+            CPU register/context (opaque, framework-specific)
+
+        Returns
+        -------
+        None
+        """
+        rval = (1 if self.logging_enabled else 0)
+        self.logger.debug(f"nvram logging enabled query, returning {rval}")
+        self.panda.arch.set_retval(regs, rval)
