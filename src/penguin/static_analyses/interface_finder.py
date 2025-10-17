@@ -11,54 +11,114 @@ class InterfaceFinder(StaticAnalysis):
     """
     def run(self, extract_dir: str, prior_results: dict) -> dict[str, list[str]] | None:
         """
-        Find network interfaces using sysfs and command references.
+        Find network interfaces from:
+          - explicit /sys/class/net references (as before),
+          - command usages (ifconfig/ip/ifup/wpa_supplicant/etc.),
+          - distro/networkd/NM/udev configuration files (new: "configs" key).
 
-        :param extract_dir: Directory containing extracted filesystem.
-        :param prior_results: Results from previous analyses.
-        :return: Dict of interfaces found via sysfs and commands.
+        Return: dict[str, list[str]] | None  (backwards compatible)
+        Keys:
+          - "sysfs":    as before, filtered to exclude lo, veth*, br*
+          - "commands": as before (but more accurate grammar), filtered identically
+          - "configs":  new, unfiltered (lets you see bridges/veth/tunnels defined in config)
         """
-        pattern = re.compile(r"/sys/class/net/([a-zA-Z0-9_]+)", re.MULTILINE)
-        sys_net_ifaces = FileSystemHelper.find_regex(pattern, extract_dir).keys()
+        # ---------- helpers ----------
+        # Accept VLANs (eth0.100) and peer-suffixed (veth0@if5); kernel default is 15 chars.
+        IFACE = r"([A-Za-z0-9._:@-]{1,15})"
 
-        sys_net_ifaces = [i for i in sys_net_ifaces if not i.startswith("veth") and not i.startswith("br")
-                          and not i == "lo"]
+        def clean(name: str) -> str:
+            # strip peer suffixes like veth0@if5 -> veth0
+            return name.split('@', 1)[0]
 
-        interfaces = set()
+        # keep old deny behavior for sysfs/commands
+        bad_prefixes = ("veth", "br")
+        bad_vals = set(["lo","set","add","del","route","show","addr","link","up","down","flush","help","default"])
 
-        interface_regex = r"([a-zA-Z0-9][a-zA-Z0-9_-]{2,15})"
+        def filt_cmd_or_sysfs(names: set[str]) -> list[str]:
+            out = []
+            for n in names:
+                if not n or n.isnumeric():
+                    continue
+                if any(n.startswith(p) for p in bad_prefixes):
+                    continue
+                if n in bad_vals:
+                    continue
+                out.append(n)
+            return sorted(set(out))
+        
+        include_globs = (
+            "**/*.sh","**/*.conf","**/*.rules","**/*.service",
+            "**/*.network","**/*.netdev","**/*.link",
+            "**/ifcfg-*","**/*.nmconnection",
+            "**/init.d/*","**/rc*.d/*","**/default/*","**/systemd/network/*",
+        )
+        exclude_globs = ("**/*.so","**/*.ko*","**/*.bin","**/*.o","**/*.pyc","**/proc/**","**/sys/**","**/dev/**")
 
-        ifconfig_matches = re.compile(rf"ifconfig\s+{interface_regex}")
-        ip_link_matches = re.compile(rf"ip\s+(?:addr|link|route|add|set|show)\s+{interface_regex}")
-        ifup_down_matches = re.compile(rf"if(?:up|down)\s+{interface_regex}")
-        ethtool_matches = re.compile(rf"ethtool\s+{interface_regex}")
-        route_matches = re.compile(rf"route\s+(?:add|del)\s+{interface_regex}")
-        iwconfig_matches = re.compile(rf"iwconfig\s+{interface_regex}")
-        netstat_matches = re.compile(rf"netstat\s+-r\s+{interface_regex}")
-        ss_matches = re.compile(rf"ss\s+-i\s+{interface_regex}")
+        # ---------- 1) sysfs string references (legacy behavior, but interface charset expanded) ----------
+        sysfs_pat = re.compile(r"/sys/class/net/" + IFACE, re.MULTILINE)
+        sysfs_hits = FileSystemHelper.find_regex_scoped(sysfs_pat, extract_dir, globs_include=include_globs, globs_exclude=exclude_globs)
+        sysfs_raw = {clean(k) for k in sysfs_hits.keys()}
+        sysfs = filt_cmd_or_sysfs(sysfs_raw)
 
-        patterns = [
-            ifconfig_matches, ip_link_matches, ifup_down_matches, ethtool_matches,
-            route_matches, iwconfig_matches, netstat_matches, ss_matches
-        ]
+        # ---------- 2) command-aware patterns (precise grammars) ----------
+        patterns_cmd = {
+            # classic tools:
+            "ifconfig":        re.compile(rf"\bifconfig\s+{IFACE}\b"),
+            "iwconfig":        re.compile(rf"\biwconfig\s+{IFACE}\b"),
+            "ethtool":         re.compile(rf"\bethtool\s+{IFACE}\b"),
+            "ifupdown":        re.compile(rf"\b(?:ifup|ifdown)\s+{IFACE}\b"),
 
-        for p in patterns:
-            interfaces.update(FileSystemHelper.find_regex(p, extract_dir).keys())
+            # ip(8) common forms:
+            "ip-dev":          re.compile(rf"\bip\b[^\n;#]*?\b(?:dev|name)\s+{IFACE}\b"),
+            "ip-link-add":     re.compile(rf"\bip\s+link\s+add\b[^\n;#]*?\b(?:name\s+)?{IFACE}\b"),
+            "ip-tuntap":       re.compile(rf"\bip\s+tuntap\s+add\b[^\n;#]*?\bdev\s+{IFACE}\b"),
 
-        bad_prefixes = ["veth", "br"]
-        bad_vals = ["lo", "set", "add", "del", "route", "show", "addr", "link", "up", "down",
-                    "flush", "help", "default"]
+            # dhcp/wifi/pcap:
+            "wpa":             re.compile(rf"\bwpa_supplicant\b[^\n;#]*?\b-(?:i|interface)\s+{IFACE}\b"),
+            "udhcpc":          re.compile(rf"\budhcpc\b[^\n;#]*?\b-(?:i|I)\s+{IFACE}\b"),
+            "dhclient-flag":   re.compile(rf"\bdhclient\b[^\n;#]*?\b-(?:i|I|--interface)\s+{IFACE}\b"),
+            # dhclient sometimes takes bare IFACE at end; keep a conservative pattern:
+            "dhclient-bare":   re.compile(rf"\bdhclient\b(?![^\n;#]*\b-(?:i|I|--interface)\b)[^\n;#]*\b{IFACE}\b"),
+            "tcpdump":         re.compile(rf"\btcpdump\b[^\n;#]*?\b-(?:i|I)\s+{IFACE}\b"),
+        }
 
-        interfaces = [iface for iface in interfaces if
-                      not any([x in iface for x in bad_vals]) and
-                      not any([iface.startswith(x) for x in bad_prefixes]) and
-                      not iface.isnumeric()]
+        cmd_candidates: set[str] = set()
+        for pat in patterns_cmd.values():
+            found = FileSystemHelper.find_regex_scoped(pat, extract_dir, globs_include=include_globs, globs_exclude=exclude_globs)
+            for m in found.keys():
+                cmd_candidates.add(clean(m))
+        commands = filt_cmd_or_sysfs(cmd_candidates)
 
-        result = {}
-        if len(sys_net_ifaces):
-            result["sysfs"] = list(sys_net_ifaces)
+        # ---------- 3) configuration sources (new) ----------
+        # These are high-confidence and we DO NOT drop br*/veth* here.
+        patterns_cfg = {
+            # Debian ifupdown
+            "debian-interfaces": re.compile(r"(?m)^\s*(?:auto|allow-hotplug|iface)\s+([A-Za-z0-9._:@-]{1,15})\b"),
+            # RHEL/SUSE style
+            "ifcfg":             re.compile(r"(?m)^\s*DEVICE\s*=\s*([A-Za-z0-9._:@-]{1,15})\s*$"),
+            # systemd-networkd
+            "systemd-networkd":  re.compile(r"(?m)^\s*Name\s*=\s*([A-Za-z0-9._:@-]{1,15})\s*$"),
+            # NetworkManager
+            "nmconnection":      re.compile(r"(?m)^\s*interface-name\s*=\s*([A-Za-z0-9._:@-]{1,15})\s*$"),
+            # udev rules assigning stable names to net devices
+            "udev-rules":        re.compile(r'(?m)\bSUBSYSTEM\s*==\s*"net".*?\bNAME\s*=\s*"([A-Za-z0-9._:@-]{1,15})"'),
+        }
 
-        if len(interfaces):
-            result["commands"] = list(interfaces)
+        cfg_candidates: set[str] = set()
+        for pat in patterns_cfg.values():
+            found = FileSystemHelper.find_regex_scoped(pat, extract_dir, globs_include=include_globs, globs_exclude=exclude_globs)
+            for m in found.keys():
+                cfg_candidates.add(clean(m))
+        # For configs we only remove obviously bad tokens; keep br*/veth* visible
+        configs = sorted({n for n in cfg_candidates if n and not n.isnumeric() and n not in bad_vals})
 
-        if len(result):
-            return result
+        # ---------- assemble result (backwards compatible) ----------
+        result: dict[str, list[str]] = {}
+        if sysfs:
+            result["sysfs"] = sysfs
+        if commands:
+            result["commands"] = commands
+        if configs:
+            result["configs"] = configs
+
+        return result or None
