@@ -44,6 +44,7 @@ patches:
   - ./patches/tests/live_image.yaml
   - ./patches/tests/syscalls_logger.yaml
   - ./patches/tests/lifeguard.yaml
+  - ./patches/tests/nvram.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 
