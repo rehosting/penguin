@@ -38,7 +38,7 @@ import inspect
 from os.path import isfile, join, realpath
 from typing import Any, Generator, Iterator, Optional, Tuple, Union
 
-from wrappers.ctypes_wrap import Ptr, VtypeJsonGroup, BoundTypeInstance
+from wrappers.ctypes_wrap import Ptr, VtypeJsonGroup, BoundTypeInstance, BoundArrayView
 from wrappers.generic import Wrapper
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
 
@@ -668,3 +668,48 @@ class KFFI(Plugin):
         
         data = instance.to_bytes()
         yield from plugins.mem.write_bytes(addr, data)
+
+    def string(self, instance: Union[BoundArrayView, BoundTypeInstance, bytes, bytearray]) -> str:
+        """
+        Extract a string from the buffer at the instance's offset.
+        Always returns a best-effort string, never raises.
+        """
+        try:
+            # Raw bytes or bytearray
+            if isinstance(instance, (bytes, bytearray)):
+                return instance.decode('latin-1', errors='replace').split('\x00', 1)[0]
+            # BoundArrayView: get bytes from array elements
+            if type(instance).__name__ == "BoundArrayView":
+                arr_bytes = bytearray()
+                try:
+                    for i in range(len(instance)):
+                        val = instance[i]
+                        if hasattr(val, '_value'):
+                            arr_bytes.append(int(val._value))
+                        elif isinstance(val, int):
+                            arr_bytes.append(val)
+                        else:
+                            break
+                        if arr_bytes[-1] == 0:
+                            break
+                except Exception:
+                    pass
+                return arr_bytes.decode('latin-1', errors='replace').split('\x00', 1)[0]
+            # BoundTypeInstance: get bytes from buffer at offset, up to size
+            if type(instance).__name__ == "BoundTypeInstance":
+                buf = getattr(instance, "_instance_buffer", None)
+                offset = getattr(instance, "_instance_offset", 0)
+                size = getattr(instance._instance_type_def, "size", None)
+                if buf is not None and size is not None:
+                    raw = buf[offset:offset+size]
+                    return raw.decode('latin-1', errors='replace').split('\x00', 1)[0]
+                # fallback: try to_bytes
+                try:
+                    raw = instance.to_bytes()
+                    return raw.decode('latin-1', errors='replace').split('\x00', 1)[0]
+                except Exception:
+                    pass
+            # fallback: str()
+            return str(instance)
+        except Exception:
+            return ""
