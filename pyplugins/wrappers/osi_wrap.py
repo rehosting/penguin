@@ -83,6 +83,11 @@ class MappingWrapper(Wrapper):
         return self.flags & VM_EXEC != 0
 
     @property
+    def executable(self) -> bool:
+        """Check if the mapping is executable."""
+        return self.exec
+
+    @property
     def read(self) -> bool:
         """Check if the mapping is readable."""
         return self.flags & VM_READ != 0
