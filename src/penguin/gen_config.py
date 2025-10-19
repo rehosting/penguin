@@ -31,6 +31,7 @@ from .defaults import (
     default_version as DEFAULT_VERSION,
 )
 from penguin.penguin_config import dump_config
+from penguin.helpers.tar_helper import TarHelper
 
 logger = getColoredLogger("penguin.gen_config")
 
@@ -235,7 +236,7 @@ class ConfigBuilder:
         """
 
         # Collect a list of all files in advance so we don't regenerate
-        archive_files = CP.TarHelper.get_all_members(fs_archive)
+        archive_files = TarHelper.get_all_members(fs_archive)
 
         # Instantiate and apply patch generators
         # Later patches will override earlier ones
