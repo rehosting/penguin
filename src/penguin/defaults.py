@@ -9,12 +9,13 @@ library injection mappings used throughout Penguin.
 """
 
 from copy import deepcopy
-from os.path import dirname
+from os.path import dirname, join
 
 vnc_password: str = "IGLOOPassw0rd!"
 
 default_version: int = 2
 static_dir: str = "/igloo_static/"
+RESOURCES: str = join(dirname(dirname(__file__)), "resources")
 # XXX in config_patchers we append .0 to this - may need to update
 DEFAULT_KERNEL: str = "4.10"
 
