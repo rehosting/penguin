@@ -30,13 +30,13 @@ from .defaults import (
     default_plugins,
     expert_knowledge_pseudofiles,
     default_libinject_string_introspection,
-    static_dir as STATIC_DIR
+    static_dir as STATIC_DIR,
+    RESOURCES,
 )
 from .utils import get_arch_subdir
 
 logger = getColoredLogger("penguin.config_patchers")
 
-RESOURCES: str = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources")
 
 
 class PatchGenerator(ABC):
