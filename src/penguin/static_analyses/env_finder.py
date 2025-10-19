@@ -1,7 +1,7 @@
 import re
 from penguin import getColoredLogger
 from .base import StaticAnalysis
-from ..static_analyses import FileSystemHelper
+from penguin.helpers.filesystem_helper import FileSystemHelper
 
 logger = getColoredLogger("penguin.static_analyses")
 

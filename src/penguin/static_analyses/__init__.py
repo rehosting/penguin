@@ -1,7 +1,6 @@
 import importlib
 import pkgutil
 from .base import StaticAnalysis
-from .filesystem_helper import FileSystemHelper
 
 __all__ = []
 
@@ -9,12 +8,11 @@ __all__ = []
 package = __name__
 for _, modname, ispkg in pkgutil.iter_modules(__path__):
     # Skip utility modules that don't define StaticAnalysis subclasses
-    if not ispkg and modname not in ("base", "file_system_helper"):
+    if not ispkg and modname not in ("base",):
         module = importlib.import_module(f"{package}.{modname}")
         for attr in dir(module):
             obj = getattr(module, attr)
             try:
-                from .base import StaticAnalysis
                 if (
                     isinstance(obj, type)
                     and issubclass(obj, StaticAnalysis)
