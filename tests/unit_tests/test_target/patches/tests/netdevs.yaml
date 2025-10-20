@@ -23,10 +23,14 @@ static_files:
 
       # Check for each interfaces
       for dev in nd0 nd1 end4 wlan0; do
-          if ! /igloo/utils/busybox ip link show dev $dev; then
-              echo "Expected interface $dev not found"
-              exit 1
-          fi
+        if ! /igloo/utils/busybox ip link show dev $dev; then
+          echo "Expected interface $dev not found"
+          exit 1
+        fi
+        if ! /igloo/utils/busybox ifconfig $dev | /igloo/utils/busybox grep -q "^$dev"; then
+            echo "Expected interface $dev not up"
+            exit 1
+        fi
       done
 
       exit 0
