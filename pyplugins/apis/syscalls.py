@@ -596,7 +596,7 @@ class Syscalls(Plugin):
             generic_args = [("int", f"unknown{i+1}") for i in range(6)]
             proto = SyscallPrototype(name=f'sys_{cleaned_name}', args=generic_args)
             self._syscall_info_table[cleaned_name] = proto
-            self.logger.error(
+            self.logger.debug(
                 f"Syscall {name} not registered {cleaned_name=}, created generic prototype with {len(generic_args)} args")
 
         # Update caches
