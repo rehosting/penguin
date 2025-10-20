@@ -466,15 +466,6 @@ class Pseudofiles(Plugin):
                     # introspection
                     self.need_ioctl_hooks = True
 
-        if len(self.get_arg("conf").get("netdevs", [])):
-            # If we have netdevs in our config, we'll make the /proc/penguin_net pseudofile with the contents of it
-            # Here we'll use our make_rwif closure
-            netdev_val = " ".join(self.get_arg("conf")["netdevs"])
-            hf_config["/proc/penguin_net"] = {
-                HYP_READ: make_rwif({"val": netdev_val}, self.read_const_buf),
-                "size": len(netdev_val),
-            }
-
         hf_config["/proc/mtd"] = {
             # Note we don't use our make_rwif closure helper here because these
             # are static
