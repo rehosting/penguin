@@ -13,6 +13,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
 from events.utils.cli_syscalls import syscall_filter
 
+GREEN = "\x1b[32m"
+RED = "\x1b[31m"
+END = "\x1b[0m"
+FAILED = f"{RED}failed{END}"
+
 
 class Verifier(Plugin):
     def __init__(self):
@@ -218,16 +223,12 @@ class Verifier(Plugin):
         test_cases, results = self.check_test_cases()
 
         for tc in test_cases:
-            GREEN = "\x1b[32m"
-            RED = "\x1b[31m"
-            END = "\x1b[0m"
-            PASSED = f"{GREEN}passed{END}"
-            FAILED = f"{RED}failed{END}"
             test_passed = results[tc.name]
-            self.logger.info(
-                f"Test {tc.name} {PASSED if test_passed else FAILED}")
-            self.logger.info(f"STDOUT: {tc.stdout}")
-            self.logger.info(f"STDERR: {tc.stderr}")
+            if not test_passed:
+                self.logger.info(
+                    f"Test {tc.name} {FAILED}")
+                self.logger.info(f"STDOUT: {tc.stdout}")
+                self.logger.info(f"STDERR: {tc.stderr}")
 
         ts = TestSuite("verifier", test_cases)
         with open(join(self.outdir, "verifier.xml"), "w") as f:
@@ -236,4 +237,6 @@ class Verifier(Plugin):
             f"Verified output written to {join(self.outdir, 'verifier.xml')}")
 
         if all(results.values()):
-            self.logger.info("Verifier: ALL tests passed")
+            self.logger.info(f"{GREEN}Verifier: ALL tests passed{END}")
+        else:
+            self.logger.info(f"{RED}Verifier: Some tests failed{END}")
