@@ -63,7 +63,7 @@ def add_lib_inject_for_abi(config, abi, cache_dir):
     hash_options = "-Wl,--hash-style=both" if "mips" not in arch else ""
 
     args = (
-        ["clang-20", "-fuse-ld=lld", "-Oz", "-shared", "-nostdlib", "-nostdinc",
+        ["clang-20", "-fuse-ld=lld", "-Oz", "-shared", "-nostdlib", "-nostdinc", "-fPIC",
          hash_options
          ]
         + [
