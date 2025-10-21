@@ -57,6 +57,7 @@ ARCH_ABI_INFO = dict(
             ),
         ),
     ),
+    # TODO: ELFv1 support?
     powerpc64=dict(
         target_triple="powerpc64-linux-musl",
         libnvram_arch_name="ppc64",
