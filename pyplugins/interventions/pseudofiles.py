@@ -635,7 +635,7 @@ class Pseudofiles(Plugin):
             f"Writing {fname} with {length} bytes at {offset}: {contents[:100]}"
         )
 
-        with open(fname, "ab") as f:
+        with open(fname, "r+b") as f:
             f.seek(offset)
             f.write(contents)
 
