@@ -11,6 +11,7 @@ def guest_cmd(cmd):
 
     subprocess.Popen(["python3", "/igloo_static/guesthopper/guest_cmd.py", cmd])
 
+
 class IndivDebug(Plugin):
     """
     Plugin for debugging individual programs
@@ -29,7 +30,7 @@ class IndivDebug(Plugin):
             plugins.portalcall.portalcall(INDIV_DEBUG_PORTALCALL_MAGIC, self._initialize_debug)
         else:
             self.logger.debug("IndivDebug: guest_cmd is disabled")
-    
+
     def _initialize_debug(self):
         if self.guesthopper_enabled:
             plugins.subscribe(plugins.Execs, "exec_event", self._on_execve_common)
@@ -43,7 +44,7 @@ class IndivDebug(Plugin):
         if event["retval"] < 0:
             # exec failed, so nothing to debug
             return
-        
+
         path = event["procname"]
         pid = event["proc"].pid
 
