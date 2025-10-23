@@ -21,10 +21,12 @@ Publishes ``exec_event`` with a dictionary containing execution details:
 
     {
         'procname': str or None,      # Name of the executed program (target of exec), resolved via OSI if AT_EMPTY_PATH
+        'proc': Wrapper,              # Process info wrapper for the process being exec'd
         'argv': list[str],            # Argument vector for the new program
         'envp': dict[str, str],       # Environment for the new program
-        'raw_args': tuple,            # Raw arguments to the handler
-        'parent': Wrapper or None,    # Process info wrapper for the process making the exec call
+        'raw_args': tuple,            # Raw syscall arguments to the handler
+        'parent': Wrapper or None,    # Process info wrapper for the parent process
+        'retval': int,                # Return value of the syscall (negative on failure)
     }
 
 Both execve and execveat syscalls are tracked and normalized into this unified event format.
@@ -55,14 +57,12 @@ class Execs(Plugin):
 
     Publishes 'exec_event' with a dictionary containing:
         procname (str or None): Name of the executed program (target of exec), resolved via OSI if AT_EMPTY_PATH
+        proc (Wrapper): Process info wrapper for the process being exec'd
         argv (List[str]): Argument vector for the new program
         envp (Dict[str, str]): Environment for the new program
-        flags (Optional[int]): Flags for execveat, None for execve
-        syscall (int): Syscall number
-        proto (Any): Syscall prototype object
-        type (str): 'execve' or 'execveat'
-        raw_args (tuple): Raw arguments to the handler
-        parent (str): Name of the process making the exec call
+        raw_args (tuple): Raw syscall arguments to the handler
+        parent (Wrapper or None): Process info wrapper for the parent process
+        retval (int): Return value of the syscall (negative on failure)
     """
 
     def __init__(self) -> None:
