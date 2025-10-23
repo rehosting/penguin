@@ -207,16 +207,25 @@ class Execs(Plugin):
         """
         procname = yield from plugins.mem.read_str(fname_ptr)
         argv_list, envp_dict = yield from self._parse_args_env(argv_ptr, envp_ptr)
-        parent = yield from plugins.OSI.get_proc()
-        procname_val = yield from self._resolve_procname_val(procname, dirfd, flags)
-        event = {
-            'procname': procname_val,
-            'argv': argv_list,
-            'envp': envp_dict,
-            'raw_args': (regs, proto, syscall, dirfd, fname_ptr, argv_ptr, envp_ptr, flags) if dirfd is not None and flags is not None else (regs, proto, syscall, fname_ptr, argv_ptr, envp_ptr),
-            'parent': parent,
-        }
-        yield from plugins.portal_publish(self, "exec_event", Wrapper(event))
+        proc = yield from plugins.OSI.get_proc()
+        if proc:
+            parent = yield from plugins.OSI.get_proc(proc.ppid)
+            if parent:
+                procname_val = yield from self._resolve_procname_val(procname, dirfd, flags)
+                event = {
+                    'procname': procname_val,
+                    'proc': proc,
+                    'argv': argv_list,
+                    'envp': envp_dict,
+                    'raw_args': (regs, proto, syscall, dirfd, fname_ptr, argv_ptr, envp_ptr, flags) if dirfd is not None and flags is not None else (regs, proto, syscall, fname_ptr, argv_ptr, envp_ptr),
+                    'parent': parent,
+                    "retval": syscall.retval,
+                }
+                yield from plugins.portal_publish(self, "exec_event", Wrapper(event))
+            else:
+                self.logger.warning("Execs: Could not retrieve parent process info for exec event")
+        else:
+            self.logger.warning("Execs: Could not retrieve current process info for exec event")
 
     @plugins.syscalls.syscall("on_sys_execve_enter")
     def on_execve(self, regs: PtRegsWrapper, proto: Any, syscall: int,
