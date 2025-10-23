@@ -67,6 +67,7 @@ plugins:
   indiv_debug: {}
   syscalls_logger: {}
   nvram2: {}
+  proctree: {}
 
 static_files:
   /run_tests.sh:
