@@ -3,21 +3,13 @@ import subprocess
 import os
 import shlex
 
+INDIV_DEBUG_PORTALCALL_MAGIC = 0xfeedbeef
+
 
 def guest_cmd(cmd):
     """Run a command in the guest, logging output to a file"""
 
     subprocess.Popen(["python3", "/igloo_static/guesthopper/guest_cmd.py", cmd])
-
-
-def check_guesthopper_running():
-    proc_handles = yield from plugins.osi.get_proc_handles()
-    for handle in proc_handles:
-        name = yield from plugins.osi.get_proc_name(handle.pid)
-        if name == "/igloo/utils/guesthopper":
-            return True
-    return False
-
 
 class IndivDebug(Plugin):
     """
@@ -29,44 +21,44 @@ class IndivDebug(Plugin):
     without the overhead or loss of fidelity from tracing the entire system.
     """
 
-    def __init__(self, panda):
+    def __init__(self):
         self.conf = self.get_arg("conf")
+        self.guesthopper_enabled = self.conf.get("core").get("guesthopper", False)
+        self.guesthopper_running = False
+        if self.guesthopper_enabled:
+            plugins.portalcall.portalcall(INDIV_DEBUG_PORTALCALL_MAGIC, self._initialize_debug)
+        else:
+            self.logger.debug("IndivDebug: guest_cmd is disabled")
+    
+    def _initialize_debug(self):
+        if self.guesthopper_enabled:
+            plugins.subscribe(plugins.Execs, "exec_event", self._on_execve_common)
+            self.guesthopper_running = True
+            return 0
+        else:
+            self.logger.warning("Guesthopper is running, but is not enabled")
+            return 1
 
-    @plugins.syscalls.syscall("on_sys_execve_return")
-    def on_execve(self, pt_regs, proto, syscall, path, argv, envp):
-        yield from self.on_execve_common(syscall)
-
-    @plugins.syscalls.syscall("on_sys_execveat_return")
-    def on_execveat(self, pt_regs, proto, syscall, dirfd, path, argv, envp, flags):
-        yield from self.on_execve_common(syscall)
-
-    def on_execve_common(self, syscall):
-        if syscall.retval < 0:
+    def _on_execve_common(self, event):
+        if event["retval"] < 0:
             # exec failed, so nothing to debug
             return
-
-        guesthopper_running = yield from check_guesthopper_running()
-        if not guesthopper_running:
-            # Guesthopper either wasn't started yet or exited.
-            # Either way we can't do anything unless it's running.
-            return
-
-        path = yield from plugins.osi.get_proc_name()
-        proc = yield from plugins.osi.get_proc()
-        pid = proc.pid
+        
+        path = event["procname"]
+        pid = event["proc"].pid
 
         # Check whether we should pause the process.
         # These functions return True if they detect the process should start paused.
         should_pause = (
-            self.maybe_trace(pid, path, "strace")
-            or self.maybe_trace(pid, path, "ltrace")
-            or self.maybe_gdbserver(pid, path)
+            self._maybe_trace(pid, path, "strace")
+            or self._maybe_trace(pid, path, "ltrace")
+            or self._maybe_gdbserver(pid, path)
         )
 
         if should_pause:
             yield from plugins.signals.self_signal("SIGSTOP")
 
-    def maybe_trace(self, pid: int, path: str, trace_tool: str) -> bool:
+    def _maybe_trace(self, pid: int, path: str, trace_tool: str) -> bool:
         """Common helper function for tools like strace and ltrace"""
 
         trace = self.conf["core"][trace_tool]
@@ -98,7 +90,7 @@ class IndivDebug(Plugin):
 
         return True
 
-    def maybe_gdbserver(self, pid: int, path: str) -> bool:
+    def _maybe_gdbserver(self, pid: int, path: str) -> bool:
         gdbserver = self.conf["core"].get("gdbserver", dict())
         port = gdbserver.get(path) or gdbserver.get(os.path.basename(path))
 
