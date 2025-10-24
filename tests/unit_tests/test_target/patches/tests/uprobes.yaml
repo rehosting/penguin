@@ -34,6 +34,14 @@ plugins:
         type: file_contains
         file: uprobe_getenv_test.txt
         string: "getenv return test passed"
+      uprobes_executable_entry:
+        type: file_contains
+        file: uprobe_executable_test.txt
+        string: "executable entry test passed"
+      uprobes_executable_return:
+        type: file_contains
+        file: uprobe_executable_test.txt
+        string: "executable return test passed"
       uprobes_all_tests:
         type: file_contains
         file: uprobe_tests_summary.txt
@@ -66,5 +74,14 @@ static_files:
       env = libc.func("p", "getenv", "p")
       env = env("PROJ_NAME")
       sys.exit(0)
+
+    mode: 73
+  /tests/uprobes_test_executable.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      /igloo/utils/busybox chmod +x /test_executable
+      /test_executable 3 5
+      exit 0
 
     mode: 73

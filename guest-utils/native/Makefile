@@ -88,5 +88,9 @@ out/%/test_nvram: test_nvram.c
 	@mkdir -p $(dir $@)
 	$(CC_$*) $(CFLAGS_DYNAMIC_$*) -Wl,--dynamic-linker=/igloo/dylibs/ld-musl-$*.so.1 $< -o $@
 
+out/%/test_executable: test_executable.c
+	@mkdir -p $(dir $@)
+	$(CC_$*) $(filter-out -s,$(CFLAGS_$*)) $< -o $@
+
 clean:
 	rm -rf out/ hypercall.h
