@@ -146,6 +146,7 @@ jobs:
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: pip install click pyyaml
       - name: Checkout code
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
