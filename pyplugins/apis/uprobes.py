@@ -5,6 +5,8 @@
 
 import os
 import lzma
+import tarfile
+from elftools.elf.elffile import ELFFile
 from penguin import Plugin, plugins
 from penguin.plugin_manager import resolve_bound_method_from_class
 from typing import Dict, List, Any, Union, Callable, Optional, Iterator
@@ -12,6 +14,7 @@ from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import portal_type
 from hyper.portal import PortalCmd
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
+from penguin.static_analyses import LibrarySymbols
 try:
     import cxxfilt  # For C++ symbol demangling
     HAVE_CXXFILT = True
@@ -66,6 +69,7 @@ class Uprobes(Plugin):
         self._symbols_cache = None
         self._symbols_loaded = False
         self._uprobe_event = self.plugins.portal.wrap(self._uprobe_event)
+        self.fs_tar = self.get_arg("fs")
 
     def _load_symbols(self) -> Dict[str, Any]:
         """
@@ -109,7 +113,7 @@ class Uprobes(Plugin):
         return self._symbols_cache
 
     def _lookup_symbol(
-            self, path: str, symbol: str) -> (Optional[str], Optional[int]):
+            self, path: str, symbol: str) -> tuple[Optional[str], Optional[int]]:
         """
         Look up a symbol's offset in the specified library.
 
@@ -212,7 +216,172 @@ class Uprobes(Plugin):
                         except Exception:
                             pass
 
+        # Lastly, try to parse the file itself (maybe its not a library or wasn't available at static analysis time?)
+        found_path, found_offset = self._find_symbol_in_file(path, symbol)
+        if found_offset is not None:
+            return found_path, found_offset
+
         return None, None
+
+    def _find_symbol_in_file(self, path: str, symbol: str) -> tuple[Optional[str], Optional[int]]:
+        """
+        Parse the file directly to find symbol offset when not available in static analysis.
+
+        This method can be used as a fallback when the symbol isn't found in the
+        precomputed symbols database (e.g., not a library or unavailable at analysis time).
+
+        Parameters
+        ----------
+        path : str
+            Path to the executable or library file.
+        symbol : str
+            Symbol name to look up.
+
+        Returns
+        -------
+        tuple[Optional[str], Optional[int]]
+            Tuple of (resolved_path, offset) if symbol found, (None, None) otherwise.
+        """
+        if not self.fs_tar or not os.path.exists(self.fs_tar):
+            self.logger.warning(f"Trying to read from filesystem tar '{self.fs_tar}', but it is not available")
+            return None, None
+
+        try:
+            with tarfile.open(self.fs_tar, 'r') as tar:
+                normalized_path = path.lstrip('/')
+
+                target_member = None
+                for member in tar.getmembers():
+                    if member.isfile():
+                        if member.name == normalized_path or member.name.endswith('/' + os.path.basename(path)):
+                            target_member = member
+                            break
+
+                if not target_member:
+                    self.logger.debug(f"File '{path}' not found in filesystem tar")
+                    return None, None
+
+                file_data = tar.extractfile(target_member)
+                if not file_data:
+                    self.logger.debug(f"Could not extract '{target_member.name}' from tar")
+                    return None, None
+
+                binary_content = file_data.read()
+                file_data.close()
+
+                # Use objdump-like parsing to find symbols
+                offset = self._parse_binary_for_symbol(binary_content, symbol)
+                if offset is not None:
+                    # Ensure the path is absolute (our rootfs tars start with ./)
+                    resolved_path = target_member.name
+                    if resolved_path.startswith('./'):
+                        resolved_path = '/' + resolved_path[2:]
+                    elif not resolved_path.startswith('/'):
+                        resolved_path = '/' + resolved_path
+                    self.logger.debug(f"Found symbol '{symbol}' at offset {offset:#x} in '{resolved_path}'")
+                    return resolved_path, offset
+                else:
+                    self.logger.debug(f"Symbol '{symbol}' not found in '{target_member.name}'")
+                    return None, None
+
+        except Exception as e:
+            self.logger.warning(f"Error searching for symbol in file: {e}")
+            return None, None
+
+    def _parse_binary_for_symbol(self, binary_content: bytes, symbol: str) -> Optional[int]:
+        """
+        Parse binary content to find symbol offset using pyelftools via static_analyses.
+
+        Parameters
+        ----------
+        binary_content : bytes
+            The binary file content.
+        symbol : str
+            Symbol name to search for.
+
+        Returns
+        -------
+        Optional[int]
+            Symbol offset if found, None otherwise.
+        """
+        try:
+            # Write binary content to a temporary file for pyelftools
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                tmp_file.write(binary_content)
+                tmp_file.flush()
+
+                try:
+                    # Check if it's an ELF file using the existing function
+                    if not LibrarySymbols._is_elf(tmp_file.name):
+                        self.logger.debug("File is not an ELF binary")
+                        return None
+
+                    # Use pyelftools via the existing infrastructure from static analyses
+                    with open(tmp_file.name, 'rb') as f:
+                        elffile = ELFFile(f)
+                        address, section_index = LibrarySymbols._find_symbol_address(elffile, symbol)
+
+                        if address is not None and section_index != "SHN_UNDEF":
+                            self.logger.debug(f"Found symbol '{symbol}' at virtual address {address:#x}")
+
+                            # Convert virtual address to file offset
+                            file_offset = self._vaddr_to_file_offset(elffile, address)
+                            if file_offset is not None:
+                                self.logger.debug(f"Converted to file offset {file_offset:#x}")
+                                return file_offset
+                            else:
+                                self.logger.debug(f"Could not convert virtual address {address:#x} to file offset")
+                                return None
+                        else:
+                            self.logger.debug(f"Symbol '{symbol}' not found or undefined")
+                            return None
+
+                finally:
+                    # Clean up temporary file
+                    os.unlink(tmp_file.name)
+
+        except Exception as e:
+            self.logger.debug(f"Error parsing binary for symbol '{symbol}': {e}")
+            return None
+
+    def _vaddr_to_file_offset(self, elffile, vaddr: int) -> Optional[int]:
+        """
+        Convert a virtual address to a file offset using ELF program headers.
+
+        Parameters
+        ----------
+        elffile : ELFFile
+            The ELF file object from pyelftools.
+        vaddr : int
+            Virtual address to convert.
+
+        Returns
+        -------
+        Optional[int]
+            File offset if conversion successful, None otherwise.
+        """
+        try:
+            # Look through program headers to find the segment containing this address
+            for segment in elffile.iter_segments():
+                if segment['p_type'] == 'PT_LOAD':
+                    seg_vaddr = segment['p_vaddr']
+                    seg_size = segment['p_memsz']
+
+                    # Check if the virtual address falls within this segment
+                    if seg_vaddr <= vaddr < (seg_vaddr + seg_size):
+                        # Calculate the offset within the segment
+                        offset_in_segment = vaddr - seg_vaddr
+                        # Add the segment's file offset
+                        file_offset = segment['p_offset'] + offset_in_segment
+                        return file_offset
+
+            # Address not found in any loadable segment
+            return None
+
+        except Exception as e:
+            self.logger.debug(f"Error converting virtual address {vaddr:#x} to file offset: {e}")
+            return None
 
     def _uprobe_event(self, cpu: Any, is_enter: bool) -> Any:
         """
@@ -293,18 +462,7 @@ class Uprobes(Plugin):
         self.portal.queue_interrupt("uprobes")
         self.fs_init = True
 
-    def _uprobe_interrupt_handler(self) -> bool:
-        """
-        Handle interrupts for pending uprobe registrations.
-
-        Processes one pending uprobe registration per call.
-        Returns True if more uprobes are pending, False otherwise.
-
-        Returns
-        -------
-        bool
-            True if more uprobes are pending, False otherwise.
-        """
+    def _uprobe_interrupt_handler(self) -> Iterator[bool]:
         """
         Handle interrupts for pending uprobe registrations.
         Processes one pending uprobe registration per call.
