@@ -27,7 +27,7 @@ class IndivDebug(Plugin):
         self.guesthopper_enabled = self.conf.get("core").get("guest_cmd", False)
         self.guesthopper_running = False
         if self.guesthopper_enabled:
-            plugins.portalcall.portalcall(INDIV_DEBUG_PORTALCALL_MAGIC, self._initialize_debug)
+            plugins.portalcall.portalcall(INDIV_DEBUG_PORTALCALL_MAGIC)(self._initialize_debug)
         else:
             self.logger.debug("IndivDebug: guest_cmd is disabled")
 
