@@ -37,6 +37,8 @@ class UprobesTest(Plugin):
             uprobes.uretprobe(**kwargs)(retfn)
             self.test_results[symbol] = {"entry": False, "return": False}
 
+        self.test_results["executable"] = {"entry": False, "return": False}
+
         self.printf_offset = lib_syms["printf"]
 
     def find_lib(self, lib_name):
@@ -293,3 +295,33 @@ class UprobesTest(Plugin):
                 f.write("\nAll uprobe tests PASSED!\n")
             else:
                 f.write("\nSome uprobe tests FAILED!\n")
+
+    @plugins.uprobes.uprobe(
+        path="/test_executable",
+        symbol="test_add",
+        on_enter=True,
+        on_return=False,
+    )
+    def uprobe_executable_enter(self, pt_regs):
+        x, y = pt_regs.get_args(2)
+        expected_args = (3, 5)
+        self.logger.info(f"/test_executable called with args: {(x, y)}")
+        assert (x, y) == expected_args, f"Expected args {expected_args}, got {(x, y)}"
+        self.test_results["executable"]["entry"] = True
+        with open(join(self.outdir, "uprobe_executable_test.txt"), "a") as f:
+            f.write(f"executable entry test passed: test_add({x}, {y}) called\n")
+
+    @plugins.uprobes.uprobe(
+        path="/test_executable",
+        symbol="test_add",
+        on_enter=False,
+        on_return=True,
+    )
+    def uprobe_executable_return(self, pt_regs):
+        retval = pt_regs.get_retval()
+        expected_retval = 8
+        self.logger.info(f"/test_executable test_add returned {retval}")
+        assert retval == expected_retval, f"Expected return value {expected_retval}, got {retval}"
+        self.test_results["executable"]["return"] = True
+        with open(join(self.outdir, "uprobe_executable_test.txt"), "a") as f:
+            f.write(f"executable return test passed: test_add returned {retval}\n")
