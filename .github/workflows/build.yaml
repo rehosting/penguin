@@ -4,10 +4,6 @@ on:
   pull_request:
     branches:
       - main
-    paths-ignore:
-      - '.github/**'
-      - 'docs/**'
-      - 'README.md'
 
 env:
   REGISTRY: ${{ secrets.REHOSTING_ARC_REGISTRY || 'harbor.harbor.svc.cluster.local' }}
@@ -17,21 +13,45 @@ env:
   EXTERNAL_REGISTRY_PASS: 'PctyVGasz15Pn9M0yA9yMNwOawFaXnk3Tl4N'
 
 jobs:
+  changes:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    outputs:
+      run_lint: ${{ steps.filter.outputs.python }}
+      run_tests: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            # Treat anything outside docs/.github/README as "code"
+            code:
+              - '**'
+              - '!docs/**'
+              - '!.github/**'
+              - '!README.md'
+            python:
+              - '**/*.py'
   lint:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: rehosting-arc
+    needs: changes
     steps:
     - uses: actions/checkout@v5
+      if: ${{ needs.changes.outputs.run_lint == 'true' }}
       with:
         fetch-depth: 0
     - name: Set up Python
+      if: ${{ needs.changes.outputs.run_lint == 'true' }}
       uses: actions/setup-python@v6
       with:
         python-version: "3.10.12"
     - name: Install dependencies
+      if: ${{ needs.changes.outputs.run_lint == 'true' }}
       run: pip install flake8 lintly markupsafe==2.0.1
     - name: Lint with flake8
-      if: github.event.pull_request.head.repo.full_name == github.repository
+      if: ${{ needs.changes.outputs.run_lint == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
       run: |
         set -o pipefail
         (flake8 | lintly) 2>lintly.err || {
@@ -46,26 +66,29 @@ jobs:
       env:
         LINTLY_API_KEY: ${{ secrets.GITHUB_TOKEN }}
     - name: External lint
-      if: github.event.pull_request.head.repo.full_name != github.repository
+      if: ${{ needs.changes.outputs.run_lint == 'true'  && github.event.pull_request.head.repo.full_name != github.repository }}
       run: |
         flake8
 
   build_container:
     runs-on: rehosting-arc
-    needs: lint
+    needs: [changes, lint]
     if: ${{ !github.event.pull_request.draft }}
     steps:
       - name: Checkout code
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Trust Harbor's self-signed certificate
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: |
           echo "Fetching certificate from ${{ env.REGISTRY }}"
           openssl s_client -showcerts -connect ${{ env.REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
           sudo update-ca-certificates
       
       - name: Set up Docker Buildx
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: docker/setup-buildx-action@v3
         with:
           driver-opts: |
@@ -77,6 +100,7 @@ jobs:
               http = true
       
       - name: Log in to Rehosting Arc Registry
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -84,6 +108,7 @@ jobs:
           password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
       
       - name: Build Docker image and push to Docker Hub
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -100,7 +125,7 @@ jobs:
             type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache-PR-${{ github.event.number }}
 
   run_tests:
-    needs: build_container
+    needs: [changes, build_container]
     runs-on: rehosting-arc
     if: ${{ !github.event.pull_request.draft }}
     strategy:
@@ -112,11 +137,12 @@ jobs:
       # using the version from here https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md
       # makes things faster
       - name: Set up Python
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: actions/setup-python@v6
         with:
           python-version: "3.10.12" 
       - name: Install dependencies
-        if: github.event_name == 'pull_request'
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: pip install click pyyaml
       - name: Checkout code
         uses: actions/checkout@v5
@@ -124,12 +150,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
       - name: Trust Harbor's self-signed certificate
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: |
           echo "Fetching certificate from ${{ env.REGISTRY }}"
           openssl s_client -showcerts -connect ${{ env.REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
           sudo update-ca-certificates
       
       - name: Log in to Rehosting Arc Registry
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -138,24 +166,28 @@ jobs:
       
       # Locally tag as latest, just for testing
       - name: Pull the image from Rehosting Arc Registry
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: |
               docker pull ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }};
               docker tag ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
       
       - name: Basic test for ${{ matrix.arch }}
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/basic_target/test.py --arch ${{ matrix.arch }}
           
       - name: Test for ${{ matrix.arch }} all kernels
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py --arch ${{ matrix.arch }}
       
       - name: Drop latest symlink
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: |
           # Remove the 'latest' symlink to ensure we do not double-count results
           rm -rf $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/latest
       
       - name: Test Report
         uses: dorny/test-reporter@v2.1.1
-        if: (success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository
+        if: ${{ needs.changes.outputs.run_tests == 'true'  && ((success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository)}}
         with: 
           name: ${{ matrix.arch }}-test-results
           path: ${{ github.workspace }}/tests/unit_tests/test_target/results/*/verifier.xml
@@ -163,13 +195,13 @@ jobs:
 
       - name: Get artifact path
         id: artifact
-        if: failure()
+        if: ${{ needs.changes.outputs.run_tests == 'true' && failure() }}
         run: |
           artifact_path=$(realpath $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/latest/)
           echo "artifact_path=${artifact_path}/*" >> "$GITHUB_OUTPUT" 
       
       - name: Debug info
-        if: failure()
+        if: ${{ needs.changes.outputs.run_tests == 'true' && failure() }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.arch }}-artifacts
