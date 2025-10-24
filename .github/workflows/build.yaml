@@ -26,14 +26,17 @@ jobs:
         with:
           predicate-quantifier: 'every'  # require file to satisfy all positives and none of the negatives
           filters: |
-            # Treat anything outside docs/.github/README as "code"
+            # Treat anything outside docs/.github/README/etc as "code"
             code:
               - '**'
               - '!docs/**'
               - '!.github/**'
               - '!README.md'
+              - '!LICENSE'
+              - '**/.gitignore'
             python:
               - '**/*.py'
+              - '.flake8'
   lint:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: rehosting-arc
