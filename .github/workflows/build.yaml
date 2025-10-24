@@ -33,10 +33,9 @@ jobs:
               - '!.github/**'
               - '!README.md'
               - '!LICENSE'
-              - '**/.gitignore'
+              - '!**/.gitignore'
             python:
               - '**/*.py'
-              - '.flake8'
   lint:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: rehosting-arc
