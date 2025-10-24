@@ -21,10 +21,12 @@ Publishes ``exec_event`` with a dictionary containing execution details:
 
     {
         'procname': str or None,      # Name of the executed program (target of exec), resolved via OSI if AT_EMPTY_PATH
+        'proc': Wrapper,              # Process info wrapper for the process being exec'd
         'argv': list[str],            # Argument vector for the new program
         'envp': dict[str, str],       # Environment for the new program
-        'raw_args': tuple,            # Raw arguments to the handler
-        'parent': Wrapper or None,    # Process info wrapper for the process making the exec call
+        'raw_args': tuple,            # Raw syscall arguments to the handler
+        'parent': Wrapper or None,    # Process info wrapper for the parent process
+        'retval': int,                # Return value of the syscall (negative on failure)
     }
 
 Both execve and execveat syscalls are tracked and normalized into this unified event format.
@@ -55,14 +57,12 @@ class Execs(Plugin):
 
     Publishes 'exec_event' with a dictionary containing:
         procname (str or None): Name of the executed program (target of exec), resolved via OSI if AT_EMPTY_PATH
+        proc (Wrapper): Process info wrapper for the process being exec'd
         argv (List[str]): Argument vector for the new program
         envp (Dict[str, str]): Environment for the new program
-        flags (Optional[int]): Flags for execveat, None for execve
-        syscall (int): Syscall number
-        proto (Any): Syscall prototype object
-        type (str): 'execve' or 'execveat'
-        raw_args (tuple): Raw arguments to the handler
-        parent (str): Name of the process making the exec call
+        raw_args (tuple): Raw syscall arguments to the handler
+        parent (Wrapper or None): Process info wrapper for the parent process
+        retval (int): Return value of the syscall (negative on failure)
     """
 
     def __init__(self) -> None:
@@ -207,16 +207,25 @@ class Execs(Plugin):
         """
         procname = yield from plugins.mem.read_str(fname_ptr)
         argv_list, envp_dict = yield from self._parse_args_env(argv_ptr, envp_ptr)
-        parent = yield from plugins.OSI.get_proc()
-        procname_val = yield from self._resolve_procname_val(procname, dirfd, flags)
-        event = {
-            'procname': procname_val,
-            'argv': argv_list,
-            'envp': envp_dict,
-            'raw_args': (regs, proto, syscall, dirfd, fname_ptr, argv_ptr, envp_ptr, flags) if dirfd is not None and flags is not None else (regs, proto, syscall, fname_ptr, argv_ptr, envp_ptr),
-            'parent': parent,
-        }
-        yield from plugins.portal_publish(self, "exec_event", Wrapper(event))
+        proc = yield from plugins.OSI.get_proc()
+        if proc:
+            parent = yield from plugins.OSI.get_proc(proc.ppid)
+            if parent:
+                procname_val = yield from self._resolve_procname_val(procname, dirfd, flags)
+                event = {
+                    'procname': procname_val,
+                    'proc': proc,
+                    'argv': argv_list,
+                    'envp': envp_dict,
+                    'raw_args': (regs, proto, syscall, dirfd, fname_ptr, argv_ptr, envp_ptr, flags) if dirfd is not None and flags is not None else (regs, proto, syscall, fname_ptr, argv_ptr, envp_ptr),
+                    'parent': parent,
+                    "retval": syscall.retval,
+                }
+                yield from plugins.portal_publish(self, "exec_event", Wrapper(event))
+            else:
+                self.logger.warning("Execs: Could not retrieve parent process info for exec event")
+        else:
+            self.logger.warning("Execs: Could not retrieve current process info for exec event")
 
     @plugins.syscalls.syscall("on_sys_execve_enter")
     def on_execve(self, regs: PtRegsWrapper, proto: Any, syscall: int,
