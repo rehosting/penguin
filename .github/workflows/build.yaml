@@ -24,6 +24,7 @@ jobs:
       - id: filter
         uses: dorny/paths-filter@v3
         with:
+          predicate-quantifier: 'every'  # require file to satisfy all positives and none of the negatives
           filters: |
             # Treat anything outside docs/.github/README as "code"
             code:
