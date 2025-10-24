@@ -68,6 +68,13 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False):
         "shim.txt": b"original data\0",
         "shimtarget.txt": b"target data\0",
     }
+
+    # Now get the test executable from the docker image
+    result = subprocess.run([
+            "docker", "run", "--rm", image,
+            "cat", f"/igloo_static/utils.bin/test_executable.{arch}"
+        ], stdout=subprocess.PIPE, check=True)
+    files_dict["test_executable"] = result.stdout
     create_tar_gz_with_binaries(f"{TEST_DIR}/empty_fs.tar.gz", files_dict)
     base_config = str(Path(TEST_DIR, "base_config.yaml"))
     new_config = str(Path(TEST_DIR, "config.yaml"))
