@@ -514,51 +514,69 @@ CMD ["/usr/local/bin/banner.sh"]
 # The [s] allows the copy from local_packages to fail if the directory is missing
 COPY ./local_package[s] /tmp/local_packages
 
-RUN if [ -d /tmp/local_packages ]; then \
+RUN used_pkgs="" ; \
+    if [ -d /tmp/local_packages ]; then \
         if [ -f /tmp/local_packages/console.tar.gz ]; then \
             tar xvf /tmp/local_packages/console.tar.gz -C /igloo_static/; \
+            used_pkgs="${used_pkgs},console"; \
         fi; \
         if [ -f /tmp/local_packages/kernels-latest.tar.gz ]; then \
             rm -rf /igloo_static/kernels && \
             tar xvf /tmp/local_packages/kernels-latest.tar.gz -C /igloo_static/; \
+            used_pkgs="${used_pkgs},kernels"; \
         fi; \
         if [ -f /tmp/local_packages/pandare_22.04.deb ]; then \
             dpkg -i /tmp/local_packages/pandare_22.04.deb; \
+            used_pkgs="${used_pkgs},pandare-deb"; \
         fi; \
         if [ -f /tmp/local_packages/pandare-plugins_22.04.deb ]; then \
             dpkg -i /tmp/local_packages/pandare-plugins_22.04.deb; \
+            used_pkgs="${used_pkgs},pandare-plugins"; \
         fi; \
         if [ -f /tmp/local_packages/vpn.tar.gz ]; then \
             tar xzf /tmp/local_packages/vpn.tar.gz -C /igloo_static; \
+            used_pkgs="${used_pkgs},vpn"; \
         fi; \
         if [ -f /tmp/local_packages/busybox-latest.tar.gz ]; then \
             tar xvf /tmp/local_packages/busybox-latest.tar.gz -C /igloo_static/;  \
+            used_pkgs="${used_pkgs},busybox"; \
         fi; \
         if [ -f /tmp/local_packages/hyperfs.tar.gz ]; then \
             tar xzf /tmp/local_packages/hyperfs.tar.gz -C / && \
             cp -rv /result/utils/* /igloo_static/ && \
             mv /result/dylibs /igloo_static/dylibs && \
             rm -rf /result; \
+            used_pkgs="${used_pkgs},hyperfs"; \
         fi; \
         if [ -f /tmp/local_packages/libnvram-latest.tar.gz ]; then \
             rm -rf /igloo_static/libnvram; \
             tar xzf /tmp/local_packages/libnvram-latest.tar.gz -C /igloo_static; \
+            used_pkgs="${used_pkgs},libnvram"; \
         fi; \
         if [ -f /tmp/local_packages/plugins.tar.gz ]; then \
             tar xvf /tmp/local_packages/plugins.tar.gz -C /usr/local/lib/panda/panda/; \
+            used_pkgs="${used_pkgs},plugins"; \
         fi; \
         if [ -f /tmp/local_packages/pandare2-*.whl ]; then \
             pip install /tmp/local_packages/pandare2-*.whl; \
+            used_pkgs="${used_pkgs},pandare2-whl"; \
         fi; \
         if [ -f /tmp/local_packages/pandare2.tar.gz ]; then \
             tar xvf /tmp/local_packages/pandare2.tar.gz -C /usr/local/lib/python3.10/dist-packages/; \
+            used_pkgs="${used_pkgs},pandare2"; \
         fi; \
         if [ -f /tmp/local_packages/guesthopper.tar.gz ]; then \
             rm -rf /igloo_static/guesthopper; \
             tar xzf /tmp/local_packages/guesthopper.tar.gz -C /igloo_static; \
+            used_pkgs="${used_pkgs},guesthopper"; \
         fi; \
         if [ -f /tmp/local_packages/igloo_driver.tar.gz ]; then \
             tar xzf /tmp/local_packages/igloo_driver.tar.gz -C /igloo_static; \
+            used_pkgs="${used_pkgs},igloo_driver"; \
+        fi; \
+        if [ ! -z "$used_pkgs" ]; then \
+            used_pkgs=$(echo "$used_pkgs" | sed 's/^,//'); \
+            echo "$(cat /pkg/penguin/version.txt)+localpackages=${used_pkgs}" > /pkg/penguin/version.txt; \
         fi; \
     fi
 RUN mkdir /igloo_static/utils.source && \
