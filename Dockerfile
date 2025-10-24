@@ -574,7 +574,7 @@ RUN used_pkgs="" ; \
             tar xzf /tmp/local_packages/igloo_driver.tar.gz -C /igloo_static; \
             used_pkgs="${used_pkgs},igloo_driver"; \
         fi; \
-        if [ ! -z "$used_pkgs" ]; then \
+        if [ -n "$used_pkgs" ]; then \
             used_pkgs=$(echo "$used_pkgs" | sed 's/^,//'); \
             echo "$(cat /pkg/penguin/version.txt)+localpackages=${used_pkgs}" > /pkg/penguin/version.txt; \
         fi; \
