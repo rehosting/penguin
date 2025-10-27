@@ -567,3 +567,18 @@ class OSI(Plugin):
                 return mapping
             else:
                 self.logger.debug(f"No mapping found for addr={addr:#x}")
+    
+    def read_time(self) -> Generator[Any, None, int]:
+        """
+        Read the current time from the guest OS.
+
+        This will return nanoseconds since boot (u64).
+
+        Returns
+        -------
+        int
+            Current time in seconds since epoch.
+        """
+        self.logger.debug("read_time called")
+        t = yield PortalCmd(hop.HYPER_OP_OSI_TIME, 0, 0)
+        return t
