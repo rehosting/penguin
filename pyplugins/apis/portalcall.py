@@ -36,6 +36,7 @@ from penguin.plugin_manager import resolve_bound_method_from_class
 from typing import Callable, Dict, Iterator
 
 PORTAL_MAGIC = 0xc1d1e1f1
+PORTAL_MAGIC_64 = 0xffffffffc1d1e1f1
 
 
 class PortalCall(Plugin):
@@ -45,11 +46,15 @@ class PortalCall(Plugin):
 
     def __init__(self) -> None:
         self._portalcall_registry: Dict[int, Callable] = {}
-        # Register with syscalls plugin for portalcall filtering
 
-    @plugins.syscalls.syscall("on_sys_sendto_enter", arg_filters=[PORTAL_MAGIC, None, None, None, None])
+        # 64-bit systems can sign-extend the magic number
+        if self.panda.bits == 64:
+            plugins.syscalls.syscall("on_sys_sendto_enter", arg_filters=[PORTAL_MAGIC_64, None, None, None, None])(self._portalcall_syscall_handler)
+        plugins.syscalls.syscall("on_sys_sendto_enter", arg_filters=[PORTAL_MAGIC, None, None, None, None])(self._portalcall_syscall_handler)
+
+
     def _portalcall_syscall_handler(self, regs, proto, syscall, magic, user_magic, argc, args, dest_addr, addrlen):
-        handler = self._portalcall_registry.get(user_magic)
+        handler = self._portalcall_registry.get(user_magic & 0xffffffff)
         if handler is None:
             self.logger.error(
                 f"No handler registered for user_magic {user_magic:#x}")
