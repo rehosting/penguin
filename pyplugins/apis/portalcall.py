@@ -52,7 +52,6 @@ class PortalCall(Plugin):
             plugins.syscalls.syscall("on_sys_sendto_enter", arg_filters=[PORTAL_MAGIC_64, None, None, None, None])(self._portalcall_syscall_handler)
         plugins.syscalls.syscall("on_sys_sendto_enter", arg_filters=[PORTAL_MAGIC, None, None, None, None])(self._portalcall_syscall_handler)
 
-
     def _portalcall_syscall_handler(self, regs, proto, syscall, magic, user_magic, argc, args, dest_addr, addrlen):
         handler = self._portalcall_registry.get(user_magic & 0xffffffff)
         if handler is None:
