@@ -6,6 +6,8 @@
 import os
 import lzma
 import tarfile
+import tempfile
+import io
 from elftools.elf.elffile import ELFFile
 from penguin import Plugin, plugins
 from penguin.plugin_manager import resolve_bound_method_from_class
@@ -246,14 +248,15 @@ class Uprobes(Plugin):
             self.logger.warning(f"Trying to read from filesystem tar '{self.fs_tar}', but it is not available")
             return None, None
 
+        FILE_MAX_MEMORY_SIZE = 500 * 1024 * 1024
         try:
             with tarfile.open(self.fs_tar, 'r') as tar:
-                normalized_path = path.lstrip('/')
+                normalized_path = path.lstrip('./')
 
                 target_member = None
                 for member in tar.getmembers():
                     if member.isfile():
-                        if member.name == normalized_path or member.name.endswith('/' + os.path.basename(path)):
+                        if member.name.lstrip('./') == normalized_path:
                             target_member = member
                             break
 
@@ -269,8 +272,17 @@ class Uprobes(Plugin):
                 binary_content = file_data.read()
                 file_data.close()
 
-                # Use objdump-like parsing to find symbols
-                offset = self._parse_binary_for_symbol(binary_content, symbol)
+                # Choose processing method based on file size
+                if target_member.size <= FILE_MAX_MEMORY_SIZE:
+                    # Use BytesIO for smaller files (more efficient)
+                    self.logger.debug(f"Using BytesIO for file '{target_member.name}' ({target_member.size // (1024*1024)}MB)")
+                    binary_io = io.BytesIO(binary_content)
+                    offset = self._parse_binary_for_symbol(binary_io, symbol)
+                else:
+                    # Use temporary file for larger files (memory-safe)
+                    self.logger.debug(f"Using temporary file for large file '{target_member.name}' ({target_member.size // (1024*1024)}MB)")
+                    offset = self._parse_binary_for_symbol(binary_content, symbol)
+
                 if offset is not None:
                     # Ensure the path is absolute (our rootfs tars start with ./)
                     resolved_path = target_member.name
@@ -288,14 +300,14 @@ class Uprobes(Plugin):
             self.logger.warning(f"Error searching for symbol in file: {e}")
             return None, None
 
-    def _parse_binary_for_symbol(self, binary_content: bytes, symbol: str) -> Optional[int]:
+    def _parse_binary_for_symbol(self, binary_source: Union[bytes, io.BytesIO], symbol: str) -> Optional[int]:
         """
         Parse binary content to find symbol offset using pyelftools via static_analyses.
 
         Parameters
         ----------
-        binary_content : bytes
-            The binary file content.
+        binary_source : Union[bytes, io.BytesIO]
+            The binary file content as bytes or BytesIO object.
         symbol : str
             Symbol name to search for.
 
@@ -305,41 +317,73 @@ class Uprobes(Plugin):
             Symbol offset if found, None otherwise.
         """
         try:
-            # Write binary content to a temporary file for pyelftools
-            import tempfile
-            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-                tmp_file.write(binary_content)
-                tmp_file.flush()
+            # Handle BytesIO input - use directly with pyelftools
+            if isinstance(binary_source, io.BytesIO):
+                binary_source.seek(0)  # Ensure we're at the beginning
 
-                try:
-                    # Check if it's an ELF file using the existing function
-                    if not LibrarySymbols._is_elf(tmp_file.name):
-                        self.logger.debug("File is not an ELF binary")
+                # Check if it's an ELF file by reading the magic bytes
+                magic = binary_source.read(4)
+                binary_source.seek(0)
+
+                if magic != b'\x7fELF':
+                    self.logger.debug("File is not an ELF binary")
+                    return None
+
+                # Use pyelftools directly with BytesIO
+                elffile = ELFFile(binary_source)
+                address, section_index = LibrarySymbols._find_symbol_address(elffile, symbol)
+
+                # More robust check for undefined symbols
+                if address is not None and str(section_index) != "SHN_UNDEF":
+                    self.logger.debug(f"Found symbol '{symbol}' at virtual address {address:#x}")
+
+                    # Convert virtual address to file offset
+                    file_offset = self._vaddr_to_file_offset(elffile, address)
+                    if file_offset is not None:
+                        self.logger.debug(f"Converted to file offset {file_offset:#x}")
+                        return file_offset
+                    else:
+                        self.logger.debug(f"Could not convert virtual address {address:#x} to file offset")
                         return None
+                else:
+                    self.logger.debug(f"Symbol '{symbol}' not found or undefined")
+                    return None
 
-                    # Use pyelftools via the existing infrastructure from static analyses
-                    with open(tmp_file.name, 'rb') as f:
-                        elffile = ELFFile(f)
-                        address, section_index = LibrarySymbols._find_symbol_address(elffile, symbol)
+            else:
+                # Handle bytes input - use temporary file (for very large files)
+                with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                    tmp_file.write(binary_source)
+                    tmp_file.flush()
 
-                        if address is not None and section_index != "SHN_UNDEF":
-                            self.logger.debug(f"Found symbol '{symbol}' at virtual address {address:#x}")
-
-                            # Convert virtual address to file offset
-                            file_offset = self._vaddr_to_file_offset(elffile, address)
-                            if file_offset is not None:
-                                self.logger.debug(f"Converted to file offset {file_offset:#x}")
-                                return file_offset
-                            else:
-                                self.logger.debug(f"Could not convert virtual address {address:#x} to file offset")
-                                return None
-                        else:
-                            self.logger.debug(f"Symbol '{symbol}' not found or undefined")
+                    try:
+                        # Check if it's an ELF file using the existing function
+                        if not LibrarySymbols._is_elf(tmp_file.name):
+                            self.logger.debug("File is not an ELF binary")
                             return None
 
-                finally:
-                    # Clean up temporary file
-                    os.unlink(tmp_file.name)
+                        # Use pyelftools via the existing infrastructure from static analyses
+                        with open(tmp_file.name, 'rb') as f:
+                            elffile = ELFFile(f)
+                            address, section_index = LibrarySymbols._find_symbol_address(elffile, symbol)
+
+                            if address is not None and str(section_index) != "SHN_UNDEF":
+                                self.logger.debug(f"Found symbol '{symbol}' at virtual address {address:#x}")
+
+                                # Convert virtual address to file offset
+                                file_offset = self._vaddr_to_file_offset(elffile, address)
+                                if file_offset is not None:
+                                    self.logger.debug(f"Converted to file offset {file_offset:#x}")
+                                    return file_offset
+                                else:
+                                    self.logger.debug(f"Could not convert virtual address {address:#x} to file offset")
+                                    return None
+                            else:
+                                self.logger.debug(f"Symbol '{symbol}' not found or undefined")
+                                return None
+
+                    finally:
+                        # Clean up temporary file
+                        os.unlink(tmp_file.name)
 
         except Exception as e:
             self.logger.debug(f"Error parsing binary for symbol '{symbol}': {e}")
@@ -462,12 +506,15 @@ class Uprobes(Plugin):
         self.portal.queue_interrupt("uprobes")
         self.fs_init = True
 
-    def _uprobe_interrupt_handler(self) -> Iterator[bool]:
+    def _uprobe_interrupt_handler(self) -> bool:
         """
         Handle interrupts for pending uprobe registrations.
         Processes one pending uprobe registration per call.
         Returns True if more uprobes are pending, False otherwise.
-        Always yields at least once to be a generator.
+        Returns
+        -------
+        bool
+            True if more uprobes are pending, False otherwise.
         """
         if not self._pending_uprobes:
             return False
