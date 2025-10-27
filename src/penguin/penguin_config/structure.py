@@ -1,7 +1,6 @@
-from typing import Annotated, Dict, List, Literal, Optional, Union, ClassVar
+from typing import Annotated, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Field, RootModel
 from pydantic.config import ConfigDict
-from pydantic_partial import PartialModelMixin, create_partial_model
 
 '''
 We cannot import anything from penguin here as its used to generate the schema
@@ -10,26 +9,6 @@ functions that use them.
 '''
 
 ENV_MAGIC_VAL = "DYNVALDYNVALDYNVAL"
-
-
-class StrSep(RootModel):
-    root: str
-    separator: ClassVar = None
-
-    @classmethod
-    def merge_behavior(cls):
-        return f"Concatenate strings separated by `{repr(cls.separator)}`"
-
-    def merge(self, other):
-        return self.root + self.separator + other.root
-
-
-class StrLines(StrSep):
-    separator = "\n"
-
-
-class StrSepSpace(StrSep):
-    separator = " "
 
 
 def _newtype(class_name, type_, title, description=None, default=None, examples=None):
@@ -51,7 +30,7 @@ def _newtype(class_name, type_, title, description=None, default=None, examples=
 def _variant(discrim_val, title, description, discrim_key, discrim_title, fields):
     return type(
         discrim_val,
-        (PartialModelMixin, BaseModel),
+        (BaseModel,),
         dict(
             model_config=ConfigDict(title=title, extra="forbid"),
             __doc__=description,
@@ -94,7 +73,7 @@ GDBServerPrograms = _newtype(
 )
 
 
-class Core(PartialModelMixin, BaseModel):
+class Core(BaseModel):
     """Core configuration options for this rehosting"""
 
     model_config = ConfigDict(title="Core configuration options", extra="forbid")
@@ -248,7 +227,7 @@ class Core(PartialModelMixin, BaseModel):
         ),
     ]
     extra_qemu_args: Annotated[
-        Optional[StrSepSpace],
+        Optional[str],
         Field(
             None,
             title="Extra QEMU arguments",
@@ -321,14 +300,14 @@ Env = _newtype(
     ],
 )
 NetDevs = Field(
-    default=[],
+    default=None,
     title="Network devices",
     description="Names for guest network interfaces",
     examples=[["eth0", "eth1"], ["ens33", "wlp3s0"]],
 )
 
 BlockedSignalsField = Field(
-    default=[],
+    default=None,
     title="List of blocked signals",
     description="Signals numbers to block within the guest. Supported values are 6 (SIGABRT), 9 (SIGKILL), 15 (SIGTERM), and 17 (SIGCHLD).",
     example=[[9], [9, 15]],
@@ -530,7 +509,7 @@ Ioctls = _newtype(
 )
 
 
-class Pseudofile(PartialModelMixin, BaseModel):
+class Pseudofile(BaseModel):
     """How to emulate a device file"""
 
     model_config = ConfigDict(title="File emulation spec", extra="forbid")
@@ -621,7 +600,7 @@ LibInjectAliases = _newtype(
 )
 
 
-class LibInject(PartialModelMixin, BaseModel):
+class LibInject(BaseModel):
     """Library functions to be intercepted"""
 
     model_config = ConfigDict(title="Injected library configuration", extra="forbid")
@@ -636,7 +615,7 @@ class LibInject(PartialModelMixin, BaseModel):
     ]
 
     extra: Annotated[
-        Optional[StrLines],
+        Optional[str],
         Field(
             None,
             title="Extra injected library code",
@@ -817,11 +796,11 @@ class StaticFiles(RootModel):
     )
 
 
-class Plugin(PartialModelMixin, BaseModel):
+class Plugin(BaseModel):
     model_config = ConfigDict(title="Plugin", extra="allow")
 
     description: Annotated[Optional[str], Field(None, title="Plugin description")]
-    depends_on: Annotated[Optional[str], Field(None, title="Plugin dependency")]
+    depends_on: Annotated[str, Field(None, title="Plugin dependency")]
     enabled: Annotated[
         bool,
         Field(
@@ -833,7 +812,7 @@ class Plugin(PartialModelMixin, BaseModel):
     version: Annotated[Optional[str], Field(None, title="Plugin version")]
 
 
-class ExternalNetwork(PartialModelMixin, BaseModel):
+class ExternalNetwork(BaseModel):
     """Configuration for NAT for external connections"""
 
     model_config = ConfigDict(title="Set up NAT for outgoing connections", extra="forbid")
@@ -857,7 +836,7 @@ class ExternalNetwork(PartialModelMixin, BaseModel):
     )
 
 
-class Network(PartialModelMixin, BaseModel):
+class Network(BaseModel):
     """Configuration for networks to attach to guest"""
 
     model_config = ConfigDict(title="Network Configuration", extra="forbid")
@@ -865,7 +844,7 @@ class Network(PartialModelMixin, BaseModel):
     external: ExternalNetwork = Field(default_factory=ExternalNetwork)
 
 
-class Main(PartialModelMixin, BaseModel):
+class Main(BaseModel):
     """Configuration file for config-file-based rehosting with IGLOO"""
 
     model_config = ConfigDict(title="Penguin Configuration", extra="forbid")
@@ -882,6 +861,3 @@ class Main(PartialModelMixin, BaseModel):
     static_files: StaticFiles
     plugins: Annotated[dict[str, Plugin], Field(title="Plugins")]
     network: Optional[Network] = None
-
-
-Patch = create_partial_model(Main, recursive=True)

@@ -192,31 +192,26 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None):
     """Load penguin config from path"""
     with open(path, "r") as f:
         config = yaml.load(f, Loader=CoreLoader)
-    config = structure.Patch(**config)
     # look for files called patch_*.yaml in the same directory as the config file
-    if config.core.auto_patching:
+    if config["core"].get("auto_patching", False) is True:
         patch_files = list(Path(proj_dir).glob("patch_*.yaml"))
         patches_dir = Path(proj_dir, "patches")
         if patches_dir.exists():
             patch_files += list(patches_dir.glob("*.yaml"))
         if patch_files:
-            if config.patches.root is None:
-                config.patches.root = []
+            if config.get("patches", None) is None:
+                config["patches"] = []
             for patch_file in patch_files:
-                config.patches.root.append(str(patch_file))
-    if config.patches.root is not None:
-        patch_list = config.patches.root
+                config["patches"].append(str(patch_file))
+    if config.get("patches", None) is not None:
+        patch_list = config["patches"]
         for patch in patch_list:
             # patches are loaded relative to the main config file
             patch_relocated = Path(proj_dir, patch)
             if patch_relocated.exists():
                 # TODO: If we're missing a patch we should warn, but this happens 3-4x
                 # and that's too verbose.
-                with open(patch_relocated, "r") as f:
-                    patch = yaml.load(f, Loader=CoreLoader)
-                patch = structure.Patch(**patch)
-                config = patch_config(logger, config, patch)
-    config = config.model_dump()
+                config = patch_config(config, patch_relocated)
     if config["core"].get("guest_cmd", False) is True:
         config["static_files"]["/igloo/utils/guesthopper"] = dict(
             type="host_file",

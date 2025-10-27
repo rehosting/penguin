@@ -243,7 +243,6 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       lz4 \
       openai \
       pydantic \
-      pydantic-partial \
       pyelftools \
       pyyaml \
       pyvis \

@@ -317,8 +317,7 @@ true
 
 |||
 |-|-|
-|__Type__|string|
-|__Patch merge behavior__|Concatenate strings separated by `' '`|
+|__Type__|string or null|
 |__Default__|`null`|
 
 A list of additional QEMU command-line arguments to use when booting the guest
@@ -853,7 +852,7 @@ NVRAM values to add to the guest
 |||
 |-|-|
 |__Type__|list of string|
-|__Default__|`[]`|
+|__Default__|`null`|
 
 Names for guest network interfaces
 
@@ -889,7 +888,7 @@ Value of the U-Boot environment variable
 |||
 |-|-|
 |__Type__|list of integer|
-|__Default__|`[]`|
+|__Default__|`null`|
 
 Signals numbers to block within the guest. Supported values are 6 (SIGABRT), 9 (SIGKILL), 15 (SIGTERM), and 17 (SIGCHLD).
 
@@ -935,8 +934,7 @@ nvram_init
 
 |||
 |-|-|
-|__Type__|string|
-|__Patch merge behavior__|Concatenate strings separated by `'\n'`|
+|__Type__|string or null|
 |__Default__|`null`|
 
 Custom source code for library functions to intercept and model
@@ -1243,7 +1241,7 @@ thumb
 
 |||
 |-|-|
-|__Type__|string or null|
+|__Type__|string|
 |__Default__|`null`|
 
 
@@ -1265,10 +1263,6 @@ Whether to enable this plugin (default depends on plugin)
 
 
 ## `network` Network Configuration
-
-|||
-|-|-|
-|__Default__|`null`|
 
 Configuration for networks to attach to guest
 
