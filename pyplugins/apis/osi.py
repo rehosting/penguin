@@ -580,5 +580,5 @@ class OSI(Plugin):
             Current time in seconds since epoch.
         """
         self.logger.debug("read_time called")
-        t = yield PortalCmd(hop.HYPER_OP_OSI_TIME, 0, 0)
+        t = yield PortalCmd(hop.HYPER_OP_READ_TIME, 0, 0)
         return t
