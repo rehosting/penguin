@@ -49,7 +49,7 @@ class Repl(Plugin):
 
     def __init__(self,panda):
         self.panda = panda
-        self.locals = None
+        self.locals = {'plugins':plugins,'panda':panda}
         self.logger = getColoredLogger("plugins.repl")
         self.node = None
 
@@ -61,20 +61,25 @@ class Repl(Plugin):
             return
         for key in local.keys():
             self.locals[key] = local[key]
-    def code(self,test_string,local=None):
+    def code(self,test_string = None,local=None):
         self.update_locals(local)
-        test = input(">")
-        self.logger.info(test)
-        print(test)
-        tree = ast.parse(test,mode="single")
-        print(ast.dump(tree))
-        result =  HandleYield().visit(tree)
-        result = ast.fix_missing_locations(result)
-        print(result)
-        if self.node != None:
-            yield from self.eval_node()
-        c = compile(result,'<string>',mode='single',optimize=0)
-        return exec(c,globals(),self.locals)
+        while 1:
+            test = input(">")
+            self.logger.info(test)
+            print(test)
+            if test.strip() == "exit":
+                return 
+            tree = ast.parse(test,mode="single")
+            print(ast.dump(tree))
+            result =  HandleYield().visit(tree)
+            result = ast.fix_missing_locations(result)
+            print(result)
+            if self.node != None:
+                yield from self.eval_node()
+            c = compile(result,'<string>',mode='single',optimize=0)
+            exec(c,globals(),self.locals)
+            #del self.locals["yield_result"]
+        return 
     def push_node(self,node):
         self.node = node
     def eval_node(self):
