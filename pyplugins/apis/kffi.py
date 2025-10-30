@@ -54,8 +54,6 @@ class KFFI(Plugin):
     ~~~~~~~
 
     - ``call_function``: Call a kernel function with arguments.
-    - ``read_kernel_memory``: Read bytes from kernel memory.
-    - ``write_kernel_memory``: Write bytes to kernel memory.
     """
 
     def __init__(self) -> None:
