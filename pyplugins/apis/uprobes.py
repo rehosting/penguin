@@ -5,7 +5,6 @@
 
 import os
 import lzma
-import tarfile
 import tempfile
 import io
 from elftools.elf.elffile import ELFFile
@@ -244,57 +243,42 @@ class Uprobes(Plugin):
         tuple[Optional[str], Optional[int]]
             Tuple of (resolved_path, offset) if symbol found, (None, None) otherwise.
         """
-        if not self.fs_tar or not os.path.exists(self.fs_tar):
-            self.logger.warning(f"Trying to read from filesystem tar '{self.fs_tar}', but it is not available")
-            return None, None
 
         FILE_MAX_MEMORY_SIZE = 500 * 1024 * 1024
         try:
-            with tarfile.open(self.fs_tar, 'r') as tar:
-                normalized_path = path.lstrip('./')
+            # Use plugins.staticfs to open the file
+            f = plugins.staticfs.open(path)
+            if not f:
+                self.logger.debug(f"File '{path}' not found in staticfs")
+                return None, None
 
-                target_member = None
-                for member in tar.getmembers():
-                    if member.isfile():
-                        if member.name.lstrip('./') == normalized_path:
-                            target_member = member
-                            break
+            # Read the file content
+            binary_content = f.read()
+            f.close()
 
-                if not target_member:
-                    self.logger.debug(f"File '{path}' not found in filesystem tar")
-                    return None, None
+            # Choose processing method based on file size
+            if len(binary_content) <= FILE_MAX_MEMORY_SIZE:
+                # Use BytesIO for smaller files (more efficient)
+                self.logger.debug(f"Using BytesIO for file '{path}' ({len(binary_content) // (1024*1024)}MB)")
+                binary_io = io.BytesIO(binary_content)
+                offset = self._parse_binary_for_symbol(binary_io, symbol)
+            else:
+                # Use temporary file for larger files (memory-safe)
+                self.logger.debug(f"Using temporary file for large file '{path}' ({len(binary_content) // (1024*1024)}MB)")
+                offset = self._parse_binary_for_symbol(binary_content, symbol)
 
-                file_data = tar.extractfile(target_member)
-                if not file_data:
-                    self.logger.debug(f"Could not extract '{target_member.name}' from tar")
-                    return None, None
-
-                binary_content = file_data.read()
-                file_data.close()
-
-                # Choose processing method based on file size
-                if target_member.size <= FILE_MAX_MEMORY_SIZE:
-                    # Use BytesIO for smaller files (more efficient)
-                    self.logger.debug(f"Using BytesIO for file '{target_member.name}' ({target_member.size // (1024*1024)}MB)")
-                    binary_io = io.BytesIO(binary_content)
-                    offset = self._parse_binary_for_symbol(binary_io, symbol)
-                else:
-                    # Use temporary file for larger files (memory-safe)
-                    self.logger.debug(f"Using temporary file for large file '{target_member.name}' ({target_member.size // (1024*1024)}MB)")
-                    offset = self._parse_binary_for_symbol(binary_content, symbol)
-
-                if offset is not None:
-                    # Ensure the path is absolute (our rootfs tars start with ./)
-                    resolved_path = target_member.name
-                    if resolved_path.startswith('./'):
-                        resolved_path = '/' + resolved_path[2:]
-                    elif not resolved_path.startswith('/'):
-                        resolved_path = '/' + resolved_path
-                    self.logger.debug(f"Found symbol '{symbol}' at offset {offset:#x} in '{resolved_path}'")
-                    return resolved_path, offset
-                else:
-                    self.logger.debug(f"Symbol '{symbol}' not found in '{target_member.name}'")
-                    return None, None
+            if offset is not None:
+                # Ensure the path is absolute
+                resolved_path = path
+                if resolved_path.startswith('./'):
+                    resolved_path = '/' + resolved_path[2:]
+                elif not resolved_path.startswith('/'):
+                    resolved_path = '/' + resolved_path
+                self.logger.debug(f"Found symbol '{symbol}' at offset {offset:#x} in '{resolved_path}'")
+                return resolved_path, offset
+            else:
+                self.logger.debug(f"Symbol '{symbol}' not found in '{path}'")
+                return None, None
 
         except Exception as e:
             self.logger.warning(f"Error searching for symbol in file: {e}")
