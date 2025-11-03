@@ -197,4 +197,3 @@ class StaticFS(Plugin):
         except Exception:
             pass
         return result if result else None
-
