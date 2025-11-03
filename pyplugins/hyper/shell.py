@@ -33,7 +33,6 @@ Classes
 
 """
 
-import tarfile
 from os.path import join
 
 from penguin import plugins, Plugin
@@ -153,18 +152,13 @@ class BBCov(Plugin):
 
         # Populate read_scripts or fs_missing_files with this script
         if filename not in self.read_scripts and filename not in self.fs_missing_files:
-            # Read filename as a path out of self.fs_tar which is a tar arcive
-            with tarfile.open(self.fs_tar, "r") as tar:
-                try:
-                    f = tar.extractfile("." + filename)
-                    if f:
-                        self.read_scripts[filename] = (
-                            f.read().decode("latin-1", errors="replace").splitlines()
-                        )
-                    else:
-                        self.fs_missing_files.add(filename)
-                except KeyError:
-                    self.fs_missing_files.add(filename)
+            f = plugins.staticfs.open(filename)
+            if f:
+                self.read_scripts[filename] = (
+                    f.read().decode("latin-1", errors="replace").splitlines()
+                )
+            else:
+                self.fs_missing_files.add(filename)
 
         # Read the line out of the file, if we can
         try:
