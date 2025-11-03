@@ -152,7 +152,7 @@ class BBCov(Plugin):
 
         # Populate read_scripts or fs_missing_files with this script
         if filename not in self.read_scripts and filename not in self.fs_missing_files:
-            f = plugins.staticfs.open(filename)
+            f = plugins.static_fs.open(filename)
             if f:
                 self.read_scripts[filename] = (
                     f.read().decode("latin-1", errors="replace").splitlines()
