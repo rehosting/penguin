@@ -13,6 +13,10 @@ plugins:
         type: file_contains
         file: vpn_test.txt
         string: "VPN connection successful!"
+      udp_echo:
+        type: file_contains
+        file: udp_echo_test.txt
+        string: "UDP echo successful!"
   vpn_test: {}
 static_files:
   /tests/netbinds.sh:
@@ -24,6 +28,43 @@ static_files:
       # start server
       /igloo/utils/busybox httpd -f -p 8000 -h / &
       sleep 1
+      /igloo/utils/netcat_udp_echo.sh &
       # echo "tests pass"
       exit 0
+    mode: 73
+  /igloo/utils/netcat_udp_echo.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/micropython
+      import usocket as socket  # MicroPython
+
+      HOST = "0.0.0.0"
+      PORT = 4444
+      REPLY = b"NETCAT_UDP_ECHO_OK\n"
+
+      # Resolve to a sockaddr that MicroPython likes
+      ai = socket.getaddrinfo(HOST, PORT, 0, socket.SOCK_DGRAM)[0]
+      family, socktype, proto, _, sockaddr = ai
+
+      sock = socket.socket(family, socktype, proto)
+      sock.bind(sockaddr)
+
+      try:
+          while True:
+              try:
+                  data, addr = sock.recvfrom(65535)
+              except Exception:   # e.g., EINTR on some ports
+                  continue
+              try:
+                  sock.sendto(REPLY, addr)
+              except Exception:
+                  pass
+      except KeyboardInterrupt:
+          pass
+      finally:
+          try:
+              sock.close()
+          except Exception:
+              pass
+
     mode: 73
