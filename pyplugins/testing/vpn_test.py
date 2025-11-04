@@ -12,6 +12,7 @@ from penguin import plugins, Plugin
 import threading
 import requests
 import time
+import socket
 
 
 class VPNTest(Plugin):
@@ -19,6 +20,7 @@ class VPNTest(Plugin):
         self.outdir = self.get_arg("outdir")
         plugins.subscribe(plugins.VPN, "on_bind", self.on_bind)
         self.success = False
+        self.udp_echo_success = False
 
     def on_bind(self, proto: str, guest_ip: str, guest_port: int, host_port: int, host_ip: str, procname: str) -> None:
         if guest_port == 8000 and proto == "tcp":
@@ -28,6 +30,13 @@ class VPNTest(Plugin):
                 self.t = threading.Thread(
                     target=self.scan_thread, args=(host_ip, host_port))
                 self.t.start()
+        if guest_port == 4444 and proto == "udp":
+            if not hasattr(self, 'udp_t'):
+                self.logger.info(
+                    f"Starting UDP echo test thread to {host_ip}:{host_port}")
+                self.udp_t = threading.Thread(
+                    target=self.udp_echo_thread, args=(host_ip, host_port))
+                self.udp_t.start()
 
     def scan_thread(self, host_ip: str, host_port: int) -> None:
         while True:
@@ -45,8 +54,33 @@ class VPNTest(Plugin):
                     f"VPN test connection failed: {e} retrying...")
             time.sleep(1)
 
+    def udp_echo_thread(self, host_ip: str, host_port: int) -> None:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(1)
+        test_msg = b"ping"
+        try:
+            for _ in range(10):
+                try:
+                    sock.sendto(test_msg, (host_ip, host_port))
+                    data, addr = sock.recvfrom(1024)
+                    if b"NETCAT_UDP_ECHO_OK" in data:
+                        self.udp_echo_success = True
+                        with open(f"{self.outdir}/udp_echo_test.txt", "w") as f:
+                            f.write("UDP echo successful!\n")
+                        self.logger.info("UDP echo successful!")
+                        return
+                except Exception as e:
+                    self.logger.info(f"UDP echo test failed: {e} retrying...")
+                time.sleep(1)
+        finally:
+            sock.close()
+
     def uninit(self):
         if not self.success:
             with open(f"{self.outdir}/vpn_test.txt", "w") as f:
                 f.write("VPN connection failed.\n")
             print("VPN connection failed.")
+        if not self.udp_echo_success:
+            with open(f"{self.outdir}/udp_echo_test.txt", "w") as f:
+                f.write("UDP echo failed.\n")
+            print("UDP echo failed.")
