@@ -1,5 +1,6 @@
 import os
 import io
+import subprocess
 from typing import Any, Dict, Optional, IO
 from penguin import Plugin
 from ratarmountcore.mountsource.factory import open_mount_source
@@ -19,7 +20,7 @@ class StaticFS(Plugin):
         self._fs_tar = self.get_arg("fs")
         self._config = self.get_arg("conf")
         self._fs_dir = os.path.dirname(os.path.abspath(self._fs_tar))
-        self._fs = open_mount_source(self._fs_tar, lazyMounting=True)
+        self._fs = open_mount_source(self._fs_tar, lazyMounting=True, openMode='ro')
         self._static_files = self._config.get("static_files", {}).get("root", {})
         self._exists_cache = {}
         self._fileinfo_cache = {}
@@ -197,3 +198,19 @@ class StaticFS(Plugin):
         except Exception:
             pass
         return result if result else None
+
+    def uninit(self):
+        """
+        Cleanly closes the underlying MountSource and forces a disk sync.
+        """
+        if self._fs:
+            self.logger.info("Calling MountSource.close()...")
+            self._fs.close()
+            self._fs = None
+            # Add this:
+            # Force the OS to flush all filesystem buffers to disk NOW.
+            try:
+                subprocess.run(["sync"], check=True)
+            except Exception as e:
+                self.logger.info(f"Warning: 'sync' command failed: {e}")
+            self.logger.info("Sync complete. Shutdown can proceed.")
