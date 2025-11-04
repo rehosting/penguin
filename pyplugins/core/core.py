@@ -74,6 +74,7 @@ class Core(Plugin):
             "live_image",
             "igloodriver",
             "kmods",
+            "net",
         ]
 
         for essential_plugin in essential_plugins:
