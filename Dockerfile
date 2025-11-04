@@ -274,7 +274,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       cxxfilt \
       zstandard \
       pdoc \
-      ratarmountcore
+      ratarmountcore[full]
 
 FROM python_builder AS version_generator
 ARG OVERRIDE_VERSION=""
