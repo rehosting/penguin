@@ -5,12 +5,14 @@ plugins:
         type: file_contains
         file: console.log
         string: "/tests/netdevs.sh PASS"
+  netdevs_test: {}
 
 netdevs:
   - nd0 
   - nd1
   - end4
   - wlan0
+  - blah0
 
 static_files:
   /tests/netdevs.sh:
@@ -22,12 +24,45 @@ static_files:
       /igloo/utils/busybox ip a
 
       # Check for each interfaces
-      for dev in nd0 nd1 end4 wlan0; do
-          if ! /igloo/utils/busybox ip link show dev $dev; then
-              echo "Expected interface $dev not found"
-              exit 1
-          fi
+      for dev in nd0 nd1 end4 wlan0 blah0; do
+        if ! /igloo/utils/busybox ip link show dev $dev; then
+          echo "Expected interface $dev not found"
+          exit 1
+        fi
+        if ! /igloo/utils/busybox ifconfig $dev | /igloo/utils/busybox grep -q "^$dev"; then
+            echo "Expected interface $dev not up"
+            exit 1
+        fi
       done
 
+      # Specific checks for blah0
+      if [ "$(/igloo/utils/busybox cat /sys/class/net/blah0/statistics/rx_bytes)" -ne 1339 ]; then
+          echo "rx_bytes for blah0 is not 1339"
+          exit 1
+      fi
+
+      ifconfig_out=$(/igloo/utils/busybox ifconfig blah0)
+      echo "$ifconfig_out"
+
+      if ! echo "$ifconfig_out" | /igloo/utils/busybox grep -q "RX packets:1337"; then
+          echo "ifconfig blah0: RX packets not 1337"
+          exit 1
+      fi
+      if ! echo "$ifconfig_out" | /igloo/utils/busybox grep -q "TX packets:1338"; then
+          echo "ifconfig blah0: TX packets not 1338"
+          exit 1
+      fi
+      if ! echo "$ifconfig_out" | /igloo/utils/busybox grep -q "RX bytes:1339"; then
+          echo "ifconfig blah0: RX bytes not 1339"
+          exit 1
+      fi
+      if ! echo "$ifconfig_out" | /igloo/utils/busybox grep -q "TX bytes:1340"; then
+          echo "ifconfig blah0: TX bytes not 1340"
+          exit 1
+      fi
+
+      /igloo/utils/busybox ping -I blah0 -c 1 192.168.1.1
+
+      echo "/tests/netdevs.sh PASS"
       exit 0
     mode: 73
