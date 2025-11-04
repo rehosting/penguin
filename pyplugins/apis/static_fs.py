@@ -3,7 +3,7 @@ import io
 from typing import Any, Dict, Optional, IO
 from penguin import Plugin
 from ratarmountcore.mountsource.factory import open_mount_source
-from ratarmountcore.mountsource.interface import MountSource, FileInfo
+from ratarmountcore.mountsource import MountSource, FileInfo
 
 
 class StaticFS(Plugin):
