@@ -247,14 +247,13 @@ class Uprobes(Plugin):
         FILE_MAX_MEMORY_SIZE = 500 * 1024 * 1024
         try:
             # Use plugins.static_fs to open the file
-            f = plugins.static_fs.open(path)
-            if not f:
-                self.logger.debug(f"File '{path}' not found in staticfs")
-                return None, None
+            with plugins.static_fs.open(path) as f:
+                if not f:
+                    self.logger.debug(f"File '{path}' not found in staticfs")
+                    return None, None
 
-            # Read the file content
-            binary_content = f.read()
-            f.close()
+                # Read the file content
+                binary_content = f.read()
 
             # Choose processing method based on file size
             if len(binary_content) <= FILE_MAX_MEMORY_SIZE:
