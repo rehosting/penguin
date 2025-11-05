@@ -7,20 +7,39 @@ plugins:
       net_external:
         type: file_contains
         file: console.log
-        string: "/tests/net_external.sh PASS"
+        string: "/tests/zzznet_external.sh PASS"
 
 
 static_files:
-  /tests/net_external.sh:
+  #zzz here to ensure it runs last
+  /tests/zzznet_external.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/sh
       set -ex
 
+      /igloo/utils/busybox sleep 5
+
+      /igloo/utils/busybox ip addr flush dev eth0
+      /igloo/utils/busybox ip route flush table main
+
+      /igloo/utils/busybox ip link set eth0 down
+      /igloo/utils/busybox ip link set eth0 up
+      
+      # If iptables is available, reset firewall rules completely
+      if /igloo/utils/busybox which iptables >/dev/null 2>&1; then
+          /igloo/utils/busybox iptables -F
+          /igloo/utils/busybox iptables -X
+          /igloo/utils/busybox iptables -t nat -F
+          /igloo/utils/busybox iptables -t nat -X
+          /igloo/utils/busybox iptables -P INPUT ACCEPT
+          /igloo/utils/busybox iptables -P FORWARD ACCEPT
+          /igloo/utils/busybox iptables -P OUTPUT ACCEPT
+      fi
       /igloo/utils/busybox ip addr add 10.0.2.15/24 dev eth0
       /igloo/utils/busybox ip route add default via 10.0.2.2
 
-      /igloo/utils/busybox ping -c 8.8.8.8
+      /igloo/utils/busybox ping -c 3 8.8.8.8
 
       if [ $? -ne 0 ]; then
         echo "FAILED to ping external IP"
