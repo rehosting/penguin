@@ -45,6 +45,7 @@ patches:
   - ./patches/tests/syscalls_logger.yaml
   - ./patches/tests/lifeguard.yaml
   - ./patches/tests/nvram.yaml
+  - ./patches/tests/net_external.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 
