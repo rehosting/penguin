@@ -1,0 +1,37 @@
+#!/igloo/utils/micropython
+import sys
+import ujson
+
+CONFIG_PATH = "/igloo/config.json"
+with open(CONFIG_PATH) as f:
+    config = ujson.load(f)
+
+def get_nested_value(data, path):
+    keys = path.split('.')
+    current = data
+
+    for key in keys:
+        if isinstance(current, dict) and key in current:
+            current = current[key]
+        else:
+            return None
+
+    return current
+
+# Get the path from command line argument
+if len(sys.argv) > 1:
+    path = sys.argv[1]
+    value = get_nested_value(config, path)
+
+    if value is not None:
+        # Convert to string - handle different types appropriately
+        if isinstance(value, (dict, list)):
+            print(ujson.dumps(value))
+        else:
+            print(str(value))
+    else:
+        print("Key not found", file=sys.stderr)
+        sys.exit(1)
+else:
+    print("Usage: get_config <key.path>", file=sys.stderr)
+    sys.exit(1)
