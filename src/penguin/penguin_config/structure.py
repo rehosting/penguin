@@ -157,15 +157,23 @@ class Core(PartialModelMixin, BaseModel):
         ),
     ]
     ltrace: Annotated[
-        Union[bool, list[str]],
+        Union[bool, list[str], dict],
         Field(
             False,
             title="Enable ltrace",
             description=" ".join((
                 "If true, run ltrace for entire system starting from init.",
                 "If names of programs, enable ltrace only for those programs.",
+                "If dict with 'include' and/or 'exclude' keys, specify programs to trace or exclude.",
             )),
-            examples=[False, True, ["lighttpd"]],
+            examples=[
+                False,
+                True,
+                ["lighttpd"],
+                {"include": ["lighttpd"]},
+                {"exclude": ["busybox", "sh"]},
+                {"include": ["lighttpd"], "exclude": ["busybox"]}
+            ],
         ),
     ]
     gdbserver: Optional[GDBServerPrograms] = None
