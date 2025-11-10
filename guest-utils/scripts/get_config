@@ -18,20 +18,32 @@ def get_nested_value(data, path):
 
     return current
 
-# Get the path from command line argument
-if len(sys.argv) > 1:
-    path = sys.argv[1]
+# Bool mode means we exit with 0 if the value is truthy, 1 if falsy or not found
+bool_mode = False
+args = sys.argv[1:]
+
+if '--bool' in args:
+    bool_mode = True
+    args.remove('--bool')
+
+if len(args) > 0:
+    path = args[0]
     value = get_nested_value(config, path)
 
-    if value is not None:
-        # Convert to string - handle different types appropriately
-        if isinstance(value, (dict, list)):
-            print(ujson.dumps(value))
+    if bool_mode:
+        if value is None:
+            sys.exit(1)
         else:
-            print(str(value))
+            sys.exit(0 if value else 1)
     else:
-        print("Key not found", file=sys.stderr)
-        sys.exit(1)
+        if value is not None:
+            if isinstance(value, (dict, list)):
+                print(ujson.dumps(value))
+            else:
+                print(str(value))
+        else:
+            print("Key not found", file=sys.stderr)
+            sys.exit(1)
 else:
-    print("Usage: get_config <key.path>", file=sys.stderr)
+    print("Usage: get_config [--bool] <key.path>", file=sys.stderr)
     sys.exit(1)
