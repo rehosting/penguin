@@ -37,6 +37,8 @@ import os
 import signal
 import threading
 import time
+from typing import Tuple
+from collections.abc import Mapping, Sequence
 from penguin import Plugin, yaml, plugins
 from penguin.defaults import vnc_password
 
@@ -66,6 +68,7 @@ class Core(Plugin):
 
         plugs = self.get_arg("plugins")
         conf = self.get_arg("conf")
+        self.config = conf.args  # since the config is an ArgsBox
 
         telnet_port = self.get_arg("telnet_port")
 
@@ -149,6 +152,9 @@ class Core(Plugin):
         # Record config in outdir:
         with open(os.path.join(self.outdir, "core_config.yaml"), "w") as f:
             f.write(yaml.dump(self.get_arg("conf").args))
+
+        # Set up hypercall handler for config access from guest
+        plugins.send_hypercall.subscribe("get_config", self.get_config)
 
         signal.signal(signal.SIGUSR1, self.graceful_shutdown)
 
@@ -259,3 +265,28 @@ class Core(Plugin):
         if hasattr(self, "shutdown_event") and not self.shutdown_event.is_set():
             # Tell the shutdown thread to exit if it was started
             self.shutdown_event.set()
+
+    def get_config(self, input: str) -> Tuple[int, str]:
+        """
+        Config accessor used by the guest
+        """
+        keys = input.split('.')
+        current = self.config
+
+        for key in keys:
+            try:
+                if isinstance(current, Mapping) and key in current:
+                    current = current[key]
+                elif isinstance(current, Sequence) and not isinstance(current, str):
+                    try:
+                        index = int(key)
+                        current = current[index]
+                    except (ValueError, IndexError):
+                        return 0, ""
+                elif hasattr(current, key):
+                    current = getattr(current, key)
+                else:
+                    return 0, ""
+            except (KeyError, AttributeError, TypeError):
+                return 0, ""
+        return 1, str(current)[:0x1000]  # send_hypercall has a 4096 byte output buffer
