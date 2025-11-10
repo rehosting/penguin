@@ -10,7 +10,6 @@ and core logic for the penguin emulation environment. It is responsible for:
 - Handling SIGUSR1 for graceful shutdown of emulation.
 - Creating a `.ran` file in the output directory after a non-crash shutdown.
 - Optionally enforcing a timeout for emulation and shutting down after the specified period.
-- Setting up environment variables for features like root shell, graphics, shared directory, strace, ltrace, and forced WWW.
 - Logging information about available services (e.g., root shell, VNC) based on configuration and environment.
 
 Arguments
@@ -23,8 +22,6 @@ Plugin Interface
 
 This plugin does not provide a direct interface for other plugins, but it writes configuration
 and plugin information to files in the output directory, which other plugins or tools may read.
-It also sets environment variables in the configuration dictionary that may be used by other
-components or plugins.
 
 Overall Purpose
 ---------------
@@ -84,10 +81,7 @@ class Core(Plugin):
             if hasattr(p, "ensure_init"):
                 p.ensure_init()
 
-        # If we have an option of root_shell we need to add ROOT_SHELL=1 into env
-        # so that the init script knows to start a root shell
         if conf["core"].get("root_shell", False):
-            conf["env"]["ROOT_SHELL"] = "1"
             # Print port info
             if container_ip := os.environ.get("CONTAINER_IP", None):
                 self.logger.info(
@@ -122,15 +116,21 @@ class Core(Plugin):
                     f"VNC @ {container_ip}:5900 with password '{vnc_password}'"
                 )
 
-        # Same thing, but for a shared directory
-        if conf["core"].get("shared_dir", False):
-            conf["env"]["SHARED_DIR"] = "1"
+        # Warn if env is set for any of the old options. Can happen with old configs.
+        legacy_env_vars = ["ROOT_SHELL", "SHARED_DIR", "STRACE", "IGLOO_LTRACE", "WWW", "PROJ_NAME"]
+        core_env = conf["core"].get("env", {})
 
-        if conf["core"].get("strace", False) is True:
-            conf["env"]["STRACE"] = "1"
+        found_legacy_vars = []
+        for var in legacy_env_vars:
+            if var in core_env:
+                found_legacy_vars.append(var)
 
-        if conf["core"].get("ltrace", False) is True:
-            conf["env"]["IGLOO_LTRACE"] = "1"
+        if found_legacy_vars:
+            self.logger.warning(
+                f"Legacy environment variables found in core.env: {', '.join(found_legacy_vars)}. "
+                "This likely indicates you are running an old project and this message can safely be ignored."
+                "However, if you have set them intentionally, be aware they will stop working in the future."
+            )
 
         if conf["core"].get("force_www", False):
             if conf.get("static_files", {}).get(
@@ -138,12 +138,10 @@ class Core(Plugin):
                 self.logger.warning(
                     "Force WWW unavailable - no webservers were statically identified (/igloo/utils/www_cmds is empty)"
                 )
-            else:
-                conf["env"]["WWW"] = "1"
 
-        # Add PROJ_NAME into env based on dirname of config
+        # Add proj_name to config based on dirname of config (kinda evil)
         if proj_name := self.get_arg("proj_name"):
-            conf["env"]["PROJ_NAME"] = proj_name
+            conf["core"]["proj_name"] = proj_name
 
         # Record loaded plugins
         with open(os.path.join(self.outdir, "core_plugins.yaml"), "w") as f:
