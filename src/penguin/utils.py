@@ -9,9 +9,11 @@ filesystem and kernel management, plugin analysis loading, and mitigation provid
 
 """
 
+import base64
 import hashlib
 import heapq
 import importlib
+import json
 import os
 import subprocess
 import penguin
@@ -563,3 +565,18 @@ def get_penguin_kernel_version(conf: dict) -> Tuple[int, ...]:
         raise ValueError(f"Unable to parse numeric version from: {version_part}")
 
     return tuple(nums)
+
+
+class Base64BytesEncoder(json.JSONEncoder):
+    """
+    Custom JSON encoder that converts bytes objects to base64 strings.
+    Used for outputting the config as JSON.
+    """
+
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, bytes):
+            return {
+                "__type__": "bytes",
+                "__data__": base64.b64encode(obj).decode('ascii')
+            }
+        return super().default(obj)

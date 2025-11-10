@@ -34,6 +34,7 @@ Classes
 
 from penguin import Plugin, plugins
 from penguin.plugin_manager import resolve_bound_method_from_class
+from penguin.utils import Base64BytesEncoder
 import shutil
 import os
 from typing import Iterator, Dict, Tuple, Optional, Callable
@@ -42,6 +43,8 @@ import tempfile
 import keystone
 import tarfile
 import shlex
+import json
+
 
 GEN_LIVE_IMAGE_ACTION_FINISHED = 0xf113c1df
 # Hypercall to patch all files at once
@@ -133,6 +136,9 @@ class LiveImage(Plugin):
         shim_orig_counts = {}
         libnvram = staging_dir / "igloo" / "libnvram"
         libnvram.mkdir(parents=True, exist_ok=True)
+        json_config = json.dumps(self.config.args, cls=Base64BytesEncoder, indent=2, ensure_ascii=False)
+        with open(staging_dir / "igloo" / "config.json", 'w') as f:
+            f.write(json_config)
         # --- Phase 1: Plan and Stage for Tarball ---
         for file_path, action in self._plan_actions():
             action_type = action.get("type")
