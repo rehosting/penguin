@@ -48,8 +48,8 @@ class KFFITest(Plugin):
         val = yield from kffi.call("igloo_test_function", *args)
         assert val == sum(args), f"Expected {sum(args)}, got {val}, r/w failed"
         level = b"\x01\x03"
-        yield from kffi.call("igloo_printk", level + b"test printk %d %d %d %d\x00", 1, 2, 3, 4)
-
+        #yield from kffi.call("igloo_printk", level + b"test printk %d %d %d %d\x00", 1, 2, 3, 4)
+        yield from plugins.Repl.repl()
         tramp_addr = yield from kffi.callback(self.callback)
         ret = yield from kffi.call(tramp_addr, *self.cb_args)
 
