@@ -237,6 +237,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       html5lib \
       /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl \
       ipdb \
+      ipython \
       python-Levenshtein \
       lief  \
       lxml \
