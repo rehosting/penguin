@@ -517,8 +517,8 @@ RUN used_pkgs="" ; \
             tar xvf /tmp/local_packages/console.tar.gz -C /igloo_static/; \
             used_pkgs="${used_pkgs},console"; \
         fi; \
-        if [ -f /tmp/local_packages/kernels-latest.tar.gz ]; then \
-            rm -rf /igloo_static/kernels && \
+        if [ -f /tmp/local_packages/kernels-latest.tar.gz ]; then \  
+            find /igloo_static/kernels/ -type f ! \( -name '*ko*' -o -name '*osi*' \) -delete && \
             tar xvf /tmp/local_packages/kernels-latest.tar.gz -C /igloo_static/; \
             used_pkgs="${used_pkgs},kernels"; \
         fi; \
