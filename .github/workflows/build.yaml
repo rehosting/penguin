@@ -153,12 +153,25 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+      
       - name: Trust Harbor's self-signed certificate
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: |
           echo "Fetching certificate from ${{ env.REGISTRY }}"
           openssl s_client -showcerts -connect ${{ env.REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
           sudo update-ca-certificates
+      
+      - name: Set up Docker Buildx
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:master
+            network=host
+          buildkitd-config-inline: |
+            [registry."${{ env.REGISTRY }}"]
+              insecure = true
+              http = true
       
       - name: Log in to Rehosting Arc Registry
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
@@ -169,11 +182,14 @@ jobs:
           password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
       
       # Locally tag as latest, just for testing
-      - name: Pull the image from Rehosting Arc Registry
+      # Instead of 'docker pull', we use 'buildx build --load'. 
+      # This forces the configured BuildKit container to fetch the image (ignoring SSL)
+      # and pipe it directly into the local Docker Daemon.
+      - name: Pull image via Buildx and Load to Daemon
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: |
-              docker pull ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }};
-              docker tag ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }} rehosting/penguin:latest
+          echo "FROM ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }}" | \
+          docker buildx build -t rehosting/penguin:latest --load -
       
       - name: Basic test for ${{ matrix.arch }}
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
