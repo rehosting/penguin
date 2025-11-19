@@ -1,3 +1,13 @@
+"""
+Usage
+-----
+
+The plugin can be configured with the following arguments:
+- `outdir`: Output directory for logs.
+- `verbose`: Enables debug logging for set operations.
+- `logging`: Enable or disable logging of modeled files, missing files, or both.
+             Options are 'all', 'missing', 'modeled', or 'none'. Default is 'all'.
+"""
 import logging
 import re
 from os.path import dirname, isfile, isabs
@@ -140,6 +150,17 @@ class Pseudofiles(Plugin):
         self.outdir = self.get_arg("outdir")
         self.proj_dir = self.get_arg("proj_dir")
         self.written_data = {}  # filename -> data that was written to it
+        self.logging_enabled = self.get_arg("logging", default="all")
+        if "all" in self.logging_enabled or "missing" in self.logging_enabled:
+            self.log_missing = True
+        else:
+            self.log_missing = False
+        self.logger.info(f"logging missing pseudofiles: {self.logging_enabled}")
+        if "all" in self.logging_enabled or "modeled" in self.logging_enabled:
+            self.log_modeled = True
+        else:
+            self.log_modeled = False    
+        self.logger.info(f"logging modeled pseudofiles: {self.logging_enabled}")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel(logging.DEBUG)
         self.did_mtd_warn = False  # Set if we've warned about misconfigured MTD devices
@@ -178,16 +199,26 @@ class Pseudofiles(Plugin):
         # Need to implement read, write, and IOCTLs
         # IOCTLs with symex gets scary, others are easy though?
         from hyperfile import HyperFile
-        plugins.load(
-            HyperFile,
-            {
-                "models": self.hf_config,
-                "log_file": pjoin(self.outdir, outfile_models),
-                "logger": self.logger,
-            },
-        )
+        if self.log_modeled:
+            plugins.load(
+                HyperFile,
+                {
+                    "models": self.hf_config,
+                    "log_file": pjoin(self.outdir, outfile_models),
+                    "logger": self.logger,
+                },
+            )
+        else:
+            plugins.load(
+                HyperFile,
+                {
+                    "models": self.hf_config,
+                    "logger": self.logger,
+                },
+            )
         # Clear results file - we'll update it as we go
-        self.dump_results()
+        if self.log_missing:
+            self.dump_results()
 
         plugins.subscribe(plugins.Events, "igloo_hyp_enoent", self.hyp_enoent)
 
@@ -472,7 +503,8 @@ class Pseudofiles(Plugin):
             # The first time we see an IOCTL update our results on disk
             # This is just relevant if someone's watching the output during a run
             # final results are always written at the end.
-            self.dump_results()
+            if self.log_missing:
+                self.dump_results()
             self.logger.debug(f"New ioctl failure observed: {cmd:x} on {path}")
 
     def read_zero(self, filename, buffer, length, offset, details=None):
@@ -750,4 +782,5 @@ class Pseudofiles(Plugin):
             self.symex.save_results()
 
     def uninit(self):
-        self.dump_results()
+        if self.log_missing:
+            self.dump_results()
