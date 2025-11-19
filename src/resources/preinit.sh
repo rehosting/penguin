@@ -6,4 +6,6 @@ if [ $? -ne 0 ]; then
     echo "[IGLOO INIT] ERROR: gen_live_image.sh failed. See /igloo/shared/host_files/live_image_guest.log for details." >&2
     exit 1
 fi
+/igloo/boot/busybox mkdir -p /igloo/config_tmpfs
+/igloo/boot/busybox mount -t tmpfs tmpfs /igloo/config_tmpfs
 exec /igloo/init

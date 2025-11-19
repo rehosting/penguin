@@ -113,7 +113,6 @@ class ConfigBuilder:
         static_analyses = [
             STATIC.ArchId,
             STATIC.InitFinder,
-            STATIC.EnvFinder,
             STATIC.PseudofileFinder,
             STATIC.InterfaceFinder,
             STATIC.ClusterCollector,

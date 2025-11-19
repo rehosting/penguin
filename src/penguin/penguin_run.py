@@ -120,20 +120,20 @@ def run_config(
         # An arugument setting a timeout overrides the config's timeout
         conf["plugins"]["core"]["timeout"] = timeout
 
-    if "igloo_init" not in conf["env"]:
+    if "init" not in conf["core"]:
         if init:
-            conf["env"]["igloo_init"] = init
+            conf["core"]["init"] = init
         else:
             try:
                 with open(
-                    os.path.join(*[os.path.dirname(conf_yaml), "base", "env.yaml"]), "r"
+                    os.path.join(*[os.path.dirname(conf_yaml), "static", "InitFinder.yaml"]), "r"
                 ) as f:
-                    # Read yaml file, get 'igloo_init' key
-                    inits = yaml.safe_load(f)["igloo_init"]
+                    # Read yaml file, get possible inits
+                    inits = yaml.safe_load(f)
             except FileNotFoundError:
                 inits = []
             raise RuntimeError(
-                f"No init binary is specified in configuration, set one in config's env section as igloo_init. Static analysis identified the following: {inits}"
+                f"No init binary is specified in configuration, set one in config's core section as init. Static analysis identified the following: {inits}"
             )
 
     archend = conf["core"]["arch"]
@@ -242,7 +242,7 @@ def run_config(
     )
     append += " idle=poll acpi=off nosoftlockup "  # Improve determinism?
     if vpn_enabled:
-        append += f" CID={vpn_args['CID']} "
+        conf["internal"]["cid"] = CID
 
     if archend in ["armel", "aarch64"]:
         append = append.replace("console=ttyS0", "console=ttyAMA0")
@@ -405,7 +405,6 @@ def run_config(
                 logger.info(f"Logging external traffic to {pcap_path}")
                 arg_str += f" -object filter-dump,id=fext,netdev=ext,file={pcap_path}"
             args += shlex.split(arg_str)
-            conf["env"]["IGLOO_EXT_MAC"] = mac
             logger.info(f"Starting external network on interface {mac}. Host is available on 10.0.2.2")
 
     if conf['core']['smp'] > 1:
@@ -479,9 +478,10 @@ def run_config(
     # the string entry after the "-append" argument which is a string list of
     # the kernel append args. We put our values at the start of this list
 
-    # Find the argument after '-append' in the list and re-render it based on updated env
+    # Find the argument after '-append' in the list and re-render it
     append_idx = panda.panda_args.index("-append") + 1
 
+    # TODO: don't use kernel args for this
     config_args = [
         f"{k}" + (f"={v}" if v is not None else "") for k, v in conf["env"].items()
     ]

@@ -459,9 +459,7 @@ class BasePatch(PatchGenerator):
             "core": {
                 "arch": self.arch_name,
                 "kernel": self.kernel_versions["selected_kernel"],
-            },
-            "env": {
-                "igloo_init": self.igloo_init,
+                "init": self.igloo_init,
             },
             "pseudofiles": {
                 # Ensure guest can't interfere with our 2nd serial console - make it a null device
@@ -537,6 +535,7 @@ class BasePatch(PatchGenerator):
                 }
             },
             "plugins": default_plugins,
+            "internal": dict()
         }
 
         # Always add our utilities into static files

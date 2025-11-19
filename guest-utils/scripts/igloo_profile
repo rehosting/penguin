@@ -4,7 +4,7 @@ done
 export PATH="/igloo/utils:$PATH"
 
 # Show project name in prompt if we have it, otherwise hostname
-PROJ_NAME=$(/igloo/utils/get_config core.proj_name 2>/dev/null)
+PROJ_NAME=$(/igloo/utils/get_config internal.proj_name 2>/dev/null)
 if [ -z "${PROJ_NAME}" ]; then
   PROJ_NAME="\h"
 fi

@@ -1,3 +1,7 @@
+# Mount our configuration cache
+/igloo/utils/busybox mkdir -p /igloo/cache_tmpfs
+/igloo/utils/busybox mount -t tmpfs tmpfs /igloo/cache_tmpfs
+
 # Mount sysfs, procfs, and devfs in /igloo/pfs/real
 for f in sys proc dev; do
   /igloo/utils/busybox mkdir -p /igloo/pfs/real/$f

@@ -34,7 +34,7 @@ import os
 import signal
 import threading
 import time
-from typing import Tuple
+from typing import Tuple, Iterator
 from collections.abc import Mapping, Sequence
 from penguin import Plugin, yaml, plugins
 from penguin.defaults import vnc_password
@@ -66,6 +66,7 @@ class Core(Plugin):
         plugs = self.get_arg("plugins")
         conf = self.get_arg("conf")
         self.config = conf.args  # since the config is an ArgsBox
+        self.context = {}  # runtime context for guest (these used to be env vars)
 
         telnet_port = self.get_arg("telnet_port")
 
@@ -141,7 +142,7 @@ class Core(Plugin):
 
         # Add proj_name to config based on dirname of config (kinda evil)
         if proj_name := self.get_arg("proj_name"):
-            conf["core"]["proj_name"] = proj_name
+            conf["internal"]["proj_name"] = proj_name
 
         # Record loaded plugins
         with open(os.path.join(self.outdir, "core_plugins.yaml"), "w") as f:
@@ -264,7 +265,7 @@ class Core(Plugin):
             # Tell the shutdown thread to exit if it was started
             self.shutdown_event.set()
 
-    def get_config(self, input: str) -> Tuple[int, str]:
+    def get_config(self, input: str) -> Iterator[Tuple[int, str]]:
         """
         Config accessor used by the guest
         """
@@ -287,4 +288,4 @@ class Core(Plugin):
                     return 0, ""
             except (KeyError, AttributeError, TypeError):
                 return 0, ""
-        return 1, str(current)[:0x1000]  # send_hypercall has a 4096 byte output buffer
+        return 2, str(current)[:0x1000]  # send_hypercall has a 4096 byte output buffer

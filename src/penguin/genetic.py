@@ -200,7 +200,7 @@ def create_init_gene(base_config, proj_dir, patch_dir):
     """
     Based on add_init_options_to_graph in manager.py
 
-    A config needs to have an ['env']['igloo_init'] in order to do anything useful.
+    A config needs to have an ['core']['init'] in order to do anything useful.
     We might have a single option already set or we might have multiple options
     stored proj_dir/static/InitFinder.yaml (based on static analysis).
 
@@ -211,7 +211,7 @@ def create_init_gene(base_config, proj_dir, patch_dir):
     with each init. This means we'll start our search with multiple configuration
     options to explore.
 
-    If an igloo_init is set in the initial config, we'll assume that's
+    If an init is set in the initial config, we'll assume that's
     right and leave it alone.
     """
     # Hack igloo_inits as a gene
@@ -221,7 +221,7 @@ def create_init_gene(base_config, proj_dir, patch_dir):
     # Add a fake failure
     init_mitigations = set()
 
-    if len(base_config["env"].get("igloo_init", [])) == 0:
+    if len(base_config["core"].get("init", [])) == 0:
         init_options = get_inits_from_proj(proj_dir)
         if len(init_options) == 0:
             raise RuntimeError(
@@ -233,7 +233,7 @@ def create_init_gene(base_config, proj_dir, patch_dir):
             patch_fname = f"init{init.replace('/', '_')}.yaml"
             patch_path = os.path.join(patch_dir, patch_fname)
             with open(patch_path, "w") as f:
-                yaml.dump({"env": {"igloo_init": init}}, f)
+                yaml.dump({"core": {"init": init}}, f)
             this_init_mit = dict_to_frozenset({'patches': [patch_path]})
             init_mitigations.add(this_init_mit)
     else:
@@ -241,7 +241,7 @@ def create_init_gene(base_config, proj_dir, patch_dir):
         patch_fname = "init_init.yaml"
         patch_path = os.path.join(patch_dir, patch_fname)
         with open(patch_path, "w") as f:
-            yaml.dump({"env": {"igloo_init": init}}, f)
+            yaml.dump({"core": {"init": init}}, f)
         mit = dict_to_frozenset({'patches': [patch_path]})
         init_mitigations.add(mit)
     return MitigationAlleleSet("init", frozenset(init_mitigations))

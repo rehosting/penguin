@@ -7,13 +7,13 @@
 #include <string.h>
 #include <unistd.h>
 
+int libinject_get_config_int(const char *config_key);
+
 __attribute__((constructor)) void igloo_start_ltrace(void)
 {
 	// Don't do anything if the user doesn't want to ltrace
-	int status = system("/igloo/utils/get_config core.ltrace > /dev/null 2>&1");
-	if (!(WIFEXITED(status) && WEXITSTATUS(status) == 0)) {
+ 	if (!libinject_get_config_int("core.ltrace"))
 		return;
-	}
 
 	// Open tty for output
 	FILE *tty = fopen(TTY_PATH, "w");

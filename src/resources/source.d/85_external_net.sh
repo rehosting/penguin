@@ -1,6 +1,6 @@
 
 #!/igloo/utils/busybox sh
-
+IGLOO_EXT_MAC=$(/igloo/utils/get_config external.network.mac)
 if [ ! -z "${IGLOO_EXT_MAC}" ]; then
   for iface in $(/igloo/utils/busybox ls /sys/class/net); do
       if [ "$(/igloo/utils/busybox cat /sys/class/net/$iface/address)" = "${IGLOO_EXT_MAC}" ]; then

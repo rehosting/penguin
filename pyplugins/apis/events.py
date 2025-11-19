@@ -52,6 +52,7 @@ Example
 
 from penguin import plugins, Plugin
 from hyper.consts import igloo_hypercall_constants as iconsts
+from typing import Iterator
 
 
 EVENTS = {
@@ -103,6 +104,8 @@ class Events(Plugin):
         """
         # MAGIC -> [fn1, fn2, fn3,...]
         self.callbacks = {}
+        if self.get_arg_bool("verbose"):
+            self.logger.setLevel("DEBUG")
 
         for event_num, (name, args) in EVENTS.items():
             plugins.register(self, name, register_notify=self.register_notify)
@@ -146,7 +149,14 @@ class Events(Plugin):
                     pass
                 else:
                     raise ValueError(f"Unknown argument type {arg}")
-            plugins.publish(self, self.callbacks[magic], *args)
+            self.logger.debug(f"hypercall {magic:x} args: {args[1:]}")
+            result = plugins.publish(self, self.callbacks[magic], *args)
+            if isinstance(result, Iterator):
+                try:
+                    while True:
+                        next(result)
+                except StopIteration:
+                    pass
 
     def register_notify(self, name, callback):
         """

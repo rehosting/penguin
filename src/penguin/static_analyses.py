@@ -488,6 +488,8 @@ class EnvFinder(StaticAnalysis):
         """
         Find environment variables and their possible values.
 
+        DEPRECATED: This analysis is removed from default set and will likely be removed in the future
+
         :param extract_dir: Directory containing extracted filesystem.
         :param prior_results: Results from previous analyses.
         :return: Dict of environment variable names to possible values.

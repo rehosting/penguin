@@ -766,7 +766,14 @@ class IGLOOPluginManager:
                         f"Attempt to subscribe to unregistered event: {event} for plugin {plugin}")
                 self.plugin_cbs[plugin][event].append(cb)
                 if (plugin, event) in self.registered_cbs:
-                    self.registered_cbs[(plugin, event)](event, cb)
+                    result = self.registered_cbs[(plugin, event)](event, cb)
+                    if isinstance(result, Iterator):
+                        try:
+                            while True:
+                                next(result)
+                        except StopIteration:
+                            pass
+
                 return cb
             return decorator
 
@@ -779,9 +786,15 @@ class IGLOOPluginManager:
         self.plugin_cbs[plugin][event].append(callback)
 
         if (plugin, event) in self.registered_cbs:
-            self.registered_cbs[(plugin, event)](event, callback)
+            result = self.registered_cbs[(plugin, event)](event, callback)
+            if isinstance(result, Iterator):
+                try:
+                    while True:
+                        next(result)
+                except StopIteration:
+                    pass
 
-    def publish(self, plugin: Plugin, event: str, *args: Any, **kwargs: Any) -> None:
+    def publish(self, plugin: Plugin, event: str, *args: Any, **kwargs: Any) -> Any:
         """
         Publish an event to all registered callbacks for a plugin event.
 
@@ -809,13 +822,22 @@ class IGLOOPluginManager:
                     instance = getattr(self, class_name)
                     if instance and hasattr(instance, method_name):
                         bound_method = getattr(instance, method_name)
-                        bound_method(*args, **kwargs)
+                        result = bound_method(*args, **kwargs)
+                        if isinstance(result, Iterator):
+                            yield from result
                         continue
                 except AttributeError:
                     # Could not find instance or method, fall through to normal
                     # call
                     pass
-            cb(*args, **kwargs)
+            result = cb(*args, **kwargs)
+            if isinstance(result, Iterator):
+                ret = yield from result
+                return ret
+            else:
+                return result
+            # For non-generator callbacks, we don't need to do anything with
+            # the result
 
     def portal_publish(self, plugin: Plugin, event: str, *args: Any, **kwargs: Any) -> Iterator:
         """

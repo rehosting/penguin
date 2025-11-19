@@ -1,3 +1,4 @@
+CID=$(/igloo/utils/get_config internal.cid)
 if [ ! -z "${CID}" ]; then
   echo '[IGLOO INIT] Launching VPN';
   /igloo/utils/vpn guest -c ${CID} >/dev/null &

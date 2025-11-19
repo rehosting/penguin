@@ -64,7 +64,7 @@ class PatchSearch(ConfigSearch):
             for init in init_choices:
                 mit_path = os.path.join(self.patch_dir, f"init_{init.replace('/', '_')}.txt")
                 with open(mit_path, "w") as f:
-                    yaml.dump({"env": {"igloo_init": init}}, f)
+                    yaml.dump({"core": {"init": init}}, f)
 
                 mit_path = mit_path.replace(self.proj_dir, "")
                 if mit_path.startswith("/"):

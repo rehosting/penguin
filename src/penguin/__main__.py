@@ -59,7 +59,7 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
     # config if necessary. If we don't have an init, go find a default, otherwise
     # use the one specified in the config.
     specified_init = None
-    if config.get("env", {}).get("igloo_init", None) is None:
+    if config.get("core", {}).get("init", None) is None:
         options = get_inits_from_proj(proj_dir)
         if len(options):
             logger.info(
@@ -73,7 +73,7 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
             specified_init = options[0]
         else:
             raise RuntimeError(
-                "Static analysis failed to identify an init script. Please specify one in your config under env.igloo_init"
+                "Static analysis failed to identify an init script. Please specify one in your config under core.init"
             )
 
     try:

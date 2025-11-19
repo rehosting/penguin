@@ -40,10 +40,9 @@ Example Usage
             return 0, f"Handled in class: {arg}"
 """
 
-import struct
 from penguin import Plugin, plugins
 from penguin.plugin_manager import resolve_bound_method_from_class
-from typing import Callable, Union, Tuple, Dict, Any
+from typing import Callable, Union, Tuple, Dict, Any, Iterator
 
 
 class SendHypercall(Plugin):
@@ -114,7 +113,7 @@ class SendHypercall(Plugin):
         self.registered_events[event] = callback
 
     def on_send_hypercall(self, cpu: Any, buf_addr: int,
-                          buf_num_ptrs: int) -> None:
+                          buf_num_ptrs: int):
         """
         Handle an incoming hypercall from the guest.
 
@@ -133,27 +132,25 @@ class SendHypercall(Plugin):
         -------
         None
         """
-        arch_bytes = self.panda.bits // 8
 
         # Read list of pointers
-        buf_size = buf_num_ptrs * arch_bytes
-        buf = self.panda.virtual_memory_read(
-            cpu, buf_addr, buf_size, fmt="bytearray")
+        ptrs = yield from plugins.mem.read_ptrlist(buf_addr, buf_num_ptrs)
 
         # Unpack list of pointers
-        word_char = "I" if arch_bytes == 4 else "Q"
-        endianness = ">" if self.panda.arch_name in ["mips", "mips64"] else "<"
-        ptrs = struct.unpack_from(
-            f"{endianness}{buf_num_ptrs}{word_char}", buf)
-        str_ptrs, out_addr = ptrs[:-1], ptrs[-1]
+        try:
+            str_ptrs, out_addr = ptrs[:-1], ptrs[-1]
+        except:
+            import IPython
+            IPython.embed()
+            raise
 
         # Read command and arg strings
-        try:
-            strs = [self.panda.read_str(cpu, ptr) for ptr in str_ptrs]
-        except ValueError:
-            self.logger.error("Failed to read guest memory. Skipping")
-            return
+        strs = []
+        for ptr in str_ptrs:
+            s = yield from plugins.mem.read_str(ptr)
+            strs.append(s)
         cmd, args = strs[0], strs[1:]
+        self.logger.debug(f"send_hypercall: cmd={cmd} args={args}")
 
         # Simulate command
         cb = self.registered_events.get(cmd)
@@ -167,13 +164,20 @@ class SendHypercall(Plugin):
             self.registered_events[cmd] = cb_to_call
 
         try:
-            ret_val, out = cb_to_call(*args)
+            result = cb_to_call(*args)
+            if isinstance(result, Iterator):
+                ret_val, out = (yield from result)
+            else:
+                ret_val, out = result
         except Exception as e:
             self.logger.error(f"Exception while processing {cmd}:")
             self.logger.exception(e)
-            return
 
         # Send output to guest
         out_bytes = out if isinstance(out, bytes) else out.encode()
-        self.panda.virtual_memory_write(cpu, out_addr, out_bytes)
+        self.logger.debug(
+            f"send_hypercall: cmd={cmd} ret_val={ret_val} out={out_bytes}"
+        )
+        yield from self.plugins.mem.write_bytes(out_addr, out_bytes)
+        self.logger.debug(f"send_hypercall: wrote output to 0x{out_addr:x}")
         self.panda.arch.set_retval(cpu, ret_val)

@@ -427,7 +427,7 @@ class GlobalState:
 
 def add_init_options_to_graph(config_manager, proj_dir, base_config):
     """
-    A config needs to have an ['env']['igloo_init'] in order to do anything useful.
+    A config needs to have an ['core']['init'] in order to do anything useful.
     We might have a single option already set or we might have multiple options
     stored proj_dir/static/InitFinder.yaml (based on static analysis).
 
@@ -445,7 +445,7 @@ def add_init_options_to_graph(config_manager, proj_dir, base_config):
     # Hack igloo_inits into graph as a failure and mitigation.
     # But only if we don't have igloo_init set and have multiple
     # potential values
-    if len(base_config.info["env"].get("igloo_init", [])) == 0:
+    if len(base_config.info["core"].get("init", [])) == 0:
         init_options = get_inits_from_proj(proj_dir)
         if len(init_options) == 0:
             raise RuntimeError(
@@ -477,7 +477,7 @@ def add_init_options_to_graph(config_manager, proj_dir, base_config):
 
             # Next add new config
             conf_info = deepcopy(base_config.info)
-            conf_info["env"]["igloo_init"] = init
+            conf_info["core"]["init"] = init
             new_config = Configuration(init, conf_info)
             config_manager.graph.add_node(new_config)
 

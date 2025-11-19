@@ -1,7 +1,36 @@
 #!/igloo/utils/sh
-OUTPUT=$(/igloo/utils/send_hypercall get_config $@)
-echo -n "$OUTPUT"
+CACHE_DIR="/igloo/config_tmpfs"
+# This should happen in init or lib_inject
+if [ ! -d "${CACHE_DIR}" ]; then
+  /igloo/utils/busybox mkdir -p "${CACHE_DIR}"
+  /igloo/utils/busybox mount -t tmpfs tmpfs "${CACHE_DIR}"
+fi
+
+CONFIG_KEY="$1"
+CACHE_PATH="${CACHE_DIR}/${CONFIG_KEY//./\/}"
+CACHE_FILE="${CACHE_PATH}"
+LOCK_FILE="${CACHE_DIR}.lock"
+
+echo "[IGLOO GET_CONFIG] Fetching config key: ${CONFIG_KEY}" > /dev/ttyS0
+
+if [ ! -f "${CACHE_FILE}" ]; then
+  # Both this and the lib_inject version use flock for locking
+  /igloo/utils/busybox flock "${LOCK_FILE}" /igloo/utils/sh -c '
+    CACHE_FILE="'"${CACHE_FILE}"'"
+    # Double-check after acquiring lock in case another process already created it
+    if [ ! -f "${CACHE_FILE}" ]; then
+      OUTPUT=$(/igloo/utils/send_hypercall get_config '"$1"')
+      /igloo/utils/busybox mkdir -p "$(dirname "${CACHE_FILE}")"
+      echo -n "$OUTPUT" > "${CACHE_FILE}"
+    fi
+  '
+fi
+
+OUTPUT=$(/igloo/utils/busybox cat "${CACHE_FILE}")
+echo "[IGLOO GET_CONFIG] Got value for config key ${CONFIG_KEY}: ${OUTPUT}" > /dev/ttyS0
+
 if [ "$OUTPUT" = "False" ] || [ "$OUTPUT" = "None" ] || [ "$OUTPUT" = "false" ] || [ "$OUTPUT" = "" ]; then
   exit 1
 fi
+/igloo/utils/busybox echo -n "$OUTPUT"
 exit 0
