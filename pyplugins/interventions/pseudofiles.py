@@ -159,7 +159,7 @@ class Pseudofiles(Plugin):
         if "all" in self.logging_enabled or "modeled" in self.logging_enabled:
             self.log_modeled = True
         else:
-            self.log_modeled = False    
+            self.log_modeled = False
         self.logger.info(f"logging modeled pseudofiles: {self.logging_enabled}")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel(logging.DEBUG)
