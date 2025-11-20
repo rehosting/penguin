@@ -141,7 +141,7 @@ class HyperFile(Plugin):
         """
         panda = self.panda
         self.arch_bytes = panda.bits // 8
-        self.log_file = self.get_arg("log_file")
+        self.log_file = self.get_arg("log_file", default=None)
         self.files = self.get_arg("models")
         self.logger = self.get_arg("logger")
 
