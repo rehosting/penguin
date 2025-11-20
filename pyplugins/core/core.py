@@ -39,6 +39,8 @@ from collections.abc import Mapping, Sequence
 from penguin import Plugin, yaml, plugins
 from penguin.defaults import vnc_password
 
+GET_CONFIG_MAGIC = 0x6E7C04F0
+
 
 class Core(Plugin):
     """
@@ -151,9 +153,6 @@ class Core(Plugin):
         with open(os.path.join(self.outdir, "core_config.yaml"), "w") as f:
             f.write(yaml.dump(self.get_arg("conf").args))
 
-        # Set up hypercall handler for config access from guest
-        plugins.send_hypercall.subscribe("get_config", self.get_config)
-
         signal.signal(signal.SIGUSR1, self.graceful_shutdown)
 
         # Load the "timeout" plugin which is a misnomer - it's just going
@@ -264,15 +263,18 @@ class Core(Plugin):
             # Tell the shutdown thread to exit if it was started
             self.shutdown_event.set()
 
-    def get_config(self, input: str) -> Tuple[int, str]:
+    @plugins.portalcall.portalcall(GET_CONFIG_MAGIC)
+    def portalcall_getconfig(self, key_ptr, output_ptr, buf_size):
         """
         Config accessor used by the guest
         """
-        keys = input.split('.')
+        key = yield from plugins.mem.read_str(key_ptr)
+        keys = key.split('.')
         current = self.config
+        self.logger.debug(f"get_config called for key: {key}")
 
-        for key in keys:
-            try:
+        try:
+            for key in keys:
                 if isinstance(current, Mapping) and key in current:
                     current = current[key]
                 elif isinstance(current, Sequence) and not isinstance(current, str):
@@ -280,11 +282,13 @@ class Core(Plugin):
                         index = int(key)
                         current = current[index]
                     except (ValueError, IndexError):
-                        return 0, ""
+                        raise
                 elif hasattr(current, key):
                     current = getattr(current, key)
                 else:
-                    return 0, ""
-            except (KeyError, AttributeError, TypeError):
-                return 0, ""
-        return 1, str(current)[:0x1000]  # send_hypercall has a 4096 byte output buffer
+                    raise KeyError
+            value = str(current)
+        except (KeyError, AttributeError, TypeError):
+            value = ""
+        self.logger.debug(f"get_config found value {value} for key: {key}")
+        yield from plugins.mem.write_str(output_ptr, value[:buf_size-1])

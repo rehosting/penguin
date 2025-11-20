@@ -84,6 +84,10 @@ out/%/test_ioctl_interaction: test_ioctl_interaction.c
 	@mkdir -p $(dir $@)
 	$(CC_$*) $(CFLAGS_$*) $< -o $@
 
+out/%/get_config: get_config.c
+	@mkdir -p $(dir $@)
+	$(CC_$*) $(CFLAGS_$*) $< -o $@
+
 out/%/test_nvram: test_nvram.c
 	@mkdir -p $(dir $@)
 	$(CC_$*) $(CFLAGS_DYNAMIC_$*) -Wl,--dynamic-linker=/igloo/dylibs/ld-musl-$*.so.1 $< -o $@

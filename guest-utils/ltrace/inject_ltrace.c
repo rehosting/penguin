@@ -7,11 +7,13 @@
 #include <string.h>
 #include <unistd.h>
 
+int libinject_get_config_bool(const char *config_key);
+int libinject_get_config(const char *key, char *output, unsigned long buf_size);
+
 __attribute__((constructor)) void igloo_start_ltrace(void)
 {
 	// Don't do anything if the user doesn't want to ltrace
-	int status = system("/igloo/utils/get_config core.ltrace > /dev/null 2>&1");
-	if (!(WIFEXITED(status) && WEXITSTATUS(status) == 0)) {
+	if(!libinject_get_config_bool("core.ltrace")) {
 		return;
 	}
 

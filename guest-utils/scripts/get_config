@@ -1,7 +1,0 @@
-#!/igloo/utils/sh
-OUTPUT=$(/igloo/utils/send_hypercall get_config $@)
-echo -n "$OUTPUT"
-if [ "$OUTPUT" = "False" ] || [ "$OUTPUT" = "None" ] || [ "$OUTPUT" = "false" ] || [ "$OUTPUT" = "" ]; then
-  exit 1
-fi
-exit 0
