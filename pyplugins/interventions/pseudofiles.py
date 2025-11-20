@@ -199,13 +199,13 @@ class Pseudofiles(Plugin):
                 },
             )
         else:
-           plugins.load(
+            plugins.load(
                 HyperFile,
                 {
                     "models": self.hf_config,
                     "logger": self.logger,
                 },
-            ) 
+            )
         # Clear results file - we'll update it as we go
         if self.log_missing:
             self.dump_results()
