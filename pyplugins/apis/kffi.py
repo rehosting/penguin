@@ -33,14 +33,16 @@ Example usage
     yield from plugins.kffi.write_kernel_memory(0xffff888000000000, b"\x90\x90\x90\x90")
 """
 
-from penguin import plugins, getColoredLogger, Plugin
-from wrappers.ctypes_wrap import Ptr, VtypeJsonGroup
-from os.path import join, realpath, isfile
-from wrappers.generic import Wrapper
 import functools
 import inspect
-from typing import Any, Optional, Union, Generator, Tuple, Iterator
+from os.path import isfile, join, realpath
+from typing import Any, Generator, Iterator, Optional, Tuple, Union
+
+from wrappers.ctypes_wrap import Ptr, VtypeJsonGroup
+from wrappers.generic import Wrapper
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
+
+from penguin import Plugin, getColoredLogger, plugins
 
 
 class KFFI(Plugin):
@@ -166,7 +168,10 @@ class KFFI(Plugin):
         if not buf:
             self.logger.error(f"Failed to read bytes from {addr:#x}")
             return None
-        return self.ffi.create_instance(t, buf)
+        instance = self.ffi.create_instance(t, buf)
+        if not hasattr(instance, "address"):
+            setattr(instance, "_address", addr)
+        return instance
 
     def deref(self, ptr: Ptr) -> Generator[Any, Any, Any]:
         """
@@ -183,6 +188,22 @@ class KFFI(Plugin):
             return None
         val = yield from self.read_type(ptr.address, ptr._subtype_info.get("name"))
         return val
+
+    def ref(self, thing: Any) -> Optional[int]:
+        """
+        Gets the address of an ffi type'd object (usually a struct)
+
+        Args:
+            thing (Any): Object.
+
+        Returns:
+            int: The address, or None if no address attribute.
+        """
+        if hasattr(thing, "address"):
+            return thing.address
+        if hasattr(thing, "_address"):
+            return thing._address
+        return None
 
     def get_enum_dict(self, enum_name: str) -> Wrapper:
         """
@@ -443,6 +464,8 @@ class KFFI(Plugin):
                 struct_type = name
                 if result != 0:
                     val = yield from self.read_type(result, struct_type)
+                    if not hasattr(val, "address"):
+                        setattr(val, "_address", result)
                     result = val
                 else:
                     result = None
