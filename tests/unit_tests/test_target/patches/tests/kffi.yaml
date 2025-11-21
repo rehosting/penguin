@@ -16,6 +16,10 @@ plugins:
         type: file_contains
         file: kffi_test.txt
         string: "Callback called with expected values!"
+      kffi+exe_path:
+        type: file_contains
+        file: kffi_test.txt
+        string: "Calling program is /igloo/utils/send_syscall"
 
 static_files:
   /tests/kffi_test.sh:
