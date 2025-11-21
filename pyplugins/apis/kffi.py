@@ -169,7 +169,7 @@ class KFFI(Plugin):
             self.logger.error(f"Failed to read bytes from {addr:#x}")
             return None
         instance = self.ffi.create_instance(t, buf)
-        if not hasattr(instance, "address"):
+        if not hasattr(instance, "_address"):
             setattr(instance, "_address", addr)
         return instance
 
@@ -464,7 +464,7 @@ class KFFI(Plugin):
                 struct_type = name
                 if result != 0:
                     val = yield from self.read_type(result, struct_type)
-                    if not hasattr(val, "address"):
+                    if not hasattr(val, "_address"):
                         setattr(val, "_address", result)
                     result = val
                 else:
