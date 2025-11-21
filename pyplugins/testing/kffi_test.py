@@ -64,6 +64,21 @@ class KFFITest(Plugin):
         rv = yield from kffi.kallsyms_lookup(fn_name)
         assert rv == tramp_addr, f"Expected {tramp_addr:x} from kallsyms_lookup, got {rv:x}"
 
+        # Get full path of executable that issued this system call
+        current = yield from plugins.osi.get_proc()
+        task = yield from plugins.kffi.read_type(current.taskd, "task_struct")
+        exe_file_ptr = yield from plugins.kffi.call_kernel_function("get_task_exe_file", task)
+        exe_file = yield from plugins.kffi.read_type(exe_file_ptr, "file")
+        buf = yield from plugins.kffi.kmalloc(64)
+        f_path_ptr = plugins.kffi.ref(exe_file)+exe_file.f_path.offset
+        #  char *d_path(const struct path *path, char *buf, int buflen)
+        path = yield from plugins.kffi.call_kernel_function("d_path", f_path_ptr, buf, 64)
+        exe_path = yield from plugins.mem.read_str(path)
+        yield from plugins.kffi.call_kernel_function("fput", exe_file_ptr)
+        yield from plugins.kffi.kfree(buf)
+        with open(join(self.outdir, "kffi_test.txt"), "a") as f:
+            f.write(f"Calling program is {exe_path}\n")
+
         # we've commented this out for now since it needs to be updated for 4.10
         # # open our file
         # file_ptr = yield from kffi.call("filp_open", "/igloo/init", 0, 0)
