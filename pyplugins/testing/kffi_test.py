@@ -71,6 +71,10 @@ class KFFITest(Plugin):
         exe_file = yield from plugins.kffi.read_type(exe_file_ptr, "file")
         buf = yield from plugins.kffi.kmalloc(64)
         f_path_ptr = plugins.kffi.ref(exe_file)+exe_file.f_path.offset
+        # Testing types with a known result
+        inode = yield from plugins.kffi.read_type(exe_file.f_inode, "inode")
+        i_opflags = plugins.kffi.get_field_casted(inode, "i_opflags")
+        assert self.panda.ffi.typeof("unsigned short") == self.panda.ffi.typeof(i_opflags)
         #  char *d_path(const struct path *path, char *buf, int buflen)
         path = yield from plugins.kffi.call_kernel_function("d_path", f_path_ptr, buf, 64)
         exe_path = yield from plugins.mem.read_str(path)
