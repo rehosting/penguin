@@ -439,7 +439,7 @@ class BasePatch(PatchGenerator):
         # This is because arm uses ttyAMA (major 204) and mips uses ttyS (major 4).
         # XXX: For mips we use major 4, minor 65. For arm we use major 204, minor 65.
         # For powerpc: major 229, minor 1 (hvc1)
-        if 'mips' in self.arch_name or self.arch_name == "x86_64":
+        if 'mips' in self.arch_name or self.arch_name == "intel64":
             igloo_serial_major = 4
             igloo_serial_minor = 65
         elif self.arch_name in ['armel', 'aarch64']:
