@@ -129,6 +129,22 @@ class KFFI(Plugin):
         t = self.ffi.get_type(type_)
         return self.ffi.create_instance(t, buf, instance_offset_in_buffer)
 
+    def get_field_casted(self, struct: Any, field: str) -> Any:
+        """
+        Get a field from a struct, casted to its declared CFFI type.
+
+        Args:
+            struct (Any): Struct instance.
+            field (str): Field name.
+        Returns:
+            Any: Field value, or None if error occurs.
+        """
+        try:
+            return self.panda.ffi.cast(struct._instance_type_def.fields[field].type_info["name"], getattr(struct, field))
+        except Exception as e:
+            self.logger.error(f"Error casting field {field} of struct {struct}: {e}")
+            return None
+
     def read_type_panda(self, cpu: Any, addr: int, type_: str) -> Any:
         """
         Read a type from kernel memory using PANDA.
@@ -164,6 +180,8 @@ class KFFI(Plugin):
         t = self.ffi.get_type(type_)
         if not t:
             return None
+        if isinstance(addr, Ptr):
+            addr = addr.address
         buf = yield from plugins.mem.read_bytes(addr, t.size)
         if not buf:
             self.logger.error(f"Failed to read bytes from {addr:#x}")
