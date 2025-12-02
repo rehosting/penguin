@@ -135,7 +135,7 @@ class Mem(Plugin):
             Data read from memory.
         """
         self.logger.debug(f"read_bytes called: addr={addr}, size={size}")
-        data = b""
+        read_chunks = []
         cpu = None
         rsize = self.plugins.portal.regions_size
         for i in range((size + rsize - 1) // rsize):
@@ -168,17 +168,20 @@ class Mem(Plugin):
                 chunk = chunk.ljust(chunk_size, b"\x00")
             self.logger.debug(
                 f"Received response from queue: {chunk} chunk_len={len(chunk)}")
-            data += chunk
+            read_chunks.append(chunk)
+        data = b"".join(read_chunks)
         data = data[:size]
         self.logger.debug(f"Total bytes read: {len(data)}")
         return data
-
+    
     def read_str(self, addr: int,
                  pid: Optional[int] = None) -> Generator[Any, Any, str]:
         """
         Read a null-terminated string from guest memory.
 
         Reads a null-terminated string from guest memory at a specified address.
+        Optimized to read in page-aligned chunks to minimize overhead, with
+        fallback to PortalCmd if memory is unmapped in the emulator.
 
         Parameters
         ----------
@@ -194,16 +197,69 @@ class Mem(Plugin):
         """
         if addr != 0:
             self.logger.debug(f"read_str called: addr={addr:#x}")
-            if self.try_panda:
-                try:
-                    chunk = self.panda.read_str(self.panda.get_cpu(), addr)
-                    return chunk
-                except ValueError:
-                    pass
-            chunk = yield PortalCmd(hop.HYPER_OP_READ_STR, addr, 0, pid)
-            if chunk:
-                self.logger.debug(f"Received response from queue: {chunk}")
-                return chunk.decode('latin-1', errors='replace')
+            
+            result = bytearray()
+            
+            PAGE_SIZE = 0x1000
+            # Portal has a max payload size of PAGE_SIZE - 48 (header overhead).
+            # We align our chunks to this to ensure safe fallbacks.
+            PORTAL_CHUNK_SIZE = PAGE_SIZE - 48
+            
+            # Safety limit: almost a page
+            SAFE_MAX = 4096 - 24
+            total_read = 0
+            curr_addr = addr
+            cpu = self.panda.get_cpu()
+
+            while total_read < SAFE_MAX:
+                # 1. Calculate space left in current page
+                page_offset = curr_addr & (PAGE_SIZE - 1)
+                bytes_left_in_page = PAGE_SIZE - page_offset
+                
+                # 2. Determine read size
+                # Cap at:
+                # a) Remaining page space (don't cross page boundary)
+                # b) Portal max chunk size (don't overflow portal buffer)
+                # c) Remaining safety limit
+                to_read = min(bytes_left_in_page, PORTAL_CHUNK_SIZE, SAFE_MAX - total_read)
+                
+                chunk = None
+                
+                # 3. Attempt PANDA direct read first
+                if self.try_panda:
+                    try:
+                        chunk = self.panda.virtual_memory_read(cpu, curr_addr, to_read)
+                    except ValueError:
+                        # Memory is not mapped in QEMU/PANDA. 
+                        # Fallthrough to PortalCmd below.
+                        self.logger.debug(f"PANDA read failed at {curr_addr:#x}, falling back to portal")
+                        chunk = None
+
+                # 4. Fallback to PortalCmd if PANDA failed or is disabled
+                if chunk is None:
+                    # We pass `to_read` to ensure we don't request across a page boundary
+                    # even via the portal, although the portal handles its own safety.
+                    chunk = yield PortalCmd(hop.HYPER_OP_READ_STR, curr_addr, to_read, pid)
+                
+                if not chunk:
+                    # If both methods failed or returned empty, we stop.
+                    break
+
+                # 5. Scan for NULL terminator
+                null_idx = chunk.find(b'\x00')
+                
+                if null_idx != -1:
+                    # Found terminator: append valid part and stop
+                    result.extend(chunk[:null_idx])
+                    break
+                else:
+                    # No terminator: append whole chunk and continue
+                    result.extend(chunk)
+                    total_read += len(chunk)
+                    curr_addr += len(chunk)
+            
+            return result.decode('latin-1', errors='replace')
+            
         return ""
 
     def read_int(self, addr: int,
