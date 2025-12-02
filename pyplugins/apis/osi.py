@@ -208,6 +208,25 @@ class OSI(Plugin):
             wrap.name = proc_bytes[pb.name_offset:].decode("latin-1")
             return wrap
 
+    def get_proc_exe(self, pid: Optional[int] = None) -> Generator[Any, None, Optional[str]]:
+        """
+        Get the full executable path for a process.
+
+        Parameters
+        ----------
+        pid : int, optional
+            Process ID, or None for current process.
+
+        Returns
+        -------
+        Wrapper or None
+            Process information wrapper object, or None if not found.
+        """
+        exe_path_bytes = yield PortalCmd(hop.HYPER_OP_OSI_PROC_EXE, 0, 0, pid)
+        if exe_path_bytes:
+            return exe_path_bytes.decode('latin-1', errors='replace')
+        return CONST_UNKNOWN_STR
+
     def get_mappings(self, pid: Optional[int] = None) -> Generator[Any, None, MappingsWrapper]:
         """
         Get memory mappings for a process.
