@@ -424,6 +424,7 @@ class IGLOOPluginManager:
         self.registered_cbs: Dict[Tuple[Plugin, str], Callable] = {}
         self.aliases: Dict[str, str] = {}
         self.plugins: Dict[str, Plugin] = {}
+        self._plugin_name_map: Dict[str, Plugin] = {}  # Lowercase name -> instance
 
     def load(self, pluginclasses: Union[Type[T], List[Type[T]], Tuple[str, List[str]]],
              args: Dict[str, Any] = None) -> None:
@@ -481,6 +482,8 @@ class IGLOOPluginManager:
             else:
                 self.plugins[name].__init__()
             self.plugins[name].load_time = datetime.datetime.now()
+            # Update fast lookup map
+            self._plugin_name_map[name.lower()] = self.plugins[name]
 
     def load_plugin(self, plugin_name: str) -> None:
         """
@@ -559,11 +562,11 @@ class IGLOOPluginManager:
         :return: The plugin instance if found, else None.
         :rtype: Plugin or None
         """
+        # Resolve alias if present
         if plugin_name in self.aliases:
             plugin_name = self.aliases[plugin_name]
-        for p, i in self.plugins.items():
-            if plugin_name.lower() == p.lower():
-                return i
+        # Fast lookup using lowercased name
+        return self._plugin_name_map.get(plugin_name.lower(), None)
 
     def __contains__(self, plugin: str) -> bool:
         """
@@ -673,13 +676,12 @@ class IGLOOPluginManager:
             # Create alias from class name to plugin instance for method
             # resolution
             if name in self.plugins:
-                # Add the class name as an alias to the plugin instance
-                # This allows syscalls plugin to find instances by class name
                 class_name = cls.__name__
-                plugin_instance_name = name  # The key used in self.plugins
+                plugin_instance_name = name
                 if class_name != plugin_instance_name:
                     self.aliases[class_name] = plugin_instance_name
-
+                # Update fast lookup map for alias
+                self._plugin_name_map[class_name.lower()] = self.plugins[name]
         return names
 
     def unload(self, pluginclass: Union[Type[Plugin], Type[PyPlugin], str]) -> None:
