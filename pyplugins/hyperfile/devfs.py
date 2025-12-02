@@ -15,7 +15,7 @@ class Devfs(Plugin):
         self._dev_dirs: Dict[str, int] = {"": 0}
         
         plugins.portal.register_interrupt_handler(
-            "hyperdevfs", self._hyperdevfs_interrupt_handler)
+            "devfs", self._hyperdevfs_interrupt_handler)
 
     def _get_overridden_methods(self, devfs_file: DevFile) -> Dict[str, callable]:
         base = DevFile
@@ -63,7 +63,7 @@ class Devfs(Plugin):
             
         # Deduplicate registration
         if fname not in self._devfs and devfs_file not in [f for _, f, _, _ in self._pending_devfs]:
-            plugins.portal.queue_interrupt("hyperdevfs")
+            plugins.portal.queue_interrupt("devfs")
             self._pending_devfs.append((fname, devfs_file, major_num, minor_num))
         
         self._devfs[fname] = devfs_file
