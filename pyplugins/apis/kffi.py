@@ -642,6 +642,7 @@ class KFFI(Plugin):
         try:
             pt_regs_raw = yield from self.read_type(pt_regs_addr, "pt_regs")
             pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
+            pt_regs._tramp_id = tramp_id
             original_bytes = pt_regs.to_bytes()[:]
             # Get args from pt_regs
             if num_args > 1:
