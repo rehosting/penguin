@@ -13,7 +13,7 @@ class Proc(Plugin):
         self._procs: Dict[str, ProcFile] = {}
         self._proc_dirs: Dict[str, int] = {}  # path -> dir id
         plugins.portal.register_interrupt_handler(
-            "proc", self._proc_interrupt_handler)
+            "procfs", self._proc_interrupt_handler)
 
     def _get_overridden_methods(self, proc_file: ProcFile) -> Dict[str, callable]:
         """
@@ -63,7 +63,7 @@ class Proc(Plugin):
         if fname.startswith("/proc/"):
             fname = fname[len("/proc/"):]  # Remove leading /proc/
         if fname not in self._procs and proc_file not in self._pending_procs:
-            plugins.portal.queue_interrupt("proc")
+            plugins.portal.queue_interrupt("procfs")
             self._pending_procs.append((fname, proc_file))
         self._procs[fname] = proc_file
 
