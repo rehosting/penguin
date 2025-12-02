@@ -120,6 +120,11 @@ class PtRegsWrapper(Wrapper):
         object.__setattr__(self, '_extra_attrs', {})
         object.__setattr__(self, '_is_dict', False)  # pt_regs is never a dict
         self._panda = panda
+        self._tramp_id: int = None               # Optional trampoline ID inside trampolines
+    
+    def get_tramp_id(self) -> Optional[int]:
+        """Get the trampoline ID, if inside a trampoline"""
+        return self._tramp_id
 
     def get_register(self, reg_name: str) -> Optional[int]:
         """Get register value by name (Optimized)."""
