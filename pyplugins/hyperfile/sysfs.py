@@ -14,7 +14,7 @@ class Sysfs(Plugin):
         self._sysfs: Dict[str, SysFile] = {}
         self._sysfs_dirs: Dict[str, int] = {}  # path -> dir id
         plugins.portal.register_interrupt_handler(
-            "hypersysfs", self._hypersysfs_interrupt_handler)
+            "sysfs", self._hypersysfs_interrupt_handler)
 
     def _get_overridden_methods(self, sysfs_file: SysFile) -> Dict[str, callable]:
         base = SysFile
@@ -51,7 +51,7 @@ class Sysfs(Plugin):
             fname = fname[len("/sys/"):]
         # Fix: _pending_sysfs contains (fname, sysfs_file, mode)
         if fname not in self._sysfs and sysfs_file not in [f for _, f, _ in self._pending_sysfs]:
-            plugins.portal.queue_interrupt("hypersysfs")
+            plugins.portal.queue_interrupt("sysfs")
             self._pending_sysfs.append((fname, sysfs_file, mode))
         self._sysfs[fname] = sysfs_file
 
