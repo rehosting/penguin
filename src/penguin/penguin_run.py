@@ -224,7 +224,7 @@ def run_config(
             "-object",
             f'memory-backend-file,id=mem0,mem-path={mem_path},size={conf["core"]["mem"]},share=on',
             "-chardev",
-            f"socket,id=char0,reconnect=0,path={socket_path}",
+            f"socket,id=char0,path={socket_path}",
             "-device",
             "vhost-user-vsock-pci,chardev=char0",
         ]
