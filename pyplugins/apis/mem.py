@@ -35,7 +35,7 @@ Example Usage
     equal = yield from plugins.mem.memcmp(0x4000, 0x5000, 32)
 """
 
-from penguin import Plugin
+from penguin import Plugin, plugins
 from hyper.consts import HYPER_OP as hop
 from hyper.portal import PortalCmd
 from struct import pack, unpack
@@ -62,9 +62,54 @@ class Mem(Plugin):
 
         Sets endianness and architecture-specific options.
         """
-        self.endian_format = '<' if self.panda.endianness == 'little' else '>'
+        if self.panda.endianness == 'little':
+            self.endian_format = '<'
+            self.endian_str = 'little'
+        else:
+            self.endian_format = '>'
+            self.endian_str = 'big'
         self.try_panda = True if self.panda.arch != "riscv64" else False
         self.ptr_typ = f'uint{self.panda.bits}_t'
+
+        # Cache specific FFI types and functions to avoid dot-lookup overhead
+        self.ffi = self.panda.ffi
+        self.libpanda = self.panda.libpanda
+        self._read_external = self.libpanda.panda_virtual_memory_read_external
+        self._write_external = self.libpanda.panda_virtual_memory_write_external
+        
+        # Pre-calculate constants
+        self.addr_mask = 0xFFFFFFFF if self.panda.bits == 32 else 0xFFFFFFFFFFFFFFFF
+        
+        # Cache get_cpu to avoid self.panda lookup
+        self._get_cpu = self.panda.get_cpu
+        self.ptr_size = self.panda.bits
+        self._rsize = None
+        # Bind pointer methods
+        if self.panda.bits == 32:
+            self.read_ptr = self.read_int
+            self.write_ptr = self.write_int
+        else:
+            self.read_ptr = self.read_long
+            self.write_ptr = self.write_long
+
+    def _get_rsize(self) -> int:
+        """
+        Helper to lazily fetch and cache the regions_size.
+        This enables the plugin to load before the hypervisor connects.
+        """
+        if self._rsize:
+            return self._rsize
+        
+        # Try to fetch from portal
+        # getattr is safe if regions_size hasn't been set on Portal yet
+        rsize = getattr(plugins.portal, 'regions_size', None)
+        
+        if rsize:
+            self._rsize = rsize
+            return rsize
+        
+        # Fallback default if portal isn't ready (prevents div/0 errors)
+        return 4096
 
     def write_bytes(self, addr: int, data: bytes,
                     pid: Optional[int] = None) -> Generator[Any, Any, int]:
@@ -87,129 +132,147 @@ class Mem(Plugin):
         int
             Number of bytes written.
         """
-        self.logger.debug(
-            f"write_bytes called: addr={addr}, data_len={len(data)}")
+        # Use memoryview to avoid copying bytes on slice
+        view = memoryview(data)
+        total_len = len(view)
+        
+        rsize = self._get_rsize()
         cpu = None
-        rsize = self.plugins.portal.regions_size
-        for i in range((len(data) + rsize - 1) // rsize):
+        
+        # Handle single chunk (Fast Path)
+        if total_len <= rsize:
+            if self.try_panda:
+                if cpu is None: cpu = self._get_cpu()
+                try:
+                    addr_u = addr & self.addr_mask
+                    self.write_bytes_panda(cpu, addr_u, data)
+                    return total_len
+                except ValueError:
+                    pass
+            yield PortalCmd(hop.HYPER_OP_WRITE, addr, total_len, pid, data)
+            return total_len
+
+        # Multi-chunk write
+        num_chunks = (total_len + rsize - 1) // rsize
+        
+        for i in range(num_chunks):
             offset = i * rsize
             chunk_addr = addr + offset
-            chunk_data = data[offset:offset + rsize]
-            self.logger.debug(
-                f"Writing chunk: chunk_addr={chunk_addr}, chunk_len={len(chunk_data)}")
+            
+            # Slicing memoryview is zero-copy
+            chunk_view = view[offset:offset + rsize]
+            chunk_len = len(chunk_view)
+            
             success = False
             if self.try_panda:
-                if cpu is None:
-                    cpu = self.panda.get_cpu()
+                if cpu is None: cpu = self._get_cpu()
                 try:
-                    # Mask address for 32-bit architectures to avoid OverflowError
-                    panda_addr = chunk_addr & 0xFFFFFFFF if self.panda.bits == 32 else chunk_addr
-                    self.write_bytes_panda(
-                        cpu, panda_addr, chunk_data)
+                    addr_u = chunk_addr & self.addr_mask
+                    # ffi.new accepts memoryview/buffer protocol
+                    self.write_bytes_panda(cpu, addr_u, chunk_view)
                     success = True
                 except ValueError:
                     pass
+            
             if not success:
-                yield PortalCmd(hop.HYPER_OP_WRITE, chunk_addr, len(chunk_data), pid, chunk_data)
-        self.logger.debug(f"Total bytes written: {len(data)}")
-        return len(data)
-    
+                # Convert view back to bytes for the portal command if needed
+                yield PortalCmd(hop.HYPER_OP_WRITE, chunk_addr, chunk_len, pid, chunk_view.tobytes())
+
+        return total_len
+
     def write_bytes_panda(self, cpu, addr: int, data: bytes) -> None:
         '''
         Write a bytearray into memory at the specified physical/virtual address
         '''
         length = len(data)
-        ffi = self.panda.ffi
-        c_buf = ffi.new("char[]",data)
-        buf_a = ffi.cast("char*", c_buf)
-        length_a = ffi.cast("int", length)
-        err = self.panda.libpanda.panda_virtual_memory_write_external(cpu, addr, buf_a, length_a)
+        c_buf = self.ffi.from_buffer(data)
+        buf_a = self.ffi.cast("char*", c_buf)
+        length_a = self.ffi.cast("int", length)
+        err = self._write_external(cpu, addr, buf_a, length_a)
 
         if err < 0:
             raise ValueError(f"Memory write failed with err={err}") # TODO: make a PANDA Exn class
-    
+
     def read_bytes(self, addr: int, size: int,
                    pid: Optional[int] = None) -> Generator[Any, Any, bytes]:
         """
-        Read bytes from guest memory.
-
-        Reads bytes from guest memory at a specified address, handling chunking for large reads.
-
-        Parameters
-        ----------
-        addr : int
-            Address to read from.
-        size : int
-            Number of bytes to read.
-        pid : int, optional
-            Process ID for context.
-
-        Returns
-        -------
-        bytes
-            Data read from memory.
+        Reads bytes from guest memory. 
+        Optimized with a Fast Path for single-chunk reads.
         """
-        self.logger.debug(f"read_bytes called: addr={addr}, size={size}")
-        read_chunks = []
-        cpu = None
-        rsize = self.plugins.portal.regions_size
-        for i in range((size + rsize - 1) // rsize):
-            offset = i * rsize
-            chunk_addr = addr + offset
-            chunk_size = min(rsize, size - offset)
-            self.logger.debug(
-                f"Reading chunk: chunk_addr={chunk_addr}, chunk_size={chunk_size}")
-            chunk = None
+        rsize = self._get_rsize()
+        
+        # --- FAST PATH: Single Chunk (Common Case) ---
+        if size <= rsize:
             if self.try_panda:
-                if cpu is None:
-                    cpu = self.panda.get_cpu()
+                # We can assume CPU is needed here, get it once
+                cpu = self._get_cpu()
                 try:
-                    # Mask address for 32-bit architectures to avoid OverflowError
-                    panda_addr = chunk_addr & 0xFFFFFFFF if self.panda.bits == 32 else chunk_addr
-                    chunk = self.read_bytes_panda(
-                        cpu, panda_addr, chunk_size)
+                    # Masking is handled inside read_bytes_panda now to be safer/faster
+                    return self.read_bytes_panda(cpu, addr, size)
                 except ValueError:
                     pass
+            
+            # Fallback to Portal
+            chunk = yield PortalCmd(hop.HYPER_OP_READ, addr, size, pid)
+            if not chunk:
+                return b"\x00" * size
+            if len(chunk) != size:
+                return chunk.ljust(size, b"\x00")
+            return chunk
+
+        # --- SLOW PATH: Multi-Chunk (Large Reads) ---
+        read_chunks = []
+        cpu = None
+        
+        # Calculate number of chunks needed
+        # (size + rsize - 1) // rsize is equivalent to ceil(size / rsize)
+        num_chunks = (size + rsize - 1) // rsize
+
+        for i in range(num_chunks):
+            offset = i * rsize
+            chunk_addr = addr + offset
+            # Calculate remaining bytes
+            chunk_size = size - offset
+            if chunk_size > rsize:
+                chunk_size = rsize
+
+            chunk = None
+            if self.try_panda:
+                if cpu is None: cpu = self._get_cpu()
+                try:
+                    chunk = self.read_bytes_panda(cpu, chunk_addr, chunk_size)
+                except ValueError:
+                    pass
+
             if not chunk:
                 chunk = yield PortalCmd(hop.HYPER_OP_READ, chunk_addr, chunk_size, pid)
+
             if not chunk:
-                self.logger.debug(
-                    f"Failed to read memory at addr={chunk_addr}, size={chunk_size}")
                 chunk = b"\x00" * chunk_size
             elif len(chunk) != chunk_size:
-                self.logger.debug(
-                    f"Partial read at addr={chunk_addr}, expected {chunk_size} bytes, got {len(chunk)}")
-                # If the read was partial, fill the rest with zeros
                 chunk = chunk.ljust(chunk_size, b"\x00")
-            self.logger.debug(
-                f"Received response from queue: {chunk} chunk_len={len(chunk)}")
             read_chunks.append(chunk)
-        data = b"".join(read_chunks)
-        data = data[:size]
-        self.logger.debug(f"Total bytes read: {len(data)}")
-        return data
+        # Optimization: Use b''.join only once at the end
+        return b"".join(read_chunks)
     
     def read_bytes_panda(self, cpu, addr: int, size: int) -> bytes:
-        '''
-        Read but with an autogen'd buffer
-        Raises ValueError if read fails
-        '''
-        ffi = self.panda.ffi
-        buf = ffi.new("char[]", size)
+        """
+        Optimized PANDA read.
+        """
+        # Create buffer
+        buf = self.ffi.new("char[]", size)
 
-        # Force CFFI to parse addr as an unsigned value. Otherwise we get OverflowErrors
-        # when it decides that it's negative
-        addr_u = int(ffi.cast(self.ptr_typ, addr))
+        # Force unsigned logic using cached mask
+        addr_u = addr & self.addr_mask
 
-        buf_a = ffi.cast("char*", buf)
-        length_a = ffi.cast("int", size)
-        err = self.panda.libpanda.panda_virtual_memory_read_external(cpu, addr_u, buf_a, length_a)
+        buf_a = self.ffi.cast("char*", buf)
+        length_a = self.ffi.cast("int", size)
+        err = self._read_external(cpu, addr_u, buf_a, length_a)
 
         if err < 0:
-            # TODO: We should support a custom error class instead of a generic ValueError
-            raise ValueError(f"Failed to read guest memory at {addr:x} got err={err}")
+            raise ValueError(f"Memory read failed at {addr:x}")
 
-        return ffi.unpack(buf, size)
+        return self.ffi.unpack(buf, size)
 
     
     def read_str(self, addr: int,
@@ -375,8 +438,7 @@ class Mem(Plugin):
             self.logger.error(
                 f"Failed to read int at addr={addr}, data_len={len(data)}")
             return None
-        value = unpack(f"{self.endian_format}I", data)[0]
-        self.logger.debug(f"Integer read successfully: value={value}")
+        value = int.from_bytes(data, self.endian_str)
         return value
 
     def read_long(
@@ -404,8 +466,7 @@ class Mem(Plugin):
             self.logger.error(
                 f"Failed to read long at addr={addr}, data_len={len(data)}")
             return None
-        value = unpack(f"{self.endian_format}Q", data)[0]
-        self.logger.debug(f"Long read successfully: value={value}")
+        value = int.from_bytes(data, self.endian_str)
         return value
 
     def read_ptr(self, addr: int,
@@ -427,14 +488,8 @@ class Mem(Plugin):
         int or None
             Pointer value read, or None on failure.
         """
-        if self.panda.bits == 32:
-            ptr = yield from self.read_int(addr, pid)
-        elif self.panda.bits == 64:
-            ptr = yield from self.read_long(addr, pid)
-        else:
-            raise Exception("read_ptr: Could not determine bits")
-        return ptr
-
+        # this function is bound in __init__
+        pass
     def write_int(self, addr: int, value: int,
                   pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
@@ -456,11 +511,9 @@ class Mem(Plugin):
         int
             Number of bytes written.
         """
-        self.logger.debug(f"write_int called: addr={addr}, value={value}")
         # Pack the integer according to system endianness
-        data = pack(f"{self.endian_format}I", value)
+        data = value.to_bytes(4, self.endian_str)
         bytes_written = yield from self.write_bytes(addr, data, pid)
-        self.logger.debug(f"Integer written successfully: {value}")
         return bytes_written
 
     def write_long(self, addr: int, value: int,
@@ -484,11 +537,9 @@ class Mem(Plugin):
         int
             Number of bytes written.
         """
-        self.logger.debug(f"write_long called: addr={addr}, value={value}")
         # Pack the long according to system endianness
-        data = pack(f"{self.endian_format}Q", value)
+        data = value.to_bytes(8, self.endian_str)
         bytes_written = yield from self.write_bytes(addr, data, pid)
-        self.logger.debug(f"Long written successfully: {value}")
         return bytes_written
 
     def write_ptr(self, addr: int, value: int,
@@ -511,12 +562,8 @@ class Mem(Plugin):
         -------
         None
         """
-        if self.panda.bits == 32:
-            yield from self.write_int(addr, value, pid)
-        elif self.panda.bits == 64:
-            yield from self.write_long(addr, value, pid)
-        else:
-            raise Exception("read_ptr: Could not determine bits")
+        # this function is bound in __init__
+        pass
 
     def write_str(self, addr: int, string: Union[str, bytes], null_terminate: bool = True,
                   pid: Optional[int] = None) -> Generator[Any, Any, int]:
@@ -579,7 +626,7 @@ class Mem(Plugin):
             List of pointer values.
         """
         ptrs = []
-        ptrsize = int(self.panda.bits / 8)
+        ptrsize = self.ptr_size
         for start in range(length):
             ptr = yield from self.read_ptr(addr + (start * ptrsize), pid)
             if ptr == 0:
@@ -715,12 +762,7 @@ class Mem(Plugin):
         list of int
             List of uint64s read from memory.
         """
-        data = yield from self.read_bytes(addr, 8 * count, pid)
-        if len(data) != 8 * count:
-            self.logger.error(
-                f"Failed to read uint64 array at addr={addr}, expected {8*count} bytes, got {len(data)}")
-            return []
-        return list(unpack(f"{self.endian_format}{count}Q", data))
+        return (yield from self.read_long_array(addr, count, pid))
 
     def read_utf8_str(
             self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, str]:
@@ -745,7 +787,7 @@ class Mem(Plugin):
             chunk = yield from self.read_str(addr, pid)
             if chunk:
                 self.logger.debug(f"Received response from queue: {chunk}")
-                return chunk.decode('utf-8', errors='replace')
+                return chunk.encode('latin-1').decode('utf-8', errors='replace')
         return ""
 
     def read_byte(
@@ -820,7 +862,7 @@ class Mem(Plugin):
         if len(data) != 2:
             self.logger.error(f"Failed to read word at addr={addr}")
             return None
-        return unpack(f"{self.endian_format}H", data)[0]
+        return int.from_bytes(data, self.endian_str)
 
     def write_word(self, addr: int, value: int,
                    pid: Optional[int] = None) -> Generator[Any, Any, int]:
@@ -843,7 +885,7 @@ class Mem(Plugin):
         int
             Number of bytes written (should be 2).
         """
-        data = pack(f"{self.endian_format}H", value)
+        data = value.to_bytes(2, self.endian_str)
         return (yield from self.write_bytes(addr, data, pid))
 
     def memset(self, addr: int, value: int, size: int,
@@ -917,8 +959,6 @@ class Mem(Plugin):
         list of str
             List of strings read from the array.
         """
-        from hyper.consts import HYPER_OP as hop
-        from hyper.portal import PortalCmd
         buf = yield PortalCmd(hop.HYPER_OP_READ_PTR_ARRAY, addr, 0, pid)
         if not buf:
             return []
