@@ -145,6 +145,7 @@ class Portal(Plugin):
         self.endian_format = '<' if self.panda.endianness == 'little' else '>'
         self.region_header_fmt = f"{self.endian_format}IIQQ"
         self.region_header_size = kffi.sizeof("region_header")
+        self.region_header_struct = struct.Struct(self.region_header_fmt)
         self.portal_interrupt = None
         # Generic interrupts mechanism
         self._interrupt_handlers = {}  # plugin_name -> handler_function
@@ -298,7 +299,7 @@ class Portal(Plugin):
         cpu, cpu_memregion = cpum
         try:
             buf = plugins.mem.read_bytes_panda(cpu, cpu_memregion, self.region_header_size)
-            _, _, addr, size = struct.unpack(self.region_header_fmt, buf)
+            _, _, addr, size = self.region_header_struct.unpack(buf)
         except ValueError as e:
             self.logger.error(f"Failed to read memregion state: {e}")
             return 0, 0
@@ -379,7 +380,7 @@ class Portal(Plugin):
 
         pid = pid or CURRENT_PID_NUM
 
-        to_write = struct.pack(self.region_header_fmt, op, pid, addr, size)
+        to_write = self.region_header_struct.pack(op, pid, addr, size)
 
         if data:
             if len(data) > self.regions_size:
