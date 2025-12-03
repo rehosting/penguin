@@ -150,6 +150,7 @@ class Plugin:
         :type args: Dict
         """
         self.plugins = plugins
+        self.panda = plugins.panda
         self.args = ArgsBox(args)
         logname = camel_to_snake(self.name)
         self.logger = getColoredLogger(f"plugins.{logname}")
@@ -163,26 +164,6 @@ class Plugin:
         :rtype: str
         """
         return self.__class__.__name__
-
-    @property
-    def panda(self) -> Panda:
-        """
-        Returns the Panda instance associated with this plugin.
-
-        :return: The Panda instance.
-        :rtype: Panda
-        """
-        return self.plugins.panda
-
-    @panda.setter
-    def panda(self, panda: Panda) -> None:
-        """
-        Setter for Panda instance (for compatibility, does nothing).
-
-        :param panda: The Panda instance.
-        :type panda: Panda
-        """
-        pass
 
     def get_arg(self, arg_name: str) -> Any:
         """
