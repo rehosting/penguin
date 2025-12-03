@@ -78,6 +78,8 @@ class KFFITest(Plugin):
         #  char *d_path(const struct path *path, char *buf, int buflen)
         path = yield from plugins.kffi.call_kernel_function("d_path", f_path_ptr, buf, 64)
         exe_path = yield from plugins.mem.read_str(path)
+        exe_path_from_osi = yield from plugins.osi.get_proc_exe(current.pid)
+        assert exe_path == exe_path_from_osi, f"Expected exe path from osi {exe_path_from_osi}, got {exe_path}"
         yield from plugins.kffi.call_kernel_function("fput", exe_file_ptr)
         yield from plugins.kffi.kfree(buf)
         with open(join(self.outdir, "kffi_test.txt"), "a") as f:
