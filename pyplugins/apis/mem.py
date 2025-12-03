@@ -266,7 +266,7 @@ class Mem(Plugin):
                 # 3. Attempt PANDA direct read first
                 if self.try_panda:
                     try:
-                        chunk = self.mem.read_bytes_panda(cpu, curr_addr, to_read)
+                        chunk = self.read_bytes_panda(cpu, curr_addr, to_read)
                     except ValueError:
                         # Memory is not mapped in QEMU/PANDA. 
                         # Fallthrough to PortalCmd below.
