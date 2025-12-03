@@ -64,6 +64,7 @@ class Mem(Plugin):
         """
         self.endian_format = '<' if self.panda.endianness == 'little' else '>'
         self.try_panda = True if self.panda.arch != "riscv64" else False
+        self.ptr_typ = f'uint{self.panda.bits}_t'
 
     def write_bytes(self, addr: int, data: bytes,
                     pid: Optional[int] = None) -> Generator[Any, Any, int]:
@@ -103,7 +104,7 @@ class Mem(Plugin):
                 try:
                     # Mask address for 32-bit architectures to avoid OverflowError
                     panda_addr = chunk_addr & 0xFFFFFFFF if self.panda.bits == 32 else chunk_addr
-                    self.panda.virtual_memory_write(
+                    self.write_bytes_panda(
                         cpu, panda_addr, chunk_data)
                     success = True
                 except ValueError:
@@ -112,7 +113,21 @@ class Mem(Plugin):
                 yield PortalCmd(hop.HYPER_OP_WRITE, chunk_addr, len(chunk_data), pid, chunk_data)
         self.logger.debug(f"Total bytes written: {len(data)}")
         return len(data)
+    
+    def write_bytes_panda(self, cpu, addr: int, data: bytes) -> None:
+        '''
+        Write a bytearray into memory at the specified physical/virtual address
+        '''
+        length = len(data)
+        ffi = self.panda.ffi
+        c_buf = ffi.new("char[]",data)
+        buf_a = ffi.cast("char*", c_buf)
+        length_a = ffi.cast("int", length)
+        err = self.panda.libpanda.panda_virtual_memory_write_external(cpu, addr, buf_a, length_a)
 
+        if err < 0:
+            raise ValueError(f"Memory write failed with err={err}") # TODO: make a PANDA Exn class
+    
     def read_bytes(self, addr: int, size: int,
                    pid: Optional[int] = None) -> Generator[Any, Any, bytes]:
         """
@@ -151,7 +166,7 @@ class Mem(Plugin):
                 try:
                     # Mask address for 32-bit architectures to avoid OverflowError
                     panda_addr = chunk_addr & 0xFFFFFFFF if self.panda.bits == 32 else chunk_addr
-                    chunk = self.panda.virtual_memory_read(
+                    chunk = self.read_bytes_panda(
                         cpu, panda_addr, chunk_size)
                 except ValueError:
                     pass
@@ -173,6 +188,29 @@ class Mem(Plugin):
         data = data[:size]
         self.logger.debug(f"Total bytes read: {len(data)}")
         return data
+    
+    def read_bytes_panda(self, cpu, addr: int, size: int) -> bytes:
+        '''
+        Read but with an autogen'd buffer
+        Raises ValueError if read fails
+        '''
+        ffi = self.panda.ffi
+        buf = ffi.new("char[]", size)
+
+        # Force CFFI to parse addr as an unsigned value. Otherwise we get OverflowErrors
+        # when it decides that it's negative
+        addr_u = int(ffi.cast(self.ptr_typ, addr))
+
+        buf_a = ffi.cast("char*", buf)
+        length_a = ffi.cast("int", size)
+        err = self.panda.libpanda.panda_virtual_memory_read_external(cpu, addr_u, buf_a, length_a)
+
+        if err < 0:
+            # TODO: We should support a custom error class instead of a generic ValueError
+            raise ValueError(f"Failed to read guest memory at {addr:x} got err={err}")
+
+        return ffi.unpack(buf, size)
+
     
     def read_str(self, addr: int,
                  pid: Optional[int] = None) -> Generator[Any, Any, str]:
@@ -228,7 +266,7 @@ class Mem(Plugin):
                 # 3. Attempt PANDA direct read first
                 if self.try_panda:
                     try:
-                        chunk = self.panda.virtual_memory_read(cpu, curr_addr, to_read)
+                        chunk = self.mem.read_bytes_panda(cpu, curr_addr, to_read)
                     except ValueError:
                         # Memory is not mapped in QEMU/PANDA. 
                         # Fallthrough to PortalCmd below.
@@ -261,6 +299,56 @@ class Mem(Plugin):
             return result.decode('latin-1', errors='replace')
             
         return ""
+
+    def read_str_panda(self, cpu, addr: int) -> str:
+        """
+        Read a null-terminated string from guest memory using PANDA only.
+
+        Reads a null-terminated string from guest memory at a specified address,
+        using PANDA's virtual_memory_read in page-aligned chunks. Never falls back
+        to the portal.
+
+        Parameters
+        ----------
+        cpu  : Any (CPUState)
+        addr : int
+            Address to read from.
+
+        Returns
+        -------
+        str
+            String read from memory.
+        """
+        if addr == 0:
+            return ""
+        self.logger.debug(f"read_str_panda called: addr={addr:#x}")
+
+        result = bytearray()
+        PAGE_SIZE = 0x1000
+        SAFE_MAX = PAGE_SIZE
+        total_read = 0
+        curr_addr = addr
+
+        while total_read < SAFE_MAX:
+            page_offset = curr_addr & (PAGE_SIZE - 1)
+            bytes_left_in_page = PAGE_SIZE - page_offset
+            to_read = min(bytes_left_in_page, SAFE_MAX - total_read)
+            try:
+                chunk = self.read_bytes_panda(cpu, curr_addr, to_read)
+            except ValueError:
+                self.logger.debug(f"PANDA read failed at {curr_addr:#x}")
+                break
+            if not chunk:
+                break
+            null_idx = chunk.find(b'\x00')
+            if null_idx != -1:
+                result.extend(chunk[:null_idx])
+                break
+            else:
+                result.extend(chunk)
+                total_read += len(chunk)
+                curr_addr += len(chunk)
+        return result.decode('latin-1', errors='replace')
 
     def read_int(self, addr: int,
                  pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
@@ -654,14 +742,7 @@ class Mem(Plugin):
             UTF-8 string read from memory.
         """
         if addr != 0:
-            self.logger.debug(f"read_utf8_str called: addr={addr:#x}")
-            if self.try_panda:
-                try:
-                    chunk = self.panda.read_str(self.panda.get_cpu(), addr)
-                    return chunk
-                except ValueError:
-                    pass
-            chunk = yield PortalCmd(hop.HYPER_OP_READ_STR, addr, 0, pid)
+            chunk = yield from self.read_str(addr, pid)
             if chunk:
                 self.logger.debug(f"Received response from queue: {chunk}")
                 return chunk.decode('utf-8', errors='replace')
