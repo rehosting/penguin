@@ -49,6 +49,9 @@ CURRENT_PID_NUM = 0xffffffff
 kffi = plugins.kffi
 
 
+# Global singleton for a no-operation command
+_NONE_CMD = None
+
 class PortalCmd:
     """
     Encapsulates a command to be sent through the portal mechanism.
@@ -63,6 +66,8 @@ class PortalCmd:
         pid (int): Process ID or CURRENT_PID_NUM for current process.
         data (Optional[bytes]): Optional data payload for the command.
     """
+
+    __slots__ = ('op', 'addr', 'size', 'pid', 'data')
 
     def __init__(
         self,
@@ -85,21 +90,26 @@ class PortalCmd:
         **Returns:** None
         """
         op_num = None
-        if isinstance(op, str):
+        if isinstance(op, int):
+            self.op = op
+        elif isinstance(op, str):
             op_num = getattr(hop, f"HYPER_OP_{op.upper()}", None)
             if op is None:
                 op_num = getattr(hop, op.upper(), None)
                 if op_num is None:
                     raise ValueError(f"Invalid operation name: {op}")
-        elif isinstance(op, int):
-            op_num = op
         else:
             raise TypeError(f"Operation must be int or str, got {type(op)}")
-        self.op = op_num or 0
-        self.addr = addr or 0
+        if addr is None:
+            self.addr = 0
+        else:
+            self.addr = addr
         self.size = size if size is not None else (len(data) if data else 0)
-        self.pid = pid or CURRENT_PID_NUM
         self.data = data
+        if pid is None:
+            self.pid = CURRENT_PID_NUM
+        else:
+            self.pid = pid
 
     @classmethod
     def none(cls) -> "PortalCmd":
@@ -109,7 +119,10 @@ class PortalCmd:
         **Returns:**
         - `PortalCmd`: A command with HYPER_OP_NONE operation.
         """
-        return cls(hop.HYPER_OP_NONE, 0, 0, None, None)
+        global _NONE_CMD
+        if _NONE_CMD is None:
+            _NONE_CMD = cls(hop.HYPER_OP_NONE, 0, 0, None, None)
+        return _NONE_CMD
 
 
 class Portal(Plugin):
