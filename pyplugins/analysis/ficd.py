@@ -31,7 +31,7 @@ class FICD(Plugin):
         def ficd_execve(regs, proto, syscall, fname_ptr, argv_ptr, envp):
             cpu = self.panda.get_cpu()
             try:
-                fname = self.panda.read_str(cpu, fname_ptr)
+                fname = plugins.mem.read_str_panda(cpu, fname_ptr)
             except ValueError:
                 return
 
@@ -50,8 +50,8 @@ class FICD(Plugin):
                 if ptr == 0:
                     break
                 try:
-                    argv.append(self.panda.read_str(cpu, ptr))
-                    nullable_argv.append(self.panda.read_str(cpu, ptr))
+                    argv.append(plugins.mem.read_str_panda(cpu, ptr))
+                    nullable_argv.append(plugins.mem.read_str_panda(cpu, ptr))
                 except ValueError:
                     argv.append(f"(error: 0x{ptr:x})")
                     nullable_argv.append(None)

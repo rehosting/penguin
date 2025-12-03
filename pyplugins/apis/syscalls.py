@@ -371,7 +371,7 @@ class Syscalls(Plugin):
         reg1 = self.panda.arch.get_arg(cpu, 1, convention="syscall")
 
         # Read the JSON string at reg1
-        json_str = self.panda.read_str(cpu, reg1)
+        json_str = plugins.mem.read_str_panda(cpu, reg1)
         syscall_data = json.loads(json_str)
 
         # Clean the syscall name

@@ -137,8 +137,7 @@ class SendHypercall(Plugin):
 
         # Read list of pointers
         buf_size = buf_num_ptrs * arch_bytes
-        buf = self.panda.virtual_memory_read(
-            cpu, buf_addr, buf_size, fmt="bytearray")
+        buf = plugins.mem.read_bytes_panda(cpu, buf_addr, buf_size)
 
         # Unpack list of pointers
         word_char = "I" if arch_bytes == 4 else "Q"
@@ -149,7 +148,7 @@ class SendHypercall(Plugin):
 
         # Read command and arg strings
         try:
-            strs = [self.panda.read_str(cpu, ptr) for ptr in str_ptrs]
+            strs = [plugins.mem.read_str_panda(cpu, ptr) for ptr in str_ptrs]
         except ValueError:
             self.logger.error("Failed to read guest memory. Skipping")
             return
@@ -175,5 +174,5 @@ class SendHypercall(Plugin):
 
         # Send output to guest
         out_bytes = out if isinstance(out, bytes) else out.encode()
-        self.panda.virtual_memory_write(cpu, out_addr, out_bytes)
+        plugins.mem.write_bytes_panda(cpu, out_addr, out_bytes)
         self.panda.arch.set_retval(cpu, ret_val)

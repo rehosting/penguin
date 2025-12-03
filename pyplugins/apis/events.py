@@ -131,7 +131,7 @@ class Events(Plugin):
                     args.append(argval)
                 elif arg is str:
                     try:
-                        s = self.panda.read_str(cpu, argval)
+                        s = plugins.mem.read_str_panda(cpu, argval)
                     except ValueError:
                         self.logger.debug(
                             f"arg read fail: {magic} {argval:x} {i} {arg}"

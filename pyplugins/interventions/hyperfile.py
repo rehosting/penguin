@@ -54,7 +54,7 @@ Functions
 
 import struct
 from typing import Any, Dict, Tuple
-from penguin import Plugin
+from penguin import Plugin, plugins
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import hyperfs_ops as hops
 from hyper.consts import hyperfs_file_ops as fops
@@ -204,7 +204,7 @@ class HyperFile(Plugin):
         num_hyperfiles_addr = self.panda.arch.get_arg(
             cpu, 2, convention="syscall")
         try:
-            self.panda.virtual_memory_write(
+            plugins.mem.write_bytes_panda(
                 cpu,
                 num_hyperfiles_addr,
                 struct.pack(f"{self.endian} {self.u_word}", len(self.files)),
@@ -244,7 +244,7 @@ class HyperFile(Plugin):
                 return
         for path, buf in zip(self.files.keys(), hyperfile_paths_ptrs):
             try:
-                self.panda.virtual_memory_write(cpu, buf, path.encode())
+                plugins.mem.write_bytes_panda(cpu, buf, path.encode())
             except ValueError:
                 self.panda.arch.set_retval(cpu, HYP_RETRY)
                 self.logger.debug(
@@ -270,8 +270,7 @@ class HyperFile(Plugin):
 
         buf_addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
         try:
-            buf = self.panda.virtual_memory_read(
-                cpu, buf_addr, hyperfs_data_size, fmt="bytearray")
+            buf = plugins.mem.read_bytes_panda(cpu, buf_addr, hyperfs_data_size)
         except ValueError:
             # Memory read failed - tell guest to retry
             self.panda.arch.set_retval(cpu, HYP_RETRY)
@@ -282,7 +281,7 @@ class HyperFile(Plugin):
         # Unpack request with our dynamic format string
         type_val, path_ptr = struct.unpack_from(header_fmt, buf)
         try:
-            device_name = self.panda.read_str(cpu, path_ptr)
+            device_name = plugins.mem.read_str_panda(cpu, path_ptr)
         except ValueError:
             # Memory read failed - tell guest to retry
             self.panda.arch.set_retval(cpu, HYP_RETRY)
@@ -329,7 +328,7 @@ class HyperFile(Plugin):
             # XXX: sizes? overflows?
             if len(new_buffer):
                 try:
-                    self.panda.virtual_memory_write(cpu, buffer, new_buffer)
+                    plugins.mem.write_bytes_panda(cpu, buffer, new_buffer)
                 except ValueError:
                     self.logger.warning(
                         f"After reading hyperfile {device_name} failed to write result into guest memory at {buffer:x} - retry")
@@ -348,7 +347,7 @@ class HyperFile(Plugin):
             # XXX offset is _internal_ to our data structures, it's how far into the file
             # we've seeked. It's NOT related to the guest buffer
             try:
-                contents = self.panda.virtual_memory_read(cpu, buffer, length)
+                contents = plugins.mem.read_bytes_panda(cpu, buffer, length)
             except ValueError:
                 self.logger.warning(
                     f"Before writing to hyperfile {device_name} failed to read data out of guest memory at {buffer:x} with offset {offset:x}")
@@ -379,7 +378,7 @@ class HyperFile(Plugin):
 
             size_ptr, = struct.unpack_from(getattr_fmt, buf, sub_offset)
             try:
-                self.panda.virtual_memory_write(cpu, size_ptr, size_bytes)
+                plugins.mem.write_bytes_panda(cpu, size_ptr, size_bytes)
             except ValueError:
                 self.logger.debug(
                     "Failed to write hyperfile size into guest - retry(?)")
