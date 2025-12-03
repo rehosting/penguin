@@ -362,15 +362,10 @@ class Portal(Plugin):
 
         pid = pid or CURRENT_PID_NUM
 
-        # mem = struct.pack("<QQQQ", op, addr, size, pid)
-        mem = kffi.new("region_header")
-        mem.op = op
-        mem.addr = addr
-        mem.size = size
-        mem.pid = pid
+        to_write = struct.pack(self.region_header_fmt, op, pid, addr, size)
 
         try:
-            self.panda.virtual_memory_write(cpu, cpu_memregion, mem.to_bytes())
+            self.panda.virtual_memory_write(cpu, cpu_memregion, to_write)
         except ValueError as e:
             self.logger.error(f"Failed to write memregion state: {e}")
 
