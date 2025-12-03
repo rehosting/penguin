@@ -329,7 +329,8 @@ class Portal(Plugin):
             self.logger.error(f"Failed to read memory: {e}")
 
     def _write_memregion_state(
-        self, cpum: tuple, op: int, addr: int, size: int, pid: Optional[int] = None
+        self, cpum: tuple, op: int, addr: int, size: int, pid: Optional[int] = None,
+        data: Optional[bytes] = None
     ) -> None:
         """
         Write the state to the memory region.
@@ -364,31 +365,16 @@ class Portal(Plugin):
 
         to_write = struct.pack(self.region_header_fmt, op, pid, addr, size)
 
+        if data:
+            if len(data) > self.regions_size:
+                self.logger.error(
+                    f"Data length {len(data)} exceeds chunk size {self.regions_size}")
+                data = data[:self.regions_size]
+            to_write += data
         try:
             self.panda.virtual_memory_write(cpu, cpu_memregion, to_write)
         except ValueError as e:
             self.logger.error(f"Failed to write memregion state: {e}")
-
-    def _write_memregion_data(self, cpum: tuple, data: bytes) -> None:
-        """
-        Write data to the memory region.
-
-        **Parameters:**
-        - `cpum` (tuple): Tuple of (cpu, cpu_memregion).
-        - `data` (bytes): Data to write.
-
-        **Returns:** None
-        """
-        cpu, cpu_memregion = cpum
-        if len(data) > self.regions_size:
-            self.logger.error(
-                f"Data length {len(data)} exceeds chunk size {self.regions_size}")
-            data = data[:self.regions_size]
-        try:
-            self.panda.virtual_memory_write(
-                cpu, cpu_memregion + kffi.sizeof("region_header"), data)
-        except ValueError as e:
-            self.logger.error(f"Failed to write memregion data: {e}")
 
     def _handle_input_state(self, cpum: tuple, op: int) -> Optional[tuple]:
         """
@@ -443,9 +429,7 @@ class Portal(Plugin):
 
         **Returns:** None
         """
-        self._write_memregion_state(cpum, cmd.op, cmd.addr, cmd.size, cmd.pid)
-        if cmd.data:
-            self._write_memregion_data(cpum, cmd.data)
+        self._write_memregion_state(cpum, cmd.op, cmd.addr, cmd.size, cmd.pid, cmd.data)
 
     def wrap(self, f: Callable) -> Callable:
         """
