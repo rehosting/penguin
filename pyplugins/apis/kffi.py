@@ -81,6 +81,7 @@ class KFFI(Plugin):
         self._tramp_callbacks = {}
         self._tramp_addresses = {}
         self.tramp_init = False
+        self._type_cache = {}
 
     def __init_tramp_functionality(self):
         if self.tramp_init:
@@ -95,6 +96,12 @@ class KFFI(Plugin):
         # Register with portal's interrupt handler system
         self.portal.register_interrupt_handler(
             "kffi", self._tramp_interrupt_handler)
+    
+    def _get_type(self, type_name: str) -> Any:
+        if type_name in self._type_cache:
+            return self._type_cache[type_name]
+        self._type_cache[type_name] = self.ffi.get_type(type_name)
+        return self._type_cache[type_name]
 
     def new(self, type_: str) -> Any:
         """
@@ -106,7 +113,7 @@ class KFFI(Plugin):
         Returns:
             Any: Instance of the type, or None if type not found.
         """
-        t = self.ffi.get_type(type_)
+        t = self._get_type(type_)
         if not t:
             return None
         size = t.size
@@ -126,7 +133,7 @@ class KFFI(Plugin):
         Returns:
             Any: Instance of the type.
         """
-        t = self.ffi.get_type(type_)
+        t = self._get_type(type_)
         return self.ffi.create_instance(t, buf, instance_offset_in_buffer)
 
     def get_field_casted(self, struct: Any, field: str) -> Any:
@@ -157,7 +164,7 @@ class KFFI(Plugin):
         Returns:
             Any: Instance of the type, or None if read fails.
         """
-        t = self.ffi.get_type(type_)
+        t = self._get_type(type_)
         if not t:
             return None
         buf = self.panda.virtual_memory_read(cpu, addr, t.size)
@@ -177,7 +184,7 @@ class KFFI(Plugin):
         Returns:
             Any: Instance of the type, or None if read fails.
         """
-        t = self.ffi.get_type(type_)
+        t = self._get_type(type_)
         if not t:
             return None
         if isinstance(addr, Ptr):
