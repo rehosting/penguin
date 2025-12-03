@@ -345,8 +345,8 @@ class Portal(Plugin):
         except ValueError as e:
             self.logger.error(f"Failed to read memregion state and data: {e}")
             return 0, 0, None
-        
-        _, _, addr, size = struct.unpack(self.region_header_fmt, buf[:self.region_header_size])
+
+        _, _, addr, size = self.region_header_struct.unpack(buf[:self.region_header_size])
         data = buf[self.region_header_size:self.region_header_size + size]
         return addr, size, data
 
