@@ -42,52 +42,31 @@ from events.types import Syscall
 from penguin import plugins, Plugin
 import functools
 
-"""
-This code acquires the error numbers from linux to map in the syscall plugin
-"""
-# read some errno.h to get the error codes and names
-errcode_to_errname = {}
-errcode_to_explanation = {}
-
-errno_resources = join(plugins.resources, "errno")
-
-with open(join(errno_resources, "errno-base.h")) as f:
-    errno_base = f.read()
-
-with open(join(errno_resources, "generic.h")) as f:
-    errno = errno_base + "\n" + f.read()
-
-with open(join(errno_resources, "mips.h")) as f:
-    errno_mips = errno_base + "\n" + f.read()
-
-matches = re.findall(
+ERRNO_REGEX = re.compile(
     r"#define\s*(?P<errname>E[A-Z0-9]*)\s*(?P<errcode>\d*)\s*/\*(?P<explanation>.*)\*/",
-    errno,
-    re.MULTILINE,
+    re.MULTILINE
 )
-for match in matches:
-    errname, errcode, explanation = match
-    errcode_to_errname[int(errcode)] = errname.strip()
-    errcode_to_explanation[int(errcode)] = explanation.strip()
 
-errcode_to_errname_mips = {}
-errcode_to_explanation_mips = {}
-
-matches = re.findall(
-    r"#define\s*(?P<errname>E[A-Z0-9]*)\s*(?P<errcode>\d*)\s*/\*(?P<explanation>.*)\*/",
-    errno_mips,
-    re.MULTILINE,
-)
-for match in matches:
-    errname, errcode, explanation = match
-    errcode_to_errname_mips[int(errcode)] = errname.strip()
-    errcode_to_explanation_mips[int(errcode)] = explanation.strip()
-
-"""
-This is our internal representation of a syscall event
-"""
 
 syscalls = plugins.syscalls
+
+INT_TYPES = frozenset({
+    'int', 'unsigned int', 'pid_t', 'uid_t', 'gid_t', 'key_t', 'mqd_t', 
+    '__u32', '__s32', 'u32', 'clockid_t', 'umode_t', 'unsigned', 'qid_t', 
+    'old_uid_t', 'old_gid_t', 'key_serial_t', 'timer_t'
+})
+
+HEX_TYPES = frozenset({
+    'unsigned long', 'long', 'size_t', 'off_t', 'loff_t', 'aio_context_t'
+})
+
+STRING_TYPES = frozenset({'const char *', 'char *'})
+
+PTR_TYPES = frozenset({
+    'int *', 'unsigned int *', 'unsigned long *', 'uid_t *', 'gid_t *', 
+    'old_uid_t *', 'old_gid_t *', 'size_t *', 'off_t *', 'loff_t *', 
+    'u32 *', 'u64 *', 'timer_t *', 'aio_context_t *', 'unsigned *'
+    })
 
 
 class PyPandaSysLog(Plugin):
@@ -114,14 +93,19 @@ class PyPandaSysLog(Plugin):
         self.saved_syscall_info = {}
         self.DB = plugins.DB
 
+        # Optimization: Cache FFI and functions to avoid dot-lookup overhead
+        self.ffi = panda.ffi
+        self.cast = self.ffi.cast
+        self.string = self.ffi.string
+        self.NULL = self.ffi.NULL
+
+        # Optimization: Pre-calculate bit width for pointer arithmetic
+        self.ptr_size = panda.bits // 8
+
         procs = self.get_arg("procs")
 
-        if panda.arch_name in ["mips", "mipsel"]:
-            self.errcode_to_errname = errcode_to_errname_mips
-            self.errcode_to_explanation = errcode_to_explanation_mips
-        else:
-            self.errcode_to_errname = errcode_to_errname
-            self.errcode_to_explanation = errcode_to_explanation
+        # Initialize error codes lazily
+        self._init_error_codes(panda)
 
         # These syscalls won't necessarily return so we log them on enter
         monitor_enter_syscalls = [
@@ -146,6 +130,37 @@ class PyPandaSysLog(Plugin):
             syscalls.syscall("on_all_sys_return")(self.all_sys_ret)
             for syscall_name in monitor_enter_syscalls:
                 syscalls.syscall(f"on_sys_{syscall_name}_enter")(self.sys_record_enter)
+
+    def _init_error_codes(self, panda):
+        """
+        Parses errno headers. Moved from global scope to init to speed up import time.
+        """
+        errno_resources = join(plugins.resources, "errno")
+        
+        # Helper to read file content
+        def read_file(name):
+            with open(join(errno_resources, name)) as f:
+                return f.read()
+
+        errno_base = read_file("errno-base.h")
+        
+        def parse_errors(content):
+            mapping_name = {}
+            mapping_expl = {}
+            for match in ERRNO_REGEX.finditer(content):
+                errname = match.group('errname').strip()
+                errcode = int(match.group('errcode'))
+                explanation = match.group('explanation').strip()
+                mapping_name[errcode] = errname
+                mapping_expl[errcode] = explanation
+            return mapping_name, mapping_expl
+
+        if panda.arch_name in ["mips", "mipsel"]:
+            content = errno_base + "\n" + read_file("mips.h")
+        else:
+            content = errno_base + "\n" + read_file("generic.h")
+            
+        self.errcode_to_errname, self.errcode_to_explanation = parse_errors(content)
 
     def sys_record_enter(self, regs, proto, syscall, *args) -> None:
         """
@@ -176,8 +191,7 @@ class PyPandaSysLog(Plugin):
 
         **Returns:** None
         """
-        protoname, _, _ = self.get_syscall_proto(proto, proto.name)
-        if "execve" not in protoname:
+        if "execve" not in self.cstr(proto.name):
             yield from self.handle_syscall(regs, proto, syscall)
 
     def get_arg_repr(self, argval, ctype: str, name: str) -> str:
@@ -197,11 +211,11 @@ class PyPandaSysLog(Plugin):
             fd_name = yield from plugins.osi.get_fd_name(argval)
             return f"{argval:#x}({fd_name or '[???]'})"
         # Convert argval to a proper Python integer
-        argval_uint = int(self.panda.ffi.cast("target_ulong", argval))
+        argval_uint = int(self.cast("target_ulong", argval))
 
         # Handle basic integer types
         if ctype in ['int', 'unsigned int', 'pid_t', 'uid_t', 'gid_t', 'key_t', 'mqd_t', '__u32', '__s32', 'u32', 'clockid_t', 'umode_t', 'unsigned', 'qid_t', 'old_uid_t', 'old_gid_t', 'key_serial_t', 'timer_t']:
-            # argval_int = int(self.panda.ffi.cast("target_long", argval))
+            # argval_int = int(self.cast("target_long", argval))
             # return str(argval_int)
             return f"{argval_uint:#x}"
 
@@ -217,21 +231,13 @@ class PyPandaSysLog(Plugin):
             return f'{argval_uint:#x}("{val}")'
 
         # Handle array of strings
+        # In get_arg_repr
         elif ctype == 'const char *const *':
-            if argval_uint == 0:
-                return "[NULL]"
-            result = []
-            addr = argval_uint
-            max_args = 20  # Limit to avoid infinite loops
-            for i in range(max_args):
-                ptr = yield from plugins.mem.read_ptr(addr + (i * self.panda.bits // 8))
-                if ptr == 0:
-                    break
-                str_val = yield from plugins.mem.read_str(ptr)
-                if str_val == "":
-                    break
-                result.append(str_val)
-            return f"{argval_uint:#x}([{', '.join(repr(s) for s in result)}])"
+            if argval_uint == 0: return "[NULL]"
+            # Replaces manual loop
+            str_list = yield from plugins.mem.read_char_ptrlist(argval_uint, 20)
+            repr_str = ', '.join(repr(s) for s in str_list)
+            return f"{argval_uint:#x}([{repr_str}])"
 
         # Handle numeric pointer types
         elif ctype in ['int *', 'unsigned int *', 'unsigned long *', 'uid_t *', 'gid_t *', 'old_uid_t *', 'old_gid_t *', 'size_t *', 'off_t *', 'loff_t *', 'u32 *', 'u64 *', 'timer_t *', 'aio_context_t *', 'unsigned *']:
@@ -271,7 +277,7 @@ class PyPandaSysLog(Plugin):
             return x
         return "" if x == self.panda.ffi.NULL else self.panda.ffi.string(x).decode()
 
-    @functools.lru_cache
+    @functools.lru_cache(maxsize=128)
     def get_syscall_proto(self, proto, name) -> tuple:
         """
         Retrieve the syscall prototype information.
@@ -303,68 +309,78 @@ class PyPandaSysLog(Plugin):
 
         **Returns:** None
         """
-        protoname, types, names = self.get_syscall_proto(
-            proto, proto.name)
-        args = [syscall.args[i] for i in range(proto.nargs)]
-        args_repr = []
-        for i, j in enumerate(types):
-            val = yield from self.get_arg_repr(syscall.args[i], j, names[i])
-            args_repr.append(f"{names[i]}={val}")
+        protoname, types, names = self.get_syscall_proto(proto, proto.name)
+        
+        # Optimization: Pre-allocate lists
+        args_len = proto.nargs
+        args_raw = [0] * args_len
+        args_repr = [0] * args_len
+        
+        for i in range(args_len):
+            # Capture raw val
+            raw_val = syscall.args[i]
+            args_raw[i] = int(self.cast("target_long", raw_val))
+            
+            # Capture repr
+            # Note: We pass raw_val to get_arg_repr, which handles its own casting/logic
+            val_str = yield from self.get_arg_repr(raw_val, types[i], names[i])
+            args_repr[i] = f"{names[i]}={val_str}"
 
-        retval = int(self.panda.ffi.cast("target_long", syscall.retval))
+        retval = int(self.cast("target_long", syscall.retval))
         errnum = -retval
+        
+        # Dictionary lookup is O(1)
         if errnum in self.errcode_to_errname:
             retno_repr = f"{self.errcode_to_errname[errnum]}({self.errcode_to_explanation[errnum]})"
         else:
             retno_repr = f"{retval:#x}"
 
+        # OSI call
         proc_args = yield from plugins.osi.get_args()
-        proc = "?" if not proc_args else proc_args[0]
+        proc = proc_args[0] if proc_args else "?"
 
-        func_args = {
-            "name": protoname,
-            "args": args,
-            "args_repr": args_repr,
-            "retno": retval,
-            "retno_repr": retno_repr,
-            "procname": proc,
-        }
-        self.add_syscall(**func_args)
+        self.add_syscall(
+            name=protoname,
+            procname=proc,
+            retno=retval,
+            retno_repr=retno_repr,
+            args=args_raw,
+            args_repr=args_repr
+        )
 
     def add_syscall(
-        self,
-        name: str,
-        procname: str = None,
-        retno: int = None,
-        args: list = None,
-        args_repr: list = None,
-        retno_repr: str = None,
-    ) -> None:
-        """
-        Add a syscall event to the database.
+            self,
+            name: str,
+            procname: str,
+            retno: int,
+            retno_repr: str,
+            args: list,
+            args_repr: list,
+        ) -> None:
+            """
+            Add a syscall event to the database.
 
-        **Parameters:**
-        - `name` (`str`): Syscall name.
-        - `procname` (`str`, optional): Process name.
-        - `retno` (`int`, optional): Return value.
-        - `args` (`list`, optional): Raw argument values.
-        - `args_repr` (`list`, optional): String representations of arguments.
-        - `retno_repr` (`str`, optional): String representation of return value.
+            **Parameters:**
+            - `name` (`str`): Syscall name.
+            - `procname` (`str`, optional): Process name.
+            - `retno` (`int`, optional): Return value.
+            - `args` (`list`, optional): Raw argument values.
+            - `args_repr` (`list`, optional): String representations of arguments.
+            - `retno_repr` (`str`, optional): String representation of return value.
 
-        **Returns:** None
-        """
-        if args is None:
-            args = []
-        if args_repr is None:
-            args_repr = []
-        keys = {
-            "name": name,
-            "procname": procname or "[none]",
-            "retno": int(self.panda.ffi.cast("target_long", retno)) if retno else None,
-            "retno_repr": retno_repr,
-        }
-        for i in range(len(args)):
-            keys[f"arg{i}"] = int(self.panda.ffi.cast("target_long", args[i]))
-        for i in range(len(args_repr)):
-            keys[f"arg{i}_repr"] = args_repr[i]
-        self.DB.add_event(Syscall(**keys))
+            **Returns:** None
+            """
+            keys = {
+                "name": name,
+                "procname": procname or "[none]",
+                "retno": retno,
+                "retno_repr": retno_repr,
+            }
+            
+            for i, val in enumerate(args):
+                keys[f"arg{i}"] = val
+                
+            for i, val in enumerate(args_repr):
+                keys[f"arg{i}_repr"] = val
+                
+            self.DB.add_event(Syscall(**keys))
