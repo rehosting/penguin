@@ -328,6 +328,27 @@ class Portal(Plugin):
         except ValueError as e:
             self.logger.error(f"Failed to read memory: {e}")
 
+    def _read_memregion_state_and_data(self, cpum: tuple) -> tuple:
+        """
+        Read the state and data from the memory region.
+
+        **Parameters:**
+        - `cpum` (tuple): Tuple of (cpu, cpu_memregion).
+
+        **Returns:**
+        - `(addr, size, data)`: Tuple of address, size, and data read from the memory region.
+        """
+        cpu, cpu_memregion = cpum
+        try:
+            buf = plugins.mem.read_bytes_panda(cpu, cpu_memregion, self.region_header_size + self.regions_size)
+        except ValueError as e:
+            self.logger.error(f"Failed to read memregion state and data: {e}")
+            return 0, 0, None
+        
+        _, _, addr, size = struct.unpack(self.region_header_fmt, buf[:self.region_header_size])
+        data = buf[self.region_header_size:self.region_header_size + size]
+        return addr, size, data
+
     def _write_memregion_state(
         self, cpum: tuple, op: int, addr: int, size: int, pid: Optional[int] = None,
         data: Optional[bytes] = None
@@ -389,16 +410,12 @@ class Portal(Plugin):
         elif op < hop.HYPER_RESP_NONE or op > hop.HYPER_RESP_MAX:
             self.logger.error(f"Invalid operation: {op:#x}")
         elif op == hop.HYPER_RESP_READ_OK:
-            addr, size = self._read_memregion_state(cpum)
-            self.logger.debug(f"Read OK: {addr:#x} {size}")
-            data = self._read_memregion_data(cpum, size)
+            _, _, data = self._read_memregion_state_and_data(cpum)
             in_op = (op, data)
         elif op == hop.HYPER_RESP_READ_FAIL:
             self.logger.debug("Failed to read memory")
         elif op == hop.HYPER_RESP_READ_PARTIAL:
-            addr, size = self._read_memregion_state(cpum)
-            self.logger.debug(f"Read OK: {addr:#x} {size}")
-            data = self._read_memregion_data(cpum, size)
+            _, _, data = self._read_memregion_state_and_data(cpum)
             in_op = (op, data)
         elif op == hop.HYPER_RESP_WRITE_OK:
             pass
