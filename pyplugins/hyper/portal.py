@@ -468,9 +468,13 @@ class Portal(Plugin):
         - `Callable`: Wrapped function.
         """
         iterators = {}
-        iteration_time = {}
         get_arg = self.panda.arch.get_arg
         get_cpu = self.panda.get_cpu
+        handle_input_state = self._handle_input_state
+        write_portalcmd = self._write_portalcmd
+        HYPER_RESP_READ_OK = hop.HYPER_RESP_READ_OK
+        HYPER_RESP_READ_NUM = hop.HYPER_RESP_READ_NUM
+        HYPER_RESP_READ_PARTIAL = hop.HYPER_RESP_READ_PARTIAL
 
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
@@ -480,11 +484,11 @@ class Portal(Plugin):
             cpu = get_cpu()
             cpu_memregion = get_arg(
                 cpu, 3, convention="syscall")
-            op = get_arg(cpu, 4, convention="syscall")
             cpum = cpu, cpu_memregion
             fn_return = None
 
-            if cpu_memregion not in iterators or iterators[cpu_memregion] is None:
+            current_iter = iterators.get(cpu_memregion, None)
+            if current_iter is None:
                 # self.logger.debug("Creating new iterator")
                 # Revert to calling the original function f with self_
                 fn_ret = f(*args, **kwargs)
@@ -493,22 +497,23 @@ class Portal(Plugin):
                     return fn_ret
 
                 iterators[cpu_memregion] = fn_ret
-                iteration_time[cpu_memregion] = time.time()
+                current_iter = fn_ret
                 in_op = None
                 new_iterator = True
             else:
-                in_op = self._handle_input_state(cpum, op)
+                op = get_arg(cpu, 4, convention="syscall")
+                in_op = handle_input_state(cpum, op)
                 new_iterator = False
 
             try:
                 if not in_op:
-                    cmd = next(iterators[cpu_memregion])
-                elif in_op[0] == hop.HYPER_RESP_READ_OK:
-                    cmd = iterators[cpu_memregion].send(in_op[1])
-                elif in_op[0] == hop.HYPER_RESP_READ_NUM:
-                    cmd = iterators[cpu_memregion].send(in_op[1])
-                elif in_op[0] == hop.HYPER_RESP_READ_PARTIAL:
-                    cmd = iterators[cpu_memregion].send(in_op[1])
+                    cmd = next(current_iter)
+                elif in_op[0] == HYPER_RESP_READ_OK:
+                    cmd = current_iter.send(in_op[1])
+                elif in_op[0] == HYPER_RESP_READ_NUM:
+                    cmd = current_iter.send(in_op[1])
+                elif in_op[0] == HYPER_RESP_READ_PARTIAL:
+                    cmd = current_iter.send(in_op[1])
                 else:
                     iterators[cpu_memregion] = None
                     raise Exception(f"Invalid state cmd is {in_op}")
@@ -521,11 +526,11 @@ class Portal(Plugin):
                 self.logger.error(f"Error in portal iterator: {e}")
                 cmd = e
 
-            if type(cmd).__name__ == "PortalCmd":
+            if cmd.__class__.__name__ == "PortalCmd":
                 if not (new_iterator and cmd.op == hop.HYPER_OP_NONE):
-                    self._write_portalcmd(cpum, cmd)
+                    write_portalcmd(cpum, cmd)
             elif isinstance(cmd, Exception):
-                self._write_portalcmd(cpum, PortalCmd.none())
+                write_portalcmd(cpum, PortalCmd.none())
                 raise cmd
             elif cmd is not None:
                 self.logger.error(
