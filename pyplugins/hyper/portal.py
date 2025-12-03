@@ -160,6 +160,7 @@ class Portal(Plugin):
         self.region_header_fmt = f"{self.endian_format}IIQQ"
         self.region_header_size = kffi.sizeof("region_header")
         self.region_header_struct = struct.Struct(self.region_header_fmt)
+        self.mask = 0xFFFFFFFFFFFFFFFF if self.panda.bits == 64 else 0xFFFFFFFF
         self.portal_interrupt = None
         # Generic interrupts mechanism
         self._interrupt_handlers = {}  # plugin_name -> handler_function
@@ -389,8 +390,7 @@ class Portal(Plugin):
             self.logger.error(f"Size {size} is negative")
             size = 0
         if addr < 0:
-            mask = 0xFFFFFFFFFFFFFFFF if self.panda.bits == 64 else 0xFFFFFFFF
-            addr = addr & mask
+            addr = addr & self.mask
 
         pid = pid or CURRENT_PID_NUM
 
