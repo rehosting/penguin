@@ -492,12 +492,28 @@ class Syscalls(Plugin):
             The syscall event object and its original bytes.
         """
         sce = plugins.kffi.read_type_panda(cpu, arg, "syscall_event")
-        sce.name = ""
-        for i in range(len(sce.syscall_name)):
-            if sce.syscall_name[i] == 0:
-                break
-            sce.name += chr(sce.syscall_name[i])
-        original = sce.to_bytes()[:]
+        
+        # 1. Get field metadata
+        field_def = sce._instance_type_def.fields["syscall_name"]
+        
+        # 2. Calculate absolute start and end positions in the buffer
+        start = sce._instance_offset + field_def.offset
+        
+        # We need the size of the array to slice correctly. 
+        # The accessor helper can calculate this from the type info.
+        size = sce._instance_vtype_accessor.get_type_size(field_def.type_info)
+        
+        # 3. Slice the buffer directly (Fast)
+        # We access the protected _instance_buffer directly for speed
+        name_bytes = sce._instance_buffer[start : start + size]
+        
+        # 4. Parse the C-string (Fast)
+        # Split at the first null byte, take the left side, and decode
+        sce.name = name_bytes.split(b'\x00', 1)[0].decode('utf-8', errors='replace')
+        
+        # 5. Get original bytes (using the existing method)
+        original = sce.to_bytes()
+        
         return sce, original
 
     def _get_proto(self, cpu: int, sce: Any) -> SyscallPrototype:
