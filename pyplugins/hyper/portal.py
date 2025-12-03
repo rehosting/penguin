@@ -297,7 +297,7 @@ class Portal(Plugin):
         memr = kffi.read_type_panda(cpu, cpu_memregion, "region_header")
         self.logger.debug(
             f"Reading memregion state: op={memr.op}, addr={memr.addr:#x}, size={memr.size}")
-        return memr.op, memr.addr, memr.size
+        return memr.addr, memr.size
 
     def _read_memregion_data(self, cpum: tuple, size: int) -> Optional[bytes]:
         """
@@ -389,7 +389,7 @@ class Portal(Plugin):
         except ValueError as e:
             self.logger.error(f"Failed to write memregion data: {e}")
 
-    def _handle_input_state(self, cpum: tuple) -> Optional[tuple]:
+    def _handle_input_state(self, cpum: tuple, op: int) -> Optional[tuple]:
         """
         Handle the input state from the memory region and process the operation.
 
@@ -400,7 +400,6 @@ class Portal(Plugin):
         - `Optional[tuple]`: Operation and associated data, or None.
         """
         in_op = None
-        op, addr, size = self._read_memregion_state(cpum)
         if op == hop.HYPER_OP_NONE:
             pass
         elif op & hop.HYPER_RESP_NONE == 0:
@@ -408,12 +407,14 @@ class Portal(Plugin):
         elif op < hop.HYPER_RESP_NONE or op > hop.HYPER_RESP_MAX:
             self.logger.error(f"Invalid operation: {op:#x}")
         elif op == hop.HYPER_RESP_READ_OK:
+            addr, size = self._read_memregion_state(cpum)
             self.logger.debug(f"Read OK: {addr:#x} {size}")
             data = self._read_memregion_data(cpum, size)
             in_op = (op, data)
         elif op == hop.HYPER_RESP_READ_FAIL:
             self.logger.debug("Failed to read memory")
         elif op == hop.HYPER_RESP_READ_PARTIAL:
+            addr, size = self._read_memregion_state(cpum)
             self.logger.debug(f"Read OK: {addr:#x} {size}")
             data = self._read_memregion_data(cpum, size)
             in_op = (op, data)
@@ -423,6 +424,7 @@ class Portal(Plugin):
             self.logger.debug("Failed to write memory")
             pass
         elif op == hop.HYPER_RESP_READ_NUM:
+            _, size = self._read_memregion_state(cpum)
             in_op = (op, size)
         elif op == hop.HYPER_RESP_NONE:
             pass
@@ -465,6 +467,7 @@ class Portal(Plugin):
             cpu = self.panda.get_cpu()
             cpu_memregion = self.panda.arch.get_arg(
                 cpu, 3, convention="syscall")
+            op = self.panda.arch.get_arg(cpu, 4, convention="syscall")
             cpum = cpu, cpu_memregion
             fn_return = None
 
@@ -481,7 +484,7 @@ class Portal(Plugin):
                 in_op = None
                 new_iterator = True
             else:
-                in_op = self._handle_input_state(cpum)
+                in_op = self._handle_input_state(cpum, op)
                 new_iterator = False
 
             try:
