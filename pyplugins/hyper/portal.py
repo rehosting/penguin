@@ -256,7 +256,7 @@ class Portal(Plugin):
         if self.portal_interrupt:
             buf = struct.pack(f"{self.endian_format}Q", value)
             try:
-                self.panda.virtual_memory_write(
+                plugins.mem.write_bytes_panda(
                     self.panda.get_cpu(), self.portal_interrupt, buf)
             except ValueError as e:
                 # Failures are fine, we get them on the next portal interrupt
@@ -297,7 +297,7 @@ class Portal(Plugin):
         """
         cpu, cpu_memregion = cpum
         try:
-            buf = self.panda.virtual_memory_read(cpu, cpu_memregion, self.region_header_size)
+            buf = plugins.mem.read_bytes_panda(cpu, cpu_memregion, self.region_header_size)
             _, _, addr, size = struct.unpack(self.region_header_fmt, buf)
         except ValueError as e:
             self.logger.error(f"Failed to read memregion state: {e}")
@@ -322,7 +322,7 @@ class Portal(Plugin):
                 f"Size {size} exceeds chunk size {self.regions_size}")
             size = self.regions_size
         try:
-            mem = self.panda.virtual_memory_read(
+            mem = plugins.mem.read_bytes_panda(
                 cpu, cpu_memregion + self.region_header_size, size)
             return mem
         except ValueError as e:
@@ -353,13 +353,8 @@ class Portal(Plugin):
             self.logger.error(f"Size {size} is negative")
             size = 0
         if addr < 0:
-            self.logger.debug(
-                f"Address {addr} is negative. Converting to unsigned")
             mask = 0xFFFFFFFFFFFFFFFF if self.panda.bits == 64 else 0xFFFFFFFF
             addr = addr & mask
-
-        self.logger.debug(
-            f"Writing memregion state:  op={op}, addr={addr:#x}, size={size}")
 
         pid = pid or CURRENT_PID_NUM
 
@@ -372,7 +367,7 @@ class Portal(Plugin):
                 data = data[:self.regions_size]
             to_write += data
         try:
-            self.panda.virtual_memory_write(cpu, cpu_memregion, to_write)
+            plugins.mem.write_bytes_panda(cpu, cpu_memregion, to_write)
         except ValueError as e:
             self.logger.error(f"Failed to write memregion state: {e}")
 

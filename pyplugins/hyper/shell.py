@@ -265,7 +265,7 @@ class BBCov(Plugin):
             return None
 
         try:
-            return self.panda.read_str(cpu, ptr)
+            return plugins.mem.read_str_panda(cpu, ptr)
         except ValueError:
             return "[virtual mem read fail]"
 

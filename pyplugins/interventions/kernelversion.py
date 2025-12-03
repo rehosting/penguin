@@ -105,7 +105,7 @@ class KernelVersion(Plugin):
             return
 
         try:
-            self.panda.virtual_memory_write(
+            plugins.mem.write_bytes_panda(
                 cpu, buf_ptr, (new_uname.encode("utf-8") + b"\0")
             )
             self.panda.arch.set_retval(cpu, 0x1)

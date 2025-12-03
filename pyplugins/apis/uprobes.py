@@ -451,7 +451,7 @@ class Uprobes(Plugin):
 
         new = pt_regs.to_bytes()
         if original_bytes != new:
-            self.panda.virtual_memory_write(cpu, ptregs_addr, new)
+            plugins.mem.write_bytes_panda(cpu, ptregs_addr, new)
         return fn_ret
 
     def _uprobe_enter_handler(self, cpu: Any) -> None:

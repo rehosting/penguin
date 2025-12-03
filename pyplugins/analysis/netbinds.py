@@ -104,7 +104,7 @@ class NetBinds(Plugin):
         if self.pending_procname is not None:
             self.logger.error(f"Pending bind not cleared before new bind for ipv6: {self.pending_procname} vs {procname}")
         self.pending_procname = procname
-        self.pending_sinaddr = self.panda.virtual_memory_read(cpu, sinaddr_addr, 16)
+        self.pending_sinaddr = plugins.mem.read_bytes_panda(cpu, sinaddr_addr, 16)
 
     def on_ipv4_bind(self, cpu, port, is_steam) -> None:
         """

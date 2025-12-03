@@ -167,7 +167,7 @@ class KFFI(Plugin):
         t = self._get_type(type_)
         if not t:
             return None
-        buf = self.panda.virtual_memory_read(cpu, addr, t.size)
+        buf = plugins.mem.read_bytes_panda(cpu, addr, t.size)
         if not buf:
             self.logger.error(f"Failed to read bytes from {addr:#x}")
             return None
