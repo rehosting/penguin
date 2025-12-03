@@ -98,6 +98,7 @@ class PortalCmd:
                 op_num = getattr(hop, op.upper(), None)
                 if op_num is None:
                     raise ValueError(f"Invalid operation name: {op}")
+            self.op = op_num
         else:
             raise TypeError(f"Operation must be int or str, got {type(op)}")
         if addr is None:
