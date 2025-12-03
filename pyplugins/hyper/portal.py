@@ -476,6 +476,7 @@ class Portal(Plugin):
         HYPER_RESP_READ_OK = hop.HYPER_RESP_READ_OK
         HYPER_RESP_READ_NUM = hop.HYPER_RESP_READ_NUM
         HYPER_RESP_READ_PARTIAL = hop.HYPER_RESP_READ_PARTIAL
+        HYPER_OP_NONE = hop.HYPER_OP_NONE
 
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
@@ -528,7 +529,7 @@ class Portal(Plugin):
                 cmd = e
 
             if cmd.__class__.__name__ == "PortalCmd":
-                if not (new_iterator and cmd.op == hop.HYPER_OP_NONE):
+                if not (new_iterator and cmd.op == HYPER_OP_NONE):
                     write_portalcmd(cpum, cmd)
             elif isinstance(cmd, Exception):
                 write_portalcmd(cpum, PortalCmd.none())
