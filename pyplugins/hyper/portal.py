@@ -143,6 +143,8 @@ class Portal(Plugin):
         #   self.logger.setLevel("DEBUG")
         # Set endianness format character for struct operations
         self.endian_format = '<' if self.panda.endianness == 'little' else '>'
+        self.region_header_fmt = f"{self.endian_format}IIQQ"
+        self.region_header_size = kffi.sizeof("region_header")
         self.portal_interrupt = None
         # Generic interrupts mechanism
         self._interrupt_handlers = {}  # plugin_name -> handler_function
@@ -294,10 +296,14 @@ class Portal(Plugin):
         - `(op, addr, size)`: Tuple of operation, address, and size.
         """
         cpu, cpu_memregion = cpum
-        memr = kffi.read_type_panda(cpu, cpu_memregion, "region_header")
-        self.logger.debug(
-            f"Reading memregion state: op={memr.op}, addr={memr.addr:#x}, size={memr.size}")
-        return memr.addr, memr.size
+        try:
+            buf = self.panda.virtual_memory_read(cpu, cpu_memregion, self.region_header_size)
+            _, _, addr, size = struct.unpack(self.region_header_fmt, buf)
+        except ValueError as e:
+            self.logger.error(f"Failed to read memregion state: {e}")
+            return 0, 0
+        
+        return addr, size
 
     def _read_memregion_data(self, cpum: tuple, size: int) -> Optional[bytes]:
         """
@@ -317,7 +323,7 @@ class Portal(Plugin):
             size = self.regions_size
         try:
             mem = self.panda.virtual_memory_read(
-                cpu, cpu_memregion + kffi.sizeof("region_header"), size)
+                cpu, cpu_memregion + self.region_header_size, size)
             return mem
         except ValueError as e:
             self.logger.error(f"Failed to read memory: {e}")
