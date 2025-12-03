@@ -46,7 +46,7 @@ Implementation Details
 """
 
 from penguin import plugins
-from wrappers.generic import Wrapper
+from wrappers.generic import ConstDictWrapper
 
 enum_names: list[str] = [
     "HYPER_OP",
@@ -61,4 +61,4 @@ enum_names: list[str] = [
 for name in enum_names:
     hyperconsts: dict[str, int] = plugins.kffi.get_enum_dict(name)
     assert len(hyperconsts.items()) > 0, f"Failed to get enum {name}"
-    globals()[name] = Wrapper(hyperconsts)
+    globals()[name] = ConstDictWrapper(hyperconsts)
