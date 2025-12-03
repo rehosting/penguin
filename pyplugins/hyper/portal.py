@@ -456,16 +456,18 @@ class Portal(Plugin):
         """
         iterators = {}
         iteration_time = {}
+        get_arg = self.panda.arch.get_arg
+        get_cpu = self.panda.get_cpu
 
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
             if self._pending_interrupts:
                 self.logger.debug("Pending interrupts detected, setting interrupt")
                 self._portal_set_interrupt()
-            cpu = self.panda.get_cpu()
-            cpu_memregion = self.panda.arch.get_arg(
+            cpu = get_cpu()
+            cpu_memregion = get_arg(
                 cpu, 3, convention="syscall")
-            op = self.panda.arch.get_arg(cpu, 4, convention="syscall")
+            op = get_arg(cpu, 4, convention="syscall")
             cpum = cpu, cpu_memregion
             fn_return = None
 
