@@ -281,6 +281,14 @@ class PyPandaSysLog(Plugin):
             
             row_data[f"arg{i}_repr"] = f"{name}={val_str}"
 
+        # -------------------------------------------------------------
+        # FIX: Fill remaining arguments (Linux syscalls max out at 6)
+        # This ensures the DB logger receives a uniform dictionary
+        # -------------------------------------------------------------
+        for j in range(len(processors), 6):
+            row_data[f"arg{j}"] = 0
+            row_data[f"arg{j}_repr"] = ""
+
         # 4. Handle Return Value
         retval = int(self.cast("target_long", syscall.retval))
         row_data["retno"] = retval
