@@ -146,10 +146,27 @@ class DB(Plugin):
             batched[table_cls].append(data)
 
         start_t = time.time()
+        # CONSTANTS for Integer Sanitization
+        # Mask for 64-bit (0xFFFFFFFFFFFFFFFF)
+        MASK_64 = 0xFFFFFFFFFFFFFFFF
+        # Max positive signed 64-bit int (0x7FFFFFFFFFFFFFFF)
+        MAX_INT64 = 0x7FFFFFFFFFFFFFFF 
+        # Offset for Two's Complement (2**64)
+        OFFSET_64 = 0x10000000000000000
 
         # Open transaction
         with self.engine.begin() as conn:
             for table_cls, data_list in batched.items():
+                # --- FIX: Sanitize Data for SQLite ---
+                # Iterate through all rows and cast huge unsigned ints to signed ints.
+                # This ensures addresses like 0xFF... fit in SQLite's INTEGER type.
+                for row in data_list:
+                    for k, v in row.items():
+                        if isinstance(v, int) and v > MAX_INT64:
+                            # 1. Mask to ensure we only have 64 bits (truncate 128-bit garbage)
+                            # 2. Subtract 2^64 to get the negative representation
+                            row[k] = (v & MASK_64) - OFFSET_64
+                # -------------------------------------
 
                 # GENERIC OPTIMIZATION:
                 # If the table inherits from Event (but is not Event itself),
