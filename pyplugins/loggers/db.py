@@ -43,6 +43,7 @@ from threading import Lock, Thread, Event
 from penguin import Plugin
 import time
 
+
 class DB(Plugin):
     """
     Optimized Database-backed event logger.
@@ -75,7 +76,7 @@ class DB(Plugin):
         # Cache for SQLAlchemy reflection results
         # Key: TableClass, Value: (poly_identity, poly_col_name, child_cols_set)
         self._reflection_cache = {}
-        
+
         # Manual ID Counter for fresh DBs (Required for Dual Core Inserts)
         self.id_counter = 1
 
@@ -109,8 +110,8 @@ class DB(Plugin):
         with self.queue_lock:
             if self.queued_events:
                 to_flush = self.queued_events
-                self.queued_events = [] # allocate new list
-        
+                self.queued_events = []  # allocate new list
+
         if to_flush:
             self._perform_flush(to_flush)
 
@@ -121,12 +122,12 @@ class DB(Plugin):
 
         mapper = inspect(table_cls)
         poly_identity = mapper.polymorphic_identity
-        
+
         base_mapper = inspect(BaseEvent)
         poly_col_name = base_mapper.polymorphic_on.name
-        
+
         child_table_cols = {c.key for c in mapper.local_table.c}
-        
+
         info = (poly_identity, poly_col_name, child_table_cols)
         self._reflection_cache[table_cls] = info
         return info
@@ -149,32 +150,32 @@ class DB(Plugin):
         # Open transaction
         with self.engine.begin() as conn:
             for table_cls, data_list in batched.items():
-                
-                # GENERIC OPTIMIZATION: 
+
+                # GENERIC OPTIMIZATION:
                 # If the table inherits from Event (but is not Event itself),
                 # we must perform a Split Insert (Event + Subclass).
                 # This works for Syscall, Read, Write, Exec, etc.
                 if issubclass(table_cls, BaseEvent) and table_cls is not BaseEvent:
                     poly_identity, poly_col_name, child_table_cols = self._get_table_info(table_cls)
-                    
+
                     batch_len = len(data_list)
                     start_id = self.id_counter
                     self.id_counter += batch_len
-                    
+
                     event_rows = []
                     child_rows = []
-                    
+
                     # Single-pass loop to split data efficiently
                     # zip(range) allows us to assign IDs without a separate counter increment
                     for current_id, row in zip(range(start_id, start_id + batch_len), data_list):
-                        
+
                         event_rows.append({
-                            "id": current_id, 
+                            "id": current_id,
                             "proc_id": row.get('proc_id', 0),
                             "procname": row.get('procname', '[?]'),
                             poly_col_name: poly_identity
                         })
-                        
+
                         # 2. Add 'id' to the child row
                         row["id"] = current_id
                         child_rows.append(row)
@@ -205,7 +206,7 @@ class DB(Plugin):
         with self.queue_lock:
             self.queued_events.append((table_cls, data))
             should_flush = len(self.queued_events) >= self.buffer_size
-        
+
         if should_flush:
             self.flush_event.set()
 

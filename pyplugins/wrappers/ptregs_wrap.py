@@ -79,17 +79,21 @@ class PandaMemReadFail(Exception):
         self.size: int = size
 
 # --- Helper Factories for Fast Accessors ---
-# These helper functions create optimized lambda closures to avoid string parsing 
+# These helper functions create optimized lambda closures to avoid string parsing
 # and attribute lookup overhead at runtime.
+
 
 def _make_attr_getter(attr):
     return lambda obj: getattr(obj, attr)
 
+
 def _make_attr_setter(attr):
     return lambda obj, val: setattr(obj, attr, val)
 
+
 def _make_array_getter(attr, idx):
     return lambda obj: getattr(obj, attr)[idx]
+
 
 def _make_array_setter(attr, idx):
     return lambda obj, val: getattr(obj, attr).__setitem__(idx, val)
@@ -108,13 +112,13 @@ class PtRegsWrapper(Wrapper):
 
     # Class-level cache for accessors. Subclasses must populate this.
     # Format: { "reg_name": (getter_func, setter_func) }
-    _ACCESSORS: Dict[str, Any] = {} 
+    _ACCESSORS: Dict[str, Any] = {}
 
     def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
         # Bypass Wrapper.__init__ overhead if it just sets _obj
         object.__setattr__(self, '_obj', obj)
         object.__setattr__(self, '_extra_attrs', {})
-        object.__setattr__(self, '_is_dict', False) # pt_regs is never a dict
+        object.__setattr__(self, '_is_dict', False)  # pt_regs is never a dict
         self._panda = panda
 
     def get_register(self, reg_name: str) -> Optional[int]:
@@ -285,7 +289,7 @@ class PtRegsWrapper(Wrapper):
                     return struct.unpack(endian_fmt + 'B', data)[0]
                 elif size == 2:
                     return struct.unpack(endian_fmt + 'H', data)[0]
-            return struct.unpack(endian_fmt + ('I' if size==4 else 'Q'), data)[0]
+            return struct.unpack(endian_fmt + ('I' if size == 4 else 'Q'), data)[0]
         except ValueError:  # This is what PANDA's virtual_memory_read raises on failure
             raise PandaMemReadFail(addr, size)
 
@@ -323,11 +327,11 @@ class PtRegsWrapper(Wrapper):
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get syscall argument. Subclasses must implement."""
         return None
-        
+
     def get_userland_arg(self, num: int) -> Optional[int]:
         """Get userland argument. Subclasses must implement."""
         return None
-        
+
     def get_syscall_number(self) -> Optional[int]:
         """Get syscall number. Subclasses must implement."""
         return None
@@ -335,7 +339,7 @@ class PtRegsWrapper(Wrapper):
 
 class X86PtRegsWrapper(PtRegsWrapper):
     """Wrapper for x86 (32-bit) pt_regs"""
-    
+
     _ACCESSORS = {
         "eax": (_make_attr_getter("ax"), _make_attr_setter("ax")),
         "ebx": (_make_attr_getter("bx"), _make_attr_setter("bx")),
@@ -351,7 +355,7 @@ class X86PtRegsWrapper(PtRegsWrapper):
         "cs": (_make_attr_getter("cs"), _make_attr_setter("cs")),
         "ds": (_make_attr_getter("ds"), _make_attr_setter("ds")),
         "ss": (_make_attr_getter("ss"), _make_attr_setter("ss")),
-        "es": (_make_attr_getter("fs"), _make_attr_setter("fs")), # Note fs map
+        "es": (_make_attr_getter("fs"), _make_attr_setter("fs")),  # Note fs map
         "gs": (_make_attr_getter("gs"), _make_attr_setter("gs")),
         # Aliases
         "pc": (_make_attr_getter("ip"), _make_attr_setter("ip")),
@@ -361,12 +365,18 @@ class X86PtRegsWrapper(PtRegsWrapper):
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get x86 syscall argument"""
-        if num == 0: return self.get_register("ebx")
-        if num == 1: return self.get_register("ecx")
-        if num == 2: return self.get_register("edx")
-        if num == 3: return self.get_register("esi")
-        if num == 4: return self.get_register("edi")
-        if num == 5: return self.get_register("ebp")
+        if num == 0:
+            return self.get_register("ebx")
+        if num == 1:
+            return self.get_register("ecx")
+        if num == 2:
+            return self.get_register("edx")
+        if num == 3:
+            return self.get_register("esi")
+        if num == 4:
+            return self.get_register("edi")
+        if num == 5:
+            return self.get_register("ebp")
         return None
 
     def get_userland_arg(self, num: int) -> Optional[int]:
@@ -393,13 +403,13 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
     }
     # Map struct names to canonical names
     _MAPPINGS = {
-        "rbp": "bp", "rbx": "bx", "rax": "ax", "rcx": "cx", "rdx": "dx", 
-        "rsi": "si", "rdi": "di", "orig_rax": "orig_ax", "rip": "ip", 
+        "rbp": "bp", "rbx": "bx", "rax": "ax", "rcx": "cx", "rdx": "dx",
+        "rsi": "si", "rdi": "di", "orig_rax": "orig_ax", "rip": "ip",
         "eflags": "flags", "rsp": "sp"
     }
     for k, v in _MAPPINGS.items():
         _ACCESSORS[k] = (_make_attr_getter(v), _make_attr_setter(v))
-    
+
     # Aliases
     _ACCESSORS["pc"] = _ACCESSORS["rip"]
     _ACCESSORS["sp"] = _ACCESSORS["rsp"]
@@ -459,10 +469,10 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
 
         # 32-bit partial access optimization
         if reg_name.startswith("e") and len(reg_name) == 3:
-             r64_name = "r" + reg_name[1:]
-             entry = self._ACCESSORS.get(r64_name)
-             if entry:
-                 return entry[0](self._obj) & 0xFFFFFFFF
+            r64_name = "r" + reg_name[1:]
+            entry = self._ACCESSORS.get(r64_name)
+            if entry:
+                return entry[0](self._obj) & 0xFFFFFFFF
 
         return super().get_register(reg_name)
 
@@ -489,14 +499,20 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
         """Get x86_64 syscall argument, considering compatibility mode"""
         if self._is_compatibility_mode():
             return self._get_x86_delegate().get_syscall_arg(num)
-        
+
         # rdi, rsi, rdx, r10, r8, r9
-        if num == 0: return self.get_register("rdi")
-        if num == 1: return self.get_register("rsi")
-        if num == 2: return self.get_register("rdx")
-        if num == 3: return self.get_register("r10")
-        if num == 4: return self.get_register("r8")
-        if num == 5: return self.get_register("r9")
+        if num == 0:
+            return self.get_register("rdi")
+        if num == 1:
+            return self.get_register("rsi")
+        if num == 2:
+            return self.get_register("rdx")
+        if num == 3:
+            return self.get_register("r10")
+        if num == 4:
+            return self.get_register("r8")
+        if num == 5:
+            return self.get_register("r9")
         return None
 
     def get_userland_arg(self, num: int) -> Optional[int]:
@@ -507,12 +523,18 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
 
         # Default x86_64 userland convention
         # rdi, rsi, rdx, rcx, r8, r9
-        if num == 0: return self.get_register("rdi")
-        if num == 1: return self.get_register("rsi")
-        if num == 2: return self.get_register("rdx")
-        if num == 3: return self.get_register("rcx")
-        if num == 4: return self.get_register("r8")
-        if num == 5: return self.get_register("r9")
+        if num == 0:
+            return self.get_register("rdi")
+        if num == 1:
+            return self.get_register("rsi")
+        if num == 2:
+            return self.get_register("rdx")
+        if num == 3:
+            return self.get_register("rcx")
+        if num == 4:
+            return self.get_register("r8")
+        if num == 5:
+            return self.get_register("r9")
         # For arguments beyond the registers, read from the stack
         # In x86_64, the standard calling convention places additional args on the stack
         sp = self.get_sp()
@@ -536,7 +558,7 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
 
 class ArmPtRegsWrapper(PtRegsWrapper):
     """Wrapper for ARM pt_regs"""
-    
+
     # Pre-calculate accessors for uregs array
     _ACCESSORS = {
         f"r{i}": (_make_array_getter("uregs", i), _make_array_setter("uregs", i))
@@ -577,12 +599,12 @@ class ArmPtRegsWrapper(PtRegsWrapper):
 
 class AArch64PtRegsWrapper(PtRegsWrapper):
     """Wrapper for AArch64 pt_regs"""
-    
+
     # Helper for nested access: obj.unnamed_field_0.unnamed_field_0
     # We can pre-calculate the getter to jump straight to the inner struct
-    
+
     _ACCESSORS = {}
-    
+
     @staticmethod
     def _get_inner(obj):
         return obj.unnamed_field_0.unnamed_field_0
@@ -593,18 +615,18 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
             lambda obj, i=i: AArch64PtRegsWrapper._get_inner(obj).regs[i],
             lambda obj, val, i=i: AArch64PtRegsWrapper._get_inner(obj).regs.__setitem__(i, val)
         )
-    
-    _ACCESSORS["sp"] = (lambda obj: AArch64PtRegsWrapper._get_inner(obj).sp, 
+
+    _ACCESSORS["sp"] = (lambda obj: AArch64PtRegsWrapper._get_inner(obj).sp,
                         lambda obj, val: setattr(AArch64PtRegsWrapper._get_inner(obj), 'sp', val))
-    _ACCESSORS["pc"] = (lambda obj: AArch64PtRegsWrapper._get_inner(obj).pc, 
+    _ACCESSORS["pc"] = (lambda obj: AArch64PtRegsWrapper._get_inner(obj).pc,
                         lambda obj, val: setattr(AArch64PtRegsWrapper._get_inner(obj), 'pc', val))
-    _ACCESSORS["pstate"] = (lambda obj: AArch64PtRegsWrapper._get_inner(obj).pstate, 
+    _ACCESSORS["pstate"] = (lambda obj: AArch64PtRegsWrapper._get_inner(obj).pstate,
                             lambda obj, val: setattr(AArch64PtRegsWrapper._get_inner(obj), 'pstate', val))
-    
+
     # Direct fields
     _ACCESSORS["syscallno"] = (_make_attr_getter("syscallno"), _make_attr_setter("syscallno"))
     _ACCESSORS["orig_x0"] = (_make_attr_getter("orig_x0"), _make_attr_setter("orig_x0"))
-    
+
     # Aliases
     _ACCESSORS["retval"] = _ACCESSORS["x0"]
     _ACCESSORS["fp"] = _ACCESSORS["x29"]
@@ -715,7 +737,7 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
 
 class MipsPtRegsWrapper(PtRegsWrapper):
     """Wrapper for MIPS pt_regs"""
-    
+
     # Pre-calculate MIPS regs array
     _ACCESSORS = {
         f"r{i}": (_make_array_getter("regs", i), _make_array_setter("regs", i))
@@ -739,7 +761,7 @@ class MipsPtRegsWrapper(PtRegsWrapper):
         "cp0_epc": (_make_attr_getter("cp0_epc"), _make_attr_setter("cp0_epc")),
         # Aliases
         "pc": (_make_attr_getter("cp0_epc"), _make_attr_setter("cp0_epc")),
-        "retval": (_make_array_getter("regs", 2), _make_array_setter("regs", 2)) # v0
+        "retval": (_make_array_getter("regs", 2), _make_array_setter("regs", 2))  # v0
     })
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
@@ -771,7 +793,7 @@ class MipsPtRegsWrapper(PtRegsWrapper):
 
 class Mips64PtRegsWrapper(MipsPtRegsWrapper):
     """Wrapper for MIPS64 pt_regs"""
-    
+
     # Copy accessors from base and update for MIPS64 args aliases
     _ACCESSORS = MipsPtRegsWrapper._ACCESSORS.copy()
     _ACCESSORS.update({
@@ -808,7 +830,7 @@ class Mips64PtRegsWrapper(MipsPtRegsWrapper):
 
 class PowerPCPtRegsWrapper(PtRegsWrapper):
     """Wrapper for PowerPC pt_regs"""
-    
+
     # Helper to traverse PANDA's nested union structure for PPC
     # obj.unnamed_field_0.unnamed_field_0.gpr[i]
     @staticmethod
@@ -817,7 +839,7 @@ class PowerPCPtRegsWrapper(PtRegsWrapper):
         return obj.unnamed_field_0.unnamed_field_0
 
     _ACCESSORS = {}
-    
+
     # 1. GPRs (r0-r31)
     for i in range(32):
         _ACCESSORS[f"r{i}"] = (
@@ -846,8 +868,8 @@ class PowerPCPtRegsWrapper(PtRegsWrapper):
         # Check if we need to adjust the object for non-nested structures (rare case)
         if not hasattr(obj, "unnamed_field_0"):
             # If struct is flat, we patch _get_inner to return obj identity
-            # (Note: This monkeypatch is per-instance if we attach it to self, 
-            # but accessors are class-level. Standard PANDA is nested. 
+            # (Note: This monkeypatch is per-instance if we attach it to self,
+            # but accessors are class-level. Standard PANDA is nested.
             # We assume nested for the optimized path).
             pass
 
@@ -900,12 +922,12 @@ class PowerPC64PtRegsWrapper(PowerPCPtRegsWrapper):
 
 class LoongArch64PtRegsWrapper(PtRegsWrapper):
     """Wrapper for LoongArch64 pt_regs"""
-    
+
     _ACCESSORS = {
         f"r{i}": (_make_array_getter("regs", i), _make_array_setter("regs", i))
         for i in range(32)
     }
-    
+
     # Direct fields
     for field in ["orig_a0", "csr_era", "csr_badvaddr", "csr_crmd", "csr_prmd", "csr_euen", "csr_ecfg", "csr_estat"]:
         _ACCESSORS[field] = (_make_attr_getter(field), _make_attr_setter(field))
@@ -956,15 +978,15 @@ class LoongArch64PtRegsWrapper(PtRegsWrapper):
 
 class Riscv32PtRegsWrapper(PtRegsWrapper):
     """Wrapper for RISC-V 32-bit pt_regs"""
-    
+
     # RISC-V uses direct named fields in the struct
     _RISCV_FIELDS = [
-        "epc", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", 
-        "a2", "a3", "a4", "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", 
-        "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6", "status", "badaddr", 
+        "epc", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1",
+        "a2", "a3", "a4", "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7",
+        "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6", "status", "badaddr",
         "cause", "orig_a0"
     ]
-    
+
     _ACCESSORS = {
         name: (_make_attr_getter(name), _make_attr_setter(name))
         for name in _RISCV_FIELDS
@@ -984,7 +1006,7 @@ class Riscv32PtRegsWrapper(PtRegsWrapper):
     # Special logic for Zero
     _ACCESSORS["x0"] = (lambda obj: 0, lambda obj, val: None)
     _ACCESSORS["zero"] = _ACCESSORS["x0"]
-    
+
     # Common Aliases
     _ACCESSORS["pc"] = _ACCESSORS["epc"]
     _ACCESSORS["fp"] = _ACCESSORS["s0"]
@@ -1022,7 +1044,7 @@ class Riscv32PtRegsWrapper(PtRegsWrapper):
 class Riscv64PtRegsWrapper(Riscv32PtRegsWrapper):
     """Wrapper for RISC-V 64-bit pt_regs - same structure as 32-bit but with 64-bit registers"""
     # Inherits accessors from Riscv32 (names are the same)
-    
+
     def get_userland_arg(self, num: int) -> Optional[int]:
         """Get RISC-V 64-bit userland argument"""
         if 0 <= num < 8:  # a0-a7 for first 8 args
@@ -1032,8 +1054,9 @@ class Riscv64PtRegsWrapper(Riscv32PtRegsWrapper):
         # In RISC-V, arguments beyond registers are placed directly at sp, sp+8, sp+16, etc.
         # No need to skip any return address as it's in the ra register
         sp = self.get_sp()
-        if sp is None: return None
-        
+        if sp is None:
+            return None
+
         # 64-bit stack width
         addr = sp + ((num - 8) * 8)
         return self._read_memory(addr, 8, 'ptr')
@@ -1056,6 +1079,7 @@ _WRAPPER_CACHE = {
     "riscv32": Riscv32PtRegsWrapper,
     "riscv64": Riscv64PtRegsWrapper,
 }
+
 
 def get_pt_regs_wrapper(
     panda: Optional[Any],
@@ -1083,5 +1107,5 @@ def get_pt_regs_wrapper(
     klass = _WRAPPER_CACHE.get(arch_name.lower())
     if klass:
         return klass(regs, panda)
-        
+
     return PtRegsWrapper(regs, panda)

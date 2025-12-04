@@ -64,18 +64,20 @@ def resolve_bound_method_from_class(f: Callable, manager: Any = None) -> Callabl
     if hasattr(f, '__qualname__') and '.' in f.__qualname__ and not hasattr(f, '__self__'):
         class_name = f.__qualname__.split('.')[0]
         method_name = f.__qualname__.split('.')[-1]
-        
+
         # Use provided manager or fall back to global singleton
         mgr = manager if manager is not None else plugins
-        
+
         # Use getattr with default to avoid crashing if plugin isn't loaded yet
         instance = getattr(mgr, class_name, None)
         if instance and hasattr(instance, method_name):
             return getattr(instance, method_name)
     return f
 
+
 class ArgsBox:
     __slots__ = ('args',)
+
     def __init__(self, args: Dict[str, Any]) -> None:
         """
         Initialize ArgsBox with a dictionary of arguments.
@@ -276,6 +278,7 @@ def interpret_bool(val: Any) -> bool:
 # 2. Pre-compile Regexes
 RE_SNAKE_1 = re.compile(r'(.)([A-Z][a-z]+)')
 RE_SNAKE_2 = re.compile(r'([a-z0-9])([A-Z])')
+
 
 @functools.lru_cache(maxsize=128)
 def camel_to_snake(name: str) -> str:
@@ -809,7 +812,7 @@ class IGLOOPluginManager:
             # Handle unbound method: cb is a function, but its __qualname__
             # contains a dot
             if not hasattr(cb, '__self__') and hasattr(cb, '__qualname__') and '.' in cb.__qualname__:
-                 cb = resolve_bound_method_from_class(cb, manager=self)
+                cb = resolve_bound_method_from_class(cb, manager=self)
             cb(*args, **kwargs)
 
     def portal_publish(self, plugin: Plugin, event: str, *args: Any, **kwargs: Any) -> Iterator:
@@ -832,7 +835,7 @@ class IGLOOPluginManager:
 
         for cb in self.plugin_cbs[plugin][event]:
             if not hasattr(cb, '__self__') and hasattr(cb, '__qualname__') and '.' in cb.__qualname__:
-                 cb = resolve_bound_method_from_class(cb, manager=self)
+                cb = resolve_bound_method_from_class(cb, manager=self)
             result = cb(*args, **kwargs)
             if isinstance(result, Iterator):
                 yield from result

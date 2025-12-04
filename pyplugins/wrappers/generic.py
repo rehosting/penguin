@@ -51,7 +51,7 @@ class Wrapper:
     Optimized base class for wrapping a single object.
     Uses __slots__ and cached type flags to minimize __getattr__ overhead.
     """
-    
+
     __slots__ = ('_obj', '_extra_attrs', '_is_dict')
 
     def __init__(self, obj: Any) -> None:
@@ -74,7 +74,7 @@ class Wrapper:
                 # FIX: If 'name' isn't a data key, check if it's a dict method
                 # (e.g., .items(), .values(), .get())
                 return getattr(obj, name)
-        
+
         # 3. Standard object access for non-dicts
         return getattr(obj, name)
 
@@ -108,7 +108,7 @@ class Wrapper:
         elif hasattr(self._obj, '__dict__'):
             return dict(self._obj.__dict__)
         else:
-            return {k: getattr(self._obj, k) 
+            return {k: getattr(self._obj, k)
                     for k in dir(self._obj) if not k.startswith('_')}
 
     def __repr__(self) -> str:
@@ -144,7 +144,7 @@ class ArrayWrapper(Generic[T]):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({repr(self._data)})"
-    
+
     def __str__(self) -> str:
         return str(self._data)
 
@@ -152,16 +152,16 @@ class ArrayWrapper(Generic[T]):
 class ConstDictWrapper:
     """
     A read-only wrapper for dictionaries optimized for maximum read speed.
-    
-    Attributes are injected directly into the instance's __dict__ at 
-    initialization time, allowing for native C-speed attribute access 
+
+    Attributes are injected directly into the instance's __dict__ at
+    initialization time, allowing for native C-speed attribute access
     (obj.field) without the overhead of __getattr__.
     """
     def __init__(self, data: Dict[str, Any]) -> None:
         """
         Initialize the wrapper.
-        
-        This performs a shallow copy of the dictionary keys into the 
+
+        This performs a shallow copy of the dictionary keys into the
         object's namespace.
         """
         # DIRECT INJECTION: This is the magic speed trick.
@@ -200,7 +200,7 @@ class ConstDictWrapper:
     def keys(self):
         """Pass-through for keys."""
         return self.__dict__.keys()
-    
+
     def values(self):
         """Pass-through for values."""
         return self.__dict__.values()
