@@ -328,7 +328,7 @@ class Syscalls(Plugin):
         self.outdir = self.get_arg("outdir")
 
         # Map hook pointers to callbacks
-        # Maps hook pointers to (on_all, callback_func) tuples
+        # Maps hook pointers to (on_all, callback_func, is_method, read_only) tuples
         self._hooks: Dict[int, tuple] = {}
         self._hook_info = {}
 
@@ -339,6 +339,14 @@ class Syscalls(Plugin):
         # Syscall type information - using dictionary for fast name-based
         # lookups
         self._syscall_info_table: Dict[str, SyscallPrototype] = {}
+
+        # OPTIMIZATION: Raw Name Cache (read -> Proto)
+        # Prevents re-cleaning strings for global hooks
+        self._raw_name_proto_cache: Dict[str, SyscallPrototype] = {}
+
+        # OPTIMIZATION: Hook Ptr Cache (0x1234 -> Proto)
+        # Fast path for specific hooks
+        self._hook_proto_cache: Dict[int, SyscallPrototype] = {}
 
         # Register with portal's interrupt handler system
         plugins.portal.register_interrupt_handler(
@@ -400,6 +408,8 @@ class Syscalls(Plugin):
                 f"Syscall {name} is a compat syscall, skipping it for a better match")
         else:
             self._syscall_info_table[clean_name] = sysinfo
+            # Clear caches that rely on names if we update definitions
+            self._raw_name_proto_cache.clear()
             self.logger.debug(
                 f"Registered syscall {name} (cleaned: {clean_name})")
 
@@ -455,9 +465,10 @@ class Syscalls(Plugin):
             hook_ptr = yield from self._register_syscall_hook(hook_config)
             on_all = hook_config.get("on_all", False)
             is_method = hook_config.get("is_method", False)
+            read_only = hook_config.get("read_only", False)
 
-            # Always store 3-tuple for fast-path
-            self._hooks[hook_ptr] = (on_all, func, is_method)
+            # Always store 4-tuple for fast-path (added read_only)
+            self._hooks[hook_ptr] = (on_all, func, is_method, read_only)
 
             # Track function to hook pointer mappings
             self._func_to_hook_ptr[func] = hook_ptr
@@ -490,8 +501,8 @@ class Syscalls(Plugin):
 
         Returns
         -------
-        Tuple[Any, bytes]
-            The syscall event object and its original bytes.
+        Any
+            The syscall event object.
         """
         sce = plugins.kffi.read_type_panda(cpu, arg, "syscall_event")
         
@@ -513,12 +524,10 @@ class Syscalls(Plugin):
         # Split at the first null byte, take the left side, and decode
         sce.name = name_bytes.split(b'\x00', 1)[0].decode('utf-8', errors='replace')
         
-        # 5. Get original bytes (using the existing method)
-        original = sce.to_bytes()
         
-        return sce, original
+        return sce
 
-    def _get_proto(self, cpu: int, sce: Any) -> SyscallPrototype:
+    def _get_proto(self, cpu: int, sce: Any, on_all: bool) -> SyscallPrototype:
         """
         Get the syscall prototype for a given event.
 
@@ -528,14 +537,33 @@ class Syscalls(Plugin):
             CPU id.
         sce : Any
             Syscall event object.
+        on_all : bool
+            Whether this is a global hook (determines caching strategy).
 
         Returns
         -------
         SyscallPrototype
             The prototype for the syscall.
         """
+        # OPTIMIZATION: Tier 1 Cache - Hook Pointer (Specific Hooks Only)
+        # If this is not a global hook, the hook pointer maps 1:1 to a syscall prototype
+        if not on_all:
+            hook_ptr = sce.hook.address
+            if hook_ptr in self._hook_proto_cache:
+                return self._hook_proto_cache[hook_ptr]
+
         # Get syscall name from the event
         name = sce.name
+        
+        # OPTIMIZATION: Tier 2 Cache - Raw Name (Global Hooks)
+        # Avoids repeated string cleaning and dict lookups for global hooks
+        if name in self._raw_name_proto_cache:
+            proto = self._raw_name_proto_cache[name]
+            # If we found it via name but we are in a specific hook, upgrade to Tier 1
+            if not on_all:
+                self._hook_proto_cache[sce.hook.address] = proto
+            return proto
+
         # Clean the syscall name
         cleaned_name = self._clean_syscall_name(name)
 
@@ -573,6 +601,11 @@ class Syscalls(Plugin):
             self.logger.error(
                 f"Syscall {name} not registered {cleaned_name=}, created generic prototype with {len(generic_args)} args")
 
+        # Update caches
+        self._raw_name_proto_cache[name] = proto
+        if not on_all:
+            self._hook_proto_cache[sce.hook.address] = proto
+
         return proto
 
     def _resolve_syscall_callback(self, f, is_method, hook_ptr=None):
@@ -605,8 +638,8 @@ class Syscalls(Plugin):
                     bound_method = getattr(instance, method_name)
                     # Update cache for fast-path next time
                     if hook_ptr is not None and hook_ptr in self._hooks:
-                        on_all, _, _ = self._hooks[hook_ptr]
-                        self._hooks[hook_ptr] = (on_all, bound_method, False)
+                        on_all, _, _, read_only = self._hooks[hook_ptr]
+                        self._hooks[hook_ptr] = (on_all, bound_method, False, read_only)
                     return bound_method
                 else:
                     self.logger.error(f"Could not find method {method_name} on instance")
@@ -664,19 +697,32 @@ class Syscalls(Plugin):
         """
         arg = self.panda.arch.get_arg(cpu, 1, convention="syscall")
 
-        sce, original = self._get_syscall_event(cpu, arg)
+        # 1. Get Event Object (No bytes serialization yet)
+        sce = self._get_syscall_event(cpu, arg)
         hook_ptr = sce.hook.address
         if hook_ptr not in self._hooks:
             return
-        on_all, f, is_method = self._hooks[hook_ptr]
-        proto = self._get_proto(cpu, sce)
+            
+        # 2. Unpack Hook Data including read_only flag
+        on_all, f, is_method, read_only = self._hooks[hook_ptr]
+        
+        # 3. Calculate 'original' bytes ONLY if we might write back (not read_only)
+        original = None
+        if not read_only:
+            original = sce.to_bytes()
+            
+        # 4. Get Prototype (Optimized with Caching)
+        proto = self._get_proto(cpu, sce, on_all)
+
         pt_regs_raw = yield from plugins.kffi.read_type(sce.regs.address, "pt_regs")
         pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
+        
         if on_all or proto is None or sce.argc == 0:
             args = (pt_regs, proto, sce)
         else:
             sysargs = [sce.args[i] for i in range(sce.argc)]
             args = (pt_regs, proto, sce, *sysargs)
+            
         # Fast path: already bound or standard function
         if not is_method:
             result = f(*args)
@@ -687,11 +733,16 @@ class Syscalls(Plugin):
                 result = fn_to_call(*args)
             else:
                 return
+                
         if isinstance(result, Iterator):
             result = yield from result
-        new = sce.to_bytes()
-        if original != new:
-            yield from plugins.mem.write_bytes(arg, new)
+            
+        # 5. Write Back (Skipped if read_only)
+        if not read_only:
+            new = sce.to_bytes()
+            if original != new:
+                yield from plugins.mem.write_bytes(arg, new)
+                
         return result
 
     def _register_syscall_hook(
@@ -818,7 +869,8 @@ class Syscalls(Plugin):
         arg_filters: Optional[List[Any]] = None,
         pid_filter: Optional[int] = None,
         retval_filter: Optional[Any] = None,
-        enabled: bool = True
+        enabled: bool = True,
+        read_only: bool = False
     ) -> Callable:
         """
         Decorator for registering syscall callbacks.
@@ -841,6 +893,8 @@ class Syscalls(Plugin):
             Return value filter.
         enabled : bool
             Whether the hook is enabled.
+        read_only : bool
+            Whether the hook modifies arguments (set to True to optimize).
 
         Returns
         -------
@@ -932,6 +986,7 @@ class Syscalls(Plugin):
                 "pid_filter": pid_filter,
                 "retval_filter": retval_filter,  # Now supports complex filtering
                 "is_method": is_method,  # Store method detection result
+                "read_only": read_only,  # Store read_only flag
             }
             # Add to pending hooks and queue interrupt
             self._pending_hooks.append((hook_config, func))
