@@ -111,37 +111,12 @@ class OSI(Plugin):
         """
         self.logger.debug("read_process_args called")
         proc_args = yield PortalCmd(hop.HYPER_OP_READ_PROCARGS, pid=pid)
-
         if not proc_args:
             return []
-
-        # From examining the handle_op_read_procargs function in portal_osi.c:
-        # - The kernel reads the process args area (mm->arg_start to mm->arg_end)
-        # - In Linux, arguments are already null-terminated in memory
-        # - The kernel converts nulls to spaces (except the final one)
-        # - This creates a space-separated string, similar to /proc/pid/cmdline
-
-        # First, strip any trailing null bytes at the end of the buffer
-        proc_args = proc_args.rstrip(b'\0')
-
-        # Split by spaces which is how the kernel formats the arguments
-        # The kernel function converts nulls to spaces except for the last one
-        args = proc_args.decode('latin-1', errors='replace').split()
-
-        # Remove any binary garbage that might be present (common issue with
-        # syscalls)
-        clean_args = []
-        for arg in args:
-            # Remove trailing null characters from each argument
-            arg = arg.rstrip('\0')
-
-            # Simple heuristic: if most chars are printable, it's probably a
-            # valid arg
-            if sum(c.isprintable() for c in arg) > len(arg) * 0.8:
-                clean_args.append(arg)
-
-        self.logger.debug(f"Proc args read successfully: {clean_args}")
-        return clean_args
+        # Optimization: decode only valid data, split fast, filter printable
+        decoded = proc_args.rstrip(b'\0').decode('latin-1', errors='replace')
+        args = decoded.split()
+        return [arg for arg in args if arg.isprintable()]
 
     def get_proc_name(self, pid: Optional[int] = None) -> Generator[Any, None, str]:
         """
