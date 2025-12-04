@@ -150,7 +150,7 @@ class DB(Plugin):
         # Mask for 64-bit (0xFFFFFFFFFFFFFFFF)
         MASK_64 = 0xFFFFFFFFFFFFFFFF
         # Max positive signed 64-bit int (0x7FFFFFFFFFFFFFFF)
-        MAX_INT64 = 0x7FFFFFFFFFFFFFFF 
+        MAX_INT64 = 0x7FFFFFFFFFFFFFFF
         # Offset for Two's Complement (2**64)
         OFFSET_64 = 0x10000000000000000
 
