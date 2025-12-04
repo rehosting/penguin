@@ -310,7 +310,7 @@ class Mem(Plugin):
             SAFE_MAX = 4096 - 24
             total_read = 0
             curr_addr = addr
-            cpu = self.panda.get_cpu()
+            cpu = self._get_cpu()
 
             while total_read < SAFE_MAX:
                 # 1. Calculate space left in current page
