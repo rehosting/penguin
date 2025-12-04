@@ -17,7 +17,7 @@ ARG MUSL_VERSION="1.2.5"
 ARG VHOST_DEVICE_VERSION="vhost-device-vsock-v0.2.0"
 ARG FW2TAR_TAG="v2.0.6"
 ARG PANDA_VERSION="pandav0.0.50"
-ARG PANDANG_VERSION="0.0.36"
+ARG PANDANG_VERSION="0.0.37"
 ARG RIPGREP_VERSION="14.1.1"
 ARG LOONGARCH64_BIOS_URL="https://kojipkgs.fedoraproject.org/compose/43/Fedora-43-20250910.2/compose/Everything/x86_64/os/Packages/e/edk2-loongarch64-20250523-18.fc43.noarch.rpm"
 
