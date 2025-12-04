@@ -71,6 +71,10 @@ class DB(Plugin):
         self.stop_event = Event()
         self.finished_worker = Event()
         self.initialized_db = False
+
+        # Cache for SQLAlchemy reflection results
+        # Key: TableClass, Value: (poly_identity, poly_col_name, child_cols_set)
+        self._reflection_cache = {}
         
         # Manual ID Counter for fresh DBs (Required for Dual Core Inserts)
         self.id_counter = 1
@@ -110,6 +114,23 @@ class DB(Plugin):
         if to_flush:
             self._perform_flush(to_flush)
 
+    def _get_table_info(self, table_cls):
+        """Cached introspection of table metadata"""
+        if table_cls in self._reflection_cache:
+            return self._reflection_cache[table_cls]
+
+        mapper = inspect(table_cls)
+        poly_identity = mapper.polymorphic_identity
+        
+        base_mapper = inspect(BaseEvent)
+        poly_col_name = base_mapper.polymorphic_on.name
+        
+        child_table_cols = {c.key for c in mapper.local_table.c}
+        
+        info = (poly_identity, poly_col_name, child_table_cols)
+        self._reflection_cache[table_cls] = info
+        return info
+
     def _perform_flush(self, events: list) -> None:
         if not self.initialized_db:
             Base.metadata.create_all(self.engine)
@@ -134,15 +155,7 @@ class DB(Plugin):
                 # we must perform a Split Insert (Event + Subclass).
                 # This works for Syscall, Read, Write, Exec, etc.
                 if issubclass(table_cls, BaseEvent) and table_cls is not BaseEvent:
-
-                    # 1. INSPECT POLYMORPHIC INFO
-                    # We need the discriminator value (e.g. "syscall") and column name (e.g. "type")
-                    mapper = inspect(table_cls)
-                    poly_identity = mapper.polymorphic_identity
-
-                    # Get the discriminator column name from the parent
-                    base_mapper = inspect(BaseEvent)
-                    poly_col_name = base_mapper.polymorphic_on.name
+                    poly_identity, poly_col_name, child_table_cols = self._get_table_info(table_cls)
                     
                     batch_len = len(data_list)
                     start_id = self.id_counter
