@@ -100,8 +100,8 @@ class PyPandaSysLog(Plugin):
     def _init_type_handlers(self):
         """Define specialized handlers to avoid string matching in hot path"""
         
+        # Helper to mark handlers: (function, is_generator)
         def handle_fd(argval):
-            # This yields, so it must be handled carefully in the generator
             fd_name = yield from self.osi_get_fd(argval)
             return f"{argval:#x}({fd_name or '[???]'})"
 
@@ -123,46 +123,58 @@ class PyPandaSysLog(Plugin):
             if argval == 0: return "[NULL]"
             return f"{argval:#x}({type_name})"
 
+        # Map handlers to a tuple: (func, is_generator_flag)
         self.handlers = {
-            'fd': handle_fd,
-            'int': handle_int,
-            'str': handle_str,
-            'str_array': handle_str_array,
-            'ptr': handle_ptr
+            'fd': (handle_fd, True),
+            'int': (handle_int, False),
+            'str': (handle_str, True),
+            'str_array': (handle_str_array, True),
+            'ptr': (handle_ptr, False)
         }
 
-        # Sets for fast lookup during prototype parsing
         self.STRING_TYPES = frozenset({'const char *', 'char *'})
         self.PTR_TYPES = frozenset({
             'int *', 'unsigned int *', 'unsigned long *', 'uid_t *', 'gid_t *', 
             'old_uid_t *', 'old_gid_t *', 'size_t *', 'off_t *', 'loff_t *', 
             'u32 *', 'u64 *', 'timer_t *', 'aio_context_t *', 'unsigned *'
         })
+        
+        # Pre-allocate the row template to avoid repeated dict growth/filling
+        self.row_template = {
+            "name": "", "procname": "?", "retno": 0, "retno_repr": "0",
+            "arg0": 0, "arg0_repr": "", "arg1": 0, "arg1_repr": "",
+            "arg2": 0, "arg2_repr": "", "arg3": 0, "arg3_repr": "",
+            "arg4": 0, "arg4_repr": "", "arg5": 0, "arg5_repr": ""
+        }
 
     def _resolve_handler(self, ctype, name):
         """
-        Determines the correct handler function for a specific argument 
-        DURING prototype loading, not during execution.
+        Returns: (handler_func, is_generator, extra_arg)
         """
         if name == "fd":
-            return self.handlers['fd'], None
+            func, is_gen = self.handlers['fd']
+            return func, is_gen, None
         
         if ctype in self.STRING_TYPES:
-            return self.handlers['str'], None
+            func, is_gen = self.handlers['str']
+            return func, is_gen, None
         
         if ctype == 'const char *const *':
-            return self.handlers['str_array'], None
+            func, is_gen = self.handlers['str_array']
+            return func, is_gen, None
             
         if '*' in ctype:
-            # Clean up type name for display
             display_type = "ptr"
             if 'struct' in ctype or 'union' in ctype:
                 display_type = ctype.replace('const ', '').replace(' *', '')
             elif ctype in self.PTR_TYPES:
                 display_type = "ptr"
-            return self.handlers['ptr'], display_type
+            
+            func, is_gen = self.handlers['ptr']
+            return func, is_gen, display_type
 
-        return self.handlers['int'], None
+        func, is_gen = self.handlers['int']
+        return func, is_gen, None
 
     def _init_error_codes(self, panda):
         """
@@ -202,8 +214,7 @@ class PyPandaSysLog(Plugin):
     @functools.lru_cache(maxsize=256)
     def get_syscall_processors(self, proto):
         """
-        Returns a list of tuples: (arg_name, handler_func, extra_data)
-        This is cached so we only compute it once per syscall type.
+        Returns cached list of: (arg_name, handler_func, is_gen, extra_data)
         """
         processors = []
         protoname = self.cstr(proto.name)
@@ -211,8 +222,9 @@ class PyPandaSysLog(Plugin):
         for i in range(proto.nargs):
             ctype = self.cstr(proto.types[i])
             argname = self.cstr(proto.names[i])
-            handler, extra = self._resolve_handler(ctype, argname)
-            processors.append((argname, handler, extra))
+            # Unpack the 3-item tuple from _resolve_handler
+            handler, is_gen, extra = self._resolve_handler(ctype, argname)
+            processors.append((argname, handler, is_gen, extra))
             
         return protoname, processors
 
@@ -249,53 +261,45 @@ class PyPandaSysLog(Plugin):
 
         **Returns:** None
         """
+        # Localize lookups for speed
+        cast = self.cast
+        err_name_map = self.errcode_to_errname
+        err_expl_map = self.errcode_to_explanation
+        syscall_args = syscall.args
+        
         # 1. Get cached processors
         protoname, processors = self.get_syscall_processors(proto)
         
-        # 2. Prepare storage (Pre-allocate dict for bulk insert)
-        row_data = {
-            "name": protoname,
-            "procname": "?", # Placeholder, updated below
-            "retno": 0,
-            "retno_repr": "0"
-        }
+        # 2. Fast Template Copy (Faster than creating new dict + filling blanks)
+        row_data = self.row_template.copy()
+        row_data["name"] = protoname
 
-        # 3. Process Arguments
-        # We unroll the loop logic slightly to avoid overhead
-        for i, (name, handler, extra) in enumerate(processors):
-            raw_val = int(self.cast("target_ulong", syscall.args[i]))
+        # 3. Process Arguments (Hot Loop)
+        for i, (name, handler, is_gen, extra) in enumerate(processors):
+            # Casting overhead: assuming target_ulong fits in standard int logic
+            raw_val = int(cast("target_ulong", syscall_args[i]))
             
-            # Store raw integer (cheap)
             row_data[f"arg{i}"] = raw_val
             
-            # Store representation (expensive)
+            # Use pre-calculated flags to avoid isinstance() checks
             if extra:
-                val_str = handler(raw_val, extra) # Simple function call
+                val_str = handler(raw_val, extra)
+            elif is_gen:
+                val_str = yield from handler(raw_val)
             else:
-                # If it's a generator (reads memory), yield from it
-                res = handler(raw_val)
-                if isinstance(res, str):
-                    val_str = res
-                else:
-                    val_str = yield from res
+                val_str = handler(raw_val)
             
             row_data[f"arg{i}_repr"] = f"{name}={val_str}"
 
-        # -------------------------------------------------------------
-        # FIX: Fill remaining arguments (Linux syscalls max out at 6)
-        # This ensures the DB logger receives a uniform dictionary
-        # -------------------------------------------------------------
-        for j in range(len(processors), 6):
-            row_data[f"arg{j}"] = 0
-            row_data[f"arg{j}_repr"] = ""
-
         # 4. Handle Return Value
-        retval = int(self.cast("target_long", syscall.retval))
+        retval = int(cast("target_long", syscall.retval))
         row_data["retno"] = retval
-        errnum = -retval
         
-        if errnum in self.errcode_to_errname:
-            row_data["retno_repr"] = f"{self.errcode_to_errname[errnum]}({self.errcode_to_explanation.get(errnum, '')})"
+        # Error code lookup (Check negative retval)
+        errnum = -retval
+        if errnum in err_name_map:
+            # Using get() on second map is safer and fast
+            row_data["retno_repr"] = f"{err_name_map[errnum]}({err_expl_map.get(errnum, '')})"
         else:
             row_data["retno_repr"] = f"{retval:#x}"
 
