@@ -477,7 +477,6 @@ class Portal(Plugin):
         HYPER_RESP_READ_NUM = hop.HYPER_RESP_READ_NUM
         HYPER_RESP_READ_PARTIAL = hop.HYPER_RESP_READ_PARTIAL
         HYPER_OP_NONE = hop.HYPER_OP_NONE
-        breakpoint()
 
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
