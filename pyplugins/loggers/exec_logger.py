@@ -73,12 +73,12 @@ class ExecLog(Plugin):
             egid = -1
 
         self.DB.add_event(Exec,
-            {
-                "calltree": "",
-                "argc": argc,
-                "argv": argv_str,
-                "envp": envp_str,
-                "euid": euid,
-                "egid": egid,
-            }
-        )
+                          {
+                              "calltree": "",
+                              "argc": argc,
+                              "argv": argv_str,
+                              "envp": envp_str,
+                              "euid": euid,
+                              "egid": egid,
+                          }
+                          )

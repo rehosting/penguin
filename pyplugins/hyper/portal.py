@@ -40,7 +40,6 @@ from collections.abc import Iterator
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import HYPER_OP as hop
 from typing import Union, Callable, Optional, Any
-import time
 import struct
 import functools
 
@@ -51,6 +50,7 @@ kffi = plugins.kffi
 
 # Global singleton for a no-operation command
 _NONE_CMD = None
+
 
 class PortalCmd:
     """
@@ -318,7 +318,7 @@ class Portal(Plugin):
         except ValueError as e:
             self.logger.error(f"Failed to read memregion state: {e}")
             return 0, 0
-        
+
         return addr, size
 
     def _read_memregion_data(self, cpum: tuple, size: int) -> Optional[bytes]:
