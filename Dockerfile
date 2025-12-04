@@ -19,7 +19,7 @@ ARG FW2TAR_TAG="v2.0.6"
 ARG PANDA_VERSION="pandav0.0.49"
 ARG PANDANG_VERSION="0.0.34"
 ARG RIPGREP_VERSION="14.1.1"
-ARG LOONGARCH64_BIOS_URL="https://kojipkgs.fedoraproject.org/compose/43/Fedora-43-20250910.2/compose/Everything/x86_64/os/Packages/e/edk2-loongarch64-20250523-18.fc43.noarch.rpm"
+ARG LOONGARCH64_BIOS_URL="https://web.archive.org/web/20251204215901/https://kojipkgs.fedoraproject.org/compose/43/Fedora-43-20251023.0/compose/Everything/x86_64/os/Packages/e/edk2-loongarch64-20250812-18.fc43.noarch.rpm"
 
 FROM ${REGISTRY}/rust:1.86 AS rust_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
