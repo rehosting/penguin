@@ -201,7 +201,7 @@ class HyperFile(Plugin):
         **Returns**
         - `None`
         """
-        num_hyperfiles_addr = self.panda.arch.get_arg(
+        num_hyperfiles_addr = plugins.cas.get_arg(
             cpu, 2, convention="syscall")
         try:
             plugins.mem.write_bytes_panda(
@@ -211,7 +211,7 @@ class HyperFile(Plugin):
             )
         except ValueError:
             # Memory r/w failed - tell guest to retry
-            self.panda.arch.set_retval(cpu, HYP_RETRY)
+            plugins.cas.set_retval(cpu, HYP_RETRY)
             self.logger.debug(
                 "Failed to read/write number of hyperfiles from guest - retry")
 
@@ -225,7 +225,7 @@ class HyperFile(Plugin):
         **Returns**
         - `None`
         """
-        hyperfile_paths_array_ptr = self.panda.arch.get_arg(
+        hyperfile_paths_array_ptr = plugins.cas.get_arg(
             cpu, 2, convention="syscall")
         n = len(self.files)
         hyperfile_paths_ptrs = [None] * n
@@ -238,7 +238,7 @@ class HyperFile(Plugin):
                     fmt="int",
                 )
             except ValueError:
-                self.panda.arch.set_retval(cpu, HYP_RETRY)
+                plugins.cas.set_retval(cpu, HYP_RETRY)
                 self.logger.debug(
                     "Failed to read hyperfile path ptr from guest - retry")
                 return
@@ -246,7 +246,7 @@ class HyperFile(Plugin):
             try:
                 plugins.mem.write_bytes_panda(cpu, buf, path.encode())
             except ValueError:
-                self.panda.arch.set_retval(cpu, HYP_RETRY)
+                plugins.cas.set_retval(cpu, HYP_RETRY)
                 self.logger.debug(
                     "Failed to write hyperfile path to guest - retry")
                 return
@@ -268,12 +268,12 @@ class HyperFile(Plugin):
         hyperfs_data_size = struct.calcsize(
             header_fmt) + max(struct.calcsize(fmt) for fmt in (read_fmt, write_fmt, ioctl_fmt))
 
-        buf_addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
+        buf_addr = plugins.cas.get_arg(cpu, 2, convention="syscall")
         try:
             buf = plugins.mem.read_bytes_panda(cpu, buf_addr, hyperfs_data_size)
         except ValueError:
             # Memory read failed - tell guest to retry
-            self.panda.arch.set_retval(cpu, HYP_RETRY)
+            plugins.cas.set_retval(cpu, HYP_RETRY)
             self.logger.debug(
                 "Failed to read hyperfile struct from guest - retry")
             return
@@ -284,7 +284,7 @@ class HyperFile(Plugin):
             device_name = plugins.mem.read_str_panda(cpu, path_ptr)
         except ValueError:
             # Memory read failed - tell guest to retry
-            self.panda.arch.set_retval(cpu, HYP_RETRY)
+            plugins.cas.set_retval(cpu, HYP_RETRY)
             self.logger.debug(
                 "Failed to read hyperfile struct from guest - retry")
             return
@@ -293,7 +293,7 @@ class HyperFile(Plugin):
             # XXX: why does this happen? Probably a bug somewhere else?
             self.logger.warning(
                 "Empty device name in hyperfile request - ignore")
-            self.panda.arch.set_retval(
+            plugins.cas.set_retval(
                 cpu, self.panda.to_unsigned_guest(-22), failure=True)
             return
 
@@ -332,7 +332,7 @@ class HyperFile(Plugin):
                 except ValueError:
                     self.logger.warning(
                         f"After reading hyperfile {device_name} failed to write result into guest memory at {buffer:x} - retry")
-                    self.panda.arch.set_retval(cpu, HYP_RETRY)
+                    plugins.cas.set_retval(cpu, HYP_RETRY)
                     # XXX: If we ever have stateful files, we'll need to tell
                     # it the read failed
                     return
@@ -351,7 +351,7 @@ class HyperFile(Plugin):
             except ValueError:
                 self.logger.warning(
                     f"Before writing to hyperfile {device_name} failed to read data out of guest memory at {buffer:x} with offset {offset:x}")
-                self.panda.arch.set_retval(cpu, HYP_RETRY)
+                plugins.cas.set_retval(cpu, HYP_RETRY)
                 # XXX: We might be able to get stuck in a loop here if hyperfs isn't paging in
                 # what we expect
                 return
@@ -382,10 +382,10 @@ class HyperFile(Plugin):
             except ValueError:
                 self.logger.debug(
                     "Failed to write hyperfile size into guest - retry(?)")
-                self.panda.arch.set_retval(cpu, HYP_RETRY)
+                plugins.cas.set_retval(cpu, HYP_RETRY)
                 return
 
-        self.panda.arch.set_retval(cpu, self.panda.to_unsigned_guest(retval))
+        plugins.cas.set_retval(cpu, self.panda.to_unsigned_guest(retval))
 
     def handle_result(self, device_name: str, event: str,
                       retval: int, *data: Any) -> None:

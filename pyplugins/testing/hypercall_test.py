@@ -2,7 +2,7 @@
 This plugin verifies that hypercalls are being made correctly.
 """
 
-from penguin import Plugin
+from penguin import Plugin, plugins
 from os.path import join
 
 HYPERCALL_MAGIC = 0xcafebabe
@@ -28,14 +28,14 @@ class HypercallTest(Plugin):
                      HYPERCALL_ARG3, HYPERCALL_ARG4]
         success = True
         for i, constant in enumerate(constants):
-            arg = self.panda.arch.get_arg(cpu, i + 1, convention="syscall")
+            arg = plugins.cas.get_arg(cpu, i + 1, convention="syscall")
             mask = 0xFFFFFFFF
             if arg != constant & mask:
                 self.logger.error(
                     f"Hypercall test failed: arg{i + 1} = {arg:#x}, expected {constant:#x}")
                 success = False
 
-        self.panda.arch.set_retval(cpu, 13, convention="syscall")
+        plugins.cas.set_retval(cpu, 13, convention="syscall")
 
         if success:
             self.report_32b(success)
@@ -47,7 +47,7 @@ class HypercallTest(Plugin):
                      HYPERCALL_ARG3, HYPERCALL_ARG4]
         success = True
         for i, constant in enumerate(constants):
-            arg = self.panda.arch.get_arg(cpu, i + 1, convention="syscall")
+            arg = plugins.cas.get_arg(cpu, i + 1, convention="syscall")
             mask = 0xFFFFFFFFFFFFFFFF
             if self.panda.bits == 32:
                 mask = 0xFFFFFFFF
@@ -56,7 +56,7 @@ class HypercallTest(Plugin):
                     f"Hypercall test failed: arg{i + 1} = {arg:#x}, expected {constant:#x}")
                 success = False
 
-        self.panda.arch.set_retval(cpu, 13, convention="syscall")
+        plugins.cas.set_retval(cpu, 13, convention="syscall")
 
         if success:
             self.report(success)

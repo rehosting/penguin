@@ -299,7 +299,7 @@ class Nvram2(Plugin):
 
         status = "hit" if hit else "miss"
         self.log_write(f"{key},{status},\n")
-        self.panda.arch.set_arg(regs, 1, 0)
+        plugins.cas.set_arg(regs, 1, 0)
         # self.logger.debug(f"nvram get {key} {status}")
 
     @plugins.subscribe(plugins.Events, "igloo_nvram_set")
@@ -324,7 +324,7 @@ class Nvram2(Plugin):
             return
         key = key.split("/")[-1]  # It's the full /igloo/libnvram_tmpfs/keyname path
         self.log_write(f"{key},set,{newval}\n")
-        self.panda.arch.set_arg(regs, 1, 0)
+        plugins.cas.set_arg(regs, 1, 0)
         self.logger.debug(f"nvram set {key} {newval}")
 
     @plugins.subscribe(plugins.Events, "igloo_nvram_clear")
@@ -347,7 +347,7 @@ class Nvram2(Plugin):
             return
         key = key.split("/")[-1]  # It's the full /igloo/libnvram_tmpfs/keyname path
         self.log_write(f"{key},clear,\n")
-        self.panda.arch.set_arg(regs, 1, 0)
+        plugins.cas.set_arg(regs, 1, 0)
         # self.logger.debug(f"nvram clear {key}")
         # self.logger.debug(f"nvram clear {key}")
 
@@ -367,4 +367,4 @@ class Nvram2(Plugin):
         """
         rval = (1 if self.logging_enabled else 0)
         self.logger.debug(f"nvram logging enabled query, returning {rval}")
-        self.panda.arch.set_retval(regs, rval)
+        plugins.cas.set_retval(regs, rval)

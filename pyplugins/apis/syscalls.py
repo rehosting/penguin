@@ -379,7 +379,7 @@ class Syscalls(Plugin):
         -------
         None
         """
-        reg1 = self.panda.arch.get_arg(cpu, 1, convention="syscall")
+        reg1 = plugins.cas.get_arg(cpu, 1, convention="syscall")
 
         # Read the JSON string at reg1
         json_str = plugins.mem.read_str_panda(cpu, reg1)
@@ -695,7 +695,7 @@ class Syscalls(Plugin):
         Any
             The result of the callback.
         """
-        arg = self.panda.arch.get_arg(cpu, 1, convention="syscall")
+        arg = plugins.cas.get_arg(cpu, 1, convention="syscall")
 
         # 1. Get Event Object (No bytes serialization yet)
         sce = self._get_syscall_event(cpu, arg)
