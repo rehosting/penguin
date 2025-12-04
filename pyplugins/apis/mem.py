@@ -81,7 +81,7 @@ class Mem(Plugin):
         self.addr_mask = 0xFFFFFFFF if self.panda.bits == 32 else 0xFFFFFFFFFFFFFFFF
         
         # Cache get_cpu to avoid self.panda lookup
-        self._get_cpu = self.panda.get_cpu
+        self._get_cpu = plugins.cas.get_cpu
         self.ptr_size = self.panda.bits
         self._rsize = None
         # Bind pointer methods

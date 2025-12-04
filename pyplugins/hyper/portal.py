@@ -273,7 +273,7 @@ class Portal(Plugin):
             buf = struct.pack(f"{self.endian_format}Q", value)
             try:
                 plugins.mem.write_bytes_panda(
-                    self.panda.get_cpu(), self.portal_interrupt, buf)
+                    plugins.cas.get_cpu(), self.portal_interrupt, buf)
             except ValueError as e:
                 # Failures are fine, we get them on the next portal interrupt
                 # as long as we've queued an interrupt
@@ -470,13 +470,14 @@ class Portal(Plugin):
         """
         iterators = {}
         get_arg = plugins.cas.get_arg
-        get_cpu = self.panda.get_cpu
+        get_cpu = plugins.cas.get_cpu
         handle_input_state = self._handle_input_state
         write_portalcmd = self._write_portalcmd
         HYPER_RESP_READ_OK = hop.HYPER_RESP_READ_OK
         HYPER_RESP_READ_NUM = hop.HYPER_RESP_READ_NUM
         HYPER_RESP_READ_PARTIAL = hop.HYPER_RESP_READ_PARTIAL
         HYPER_OP_NONE = hop.HYPER_OP_NONE
+        breakpoint()
 
         @functools.wraps(f)
         def wrapper(*args, **kwargs):

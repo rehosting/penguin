@@ -273,7 +273,7 @@ class PtRegsWrapper(Wrapper):
             raise ValueError(
                 "Cannot read memory: no PANDA reference available")
 
-        cpu = self._panda.get_cpu()
+        cpu = plugins.cas.get_cpu()
         if not cpu:
             raise ValueError("Cannot read memory: failed to get CPU")
 
