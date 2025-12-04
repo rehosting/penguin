@@ -89,13 +89,13 @@ class PyPandaSysLog(Plugin):
 
         if procs:
             for proc in procs:
-                syscalls.syscall("on_all_sys_return", comm_filter=proc)(self.all_sys_ret)
+                syscalls.syscall("on_all_sys_return", comm_filter=proc, read_only=True)(self.all_sys_ret)
                 for sc in monitor_enter_syscalls:
-                    syscalls.syscall(f"on_sys_{sc}_enter", comm_filter=proc)(self.sys_record_enter)
+                    syscalls.syscall(f"on_sys_{sc}_enter", comm_filter=proc, read_only=True)(self.sys_record_enter)
         else:
-            syscalls.syscall("on_all_sys_return")(self.all_sys_ret)
+            syscalls.syscall("on_all_sys_return", read_only=True)(self.all_sys_ret)
             for sc in monitor_enter_syscalls:
-                syscalls.syscall(f"on_sys_{sc}_enter")(self.sys_record_enter)
+                syscalls.syscall(f"on_sys_{sc}_enter", read_only=True)(self.sys_record_enter)
 
     def _init_type_handlers(self):
         """Define specialized handlers to avoid string matching in hot path"""
