@@ -422,7 +422,8 @@ def run_config(
     with print_to_log(stdout_path, stderr_path):
         logger.debug(f"Preparing PANDA args: {args}")
         logger.debug(f"Architecture: {q_config['arch']} Mem: {conf['core']['mem']}")
-        panda = Panda(q_config["arch"], mem=conf["core"]["mem"], extra_args=args)
+        panda = Panda(q_config["arch"], mem=conf["core"]["mem"], extra_args=args, 
+                      load_plugin_interface=False)
 
         if "64" in archend:
             panda.set_os_name("linux-64-generic")
