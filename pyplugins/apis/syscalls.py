@@ -505,26 +505,25 @@ class Syscalls(Plugin):
             The syscall event object.
         """
         sce = plugins.kffi.read_type_panda(cpu, arg, "syscall_event")
-        
+
         # 1. Get field metadata
         field_def = sce._instance_type_def.fields["syscall_name"]
-        
+
         # 2. Calculate absolute start and end positions in the buffer
         start = sce._instance_offset + field_def.offset
-        
-        # We need the size of the array to slice correctly. 
+
+        # We need the size of the array to slice correctly.
         # The accessor helper can calculate this from the type info.
         size = sce._instance_vtype_accessor.get_type_size(field_def.type_info)
-        
+
         # 3. Slice the buffer directly (Fast)
         # We access the protected _instance_buffer directly for speed
-        name_bytes = sce._instance_buffer[start : start + size]
-        
+        name_bytes = sce._instance_buffer[start: start + size]
+
         # 4. Parse the C-string (Fast)
         # Split at the first null byte, take the left side, and decode
         sce.name = name_bytes.split(b'\x00', 1)[0].decode('utf-8', errors='replace')
-        
-        
+
         return sce
 
     def _get_proto(self, cpu: int, sce: Any, on_all: bool) -> SyscallPrototype:
@@ -554,7 +553,7 @@ class Syscalls(Plugin):
 
         # Get syscall name from the event
         name = sce.name
-        
+
         # OPTIMIZATION: Tier 2 Cache - Raw Name (Global Hooks)
         # Avoids repeated string cleaning and dict lookups for global hooks
         if name in self._raw_name_proto_cache:
@@ -702,27 +701,27 @@ class Syscalls(Plugin):
         hook_ptr = sce.hook.address
         if hook_ptr not in self._hooks:
             return
-            
+
         # 2. Unpack Hook Data including read_only flag
         on_all, f, is_method, read_only = self._hooks[hook_ptr]
-        
+
         # 3. Calculate 'original' bytes ONLY if we might write back (not read_only)
         original = None
         if not read_only:
             original = sce.to_bytes()
-            
+
         # 4. Get Prototype (Optimized with Caching)
         proto = self._get_proto(cpu, sce, on_all)
 
         pt_regs_raw = yield from plugins.kffi.read_type(sce.regs.address, "pt_regs")
         pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
-        
+
         if on_all or proto is None or sce.argc == 0:
             args = (pt_regs, proto, sce)
         else:
             sysargs = [sce.args[i] for i in range(sce.argc)]
             args = (pt_regs, proto, sce, *sysargs)
-            
+
         # Fast path: already bound or standard function
         if not is_method:
             result = f(*args)
@@ -733,16 +732,16 @@ class Syscalls(Plugin):
                 result = fn_to_call(*args)
             else:
                 return
-                
+
         if isinstance(result, Iterator):
             result = yield from result
-            
+
         # 5. Write Back (Skipped if read_only)
         if not read_only:
             new = sce.to_bytes()
             if original != new:
                 yield from plugins.mem.write_bytes(arg, new)
-                
+
         return result
 
     def _register_syscall_hook(

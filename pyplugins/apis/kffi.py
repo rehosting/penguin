@@ -96,7 +96,7 @@ class KFFI(Plugin):
         # Register with portal's interrupt handler system
         self.portal.register_interrupt_handler(
             "kffi", self._tramp_interrupt_handler)
-    
+
     def _get_type(self, type_name: str) -> Any:
         if type_name in self._type_cache:
             return self._type_cache[type_name]

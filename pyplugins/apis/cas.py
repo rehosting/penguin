@@ -66,6 +66,7 @@ Notes
 
 from penguin import Plugin
 
+
 class CPUArchState(Plugin):
     """
     Optimized Architecture Plugin.
@@ -76,14 +77,14 @@ class CPUArchState(Plugin):
     access. All methods from panda.arch are implemented here except for dump_stack
     and telescope-related methods, which are intentionally omitted for efficiency.
     """
-    
+
     def __init__(self, panda):
         self.panda = panda
         self.impl = self._select_implementation()
-        
+
         # 1. Reflection: Learn layout from the slow panda.arch
         self.impl.ingest_panda_arch(self.panda.arch)
-        
+
         # 2. Hoisting: Bind methods to self to avoid 'self.impl' dot-lookup in hot path
         self.get_reg = self.impl.get_reg
         self.set_reg = self.impl.set_reg
@@ -112,15 +113,15 @@ class CPUArchState(Plugin):
 
         if smp == 1:
             # --- OPTIMIZATION: Single Core ---
-            # In single-core mode, 'first_cpu' is the ONLY cpu. 
+            # In single-core mode, 'first_cpu' is the ONLY cpu.
             # We cache the Python object once to avoid all CFFI overhead.
             self._cached_single_cpu = None
-            
+
             def get_cpu_fast():
                 if self._cached_single_cpu is None:
                     self._cached_single_cpu = self.panda.libpanda.get_cpu()
                 return self._cached_single_cpu
-            
+
             self.get_cpu = get_cpu_fast
             self.logger.debug("CAS: Enabled Single-CPU fast-path optimization")
         else:
@@ -132,17 +133,26 @@ class CPUArchState(Plugin):
     def _select_implementation(self):
         name = self.panda.arch_name
         # Return specific implementation or base if none exists
-        if name == "i386":             return X86Impl(self.panda)
-        elif name == "x86_64":         return X86_64Impl(self.panda)
-        elif name == "arm":            return ArmImpl(self.panda)
-        elif name == "aarch64":        return Aarch64Impl(self.panda)
-        elif name.startswith("mips"):  return MipsImpl(self.panda)
-        elif name.startswith("ppc"):   return PowerPCImpl(self.panda)
-        elif name.startswith("riscv"): return RiscvImpl(self.panda)
-        elif name == "loongarch64":    return LoongarchImpl(self.panda)
+        if name == "i386":
+            return X86Impl(self.panda)
+        elif name == "x86_64":
+            return X86_64Impl(self.panda)
+        elif name == "arm":
+            return ArmImpl(self.panda)
+        elif name == "aarch64":
+            return Aarch64Impl(self.panda)
+        elif name.startswith("mips"):
+            return MipsImpl(self.panda)
+        elif name.startswith("ppc"):
+            return PowerPCImpl(self.panda)
+        elif name.startswith("riscv"):
+            return RiscvImpl(self.panda)
+        elif name == "loongarch64":
+            return LoongarchImpl(self.panda)
         else:
             self.logger.warning(f"Optimization not available for {name}, using generic fallback")
             return _BaseArchImpl(self.panda, 32, 'little')
+
 
 class _BaseArchImpl:
     """Base implementation with caching logic."""
@@ -151,18 +161,18 @@ class _BaseArchImpl:
         self.bits = bits
         self.byte_order = endianness
         self.reg_size = bits // 8
-        
+
         # CACHE: cpu_addr (int) -> CPUArchState (cdata)
-        self._env_cache = {} 
-        
+        self._env_cache = {}
+
         # CACHE: "REGNAME" -> int (index) OR lambda
-        self._reg_accessors = {} 
+        self._reg_accessors = {}
         self._reg_setters = {}
-        
+
         # CACHE: "convention" -> list of (int_index | tuple_stack_offset)
         self._arg_locators = {}
-        
-        self.sp_reg_idx = None 
+
+        self.sp_reg_idx = None
         self.retval_reg_idx = None
 
     def ingest_panda_arch(self, source_arch):
@@ -177,7 +187,7 @@ class _BaseArchImpl:
 
         # 2. Map Special Regs
         self.sp_reg_idx = source_arch.reg_sp
-        
+
         if source_arch.reg_retval:
             default_ret = source_arch.reg_retval.get('default')
             if default_ret:
@@ -195,7 +205,7 @@ class _BaseArchImpl:
                 if arg.startswith("stack_"):
                     # Pre-calculate stack offset bytes
                     stack_idx = int(arg.split("_")[1])
-                    offset = (stack_idx + 1) * self.reg_size 
+                    offset = (stack_idx + 1) * self.reg_size
                     locators.append(('stack', offset))
                 else:
                     reg = arg.upper()
@@ -209,13 +219,13 @@ class _BaseArchImpl:
 
     def _get_env(self, cpu):
         """
-        Fastest way to get env. 
+        Fastest way to get env.
         Casts pointer address to int and looks up in python dict.
         """
         cpu_addr = int(self.panda.ffi.cast("uintptr_t", cpu))
         if cpu_addr in self._env_cache:
             return self._env_cache[cpu_addr]
-        
+
         # Slow path (hit once per VCPU)
         env = self.panda.libpanda.panda_cpu_env(cpu)
         self._env_cache[cpu_addr] = env
@@ -225,11 +235,11 @@ class _BaseArchImpl:
         # FAST PATH: Integer Index
         if isinstance(reg, int):
             return self._get_reg_by_index(self._get_env(cpu), reg)
-        
+
         # STRING PATH: Dict Lookup
         reg_upper = reg.upper()
         accessor = self._reg_accessors.get(reg_upper)
-        
+
         if isinstance(accessor, int):
             return self._get_reg_by_index(self._get_env(cpu), accessor)
         elif callable(accessor):
@@ -244,7 +254,7 @@ class _BaseArchImpl:
 
         reg_upper = reg.upper()
         setter = self._reg_setters.get(reg_upper)
-        
+
         if isinstance(setter, int):
             self._set_reg_by_index(self._get_env(cpu), setter, val)
         elif callable(setter):
@@ -261,7 +271,7 @@ class _BaseArchImpl:
         except (KeyError, IndexError):
             # Fallback to default if convention specific lookup failed
             if convention != 'default' and 'default' in self._arg_locators:
-                 return self.get_arg(cpu, idx, 'default')
+                return self.get_arg(cpu, idx, 'default')
             raise ValueError(f"Arg {idx} not found for {convention}")
 
         if isinstance(loc, int):
@@ -271,14 +281,14 @@ class _BaseArchImpl:
             # Pre-calculated stack offset read
             offset = loc[1]
             env = self._get_env(cpu)
-            
+
             # Get SP (Optimized)
             if isinstance(self.sp_reg_idx, int):
                 sp_val = self._get_reg_by_index(env, self.sp_reg_idx)
             else:
                 # SP is complex (e.g. AArch64 property), use slow path
                 sp_val = self.get_reg(cpu, "SP")
-                
+
             return self.panda.virtual_memory_read(cpu, sp_val + offset, self.reg_size, fmt='int')
         else:
             # Complex register name fallback
@@ -290,9 +300,9 @@ class _BaseArchImpl:
         try:
             loc = self._arg_locators[convention][idx]
         except (KeyError, IndexError):
-             if convention != 'default' and 'default' in self._arg_locators:
-                 return self.set_arg(cpu, idx, val, 'default')
-             raise
+            if convention != 'default' and 'default' in self._arg_locators:
+                return self.set_arg(cpu, idx, val, 'default')
+            raise
 
         if isinstance(loc, int):
             self._set_reg_by_index(self._get_env(cpu), loc, val)
@@ -318,7 +328,7 @@ class _BaseArchImpl:
     def set_retval(self, cpu, val, convention='default', failure=False):
         """
         Sets the return value register.
-        Supports the 'failure' flag for architectures that use a secondary register 
+        Supports the 'failure' flag for architectures that use a secondary register
         (like MIPS A3) to indicate success/failure.
         """
         # Optimized path if we resolved the register index
@@ -346,7 +356,7 @@ class ArmImpl(_BaseArchImpl):
     def __init__(self, panda):
         super().__init__(panda, 32, 'little')
         # registers are populated by ingest_panda_arch
-        
+
     def _get_reg_by_index(self, env, idx):
         return env.regs[idx]
 
@@ -359,12 +369,13 @@ class ArmImpl(_BaseArchImpl):
     def set_pc(self, cpu, val):
         self._get_env(cpu).regs[15] = val
 
+
 class Aarch64Impl(_BaseArchImpl):
     def __init__(self, panda):
         super().__init__(panda, 64, 'little')
-        # SP in AArch64 often requires specific property access in PyPANDA/QEMU 
+        # SP in AArch64 often requires specific property access in PyPANDA/QEMU
         # overriding the index-based lookups
-        self._reg_accessors["SP"] = lambda env: env.sp 
+        self._reg_accessors["SP"] = lambda env: env.sp
         self._reg_setters["SP"] = lambda env, val: setattr(env, 'sp', val)
 
     def _get_reg_by_index(self, env, idx):
@@ -379,10 +390,11 @@ class Aarch64Impl(_BaseArchImpl):
     def set_pc(self, cpu, val):
         self._get_env(cpu).pc = val
 
+
 class X86_64Impl(_BaseArchImpl):
     def __init__(self, panda):
         super().__init__(panda, 64, 'little')
-        
+
     def ingest_panda_arch(self, source_arch):
         super().ingest_panda_arch(source_arch)
         # Add 32-bit alias optimizations (EAX masking on RAX)
@@ -405,15 +417,16 @@ class X86_64Impl(_BaseArchImpl):
 
     def set_pc(self, cpu, val):
         self._get_env(cpu).eip = val
-        
+
     def get_retval(self, cpu, convention='default'):
         # FreeBSD ABI Check
         env = self._get_env(cpu)
-        val = env.regs[0] # RAX
+        val = env.regs[0]  # RAX
         if convention == 'syscall' and self.panda.get_os_family() == 'OS_FREEBSD':
-             if self.panda.libpanda.cpu_cc_compute_all(env, 1) & 1:
-                 return -val
+            if self.panda.libpanda.cpu_cc_compute_all(env, 1) & 1:
+                return -val
         return val
+
 
 class X86Impl(_BaseArchImpl):
     def __init__(self, panda):
@@ -431,11 +444,12 @@ class X86Impl(_BaseArchImpl):
     def set_pc(self, cpu, val):
         self._get_env(cpu).eip = val
 
+
 class MipsImpl(_BaseArchImpl):
     def __init__(self, panda, is_64=False):
-        super().__init__(panda, 64 if is_64 else 32, 
+        super().__init__(panda, 64 if is_64 else 32,
                          'big' if 'el' not in panda.arch_name else 'little')
-        self.a3_idx = 7 # Common index for A3
+        self.a3_idx = 7  # Common index for A3
 
     def ingest_panda_arch(self, source_arch):
         super().ingest_panda_arch(source_arch)
@@ -454,12 +468,12 @@ class MipsImpl(_BaseArchImpl):
 
     def set_pc(self, cpu, val):
         self._get_env(cpu).active_tc.PC = val
-        
+
     def get_retval(self, cpu, convention='default'):
         # MIPS Syscall error logic
         env = self._get_env(cpu)
         # V0 is usually index 2
-        val = env.active_tc.gpr[2] 
+        val = env.active_tc.gpr[2]
         if convention == 'syscall':
             # Check A3
             if env.active_tc.gpr[self.a3_idx] == 1:
@@ -471,12 +485,12 @@ class MipsImpl(_BaseArchImpl):
         MIPS override: Handles the A3 error register for syscalls.
         """
         env = self._get_env(cpu)
-        
+
         if convention == 'syscall':
             # Set A3 (error flag) based on failure
             env.active_tc.gpr[self.a3_idx] = 1 if failure else 0
-            
-            # If failing, ensure the return value is positive (errno), 
+
+            # If failing, ensure the return value is positive (errno),
             # as the kernel returns -ERRNO but sets A3=1 and V0=ERRNO
             if failure and val < 0:
                 val = -val
@@ -484,6 +498,7 @@ class MipsImpl(_BaseArchImpl):
         # Set V0 (Return Value)
         # We use index 2 directly as V0 is standard on MIPS32/64
         env.active_tc.gpr[2] = val
+
 
 class PowerPCImpl(_BaseArchImpl):
     def __init__(self, panda, is_64=False):
@@ -506,6 +521,7 @@ class PowerPCImpl(_BaseArchImpl):
     def set_pc(self, cpu, val):
         self._get_env(cpu).nip = val
 
+
 class RiscvImpl(_BaseArchImpl):
     def __init__(self, panda, is_64=True):
         super().__init__(panda, 64 if is_64 else 32, 'little')
@@ -521,6 +537,7 @@ class RiscvImpl(_BaseArchImpl):
 
     def set_pc(self, cpu, val):
         self._get_env(cpu).pc = val
+
 
 class LoongarchImpl(_BaseArchImpl):
     def __init__(self, panda):

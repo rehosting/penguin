@@ -76,10 +76,10 @@ class Mem(Plugin):
         self.libpanda = self.panda.libpanda
         self._read_external = self.libpanda.panda_virtual_memory_read_external
         self._write_external = self.libpanda.panda_virtual_memory_write_external
-        
+
         # Pre-calculate constants
         self.addr_mask = 0xFFFFFFFF if self.panda.bits == 32 else 0xFFFFFFFFFFFFFFFF
-        
+
         # Cache get_cpu to avoid self.panda lookup
         self._get_cpu = plugins.cas.get_cpu
         self.ptr_size = self.panda.bits
@@ -99,15 +99,15 @@ class Mem(Plugin):
         """
         if self._rsize:
             return self._rsize
-        
+
         # Try to fetch from portal
         # getattr is safe if regions_size hasn't been set on Portal yet
         rsize = getattr(plugins.portal, 'regions_size', None)
-        
+
         if rsize:
             self._rsize = rsize
             return rsize
-        
+
         # Fallback default if portal isn't ready (prevents div/0 errors)
         return 4096
 
@@ -135,14 +135,15 @@ class Mem(Plugin):
         # Use memoryview to avoid copying bytes on slice
         view = memoryview(data)
         total_len = len(view)
-        
+
         rsize = self._get_rsize()
         cpu = None
-        
+
         # Handle single chunk (Fast Path)
         if total_len <= rsize:
             if self.try_panda:
-                if cpu is None: cpu = self._get_cpu()
+                if cpu is None:
+                    cpu = self._get_cpu()
                 try:
                     addr_u = addr & self.addr_mask
                     self.write_bytes_panda(cpu, addr_u, data)
@@ -154,18 +155,19 @@ class Mem(Plugin):
 
         # Multi-chunk write
         num_chunks = (total_len + rsize - 1) // rsize
-        
+
         for i in range(num_chunks):
             offset = i * rsize
             chunk_addr = addr + offset
-            
+
             # Slicing memoryview is zero-copy
             chunk_view = view[offset:offset + rsize]
             chunk_len = len(chunk_view)
-            
+
             success = False
             if self.try_panda:
-                if cpu is None: cpu = self._get_cpu()
+                if cpu is None:
+                    cpu = self._get_cpu()
                 try:
                     addr_u = chunk_addr & self.addr_mask
                     # ffi.new accepts memoryview/buffer protocol
@@ -173,7 +175,7 @@ class Mem(Plugin):
                     success = True
                 except ValueError:
                     pass
-            
+
             if not success:
                 # Convert view back to bytes for the portal command if needed
                 yield PortalCmd(hop.HYPER_OP_WRITE, chunk_addr, chunk_len, pid, chunk_view.tobytes())
@@ -191,16 +193,16 @@ class Mem(Plugin):
         err = self._write_external(cpu, addr, buf_a, length_a)
 
         if err < 0:
-            raise ValueError(f"Memory write failed with err={err}") # TODO: make a PANDA Exn class
+            raise ValueError(f"Memory write failed with err={err}")  # TODO: make a PANDA Exn class
 
     def read_bytes(self, addr: int, size: int,
                    pid: Optional[int] = None) -> Generator[Any, Any, bytes]:
         """
-        Reads bytes from guest memory. 
+        Reads bytes from guest memory.
         Optimized with a Fast Path for single-chunk reads.
         """
         rsize = self._get_rsize()
-        
+
         # --- FAST PATH: Single Chunk (Common Case) ---
         if size <= rsize:
             if self.try_panda:
@@ -211,7 +213,7 @@ class Mem(Plugin):
                     return self.read_bytes_panda(cpu, addr, size)
                 except ValueError:
                     pass
-            
+
             # Fallback to Portal
             chunk = yield PortalCmd(hop.HYPER_OP_READ, addr, size, pid)
             if not chunk:
@@ -223,7 +225,7 @@ class Mem(Plugin):
         # --- SLOW PATH: Multi-Chunk (Large Reads) ---
         read_chunks = []
         cpu = None
-        
+
         # Calculate number of chunks needed
         # (size + rsize - 1) // rsize is equivalent to ceil(size / rsize)
         num_chunks = (size + rsize - 1) // rsize
@@ -238,7 +240,8 @@ class Mem(Plugin):
 
             chunk = None
             if self.try_panda:
-                if cpu is None: cpu = self._get_cpu()
+                if cpu is None:
+                    cpu = self._get_cpu()
                 try:
                     chunk = self.read_bytes_panda(cpu, chunk_addr, chunk_size)
                 except ValueError:
@@ -254,7 +257,7 @@ class Mem(Plugin):
             read_chunks.append(chunk)
         # Optimization: Use b''.join only once at the end
         return b"".join(read_chunks)
-    
+
     def read_bytes_panda(self, cpu, addr: int, size: int) -> bytes:
         """
         Optimized PANDA read.
@@ -274,7 +277,6 @@ class Mem(Plugin):
 
         return self.ffi.unpack(buf, size)
 
-    
     def read_str(self, addr: int,
                  pid: Optional[int] = None) -> Generator[Any, Any, str]:
         """
@@ -298,14 +300,14 @@ class Mem(Plugin):
         """
         if addr != 0:
             self.logger.debug(f"read_str called: addr={addr:#x}")
-            
+
             result = bytearray()
-            
+
             PAGE_SIZE = 0x1000
             # Portal has a max payload size of PAGE_SIZE - 48 (header overhead).
             # We align our chunks to this to ensure safe fallbacks.
             PORTAL_CHUNK_SIZE = PAGE_SIZE - 48
-            
+
             # Safety limit: almost a page
             SAFE_MAX = 4096 - 24
             total_read = 0
@@ -316,22 +318,22 @@ class Mem(Plugin):
                 # 1. Calculate space left in current page
                 page_offset = curr_addr & (PAGE_SIZE - 1)
                 bytes_left_in_page = PAGE_SIZE - page_offset
-                
+
                 # 2. Determine read size
                 # Cap at:
                 # a) Remaining page space (don't cross page boundary)
                 # b) Portal max chunk size (don't overflow portal buffer)
                 # c) Remaining safety limit
                 to_read = min(bytes_left_in_page, PORTAL_CHUNK_SIZE, SAFE_MAX - total_read)
-                
+
                 chunk = None
-                
+
                 # 3. Attempt PANDA direct read first
                 if self.try_panda:
                     try:
                         chunk = self.read_bytes_panda(cpu, curr_addr, to_read)
                     except ValueError:
-                        # Memory is not mapped in QEMU/PANDA. 
+                        # Memory is not mapped in QEMU/PANDA.
                         # Fallthrough to PortalCmd below.
                         self.logger.debug(f"PANDA read failed at {curr_addr:#x}, falling back to portal")
                         chunk = None
@@ -341,14 +343,14 @@ class Mem(Plugin):
                     # We pass `to_read` to ensure we don't request across a page boundary
                     # even via the portal, although the portal handles its own safety.
                     chunk = yield PortalCmd(hop.HYPER_OP_READ_STR, curr_addr, to_read, pid)
-                
+
                 if not chunk:
                     # If both methods failed or returned empty, we stop.
                     break
 
                 # 5. Scan for NULL terminator
                 null_idx = chunk.find(b'\x00')
-                
+
                 if null_idx != -1:
                     # Found terminator: append valid part and stop
                     result.extend(chunk[:null_idx])
@@ -358,9 +360,9 @@ class Mem(Plugin):
                     result.extend(chunk)
                     total_read += len(chunk)
                     curr_addr += len(chunk)
-            
+
             return result.decode('latin-1', errors='replace')
-            
+
         return ""
 
     def read_str_panda(self, cpu, addr: int) -> str:
@@ -490,6 +492,7 @@ class Mem(Plugin):
         """
         # this function is bound in __init__
         pass
+
     def write_int(self, addr: int, value: int,
                   pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """

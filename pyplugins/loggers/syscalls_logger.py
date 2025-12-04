@@ -50,6 +50,7 @@ ERRNO_REGEX = re.compile(
 
 syscalls = plugins.syscalls
 
+
 class PyPandaSysLog(Plugin):
     """
     Plugin for logging system call events to the database.
@@ -81,7 +82,7 @@ class PyPandaSysLog(Plugin):
         self.osi_get_fd = plugins.osi.get_fd_name
 
         self._init_error_codes(panda)
-        self._init_type_handlers() # Pre-compile type logic
+        self._init_type_handlers()  # Pre-compile type logic
 
         # Hook registration (Same as original)
         procs = self.get_arg("procs")
@@ -99,7 +100,7 @@ class PyPandaSysLog(Plugin):
 
     def _init_type_handlers(self):
         """Define specialized handlers to avoid string matching in hot path"""
-        
+
         # Helper to mark handlers: (function, is_generator)
         def handle_fd(argval):
             fd_name = yield from self.osi_get_fd(argval)
@@ -109,18 +110,21 @@ class PyPandaSysLog(Plugin):
             return f"{argval:#x}"
 
         def handle_str(argval):
-            if argval == 0: return "[NULL]"
+            if argval == 0:
+                return "[NULL]"
             val = yield from self.mem_read_str(argval)
             return f'{argval:#x}("{val}")'
 
         def handle_str_array(argval):
-            if argval == 0: return "[NULL]"
+            if argval == 0:
+                return "[NULL]"
             str_list = yield from self.mem_read_ptr_list(argval, 20)
             repr_str = ', '.join(repr(s) for s in str_list)
             return f"{argval:#x}([{repr_str}])"
 
         def handle_ptr(argval, type_name="ptr"):
-            if argval == 0: return "[NULL]"
+            if argval == 0:
+                return "[NULL]"
             return f"{argval:#x}({type_name})"
 
         # Map handlers to a tuple: (func, is_generator_flag)
@@ -134,11 +138,11 @@ class PyPandaSysLog(Plugin):
 
         self.STRING_TYPES = frozenset({'const char *', 'char *'})
         self.PTR_TYPES = frozenset({
-            'int *', 'unsigned int *', 'unsigned long *', 'uid_t *', 'gid_t *', 
-            'old_uid_t *', 'old_gid_t *', 'size_t *', 'off_t *', 'loff_t *', 
+            'int *', 'unsigned int *', 'unsigned long *', 'uid_t *', 'gid_t *',
+            'old_uid_t *', 'old_gid_t *', 'size_t *', 'off_t *', 'loff_t *',
             'u32 *', 'u64 *', 'timer_t *', 'aio_context_t *', 'unsigned *'
         })
-        
+
         # Pre-allocate the row template to avoid repeated dict growth/filling
         self.row_template = {
             "name": "", "procname": "?", "retno": 0, "retno_repr": "0",
@@ -154,22 +158,22 @@ class PyPandaSysLog(Plugin):
         if name == "fd":
             func, is_gen = self.handlers['fd']
             return func, is_gen, None
-        
+
         if ctype in self.STRING_TYPES:
             func, is_gen = self.handlers['str']
             return func, is_gen, None
-        
+
         if ctype == 'const char *const *':
             func, is_gen = self.handlers['str_array']
             return func, is_gen, None
-            
+
         if '*' in ctype:
             display_type = "ptr"
             if 'struct' in ctype or 'union' in ctype:
                 display_type = ctype.replace('const ', '').replace(' *', '')
             elif ctype in self.PTR_TYPES:
                 display_type = "ptr"
-            
+
             func, is_gen = self.handlers['ptr']
             return func, is_gen, display_type
 
@@ -181,14 +185,14 @@ class PyPandaSysLog(Plugin):
         Parses errno headers. Moved from global scope to init to speed up import time.
         """
         errno_resources = join(plugins.resources, "errno")
-        
+
         # Helper to read file content
         def read_file(name):
             with open(join(errno_resources, name)) as f:
                 return f.read()
 
         errno_base = read_file("errno-base.h")
-        
+
         def parse_errors(content):
             mapping_name = {}
             mapping_expl = {}
@@ -204,11 +208,12 @@ class PyPandaSysLog(Plugin):
             content = errno_base + "\n" + read_file("mips.h")
         else:
             content = errno_base + "\n" + read_file("generic.h")
-            
+
         self.errcode_to_errname, self.errcode_to_explanation = parse_errors(content)
 
     def cstr(self, x) -> str:
-        if isinstance(x, str): return x
+        if isinstance(x, str):
+            return x
         return "" if x == self.ffi.NULL else self.ffi.string(x).decode()
 
     @functools.lru_cache(maxsize=256)
@@ -218,14 +223,14 @@ class PyPandaSysLog(Plugin):
         """
         processors = []
         protoname = self.cstr(proto.name)
-        
+
         for i in range(proto.nargs):
             ctype = self.cstr(proto.types[i])
             argname = self.cstr(proto.names[i])
             # Unpack the 3-item tuple from _resolve_handler
             handler, is_gen, extra = self._resolve_handler(ctype, argname)
             processors.append((argname, handler, is_gen, extra))
-            
+
         return protoname, processors
 
     def sys_record_enter(self, regs, proto, syscall, *args) -> None:
@@ -266,10 +271,10 @@ class PyPandaSysLog(Plugin):
         err_name_map = self.errcode_to_errname
         err_expl_map = self.errcode_to_explanation
         syscall_args = syscall.args
-        
+
         # 1. Get cached processors
         protoname, processors = self.get_syscall_processors(proto)
-        
+
         # 2. Fast Template Copy (Faster than creating new dict + filling blanks)
         row_data = self.row_template.copy()
         row_data["name"] = protoname
@@ -278,9 +283,9 @@ class PyPandaSysLog(Plugin):
         for i, (name, handler, is_gen, extra) in enumerate(processors):
             # Casting overhead: assuming target_ulong fits in standard int logic
             raw_val = int(cast("target_ulong", syscall_args[i]))
-            
+
             row_data[f"arg{i}"] = raw_val
-            
+
             # Use pre-calculated flags to avoid isinstance() checks
             if extra:
                 val_str = handler(raw_val, extra)
@@ -288,13 +293,13 @@ class PyPandaSysLog(Plugin):
                 val_str = yield from handler(raw_val)
             else:
                 val_str = handler(raw_val)
-            
+
             row_data[f"arg{i}_repr"] = f"{name}={val_str}"
 
         # 4. Handle Return Value
         retval = int(cast("target_long", syscall.retval))
         row_data["retno"] = retval
-        
+
         # Error code lookup (Check negative retval)
         errnum = -retval
         if errnum in err_name_map:
