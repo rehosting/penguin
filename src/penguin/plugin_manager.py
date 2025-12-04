@@ -44,13 +44,14 @@ import re
 import importlib
 import inspect
 import datetime
+import functools
 
 # Forward reference for type annotations
 T = TypeVar('T', bound='Plugin')
 PluginManagerType = TypeVar('PluginManagerType', bound='IGLOOPluginManager')
 
 
-def resolve_bound_method_from_class(f: Callable) -> Callable:
+def resolve_bound_method_from_class(f: Callable, manager: Any = None) -> Callable:
     """
     Resolve a method from a class given a function reference.
 
@@ -60,17 +61,21 @@ def resolve_bound_method_from_class(f: Callable) -> Callable:
     :return: The resolved method or the original function if not found.
     :rtype: Callable
     """
-    if hasattr(f, '__qualname__') and '.' in f.__qualname__:
+    if hasattr(f, '__qualname__') and '.' in f.__qualname__ and not hasattr(f, '__self__'):
         class_name = f.__qualname__.split('.')[0]
         method_name = f.__qualname__.split('.')[-1]
-        instance = getattr(plugins, class_name)
-        if instance:
-            if hasattr(instance, method_name):
-                return getattr(instance, method_name)
+        
+        # Use provided manager or fall back to global singleton
+        mgr = manager if manager is not None else plugins
+        
+        # Use getattr with default to avoid crashing if plugin isn't loaded yet
+        instance = getattr(mgr, class_name, None)
+        if instance and hasattr(instance, method_name):
+            return getattr(instance, method_name)
     return f
 
-
 class ArgsBox:
+    __slots__ = ('args',)
     def __init__(self, args: Dict[str, Any]) -> None:
         """
         Initialize ArgsBox with a dictionary of arguments.
@@ -268,6 +273,11 @@ def interpret_bool(val: Any) -> bool:
         return val != 0
 
 
+# 2. Pre-compile Regexes
+RE_SNAKE_1 = re.compile(r'(.)([A-Z][a-z]+)')
+RE_SNAKE_2 = re.compile(r'([a-z0-9])([A-Z])')
+
+@functools.lru_cache(maxsize=128)
 def camel_to_snake(name: str) -> str:
     """
     Convert CamelCase to snake_case.
@@ -278,8 +288,8 @@ def camel_to_snake(name: str) -> str:
     :return: The converted snake_case string
     :rtype: str
     """
-    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
-    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+    s1 = RE_SNAKE_1.sub(r'\1_\2', name)
+    return RE_SNAKE_2.sub(r'\1_\2', s1).lower()
 
 
 def snake_to_camel(name: str) -> str:
@@ -465,6 +475,11 @@ class IGLOOPluginManager:
             self.plugins[name].load_time = datetime.datetime.now()
             # Update fast lookup map
             self._plugin_name_map[name.lower()] = self.plugins[name]
+            # 5. Pre-cache attributes during load
+            if not hasattr(self, name):
+                setattr(self, name, self.plugins[name])
+            if not hasattr(self, name.lower()):
+                setattr(self, name.lower(), self.plugins[name])
 
     def load_plugin(self, plugin_name: str) -> None:
         """
@@ -586,9 +601,18 @@ class IGLOOPluginManager:
         :rtype: Plugin
         """
         # First try by plugin name (existing behavior)
-        plugin_by_name = self.get_plugin_by_name(plugin)
-        if plugin_by_name:
-            return plugin_by_name
+        p = self.get_plugin_by_name(plugin)
+        if p:
+            setattr(self, plugin, p)
+            return p
+        try:
+            self.load_plugin(plugin)
+            p = self.get_plugin_by_name(plugin)
+            if p:
+                setattr(self, plugin, p)
+                return p
+        except ValueError:
+            pass
 
         # Then try by class name - search through all plugins
         for plugin_name, plugin_instance in self.plugins.items():
@@ -784,20 +808,8 @@ class IGLOOPluginManager:
         for cb in self.plugin_cbs[plugin][event]:
             # Handle unbound method: cb is a function, but its __qualname__
             # contains a dot
-            if hasattr(cb, '__qualname__') and '.' in cb.__qualname__ and not hasattr(
-                    cb, '__self__'):
-                class_name = cb.__qualname__.split('.')[0]
-                method_name = cb.__qualname__.split('.')[-1]
-                try:
-                    instance = getattr(self, class_name)
-                    if instance and hasattr(instance, method_name):
-                        bound_method = getattr(instance, method_name)
-                        bound_method(*args, **kwargs)
-                        continue
-                except AttributeError:
-                    # Could not find instance or method, fall through to normal
-                    # call
-                    pass
+            if not hasattr(cb, '__self__') and hasattr(cb, '__qualname__') and '.' in cb.__qualname__:
+                 cb = resolve_bound_method_from_class(cb, manager=self)
             cb(*args, **kwargs)
 
     def portal_publish(self, plugin: Plugin, event: str, *args: Any, **kwargs: Any) -> Iterator:
@@ -819,24 +831,8 @@ class IGLOOPluginManager:
                 f"Attempt to publish to unregistered event: {event} for plugin {plugin}")
 
         for cb in self.plugin_cbs[plugin][event]:
-            # Handle unbound method: cb is a function, but its __qualname__
-            # contains a dot
-            if hasattr(cb, '__qualname__') and '.' in cb.__qualname__ and not hasattr(
-                    cb, '__self__'):
-                class_name = cb.__qualname__.split('.')[0]
-                method_name = cb.__qualname__.split('.')[-1]
-                try:
-                    instance = getattr(self, class_name)
-                    if instance and hasattr(instance, method_name):
-                        bound_method = getattr(instance, method_name)
-                        result = bound_method(*args, **kwargs)
-                        if isinstance(result, Iterator):
-                            yield from result
-                        continue
-                except AttributeError:
-                    # Could not find instance or method, fall through to normal
-                    # call
-                    pass
+            if not hasattr(cb, '__self__') and hasattr(cb, '__qualname__') and '.' in cb.__qualname__:
+                 cb = resolve_bound_method_from_class(cb, manager=self)
             result = cb(*args, **kwargs)
             if isinstance(result, Iterator):
                 yield from result
