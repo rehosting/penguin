@@ -93,6 +93,48 @@ class CPUArchState(Plugin):
         self.set_pc = self.impl.set_pc
         self.get_retval = self.impl.get_retval
         self.set_retval = self.impl.set_retval
+        # 3. Optimized get_cpu strategy
+        self._init_get_cpu_strategy()
+
+    def _init_get_cpu_strategy(self):
+        """
+        Determines the fastest safe way to retrieve the current CPU object.
+        """
+        smp = 1
+        try:
+            # Safely navigate config to find SMP count
+            conf = self.get_arg("conf")
+            if conf and "core" in conf:
+                smp = int(conf["core"].get("smp", 1))
+        except Exception:
+            # If config lookup fails, assume safe default (1) or fallback to dynamic
+            pass
+
+        if smp == 1:
+            # --- OPTIMIZATION: Single Core ---
+            # In single-core mode, 'first_cpu' is the ONLY cpu. 
+            # We cache the Python object once to avoid all CFFI overhead.
+            self._cached_single_cpu = None
+            
+            def get_cpu_fast():
+                # Lazy load: The CPU might not be initialized when plugin loads.
+                if self._cached_single_cpu is None:
+                    # Try first_cpu (Global linked list head)
+                    cpu = self.panda.libpanda.first_cpu
+                    if cpu:
+                        self._cached_single_cpu = cpu
+                    else:
+                        # Fallback to get_cpu (TLS) if list isn't ready
+                        return self.panda.libpanda.get_cpu()
+                return self._cached_single_cpu
+            
+            self.get_cpu = get_cpu_fast
+            self.logger.debug("CAS: Enabled Single-CPU fast-path optimization")
+        else:
+            # --- SMP Mode ---
+            # We must call C to check TLS (Thread Local Storage) every time.
+            self.get_cpu = self.impl.get_cpu
+            self.logger.debug(f"CAS: SMP={smp}, using dynamic CPU lookup")
 
     def _select_implementation(self):
         name = self.panda.arch_name
