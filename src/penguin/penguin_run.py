@@ -294,7 +294,7 @@ def run_config(
         *drive_args,
     ]
     if q_config["arch"] == "loongarch64":
-        args += ["-bios", "/igloo_static/loongarch64/QEMU_EFI.fd"]
+        args += ["-bios", "/usr/local/share/panda/edk2-loongarch64-code.fd"]
 
     args += ["-no-reboot"]
 
