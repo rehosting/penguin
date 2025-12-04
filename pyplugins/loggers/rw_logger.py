@@ -75,13 +75,13 @@ class RWLog(Plugin):
             procname = args[0]
         else:
             procname = "[???]"
-        self.DB.add_event(
-            Write(
-                procname=procname,
-                fd=signed_fd,
-                fname=fname,
-                buffer=data,
-            )
+        self.DB.add_event(Write,
+            {
+                "procname": procname,
+                "fd": signed_fd,
+                "fname": fname,
+                "buffer": data,
+            }
         )
 
     @plugins.syscalls.syscall("on_sys_read_return")
@@ -116,11 +116,11 @@ class RWLog(Plugin):
             procname = args[0]
         else:
             procname = "[???]"
-        self.DB.add_event(
-            Read(
-                procname=procname,
-                fd=signed_fd,
-                fname=fname,
-                buffer=data,
-            )
+        self.DB.add_event(Read,
+            {
+                "procname": procname,
+                "fd": signed_fd,
+                "fname": fname,
+                "buffer": data,
+            }
         )
