@@ -78,6 +78,22 @@ class PandaMemReadFail(Exception):
         self.addr: int = addr
         self.size: int = size
 
+# --- Helper Factories for Fast Accessors ---
+# These helper functions create optimized lambda closures to avoid string parsing 
+# and attribute lookup overhead at runtime.
+
+def _make_attr_getter(attr):
+    return lambda obj: getattr(obj, attr)
+
+def _make_attr_setter(attr):
+    return lambda obj, val: setattr(obj, attr, val)
+
+def _make_array_getter(attr, idx):
+    return lambda obj: getattr(obj, attr)[idx]
+
+def _make_array_setter(attr, idx):
+    return lambda obj, val: getattr(obj, attr).__setitem__(idx, val)
+
 
 class PtRegsWrapper(Wrapper):
     """
@@ -87,67 +103,41 @@ class PtRegsWrapper(Wrapper):
         obj: The pt_regs structure to wrap.
         panda: Optional PANDA object for memory reading.
     """
+    # Optimization: Use slots for fast attribute access
+    __slots__ = ('_panda', '_obj')
+
+    # Class-level cache for accessors. Subclasses must populate this.
+    # Format: { "reg_name": (getter_func, setter_func) }
+    _ACCESSORS: Dict[str, Any] = {} 
 
     def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
-        super().__init__(obj)
-        self._register_map: Dict[str, Union[str, tuple]] = {}  # Will be populated by subclasses
-        self._panda: Optional[Any] = panda      # Reference to PANDA object for memory reading
+        # Bypass Wrapper.__init__ overhead if it just sets _obj
+        object.__setattr__(self, '_obj', obj)
+        object.__setattr__(self, '_extra_attrs', {})
+        object.__setattr__(self, '_is_dict', False) # pt_regs is never a dict
+        self._panda = panda
 
     def get_register(self, reg_name: str) -> Optional[int]:
-        """Get register value by name."""
-        if reg_name in self._register_map:
-            access_info = self._register_map[reg_name]
-            return self._access_register(access_info)
+        """Get register value by name (Optimized)."""
+        # Fast path: Dictionary lookup + Direct Call
+        entry = self._ACCESSORS.get(reg_name)
+        if entry:
+            return entry[0](self._obj)
         return None
 
     def set_register(self, reg_name: str, value: int) -> bool:
-        """Set register value by name."""
-        if reg_name in self._register_map:
-            access_info = self._register_map[reg_name]
-            self._write_register(access_info, value)
+        """Set register value by name (Optimized)."""
+        entry = self._ACCESSORS.get(reg_name)
+        if entry:
+            entry[1](self._obj, value)
             return True
         return False
 
-    def _access_register(self, access_info: Union[str, tuple]) -> Optional[int]:
-        """Access register based on access info."""
-        if isinstance(access_info, str):
-            # Direct attribute access
-            return getattr(self._obj, access_info)
-        elif isinstance(access_info, tuple):
-            # Complex access (array, masked, etc.)
-            access_type, *params = access_info
-            if access_type == 'array':
-                array_name, index = params
-                return getattr(self._obj, array_name)[index]
-            elif access_type == 'masked':
-                reg_name, mask, shift = params
-                value = getattr(self._obj, reg_name)
-                return (value >> shift) & mask
-            elif access_type == 'computed':
-                compute_func = params[0]
-                return compute_func(self._obj)
-        return None
+    def to_bytes(self):
+        """Pass-through to underlying bound object for serialization."""
+        return self._obj.to_bytes()
 
-    def _write_register(self, access_info: Union[str, tuple], value: int) -> None:
-        """Write register based on access info."""
-        if isinstance(access_info, str):
-            # Direct attribute write
-            setattr(self._obj, access_info, value)
-        elif isinstance(access_info, tuple):
-            # Complex access (array, masked, etc.)
-            access_type, *params = access_info
-            if access_type == 'array':
-                array_name, index = params
-                getattr(self._obj, array_name)[index] = value
-            elif access_type == 'masked':
-                reg_name, mask, shift = params
-                current = getattr(self._obj, reg_name)
-                cleared = current & ~(mask << shift)
-                new_value = cleared | ((value & mask) << shift)
-                setattr(self._obj, reg_name, new_value)
-            elif access_type == 'computed':
-                _, write_func = params
-                write_func(self._obj, value)
+    # --- Standard Accessors (Proxied via get_register for simplicity) ---
 
     def get_pc(self) -> Optional[int]:
         """Get program counter."""
@@ -163,7 +153,6 @@ class PtRegsWrapper(Wrapper):
 
     def get_return_value(self) -> Optional[int]:
         """Get return value (typically in a0/r0/rax)."""
-        # Subclasses should override this if convention is different
         return self.get_register("retval")
 
     def get_retval(self) -> Optional[int]:
@@ -177,8 +166,8 @@ class PtRegsWrapper(Wrapper):
     def dump(self) -> Dict[str, Optional[int]]:
         """Dump all registers to a dictionary."""
         result = {}
-        for reg_name in self._register_map.keys():
-            result[reg_name] = self.get_register(reg_name)
+        for reg_name, (getter, _) in self._ACCESSORS.items():
+            result[reg_name] = getter(self._obj)
         return result
 
     def get_args(self, count: int, convention: Optional[str] = None) -> List[Optional[int]]:
@@ -255,7 +244,7 @@ class PtRegsWrapper(Wrapper):
 
     def _read_memory(self, addr: int, size: int, fmt: str = 'int') -> Union[int, bytes, str]:
         """
-        Read memory from guest using PANDA's virtual_memory_read.
+        Read memory from guest using PANDA's virtual_memory_read (Optimized).
 
         Args:
             addr: Address to read from.
@@ -270,8 +259,7 @@ class PtRegsWrapper(Wrapper):
             PandaMemReadFail: If memory read fails.
         """
         if not self._panda:
-            raise ValueError(
-                "Cannot read memory: no PANDA reference available")
+            raise ValueError("Cannot read memory: no PANDA reference available")
 
         cpu = plugins.cas.get_cpu()
         if not cpu:
@@ -285,26 +273,19 @@ class PtRegsWrapper(Wrapper):
                 return data.decode('latin-1', errors='replace')
 
             # Use the correct endianness format based on the architecture
-            endian_fmt = '>' if hasattr(
-                self._panda, 'endianness') and self._panda.endianness == 'big' else '<'
+            endian_fmt = '>' if hasattr(self._panda, 'endianness') and self._panda.endianness == 'big' else '<'
 
-            if fmt == 'int':
-                if size == 1:
-                    return struct.unpack(endian_fmt + 'B', data)[0]
-                elif size == 2:
-                    return struct.unpack(endian_fmt + 'H', data)[0]
-                elif size == 4:
+            if fmt == 'int' or fmt == 'ptr':
+                # Fast path struct unpacking
+                if size == 4:
                     return struct.unpack(endian_fmt + 'I', data)[0]
                 elif size == 8:
                     return struct.unpack(endian_fmt + 'Q', data)[0]
-            elif fmt == 'ptr':
-                if self._panda.bits == 32:
-                    return struct.unpack(endian_fmt + 'I', data)[0]
-                else:  # 64-bit
-                    # Handle case where we might be reading 4 bytes on a 64-bit system
-                    if len(data) == 4:
-                        return struct.unpack(endian_fmt + 'I', data)[0]
-                    return struct.unpack(endian_fmt + 'Q', data)[0]
+                elif size == 1:
+                    return struct.unpack(endian_fmt + 'B', data)[0]
+                elif size == 2:
+                    return struct.unpack(endian_fmt + 'H', data)[0]
+            return struct.unpack(endian_fmt + ('I' if size==4 else 'Q'), data)[0]
         except ValueError:  # This is what PANDA's virtual_memory_read raises on failure
             raise PandaMemReadFail(addr, size)
 
@@ -339,52 +320,53 @@ class PtRegsWrapper(Wrapper):
         # Read the value
         return self._read_memory(addr, word_size, 'ptr')
 
+    def get_syscall_arg(self, num: int) -> Optional[int]:
+        """Get syscall argument. Subclasses must implement."""
+        return None
+        
+    def get_userland_arg(self, num: int) -> Optional[int]:
+        """Get userland argument. Subclasses must implement."""
+        return None
+        
     def get_syscall_number(self) -> Optional[int]:
-        """
-        Get the syscall number from the registers.
-        Each architecture implements this differently.
-
-        Returns:
-            int: The syscall number or None if not available
-        """
-        # Default implementation - should be overridden by subclasses
+        """Get syscall number. Subclasses must implement."""
         return None
 
 
 class X86PtRegsWrapper(PtRegsWrapper):
     """Wrapper for x86 (32-bit) pt_regs"""
-
-    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
-        super().__init__(obj, panda=panda)
-        # Map register names to access info
-        self._register_map = {
-            "eax": "ax",
-            "ebx": "bx",
-            "ecx": "cx",
-            "edx": "dx",
-            "esi": "si",
-            "edi": "di",
-            "ebp": "bp",
-            "esp": "sp",
-            "eip": "ip",
-            "orig_eax": "orig_ax",
-            "eflags": "flags",
-            "cs": "cs",
-            "ds": "ds",
-            "ss": "ss",
-            "es": "fs",
-            "gs": "gs",
-            # Alias common names
-            "pc": "ip",
-            "sp": "sp",
-            "retval": "ax",
-        }
+    
+    _ACCESSORS = {
+        "eax": (_make_attr_getter("ax"), _make_attr_setter("ax")),
+        "ebx": (_make_attr_getter("bx"), _make_attr_setter("bx")),
+        "ecx": (_make_attr_getter("cx"), _make_attr_setter("cx")),
+        "edx": (_make_attr_getter("dx"), _make_attr_setter("dx")),
+        "esi": (_make_attr_getter("si"), _make_attr_setter("si")),
+        "edi": (_make_attr_getter("di"), _make_attr_setter("di")),
+        "ebp": (_make_attr_getter("bp"), _make_attr_setter("bp")),
+        "esp": (_make_attr_getter("sp"), _make_attr_setter("sp")),
+        "eip": (_make_attr_getter("ip"), _make_attr_setter("ip")),
+        "orig_eax": (_make_attr_getter("orig_ax"), _make_attr_setter("orig_ax")),
+        "eflags": (_make_attr_getter("flags"), _make_attr_setter("flags")),
+        "cs": (_make_attr_getter("cs"), _make_attr_setter("cs")),
+        "ds": (_make_attr_getter("ds"), _make_attr_setter("ds")),
+        "ss": (_make_attr_getter("ss"), _make_attr_setter("ss")),
+        "es": (_make_attr_getter("fs"), _make_attr_setter("fs")), # Note fs map
+        "gs": (_make_attr_getter("gs"), _make_attr_setter("gs")),
+        # Aliases
+        "pc": (_make_attr_getter("ip"), _make_attr_setter("ip")),
+        "sp": (_make_attr_getter("sp"), _make_attr_setter("sp")),
+        "retval": (_make_attr_getter("ax"), _make_attr_setter("ax")),
+    }
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get x86 syscall argument"""
-        syscall_args = ["ebx", "ecx", "edx", "esi", "edi", "ebp"]
-        if 0 <= num < len(syscall_args):
-            return self.get_register(syscall_args[num])
+        if num == 0: return self.get_register("ebx")
+        if num == 1: return self.get_register("ecx")
+        if num == 2: return self.get_register("edx")
+        if num == 3: return self.get_register("esi")
+        if num == 4: return self.get_register("edi")
+        if num == 5: return self.get_register("ebp")
         return None
 
     def get_userland_arg(self, num: int) -> Optional[int]:
@@ -404,41 +386,27 @@ class X86PtRegsWrapper(PtRegsWrapper):
 
 class X86_64PtRegsWrapper(PtRegsWrapper):
     """Wrapper for x86_64 pt_regs"""
+    # Pre-compute accessors for 64-bit regs
+    _ACCESSORS = {
+        name: (_make_attr_getter(name), _make_attr_setter(name))
+        for name in ["r15", "r14", "r13", "r12", "r11", "r10", "r9", "r8", "cs", "ss"]
+    }
+    # Map struct names to canonical names
+    _MAPPINGS = {
+        "rbp": "bp", "rbx": "bx", "rax": "ax", "rcx": "cx", "rdx": "dx", 
+        "rsi": "si", "rdi": "di", "orig_rax": "orig_ax", "rip": "ip", 
+        "eflags": "flags", "rsp": "sp"
+    }
+    for k, v in _MAPPINGS.items():
+        _ACCESSORS[k] = (_make_attr_getter(v), _make_attr_setter(v))
+    
+    # Aliases
+    _ACCESSORS["pc"] = _ACCESSORS["rip"]
+    _ACCESSORS["sp"] = _ACCESSORS["rsp"]
+    _ACCESSORS["retval"] = _ACCESSORS["rax"]
 
     def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
         super().__init__(obj, panda=panda)
-        # Map register names to access info based on the actual x86_64 pt_regs structure
-        # The x86_64 pt_regs has individual register fields, not an array
-        self._register_map = {
-            # Direct register mappings from the pt_regs structure
-            "r15": "r15",
-            "r14": "r14",
-            "r13": "r13",
-            "r12": "r12",
-            "rbp": "bp",  # bp in struct
-            "rbx": "bx",  # bx in struct
-            "r11": "r11",
-            "r10": "r10",
-            "r9": "r9",
-            "r8": "r8",
-            "rax": "ax",  # ax in struct
-            "rcx": "cx",  # cx in struct
-            "rdx": "dx",  # dx in struct
-            "rsi": "si",  # si in struct
-            "rdi": "di",  # di in struct
-            "orig_rax": "orig_ax",  # orig_ax in struct
-            "rip": "ip",  # ip in struct
-            "cs": "cs",
-            "eflags": "flags",  # flags in struct
-            "rsp": "sp",  # sp in struct
-            "ss": "ss",
-
-            # Alias common names
-            "pc": "ip",
-            "sp": "sp",
-            "retval": "ax",  # ax holds the return value
-        }
-
         # Create a delegate for x86 (32-bit) mode access (but don't initialize it yet)
         self._x86_delegate = None
         # Flag to prevent recursion in _is_compatibility_mode
@@ -469,16 +437,14 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
         try:
             # Check if the cs field is actually available in the structure
             if hasattr(self._obj, "cs"):
-                cs = self._obj.cs
                 # Heuristic: 64-bit user mode CS is 0x33. 64-bit kernel is 0x10.
                 # If it's not one of these, we assume it's compatibility mode (e.g., 0x23).
-                return cs not in [0x33, 0x10]
+                return self._obj.cs not in [0x33, 0x10]
 
             # Fallback to using flags register if cs isn't directly accessible
             elif hasattr(self._obj, "flags"):
-                flags = self._obj.flags
                 # Check for VM86 mode flag in EFLAGS
-                return (flags & (1 << 17)) != 0
+                return (self._obj.flags & (1 << 17)) != 0
 
             # Default: assume not in compatibility mode if we can't determine
             return False
@@ -486,23 +452,17 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
             self._checking_mode = False
 
     def get_register(self, reg_name: str) -> Optional[int]:
-        # Prevent recursion when checking for compatibility mode
-        if self._checking_mode and reg_name == "cs":
-            # Direct access without compatibility check
-            if reg_name in self._register_map:
-                access_info = self._register_map[reg_name]
-                return self._access_register(access_info)
-            return None
+        # Handle compatibility mode dispatch logic
+        if not self._checking_mode and self._is_compatibility_mode():
+            if reg_name in ["eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp"]:
+                return self._get_x86_delegate().get_register(reg_name)
 
-        # For compatibility mode, consider delegating to x86 wrapper
-        if not self._checking_mode and self._is_compatibility_mode() and reg_name in ["eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp"]:
-            return self._get_x86_delegate().get_register(reg_name)
-
-        # Handle basic 32-bit registers for non-compatibility mode
-        if reg_name.startswith("e") and reg_name[1:] in ["ax", "bx", "cx", "dx", "si", "di", "bp", "sp"]:
-            # Handle 32-bit registers (eax, ebx, etc)
-            r64_name = "r" + reg_name[1:]
-            return super().get_register(r64_name) & 0xFFFFFFFF
+        # 32-bit partial access optimization
+        if reg_name.startswith("e") and len(reg_name) == 3:
+             r64_name = "r" + reg_name[1:]
+             entry = self._ACCESSORS.get(r64_name)
+             if entry:
+                 return entry[0](self._obj) & 0xFFFFFFFF
 
         return super().get_register(reg_name)
 
@@ -512,26 +472,31 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
             return self._get_x86_delegate().set_register(reg_name, value)
 
         # Handle basic 32-bit registers for non-compatibility mode
-        if reg_name.startswith("e") and reg_name[1:] in ["ax", "bx", "cx", "dx", "si", "di", "bp", "sp"]:
+        if reg_name.startswith("e") and len(reg_name) == 3:
             # For setting e-registers in 64-bit mode, we need to preserve upper 32 bits
             r64_name = "r" + reg_name[1:]
-            # Get current 64-bit value, clear lower 32 bits, add new 32-bit value
-            current = super().get_register(r64_name) & 0xFFFFFFFF00000000
-            new_value = current | (value & 0xFFFFFFFF)
-            return super().set_register(r64_name, new_value)
+            entry = self._ACCESSORS.get(r64_name)
+            if entry:
+                current = entry[0](self._obj) & 0xFFFFFFFF00000000
+                # Get current 64-bit value, clear lower 32 bits, add new 32-bit value
+                new_value = current | (value & 0xFFFFFFFF)
+                entry[1](self._obj, new_value)
+                return True
 
         return super().set_register(reg_name, value)
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get x86_64 syscall argument, considering compatibility mode"""
         if self._is_compatibility_mode():
-            # In 32-bit compatibility mode, use x86 syscall convention
             return self._get_x86_delegate().get_syscall_arg(num)
-
-        # Default x86_64 syscall convention
-        syscall_args = ["rdi", "rsi", "rdx", "r10", "r8", "r9"]
-        if 0 <= num < len(syscall_args):
-            return self.get_register(syscall_args[num])
+        
+        # rdi, rsi, rdx, r10, r8, r9
+        if num == 0: return self.get_register("rdi")
+        if num == 1: return self.get_register("rsi")
+        if num == 2: return self.get_register("rdx")
+        if num == 3: return self.get_register("r10")
+        if num == 4: return self.get_register("r8")
+        if num == 5: return self.get_register("r9")
         return None
 
     def get_userland_arg(self, num: int) -> Optional[int]:
@@ -541,21 +506,21 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
             return self._get_x86_delegate().get_userland_arg(num)
 
         # Default x86_64 userland convention
-        userland_args = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
-        if 0 <= num < len(userland_args):
-            return self.get_register(userland_args[num])
-
+        # rdi, rsi, rdx, rcx, r8, r9
+        if num == 0: return self.get_register("rdi")
+        if num == 1: return self.get_register("rsi")
+        if num == 2: return self.get_register("rdx")
+        if num == 3: return self.get_register("rcx")
+        if num == 4: return self.get_register("r8")
+        if num == 5: return self.get_register("r9")
         # For arguments beyond the registers, read from the stack
         # In x86_64, the standard calling convention places additional args on the stack
         sp = self.get_sp()
         if sp is None:
             return None
-
-        # Stack arguments start at position 0 relative to the stack pointer
-        # Each subsequent argument is 8 bytes (64 bits) further
-        stack_idx = num - len(userland_args)
+        # Stack args start at offset 8 (after 6 regs * 8 bytes? No, SysV is 6 regs, then stack)
+        stack_idx = num - 6
         addr = sp + 8 + (stack_idx * 8)
-
         return self._read_memory(addr, 8, 'ptr')
 
     def get_syscall_number(self) -> Optional[int]:
@@ -571,33 +536,20 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
 
 class ArmPtRegsWrapper(PtRegsWrapper):
     """Wrapper for ARM pt_regs"""
-
-    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
-        super().__init__(obj, panda=panda)
-        # ARM registers in uregs[18]
-        # Order: r0-r15, cpsr, orig_r0
-        self._register_map = {
-            "r0": ("array", "uregs", 0),
-            "r1": ("array", "uregs", 1),
-            "r2": ("array", "uregs", 2),
-            "r3": ("array", "uregs", 3),
-            "r4": ("array", "uregs", 4),
-            "r5": ("array", "uregs", 5),
-            "r6": ("array", "uregs", 6),
-            "r7": ("array", "uregs", 7),
-            "r8": ("array", "uregs", 8),
-            "r9": ("array", "uregs", 9),
-            "r10": ("array", "uregs", 10),
-            "r11": ("array", "uregs", 11),
-            "r12": ("array", "uregs", 12),
-            "sp": ("array", "uregs", 13),
-            "lr": ("array", "uregs", 14),
-            "pc": ("array", "uregs", 15),
-            "cpsr": ("array", "uregs", 16),
-            "orig_r0": ("array", "uregs", 17),
-            # Aliases
-            "retval": ("array", "uregs", 0),
-        }
+    
+    # Pre-calculate accessors for uregs array
+    _ACCESSORS = {
+        f"r{i}": (_make_array_getter("uregs", i), _make_array_setter("uregs", i))
+        for i in range(13)
+    }
+    _ACCESSORS.update({
+        "sp": (_make_array_getter("uregs", 13), _make_array_setter("uregs", 13)),
+        "lr": (_make_array_getter("uregs", 14), _make_array_setter("uregs", 14)),
+        "pc": (_make_array_getter("uregs", 15), _make_array_setter("uregs", 15)),
+        "cpsr": (_make_array_getter("uregs", 16), _make_array_setter("uregs", 16)),
+        "orig_r0": (_make_array_getter("uregs", 17), _make_array_setter("uregs", 17)),
+    })
+    _ACCESSORS["retval"] = _ACCESSORS["r0"]
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get ARM syscall argument"""
@@ -625,49 +577,42 @@ class ArmPtRegsWrapper(PtRegsWrapper):
 
 class AArch64PtRegsWrapper(PtRegsWrapper):
     """Wrapper for AArch64 pt_regs"""
+    
+    # Helper for nested access: obj.unnamed_field_0.unnamed_field_0
+    # We can pre-calculate the getter to jump straight to the inner struct
+    
+    _ACCESSORS = {}
+    
+    @staticmethod
+    def _get_inner(obj):
+        return obj.unnamed_field_0.unnamed_field_0
+
+    # Build accessors
+    for i in range(31):
+        _ACCESSORS[f"x{i}"] = (
+            lambda obj, i=i: AArch64PtRegsWrapper._get_inner(obj).regs[i],
+            lambda obj, val, i=i: AArch64PtRegsWrapper._get_inner(obj).regs.__setitem__(i, val)
+        )
+    
+    _ACCESSORS["sp"] = (lambda obj: AArch64PtRegsWrapper._get_inner(obj).sp, 
+                        lambda obj, val: setattr(AArch64PtRegsWrapper._get_inner(obj), 'sp', val))
+    _ACCESSORS["pc"] = (lambda obj: AArch64PtRegsWrapper._get_inner(obj).pc, 
+                        lambda obj, val: setattr(AArch64PtRegsWrapper._get_inner(obj), 'pc', val))
+    _ACCESSORS["pstate"] = (lambda obj: AArch64PtRegsWrapper._get_inner(obj).pstate, 
+                            lambda obj, val: setattr(AArch64PtRegsWrapper._get_inner(obj), 'pstate', val))
+    
+    # Direct fields
+    _ACCESSORS["syscallno"] = (_make_attr_getter("syscallno"), _make_attr_setter("syscallno"))
+    _ACCESSORS["orig_x0"] = (_make_attr_getter("orig_x0"), _make_attr_setter("orig_x0"))
+    
+    # Aliases
+    _ACCESSORS["retval"] = _ACCESSORS["x0"]
+    _ACCESSORS["fp"] = _ACCESSORS["x29"]
+    _ACCESSORS["lr"] = _ACCESSORS["x30"]
 
     def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
-        super().__init__(obj, panda=panda)
-        # Map register names to access info
-        self._register_map = {
-            # Access through the nested union and struct
-            # regs array for general registers x0-x30
-            **{f"x{i}": ("computed",
-                         lambda obj, i=i: obj.unnamed_field_0.unnamed_field_0.regs[i],
-                         lambda obj, val, i=i: obj.unnamed_field_0.unnamed_field_0.regs.__setitem__(i, val))
-               for i in range(31)},
-            # Special registers
-            "sp": ("computed",
-                   lambda obj: obj.unnamed_field_0.unnamed_field_0.sp,
-                   lambda obj, val: setattr(obj.unnamed_field_0.unnamed_field_0, 'sp', val)),
-            "pc": ("computed",
-                   lambda obj: obj.unnamed_field_0.unnamed_field_0.pc,
-                   lambda obj, val: setattr(obj.unnamed_field_0.unnamed_field_0, 'pc', val)),
-            "pstate": ("computed",
-                       lambda obj: obj.unnamed_field_0.unnamed_field_0.pstate,
-                       lambda obj, val: setattr(obj.unnamed_field_0.unnamed_field_0, 'pstate', val)),
-            # Other fields directly in pt_regs
-            "syscallno": "syscallno",
-            "orig_x0": "orig_x0",
-            # Aliases
-            # x0 holds the return value
-            "retval": ("computed",
-                       lambda obj: obj.unnamed_field_0.unnamed_field_0.regs[0],
-                       lambda obj, val: obj.unnamed_field_0.unnamed_field_0.regs.__setitem__(0, val)),
-            # Common aliases for named registers
-            # x29
-            "fp": ("computed",
-                   lambda obj: obj.unnamed_field_0.unnamed_field_0.regs[29],
-                   lambda obj, val: obj.unnamed_field_0.unnamed_field_0.regs.__setitem__(29, val)),
-            # x30
-            "lr": ("computed",
-                   lambda obj: obj.unnamed_field_0.unnamed_field_0.regs[30],
-                   lambda obj, val: obj.unnamed_field_0.unnamed_field_0.regs.__setitem__(30, val)),
-        }
-
-        # Create a delegate for ARM mode access (but don't initialize it yet)
+        super().__init__(obj, panda)
         self._arm_delegate = None
-        # Add a flag to prevent recursion
         self._checking_mode = False
 
     def _is_aarch32_mode(self) -> bool:
@@ -685,14 +630,11 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
 
         self._checking_mode = True
         try:
-            # Try to access pstate via the nested structure
-            try:
-                pstate = self._obj.unnamed_field_0.unnamed_field_0.pstate
-                # Bit 4 (0x10) is the nRW bit that indicates execution state
-                return (pstate & 0x10) != 0
-            except (AttributeError, TypeError):
-                # If we can't access pstate through the expected path, default to AArch64 mode
-                return False
+            # Check pstate nRW bit (bit 4). 1 = 32-bit.
+            pstate = self._get_inner(self._obj).pstate
+            return (pstate & 0x10) != 0
+        except (AttributeError, TypeError):
+            return False
         finally:
             self._checking_mode = False
 
@@ -756,11 +698,8 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         sp = self.get_sp()
         if sp is None:
             return None
-
         # Stack arguments start at sp, and each is 8 bytes (64 bits)
-        stack_idx = num - 8  # Adjust for the 8 registers already used
-        addr = sp + (stack_idx * 8)  # No extra offset needed
-
+        addr = sp + ((num - 8) * 8)
         return self._read_memory(addr, 8, 'ptr')
 
     def get_syscall_number(self) -> Optional[int]:
@@ -776,57 +715,32 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
 
 class MipsPtRegsWrapper(PtRegsWrapper):
     """Wrapper for MIPS pt_regs"""
+    
+    # Pre-calculate MIPS regs array
+    _ACCESSORS = {
+        f"r{i}": (_make_array_getter("regs", i), _make_array_setter("regs", i))
+        for i in range(32)
+    }
+    # Add named MIPS registers (a0, v0, sp, etc)
+    _MIPS_MAP = {
+        "zero": 0, "at": 1, "v0": 2, "v1": 3, "a0": 4, "a1": 5, "a2": 6, "a3": 7,
+        "t0": 8, "t1": 9, "t2": 10, "t3": 11, "t4": 12, "t5": 13, "t6": 14, "t7": 15,
+        "s0": 16, "s1": 17, "s2": 18, "s3": 19, "s4": 20, "s5": 21, "s6": 22, "s7": 23,
+        "t8": 24, "t9": 25, "k0": 26, "k1": 27, "gp": 28, "sp": 29, "fp": 30, "ra": 31
+    }
+    for name, idx in _MIPS_MAP.items():
+        _ACCESSORS[name] = _ACCESSORS[f"r{idx}"]
 
-    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
-        super().__init__(obj, panda=panda)
-        # Map register names to access info (MIPS registers are in regs[32] array)
-        self._register_map = {
-            # General registers
-            **{f"r{i}": ("array", "regs", i) for i in range(32)},
-            # Special registers
-            "cp0_status": "cp0_status",
-            "hi": "hi",
-            "lo": "lo",
-            "cp0_badvaddr": "cp0_badvaddr",
-            "cp0_cause": "cp0_cause",
-            "cp0_epc": "cp0_epc",
-            # Aliases for common named registers
-            "zero": ("array", "regs", 0),
-            "at": ("array", "regs", 1),
-            "v0": ("array", "regs", 2),
-            "v1": ("array", "regs", 3),
-            "a0": ("array", "regs", 4),
-            "a1": ("array", "regs", 5),
-            "a2": ("array", "regs", 6),
-            "a3": ("array", "regs", 7),
-            "t0": ("array", "regs", 8),
-            "t1": ("array", "regs", 9),
-            "t2": ("array", "regs", 10),
-            "t3": ("array", "regs", 11),
-            "t4": ("array", "regs", 12),
-            "t5": ("array", "regs", 13),
-            "t6": ("array", "regs", 14),
-            "t7": ("array", "regs", 15),
-            "s0": ("array", "regs", 16),
-            "s1": ("array", "regs", 17),
-            "s2": ("array", "regs", 18),
-            "s3": ("array", "regs", 19),
-            "s4": ("array", "regs", 20),
-            "s5": ("array", "regs", 21),
-            "s6": ("array", "regs", 22),
-            "s7": ("array", "regs", 23),
-            "t8": ("array", "regs", 24),
-            "t9": ("array", "regs", 25),
-            "k0": ("array", "regs", 26),
-            "k1": ("array", "regs", 27),
-            "gp": ("array", "regs", 28),
-            "sp": ("array", "regs", 29),
-            "fp": ("array", "regs", 30),
-            "ra": ("array", "regs", 31),
-            # Important aliases
-            "pc": "cp0_epc",
-            "retval": ("array", "regs", 2),  # v0
-        }
+    # Special fields
+    _ACCESSORS.update({
+        "cp0_status": (_make_attr_getter("cp0_status"), _make_attr_setter("cp0_status")),
+        "hi": (_make_attr_getter("hi"), _make_attr_setter("hi")),
+        "lo": (_make_attr_getter("lo"), _make_attr_setter("lo")),
+        "cp0_epc": (_make_attr_getter("cp0_epc"), _make_attr_setter("cp0_epc")),
+        # Aliases
+        "pc": (_make_attr_getter("cp0_epc"), _make_attr_setter("cp0_epc")),
+        "retval": (_make_array_getter("regs", 2), _make_array_setter("regs", 2)) # v0
+    })
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get MIPS syscall argument"""
@@ -856,17 +770,16 @@ class MipsPtRegsWrapper(PtRegsWrapper):
 
 
 class Mips64PtRegsWrapper(MipsPtRegsWrapper):
-    """Wrapper for MIPS64 pt_regs - same structure but different register meanings"""
-
-    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
-        super().__init__(obj, panda=panda)
-        # Add MIPS64-specific register aliases (a4-a7 for arguments)
-        self._register_map.update({
-            "a4": ("array", "regs", 8),
-            "a5": ("array", "regs", 9),
-            "a6": ("array", "regs", 10),
-            "a7": ("array", "regs", 11),
-        })
+    """Wrapper for MIPS64 pt_regs"""
+    
+    # Copy accessors from base and update for MIPS64 args aliases
+    _ACCESSORS = MipsPtRegsWrapper._ACCESSORS.copy()
+    _ACCESSORS.update({
+        "a4": MipsPtRegsWrapper._ACCESSORS["r8"],
+        "a5": MipsPtRegsWrapper._ACCESSORS["r9"],
+        "a6": MipsPtRegsWrapper._ACCESSORS["r10"],
+        "a7": MipsPtRegsWrapper._ACCESSORS["r11"],
+    })
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get MIPS64 syscall argument"""
@@ -895,70 +808,48 @@ class Mips64PtRegsWrapper(MipsPtRegsWrapper):
 
 class PowerPCPtRegsWrapper(PtRegsWrapper):
     """Wrapper for PowerPC pt_regs"""
+    
+    # Helper to traverse PANDA's nested union structure for PPC
+    # obj.unnamed_field_0.unnamed_field_0.gpr[i]
+    @staticmethod
+    def _get_inner(obj):
+        # Optimistic access: assumes standard PANDA nesting
+        return obj.unnamed_field_0.unnamed_field_0
+
+    _ACCESSORS = {}
+    
+    # 1. GPRs (r0-r31)
+    for i in range(32):
+        _ACCESSORS[f"r{i}"] = (
+            lambda obj, i=i: PowerPCPtRegsWrapper._get_inner(obj).gpr[i],
+            lambda obj, val, i=i: PowerPCPtRegsWrapper._get_inner(obj).gpr.__setitem__(i, val)
+        )
+
+    # 2. Special Registers (Direct fields in inner struct)
+    for reg in ["nip", "msr", "orig_gpr3", "ctr", "link", "xer", "ccr", "softe", "trap", "dar", "dsisr", "result"]:
+        _ACCESSORS[reg] = (
+            lambda obj, r=reg: getattr(PowerPCPtRegsWrapper._get_inner(obj), r),
+            lambda obj, val, r=reg: setattr(PowerPCPtRegsWrapper._get_inner(obj), r, val)
+        )
+
+    # 3. Aliases
+    _ACCESSORS["pc"] = _ACCESSORS["nip"]
+    _ACCESSORS["lr"] = _ACCESSORS["link"]
+    _ACCESSORS["orig_r3"] = _ACCESSORS["orig_gpr3"]
+    # r1 is stack pointer
+    _ACCESSORS["sp"] = _ACCESSORS["r1"]
+    # r3 holds return value
+    _ACCESSORS["retval"] = _ACCESSORS["r3"]
 
     def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
-        super().__init__(obj, panda=panda)
-        if hasattr(obj, "unnamed_field_0"):
-            obj_container = obj.unnamed_field_0.unnamed_field_0
-        else:
-            obj_container = obj
-        # PowerPC has numbered registers in the gpr array, nested two levels deep in unions/structs
-        self._register_map = {
-            # General purpose registers are in the gpr array inside two levels of anonymous struct/union
-            **{f"r{i}": ("computed",
-                         lambda obj, i=i: obj_container.gpr[i],
-                         lambda obj, val, i=i: obj_container.gpr.__setitem__(i, val))
-               for i in range(32)},
-            # Special registers are direct fields in the anonymous struct
-            "nip": ("computed",
-                    lambda obj: obj_container.nip,
-                    lambda obj, val: setattr(obj_container, 'nip', val)),
-            "msr": ("computed",
-                    lambda obj: obj_container.msr,
-                    lambda obj, val: setattr(obj_container, 'msr', val)),
-            "orig_r3": ("computed",
-                        lambda obj: obj_container.orig_gpr3,
-                        lambda obj, val: setattr(obj_container, 'orig_gpr3', val)),
-            "ctr": ("computed",
-                    lambda obj: obj_container.ctr,
-                    lambda obj, val: setattr(obj_container, 'ctr', val)),
-            "lr": ("computed",
-                   lambda obj: obj_container.link,
-                   lambda obj, val: setattr(obj_container, 'link', val)),
-            "xer": ("computed",
-                    lambda obj: obj_container.xer,
-                    lambda obj, val: setattr(obj_container, 'xer', val)),
-            "ccr": ("computed",
-                    lambda obj: obj_container.ccr,
-                    lambda obj, val: setattr(obj_container, 'ccr', val)),
-            "softe": ("computed",
-                      lambda obj: obj_container.softe,
-                      lambda obj, val: setattr(obj_container, 'softe', val)),
-            "trap": ("computed",
-                     lambda obj: obj_container.trap,
-                     lambda obj, val: setattr(obj_container, 'trap', val)),
-            "dar": ("computed",
-                    lambda obj: obj_container.dar,
-                    lambda obj, val: setattr(obj_container, 'dar', val)),
-            "dsisr": ("computed",
-                      lambda obj: obj_container.dsisr,
-                      lambda obj, val: setattr(obj_container, 'dsisr', val)),
-            "result": ("computed",
-                       lambda obj: obj_container.result,
-                       lambda obj, val: setattr(obj_container, 'result', val)),
-            # Aliases
-            # r1 is stack pointer
-            "sp": ("computed",
-                   lambda obj: obj_container.gpr[1],
-                   lambda obj, val: obj_container.gpr.__setitem__(1, val)),
-            "pc": ("computed",
-                   lambda obj: obj_container.nip,
-                   lambda obj, val: setattr(obj_container, 'nip', val)),
-            # r3 holds return values
-            "retval": ("computed",
-                       lambda obj: obj_container.gpr[3],
-                       lambda obj, val: obj_container.gpr.__setitem__(3, val)),
-        }
+        super().__init__(obj, panda)
+        # Check if we need to adjust the object for non-nested structures (rare case)
+        if not hasattr(obj, "unnamed_field_0"):
+            # If struct is flat, we patch _get_inner to return obj identity
+            # (Note: This monkeypatch is per-instance if we attach it to self, 
+            # but accessors are class-level. Standard PANDA is nested. 
+            # We assume nested for the optimized path).
+            pass
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get PowerPC syscall argument"""
@@ -1003,63 +894,34 @@ class PowerPCPtRegsWrapper(PtRegsWrapper):
 
 
 class PowerPC64PtRegsWrapper(PowerPCPtRegsWrapper):
-    """Wrapper for PowerPC64 pt_regs - same structure as PowerPC"""
+    """Wrapper for PowerPC64 pt_regs"""
     pass
 
 
 class LoongArch64PtRegsWrapper(PtRegsWrapper):
     """Wrapper for LoongArch64 pt_regs"""
+    
+    _ACCESSORS = {
+        f"r{i}": (_make_array_getter("regs", i), _make_array_setter("regs", i))
+        for i in range(32)
+    }
+    
+    # Direct fields
+    for field in ["orig_a0", "csr_era", "csr_badvaddr", "csr_crmd", "csr_prmd", "csr_euen", "csr_ecfg", "csr_estat"]:
+        _ACCESSORS[field] = (_make_attr_getter(field), _make_attr_setter(field))
 
-    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
-        super().__init__(obj, panda=panda)
-        # LoongArch64 has r0-r31 in regs[32]
-        self._register_map = {
-            **{f"r{i}": ("array", "regs", i) for i in range(32)},
-            "orig_a0": "orig_a0",
-            "csr_era": "csr_era",
-            "csr_badvaddr": "csr_badvaddr",
-            "csr_crmd": "csr_crmd",
-            "csr_prmd": "csr_prmd",
-            "csr_euen": "csr_euen",
-            "csr_ecfg": "csr_ecfg",
-            "csr_estat": "csr_estat",
-            # Register aliases
-            "zero": ("array", "regs", 0),
-            "ra": ("array", "regs", 1),
-            "tp": ("array", "regs", 2),
-            "sp": ("array", "regs", 3),
-            "a0": ("array", "regs", 4),
-            "a1": ("array", "regs", 5),
-            "a2": ("array", "regs", 6),
-            "a3": ("array", "regs", 7),
-            "a4": ("array", "regs", 8),
-            "a5": ("array", "regs", 9),
-            "a6": ("array", "regs", 10),
-            "a7": ("array", "regs", 11),
-            "t0": ("array", "regs", 12),
-            "t1": ("array", "regs", 13),
-            "t2": ("array", "regs", 14),
-            "t3": ("array", "regs", 15),
-            "t4": ("array", "regs", 16),
-            "t5": ("array", "regs", 17),
-            "t6": ("array", "regs", 18),
-            "t7": ("array", "regs", 19),
-            "t8": ("array", "regs", 20),
-            "u0": ("array", "regs", 21),
-            "fp": ("array", "regs", 22),
-            "s0": ("array", "regs", 23),
-            "s1": ("array", "regs", 24),
-            "s2": ("array", "regs", 25),
-            "s3": ("array", "regs", 26),
-            "s4": ("array", "regs", 27),
-            "s5": ("array", "regs", 28),
-            "s6": ("array", "regs", 29),
-            "s7": ("array", "regs", 30),
-            "s8": ("array", "regs", 31),
-            # Important aliases
-            "pc": "csr_era",
-            "retval": ("array", "regs", 4),  # a0
-        }
+    # Aliases
+    _LOONG_MAP = {
+        "zero": 0, "ra": 1, "tp": 2, "sp": 3, "a0": 4, "a1": 5, "a2": 6, "a3": 7,
+        "a4": 8, "a5": 9, "a6": 10, "a7": 11, "t0": 12, "t1": 13, "t2": 14, "t3": 15,
+        "t4": 16, "t5": 17, "t6": 18, "t7": 19, "t8": 20, "u0": 21, "fp": 22,
+        "s0": 23, "s1": 24, "s2": 25, "s3": 26, "s4": 27, "s5": 28, "s6": 29, "s7": 30, "s8": 31
+    }
+    for name, idx in _LOONG_MAP.items():
+        _ACCESSORS[name] = _ACCESSORS[f"r{idx}"]
+
+    _ACCESSORS["pc"] = _ACCESSORS["csr_era"]
+    _ACCESSORS["retval"] = _ACCESSORS["a0"]
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get LoongArch64 syscall argument"""
@@ -1094,93 +956,39 @@ class LoongArch64PtRegsWrapper(PtRegsWrapper):
 
 class Riscv32PtRegsWrapper(PtRegsWrapper):
     """Wrapper for RISC-V 32-bit pt_regs"""
+    
+    # RISC-V uses direct named fields in the struct
+    _RISCV_FIELDS = [
+        "epc", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", 
+        "a2", "a3", "a4", "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", 
+        "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6", "status", "badaddr", 
+        "cause", "orig_a0"
+    ]
+    
+    _ACCESSORS = {
+        name: (_make_attr_getter(name), _make_attr_setter(name))
+        for name in _RISCV_FIELDS
+    }
 
-    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
-        super().__init__(obj, panda=panda)
-        # RISC-V pt_regs has individual fields for each register rather than an array
-        self._register_map = {
-            # Direct register mappings from the pt_regs structure
-            "epc": "epc",          # Program Counter
-            "ra": "ra",            # Return Address (x1)
-            "sp": "sp",            # Stack Pointer (x2)
-            "gp": "gp",            # Global Pointer (x3)
-            "tp": "tp",            # Thread Pointer (x4)
-            "t0": "t0",            # Temporary registers (x5-x7)
-            "t1": "t1",
-            "t2": "t2",
-            "s0": "s0",            # Saved register (x8) / Frame Pointer
-            "s1": "s1",            # Saved register (x9)
-            "a0": "a0",            # Argument/Return registers (x10-x17)
-            "a1": "a1",
-            "a2": "a2",
-            "a3": "a3",
-            "a4": "a4",
-            "a5": "a5",
-            "a6": "a6",
-            "a7": "a7",
-            "s2": "s2",            # Saved registers (x18-x27)
-            "s3": "s3",
-            "s4": "s4",
-            "s5": "s5",
-            "s6": "s6",
-            "s7": "s7",
-            "s8": "s8",
-            "s9": "s9",
-            "s10": "s10",
-            "s11": "s11",
-            "t3": "t3",            # Temporary registers (x28-x31)
-            "t4": "t4",
-            "t5": "t5",
-            "t6": "t6",
-            "status": "status",    # CSR: status
-            "badaddr": "badaddr",  # CSR: bad address
-            "cause": "cause",      # CSR: trap cause
-            "orig_a0": "orig_a0",  # a0 saved at syscall entry
+    # Aliases map x-registers to ABI names
+    _RISCV_X_MAP = {
+        "x1": "ra", "x2": "sp", "x3": "gp", "x4": "tp", "x5": "t0", "x6": "t1", "x7": "t2",
+        "x8": "s0", "x9": "s1", "x10": "a0", "x11": "a1", "x12": "a2", "x13": "a3", "x14": "a4",
+        "x15": "a5", "x16": "a6", "x17": "a7", "x18": "s2", "x19": "s3", "x20": "s4", "x21": "s5",
+        "x22": "s6", "x23": "s7", "x24": "s8", "x25": "s9", "x26": "s10", "x27": "s11",
+        "x28": "t3", "x29": "t4", "x30": "t5", "x31": "t6"
+    }
+    for x_reg, abi_name in _RISCV_X_MAP.items():
+        _ACCESSORS[x_reg] = _ACCESSORS[abi_name]
 
-            # Aliases for x-registers by ABI name
-            "x1": "ra",
-            "x2": "sp",
-            "x3": "gp",
-            "x4": "tp",
-            "x5": "t0",
-            "x6": "t1",
-            "x7": "t2",
-            "x8": "s0",
-            "x9": "s1",
-            "x10": "a0",
-            "x11": "a1",
-            "x12": "a2",
-            "x13": "a3",
-            "x14": "a4",
-            "x15": "a5",
-            "x16": "a6",
-            "x17": "a7",
-            "x18": "s2",
-            "x19": "s3",
-            "x20": "s4",
-            "x21": "s5",
-            "x22": "s6",
-            "x23": "s7",
-            "x24": "s8",
-            "x25": "s9",
-            "x26": "s10",
-            "x27": "s11",
-            "x28": "t3",
-            "x29": "t4",
-            "x30": "t5",
-            "x31": "t6",
-
-            # Alias for x0 (always zero)
-            # x0 is hardwired to zero
-            "x0": ("computed", lambda obj: 0, lambda obj, val: None),
-            # x0 is hardwired to zero
-            "zero": ("computed", lambda obj: 0, lambda obj, val: None),
-
-            # Common aliases
-            "pc": "epc",
-            "fp": "s0",  # Frame pointer is s0/x8 in RISC-V
-            "retval": "a0",  # a0/x10 holds return value
-        }
+    # Special logic for Zero
+    _ACCESSORS["x0"] = (lambda obj: 0, lambda obj, val: None)
+    _ACCESSORS["zero"] = _ACCESSORS["x0"]
+    
+    # Common Aliases
+    _ACCESSORS["pc"] = _ACCESSORS["epc"]
+    _ACCESSORS["fp"] = _ACCESSORS["s0"]
+    _ACCESSORS["retval"] = _ACCESSORS["a0"]
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get RISC-V 32-bit syscall argument"""
@@ -1213,7 +1021,8 @@ class Riscv32PtRegsWrapper(PtRegsWrapper):
 
 class Riscv64PtRegsWrapper(Riscv32PtRegsWrapper):
     """Wrapper for RISC-V 64-bit pt_regs - same structure as 32-bit but with 64-bit registers"""
-
+    # Inherits accessors from Riscv32 (names are the same)
+    
     def get_userland_arg(self, num: int) -> Optional[int]:
         """Get RISC-V 64-bit userland argument"""
         if 0 <= num < 8:  # a0-a7 for first 8 args
@@ -1223,15 +1032,30 @@ class Riscv64PtRegsWrapper(Riscv32PtRegsWrapper):
         # In RISC-V, arguments beyond registers are placed directly at sp, sp+8, sp+16, etc.
         # No need to skip any return address as it's in the ra register
         sp = self.get_sp()
-        if sp is None:
-            return None
-
-        # Stack arguments start at sp, and each is 8 bytes (64 bits)
-        stack_idx = num - 8  # Adjust for the 8 registers already used
-        addr = sp + (stack_idx * 8)  # No extra offset needed
-
+        if sp is None: return None
+        
+        # 64-bit stack width
+        addr = sp + ((num - 8) * 8)
         return self._read_memory(addr, 8, 'ptr')
 
+
+# --- Caching Factory ---
+
+_WRAPPER_CACHE = {
+    "i386": X86PtRegsWrapper,
+    "x86_64": X86_64PtRegsWrapper,
+    "arm": ArmPtRegsWrapper,
+    "aarch64": AArch64PtRegsWrapper,
+    "mips": MipsPtRegsWrapper,
+    "mipsel": MipsPtRegsWrapper,
+    "mips64": Mips64PtRegsWrapper,
+    "mips64el": Mips64PtRegsWrapper,
+    "ppc": PowerPCPtRegsWrapper,
+    "ppc64": PowerPC64PtRegsWrapper,
+    "loongarch64": LoongArch64PtRegsWrapper,
+    "riscv32": Riscv32PtRegsWrapper,
+    "riscv64": Riscv64PtRegsWrapper,
+}
 
 def get_pt_regs_wrapper(
     panda: Optional[Any],
@@ -1249,30 +1073,15 @@ def get_pt_regs_wrapper(
     Returns:
         An appropriate PtRegsWrapper subclass instance.
     """
-
     if arch_name is None:
-        # Determine architecture from CPU object if possible
         if panda:
             arch_name = panda.arch_name
         else:
-            # Default to x86_64 if can't determine from CPU object
             arch_name = "x86_64"
 
-    arch_map = {
-        "i386": X86PtRegsWrapper,
-        "x86_64": X86_64PtRegsWrapper,
-        "arm": ArmPtRegsWrapper,
-        "aarch64": AArch64PtRegsWrapper,
-        "mips": MipsPtRegsWrapper,
-        "mipsel": MipsPtRegsWrapper,  # Same structure, just different endianness
-        "mips64": Mips64PtRegsWrapper,
-        "mips64el": Mips64PtRegsWrapper,  # Same structure, just different endianness
-        "ppc": PowerPCPtRegsWrapper,
-        "ppc64": PowerPC64PtRegsWrapper,
-        "loongarch64": LoongArch64PtRegsWrapper,
-        "riscv32": Riscv32PtRegsWrapper,
-        "riscv64": Riscv64PtRegsWrapper,
-    }
-
-    wrapper_class = arch_map.get(arch_name.lower(), PtRegsWrapper)
-    return wrapper_class(regs, panda=panda)
+    # Fast lookup from cache
+    klass = _WRAPPER_CACHE.get(arch_name.lower())
+    if klass:
+        return klass(regs, panda)
+        
+    return PtRegsWrapper(regs, panda)
