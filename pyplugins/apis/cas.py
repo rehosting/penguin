@@ -117,15 +117,8 @@ class CPUArchState(Plugin):
             self._cached_single_cpu = None
             
             def get_cpu_fast():
-                # Lazy load: The CPU might not be initialized when plugin loads.
                 if self._cached_single_cpu is None:
-                    # Try first_cpu (Global linked list head)
-                    cpu = self.panda.libpanda.first_cpu
-                    if cpu:
-                        self._cached_single_cpu = cpu
-                    else:
-                        # Fallback to get_cpu (TLS) if list isn't ready
-                        return self.panda.libpanda.get_cpu()
+                    self._cached_single_cpu = self.panda.libpanda.get_cpu()
                 return self._cached_single_cpu
             
             self.get_cpu = get_cpu_fast
