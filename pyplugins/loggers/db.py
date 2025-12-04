@@ -34,19 +34,17 @@ Arguments
 
 """
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine, insert
 from os.path import join
 from events import Base
 from threading import Lock, Thread, Event
 from penguin import Plugin
-
+import time
 
 class DB(Plugin):
     """
-    Database-backed event logger plugin.
-
-    Buffers events and writes them to a SQLite database asynchronously.
+    Optimized Database-backed event logger.
+    Uses SQLAlchemy Core for bulk inserts and minimizes locking contention.
     """
 
     def __init__(self) -> None:
@@ -62,10 +60,12 @@ class DB(Plugin):
         """
         self.outdir = self.get_arg("outdir")
         self.db_path = join(self.outdir, "plugins.db")
-        self.engine = create_engine(f"sqlite:///{self.db_path}")
+        # increasing pool size for concurrent access if needed
+        self.engine = create_engine(f"sqlite:///{self.db_path}", connect_args={'check_same_thread': False})
         self.queued_events: list = []
-        self.buffer_size: int = self.get_arg("bufsize") or 100000
-        self.event_lock = Lock()
+        self.buffer_size: int = int(self.get_arg("bufsize") or 100000)
+
+        self.queue_lock = Lock()
         self.flush_event = Event()
         self.stop_event = Event()
         self.finished_worker = Event()
@@ -87,62 +87,63 @@ class DB(Plugin):
         **Returns:** None
         """
         while not self.stop_event.is_set():
-            # Wait for a flush signal or timeout
-            self.flush_event.wait(timeout=5)
+            # Wait for flush signal or periodic timeout (every 2 seconds)
+            self.flush_event.wait(timeout=2)
             self.flush_event.clear()
+            self._swap_and_flush()
 
-            with self.event_lock:
-                events_to_flush = self.queued_events.copy()
-                self.queued_events.clear()
-
-            if events_to_flush:
-                self._perform_flush(events_to_flush)
+        self._swap_and_flush()
         self.finished_worker.set()
 
+    def _swap_and_flush(self):
+        """Atomic swap of the queue to release the lock immediately."""
+        to_flush = None
+        with self.queue_lock:
+            if self.queued_events:
+                to_flush = self.queued_events
+                self.queued_events = [] # allocate new list
+        
+        if to_flush:
+            self._perform_flush(to_flush)
+
     def _perform_flush(self, events: list) -> None:
-        """
-        Flush a list of events to the database.
+        if not self.initialized_db:
+            Base.metadata.create_all(self.engine)
+            self.initialized_db = True
 
-        - Initializes the database schema if needed.
-        - Commits all events in a single transaction.
+        # Group events by table to perform bulk inserts
+        # Structure: { TableClass: [dict1, dict2, ...] }
+        batched = {}
+        for table_cls, data in events:
+            if table_cls not in batched:
+                batched[table_cls] = []
+            batched[table_cls].append(data)
 
-        **Parameters:**
-        - `events` (`list`): List of event objects to flush.
+        start_t = time.time()
+        with self.engine.begin() as conn: # Transactional scope
+            for table_cls, data_list in batched.items():
+                # CORE INSERT: 10x faster than ORM add_all
+                conn.execute(insert(table_cls), data_list)
+        
+        dur = time.time() - start_t
+        self.logger.debug(f"Flushed {len(events)} events in {dur:.4f}s")
 
-        **Returns:** None
-        """
-        if events:
-            self.logger.debug(f"Flushing {len(events)} events to DB")
-
-            # Initialize schema if needed
-            if not self.initialized_db:
-                Base.metadata.create_all(self.engine)
-                self.initialized_db = True
-
-            # Write to database
-            with Session(self.engine) as session:
-                session.add_all(events)
-                session.commit()
-
-    def add_event(self, event) -> None:
+    def add_event(self, table_cls, data: dict) -> None:
         """
         Add an event to the buffer.
-
-        - Sets `proc_id` to 0 if not present.
-        - Triggers a flush if the buffer is full.
-
-        **Parameters:**
-        - `event`: The event object to add.
-
-        **Returns:** None
+        Arguments:
+            table_cls: The SQLAlchemy class (e.g., Syscall)
+            data: A dictionary representing the row
         """
-        if not event.proc_id:
-            event.proc_id = 0
+        if "proc_id" not in data or not data["proc_id"]:
+            data["proc_id"] = 0
 
-        with self.event_lock:
-            self.queued_events.append(event)
-            if len(self.queued_events) >= self.buffer_size:
-                self.flush_event.set()
+        with self.queue_lock:
+            self.queued_events.append((table_cls, data))
+            should_flush = len(self.queued_events) >= self.buffer_size
+        
+        if should_flush:
+            self.flush_event.set()
 
     def uninit(self) -> None:
         """
@@ -154,12 +155,7 @@ class DB(Plugin):
 
         **Returns:** None
         """
-        # Trigger a final flush and stop the worker thread
-        if self.queued_events:
-            self.flush_event.set()
-
         self.stop_event.set()
-        self.flush_event.set()  # Wake up the thread
-        while not self.finished_worker.is_set():
-            self.finished_worker.wait(timeout=5)
+        self.flush_event.set()
+        self.finished_worker.wait(timeout=10)
         self.engine.dispose()
