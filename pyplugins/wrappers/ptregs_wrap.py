@@ -278,7 +278,7 @@ class PtRegsWrapper(Wrapper):
             raise ValueError("Cannot read memory: failed to get CPU")
 
         try:
-            data = self._panda.virtual_memory_read(cpu, addr, size)
+            data = plugins.mem.read_bytes_panda(cpu, addr, size)
             if fmt == 'bytes':
                 return data
             elif fmt == 'str':
