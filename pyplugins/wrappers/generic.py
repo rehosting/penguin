@@ -79,6 +79,9 @@ class Wrapper:
         return getattr(obj, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
+        if name in ('_obj', '_extra_attrs', '_is_dict'):
+            object.__setattr__(self, name, value)
+            return
         if self._is_dict:
             self._obj[name] = value
         else:
