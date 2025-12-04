@@ -630,8 +630,8 @@ class KFFI(Plugin):
         """
         Handles trampoline hit hypercall and invokes the registered callback with pt_regs.
         """
-        tramp_id = self.panda.arch.get_arg(cpu, 1, convention="syscall")
-        pt_regs_addr = self.panda.arch.get_arg(cpu, 2, convention="syscall")
+        tramp_id = plugins.cas.get_arg(cpu, 1, convention="syscall")
+        pt_regs_addr = plugins.cas.get_arg(cpu, 2, convention="syscall")
         if not hasattr(self, '_tramp_callbacks') or tramp_id not in self._tramp_callbacks:
             self.logger.error(f"Trampoline hit for unknown id: {tramp_id}")
             return

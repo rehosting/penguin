@@ -428,7 +428,7 @@ class Uprobes(Plugin):
         Any
             Return value from the callback, if any.
         """
-        arg = self.panda.arch.get_arg(cpu, 2, convention="syscall")
+        arg = plugins.cas.get_arg(cpu, 2, convention="syscall")
         # possible issue with registring multiple cpu _memregions
         sce = plugins.kffi.read_type_panda(cpu, arg, "portal_event")
         ptregs_addr = sce.regs.address

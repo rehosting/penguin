@@ -175,4 +175,4 @@ class SendHypercall(Plugin):
         # Send output to guest
         out_bytes = out if isinstance(out, bytes) else out.encode()
         plugins.mem.write_bytes_panda(cpu, out_addr, out_bytes)
-        self.panda.arch.set_retval(cpu, ret_val)
+        plugins.cas.set_retval(cpu, ret_val)

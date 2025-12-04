@@ -101,13 +101,13 @@ class KernelVersion(Plugin):
         new_uname = self.create_string()
 
         if new_uname == "none,none,none,none,none,none,":
-            self.panda.arch.set_retval(cpu, NO_CHANGE)
+            plugins.cas.set_retval(cpu, NO_CHANGE)
             return
 
         try:
             plugins.mem.write_bytes_panda(
                 cpu, buf_ptr, (new_uname.encode("utf-8") + b"\0")
             )
-            self.panda.arch.set_retval(cpu, 0x1)
+            plugins.cas.set_retval(cpu, 0x1)
         except ValueError:
-            self.panda.arch.set_retval(cpu, RETRY)
+            plugins.cas.set_retval(cpu, RETRY)

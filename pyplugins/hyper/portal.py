@@ -182,9 +182,9 @@ class Portal(Plugin):
 
         **Returns:** None
         """
-        self.portal_interrupt = self.panda.arch.get_arg(
+        self.portal_interrupt = plugins.cas.get_arg(
             cpu, 1, convention="syscall")
-        assert self.panda.arch.get_arg(
+        assert plugins.cas.get_arg(
             cpu, 2, convention="syscall") == 0
 
     def _portal_interrupt(self, cpu: Any) -> Iterator:
@@ -469,7 +469,7 @@ class Portal(Plugin):
         - `Callable`: Wrapped function.
         """
         iterators = {}
-        get_arg = self.panda.arch.get_arg
+        get_arg = plugins.cas.get_arg
         get_cpu = self.panda.get_cpu
         handle_input_state = self._handle_input_state
         write_portalcmd = self._write_portalcmd
@@ -549,7 +549,7 @@ class Portal(Plugin):
 
         **Returns:** None
         """
-        self.regions_size = self.panda.arch.get_arg(
+        self.regions_size = plugins.cas.get_arg(
             cpu, 1, convention="syscall")
 
     def uninit(self) -> None:
