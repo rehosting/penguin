@@ -179,6 +179,10 @@ class _BaseArchImpl:
         """Build optimized tables from standard panda.arch definitions."""
         # 1. Map Registers
         for name, idx in source_arch.registers.items():
+            # FIX: Skip reverse mappings (Index -> Name) where the key is an integer
+            if not isinstance(name, str):
+                continue
+
             u_name = name.upper()
             # Only add if subclass hasn't already defined a specialized accessor (like SP)
             if u_name not in self._reg_accessors:
