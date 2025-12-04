@@ -22,7 +22,7 @@ Usage
     from pyplugins.loggers.db import DB
 
     db_logger = DB()
-    db_logger.add_event(event)
+    db_logger.add_event(Syscall, row_dict)
     db_logger.uninit()
 
 Arguments
@@ -34,9 +34,11 @@ Arguments
 
 """
 
-from sqlalchemy import create_engine, insert
+from sqlalchemy import create_engine, insert, inspect
 from os.path import join
 from events import Base
+# Import the Base Event class for inheritance checks (aliased to avoid conflict with threading.Event)
+from events.base import Event as BaseEvent
 from threading import Lock, Thread, Event
 from penguin import Plugin
 import time
@@ -64,12 +66,14 @@ class DB(Plugin):
         self.engine = create_engine(f"sqlite:///{self.db_path}", connect_args={'check_same_thread': False})
         self.queued_events: list = []
         self.buffer_size: int = int(self.get_arg("bufsize") or 100000)
-
         self.queue_lock = Lock()
         self.flush_event = Event()
         self.stop_event = Event()
         self.finished_worker = Event()
         self.initialized_db = False
+        
+        # Manual ID Counter for fresh DBs (Required for Dual Core Inserts)
+        self.id_counter = 1
 
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
@@ -120,11 +124,58 @@ class DB(Plugin):
             batched[table_cls].append(data)
 
         start_t = time.time()
-        with self.engine.begin() as conn: # Transactional scope
+
+        # Open transaction
+        with self.engine.begin() as conn:
             for table_cls, data_list in batched.items():
-                # CORE INSERT: 10x faster than ORM add_all
-                conn.execute(insert(table_cls), data_list)
-        
+                
+                # GENERIC OPTIMIZATION: 
+                # If the table inherits from Event (but is not Event itself),
+                # we must perform a Split Insert (Event + Subclass).
+                # This works for Syscall, Read, Write, Exec, etc.
+                if issubclass(table_cls, BaseEvent) and table_cls is not BaseEvent:
+
+                    # 1. INSPECT POLYMORPHIC INFO
+                    # We need the discriminator value (e.g. "syscall") and column name (e.g. "type")
+                    mapper = inspect(table_cls)
+                    poly_identity = mapper.polymorphic_identity
+
+                    # Get the discriminator column name from the parent
+                    base_mapper = inspect(BaseEvent)
+                    poly_col_name = base_mapper.polymorphic_on.name
+                    
+                    batch_len = len(data_list)
+                    start_id = self.id_counter
+                    self.id_counter += batch_len
+                    
+                    event_rows = []
+                    child_rows = []
+                    
+                    # Single-pass loop to split data efficiently
+                    # zip(range) allows us to assign IDs without a separate counter increment
+                    for current_id, row in zip(range(start_id, start_id + batch_len), data_list):
+                        
+                        event_rows.append({
+                            "id": current_id, 
+                            "proc_id": row.get('proc_id', 0),
+                            "procname": row.get('procname', '[?]'),
+                            poly_col_name: poly_identity
+                        })
+                        
+                        # 2. Add 'id' to the child row
+                        row["id"] = current_id
+                        child_rows.append(row)
+
+                    # Execute Dual Inserts
+                    # Insert into parent FIRST (for Foreign Key correctness)
+                    conn.execute(insert(BaseEvent), event_rows)
+                    # Insert into child SECOND
+                    conn.execute(insert(table_cls), child_rows)
+
+                else:
+                    # Standard insert for flat tables
+                    conn.execute(insert(table_cls), data_list)
+
         dur = time.time() - start_t
         self.logger.debug(f"Flushed {len(events)} events in {dur:.4f}s")
 
