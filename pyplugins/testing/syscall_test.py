@@ -35,7 +35,8 @@ class SyscallTest(Plugin):
         syscall.retval = 43
 
     @syscalls.syscall("on_sys_ioctl_return", comm_filter="send_syscall",
-                      arg_filters=[ValueFilter.exact(0x13)])
+                      arg_filters=[ValueFilter.exact(0x13)],
+                      read_only=True)
     def ioctl_ret(self, regs, proto, syscall, fd, op, arg):
         self.ioctl_ret_num += 1
         assert fd == 0x13, f"Expected op 0x13, got {fd:#x}"
