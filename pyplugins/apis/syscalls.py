@@ -39,6 +39,8 @@ class ValueFilter:
         The bitmask for bitmask filters.
     """
 
+    __slots__ = ('filter_type', 'value', 'min_value', 'max_value', 'bitmask')
+
     def __init__(self, filter_type: int = vft.SYSCALLS_HC_FILTER_EXACT, value: int = 0,
                  min_value: int = 0, max_value: int = 0, bitmask: int = 0) -> None:
         """
@@ -269,6 +271,7 @@ class SyscallPrototype:
     nargs : int
         Number of arguments.
     """
+    __slots__ = ('name', 'types', 'names', 'args', 'unknown_args', 'nargs')
 
     def __init__(self, name: str,
                  args: Optional[List[Any]] = None, unknown_args: bool = False) -> None:
@@ -382,7 +385,7 @@ class Syscalls(Plugin):
         if unknown_args:
             args = []
         else:
-            args = syscall_data.get("args", [])
+            args = syscall_data.get("args") or []
 
         # Create prototype without syscall_nr
         sysinfo = SyscallPrototype(
@@ -444,7 +447,6 @@ class Syscalls(Plugin):
             return False
 
         pending_hooks = self._pending_hooks[:]
-
         while pending_hooks:
             # Take one item from the queue
             hook_config, func = pending_hooks.pop(0)
@@ -454,14 +456,14 @@ class Syscalls(Plugin):
             on_all = hook_config.get("on_all", False)
             is_method = hook_config.get("is_method", False)
 
-            # Store hook information for multiple lookup methods
+            # Always store 3-tuple for fast-path
             self._hooks[hook_ptr] = (on_all, func, is_method)
 
             # Track function to hook pointer mappings
             self._func_to_hook_ptr[func] = hook_ptr
 
             # Store by function name if available
-            func_name = func.__name__ if hasattr(func, "__name__") else None
+            func_name = getattr(func, "__name__", None)
             if func_name:
                 self._name_to_hook_ptr[func_name] = hook_ptr
 
@@ -601,21 +603,18 @@ class Syscalls(Plugin):
                 instance = getattr(plugins, class_name)
                 if instance and hasattr(instance, method_name):
                     bound_method = getattr(instance, method_name)
-                    # Patch the hook_info to store the bound method for future calls
+                    # Update cache for fast-path next time
                     if hook_ptr is not None and hook_ptr in self._hooks:
-                        on_all, _, is_method_flag = self._hooks[hook_ptr] if len(self._hooks[hook_ptr]) == 3 else (*self._hooks[hook_ptr], False)
+                        on_all, _, _ = self._hooks[hook_ptr]
                         self._hooks[hook_ptr] = (on_all, bound_method, False)
                     return bound_method
                 else:
-                    self.logger.error(
-                        f"Could not find method {method_name} on instance for {f.__qualname__}")
+                    self.logger.error(f"Could not find method {method_name} on instance")
                     return None
             except AttributeError:
-                self.logger.error(
-                    f"Could not find instance for class {class_name} from {f.__qualname__}")
+                self.logger.error(f"Could not find instance for class {class_name}")
                 return None
-        else:
-            return f
+        return f
 
     def _syscall_enter_event(self, cpu: int) -> None:
         """
@@ -668,32 +667,26 @@ class Syscalls(Plugin):
         sce, original = self._get_syscall_event(cpu, arg)
         hook_ptr = sce.hook.address
         if hook_ptr not in self._hooks:
-            self.logger.error(
-                f"Syscall event with hook pointer {hook_ptr:#x} not registered")
             return
+        on_all, f, is_method = self._hooks[hook_ptr]
         proto = self._get_proto(cpu, sce)
-
-        # Unpack hook information - now includes is_method flag
-        hook_info = self._hooks[hook_ptr]
-        if len(hook_info) == 3:
-            on_all, f, is_method = hook_info
-        else:
-            # Backward compatibility for old format
-            on_all, f = hook_info
-            is_method = False
-        pt_regs_raw = yield from plugins.kffi.read_type(
-            sce.regs.address, "pt_regs")
+        pt_regs_raw = yield from plugins.kffi.read_type(sce.regs.address, "pt_regs")
         pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
-        args = None
         if on_all or proto is None or sce.argc == 0:
             args = (pt_regs, proto, sce)
         else:
             sysargs = [sce.args[i] for i in range(sce.argc)]
             args = (pt_regs, proto, sce, *sysargs)
-
-        # Use the new helper to resolve the function to call
-        fn_to_call = self._resolve_syscall_callback(f, is_method, hook_ptr)
-        result = fn_to_call(*args)
+        # Fast path: already bound or standard function
+        if not is_method:
+            result = f(*args)
+        else:
+            # Slow path: resolve, bind, cache
+            fn_to_call = self._resolve_syscall_callback(f, is_method, hook_ptr)
+            if fn_to_call:
+                result = fn_to_call(*args)
+            else:
+                return
         if isinstance(result, Iterator):
             result = yield from result
         new = sce.to_bytes()
@@ -751,7 +744,7 @@ class Syscalls(Plugin):
         for i in range(6):  # IGLOO_SYSCALL_MAXARGS
             if i < len(arg_filters) and arg_filters[i] is not None:
                 arg_filter = arg_filters[i]
-                if type(arg_filter).__name__ == 'ValueFilter':
+                if arg_filter.__class__.__name__ == 'ValueFilter':
                     # Complex filter
                     sch.arg_filters[i].enabled = True
                     sch.arg_filters[i].type = arg_filter.filter_type
