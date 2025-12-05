@@ -481,7 +481,10 @@ class Portal(Plugin):
         - `Callable`: Wrapped function.
         """
         iterators = {}
-        get_arg = self.panda.arch.get_arg
+        syscall_convention = self.panda.arch.call_conventions["syscall"]
+        cpu_memregion_reg = syscall_convention[3]
+        op_reg = syscall_convention[4]
+        get_reg = self.panda.arch.get_reg
         get_cpu = self._get_cpu
         handle_input_state = self._handle_input_state
         write_portalcmd = self._write_portalcmd
@@ -496,8 +499,7 @@ class Portal(Plugin):
                 self.logger.debug("Pending interrupts detected, setting interrupt")
                 self._portal_set_interrupt()
             cpu = get_cpu()
-            cpu_memregion = get_arg(
-                cpu, 3, convention="syscall")
+            cpu_memregion = get_reg(cpu, cpu_memregion_reg)
             cpum = cpu, cpu_memregion
             fn_return = None
 
@@ -515,7 +517,7 @@ class Portal(Plugin):
                 in_op = None
                 new_iterator = True
             else:
-                op = get_arg(cpu, 4, convention="syscall")
+                op = get_reg(cpu, op_reg)
                 in_op = handle_input_state(cpum, op)
                 new_iterator = False
 
