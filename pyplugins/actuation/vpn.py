@@ -425,7 +425,7 @@ class VPN(Plugin):
         MAX_PORT = 65535
         STRIDE = 1000
         # How many small increments to try? (e.g., try base ports x to x+9)
-        MAX_OFFSET_ATTEMPTS = 10 
+        MAX_OFFSET_ATTEMPTS = 66
 
         # Outer loop: The "shift" (0, 1, 2...)
         for small_offset in range(MAX_OFFSET_ATTEMPTS):
