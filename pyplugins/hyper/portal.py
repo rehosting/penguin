@@ -160,6 +160,7 @@ class Portal(Plugin):
         if conf and "core" in conf:
             smp = int(conf["core"].get("smp", 1))
         if smp == 1:
+            self._cached_single_cpu = None
             def get_cpu_fast():
                 if self._cached_single_cpu is None:
                     self._cached_single_cpu = self.panda.get_cpu()
