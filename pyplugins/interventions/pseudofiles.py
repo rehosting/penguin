@@ -140,8 +140,26 @@ class Pseudofiles(Plugin):
         self.outdir = self.get_arg("outdir")
         self.proj_dir = self.get_arg("proj_dir")
         self.written_data = {}  # filename -> data that was written to it
+        if self.get_arg(
+                "conf") is None or "pseudofiles" not in self.get_arg("conf"):
+            raise ValueError(
+                "No 'pseudofiles' in config: {self.get_arg('conf')}")
+        self.config = self.get_arg("conf")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel(logging.DEBUG)
+        self.logging_enabled = self.get_arg("logging")
+        if self.logging_enabled is None:
+            self.logging_enabled = "all"  # Default is all logging on
+        if "all" in self.logging_enabled or "missing" in self.logging_enabled:
+            self.log_missing = True
+        else:
+            self.log_missing = False
+        self.logger.info(f"logging missing pseudofiles: {self.log_missing}")
+        if "all" in self.logging_enabled or "modeled" in self.logging_enabled:
+            self.log_modeled = True
+        else:
+            self.log_modeled = False
+        self.logger.info(f"logging modeled pseudofiles: {self.log_modeled}")
         self.did_mtd_warn = False  # Set if we've warned about misconfigured MTD devices
         # XXX: It has seemed like this should be 1 for some architectures, but
         # that can't be right?
@@ -154,12 +172,6 @@ class Pseudofiles(Plugin):
             {}
         )  # path: {event: {count: X}}. Event is like open/read/ioctl/stat/lstat.
 
-        if self.get_arg(
-                "conf") is None or "pseudofiles" not in self.get_arg("conf"):
-            raise ValueError(
-                "No 'pseudofiles' in config: {self.get_arg('conf')}")
-
-        self.config = self.get_arg("conf")
         self.devfs = []
         self.procfs = []
         self.sysfs = []
@@ -178,16 +190,26 @@ class Pseudofiles(Plugin):
         # Need to implement read, write, and IOCTLs
         # IOCTLs with symex gets scary, others are easy though?
         from hyperfile import HyperFile
-        plugins.load(
-            HyperFile,
-            {
-                "models": self.hf_config,
-                "log_file": pjoin(self.outdir, outfile_models),
-                "logger": self.logger,
-            },
-        )
+        if self.log_modeled:
+            plugins.load(
+                HyperFile,
+                {
+                    "models": self.hf_config,
+                    "log_file": pjoin(self.outdir, outfile_models),
+                    "logger": self.logger,
+                },
+            )
+        else:
+            plugins.load(
+                HyperFile,
+                {
+                    "models": self.hf_config,
+                    "logger": self.logger,
+                },
+            )
         # Clear results file - we'll update it as we go
-        self.dump_results()
+        if self.log_missing:
+            self.dump_results()
 
         plugins.subscribe(plugins.Events, "igloo_hyp_enoent", self.hyp_enoent)
 
@@ -247,6 +269,8 @@ class Pseudofiles(Plugin):
         HYP_READ = fops.HYP_READ
         hf_config = {}
         for filename, details in self.config["pseudofiles"].items():
+            if "logging" in filename:
+                continue
             hf_config[filename] = {}
 
             for targ, prefix in [
@@ -472,7 +496,8 @@ class Pseudofiles(Plugin):
             # The first time we see an IOCTL update our results on disk
             # This is just relevant if someone's watching the output during a run
             # final results are always written at the end.
-            self.dump_results()
+            if self.log_missing:
+                self.dump_results()
             self.logger.debug(f"New ioctl failure observed: {cmd:x} on {path}")
 
     def read_zero(self, filename, buffer, length, offset, details=None):
@@ -750,4 +775,5 @@ class Pseudofiles(Plugin):
             self.symex.save_results()
 
     def uninit(self):
-        self.dump_results()
+        if self.log_missing:
+            self.dump_results()
