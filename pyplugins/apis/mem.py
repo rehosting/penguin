@@ -82,7 +82,7 @@ class Mem(Plugin):
 
         # Cache get_cpu to avoid self.panda lookup
         self._get_cpu = self.panda.get_cpu
-        self.ptr_size = self.panda.bits
+        self.ptr_size = self.panda.bits // 8
         self._rsize = None
         # Bind pointer methods
         if self.panda.bits == 32:
