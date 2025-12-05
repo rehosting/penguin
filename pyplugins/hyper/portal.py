@@ -153,9 +153,20 @@ class Portal(Plugin):
         **Returns:** None
         """
         self.outdir = self.get_arg("outdir")
-        # if self.get_arg_bool("verbose"):
-        #   self.logger.setLevel("DEBUG")
-        # Set endianness format character for struct operations
+        conf = self.get_arg("conf")
+
+        # in single-cpu mode we can just cache the cpu
+        # otherwise call panda.get_cpu
+        if conf and "core" in conf:
+            smp = int(conf["core"].get("smp", 1))
+        if smp == 1:
+            def get_cpu_fast():
+                if self._cached_single_cpu is None:
+                    self._cached_single_cpu = self.panda.get_cpu()
+                return self._cached_single_cpu
+            self._get_cpu = get_cpu_fast
+        else:
+            self._get_cpu = self.panda.get_cpu
         self.endian_format = '<' if self.panda.endianness == 'little' else '>'
         self.region_header_fmt = f"{self.endian_format}IIQQ"
         self.region_header_size = kffi.sizeof("region_header")
@@ -273,7 +284,7 @@ class Portal(Plugin):
             buf = struct.pack(f"{self.endian_format}Q", value)
             try:
                 plugins.mem.write_bytes_panda(
-                    self.panda.get_cpu(), self.portal_interrupt, buf)
+                    self._get_cpu(), self.portal_interrupt, buf)
             except ValueError as e:
                 # Failures are fine, we get them on the next portal interrupt
                 # as long as we've queued an interrupt
@@ -470,7 +481,7 @@ class Portal(Plugin):
         """
         iterators = {}
         get_arg = self.panda.arch.get_arg
-        get_cpu = self.panda.get_cpu
+        get_cpu = self._get_cpu
         handle_input_state = self._handle_input_state
         write_portalcmd = self._write_portalcmd
         HYPER_RESP_READ_OK = hop.HYPER_RESP_READ_OK
