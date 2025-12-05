@@ -137,10 +137,7 @@ class VPN(Plugin):
 
         self.has_perms = geteuid() == 0
         if not self.has_perms:
-            # Non-root, but do we have CAP_NET_BIND_SERVICE?
-            with open("/proc/self/status") as f:
-                status = f.read()
-                self.has_perms = "CapInh:.*cap_net_bind_service" in status
+            self.has_perms = self._can_bind_privileged()
 
         """
         Fixed maps:
@@ -247,7 +244,7 @@ class VPN(Plugin):
             procname (str): Process name binding the port.
         """
         if port == 0:
-            # Empherial ports - not sure how to handle these
+            # Empheral ports - not sure how to handle these
             return
 
         listener_key = (sock_type, ip, port)
@@ -303,16 +300,16 @@ class VPN(Plugin):
         reason = ""
         if mapped_host_port := self.fixed_maps.get((sock_type, ip, guest_port), None):
             host_port = mapped_host_port
-            if not self.is_port_open(host_port):
+            if not self._is_port_available(host_port):
                 raise RuntimeError(
                     f"User requested to map host port {host_port} but it is not free"
                 )
             reason = "via fixed mapping"
         elif guest_port < 1024 and not self.has_perms:
-            host_port = self.find_free_port(guest_port)
+            host_port = self._find_free_port(guest_port)
             reason = f"{guest_port} is privileged and user cannot bind"
-        elif guest_port in self.mapped_ports or not self.is_port_open(guest_port):
-            host_port = self.find_free_port(guest_port)
+        elif guest_port in self.mapped_ports or not self._is_port_available(guest_port):
+            host_port = self._find_free_port(guest_port)
             reason = f"{guest_port} is already in use"
 
         if self.exposed_ip:
@@ -410,33 +407,71 @@ class VPN(Plugin):
 
         return host_port
 
-    @staticmethod
-    def find_free_port(port: int) -> int:
+    def _find_free_port(self, requested_port: int) -> int:
         '''
         Find a free port on the host, preferring deterministic offsets.
+        
+        Logic:
+        1. Check strides of 1000 (port, port+1000, port+2000...)
+        2. If failed, increment offset by 1 and check strides again (port+1, port+1001...)
+        3. Enforce privileged port permissions.
+        4. Fallback to random OS-assigned port.
 
         Args:
-            port (int): Guest port to map from.
+            requested_port (int): Guest port to map from.
         Returns:
             int: Free host port.
         '''
-        for offset in range(1000, 65535, 1000):
-            if (offset+port) <= 65535 and VPN.is_port_open(offset + port):
-                return offset + port
+        MAX_PORT = 65535
+        STRIDE = 1000
+        # How many small increments to try? (e.g., try base ports x to x+9)
+        MAX_OFFSET_ATTEMPTS = 10 
 
-        """
-        Fail back to any free port
-        https://stackoverflow.com/a/45690594
-        """
-        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-            s.bind(("localhost", 0))
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            return s.getsockname()[1]
+        # Outer loop: The "shift" (0, 1, 2...)
+        for small_offset in range(MAX_OFFSET_ATTEMPTS):
+            
+            # Inner loop: The "stride" (0, 1000, 2000...)
+            # We calculate how many 1000s fit into the remaining port space
+            base_port = requested_port + small_offset
+            
+            if base_port > MAX_PORT:
+                break
+
+            current_port = base_port
+            while current_port <= MAX_PORT:
+                
+                # Check 1: Privileged Port Guard
+                # If port is <= 1024 and we lack perms, skip it immediately.
+                if current_port <= 1024 and not self.has_perms:
+                    current_port += STRIDE
+                    continue
+
+                # Check 2: Availability
+                # We use a helper to try and bind. 
+                # Note: Your original code used VPN.is_port_available. 
+                # Ensure that function checks if the port is FREE (bindable), not just if it has a listener.
+                if self._is_port_available(current_port):
+                    return current_port
+
+                current_port += STRIDE
+
+        # Fallback: Ask OS for a random ephemeral port
+        return self._get_random_port()
 
     @staticmethod
-    def is_port_open(port: int) -> bool:
+    def _can_bind_privileged(port=43) -> bool:
+        s = socket.socket()
+        try:
+            s.bind(("", port))
+            s.close()
+            return True
+        except PermissionError:
+            return False
+
+    @staticmethod
+    def _is_port_available(port: int) -> bool:
         """
-        Check if a port is open on localhost.
+        Check if a port is available to bind on localhost.
 
         Args:
             port (int): Port to check.
@@ -444,7 +479,22 @@ class VPN(Plugin):
             bool: True if port is open, False otherwise.
         """
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
-            return sock.connect_ex(("localhost", port))
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind(("localhost", port))
+                return True
+            except (socket.error, OSError):
+                return False
+
+    @staticmethod
+    def _get_random_port() -> int:
+        """
+        Bind to port 0 to let the OS assign an ephemeral port.
+        """
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+            s.bind(("localhost", 0))
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            return s.getsockname()[1]
 
     def uninit(self) -> None:
         """
