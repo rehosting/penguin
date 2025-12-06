@@ -13,7 +13,7 @@ The following penguin plugins are currently supported. Each is documented below.
 * [Pseudofiles](#pseudofiles): Model and monitor interactions to devices in `/dev` `/proc` and `/sys`
 * [Shell](#shell): Track behavior of shell scripts including lines executed
 * [VPNguin](#vpnguin): Bridge network connections to networked guest processes
-* [Zap](#zap): **Currently disabled** Network scanning of guest web applications
+* [ZAP](#zap): **Currently disabled** Network scanning of guest web applications
 
 ## Coverage
 This plugin tracks the module and offset block level coverage of all binaries
@@ -31,7 +31,7 @@ If an env value is set to the magic string `DYNVALDYNVALDYNVAL` a dynamic analys
 to detect comparisons between this magic string and any other string will be enabled.
 The results of this analysis will be stored in `env_cmp.txt`
 
-In a config file, a user may add key-value pairs into the `env` filed to set new
+In a config file, a user may add key-value pairs into the `env` field to set new
 values into the linux environment. Note that a number of required internal variables
 (e.g., `root=/dev/vda`) will added to the system's arguments _after_ any arguments you specify here.
 
@@ -51,7 +51,7 @@ reported in `iface.log`.
 Change output of uname syscall.
 Config Options:
 - `sysname`: changes operating system name
-- `nodename`: changtes network node hostname
+- `nodename`: changes network node hostname
 - `release`: changes the kernel release
 - `kversion`: changes the kernel version
 - `machine`: changes the machine hardware name

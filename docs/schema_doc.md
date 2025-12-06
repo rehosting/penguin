@@ -700,10 +700,10 @@ How to handle writes to the file
 |__Type__|string|
 
 
-##### `pseudofiles.<string>.write.<model=from_plugin>` Read from a custom PyPlugin
+##### `pseudofiles.<string>.write.<model=from_plugin>` Write to a custom PyPlugin
 
 
-###### `pseudofiles.<string>.write.<model=from_plugin>.model` Write modelling method (read from a custom pyplugin)
+###### `pseudofiles.<string>.write.<model=from_plugin>.model` Write modelling method (write to a custom pyplugin)
 
 |||
 |-|-|

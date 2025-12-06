@@ -442,7 +442,7 @@ Write = _union(
         ),
         dict(
             discrim_val="from_plugin",
-            title="Read from a custom PyPlugin",
+            title="Write to a custom PyPlugin",
             description=None,
             fields=(
                 ("plugin", str, Field(title="Name of the loaded PyPlugin")),
@@ -631,7 +631,7 @@ class LibInject(PartialModelMixin, BaseModel):
         Field(
             None,
             title="Function names to alias to existing library function shims",
-            descriptions="Mapping between new names (e.g., my_nvram_get) and existing library function shims (e.g., nvram_get)",
+            description="Mapping between new names (e.g., my_nvram_get) and existing library function shims (e.g., nvram_get)",
         ),
     ]
 
