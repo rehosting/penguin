@@ -439,8 +439,8 @@ class VPN(Plugin):
             current_port = base_port
             while current_port <= MAX_PORT:
                 # Check 1: Privileged Port Guard
-                # If port is <= 1024 and we lack perms, skip it immediately.
-                if current_port <= 1024 and not self.has_perms:
+                # If port is < 1024 and we lack perms, skip it immediately.
+                if current_port < 1024 and not self.has_perms:
                     current_port += STRIDE
                     continue
 
