@@ -410,7 +410,7 @@ class VPN(Plugin):
     def _find_free_port(self, requested_port: int) -> int:
         '''
         Find a free port on the host, preferring deterministic offsets.
-        
+
         Logic:
         1. Check strides of 1000 (port, port+1000, port+2000...)
         2. If failed, increment offset by 1 and check strides again (port+1, port+1001...)
@@ -429,17 +429,15 @@ class VPN(Plugin):
 
         # Outer loop: The "shift" (0, 1, 2...)
         for small_offset in range(MAX_OFFSET_ATTEMPTS):
-            
             # Inner loop: The "stride" (0, 1000, 2000...)
             # We calculate how many 1000s fit into the remaining port space
             base_port = requested_port + small_offset
-            
+
             if base_port > MAX_PORT:
                 break
 
             current_port = base_port
             while current_port <= MAX_PORT:
-                
                 # Check 1: Privileged Port Guard
                 # If port is <= 1024 and we lack perms, skip it immediately.
                 if current_port <= 1024 and not self.has_perms:
@@ -447,8 +445,8 @@ class VPN(Plugin):
                     continue
 
                 # Check 2: Availability
-                # We use a helper to try and bind. 
-                # Note: Your original code used VPN.is_port_available. 
+                # We use a helper to try and bind.
+                # Note: Your original code used VPN.is_port_available.
                 # Ensure that function checks if the port is FREE (bindable), not just if it has a listener.
                 if self._is_port_available(current_port):
                     return current_port
