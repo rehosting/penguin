@@ -121,6 +121,11 @@ class PtRegsWrapper(Wrapper):
         object.__setattr__(self, '_is_dict', False)  # pt_regs is never a dict
         self._panda = panda
 
+    @property
+    def REG_NAMES(self) -> List[str]:
+        """Returns a list of all valid register names for this architecture."""
+        return list(self._ACCESSORS.keys())
+
     def get_register(self, reg_name: str) -> Optional[int]:
         """Get register value by name (Optimized)."""
         # Fast path: Dictionary lookup + Direct Call
