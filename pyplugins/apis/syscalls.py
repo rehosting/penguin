@@ -472,7 +472,6 @@ class Syscalls(Plugin):
             # Track function to hook pointer mappings
             self._func_to_hook_ptr[func] = hook_ptr
 
-
     '''
     On repeated calls to the same syscall in portal we produce new
     syscall_event objects. However, it doesn't update the version of the object
@@ -1006,6 +1005,15 @@ class Syscalls(Plugin):
             self.logger.error("Function not registered as a syscall hook")
             return False
         hook_ptr = self._func_to_hook_ptr[func]
+
+        # This is meant to mark the hook as disabled
+        if hook_ptr in self._hooks:
+            self._hooks[hook_ptr] = None
+        else:
+            self.logger.error(f"Hook pointer 0x{hook_ptr:x} not found in internal hooks when attempting to disable")
+            return False
+
+        # Note that if called from within a syscall handler this will actually defer unregistration
         retval = yield from plugins.kffi.call_kernel_function("unregister_syscall_hook", hook_ptr)
         if retval != 0:
             self.logger.error(f"Failed to unregister syscall hook 0x{hook_ptr:x} ({func}) with kffi")

@@ -25,8 +25,10 @@ class SyscallTest(Plugin):
         self.ioctl_ret_num = 0
         self.ioctl_ret2_num = 0
         self.ioctl_ret3_num = 0
+        self.getpids = 0  # For unregister test
         syscalls.syscall("on_sys_ioctl_enter", comm_filter="send_syscall",
                          arg_filters=[None, 0xabcd])(self.test_skip_retval)
+        self.getpid_hook = syscalls.syscall("on_sys_getpid_return")(self.getpid)
 
     def test_skip_retval(self, regs, proto, syscall, fd, op, arg):
         assert fd == 9, f"Expected fd 9, got {fd:#x}"
@@ -72,7 +74,6 @@ class SyscallTest(Plugin):
         with open(join(self.outdir, "syscall_test.txt"), "a") as f:
             f.write("Syscall ioctl_noret: failure\n")
 
-    @syscalls.syscall("on_sys_getpid_return")
     def getpid(self, regs, proto, syscall, *args):
         # NOTE: We've removed this check because it was causing issues
         # It doesn't seem to indicate anything negative so we're skipping it
@@ -86,6 +87,8 @@ class SyscallTest(Plugin):
         if "send_syscall" in self.panda.get_process_name(self.panda.get_cpu()):
             self.success_getpid = True
             self.report_getpid()
+            yield from self.plugins.syscalls.unregister_syscall_hook(self.getpid_hook)
+            self.getpids += 1
 
     @syscalls.syscall("on_sys_clone_enter")
     def syscall_test(self, regs, proto, syscall, *args):
@@ -150,6 +153,13 @@ class SyscallTest(Plugin):
             self.logger.info(f"Syscall getpid test: {result}")
             f.write(f"Syscall getpid test: {result}\n")
 
+    def report_unregister(self):
+        with open(join(self.outdir, "syscall_test.txt"), "a") as f:
+            result = "passed" if self.getpids == 1 else "failed"
+            self.logger.info(f"Syscall unregister test: {result} (getpid hook called {self.getpids} times)")
+            f.write(f"Syscall unregister test: {result}\n")
+
     def uninit(self):
         self.report_clone()
         self.report_getpid()
+        self.report_unregister()

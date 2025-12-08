@@ -34,6 +34,10 @@ plugins:
         type: file_contains
         file: syscall_test.txt
         string: "Syscall ioctl_reg3: success 1"
+      syscall_hypercall+unregister:
+        type: file_contains
+        file: syscall_test.txt
+        string: "Syscall unregister test: passed"
 
 static_files:
   /tests/syscall.sh:
@@ -46,8 +50,8 @@ static_files:
       /igloo/utils/send_syscall ioctl 0x13 0x0 0x1
       /igloo/utils/send_syscall ioctl 0x13 0x1234 0xabce
       /igloo/utils/send_syscall ioctl 0x13 0x1234 0xabcd
-      
-      /igloo/utils/send_syscall ioctl 0x9  0xabcd 
+
+      /igloo/utils/send_syscall ioctl 0x9  0xabcd
 
       if [ $? -ne 43 ]; then
         echo "Error: send_syscall retval enter failed"
@@ -60,6 +64,7 @@ static_files:
         exit 1
       fi
       /igloo/utils/send_syscall getpid
+      /igloo/utils/send_syscall getpid # This one should not get through because we'll unregister
       echo "Syscall test: passed"
         exit 0
       fi
