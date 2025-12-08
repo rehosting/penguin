@@ -238,8 +238,6 @@ class StackUnwinder(Plugin):
             name = m.name
             if (not name or name == "[anonymous]" or name == "/dev/zero") and last_named_map:
                 if m.base - (last_named_map.base + last_named_map.size) < 0x2000:
-                    self.logger.debug(
-                        f"  Stitching {m.base:#x} to {last_named_map.name}")
                     m.name = last_named_map.name
                     name = m.name
             if name and not name.startswith("[") and name != "/dev/zero":
