@@ -41,6 +41,73 @@ class Symbols(Plugin):
 
         self._symbols_cache: Optional[Dict[str, Any]] = None
         self._symbols_loaded = False
+    
+    def load_symbols(self, path: str) -> Dict[str, int]:
+        """
+        Force-loads symbols for a binary into the cache.
+        Useful for pre-warming the cache or debugging what symbols are detected.
+        """
+        # 1. Resolve Path
+        resolved_path = path
+        if '*' not in path:
+            resolved_path = self._resolve_staticfs_symlink(path)
+
+        # 2. Check if already cached
+        db = self._load_symbols_db()
+        if db and resolved_path in db:
+            return db[resolved_path]
+
+        # 3. Trigger a dummy lookup to force population
+        # We pass a dummy symbol that likely doesn't exist to trigger the full scan logic
+        # logic inside _scan_nm and _scan_file_fallback populates the cache for ALL symbols found
+        self.lookup(path, "__FORCE_LOAD_TRIGGER__")
+        
+        # 4. Return the now-populated cache
+        db = self._load_symbols_db()
+        return db.get(resolved_path, {})
+    
+    def resolve_offset(self, path: str, offset: int) -> Optional[Tuple[str, int]]:
+        """
+        Reverse lookup: Given a file offset, find the nearest preceding symbol.
+        Returns (SymbolName, DistanceFromStart)
+        
+        Example: resolve_offset("/bin/httpd", 0x4005) -> ("main", 5)
+        """
+        symbols = self.load_symbols(path)
+        if not symbols:
+            return None
+
+        best_symbol = None
+        best_offset = -1
+        min_dist = float('inf')
+
+        # Linear scan is fast enough for symbol tables (usually <10k entries)
+        for name, sym_offset in symbols.items():
+            if sym_offset <= offset:
+                dist = offset - sym_offset
+                if dist < min_dist:
+                    min_dist = dist
+                    best_symbol = name
+                    best_offset = sym_offset
+        
+        if best_symbol:
+            return best_symbol, min_dist
+            
+        return None
+    
+    def list_symbols(self, path: str, filter_str: Optional[str] = None) -> List[str]:
+        """
+        Returns a list of all symbol names found in the binary.
+        Optional filter_str performs a substring match.
+        """
+        symbols = self.load_symbols(path)
+        if not symbols:
+            return []
+            
+        if filter_str:
+            return [name for name in symbols.keys() if filter_str in name]
+        
+        return list(symbols.keys())
 
     def lookup(self, path: str, symbol: str) -> Tuple[Optional[str], Optional[int]]:
         """
