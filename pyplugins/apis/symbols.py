@@ -354,11 +354,7 @@ class Symbols(Plugin):
         is_temp = False
 
         try:
-            try:
-                fs = plugins.static_fs
-            except AttributeError:
-                self.logger.error("StaticFS plugin not available.")
-                return None, None
+            fs = plugins.static_fs
 
             f = fs.open(path)
             if not f:
@@ -431,10 +427,7 @@ class Symbols(Plugin):
         image_base = 0
 
         try:
-            try:
-                fs = plugins.static_fs
-            except AttributeError:
-                return None, None
+            fs = plugins.static_fs
 
             f = fs.open(lookup_path)
             if not f:
@@ -677,10 +670,7 @@ class Symbols(Plugin):
         return symbols
 
     def _resolve_staticfs_symlink(self, path: str) -> str:
-        try:
-            fs = plugins.static_fs
-        except AttributeError:
-            return path
+        fs = plugins.static_fs
 
         current_path = path if path.startswith("/") else "/" + path
         visited = set()
