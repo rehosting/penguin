@@ -244,7 +244,7 @@ class VPN(Plugin):
             procname (str): Process name binding the port.
         """
         if port == 0:
-            # Empheral ports - not sure how to handle these
+            # Ephemeral ports - not sure how to handle these
             return
 
         listener_key = (sock_type, ip, port)
@@ -427,6 +427,9 @@ class VPN(Plugin):
         # How many small increments to try? (e.g., try base ports x to x+9)
         MAX_OFFSET_ATTEMPTS = 66
 
+        if requested_port > MAX_PORT:
+            return self._get_random_port()
+
         # Outer loop: The "shift" (0, 1, 2...)
         for small_offset in range(MAX_OFFSET_ATTEMPTS):
             # Inner loop: The "stride" (0, 1000, 2000...)
@@ -446,8 +449,8 @@ class VPN(Plugin):
 
                 # Check 2: Availability
                 # We use a helper to try and bind.
-                # Note: Your original code used VPN.is_port_available.
-                # Ensure that function checks if the port is FREE (bindable), not just if it has a listener.
+                # Check if the port is available for binding.
+                # This ensures the port is free and not currently in use.
                 if self._is_port_available(current_port):
                     return current_port
 
@@ -457,13 +460,22 @@ class VPN(Plugin):
         return self._get_random_port()
 
     @staticmethod
-    def _can_bind_privileged(port=43) -> bool:
-        s = socket.socket()
+    def _can_bind_privileged(port: int = 43) -> bool:
+        """
+        Check if the process can bind to a privileged port.
+
+        Args:
+            port (int): Port to check for privileged binding. Defaults to 43 (WHOIS).
+                        Used because it is rarely used by standard services.
+        Returns:
+            bool: True if binding is permitted, False otherwise.
+        """
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            s.bind(("", port))
+            s.bind(("localhost", port))
             s.close()
             return True
-        except PermissionError:
+        except (PermissionError, OSError):
             return False
 
     @staticmethod
@@ -481,7 +493,7 @@ class VPN(Plugin):
             try:
                 sock.bind(("localhost", port))
                 return True
-            except (socket.error, OSError):
+            except OSError:
                 return False
 
     @staticmethod
@@ -490,8 +502,8 @@ class VPN(Plugin):
         Bind to port 0 to let the OS assign an ephemeral port.
         """
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-            s.bind(("localhost", 0))
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("localhost", 0))
             return s.getsockname()[1]
 
     def uninit(self) -> None:
