@@ -5,7 +5,7 @@
 
 from penguin import plugins, Plugin
 import json
-from typing import Dict, List, Any, Callable, Optional, Iterator
+from typing import Dict, List, Any, Callable, Optional, Iterator, Generator
 from hyper.consts import value_filter_type as vft
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import igloo_base_hypercalls as bconsts
@@ -334,7 +334,6 @@ class Syscalls(Plugin):
 
         # Track function -> hook_ptr and name -> hook_ptr for easier lookup
         self._func_to_hook_ptr = {}  # Maps functions to hook pointers
-        self._name_to_hook_ptr = {}  # Maps function names to hook pointers
 
         # Syscall type information - using dictionary for fast name-based
         # lookups
@@ -473,10 +472,6 @@ class Syscalls(Plugin):
             # Track function to hook pointer mappings
             self._func_to_hook_ptr[func] = hook_ptr
 
-            # Store by function name if available
-            func_name = getattr(func, "__name__", None)
-            if func_name:
-                self._name_to_hook_ptr[func_name] = hook_ptr
 
     '''
     On repeated calls to the same syscall in portal we produce new
@@ -993,3 +988,36 @@ class Syscalls(Plugin):
             return func
 
         return decorator
+
+    def unregister_syscall_hook(self, func: Callable) -> Generator[bool, None, None]:
+        """
+        Unregister a syscall hook.
+        Parameters
+        ----------
+        func : Callable
+            The handle for the syscall hook to unregister.
+
+        Returns
+        -------
+        bool
+            True if unregistered successfully, False otherwise.
+        """
+        if func not in self._func_to_hook_ptr:
+            self.logger.error("Function not registered as a syscall hook")
+            return False
+        hook_ptr = self._func_to_hook_ptr[func]
+        retval = yield from plugins.kffi.call_kernel_function("unregister_syscall_hook", hook_ptr)
+        if retval != 0:
+            self.logger.error(f"Failed to unregister syscall hook 0x{hook_ptr:x} ({func}) with kffi")
+            # Even though this failed we will attempt to clean up internal state instead of bailing
+
+        try:
+            self._hooks.pop(hook_ptr, None)
+            self._func_to_hook_ptr.pop(func, None)
+            self._hook_info.pop(hook_ptr, None)
+            self._hook_proto_cache.pop(hook_ptr, None)
+        except Exception as e:
+            self.logger.error(f"Error cleaning up internal state for hook 0x{hook_ptr:x} ({func}): {e}")
+            return False
+
+        return retval == 0
