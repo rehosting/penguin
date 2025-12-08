@@ -1,4 +1,58 @@
 """
+Symbols Plugin (symbols.py) for Penguin
+=======================================
+
+This module provides the Symbols plugin for the Penguin framework, serving as a robust,
+centralized service for resolving binary symbols to file offsets. It allows other plugins
+and scripts to locate functions and variables within guest executables and shared libraries,
+even in challenging scenarios like stripped binaries or non-standard architectures.
+
+Features
+--------
+
+- **Robust Forward Lookup:** Resolves symbol names to file offsets using a tiered strategy:
+  1. Pre-computed JSON cache (fastest).
+  2. Native ``nm`` utility (static and dynamic tables).
+  3. PyELFtools (section parsing).
+  4. Manual PT_DYNAMIC segment parsing (handles "sstripped" binaries with no section headers).
+  5. ``readelf`` fallbacks, including MIPS GOT scraping for embedded targets.
+- **Reverse Resolution:** Maps file offsets back to the nearest symbol name (useful for stack trace generation).
+- **Introspection:** Methods to list, filter, and bulk-load symbols for specific binaries.
+- **Architecture Aware:** Automatically handles absolute addressing (ET_EXEC) vs relative offsets (ET_DYN) and architecture-specific symbol tables.
+
+Example Usage
+-------------
+
+.. code-block:: python
+
+    from penguin import plugins
+
+    # 1. Forward Lookup: Get the binary path and file offset for a function
+    #    (Useful for placing hooks or uprobes)
+    path, offset = plugins.Symbols.lookup("/usr/bin/httpd", "httpGetEnv")
+    if offset:
+        print(f"Function located at offset {hex(offset)} in {path}")
+
+    # 2. Reverse Lookup: Identify a function from a crash/instruction pointer
+    #    Returns tuple: (SymbolName, BytesFromStartOfSymbol)
+    result = plugins.Symbols.resolve_offset("/usr/lib/libc.so.0", 0x12345)
+    if result:
+        name, dist = result
+        print(f"Offset is inside {name} + {dist} bytes")
+
+    # 3. List Symbols: Find interesting functions containing "ssl"
+    ssl_funcs = plugins.Symbols.list_symbols("/usr/lib/libssl.so", filter_str="ssl")
+
+    # 4. Bulk Load: Pre-warm the cache for a binary
+    plugins.Symbols.load_symbols("/bin/busybox")
+
+Purpose
+-------
+
+The Symbols plugin bridges the gap between high-level analysis names (functions) and low-level
+binary offsets required for instrumentation, hooking, and static analysis. It is specifically
+engineered to handle embedded firmware peculiarities, such as stripped section headers and
+GOT-only symbols.
 """
 
 import os
