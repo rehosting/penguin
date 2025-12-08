@@ -693,7 +693,7 @@ class Syscalls(Plugin):
         # 1. Get Event Object (No bytes serialization yet)
         sce = self._get_syscall_event(cpu, arg)
         hook_ptr = sce.hook.address
-        if hook_ptr not in self._hooks:
+        if hook_ptr not in self._hooks or self._hooks[hook_ptr] is None:
             return
 
         # 2. Unpack Hook Data including read_only flag
@@ -1012,6 +1012,7 @@ class Syscalls(Plugin):
         else:
             self.logger.error(f"Hook pointer 0x{hook_ptr:x} not found in internal hooks when attempting to disable")
             return False
+            yield
 
         # Note that if called from within a syscall handler this will actually defer unregistration
         retval = yield from plugins.kffi.call_kernel_function("unregister_syscall_hook", hook_ptr)
@@ -1027,5 +1028,6 @@ class Syscalls(Plugin):
         except Exception as e:
             self.logger.error(f"Error cleaning up internal state for hook 0x{hook_ptr:x} ({func}): {e}")
             return False
+            yield
 
         return retval == 0
