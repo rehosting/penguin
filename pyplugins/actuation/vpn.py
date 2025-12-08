@@ -424,7 +424,7 @@ class VPN(Plugin):
         '''
         MAX_PORT = 65535
         STRIDE = 1000
-        # How many small increments to try? (e.g., try base ports x to x+9)
+        # How many small increments to try? (e.g., try base ports x to x+65)
         MAX_OFFSET_ATTEMPTS = 66
 
         if requested_port > MAX_PORT:
@@ -460,33 +460,39 @@ class VPN(Plugin):
         return self._get_random_port()
 
     @staticmethod
-    def _can_bind_privileged(port: int = 43) -> bool:
+    def _can_bind_privileged() -> bool:
         """
         Check if the process can bind to a privileged port.
+        Tries multiple obscure privileged ports to distinguish between
+        permission errors and port collisions.
 
-        Args:
-            port (int): Port to check for privileged binding. Defaults to 43 (WHOIS).
-                        Used because it is rarely used by standard services.
         Returns:
             bool: True if binding is permitted, False otherwise.
         """
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            s.bind(("localhost", port))
-            s.close()
-            return True
-        except (PermissionError, OSError):
-            return False
+        # Try a few unlikely ports to rule out accidental collisions
+        # 43 (WHOIS), 79 (FINGER), 113 (IDENT), 514 (SHELL)
+        for port in [43, 79, 113, 514]:
+            try:
+                with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+                    s.bind(("localhost", port))
+                    return True
+            except PermissionError:
+                return False
+            except OSError:
+                # Likely EADDRINUSE, try next
+                continue
+        # If we couldn't bind to ANY of them, we assume we can't
+        return False
 
     @staticmethod
     def _is_port_available(port: int) -> bool:
         """
-        Check if a port is available to bind on localhost.
+        Check if a port is available for binding.
 
         Args:
             port (int): Port to check.
         Returns:
-            bool: True if port is open, False otherwise.
+            bool: True if port is available for binding, False otherwise.
         """
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -500,6 +506,9 @@ class VPN(Plugin):
     def _get_random_port() -> int:
         """
         Bind to port 0 to let the OS assign an ephemeral port.
+
+        Returns:
+            int: The ephemeral port assigned by the OS.
         """
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
