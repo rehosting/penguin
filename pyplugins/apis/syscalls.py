@@ -1016,7 +1016,7 @@ class Syscalls(Plugin):
 
         # Note that if called from within a syscall handler this will actually defer unregistration
         retval = yield PortalCmd("unregister_syscall_hook", hook_ptr)
-        if retval != 0:
+        if retval != 1:
             self.logger.error(f"Failed to unregister syscall hook 0x{hook_ptr:x} ({func}) with kffi")
             # Even though this failed we will attempt to clean up internal state instead of bailing
 
