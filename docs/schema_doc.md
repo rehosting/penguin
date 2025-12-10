@@ -505,41 +505,22 @@ How to handle reads from the file
 ##### `pseudofiles.<string>.read.<model=zero>` Read a zero
 
 
-###### `pseudofiles.<string>.read.<model=zero>.model` Read modelling method (read a zero)
-
-|||
-|-|-|
-|__Type__|`"zero"`|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"zero"`||Read modelling method (read a zero)|
 ##### `pseudofiles.<string>.read.<model=empty>` Read empty file
 
 
-###### `pseudofiles.<string>.read.<model=empty>.model` Read modelling method (read empty file)
-
-|||
-|-|-|
-|__Type__|`"empty"`|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"empty"`||Read modelling method (read empty file)|
 ##### `pseudofiles.<string>.read.<model=const_buf>` Read a constant buffer
 
 
-###### `pseudofiles.<string>.read.<model=const_buf>.model` Read modelling method (read a constant buffer)
-
-|||
-|-|-|
-|__Type__|`"const_buf"`|
-
-
-###### `pseudofiles.<string>.read.<model=const_buf>.val` Constant buffer
-
-|||
-|-|-|
-|__Type__|string|
-
-The string with the contents of the pseudofile
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"const_buf"`||Read modelling method (read a constant buffer)|
+|`val`|string||Pseudofile contents|
 ##### `pseudofiles.<string>.read.<model=const_map>` Read a constant map
 
 
@@ -626,55 +607,24 @@ When this is a list of integers, it treated as a byte array. When this is a list
 ##### `pseudofiles.<string>.read.<model=from_file>` Read from a host file
 
 
-###### `pseudofiles.<string>.read.<model=from_file>.model` Read modelling method (read from a host file)
-
-|||
-|-|-|
-|__Type__|`"from_file"`|
-
-
-###### `pseudofiles.<string>.read.<model=from_file>.filename` Path to host file
-
-|||
-|-|-|
-|__Type__|string|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"from_file"`||Read modelling method (read from a host file)|
+|`filename`|string||Path to host file|
 ##### `pseudofiles.<string>.read.<model=from_plugin>` Read from a custom PyPlugin
 
 
-###### `pseudofiles.<string>.read.<model=from_plugin>.model` Read modelling method (read from a custom pyplugin)
-
-|||
-|-|-|
-|__Type__|`"from_plugin"`|
-
-
-###### `pseudofiles.<string>.read.<model=from_plugin>.plugin` Name of the loaded PyPlugin
-
-|||
-|-|-|
-|__Type__|string|
-
-
-###### `pseudofiles.<string>.read.<model=from_plugin>.function` Function to call
-
-|||
-|-|-|
-|__Type__|string or null|
-|__Default__|`read`|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"from_plugin"`||Read modelling method (read from a custom pyplugin)|
+|`plugin`|string||Name of the loaded PyPlugin|
+|`function`|string or null|`read`|Function to call|
 ##### `pseudofiles.<string>.read.<model=default>` Default
 
 
-###### `pseudofiles.<string>.read.<model=default>.model` Read modelling method (default)
-
-|||
-|-|-|
-|__Type__|`"default"`|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"default"`||Read modelling method (default)|
 #### `pseudofiles.<string>.write` Write
 
 |||
@@ -686,65 +636,30 @@ How to handle writes to the file
 ##### `pseudofiles.<string>.write.<model=to_file>` Write to host file
 
 
-###### `pseudofiles.<string>.write.<model=to_file>.model` Write modelling method (write to host file)
-
-|||
-|-|-|
-|__Type__|`"to_file"`|
-
-
-###### `pseudofiles.<string>.write.<model=to_file>.filename` Path to host file
-
-|||
-|-|-|
-|__Type__|string|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"to_file"`||Write modelling method (write to host file)|
+|`filename`|string||Path to host file|
 ##### `pseudofiles.<string>.write.<model=from_plugin>` Read from a custom PyPlugin
 
 
-###### `pseudofiles.<string>.write.<model=from_plugin>.model` Write modelling method (read from a custom pyplugin)
-
-|||
-|-|-|
-|__Type__|`"from_plugin"`|
-
-
-###### `pseudofiles.<string>.write.<model=from_plugin>.plugin` Name of the loaded PyPlugin
-
-|||
-|-|-|
-|__Type__|string|
-
-
-###### `pseudofiles.<string>.write.<model=from_plugin>.function` Function to call
-
-|||
-|-|-|
-|__Type__|string or null|
-|__Default__|`write`|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"from_plugin"`||Write modelling method (read from a custom pyplugin)|
+|`plugin`|string||Name of the loaded PyPlugin|
+|`function`|string or null|`write`|Function to call|
 ##### `pseudofiles.<string>.write.<model=discard>` Discard write
 
 
-###### `pseudofiles.<string>.write.<model=discard>.model` Write modelling method (discard write)
-
-|||
-|-|-|
-|__Type__|`"discard"`|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"discard"`||Write modelling method (discard write)|
 ##### `pseudofiles.<string>.write.<model=default>` Default
 
 
-###### `pseudofiles.<string>.write.<model=default>.model` Write modelling method (default)
-
-|||
-|-|-|
-|__Type__|`"default"`|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"default"`||Write modelling method (default)|
 #### `pseudofiles.<string>.ioctl` ioctl
 
 |||
@@ -783,55 +698,24 @@ plugin: my_plugin
 ###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=return_const>` Return a constant
 
 
-###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=return_const>.model` ioctl modelling method (return a constant)
-
-|||
-|-|-|
-|__Type__|`"return_const"`|
-
-
-###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=return_const>.val` Constant to return
-
-|||
-|-|-|
-|__Type__|integer|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"return_const"`||ioctl modelling method (return a constant)|
+|`val`|integer||Constant to return|
 ###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=symex>` Symbolic execution
 
 
-###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=symex>.model` ioctl modelling method (symbolic execution)
-
-|||
-|-|-|
-|__Type__|`"symex"`|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"symex"`||ioctl modelling method (symbolic execution)|
 ###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>` ioctl from a custom PyPlugin
 
 
-###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>.model` ioctl modelling method (ioctl from a custom pyplugin)
-
-|||
-|-|-|
-|__Type__|`"from_plugin"`|
-
-
-###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>.plugin` Name of the loaded PyPlugin
-
-|||
-|-|-|
-|__Type__|string|
-
-
-###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>.function` Function to call
-
-|||
-|-|-|
-|__Type__|string or null|
-|__Default__|`ioctl`|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"from_plugin"`||ioctl modelling method (ioctl from a custom pyplugin)|
+|`plugin`|string||Name of the loaded PyPlugin|
+|`function`|string or null|`ioctl`|Function to call|
 ## `nvram` NVRAM
 
 |||
@@ -981,289 +865,88 @@ Files to create in the guest filesystem
 
 Add a file with contents specified inline in this config
 
-##### `static_files.<string>.<type=inline_file>.type` Type of file action (add inline file)
-
-|||
-|-|-|
-|__Type__|`"inline_file"`|
-
-
-##### `static_files.<string>.<type=inline_file>.mode` Permissions of file
-
-|||
-|-|-|
-|__Type__|integer|
-
-
-##### `static_files.<string>.<type=inline_file>.contents` Contents of file
-
-|||
-|-|-|
-|__Type__|string|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`type`|`"inline_file"`||Type of file action (add inline file)|
+|`mode`|integer||Permissions of file|
+|`contents`|string||Contents of file|
 #### `static_files.<string>.<type=host_file>` Copy host file
 
 Copy a file from the host into the guest
 
-##### `static_files.<string>.<type=host_file>.type` Type of file action (copy host file)
-
-|||
-|-|-|
-|__Type__|`"host_file"`|
-
-
-##### `static_files.<string>.<type=host_file>.mode` Permissions of file
-
-|||
-|-|-|
-|__Type__|integer|
-
-
-##### `static_files.<string>.<type=host_file>.host_path` Host path
-
-|||
-|-|-|
-|__Type__|string|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`type`|`"host_file"`||Type of file action (copy host file)|
+|`mode`|integer||Permissions of file|
+|`host_path`|string||Host path|
 #### `static_files.<string>.<type=dir>` Add directory
 
 
-##### `static_files.<string>.<type=dir>.type` Type of file action (add directory)
-
-|||
-|-|-|
-|__Type__|`"dir"`|
-
-
-##### `static_files.<string>.<type=dir>.mode` Permissions of directory
-
-|||
-|-|-|
-|__Type__|integer|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`type`|`"dir"`||Type of file action (add directory)|
+|`mode`|integer||Permissions of directory|
 #### `static_files.<string>.<type=symlink>` Add symbolic link
 
 
-##### `static_files.<string>.<type=symlink>.type` Type of file action (add symbolic link)
-
-|||
-|-|-|
-|__Type__|`"symlink"`|
-
-
-##### `static_files.<string>.<type=symlink>.target` Target linked path
-
-|||
-|-|-|
-|__Type__|string|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`type`|`"symlink"`||Type of file action (add symbolic link)|
+|`target`|string||Target linked path|
 #### `static_files.<string>.<type=dev>` Add device file
 
 
-##### `static_files.<string>.<type=dev>.type` Type of file action (add device file)
-
-|||
-|-|-|
-|__Type__|`"dev"`|
-
-
-##### `static_files.<string>.<type=dev>.devtype` Type of device file
-
-|||
-|-|-|
-|__Type__|`"char"` or `"block"`|
-
-
-##### `static_files.<string>.<type=dev>.major` Major device number
-
-|||
-|-|-|
-|__Type__|integer|
-
-
-##### `static_files.<string>.<type=dev>.minor` Minor device number
-
-|||
-|-|-|
-|__Type__|integer|
-
-
-##### `static_files.<string>.<type=dev>.mode` Permissions of device file
-
-|||
-|-|-|
-|__Type__|integer|
-
-
-```yaml
-438
-```
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`type`|`"dev"`||Type of file action (add device file)|
+|`devtype`|`"char"` or `"block"`||Type of device file|
+|`major`|integer||Major device number|
+|`minor`|integer||Minor device number|
+|`mode`|integer||Permissions of device file|
 #### `static_files.<string>.<type=delete>` Delete file
 
 
-##### `static_files.<string>.<type=delete>.type` Type of file action (delete file)
-
-|||
-|-|-|
-|__Type__|`"delete"`|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`type`|`"delete"`||Type of file action (delete file)|
 #### `static_files.<string>.<type=move>` Move file
 
 
-##### `static_files.<string>.<type=move>.type` Type of file action (move file)
-
-|||
-|-|-|
-|__Type__|`"move"`|
-
-
-##### `static_files.<string>.<type=move>.from` File to be moved to the specified location
-
-|||
-|-|-|
-|__Type__|string|
-
-
-##### `static_files.<string>.<type=move>.mode` Permissions of target file
-
-|||
-|-|-|
-|__Type__|integer or null|
-|__Default__|`null`|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`type`|`"move"`||Type of file action (move file)|
+|`from`|string||File to be moved to the specified location|
+|`mode`|integer or null|`null`|Permissions of target file|
 #### `static_files.<string>.<type=shim>` Shim file
 
 
-##### `static_files.<string>.<type=shim>.type` Type of file action (shim file)
-
-|||
-|-|-|
-|__Type__|`"shim"`|
-
-
-##### `static_files.<string>.<type=shim>.target` Target file we want the shim to be symlinked to
-
-|||
-|-|-|
-|__Type__|string|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`type`|`"shim"`||Type of file action (shim file)|
+|`target`|string||Target file we want the shim to be symlinked to|
 #### `static_files.<string>.<type=binary_patch>` Patch binary file
 
+Make a patch to a binary file at the specified offset. This can either be arbitrary bytes specified as a hex string, or assembly code that will be automatically assembled in the specified mode.
 
-##### `static_files.<string>.<type=binary_patch>.type` Type of file action (patch binary file)
-
-|||
-|-|-|
-|__Type__|`"binary_patch"`|
-
-
-##### `static_files.<string>.<type=binary_patch>.file_offset` File offset (integer)
-
-|||
-|-|-|
-|__Type__|integer|
-|__Default__|`null`|
-
-Offset in the file to patch, from the start of the file
-
-##### `static_files.<string>.<type=binary_patch>.hex_bytes` Bytes to write (hex string)
-
-|||
-|-|-|
-|__Type__|string or null|
-|__Default__|`null`|
-
-Hex string of bytes to write at the offset
-
-```yaml
-DEADBEEF
-```
-
-```yaml
-90 90
-```
-
-##### `static_files.<string>.<type=binary_patch>.asm` Assembly code to write (runs through keystone)
-
-|||
-|-|-|
-|__Type__|string or null|
-|__Default__|`null`|
-
-Assembly code to write at the offset. This will be assembled and written to the file.
-
-```yaml
-nop
-```
-
-```yaml
-'mov r0, #0xdeadbeef'
-```
-
-##### `static_files.<string>.<type=binary_patch>.mode` Assembly mode
-
-|||
-|-|-|
-|__Type__|string or null|
-|__Default__|`null`|
-
-What mode to use for assembly with asm.
-
-```yaml
-arm
-```
-
-```yaml
-thumb
-```
-
+|Field|Type|Default|Title|Examples|
+|-|-|-|-|-|
+|`type`|`"binary_patch"`||Type of file action (patch binary file)||
+|`file_offset`|integer||File offset (integer)||
+|`hex_bytes`|string or null|`null`|Bytes to write at offset (hex string)|`DEADBEEF`, `90 90`|
+|`asm`|string or null|`null`|Assembly code to write at offset (runs through keystone)|`nop`, `'mov r0, #0xdeadbeef'`|
+|`mode`|string or null|`null`|Assembly mode|`arm`, `thumb`|
 ## `plugins` Plugins
 
 
 ### `plugins.<string>` Plugin
 
 
-#### `plugins.<string>.description` Plugin description
-
-|||
-|-|-|
-|__Type__|string or null|
-|__Default__|`null`|
-
-
-#### `plugins.<string>.depends_on` Plugin dependency
-
-|||
-|-|-|
-|__Type__|string or null|
-|__Default__|`null`|
-
-
-#### `plugins.<string>.enabled` Enable plugin
-
-|||
-|-|-|
-|__Type__|boolean|
-|__Default__|`true`|
-
-Whether to enable this plugin (default depends on plugin)
-
-#### `plugins.<string>.version` Plugin version
-
-|||
-|-|-|
-|__Type__|string or null|
-|__Default__|`null`|
-
-
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`description`|string or null|`null`|Plugin description|
+|`depends_on`|string or null|`null`|Plugin dependency|
+|`enabled`|boolean|`true`|Enable this plugin (default depends on plugin)|
+|`version`|string or null|`null`|Plugin version|
 ## `network` Network Configuration
 
 |||

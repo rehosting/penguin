@@ -12,6 +12,17 @@ except ImportError:
     import structure
 
 
+def type_has_simple_name(ty):
+    """
+    Determine whether a type is a regular Python type and not a Pydantic model class.
+    """
+    try:
+        gen_docs_type_name(ty)
+        return True
+    except ValueError:
+        return False
+
+
 def gen_docs_yaml_dump(x):
     """
     Convert x to YAML for use in generated docs.
@@ -90,6 +101,26 @@ def gen_docs_field(path, docs_field, include_type=True):
         out += gen_docs_yaml_dump(e) + "\n"
         out += "```\n"
         out += "\n"
+    return out
+
+
+def gen_docs_compact_field_table(fields):
+    """
+    For fields that do not have any nested structure and only simple types,
+    generate a compact table to make the docs easier to read.
+    """
+
+    has_examples = any(field.examples for field in fields.values())
+    out = f"|Field|Type|Default|Title|{'Examples|' if has_examples else ''}\n"
+    out += f"|-|-|-|-|{'-|' if has_examples else ''}\n"
+    for name, field in fields.items():
+        field = DocsField.from_field(field)
+        # Ensure there is no extra information for this field that doesn't fit in the compact table
+        assert not field.merge_behavior and not field.description, (name, field)
+        type_name = gen_docs_type_name(field.type_)
+        default = "" if field.default is PydanticUndefined else "`" + gen_docs_yaml_dump(field.default) + "`"
+        examples = ", ".join(f"`{gen_docs_yaml_dump(example)}`" for example in field.examples)
+        out += f"|`{name}`|{type_name}|{default}|{field.title}|{examples + '|' if has_examples else ''}\n"
     return out
 
 
@@ -223,12 +254,23 @@ def gen_docs(path=[], docs_field=DocsField.from_type(structure.Main)):
     elif is_model:
         # The type inherits `BaseModel` but not `RootModel`
 
+        # Render high-level info before specific sub-fields
         out += gen_docs_field(path=path, docs_field=docs_field, include_type=False)
-        for name, info in type_.model_fields.items():
-            out += gen_docs(
-                path=path + [name],
-                docs_field=DocsField.from_field(info),
-            )
+
+        all_fields_compact = all(
+            type_has_simple_name(field.annotation) and not field.description
+            for field in type_.model_fields.values()
+        )
+        if all_fields_compact:
+            # We can render this as one compact table since there is no recursive structure here
+            out += gen_docs_compact_field_table(type_.model_fields)
+        else:
+            # Recursively render docs for each field
+            for name, info in type_.model_fields.items():
+                out += gen_docs(
+                    path=path + [name],
+                    docs_field=DocsField.from_field(info),
+                )
     elif type_origin is dict:
         # The type is `dict[T, U]`.
 

@@ -376,10 +376,7 @@ Read = _union(
                 (
                     "val",
                     str,
-                    Field(
-                        title="Constant buffer",
-                        description="The string with the contents of the pseudofile",
-                    ),
+                    Field(title="Pseudofile contents"),
                 ),
             ),
         ),
@@ -697,7 +694,7 @@ StaticFileAction = _union(
                 (
                     "mode",
                     int,
-                    Field(title="Permissions of device file", examples=[0o666]),
+                    Field(title="Permissions of device file"),
                 ),
             ),
         ),
@@ -735,24 +732,19 @@ StaticFileAction = _union(
         dict(
             discrim_val="binary_patch",
             title="Patch binary file",
-            description=None,
+            description="Make a patch to a binary file at the specified offset. This can either be arbitrary bytes specified as a hex string, or assembly code that will be automatically assembled in the specified mode.",
             fields=(
                 (
                     "file_offset",
                     int,
-                    Field(
-                        default=None,
-                        title="File offset (integer)",
-                        description="Offset in the file to patch, from the start of the file"
-                    ),
+                    Field(title="File offset (integer)"),
                 ),
                 (
                     "hex_bytes",
                     Optional[str],
                     Field(
                         default=None,
-                        title="Bytes to write (hex string)",
-                        description="Hex string of bytes to write at the offset",
+                        title="Bytes to write at offset (hex string)",
                         examples=["DEADBEEF", "90 90"],
                     ),
                 ),
@@ -761,8 +753,7 @@ StaticFileAction = _union(
                     Optional[str],
                     Field(
                         default=None,
-                        title="Assembly code to write (runs through keystone)",
-                        description="Assembly code to write at the offset. This will be assembled and written to the file.",
+                        title="Assembly code to write at offset (runs through keystone)",
                         examples=["nop", "mov r0, #0xdeadbeef"],
                     ),
                 ),
@@ -772,7 +763,6 @@ StaticFileAction = _union(
                     Field(
                         default=None,
                         title="Assembly mode",
-                        description="What mode to use for assembly with asm.",
                         examples=["arm", "thumb"],
                     ),
                 ),
@@ -824,11 +814,7 @@ class Plugin(PartialModelMixin, BaseModel):
     depends_on: Annotated[Optional[str], Field(None, title="Plugin dependency")]
     enabled: Annotated[
         bool,
-        Field(
-            True,
-            title="Enable plugin",
-            description="Whether to enable this plugin (default depends on plugin)",
-        ),
+        Field(True, title="Enable this plugin (default depends on plugin)"),
     ]
     version: Annotated[Optional[str], Field(None, title="Plugin version")]
 
