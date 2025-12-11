@@ -5,7 +5,7 @@
 
 from penguin import plugins, Plugin
 import json
-from typing import Dict, List, Any, Callable, Optional, Iterator
+from typing import Dict, List, Any, Callable, Optional, Iterator, Generator
 from hyper.consts import value_filter_type as vft
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import igloo_base_hypercalls as bconsts
@@ -334,7 +334,6 @@ class Syscalls(Plugin):
 
         # Track function -> hook_ptr and name -> hook_ptr for easier lookup
         self._func_to_hook_ptr = {}  # Maps functions to hook pointers
-        self._name_to_hook_ptr = {}  # Maps function names to hook pointers
 
         # Syscall type information - using dictionary for fast name-based
         # lookups
@@ -365,6 +364,9 @@ class Syscalls(Plugin):
         # Add a queue for pending hook registrations
         self._pending_hooks = []
         self._syscall_event = plugins.portal.wrap(self._syscall_event)
+
+        # Wrap the unregister function
+        self.unregister_syscall_hook = plugins.portal.wrap(self._do_unregister_syscall_hook)
 
     def _setup_syscall_handler(self, cpu: int) -> None:
         """
@@ -472,11 +474,6 @@ class Syscalls(Plugin):
 
             # Track function to hook pointer mappings
             self._func_to_hook_ptr[func] = hook_ptr
-
-            # Store by function name if available
-            func_name = getattr(func, "__name__", None)
-            if func_name:
-                self._name_to_hook_ptr[func_name] = hook_ptr
 
     '''
     On repeated calls to the same syscall in portal we produce new
@@ -699,7 +696,7 @@ class Syscalls(Plugin):
         # 1. Get Event Object (No bytes serialization yet)
         sce = self._get_syscall_event(cpu, arg)
         hook_ptr = sce.hook.address
-        if hook_ptr not in self._hooks:
+        if hook_ptr not in self._hooks or self._hooks[hook_ptr] is None:
             return
 
         # 2. Unpack Hook Data including read_only flag
@@ -993,3 +990,36 @@ class Syscalls(Plugin):
             return func
 
         return decorator
+
+    def _do_unregister_syscall_hook(self, func: Callable) -> None:
+        """Internal implementation of unregister_syscall_hook."""
+
+        if func not in self._func_to_hook_ptr:
+            self.logger.error("Function not registered as a syscall hook")
+            return
+
+        hook_ptr = self._func_to_hook_ptr[func]
+
+        if hook_ptr not in self._hooks:
+            self.logger.error(f"Hook pointer 0x{hook_ptr:x} not found in internal hooks when attempting to disable")
+            return
+
+        try:
+            self.logger.info("yielding unregister_syscall_hook")
+            retval = yield PortalCmd("unregister_syscall_hook", hook_ptr)
+            self.logger.info("yielded unregister_syscall_hook")
+
+            self._hooks.pop(hook_ptr, None)
+            self._func_to_hook_ptr.pop(func, None)
+            self._hook_info.pop(hook_ptr, None)
+            self._hook_proto_cache.pop(hook_ptr, None)
+
+            if retval != 0:
+                self.logger.warning(f"Kernel returned non-zero ({retval}) for unregister_syscall_hook, but proceeding with cleanup")
+
+        except Exception as e:
+            self.logger.error(f"Error unregistering syscall hook 0x{hook_ptr:x} ({func}): {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+
+        self.logger.info("_do_unregister_syscall_hook: END")
