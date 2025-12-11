@@ -365,6 +365,9 @@ class Syscalls(Plugin):
         self._pending_hooks = []
         self._syscall_event = plugins.portal.wrap(self._syscall_event)
 
+        # Wrap the unregister function
+        self.unregister_syscall_hook = plugins.portal.wrap(self._do_unregister_syscall_hook)
+
     def _setup_syscall_handler(self, cpu: int) -> None:
         """
         Handler for setting up syscall definitions.
@@ -988,46 +991,35 @@ class Syscalls(Plugin):
 
         return decorator
 
-    def unregister_syscall_hook(self, func: Callable) -> Generator[bool, None, None]:
-        """
-        Unregister a syscall hook.
-        Parameters
-        ----------
-        func : Callable
-            The handle for the syscall hook to unregister.
+    def _do_unregister_syscall_hook(self, func: Callable) -> None:
+        """Internal implementation of unregister_syscall_hook."""
 
-        Returns
-        -------
-        bool
-            True if unregistered successfully, False otherwise.
-        """
         if func not in self._func_to_hook_ptr:
             self.logger.error("Function not registered as a syscall hook")
-            return False
+            return
+
         hook_ptr = self._func_to_hook_ptr[func]
 
-        # This is meant to mark the hook as disabled
-        if hook_ptr in self._hooks:
-            self._hooks[hook_ptr] = None
-        else:
+        if hook_ptr not in self._hooks:
             self.logger.error(f"Hook pointer 0x{hook_ptr:x} not found in internal hooks when attempting to disable")
-            return False
-            yield
-
-        # Note that if called from within a syscall handler this will actually defer unregistration
-        retval = yield PortalCmd("unregister_syscall_hook", hook_ptr)
-        if retval != 1:
-            self.logger.error(f"Failed to unregister syscall hook 0x{hook_ptr:x} ({func}) with kffi")
-            # Even though this failed we will attempt to clean up internal state instead of bailing
+            return
 
         try:
+            self.logger.info("yielding unregister_syscall_hook")
+            retval = yield PortalCmd("unregister_syscall_hook", hook_ptr)
+            self.logger.info("yielded unregister_syscall_hook")
+
             self._hooks.pop(hook_ptr, None)
             self._func_to_hook_ptr.pop(func, None)
             self._hook_info.pop(hook_ptr, None)
             self._hook_proto_cache.pop(hook_ptr, None)
-        except Exception as e:
-            self.logger.error(f"Error cleaning up internal state for hook 0x{hook_ptr:x} ({func}): {e}")
-            return False
-            yield
 
-        return retval == 0
+            if retval != 0:
+                self.logger.warning(f"Kernel returned non-zero ({retval}) for unregister_syscall_hook, but proceeding with cleanup")
+
+        except Exception as e:
+            self.logger.error(f"Error unregistering syscall hook 0x{hook_ptr:x} ({func}): {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+
+        self.logger.info("_do_unregister_syscall_hook: END")

@@ -26,6 +26,7 @@ class SyscallTest(Plugin):
         self.ioctl_ret2_num = 0
         self.ioctl_ret3_num = 0
         self.getpids = 0  # For unregister test
+        self.hook_unregistered = False
         syscalls.syscall("on_sys_ioctl_enter", comm_filter="send_syscall",
                          arg_filters=[None, 0xabcd])(self.test_skip_retval)
         self.getpid_hook = syscalls.syscall("on_sys_getpid_return")(self.getpid)
@@ -75,19 +76,17 @@ class SyscallTest(Plugin):
             f.write("Syscall ioctl_noret: failure\n")
 
     def getpid(self, regs, proto, syscall, *args):
-        # NOTE: We've removed this check because it was causing issues
-        # It doesn't seem to indicate anything negative so we're skipping it
-        # proc = self.panda.plugins['osi'].get_current_process(cpu)
-        # if syscall.retval != proc.pid and syscall.retval != 0:
-        #     self.logger.error(
-        #         f"Syscall test failed: getpid returned {syscall.retval:#x}, expected {proc.pid:#x}")
-        #     self.success_getpid = False
-        #     self.report_getpid()
-        #     return
         if "send_syscall" in self.panda.get_process_name(self.panda.get_cpu()):
             self.success_getpid = True
             self.report_getpid()
-            yield from self.plugins.syscalls.unregister_syscall_hook(self.getpid_hook)
+
+            if not self.hook_unregistered:
+                result = plugins.syscalls.unregister_syscall_hook(self.getpid)
+
+                if not result:
+                    self.logger.error("Failed to unregister getpid hook!")
+
+                self.hook_unregistered = True
             self.getpids += 1
 
     @syscalls.syscall("on_sys_clone_enter")
