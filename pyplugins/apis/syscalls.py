@@ -5,7 +5,7 @@
 
 from penguin import plugins, Plugin
 import json
-from typing import Dict, List, Any, Callable, Optional, Iterator
+from typing import Dict, List, Any, Callable, Optional, Iterator, Union
 from hyper.consts import value_filter_type as vft
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import igloo_base_hypercalls as bconsts
@@ -79,10 +79,11 @@ class ValueFilter:
         The bitmask for bitmask filters.
     """
 
-    __slots__ = ('filter_type', 'value', 'min_value', 'max_value', 'bitmask')
+    __slots__ = ('filter_type', 'value', 'min_value', 'max_value', 'bitmask', 'pattern')
 
     def __init__(self, filter_type: int = vft.SYSCALLS_HC_FILTER_EXACT, value: int = 0,
-                 min_value: int = 0, max_value: int = 0, bitmask: int = 0) -> None:
+                 min_value: int = 0, max_value: int = 0, bitmask: int = 0,
+                 pattern: Optional[bytes] = None) -> None:
         """
         Initialize a ValueFilter.
 
@@ -104,6 +105,17 @@ class ValueFilter:
         self.min_value = min_value
         self.max_value = max_value
         self.bitmask = bitmask
+        self.pattern = pattern
+    
+    @classmethod
+    def _encode_pattern(cls, pattern: str) -> bytes:
+        """
+        Encodes a string pattern to bytes with a null terminator.
+        """
+        if pattern is None:
+            return None
+        # Ensure it's null-terminated for C-string safety
+        return pattern.encode('utf-8') + b'\x00'
 
     @classmethod
     def exact(cls, value: int) -> "ValueFilter":
@@ -286,6 +298,38 @@ class ValueFilter:
         """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_BITMASK_CLEAR,
                    bitmask=bitmask)
+
+    @classmethod
+    def string_exact(cls, pattern: str) -> "ValueFilter":
+        """
+        Create an exact string match filter.
+        """
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_STR_EXACT,
+                pattern=cls._encode_pattern(pattern))
+
+    @classmethod
+    def string_contains(cls, pattern: str) -> "ValueFilter":
+        """
+        Create a string contains filter.
+        """
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_STR_CONTAINS,
+                pattern=cls._encode_pattern(pattern))
+
+    @classmethod
+    def string_startswith(cls, pattern: str) -> "ValueFilter":
+        """
+        Create a string starts-with filter.
+        """
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_STR_STARTSWITH,
+                pattern=cls._encode_pattern(pattern))
+
+    @classmethod
+    def string_endswith(cls, pattern: str) -> "ValueFilter":
+        """
+        Create a string ends-with filter.
+        """
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_STR_ENDSWITH,
+                pattern=cls._encode_pattern(pattern))
 
 
 class SyscallPrototype:
@@ -777,7 +821,7 @@ class Syscalls(Plugin):
                     "bitmask": 0
                 }
             if getattr(f, "__class__", None) and f.__class__.__name__ == 'ValueFilter':
-                return {
+                res = {
                     "enabled": True,
                     "type": f.filter_type,
                     "value": f.value,
@@ -785,6 +829,10 @@ class Syscalls(Plugin):
                     "max_value": f.max_value,
                     "bitmask": f.bitmask
                 }
+                if getattr(f, 'pattern', None):
+                    res["pattern_len"] = len(f.pattern)
+                    res["pattern"] = yield from plugins.mem.copy_buf_guest(f.pattern)
+                return res
             elif isinstance(f, (int, float)):
                 return {
                     "enabled": True,
@@ -794,14 +842,26 @@ class Syscalls(Plugin):
                     "max_value": 0,
                     "bitmask": 0
                 }
+            elif isinstance(f, str):
+                # Simple exact match for strings
+                encoded = f.encode('utf-8') + b'\x00'
+                return {
+                    "enabled": True,
+                    "type": vft.SYSCALLS_HC_FILTER_STR_STARTSWITH,
+                    "value": 0,
+                    "min_value": 0,
+                    "max_value": 0,
+                    "bitmask": 0,
+                    "pattern_len": len(f),
+                    "pattern": (yield from plugins.mem.copy_buf_guest(encoded))
+                }
             return {"enabled": False}
 
         raw_arg_filters = hook_config.get("arg_filters", []) or []
-        arg_filters_init = [
-            _parse_filter(raw_arg_filters[i] if i < len(
-                raw_arg_filters) else None)
-            for i in range(6)  # IGLOO_SYSCALL_MAXARGS
-        ]
+        arg_filters_init = []
+        for i in range(6):  # IGLOO_SYSCALL_MAXARGS
+            f_val = raw_arg_filters[i] if i < len(raw_arg_filters) else None
+            arg_filters_init.append((yield from _parse_filter(f_val)))
 
         procname = hook_config.get("procname", None)
         pid_filter = hook_config.get("pid_filter", None)
@@ -821,7 +881,7 @@ class Syscalls(Plugin):
 
             # Nested structs and arrays are passed as lists of dicts
             "arg_filters": arg_filters_init,
-            "retval_filter": _parse_filter(hook_config.get("retval_filter", None))
+            "retval_filter": (yield from _parse_filter(hook_config.get("retval_filter", None)))
         }
 
         # 4. Allocate and initialize in one call!
@@ -842,7 +902,7 @@ class Syscalls(Plugin):
         comm_filter: Optional[str] = None,
         arg_filters: Optional[List[Any]] = None,
         pid_filter: Optional[int] = None,
-        retval_filter: Optional[Any] = None,
+        retval_filter: Optional[Union[ValueFilter, str, int]] = None,
         enabled: bool = True,
         read_only: bool = False
     ) -> Callable:
