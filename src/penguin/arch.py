@@ -216,6 +216,8 @@ def arch_filter(elf):
     elif arch == "ppc":
         # same for big and little
         return ArchInfo(arch="ppc", bits=_elf_bits(elf.header))
+    elif arch == "intel":
+        return ArchInfo(arch=arch, bits=_elf_bits(elf.header), abi="i386")
 
     # Other architectures get eb suffix if big-endian. mips/arm are handled in their helpers
     if header.e_ident.get("EI_DATA", None) == "ELFDATA2MSB":
