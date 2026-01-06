@@ -44,7 +44,7 @@ class ExecLog(Plugin):
         self.outdir = self.get_arg("outdir")
         self.DB = plugins.DB
         # Subscribe to exec_event published by execs plugin
-        plugins.subscribe(self, "exec_event", self.on_exec_event)
+        plugins.subscribe(plugins.Execs, "exec_event", self.on_exec_event)
 
     def on_exec_event(self, event) -> None:
         """
