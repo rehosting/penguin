@@ -1,13 +1,17 @@
 """
-unicorn_dumper.py - Unicorn Context Dumper for Penguin
-======================================================
+unicorndumper.py - Unicorn Context Dumper for Penguin
+=====================================================
 
 This plugin replicates the functionality of 'unicorn_dumper_gdb.py' for the Penguin
 environment. It dumps the current state (registers, memory mappings, and memory content)
 of a process to a directory, formatted for use with the AFL++ 'unicorn_loader.py'.
 
-This plugin is designed to be used in conjunction with the 'syscalls' plugin to
-capture process state at specific execution points (e.g., syscall entry).
+Features:
+- Compatible with AFL++ unicorn_loader.py.
+- Architecture-aware register mapping.
+- Surgical uprobe repair: Uses the Uprobes plugin registry to identify and patch
+  software breakpoints in the dump with original instruction bytes from StaticFS.
+- Granular caching of patched bytes to minimize IO.
 """
 
 import os
@@ -16,7 +20,7 @@ import zlib
 import hashlib
 import time
 import datetime
-from typing import Any, Dict, List, Optional, Generator
+from typing import Any, Dict, List, Optional, Generator, Tuple
 
 from penguin import Plugin, plugins
 from wrappers.ptregs_wrap import PtRegsWrapper
@@ -32,6 +36,8 @@ class UnicornDumper(Plugin):
 
     def __init__(self) -> None:
         self.outdir = self.get_arg("outdir")
+        # Cache key: (file_path, file_offset) -> original_bytes
+        self._patch_cache: Dict[Tuple[str, int], bytes] = {}
 
     def _map_arch(self) -> str:
         """
@@ -146,9 +152,35 @@ class UnicornDumper(Plugin):
         """
         return {}
 
+    def _cache_patches_from_file(self, path: str, offsets: List[int], patch_size: int) -> None:
+        """
+        Open the file once and populate the cache for all requested offsets.
+        """
+        if not offsets or not hasattr(plugins, "static_fs"):
+            return
+
+        try:
+            f_obj = plugins.static_fs.open(path)
+            if f_obj:
+                try:
+                    for offset in offsets:
+                        # Skip if already cached by a previous operation
+                        if (path, offset) in self._patch_cache:
+                            continue
+                            
+                        f_obj.seek(offset)
+                        data = f_obj.read(patch_size)
+                        if data and len(data) == patch_size:
+                            self._patch_cache[(path, offset)] = data
+                finally:
+                    f_obj.close()
+        except Exception as e:
+            self.logger.warning(f"Failed to read patches from {path}: {e}")
+
     def _dump_process_memory(self, dump_dir: str) -> Generator[Any, Any, List[Dict]]:
         """
         Iterate through memory mappings, dump content to files, and return segment info.
+        Performs surgical patching of registered uprobes using granular caching.
         """
         final_segment_list = []
         
@@ -158,6 +190,18 @@ class UnicornDumper(Plugin):
         if not mappings:
             self.logger.warning("No mappings found.")
             return final_segment_list
+
+        # --- Uprobes Setup ---
+        uprobes_list = []
+        if hasattr(plugins, "uprobes"):
+            uprobes_list = list(plugins.uprobes.probe_info.values())
+        
+        # Determine patch size based on architecture
+        arch = self.panda.arch_name
+        if arch in ["x86_64", "i386"]:
+            patch_size = 1
+        else:
+            patch_size = 4
 
         # 2. Iterate and Dump
         for entry in mappings:
@@ -180,13 +224,63 @@ class UnicornDumper(Plugin):
                 try:
                     size = entry.end - entry.start
                     
-                    # Read memory content
+                    # Read memory content (includes dynamic data + breakpoints)
                     seg_content = yield from plugins.mem.read_bytes(entry.start, size)
                     
                     if not seg_content:
                         self.logger.debug(f"Segment empty or unreadable: {entry.start:#x} {entry.name}")
                     else:
-                        # Compress content (zlib) - strict requirement for loader
+                        # 3. Surgical Patching
+                        # Only attempt patch if we have uprobes, the segment is executable, and has a name
+                        if uprobes_list and entry.exec and entry.name:
+                            
+                            # Filter probes relevant to this file
+                            relevant_probes = [
+                                p for p in uprobes_list 
+                                if p["path"] == entry.name or p["path"] in entry.name
+                            ]
+                            
+                            if relevant_probes:
+                                # Identify probes that fall within this specific memory mapping window
+                                base_file_offset = getattr(entry, "offset", 0)
+                                mapping_probes = []
+                                missing_cache_offsets = []
+
+                                for p in relevant_probes:
+                                    p_offset = p["offset"]
+                                    if base_file_offset <= p_offset < (base_file_offset + size):
+                                        mapping_probes.append(p)
+                                        if (entry.name, p_offset) not in self._patch_cache:
+                                            missing_cache_offsets.append(p_offset)
+                                
+                                # Batch fetch any missing patches for this file
+                                if missing_cache_offsets:
+                                    self._cache_patches_from_file(entry.name, missing_cache_offsets, patch_size)
+
+                                # Apply patches from cache
+                                if mapping_probes:
+                                    mutable_content = bytearray(seg_content)
+                                    patched_count = 0
+                                    
+                                    for p in mapping_probes:
+                                        p_offset = p["offset"]
+                                        cache_key = (entry.name, p_offset)
+                                        
+                                        if cache_key in self._patch_cache:
+                                            # Calculate index in the memory buffer
+                                            idx = p_offset - base_file_offset
+                                            original_bytes = self._patch_cache[cache_key]
+                                            
+                                            # Ensure bounds
+                                            if idx + len(original_bytes) <= len(mutable_content):
+                                                mutable_content[idx : idx + len(original_bytes)] = original_bytes
+                                                patched_count += 1
+                                    
+                                    if patched_count > 0:
+                                        self.logger.debug(f"Repaired {patched_count} uprobes in {entry.name} @ {entry.start:#x}")
+                                        seg_content = bytes(mutable_content)
+
+                        # Compress content
                         compressed_content = zlib.compress(seg_content)
                         
                         # MD5 hash for filename
