@@ -11,7 +11,6 @@ Features:
 - Architecture-aware register mapping.
 - Surgical uprobe repair: Uses the Uprobes plugin registry to identify and patch
   software breakpoints in the dump with original instruction bytes from StaticFS.
-- Granular caching of patched bytes to minimize IO.
 """
 
 import os
@@ -36,8 +35,6 @@ class UnicornDumper(Plugin):
 
     def __init__(self) -> None:
         self.outdir = self.get_arg("outdir")
-        # Cache key: (file_path, file_offset) -> original_bytes
-        self._patch_cache: Dict[Tuple[str, int], bytes] = {}
 
     def _map_arch(self) -> str:
         """
@@ -152,31 +149,6 @@ class UnicornDumper(Plugin):
         """
         return {}
 
-    def _cache_patches_from_file(self, path: str, offsets: List[int], patch_size: int) -> None:
-        """
-        Open the file once and populate the cache for all requested offsets.
-        """
-        if not offsets or not hasattr(plugins, "static_fs"):
-            return
-
-        try:
-            f_obj = plugins.static_fs.open(path)
-            if f_obj:
-                try:
-                    for offset in offsets:
-                        # Skip if already cached by a previous operation
-                        if (path, offset) in self._patch_cache:
-                            continue
-                            
-                        f_obj.seek(offset)
-                        data = f_obj.read(patch_size)
-                        if data and len(data) == patch_size:
-                            self._patch_cache[(path, offset)] = data
-                finally:
-                    f_obj.close()
-        except Exception as e:
-            self.logger.warning(f"Failed to read patches from {path}: {e}")
-
     def _dump_process_memory(self, dump_dir: str) -> Generator[Any, Any, List[Dict]]:
         """
         Iterate through memory mappings, dump content to files, and return segment info.
@@ -198,10 +170,17 @@ class UnicornDumper(Plugin):
         
         # Determine patch size based on architecture
         arch = self.panda.arch_name
-        if arch in ["x86_64", "i386"]:
-            patch_size = 1
-        else:
-            patch_size = 4
+        patch_size = 1 if arch in ["x86_64", "i386"] else 4
+
+        # 1. Pre-calculate Base Address for every library
+        # The base address is the lowest start address associated with a given filename.
+        library_bases = {}
+        for m in mappings:
+            if m.name:
+                if m.name not in library_bases:
+                    library_bases[m.name] = m.start
+                else:
+                    library_bases[m.name] = min(library_bases[m.name], m.start)
 
         # 2. Iterate and Dump
         for entry in mappings:
@@ -231,54 +210,61 @@ class UnicornDumper(Plugin):
                         self.logger.debug(f"Segment empty or unreadable: {entry.start:#x} {entry.name}")
                     else:
                         # 3. Surgical Patching
-                        # Only attempt patch if we have uprobes, the segment is executable, and has a name
-                        if uprobes_list and entry.exec and entry.name:
-                            
-                            # Filter probes relevant to this file
+                        if uprobes_list and entry.name:
+                            # Filter probes: Strict match on name
                             relevant_probes = [
                                 p for p in uprobes_list 
-                                if p["path"] == entry.name or p["path"] in entry.name
+                                if p["path"] == entry.name
                             ]
                             
-                            if relevant_probes:
-                                # Identify probes that fall within this specific memory mapping window
-                                base_file_offset = getattr(entry, "offset", 0)
-                                mapping_probes = []
-                                missing_cache_offsets = []
+                            if relevant_probes and entry.name in library_bases:
+                                try:
+                                    if hasattr(plugins, "static_fs"):
+                                        f_obj = plugins.static_fs.open(entry.name)
+                                        if f_obj:
+                                            try:
+                                                mutable_content = bytearray(seg_content)
+                                                patched_count = 0
+                                                
+                                                # Determine Base Address for this library
+                                                base_addr = library_bases[entry.name]
 
-                                for p in relevant_probes:
-                                    p_offset = p["offset"]
-                                    if base_file_offset <= p_offset < (base_file_offset + size):
-                                        mapping_probes.append(p)
-                                        if (entry.name, p_offset) not in self._patch_cache:
-                                            missing_cache_offsets.append(p_offset)
-                                
-                                # Batch fetch any missing patches for this file
-                                if missing_cache_offsets:
-                                    self._cache_patches_from_file(entry.name, missing_cache_offsets, patch_size)
-
-                                # Apply patches from cache
-                                if mapping_probes:
-                                    mutable_content = bytearray(seg_content)
-                                    patched_count = 0
-                                    
-                                    for p in mapping_probes:
-                                        p_offset = p["offset"]
-                                        cache_key = (entry.name, p_offset)
-                                        
-                                        if cache_key in self._patch_cache:
-                                            # Calculate index in the memory buffer
-                                            idx = p_offset - base_file_offset
-                                            original_bytes = self._patch_cache[cache_key]
-                                            
-                                            # Ensure bounds
-                                            if idx + len(original_bytes) <= len(mutable_content):
-                                                mutable_content[idx : idx + len(original_bytes)] = original_bytes
-                                                patched_count += 1
-                                    
-                                    if patched_count > 0:
-                                        self.logger.info(f"Repaired {patched_count} uprobes in {entry.name} @ {entry.start:#x}")
-                                        seg_content = bytes(mutable_content)
+                                                for p in relevant_probes:
+                                                    p_offset = p["offset"]
+                                                    
+                                                    # Calculate Target Virtual Address (Base + Offset)
+                                                    target_virt_addr = base_addr + p_offset
+                                                    
+                                                    # Check if this target address falls inside the CURRENT segment
+                                                    if entry.start <= target_virt_addr < (entry.start + size):
+                                                        
+                                                        # Calculate index into this segment's buffer
+                                                        idx = target_virt_addr - entry.start
+                                                        
+                                                        # Seek and read original bytes from file
+                                                        # (Assuming p_offset is also valid file offset for shared objs)
+                                                        f_obj.seek(p_offset)
+                                                        original_bytes = f_obj.read(patch_size)
+                                                        
+                                                        if len(original_bytes) == patch_size and idx + patch_size <= len(mutable_content):
+                                                            current_bytes = mutable_content[idx : idx + patch_size]
+                                                            
+                                                            # Patch if different
+                                                            if current_bytes != original_bytes:
+                                                                self.logger.info(
+                                                                    f"Patching at {entry.name}+{p_offset:#x} (Virt: {target_virt_addr:#x}): "
+                                                                    f"Mem {current_bytes.hex()} -> File {original_bytes.hex()}"
+                                                                )
+                                                                mutable_content[idx : idx + patch_size] = original_bytes
+                                                                patched_count += 1
+                                                
+                                                if patched_count > 0:
+                                                    self.logger.info(f"Repaired {patched_count} uprobes in {entry.name} segment @ {entry.start:#x}")
+                                                    seg_content = bytes(mutable_content)
+                                            finally:
+                                                f_obj.close()
+                                except Exception as e:
+                                    self.logger.warning(f"Failed to patch uprobes for {entry.name}: {e}")
 
                         # Compress content
                         compressed_content = zlib.compress(seg_content)
