@@ -277,7 +277,7 @@ class UnicornDumper(Plugin):
                                                 patched_count += 1
                                     
                                     if patched_count > 0:
-                                        self.logger.debug(f"Repaired {patched_count} uprobes in {entry.name} @ {entry.start:#x}")
+                                        self.logger.info(f"Repaired {patched_count} uprobes in {entry.name} @ {entry.start:#x}")
                                         seg_content = bytes(mutable_content)
 
                         # Compress content
