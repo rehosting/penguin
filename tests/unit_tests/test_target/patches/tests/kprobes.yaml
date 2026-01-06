@@ -1,0 +1,17 @@
+plugins:
+  kprobes_test: {}
+  verifier:
+    conditions:
+      kprobes_exec:
+        type: file_contains
+        file: kprobe_exec_test.txt
+        string: "kprobe exec entry test passed"
+
+static_files:
+  /tests/kprobes_test.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      exit 0
+
+    mode: 73
