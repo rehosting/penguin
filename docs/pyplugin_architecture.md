@@ -121,7 +121,7 @@ from penguin import Plugin, plugins
 
 class ProcessSubscriber(Plugin):
     def __init__(self):
-        plugins.subscribe(self, "process_created", self.process_created)
+        plugins.subscribe(plugins.ProcessCreatedDetector, "process_created", self.process_created)
 
     def process_created(self, *args):
         print(f"New process created with args: {args}")
