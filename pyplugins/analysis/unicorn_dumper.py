@@ -11,6 +11,20 @@ Features:
 - Architecture-aware register mapping.
 - Surgical uprobe repair: Uses the Uprobes plugin registry to identify and patch
   software breakpoints in the dump with original instruction bytes from StaticFS.
+
+Example Usage
+-----------------:
+
+.. code-block:: python
+
+    import struct
+    from penguin import Plugin, plugins
+
+    class Dumper(Plugin):
+        @plugins.syscalls.syscall("on_sys_ioctl_return")
+        def on_sys_ioctl_ret(self, regs, *args):
+            yield from plugins.unicorn_dumper.dump_context(regs)
+
 """
 
 import os
