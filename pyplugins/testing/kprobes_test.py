@@ -3,9 +3,7 @@ This plugin verifies that hypercalls are being made correctly.
 """
 
 from penguin import Plugin, plugins
-from os.path import join, realpath, basename
-from glob import glob
-import functools
+from os.path import join
 
 kprobes = plugins.kprobes
 mem = plugins.mem
@@ -53,7 +51,7 @@ class KprobesTest(Plugin):
         if not pt_regs.is_enter:
             if self.open_ret_pid == current.pid:
                 rval = int(self.panda.ffi.cast("target_long", pt_regs.get_return_value()))
-                if rval == -2: # -ENOENT
+                if rval == -2:  # -ENOENT
                     with open(join(self.outdir, "kprobe_open_test.txt"), "w") as f:
                         f.write(
                             f"kprobe open return test passed: do_filp_open called with pathname={self.filp_open_pathname} and rval={rval}\n"

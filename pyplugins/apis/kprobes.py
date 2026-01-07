@@ -3,10 +3,10 @@
    :parser: myst_parser.sphinx_
 """
 
-import os
+
 from penguin import Plugin, plugins
 from penguin.plugin_manager import resolve_bound_method_from_class
-from typing import Dict, List, Any, Union, Callable, Optional, Iterator
+from typing import Dict, List, Any, Callable, Optional, Iterator
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import portal_type
 from hyper.portal import PortalCmd
