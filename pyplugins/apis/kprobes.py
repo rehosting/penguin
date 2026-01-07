@@ -81,6 +81,7 @@ class Kprobes(Plugin):
         ptregs_addr = sce.regs.address
         pt_regs_raw = plugins.kffi.read_type_panda(cpu, ptregs_addr, "pt_regs")
         pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
+        pt_regs.is_enter = is_enter
         original_bytes = pt_regs.to_bytes()[:]
 
         if sce.id not in self.probes:
