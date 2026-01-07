@@ -208,11 +208,11 @@ class Kprobes(Plugin):
         """
         # Determine the probe type based on entry/return flags
         if on_enter and on_return:
-            probe_type = portal_type.PORTAL_UPROBE_TYPE_BOTH
+            probe_type = portal_type.PORTAL_KPROBE_TYPE_BOTH
         elif on_enter:
-            probe_type = portal_type.PORTAL_UPROBE_TYPE_ENTRY
+            probe_type = portal_type.PORTAL_KPROBE_TYPE_ENTRY
         elif on_return:
-            probe_type = portal_type.PORTAL_UPROBE_TYPE_RETURN
+            probe_type = portal_type.PORTAL_KPROBE_TYPE_RETURN
         else:
             self.logger.error(
                 "Invalid probe type: at least one of on_enter or on_return must be True")
