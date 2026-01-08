@@ -15,13 +15,13 @@ class KprobesTest(Plugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.open_ret_pid = None
-        import IPython; IPython.embed()
 
-    @kprobes.kprobe(
-        symbol="do_execveat_common",
-        on_enter=True,
-        on_return=False,
-    )
+        # names can be like `do_execveat_common.isra.15`
+        for sym in plugins.kffi.ffi.search_symbols("do_execveat_common"):
+            if sym.name.startswith("do_execveat_common"):
+                plugins.kprobes.kprobe(symbol=sym.name, on_enter=True, on_return=False)(self.kprobe_do_execvat_common)
+                break
+
     def kprobe_do_execvat_common(self, pt_regs):
         """
         static int do_execveat_common(int fd, struct filename *filename,
