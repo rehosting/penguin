@@ -15,6 +15,7 @@ class KprobesTest(Plugin):
         self.panda = panda
         self.outdir = self.get_arg("outdir")
         self.open_ret_pid = None
+        import IPython; IPython.embed()
 
     @kprobes.kprobe(
         symbol="do_execveat_common",

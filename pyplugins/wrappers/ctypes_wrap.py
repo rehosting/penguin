@@ -963,6 +963,16 @@ class VtypeJson:
         self._parsed_symbols_cache[name] = obj
         return obj
 
+    def search_symbols(self, keyword: str) -> List[VtypeSymbol]:
+        """Returns a list of symbols whose names contain the keyword."""
+        results = []
+        for name in self._raw_symbols:
+            if keyword in name:
+                sym = self.get_symbol(name)
+                if sym:
+                    results.append(sym)
+        return results
+
     def get_type(self, name: str) -> Optional[Union[VtypeUserType, VtypeBaseType, VtypeEnum]]:
         original_name = name
         name_lower = name.lower()
@@ -1126,6 +1136,12 @@ class VtypeJsonGroup:
             if res:
                 return res
 
+    def search_symbols(self, keyword: str) -> List[VtypeSymbol]:
+        results = []
+        for f in self._file_order:
+            results.extend(self.vtypejsons[f].search_symbols(keyword))
+        return results
+
     def get_type(self, name: str):
         for f in self._file_order:
             res = self.vtypejsons[f].get_type(name)
@@ -1225,6 +1241,8 @@ if __name__ == '__main__':
         "--test-to-bytes", action="store_true", help="Run to_bytes() test.")
     cli_parser.add_argument("--test-base-enum-instance", action="store_true",
                             help="Test creating instances of base/enum types.")
+    cli_parser.add_argument("--search-symbols", type=str, metavar="KEYWORD",
+                            help="Search for symbols containing KEYWORD.")
     cli_parser.add_argument(
         "--get-type", type=str, help="Test the generic get_type method with the provided type name.")
     cli_parser.add_argument(
@@ -1247,6 +1265,19 @@ if __name__ == '__main__':
                 print(f"  Type class: {found_type_obj.__class__.__name__}")
             else:
                 print(f"  Type '{args.get_type}' not found.")
+
+        if args.search_symbols:
+            print(f"\n--- Searching symbols for keyword '{args.search_symbols}' ---")
+            matches = isf_data.search_symbols(args.search_symbols)
+            if matches:
+                print(f"  Found {len(matches)} matching symbol(s):")
+                for i, sym in enumerate(matches):
+                    if i >= 20:
+                        print(f"    ... and {len(matches) - 20} more.")
+                        break
+                    print(f"    - {sym}")
+            else:
+                print(f"  No symbols found containing '{args.search_symbols}'.")
 
         if args.find_symbol_at is not None:
             print(
