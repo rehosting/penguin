@@ -978,3 +978,39 @@ class Mem(Plugin):
             result.append(s)
             offset = end + 1
         return result
+
+    def copy_buf_guest(self, data: bytes) -> Generator[Any, Any, int]:
+        """
+        Copy a buffer into guest kernel memory and return the guest address.
+
+        Uses the HYPER_OP_COPY_BUF_GUEST portal command to allocate and copy a buffer
+        into guest kernel memory. Handles chunking if the buffer is larger than the portal region.
+
+        Parameters
+        ----------
+        data : bytes
+            The data to copy into guest memory.
+        
+        Returns
+        -------
+        int
+            Guest address of the copied buffer, or 0 on failure.
+        """
+        rsize = self._get_rsize()
+        total_len = len(data)
+        view = memoryview(data)
+        # Only the first chunk is copied by the kernel, but the allocation is for the full size
+        first_chunk = view[:rsize]
+        # Request allocation of the full buffer, but only send the first chunk
+        addr = yield PortalCmd(hop.HYPER_OP_COPY_BUF_GUEST, 0, total_len, None, first_chunk.tobytes())
+        if addr:
+            guest_addr = addr
+        else:
+            self.logger.error("Failed to allocate guest buffer via COPY_BUF_GUEST")
+            return 0
+        # Write the rest of the data, if any, to the allocated buffer
+        offset = len(first_chunk)
+        if offset < total_len:
+            # Write remaining data to guest buffer at guest_addr + offset
+            yield from self.write_bytes(guest_addr + offset, view[offset:], None)
+        return guest_addr
