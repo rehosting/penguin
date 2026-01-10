@@ -38,6 +38,7 @@ class KprobesTest(Plugin):
                     f"kprobe exec entry test passed: do_execveat_common called with filename={filename}\n"
                 )
 
+    # This tests aggregate probes as well as kretprobes
     @kprobes.kprobe(
         symbol="do_filp_open",
         on_enter=True,
