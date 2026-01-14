@@ -23,44 +23,37 @@ if [ -t 1 ] && [ -n "$TERM" ] && command_exists tput && tput setaf 1 >/dev/null 
     fi
 fi
 
-is_subnet_in_use() {
-    local subnet=$1
-    local networks=$(podman network ls --quiet)
-    # Check if any networks exist before looping
-    if [ -n "$networks" ]; then
-        for net_id in $networks; do
-            # Podman inspect format is compatible with Docker's for this query
-            local net_info=$(podman network inspect $net_id --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' 2>/dev/null || true)
-            if [[ "$net_info" == "$subnet" ]]; then
-                return 0  # Subnet is in use
-            fi
-        done
-    fi
-    return 1  # Subnet is not in use
-}
-
 # Function to generate a random network name
 generate_network_name() {
     echo "nw_$RANDOM"
 }
 
-# Generate a random subnet
-find_available_subnet() {
-    local base="192.168"  # Base is 2 octets
-    local found=0
-    local subnet
+# Try to create a network sequentially from 0 to 255
+create_dynamic_network() {
+    local base="192.168"
+    
+    # Iterate through all 256 possible subnets in the 192.168.x.x block
     for i in {0..255}; do
-        subnet="$base.$i.0/24"  # Correct subnet notation for /24 networks
-        if ! is_subnet_in_use $subnet; then
-            echo $subnet
-            found=1
-            break
+        local candidate_subnet="$base.$i.0/24"
+        local candidate_gateway="$base.$i.1"
+        # We still use a random name to avoid name collisions with old/stale networks
+        local candidate_name="nw_$RANDOM" 
+        
+        # Try to create the network
+        # >/dev/null silences the network name on success
+        # 2>/dev/null silences the error message on failure (collision)
+        if podman network create --driver bridge --subnet="$candidate_subnet" --gateway="$candidate_gateway" "$candidate_name" >/dev/null 2>/dev/null; then
+            # Success! Export the variables for the main script to use
+            subnet="$candidate_subnet"
+            network_name="$candidate_name"
+            gateway="$candidate_gateway"
+            ip="$base.$i.2"
+            return 0
         fi
     done
-    if [ $found -eq 0 ]; then
-        echo "No available subnet found!" >&2
-        exit 1
-    fi
+
+    echo "Failed to create a network. Checked all subnets from 192.168.0.0/24 to 192.168.255.0/24." >&2
+    exit 1
 }
 
 penguin_run() {
@@ -365,19 +358,25 @@ penguin_run() {
 
     # Dynamic network
     if [ "$subnet" != "none" ]; then
-        network_name=$(generate_network_name)
         if [ -z "$subnet" ]; then
-            # if subnet is empty, find one. Otherwise if subet is none skip
-            subnet=$(find_available_subnet)
+            # CASE A: No subnet specified, auto-discover
+            create_dynamic_network
+            # Note: create_dynamic_network sets $network_name, $subnet, $gateway, and $ip
+        else
+            # CASE B: User specified a subnet manually
+            network_name=$(generate_network_name)
+            gateway="${subnet%.*}.1"
+            ip="${subnet%.*}.2"
+            
+            # Try to create user's specific subnet. If this fails, we must exit (user asked for specific config)
+            if ! podman network create --driver bridge --subnet=$subnet --gateway=$gateway $network_name >/dev/null; then
+                echo "Error: Failed to create user-specified subnet $subnet"
+                exit 1
+            fi
         fi
-        gateway="${subnet%.*}.1"
-        ip="${subnet%.*}.2"
-
-        # Create the network
-        podman network create --driver bridge --subnet=$subnet --gateway=$gateway $network_name > /dev/null
 
         # Setup  on-exit cleanup
-        trap "podman network rm $network_name>/dev/null" EXIT
+        trap "podman network rm $network_name >/dev/null 2>&1" EXIT
 
         docker_cmd+=("--network" "$network_name" "--ip" "$ip")
         # Add env variable CONTAINER_IP=ip
