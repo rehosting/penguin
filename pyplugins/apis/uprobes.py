@@ -281,7 +281,7 @@ class Uprobes(Plugin):
                     uprobe_config["is_method"] = is_method
                     uprobe_config["qualname"] = qualname
                     self._pending_uprobes.append((uprobe_config, func))
-                if plugins.live_image.fs_generated: 
+                if plugins.live_image.fs_generated:
                     self.portal.queue_interrupt("uprobes")
                 return func
             return decorator

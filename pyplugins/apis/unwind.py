@@ -32,6 +32,7 @@ from elftools.dwarf.callframe import FDE
 from penguin import Plugin, plugins
 from wrappers.ptregs_wrap import PtRegsWrapper
 
+
 class ArchInfo:
     def __init__(self, name, ptr_size, endian, dwarf_map, cs_arch, cs_mode, call_offset):
         self.name = name
@@ -50,7 +51,8 @@ ARM_MAP = {"sp_reg": 13, "ra_reg": 14, "fp_reg": 11}  # R13=SP, R14=LR, R11=FP
 ARM64_MAP = {"sp_reg": 31, "ra_reg": 30, "fp_reg": 29}  # X29=FP, X30=LR
 MIPS_MAP = {"sp_reg": 29, "ra_reg": 31, "fp_reg": 30}  # $29=SP, $31=RA, $30=FP
 PPC_MAP = {"sp_reg": 1, "ra_reg": 65, "fp_reg": 31}
-RISCV_MAP = {"sp_reg": 2, "ra_reg": 1, "fp_reg": 8}     # x2=SP, x1=RA, x8=FP/s0
+# x2=SP, x1=RA, x8=FP/s0
+RISCV_MAP = {"sp_reg": 2, "ra_reg": 1, "fp_reg": 8}
 
 CONFIGS = {
     "intel64":      ArchInfo("x86_64", 8, "little", X86_64_MAP, CS_ARCH_X86, CS_MODE_64, 5),
@@ -75,15 +77,18 @@ class StackUnwinder(Plugin):
         self._arch_info = None
         self._reverse_sym_cache = {}
         self._is_pie_cache = {}
-        self._md = None 
+        self._md = None
         self.logger.setLevel("DEBUG")
 
         if not HAVE_CAPSTONE:
-            self.logger.warning("Capstone not found. Heuristic unwinding will be severely limited.")
+            self.logger.warning(
+                "Capstone not found. Heuristic unwinding will be severely limited.")
 
     def _init_capstone(self, arch: ArchInfo):
-        if not HAVE_CAPSTONE or not arch.cs_arch: return
-        if self._md: return
+        if not HAVE_CAPSTONE or not arch.cs_arch:
+            return
+        if self._md:
+            return
         try:
             self._md = Cs(arch.cs_arch, arch.cs_mode)
             self._md.detail = True
@@ -92,10 +97,11 @@ class StackUnwinder(Plugin):
             self._md = None
 
     def _get_arch_info(self) -> ArchInfo:
-        if self._arch_info: return self._arch_info
+        if self._arch_info:
+            return self._arch_info
         conf = self.get_arg("conf")
         arch_str = conf.get("core", {}).get("arch") if conf else "intel64"
-        if arch_str not in CONFIGS: 
+        if arch_str not in CONFIGS:
             arch_str = "intel64"
         info = CONFIGS[arch_str]
         self._init_capstone(info)
@@ -184,7 +190,7 @@ class StackUnwinder(Plugin):
         # Initial State from Wrapper
         current_ip = regs.get_pc()
         current_sp = regs.get_sp()
-        
+
         # Best effort FP retrieval using generic aliases in wrapper
         current_fp = None
         # Try generic aliases first (fp, rbp, s0, etc handled by wrapper)
@@ -193,9 +199,9 @@ class StackUnwinder(Plugin):
         elif "ebp" in regs.REG_NAMES:
             current_fp = regs.get_register("ebp")
         elif "s0" in regs.REG_NAMES:
-            current_fp = regs.get_register("s0") # RISC-V FP
+            current_fp = regs.get_register("s0")  # RISC-V FP
         elif "r11" in regs.REG_NAMES and "arm" in arch.name:
-            current_fp = regs.get_register("r11") # ARM FP
+            current_fp = regs.get_register("r11")  # ARM FP
 
         # DWARF State tracking (Dictionary of register indices)
         # We only populate this fully if we are doing DWARF unwinding
@@ -220,7 +226,8 @@ class StackUnwinder(Plugin):
             module_name = "unknown"
             map_offset = 0
 
-            mapping = next((m for m in sorted_maps if m.base <= current_ip < m.base + m.size), None)
+            mapping = next((m for m in sorted_maps if m.base <=
+                           current_ip < m.base + m.size), None)
             if mapping:
                 module_name = mapping.name
                 map_offset = current_ip - mapping.base
@@ -233,7 +240,8 @@ class StackUnwinder(Plugin):
                             lookup = current_ip - lib_bases[module_name]
                         else:
                             lookup = current_ip - mapping.base
-                    sym_name, sym_diff = self._resolve_symbol(module_name, lookup)
+                    sym_name, sym_diff = self._resolve_symbol(
+                        module_name, lookup)
 
             repr_str = f"{current_ip:#x}"
             if sym_name != "unknown":
@@ -246,7 +254,8 @@ class StackUnwinder(Plugin):
             })
 
             # --- Next State Determination ---
-            next_state = None # Tuple (next_ip, next_sp, next_fp, next_dwarf_regs)
+            # Tuple (next_ip, next_sp, next_fp, next_dwarf_regs)
+            next_state = None
             method = "failed"
 
             # 1. DWARF CFI
@@ -269,17 +278,19 @@ class StackUnwinder(Plugin):
                     fp_res = yield from self._unwind_frame_fp(current_fp, sorted_maps, arch)
                     if fp_res:
                         f_ret, f_sp, f_fp = fp_res
-                        next_state = (f_ret, f_sp, f_fp, {}) # Clear dwarf regs, we lost context
+                        # Clear dwarf regs, we lost context
+                        next_state = (f_ret, f_sp, f_fp, {})
                         method = "frame_pointer"
 
             # 3. Heuristic
             if not next_state:
-                func_start_addr = (current_ip - sym_diff) if sym_name != "unknown" else None
+                func_start_addr = (
+                    current_ip - sym_diff) if sym_name != "unknown" else None
                 h_res = yield from self._unwind_frame_heuristic(current_sp, current_ip, sorted_maps, arch, func_start_addr)
                 if h_res:
                     h_ret, h_sp = h_res
                     # Heuristic doesn't recover FP or full regs
-                    next_state = (h_ret, h_sp, current_fp, {}) 
+                    next_state = (h_ret, h_sp, current_fp, {})
                     method = "heuristic"
 
             if not next_state:
@@ -298,30 +309,36 @@ class StackUnwinder(Plugin):
         return frames
 
     def _unwind_frame_dwarf(self, pc, regs_dict, mapping, arch):
-        if not mapping or not mapping.name or mapping.name.startswith("["): return None
+        if not mapping or not mapping.name or mapping.name.startswith("["):
+            return None
         elf = self._get_elf_for_mapping(mapping.name)
-        if not elf or not elf.has_dwarf_info(): return None
+        if not elf or not elf.has_dwarf_info():
+            return None
         rel_pc = pc - mapping.base + mapping.offset
-        
+
         # Optimized lookup (cache)
         cache_key = f"{mapping.name}_{rel_pc}"
         fde = self._fde_cache.get(cache_key)
         if not fde:
             dwarf = elf.get_dwarf_info()
-            if not dwarf.has_CFI(): return None
-            # Still linear, but result is cached. 
+            if not dwarf.has_CFI():
+                return None
+            # Still linear, but result is cached.
             # Ideally use an IntervalTree here for O(log n)
             for entry in dwarf.CFI_entries():
                 if isinstance(entry, FDE) and entry.header.initial_location <= rel_pc < entry.header.initial_location + entry.header.address_range:
                     fde = entry
                     break
-            if fde: self._fde_cache[cache_key] = fde
-        
-        if not fde: return None
+            if fde:
+                self._fde_cache[cache_key] = fde
+
+        if not fde:
+            return None
 
         decoded = fde.get_decoded()
         rule_row = next((r for r in reversed(decoded) if r.pc <= rel_pc), None)
-        if not rule_row: return None
+        if not rule_row:
+            return None
 
         # Calculate CFA
         cfa = regs_dict.get(rule_row.cfa.reg, 0) + rule_row.cfa.offset
@@ -339,8 +356,9 @@ class StackUnwinder(Plugin):
             data = yield from plugins.mem.read_bytes(cfa + ra_rule[1], arch.ptr_size)
             if data:
                 ret_addr = int.from_bytes(data, byteorder=arch.endian)
-        
-        if ret_addr == 0: return None
+
+        if ret_addr == 0:
+            return None
         return ret_addr, new_regs
 
     def _unwind_frame_fp(self, fp, mappings, arch):
@@ -352,7 +370,8 @@ class StackUnwinder(Plugin):
         try:
             w1 = yield from plugins.mem.read_bytes(fp, arch.ptr_size)
             w2 = yield from plugins.mem.read_bytes(fp + arch.ptr_size, arch.ptr_size)
-            if not w1 or not w2: return None
+            if not w1 or not w2:
+                return None
 
             next_fp = int.from_bytes(w1, byteorder=arch.endian)
             ra = int.from_bytes(w2, byteorder=arch.endian)
@@ -360,14 +379,17 @@ class StackUnwinder(Plugin):
             # Sanity checks
             def is_code(addr):
                 for m in mappings:
-                    if m.base <= addr < m.base + m.size: return m.exec
+                    if m.base <= addr < m.base + m.size:
+                        return m.exec
                 return False
 
-            if not is_code(ra): return None
-            if next_fp <= fp: return None # Stack must grow up
+            if not is_code(ra):
+                return None
+            if next_fp <= fp:
+                return None  # Stack must grow up
 
             # SP for next frame is usually just above where RA was saved
-            new_sp = fp + (arch.ptr_size * 2) 
+            new_sp = fp + (arch.ptr_size * 2)
             return ra, new_sp, next_fp
         except Exception:
             return None
@@ -376,30 +398,36 @@ class StackUnwinder(Plugin):
         """
         Returns: (Is_Call, Linkage_Confirmed)
         """
-        if not self._md: return True, None 
+        if not self._md:
+            return True, None
         try:
             insns = list(self._md.disasm(data, addr))
-            if not insns: return False, False
+            if not insns:
+                return False, False
             insn = insns[0]
 
             if not (insn.group(CS_GRP_CALL) or insn.group(CS_GRP_BRANCH_RELATIVE)):
                 return False, False
 
-            if func_start is None: return True, None
+            if func_start is None:
+                return True, None
 
             for op in insn.operands:
                 if op.type == CS_OP_IMM:
                     target = op.imm
-                    if target == func_start: return True, True
-                    if abs(target - addr) > 0x100000: return True, False
-            
+                    if target == func_start:
+                        return True, True
+                    if abs(target - addr) > 0x100000:
+                        return True, False
+
             return True, None
         except Exception:
             return False, False
 
     def _unwind_frame_heuristic(self, sp, current_ip, mappings, arch, current_func_start):
         stack_data = yield from plugins.mem.read_bytes(sp, 1024)
-        if not stack_data: return None
+        if not stack_data:
+            return None
 
         ptr_size = arch.ptr_size
         endian = arch.endian
@@ -410,41 +438,50 @@ class StackUnwinder(Plugin):
             possible_ra = int.from_bytes(chunk, byteorder=endian)
 
             # Filter 1: Basic constraints
-            if possible_ra < 0x1000 or (possible_ra & 1): continue
-            if possible_ra == current_ip: continue
+            if possible_ra < 0x1000 or (possible_ra & 1):
+                continue
+            if possible_ra == current_ip:
+                continue
 
             # Filter 2: Executable Memory
-            target_map = next((m for m in mappings if m.base <= possible_ra < m.base + m.size), None)
-            if not target_map or not target_map.exec: continue
+            target_map = next((m for m in mappings if m.base <=
+                              possible_ra < m.base + m.size), None)
+            if not target_map or not target_map.exec:
+                continue
 
             # Filter 3: Call Site Validation
             is_valid_call = False
-            
+
             # X86 Backwards scan
             if "x86" in arch.name:
                 scan_start = possible_ra - 16
                 instr_bytes = yield from plugins.mem.read_bytes(scan_start, 16)
                 if instr_bytes:
-                    for offset in range(14, 0, -1): 
+                    for offset in range(14, 0, -1):
                         candidate_data = instr_bytes[offset:]
-                        if not candidate_data: continue
+                        if not candidate_data:
+                            continue
                         try:
-                            insn = next(self._md.disasm(candidate_data, scan_start + offset))
+                            insn = next(self._md.disasm(
+                                candidate_data, scan_start + offset))
                             if (scan_start + offset + insn.size) == possible_ra:
                                 if insn.group(CS_GRP_CALL):
                                     is_valid_call = True
                                     break
-                        except StopIteration: pass
-            
+                        except StopIteration:
+                            pass
+
             # RISC Fixed offset
             else:
                 call_offset = arch.call_offset
                 call_site_addr = possible_ra - call_offset
                 instr_bytes = yield from plugins.mem.read_bytes(call_site_addr, 4)
                 if instr_bytes:
-                    is_call, linkage = self._validate_call_capstone(call_site_addr, instr_bytes, current_func_start)
+                    is_call, linkage = self._validate_call_capstone(
+                        call_site_addr, instr_bytes, current_func_start)
                     # If we explicitly failed linkage (ghost frame), skip
-                    if linkage is False: continue
+                    if linkage is False:
+                        continue
                     is_valid_call = is_call
 
             if is_valid_call:

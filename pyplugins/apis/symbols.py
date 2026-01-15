@@ -95,7 +95,7 @@ class Symbols(Plugin):
 
         self._symbols_cache: Optional[Dict[str, Any]] = None
         self._symbols_loaded = False
-    
+
     def load_symbols(self, path: str) -> Dict[str, int]:
         """
         Force-loads symbols for a binary into the cache.
@@ -115,16 +115,16 @@ class Symbols(Plugin):
         # We pass a dummy symbol that likely doesn't exist to trigger the full scan logic
         # logic inside _scan_nm and _scan_file_fallback populates the cache for ALL symbols found
         self.lookup(path, "__FORCE_LOAD_TRIGGER__")
-        
+
         # 4. Return the now-populated cache
         db = self._load_symbols_db()
         return db.get(resolved_path, {})
-    
+
     def resolve_offset(self, path: str, offset: int) -> Optional[Tuple[str, int]]:
         """
         Reverse lookup: Given a file offset, find the nearest preceding symbol.
         Returns (SymbolName, DistanceFromStart)
-        
+
         Example: resolve_offset("/bin/httpd", 0x4005) -> ("main", 5)
         """
         symbols = self.load_symbols(path)
@@ -132,7 +132,6 @@ class Symbols(Plugin):
             return None
 
         best_symbol = None
-        best_offset = -1
         min_dist = float('inf')
 
         # Linear scan is fast enough for symbol tables (usually <10k entries)
@@ -142,13 +141,12 @@ class Symbols(Plugin):
                 if dist < min_dist:
                     min_dist = dist
                     best_symbol = name
-                    best_offset = sym_offset
-        
+
         if best_symbol:
             return best_symbol, min_dist
-            
+
         return None
-    
+
     def list_symbols(self, path: str, filter_str: Optional[str] = None) -> List[str]:
         """
         Returns a list of all symbol names found in the binary.
@@ -157,10 +155,10 @@ class Symbols(Plugin):
         symbols = self.load_symbols(path)
         if not symbols:
             return []
-            
+
         if filter_str:
             return [name for name in symbols.keys() if filter_str in name]
-        
+
         return list(symbols.keys())
 
     def lookup(self, path: str, symbol: str) -> Tuple[Optional[str], Optional[int]]:
@@ -202,7 +200,8 @@ class Symbols(Plugin):
 
         # 4. Fallback: PyELFtools / Manual Raw / Readelf (Kitchen Sink)
         if '*' not in resolved_path:
-            self.logger.debug(f"[Fallback] Attempting robust fallback for {resolved_path}")
+            self.logger.debug(
+                f"[Fallback] Attempting robust fallback for {resolved_path}")
             return self._scan_file_fallback(resolved_path, symbol)
 
         return None, None
@@ -274,7 +273,8 @@ class Symbols(Plugin):
         db = self._load_symbols_db()
         if db is not None:
             if path not in db or len(new_symbols) > len(db[path]):
-                self.logger.debug(f"[Cache] Updating cache for {path} with {len(new_symbols)} symbols")
+                self.logger.debug(
+                    f"[Cache] Updating cache for {path} with {len(new_symbols)} symbols")
             db[path] = new_symbols
 
     def _scan_json(self, path: str, symbol: str) -> Tuple[Optional[str], Optional[int]]:
@@ -319,11 +319,8 @@ class Symbols(Plugin):
         if demangled_target:
             for name, offset in symbols_dict.items():
                 if name.startswith('_Z'):
-                    try:
-                        if cxxfilt.demangle(name) == demangled_target:
-                            return offset
-                    except:
-                        pass
+                    if cxxfilt.demangle(name) == demangled_target:
+                        return offset
         return None
 
     def _run_nm_command(self, cmd: List[str]) -> Dict[str, int]:
@@ -421,7 +418,7 @@ class Symbols(Plugin):
         f = None
         new_symbols = {}
         found_offset = None
-        
+
         segments = []
         is_exec = False
         image_base = 0
@@ -437,7 +434,7 @@ class Symbols(Plugin):
             try:
                 elffile = ELFFile(f)
                 is_exec = elffile.header['e_type'] == 'ET_EXEC'
-                
+
                 for segment in elffile.iter_segments():
                     if segment['p_type'] == 'PT_LOAD':
                         seg_info = {
@@ -455,34 +452,36 @@ class Symbols(Plugin):
                         for sym in section.iter_symbols():
                             if sym['st_shndx'] != 'SHN_UNDEF':
                                 s_name = sym.name
-                                if s_name: 
+                                if s_name:
                                     new_symbols[s_name] = sym['st_value']
             except ELFError:
                 pass
             except Exception:
                 pass
-            
+
             # Strategy B: Manual Raw Dynamic Parsing - Good for sstrip (no sections)
             if not new_symbols:
-                self.logger.debug(f"[Fallback-Manual] Scanning raw PT_DYNAMIC for {path}...")
-                new_symbols = self._scan_raw_dynamic_symbols(f, elffile, segments)
-            
+                self.logger.debug(
+                    f"[Fallback-Manual] Scanning raw PT_DYNAMIC for {path}...")
+                new_symbols = self._scan_raw_dynamic_symbols(
+                    f, elffile, segments)
+
             # Strategy C: Readelf Subprocess - The "Final Boss"
             if not new_symbols:
-                f.close() 
-                f = None 
+                f.close()
+                f = None
                 tf_fd, tf_path = tempfile.mkstemp()
                 os.close(tf_fd)
                 try:
                     with fs.open(lookup_path) as src, open(tf_path, 'wb') as dst:
                         shutil.copyfileobj(src, dst)
-                    
+
                     readelf_path = shutil.which("readelf")
                     if readelf_path:
                         # C1: Standard Symbols
                         cmd = [readelf_path, "--symbols", "-W", tf_path]
                         new_symbols = self._parse_readelf_output(cmd)
-                        
+
                         # C2: Dynamic Symbols
                         if not new_symbols:
                             cmd = [readelf_path, "--dyn-syms", "-W", tf_path]
@@ -490,8 +489,8 @@ class Symbols(Plugin):
 
                         # C3: MIPS GOT (Crucial for MIPS executables)
                         if not new_symbols:
-                             cmd = [readelf_path, "-A", "-W", tf_path]
-                             new_symbols = self._parse_readelf_mips_got(cmd)
+                            cmd = [readelf_path, "-A", "-W", tf_path]
+                            new_symbols = self._parse_readelf_mips_got(cmd)
 
                 finally:
                     if os.path.exists(tf_path):
@@ -531,7 +530,7 @@ class Symbols(Plugin):
                 if seg['p_type'] == 'PT_DYNAMIC':
                     dyn_segment = seg
                     break
-            
+
             if not dyn_segment:
                 return {}
 
@@ -540,7 +539,7 @@ class Symbols(Plugin):
             dt_strsz = 0
             dt_syment = 0
             dt_mips_symtabno = 0
-            
+
             for tag in dyn_segment.iter_tags():
                 if tag.entry.d_tag == 'DT_SYMTAB':
                     dt_symtab = tag.entry.d_val
@@ -558,7 +557,7 @@ class Symbols(Plugin):
 
             is_64 = elffile.elfclass == 64
             is_little = elffile.little_endian
-            
+
             endian_char = '<' if is_little else '>'
             if is_64:
                 fmt = endian_char + 'IBBHQQ'
@@ -566,36 +565,38 @@ class Symbols(Plugin):
             else:
                 fmt = endian_char + 'IIIBBH'
                 entry_size = 16
-            
+
             if dt_syment > 0:
                 entry_size = dt_syment
 
-            symtab_offset = self._vaddr_to_file_offset_optimized(segments, dt_symtab, False, 0)
-            strtab_offset = self._vaddr_to_file_offset_optimized(segments, dt_strtab, False, 0)
-            
+            symtab_offset = self._vaddr_to_file_offset_optimized(
+                segments, dt_symtab, False, 0)
+            strtab_offset = self._vaddr_to_file_offset_optimized(
+                segments, dt_strtab, False, 0)
+
             if symtab_offset is None or strtab_offset is None:
                 return {}
 
             num_symbols = dt_mips_symtabno if dt_mips_symtabno > 0 else 10000
-            
+
             f.seek(strtab_offset)
             string_table_data = f.read(dt_strsz)
-            
+
             f.seek(symtab_offset)
             for _ in range(num_symbols):
                 raw_bytes = f.read(entry_size)
                 if len(raw_bytes) < entry_size:
                     break
-                
+
                 parts = struct.unpack(fmt, raw_bytes)
-                
+
                 if is_64:
                     st_name_idx = parts[0]
                     st_value = parts[4]
                 else:
                     st_name_idx = parts[0]
                     st_value = parts[1]
-                
+
                 if st_name_idx == 0 or st_name_idx >= len(string_table_data):
                     continue
 
@@ -603,7 +604,8 @@ class Symbols(Plugin):
                 if end_idx == -1:
                     continue
                 try:
-                    sym_name = string_table_data[st_name_idx:end_idx].decode('utf-8', errors='ignore')
+                    sym_name = string_table_data[st_name_idx:end_idx].decode(
+                        'utf-8', errors='ignore')
                     if sym_name:
                         symbols[sym_name] = st_value
                 except Exception:
@@ -611,7 +613,7 @@ class Symbols(Plugin):
 
         except Exception as e:
             self.logger.debug(f"[Fallback-Manual] Failed: {e}")
-            
+
         return symbols
 
     def _parse_readelf_output(self, cmd: List[str]) -> Dict[str, int]:
@@ -648,13 +650,13 @@ class Symbols(Plugin):
             )
             for line in proc.stdout:
                 line = line.strip()
-                if not line: 
+                if not line:
                     continue
                 parts = line.split()
                 if len(parts) > 2 and '(gp)' in parts[1]:
                     if "Lazy resolver" in line or "Module pointer" in line:
                         continue
-                    if len(parts) < 5: # Filter out Local entries
+                    if len(parts) < 5:  # Filter out Local entries
                         continue
                     try:
                         vaddr_hex = parts[2]
