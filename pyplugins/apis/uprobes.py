@@ -37,7 +37,6 @@ class Uprobes(Plugin):
         self.portal = plugins.portal
         self.portal.register_interrupt_handler(
             "uprobes", self._uprobe_interrupt_handler)
-        self.fs_init = False
         self.panda.hypercall(iconsts.IGLOO_HYP_UPROBE_ENTER)(
             self._uprobe_enter_handler)
         self.panda.hypercall(iconsts.IGLOO_HYP_UPROBE_RETURN)(
@@ -125,7 +124,6 @@ class Uprobes(Plugin):
     @plugins.live_image.fs_init
     def on_fs_init(self):
         self.portal.queue_interrupt("uprobes")
-        self.fs_init = True
 
     def _uprobe_interrupt_handler(self) -> bool:
         """
@@ -283,7 +281,7 @@ class Uprobes(Plugin):
                     uprobe_config["is_method"] = is_method
                     uprobe_config["qualname"] = qualname
                     self._pending_uprobes.append((uprobe_config, func))
-                if self.fs_init:
+                if plugins.live_image.fs_generated: 
                     self.portal.queue_interrupt("uprobes")
                 return func
             return decorator
