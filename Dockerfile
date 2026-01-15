@@ -600,4 +600,3 @@ RUN  cd /igloo_static &&  \
         done \
     done
 RUN date +%s%N > /igloo_static/container_timestamp.txt
-RUN pip install py-spy
