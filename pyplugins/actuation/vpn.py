@@ -308,7 +308,7 @@ class VPN(Plugin):
         elif guest_port < 1024 and not self.has_perms:
             host_port = self._find_free_port(guest_port)
             reason = f"{guest_port} is privileged and user cannot bind"
-        elif guest_port in self.mapped_ports or not self._is_port_available(guest_port):
+        elif not self._is_port_available(guest_port):
             host_port = self._find_free_port(guest_port)
             reason = f"{guest_port} is already in use"
 
@@ -484,8 +484,7 @@ class VPN(Plugin):
         # If we couldn't bind to ANY of them, we assume we can't
         return False
 
-    @staticmethod
-    def _is_port_available(port: int) -> bool:
+    def _is_port_available(self, port: int) -> bool:
         """
         Check if a port is available for binding.
 
@@ -494,6 +493,9 @@ class VPN(Plugin):
         Returns:
             bool: True if port is available for binding, False otherwise.
         """
+        # First check our mapped ports
+        if port in self.mapped_ports:
+            return False
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
