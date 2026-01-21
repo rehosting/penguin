@@ -255,7 +255,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       git+https://github.com/rehosting/binwalk.git \
       git+https://github.com/ahupp/python-magic \
       git+https://github.com/devttys0/yaffshiv.git \
-      git+https://github.com/marin-m/vmlinux-to-elf \
+      git+https://github.com/marin-m/vmlinux-to-elf@20a99a92f61a6af1d1aca1041d8580d9889a60bb \
       jefferson \
       gnupg \
       poetry \
