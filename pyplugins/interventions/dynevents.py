@@ -1,0 +1,385 @@
+from penguin import Plugin, plugins
+import threading
+import socket
+import json
+import os
+import pdb
+import re
+import traceback
+import struct
+from collections import defaultdict
+
+class DynEvents(Plugin):
+    """
+    DynEvents Plugin
+    ================
+    Listens on a Unix Domain Socket for commands.
+    
+    Features:
+    - Register uprobe (entry/return inferred) and syscall hooks.
+    - Extended Format Support (%d, %s, %fd, %proc, etc.).
+    - Smart Logic: 
+      - "print args": Prints at entry.
+      - "print args = ret": Captures args at entry, prints at exit.
+    """
+    def __init__(self):
+        outdir = self.get_arg("outdir") or "/tmp"
+        self.socket_path = os.path.join(outdir, "penguin_events.sock")
+        
+        if os.path.exists(self.socket_path):
+            try: os.unlink(self.socket_path)
+            except OSError: pass
+
+        self.running = True
+        self.logger.info(f"DynEvents: Listening for events on: {self.socket_path}")
+        
+        self.next_hook_id = 1
+        self.hooks_by_id = {}
+        self.call_stacks = defaultdict(list)
+        
+        self.arch_bits = 64 if '64' in self.panda.arch_name else 32
+        self.ptr_mask = (1 << self.arch_bits) - 1
+
+        self.thread = threading.Thread(target=self._socket_server_loop)
+        self.thread.daemon = True
+        self.thread.start()
+
+    def uninit(self):
+        self.running = False
+        if os.path.exists(self.socket_path):
+            try: os.unlink(self.socket_path)
+            except OSError: pass
+
+    def _socket_server_loop(self):
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind(self.socket_path)
+            server.listen(1)
+            while self.running:
+                try:
+                    conn, _ = server.accept()
+                    self._handle_connection(conn)
+                except OSError:
+                    if not self.running: break
+
+    def _handle_connection(self, conn):
+        with conn:
+            try:
+                data = b""
+                while True:
+                    chunk = conn.recv(4096)
+                    if not chunk: break
+                    data += chunk
+                
+                response = {"status": "error", "message": "No data received"}
+                if data:
+                    response = self._process_message(data)
+                conn.sendall(json.dumps(response).encode('utf-8'))
+            except Exception as e:
+                self.logger.error(f"Socket error: {e}")
+
+    def _process_message(self, data):
+        try:
+            cmd = json.loads(data.decode('utf-8'))
+            cmd_type = cmd.get('type')
+            handler_name = f"_handle_{cmd_type}"
+            
+            if hasattr(self, handler_name):
+                handler = getattr(self, handler_name)
+                result = handler(cmd)
+                return {"status": "success", **(result if isinstance(result, dict) else {})}
+            else:
+                return {"status": "error", "message": f"Unknown command: {cmd_type}"}
+        except Exception as e:
+            self.logger.error(traceback.format_exc())
+            return {"status": "error", "message": str(e)}
+
+    # --- Handlers ---
+
+    def _handle_load_plugin(self, cmd):
+        name = cmd.get('name')
+        if not name: raise ValueError("Missing 'name'")
+        getattr(plugins, name)
+        self.logger.info(f"Loaded plugin: {name}")
+        return {}
+
+    def _handle_uprobe(self, cmd):
+        return self._register_uprobe(cmd)
+
+    def _handle_syscall(self, cmd):
+        return self._register_syscall(cmd)
+
+    def _handle_list(self, cmd):
+        hook_list = []
+        for hook_id, data in self.hooks_by_id.items():
+            info = {
+                "id": hook_id,
+                "type": data.get('type', '?'),
+                "action": data.get('raw_action', '?'),
+            }
+            if 'target_desc' in data:
+                info['target'] = data['target_desc']
+            if 'filters' in data:
+                info['filters'] = data['filters']
+            hook_list.append(info)
+        return {"hooks": hook_list}
+
+    def _handle_disable(self, cmd):
+        hook_id = cmd.get('id')
+        if hook_id is not None:
+            try: hook_id = int(hook_id)
+            except: raise ValueError("Invalid 'id' format")
+            
+            if hook_id not in self.hooks_by_id:
+                raise ValueError(f"Hook ID {hook_id} not found")
+
+            self.logger.info(f"Disabling hook {hook_id}")
+            del self.hooks_by_id[hook_id]
+            return {"message": f"Hook {hook_id} disabled"}
+        else:
+            count = len(self.hooks_by_id)
+            self.logger.info(f"Disabling all {count} hooks")
+            self.hooks_by_id.clear()
+            self.call_stacks.clear()
+            return {"message": f"All {count} hooks disabled"}
+
+    # --- Context & Parsing ---
+
+    def _get_context_key(self):
+        try:
+            if not hasattr(self.plugins, 'osi'): self.plugins.load_plugin('osi')
+            proc = yield from self.plugins.osi.get_proc(None)
+            if proc: return proc.pid
+        except Exception: pass
+        try: return self.panda.get_cpu().env_ptr
+        except: return 0
+
+    def _parse_print_formats(self, action_str):
+        # Normalize
+        body = re.sub(r'^print\s*\(?', '', action_str, flags=re.IGNORECASE).rstrip(')')
+        
+        if '=' in body:
+            parts = body.split('=', 1)
+            arg_fmts = [f.strip() for f in parts[0].split(',') if f.strip()]
+            ret_fmts = [f.strip() for f in parts[1].split(',') if f.strip()]
+            return arg_fmts, ret_fmts
+        else:
+            # No equals sign -> All formats are for arguments
+            fmts = [f.strip() for f in body.split(',') if f.strip()]
+            return fmts, None
+
+    # --- Registration ---
+
+    def _register_uprobe(self, cmd):
+        path = cmd.get('path')
+        target = cmd.get('symbol')
+        action_str = cmd.get('action')
+        if not path or not target: raise ValueError("Missing path or symbol")
+        if not action_str: raise ValueError("Missing action")
+        
+        try: target_val = int(target, 0)
+        except: target_val = target
+
+        hook_id = self.next_hook_id
+        self.next_hook_id += 1
+        
+        is_break = 'break' in action_str or 'bp' in action_str
+        arg_fmts, ret_fmts = self._parse_print_formats(action_str)
+        
+        # Determine if we need return probing
+        # inferred from presence of return formats (RHS of =)
+        is_retprobe = (ret_fmts is not None)
+        
+        # If is_retprobe is False, ret_fmts is None. For execution safety set to empty list
+        if ret_fmts is None: ret_fmts = []
+
+        prefix = f"{os.path.basename(path)}:{target_val}"
+        
+        hook_data = {
+            'type': 'uretprobe' if is_retprobe else 'uprobe',
+            'raw_action': action_str,
+            'target_desc': f"{path}:{target}",
+            'filters': f"pid={cmd.get('pid_filter')}" if cmd.get('pid_filter') else ""
+        }
+        self.hooks_by_id[hook_id] = hook_data
+
+        def entry_handler(regs):
+            if hook_id not in self.hooks_by_id: return
+            
+            # Fetch args
+            vals = []
+            if arg_fmts:
+                count = len([f for f in arg_fmts if f != '%proc'])
+                vals = yield from regs.get_args_portal(count, convention='userland')
+            
+            if is_retprobe:
+                # Save for exit. We only push if we have args to match the exit pop.
+                # If arg_fmts is empty, we don't strictly need to push, but consistent stack usage is safer.
+                if arg_fmts:
+                    key = yield from self._get_context_key()
+                    self.call_stacks[key].append(vals)
+            else:
+                # Print immediately (Print Once Rule)
+                yield from self._execute_action(vals, [], arg_fmts, [], is_break, prefix)
+
+        def exit_handler(regs):
+            if hook_id not in self.hooks_by_id: return
+            
+            # 1. Recover Args (if they were saved)
+            saved_args = []
+            if arg_fmts:
+                key = yield from self._get_context_key()
+                stack = self.call_stacks[key]
+                if stack:
+                    saved_args = stack.pop()
+                else:
+                    saved_args = [None] * len(arg_fmts) # Error state
+
+            # 2. Capture Retval
+            ret_vals = []
+            if ret_fmts:
+                try: retval = regs.get_retval()
+                except: retval = 0
+                ret_vals = [retval]
+                if len(ret_fmts) > 1: ret_vals.extend([None]*(len(ret_fmts)-1))
+
+            # Print (Print Once Rule)
+            yield from self._execute_action(saved_args, ret_vals, arg_fmts, ret_fmts, is_break, prefix, is_ret=True)
+
+        # Apply Hooks
+        
+        # ENTRY: Needed if normal uprobe OR if retprobe needs to capture args
+        needs_entry = (not is_retprobe) or (is_retprobe and len(arg_fmts) > 0)
+        
+        # EXIT: Needed only if retprobe
+        needs_exit = is_retprobe
+
+        if needs_entry:
+            self.plugins.uprobes.uprobe(
+                path=path, symbol=target_val,
+                process_filter=cmd.get('process_filter'),
+                pid_filter=cmd.get('pid_filter'),
+                on_enter=True, on_return=False
+            )(entry_handler)
+
+        if needs_exit:
+            self.plugins.uprobes.uprobe(
+                path=path, symbol=target_val,
+                process_filter=cmd.get('process_filter'),
+                pid_filter=cmd.get('pid_filter'),
+                on_enter=False, on_return=True
+            )(exit_handler)
+
+        self.logger.info(f"Registered {hook_data['type']} {hook_id}: {action_str}")
+        return {"id": hook_id}
+        
+
+    def _register_syscall(self, cmd):
+        name = cmd.get('name')
+        if not name: raise ValueError("Missing 'name'")
+        action_str = cmd.get('action')
+        if not action_str: raise ValueError("Missing action")
+
+        hook_id = self.next_hook_id
+        self.next_hook_id += 1
+        
+        is_break = 'break' in action_str
+        arg_fmts, _ = self._parse_print_formats(action_str)
+        prefix = f"syscall:{name}"
+        
+        self.hooks_by_id[hook_id] = {'type': 'syscall', 'raw_action': action_str, 'name': name}
+
+        def handler(regs, proto, sc, *args):
+            if hook_id not in self.hooks_by_id: return
+            count = len([f for f in arg_fmts if f != '%proc'])
+            vals = yield from regs.get_args_portal(count, 'syscall')
+            yield from self._execute_action(vals, [], arg_fmts, [], is_break, prefix)
+
+        self.plugins.syscalls.syscall(
+            name_or_pattern=name,
+            comm_filter=cmd.get('process_filter'),
+            pid_filter=cmd.get('pid_filter')
+        )(handler)
+        
+        self.logger.info(f"Registered syscall {hook_id}")
+        return {"id": hook_id}
+
+    def _execute_action(self, arg_vals, ret_vals, arg_fmts, ret_fmts, is_break, prefix, is_ret=False):
+        if is_break:
+            self.logger.warning(f"Dynamic Breakpoint: {prefix}")
+            pdb.set_trace()
+            return
+
+        out_args = []
+        idx = 0
+        for fmt in arg_fmts:
+            if fmt == '%proc':
+                try:
+                    if not hasattr(self.plugins, 'osi'): self.plugins.load_plugin('osi')
+                    pname = yield from self.plugins.osi.get_proc_name()
+                    out_args.append(pname)
+                except: out_args.append("?")
+            else:
+                if idx < len(arg_vals):
+                    out_args.append((yield from self._format_value(fmt, arg_vals[idx])))
+                    idx += 1
+                else:
+                    out_args.append("?")
+
+        out_rets = []
+        idx = 0
+        for fmt in ret_fmts:
+            if idx < len(ret_vals):
+                out_rets.append((yield from self._format_value(fmt, ret_vals[idx])))
+                idx += 1
+            else:
+                out_rets.append("?")
+
+        lhs = ", ".join(out_args)
+        rhs = ", ".join(out_rets)
+        
+        if is_ret:
+            # If we are printing at return, and we had args, format is `func(args) = ret`
+            # If no args were captured, just `func = ret`
+            msg = f"{prefix}({lhs}) = {rhs}" if arg_fmts else f"{prefix} = {rhs}"
+        else:
+            msg = f"{prefix}({lhs})"
+            
+        self.logger.info(msg)
+
+    def _to_signed(self, val, bits=None):
+        bits = bits or self.arch_bits
+        if val & (1 << (bits - 1)): return val - (1 << bits)
+        return val
+
+    def _format_value(self, fmt, val):
+        if val is None: return "nil"
+        if fmt in ['%d', '%i']: return str(self._to_signed(val))
+        if fmt == '%u': return str(val)
+        if fmt in ['%x', '%X']: return f"{val:x}" if fmt=='%x' else f"{val:X}"
+        if fmt == '%p': return f"0x{val:0{self.arch_bits//4}x}"
+        if fmt == '%c': return chr(val & 0xFF) if 32 <= (val&0xFF) <= 126 else '.'
+        if fmt == '%b': return str(bool(val))
+        
+        if fmt == '%fd':
+            try:
+                if not hasattr(self.plugins, 'osi'): self.plugins.load_plugin('osi')
+                name = yield from self.plugins.osi.get_fd_name(val)
+                return f"{val}({name or '?'})"
+            except: return f"{val}(?)"
+
+        if fmt == '%s':
+            try: return f'"{yield from self.plugins.mem.read_str(val)}"'
+            except: return f"<bad-str:{val:x}>"
+
+        m = re.match(r'%(?P<t>[uix])(?P<b>8|16|32|64)', fmt)
+        if m:
+            t, b = m.group('t'), int(m.group('b'))
+            try:
+                d = yield from self.plugins.mem.read_bytes(val, b//8)
+                c = {1:'B', 2:'H', 4:'I', 8:'Q'}[b//8]
+                if t=='i': c = c.lower()
+                v = struct.unpack(f"<{c}", d)[0]
+                return f"{v:x}" if t=='x' else str(v)
+            except: return f"<bad-mem:{val:x}>"
+
+        return f"{val:x}(?)"
