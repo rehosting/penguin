@@ -133,6 +133,8 @@ class VPN(Plugin):
 
         # Check if we have CONTAINER_{IP,NAME} in env
         self.exposed_ip = env.get("CONTAINER_IP", "127.0.0.1")
+        with open(f"{self.outdir}/ipaddr.txt", "w") as f:
+            f.write(self.exposed_ip + "\n")
         self.container_name = env.get("CONTAINER_NAME", None)
 
         self.has_perms = geteuid() == 0
