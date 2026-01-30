@@ -180,6 +180,7 @@ class VPN(Plugin):
         if self.spoof and not self.get_arg("conf")["core"]["guest_cmd"]:
             self.logger.error("guest_cmd is disabled!")
             raise ValueError("Source address spoofing requires guest_cmd to be enabled")
+        self.port_map_lock = threading.Lock()
         self.lock = threading.Lock()
 
         with open(join(self.outdir, BRIDGE_FILE), "w") as f:
@@ -399,8 +400,9 @@ class VPN(Plugin):
         Returns:
             int: Host port mapped to the guest socket.
         """
-        host_port = self.map_bound_socket(sock_type, ip, guest_port, procname)
-        self.mapped_ports.add(host_port)
+        with self.port_map_lock:
+            host_port = self.map_bound_socket(sock_type, ip, guest_port, procname)
+            self.mapped_ports.add(host_port)
 
         # Set up the event for the host vpn in the background - lets us run commands in the guest if we'd like
         threading.Thread(
