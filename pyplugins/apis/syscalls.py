@@ -457,6 +457,7 @@ class Syscalls(Plugin):
             return False
 
         pending_hooks = self._pending_hooks[:]
+        self._pending_hooks = []
         while pending_hooks:
             # Take one item from the queue
             hook_config, func = pending_hooks.pop(0)

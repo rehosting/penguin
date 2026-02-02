@@ -605,8 +605,10 @@ class KFFI(Plugin):
         """
         if not hasattr(self, '_pending_tramp_callbacks') or not self._pending_tramp_callbacks:
             return False
-        while self._pending_tramp_callbacks:
-            func = self._pending_tramp_callbacks.pop(0)
+        pending_tramp_callbacks = self._pending_tramp_callbacks[:]
+        self._pending_tramp_callbacks = []
+        while pending_tramp_callbacks:
+            func = pending_tramp_callbacks.pop(0)
             tramp_info = yield from self.generate_trampoline()
             tramp_id = tramp_info.get("tramp_id")
             tramp_addr = tramp_info.get("tramp_addr")
