@@ -139,6 +139,7 @@ class Uprobes(Plugin):
             return False
 
         pending_uprobes = self._pending_uprobes[:]
+        self._pending_uprobes = []
 
         while pending_uprobes:
             uprobe_config, func = pending_uprobes.pop(0)
