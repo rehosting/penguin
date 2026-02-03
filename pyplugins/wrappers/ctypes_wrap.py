@@ -320,10 +320,14 @@ class BoundArrayView:
         self._array_start_offset_in_parent = array_start_offset_in_parent
 
     def _get_element_offset_in_parent_struct(self, index: int) -> int:
+        # Fix: handle slice objects gracefully
+        if isinstance(index, slice):
+            raise TypeError(
+                f"Array index for '{self._array_field_name}' must be an integer, not a slice. Slicing is not supported."
+            )
         if not 0 <= index < self._array_count:
             raise IndexError(
                 f"Array index {index} out of bounds for array '{self._array_field_name}' of size {self._array_count}.")
-        # type: ignore
         return self._array_start_offset_in_parent + (index * self._element_size)
 
     def __getitem__(self, index: int) -> Any:
@@ -605,6 +609,30 @@ class BoundTypeInstance:
         name = field_type_info.get("name")
         absolute_field_offset = self._instance_offset + field_offset_in_struct
 
+        if kind in ("struct", "union"):
+            # Allow direct assignment if value_to_write is a BoundTypeInstance of the same type
+            if (
+                isinstance(value_to_write, BoundTypeInstance)
+                and getattr(value_to_write, "_instance_type_name", None) == name
+                and hasattr(self, "_instance_buffer")
+                and hasattr(value_to_write, "_instance_buffer")
+            ):
+                size = self._instance_vtype_accessor.get_type_size(field_type_info)
+                if size is None:
+                    raise ValueError(
+                        f"Cannot determine size for struct/union '{name}' for assignment to field '{field_name_for_error}'."
+                    )
+                src_bytes = value_to_write.to_bytes()
+                if len(src_bytes) != size:
+                    raise ValueError(
+                        f"Source struct/union size mismatch for assignment to field '{field_name_for_error}'."
+                    )
+                self._instance_buffer[absolute_field_offset:absolute_field_offset+size] = src_bytes
+                return
+            raise NotImplementedError(
+                f"Direct assignment to field '{field_name_for_error}' of type '{kind}' is not supported. Modify elements or nested fields individually."
+            )
+
         if kind == "base":
             if name is None:
                 raise ValueError(
@@ -622,6 +650,19 @@ class BoundTypeInstance:
             if compiled_struct_obj is None:
                 raise ValueError(
                     f"Cannot get compiled struct for base type '{name}' to write field '{field_name_for_error}'.")
+            # Allow bytes/bytearray of length 1 or str of length 1 for char types
+            if base_type_def.kind == "char":
+                if isinstance(value_to_write, (bytes, bytearray)) and len(value_to_write) == 1:
+                    value_to_write = value_to_write[0]
+                elif isinstance(value_to_write, str) and len(value_to_write) == 1:
+                    value_to_write = ord(value_to_write)
+            # Try to coerce to int for all base types
+            if not isinstance(value_to_write, int):
+                try:
+                    value_to_write = int(value_to_write)
+                except Exception:
+                    raise TypeError(
+                        f"Cannot coerce value '{value_to_write}' to int for field '{field_name_for_error}' of base type '{name}'.")
             # Handle negative values for unsigned types
             if base_type_def.signed is False and isinstance(value_to_write, int) and value_to_write < 0:
                 value_to_write = value_to_write % (1 << (base_type_def.size * 8))

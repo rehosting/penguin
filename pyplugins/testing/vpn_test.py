@@ -79,8 +79,8 @@ class VPNTest(Plugin):
         if not self.success:
             with open(f"{self.outdir}/vpn_test.txt", "w") as f:
                 f.write("VPN connection failed.\n")
-            print("VPN connection failed.")
+            self.logger.info("VPN connection failed.")
         if not self.udp_echo_success:
             with open(f"{self.outdir}/udp_echo_test.txt", "w") as f:
                 f.write("UDP echo failed.\n")
-            print("UDP echo failed.")
+            self.logger.info("UDP echo failed.")
