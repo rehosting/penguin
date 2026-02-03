@@ -480,9 +480,9 @@ COPY ./docs /docs
 COPY ./README.md /docs/README.md
 
 # Add DB module
-COPY ./db /db
+COPY ./pengutils /pengutils
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -e /db
+    pip install -e /pengutils
 
 # Now copy in our module and install it
 # penguin is editable so we can mount local copy for dev

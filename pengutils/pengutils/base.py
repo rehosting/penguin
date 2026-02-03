@@ -10,7 +10,7 @@ Example usage
 
 .. code-block:: python
 
-    from events.base import Event, Base
+    from pengutils.base import Event, Base
 
 Classes
 -------

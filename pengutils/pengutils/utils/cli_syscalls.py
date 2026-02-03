@@ -34,8 +34,8 @@ Functions
 """
 
 import click
-from events import Syscall
-from events.utils.util_base import wrapper, get_default_results_path
+from pengutils import Syscall
+from pengutils.utils.util_base import wrapper, get_default_results_path
 
 
 def syscall_filter(sess, procname, syscall, errors):

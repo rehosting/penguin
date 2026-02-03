@@ -40,8 +40,8 @@ Functions
 """
 
 import click
-from events import Exec
-from events.utils.util_base import wrapper, get_default_results_path
+from pengutils import Exec
+from pengutils.utils.util_base import wrapper, get_default_results_path
 
 
 def exec_filter(sess, procname, fd, filename):
