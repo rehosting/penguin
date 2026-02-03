@@ -414,12 +414,14 @@ penguin_run() {
     fi
 
     project_dir=""
+    host_workspace_dir=""
     for ((i=${#cmd[@]}-1; i>0; i--)); do
         if [[ -e "${cmd[$i]}" ]]; then
             local host_realpath=$(realpath "${cmd[$i]}")
             if [[ -f "$host_realpath" ]]; then
                 host_realpath=$(dirname "$host_realpath")
             fi
+            host_workspace_dir="$host_realpath"
 
             # Convert host path to container path using same logic as mappings
             local host_parent=$(dirname "$host_realpath")
@@ -448,6 +450,11 @@ penguin_run() {
     for map in "${maps[@]}"; do
         docker_cmd+=("-v" "$map")
     done
+
+    # Map workspace dir to /workspace in container
+    if [ -n "$host_workspace_dir" ]; then
+        docker_cmd+=("-v" "$host_workspace_dir:/workspace")
+    fi
 
     # Add extra args, if set
     if [ -n "$extra_docker_args" ]; then
