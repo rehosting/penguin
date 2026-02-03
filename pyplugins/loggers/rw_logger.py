@@ -22,7 +22,7 @@ The plugin extracts relevant fields and stores them in the database using the ``
 """
 
 from penguin import plugins, Plugin
-from events.types import Read, Write
+from pengutils.types import Read, Write
 
 
 class RWLog(Plugin):

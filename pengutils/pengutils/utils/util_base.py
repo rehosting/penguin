@@ -11,7 +11,7 @@ Example usage
 
 .. code-block:: python
 
-    from events.utils.util_base import wrapper
+    from pengutils.utils.util_base import wrapper
 
     def my_filter(sess, arg1, arg2):
         # ...filter logic...
@@ -32,7 +32,7 @@ from rich import print as rprint
 from rich.markup import escape
 from time import sleep
 from os.path import join, exists
-from events import Event
+from pengutils import Event
 
 
 def get_default_results_path():
@@ -77,7 +77,7 @@ def wrapper(results, output, print_procname, follow, filter_func, args):
     -------
     None
     """
-    db_path = join(results, "plugins.db")
+    db_path = join(results, "latest", "plugins.db")
     if not exists(db_path):
         print(f"Failed to find db at {db_path}. Check your --results")
         return

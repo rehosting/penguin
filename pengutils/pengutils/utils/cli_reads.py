@@ -34,8 +34,8 @@ Functions
 """
 
 import click
-from events import Read
-from events.utils.util_base import wrapper, get_default_results_path
+from pengutils import Read
+from pengutils.utils.util_base import wrapper, get_default_results_path
 
 
 def read_filter(sess, procname, fd, filename):

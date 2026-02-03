@@ -33,12 +33,12 @@ Functions
 
 from sqlalchemy import func, create_engine
 import click
-from events import Event, Write
+from pengutils import Event, Write
 from sqlalchemy.orm import Session
 from rich import print
 from time import sleep
 from os.path import join, exists
-from events.utils.util_base import get_default_results_path
+from pengutils.utils.util_base import get_default_results_path
 
 
 @click.command()
@@ -76,7 +76,7 @@ def query_fds(results, procname, follow, fd, output):
     output : str
         Output file path (default: /dev/stdout).
     """
-    db_path = join(results, "plugins.db")
+    db_path = join(results, "latest", "plugins.db")
     if not exists(db_path):
         print(f"Failed to find db at {db_path}. Check your --results")
         return

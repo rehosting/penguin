@@ -34,8 +34,8 @@ Functions
 """
 
 import click
-from events import Write
-from events.utils.util_base import wrapper, get_default_results_path
+from pengutils import Write
+from pengutils.utils.util_base import wrapper, get_default_results_path
 
 
 def write_filter(sess, procname, fd, filename):

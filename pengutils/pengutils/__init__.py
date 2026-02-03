@@ -1,5 +1,5 @@
 """
-Events Package
+Pengutils Package
 ==============
 
 This package defines the core event data model and types for the Penguin system. It provides SQLAlchemy ORM models
@@ -18,7 +18,7 @@ Example programmatic usage
 
 .. code-block:: python
 
-    from events import Event, Read, Write, Syscall, Exec
+    from pengutils import Event, Read, Write, Syscall, Exec
 
     # Querying events (using SQLAlchemy session):
     session.query(Read).filter(Read.procname == "myproc").all()
