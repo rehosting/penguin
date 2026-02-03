@@ -40,23 +40,33 @@ generate_network_name() {
     echo "nw_$RANDOM"
 }
 
-# Generate a random subnet
+# Optimized function to find a free subnet
 find_available_subnet() {
-    local base="192.168"  # Base is 2 octets
-    local found=0
-    local subnet
-    for i in {0..255}; do
-        subnet="$base.$i.0/24"  # Correct subnet notation for /24 networks
-        if ! is_subnet_in_use $subnet; then
-            echo $subnet
-            found=1
-            break
-        fi
-    done
-    if [ $found -eq 0 ]; then
-        echo "No available subnet found!" >&2
-        exit 1
+    local base="192.168"
+    
+    # 1. Get all used 3rd octets (e.g., from 192.168.5.0 -> 5) in one pass
+    # We inspect all networks, filter for our base IP, extract the 3rd octet, and sort numerically
+    local used_octets
+    used_octets=$(docker network inspect $(docker network ls -q) --format '{{range .IPAM.Config}}{{.Subnet}}{{println}}{{end}}' 2>/dev/null \
+        | grep "^$base\." \
+        | awk -F'.' '{print $3}' \
+        | sort -n)
+
+    # 2. Find the first integer between 0-255 that is NOT in the used list
+    local free_octet
+    free_octet=$(echo "$used_octets" | awk '
+        BEGIN { next_val=0 } 
+        $1 == next_val { next_val++ } 
+        END { if (next_val < 256) print next_val }
+    ')
+
+    if [ -n "$free_octet" ]; then
+        echo "$base.$free_octet.0/24"
+        return 0
     fi
+
+    echo "No available subnet found!" >&2
+    exit 1
 }
 
 penguin_run() {
