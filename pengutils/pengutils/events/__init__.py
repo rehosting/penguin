@@ -1,17 +1,32 @@
 """
 Pengutils Package
-==============
+=================
 
-This package defines the core event data model and types for the Penguin system. It provides SQLAlchemy ORM models
-for all event types collected and stored in the Penguin event database, as well as utilities for querying and
-processing these events.
+Pengutils is a general-purpose utility and data modeling package for the Penguin system. It provides SQLAlchemy ORM models
+for event data, as well as a growing set of utilities, helpers, and CLI tools for querying, filtering, and processing
+Penguin database information.
 
-Structure
----------
+Usage
+-----
 
-* ``base.py``: Contains the ``Base`` declarative class and the core ``Event`` model, which all event types inherit from.
-* ``types.py``: Defines specific event types such as ``Read``, ``Write``, ``Syscall``, and ``Exec``, each mapped to its own table.
-* ``utils/``: Contains utility modules and CLI tools for querying and filtering event data.
+You can use pengutils:
+
+1. **Inside the Penguin container**: All models and CLI tools are available by default.
+2. **Outside the Penguin container**: Clone the repository and install from source to use the models and CLI tools independently:
+
+   .. code-block:: bash
+
+       git clone https://github.com/rehosting/penguin.git
+       cd penguin/pengutils
+       pip install .
+
+Scope
+-----
+
+* Data models for core Penguin event types (e.g., Read, Write, Syscall, Exec).
+* Utility functions for working with Penguin data.
+* CLI tools for querying, filtering, and exporting results.
+* Helpers for common database and analysis tasks.
 
 Example programmatic usage
 --------------------------
@@ -47,7 +62,7 @@ Available Types
 Utilities
 ---------
 
-For CLI tools and helpers, see the ``events.utils`` subpackage.
+For CLI tools and helpers, see the ``pengutils.utils`` subpackage.
 
 """
 
