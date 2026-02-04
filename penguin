@@ -349,16 +349,22 @@ penguin_run() {
     fi
 
     # Similarly if we are running a shell in the container, start it if it's not already running, otherwise exec into that container
-    if [[ ${#cmd[@]} -gt 1 && ( "${cmd[0]}" == "shell" ) ]]; then
+    if [[ "${cmd[0]}" == "shell" ]]; then
         # Check if container is running
         if [[ -n "$container_name" ]] && docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
             # Container is running, exec into it and bail
-            docker_cmd=("docker" "exec" "-it" "${container_name}" "bash")
+            docker_cmd=("docker" "exec" "-it" "-w" "/workspace" "${container_name}" "bash")
             "${docker_cmd[@]}"
             exit $?
         else
             # Container is not running, we need to start it
             # We'll continue with the normal docker run flow but override the command to be bash
+            if [[ -n "$container_name" ]]; then
+                echo "Unable to find running container "$container_name". Starting a new container."
+            else
+                echo "Starting a new container for shell."
+            fi
+            subnet="none" # Disable network creation for shell
             shell_mode=true
         fi
     fi
@@ -437,6 +443,16 @@ penguin_run() {
             break
         fi
     done
+    
+    # NEW: Default to current directory if running 'shell' with no path args
+    if [ -z "$host_workspace_dir" ] && [[ "${cmd[0]}" == "shell" ]]; then
+        host_workspace_dir=$(pwd)
+        # We append "." to the arguments passed to the container. 
+        # Since we effectively map cwd -> /workspace and set -w /workspace, 
+        # "." correctly resolves to the project directory inside the container.
+        new_cmd+=(".")
+    fi
+
     if [ -n "$project_dir" ]; then
         docker_cmd+=("-e" "PENGUIN_PROJECT_DIR=$project_dir")
         if $verbose; then
@@ -454,6 +470,11 @@ penguin_run() {
     # Map workspace dir to /workspace in container
     if [ -n "$host_workspace_dir" ]; then
         docker_cmd+=("-v" "$host_workspace_dir:/workspace")
+    fi
+
+    # NEW: Force working directory to /workspace if running shell
+    if [[ "${cmd[0]}" == "shell" ]]; then
+        docker_cmd+=("-w" "/workspace")
     fi
 
     # Add extra args, if set
