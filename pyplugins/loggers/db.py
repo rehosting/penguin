@@ -36,9 +36,9 @@ Arguments
 
 from sqlalchemy import create_engine, insert, inspect
 from os.path import join
-from pengutils import Base
+from pengutils.events import Base
 # Import the Base Event class for inheritance checks (aliased to avoid conflict with threading.Event)
-from pengutils.base import Event as BaseEvent
+from pengutils.events import Event as BaseEvent
 from threading import Lock, Thread, Event
 from penguin import Plugin
 import time

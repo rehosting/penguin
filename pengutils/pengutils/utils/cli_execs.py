@@ -40,7 +40,7 @@ Functions
 """
 
 import click
-from pengutils import Exec
+from pengutils.events import Exec
 from pengutils.utils.util_base import wrapper, get_default_results_path
 
 

@@ -32,7 +32,7 @@ from rich import print as rprint
 from rich.markup import escape
 from time import sleep
 from os.path import join, exists
-from pengutils import Event
+from pengutils.events import Event
 
 
 def get_default_results_path():
@@ -77,7 +77,7 @@ def wrapper(results, output, print_procname, follow, filter_func, args):
     -------
     None
     """
-    db_path = join(results, "latest", "plugins.db")
+    db_path = join(results, "plugins.db")
     if not exists(db_path):
         print(f"Failed to find db at {db_path}. Check your --results")
         return

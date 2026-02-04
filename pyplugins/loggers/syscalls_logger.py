@@ -38,7 +38,7 @@ Arguments
 
 import re
 from os.path import join
-from pengutils.types import Syscall
+from pengutils.events import Syscall
 from penguin import plugins, Plugin
 import functools
 
