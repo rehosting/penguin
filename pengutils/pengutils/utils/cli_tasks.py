@@ -30,7 +30,7 @@ import click
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
 from rich import print as rprint
-from pengutils import Event
+from pengutils.events import Event
 from os.path import join, exists
 from pengutils.utils.util_base import get_default_results_path
 
@@ -53,7 +53,7 @@ def query_tasks(results, output):
     :param output: Output file path (default: /dev/stdout).
     :type output: str
     """
-    db_path = join(results, "latest", "plugins.db")
+    db_path = join(results, "plugins.db")
     if not exists(db_path):
         print(f"Failed to find db at {db_path}. Check your --results")
         return

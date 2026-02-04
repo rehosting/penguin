@@ -11,7 +11,7 @@ Example usage
 
 .. code-block:: python
 
-    from pengutils.types import Read, Write, Syscall, Exec
+    from pengutils.events.types import Read, Write, Syscall, Exec
 
 Classes
 -------

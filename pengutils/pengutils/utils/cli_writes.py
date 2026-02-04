@@ -34,7 +34,7 @@ Functions
 """
 
 import click
-from pengutils import Write
+from pengutils.events import Write
 from pengutils.utils.util_base import wrapper, get_default_results_path
 
 

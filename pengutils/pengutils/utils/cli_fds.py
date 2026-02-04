@@ -33,7 +33,7 @@ Functions
 
 from sqlalchemy import func, create_engine
 import click
-from pengutils import Event, Write
+from pengutils.events import Event, Write
 from sqlalchemy.orm import Session
 from rich import print
 from time import sleep
@@ -76,7 +76,7 @@ def query_fds(results, procname, follow, fd, output):
     output : str
         Output file path (default: /dev/stdout).
     """
-    db_path = join(results, "latest", "plugins.db")
+    db_path = join(results, "plugins.db")
     if not exists(db_path):
         print(f"Failed to find db at {db_path}. Check your --results")
         return
