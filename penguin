@@ -82,6 +82,7 @@ penguin_run() {
     local container_name="" # Name of the instance
     local image="rehosting/penguin" # Container to run
     local extra_docker_args=""
+    local standalone=false
 
     # Process each command-line argument
     while [[ $# -gt 0 ]]; do
@@ -140,6 +141,10 @@ penguin_run() {
                 ;;
             --verbose)
                 verbose=true
+                shift
+                ;;
+            --standalone)
+                standalone=true
                 shift
                 ;;
             *)  # Default case: If no more known options, keep as part of command
@@ -350,22 +355,74 @@ penguin_run() {
 
     # Similarly if we are running a shell in the container, start it if it's not already running, otherwise exec into that container
     if [[ "${cmd[0]}" == "shell" ]]; then
-        # Check if container is running
         if [[ -n "$container_name" ]] && docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
-            # Container is running, exec into it and bail
             docker_cmd=("docker" "exec" "-it" "-w" "/workspace" "${container_name}" "bash")
             "${docker_cmd[@]}"
             exit $?
+        fi
+        if $standalone; then
+             if [ -z "$container_name" ]; then container_name="penguin_standalone_$RANDOM"; fi
+             if $verbose; then echo "Standalone mode: Forcing new container '$container_name'"; fi
+             
+             # FIX: Actually enable shell mode so we run bash, not 'penguin shell'
+             subnet="none"
+             shell_mode=true
         else
-            # Container is not running, we need to start it
-            # We'll continue with the normal docker run flow but override the command to be bash
-            if [[ -n "$container_name" ]]; then
-                echo "Unable to find running container "$container_name". Starting a new container."
-            else
-                echo "Starting a new container for shell."
+            # CRITICAL: Canonicalize the path so it matches the label format exactly
+            local target_path="$(realpath "$(pwd)")"
+            
+            # 1. Ask Docker for running containers with this specific label
+            local matches
+            matches=$(docker ps --filter "label=penguin.root=$target_path" --filter "status=running" --format "{{.ID}}|{{.Names}}|{{.CreatedAt}}")
+
+            # Count matches
+            local match_count=0
+            if [ -n "$matches" ]; then
+                match_count=$(echo "$matches" | wc -l)
             fi
-            subnet="none" # Disable network creation for shell
-            shell_mode=true
+
+            if [[ $match_count -eq 1 ]]; then
+                # EXACTLY ONE: Connect to it
+                container_name=$(echo "$matches" | cut -d'|' -f2)
+                if $verbose; then echo "Found active session '$container_name'. Connecting..."; fi
+
+            elif [[ $match_count -gt 1 ]]; then
+                # MULTIPLE: Print options and exit
+                echo "${BOLD}Multiple active containers found for this directory:${RESET}"
+                printf "${BOLD}%-12s %-25s %-30s${RESET}\n" "ID" "NAME" "STARTED"
+                echo "$matches" | while IFS='|' read -r id name start; do
+                     printf "%-12s %-25s %-30s\n" "${id:0:12}" "$name" "${start%%.*}"
+                done
+                echo ""
+                echo "Please select one using: ${BOLD}penguin --name <NAME> shell${RESET}"
+                exit 1
+
+            else
+                # NONE: Fall through to start a new one
+                echo "No active session found for: $target_path"
+                echo "Starting new session..."
+                
+                # Check for *other* penguin containers to be helpful
+                # We look for any container with the penguin.root label
+                local others=$(docker ps --filter "label=penguin.root" --filter "status=running" --format "table {{.Names}}\t{{.Label \"penguin.root\"}}")
+                # If 'others' has more than 1 line (header is line 1), print it
+                if [ $(echo "$others" | wc -l) -gt 1 ]; then
+                     echo ""
+                     echo "${BOLD}Other active sessions:${RESET}"
+                     echo "$others"
+                     echo ""
+                fi
+
+                subnet="none"
+                shell_mode=true
+            fi
+        fi
+        
+        # If we found a container, exec into it
+        if [[ -n "$container_name" ]] && docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
+            docker_cmd=("docker" "exec" "-it" "-w" "/workspace" "${container_name}" "bash")
+            "${docker_cmd[@]}"
+            exit $?
         fi
     fi
 
@@ -470,6 +527,7 @@ penguin_run() {
     # Map workspace dir to /workspace in container
     if [ -n "$host_workspace_dir" ]; then
         docker_cmd+=("-v" "$host_workspace_dir:/workspace")
+        docker_cmd+=("-l" "penguin.root=$host_workspace_dir")
     fi
 
     # NEW: Force working directory to /workspace if running shell
