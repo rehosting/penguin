@@ -3,7 +3,7 @@ Pengutils
 =========
 
 General-purpose utilities, data models, and CLI tools for the Penguin system.
-Provides reusable functions, database models, and helpers for querying, filtering, and analyzing Penguin data.
+Provides reusable functions, database models, and helpers for querying, filtering, and analyzing Penguin and interacting with a running system.
 
 Usage
 -----
@@ -20,4 +20,6 @@ Pengutils can be used in two main ways:
        pip install .
 
 This allows you to run pengutils commands and import its modules in your own Python environment, provided you have access to the Penguin results database.
+
+Once installed you can run a series of CLI tools for querying and processing Penguin data, as well as importing its data models and utilities in your own Python scripts.
 """
