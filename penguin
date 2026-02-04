@@ -323,7 +323,7 @@ penguin_run() {
         fi
 
         if [[ -n "$container_name" && "${cmd[0]}" != "guest_cmd" && "${cmd[0]}" != "shell" ]]; then
-            if docker ps --all --format '{{.Names}}' | grep -q "^$container_name$"; then
+            if docker inspect --type container "$container_name" >/dev/null 2>&1; then
                 echo "${BOLD}ERROR: Container name ${RED}$container_name${RESET}${BOLD} is already in use!${RESET}"
                 echo "  Please specify a different name with ${BOLD}--name${RESET}"
                 exit 1
