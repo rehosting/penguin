@@ -70,7 +70,7 @@ penguin_run() {
     local shell_mode=false
     local subnet=""
     local container_name="" # Name of the instance
-    local image="rehosting/penguin" # Container to run
+    local image="rehosting/penguin:ari" # Container to run
     local extra_docker_args=""
 
     # Process each command-line argument

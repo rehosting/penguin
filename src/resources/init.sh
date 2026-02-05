@@ -5,6 +5,7 @@ for f in /igloo/source.d/*; do
   source $f
 done
 
+
 # Run user-supplied scripts in /igloo/init.d
 if [ -d /igloo/init.d ]; then
   for f in /igloo/init.d/*; do
@@ -14,6 +15,7 @@ if [ -d /igloo/init.d ]; then
     fi
   done
 fi
+
 
 if [ ! -z "${igloo_init}" ]; then
   echo '[IGLOO INIT] Running specified init binary';

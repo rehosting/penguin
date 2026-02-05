@@ -1,24 +1,3 @@
-"""
-Kernel Version Utilities
-========================
-
-This module provides utilities for parsing, comparing, and representing Linux kernel
-version strings. It is intended to help plugins and scripts that need to reason about
-kernel versions in the Penguin framework or similar environments.
-
-Features
---------
-
-- Parse kernel version strings into structured objects
-- Compare kernel versions for ordering and equality
-- Convert kernel version objects back to string representation
-
-Classes
--------
-
-- KernelVersion: Represents a parsed kernel version and supports comparison.
-
-"""
 
 from typing import Any, Optional
 from penguin import plugins, Plugin
@@ -26,8 +5,11 @@ from penguin import plugins, Plugin
 RETRY: int = 0xDEADBEEF
 NO_CHANGE: int = 0xABCDABCD
 
+mem = plugins.mem
+kffi = plugins.kffi
 
-class KernelVersion(Plugin):
+
+class KernelVersion2(Plugin):
     """
     Represents a Linux kernel version and supports comparison operations.
 
@@ -40,10 +22,6 @@ class KernelVersion(Plugin):
     - `machine` (`Optional[str]`): Machine architecture.
     - `domainname` (`Optional[str]`): Domain name.
 
-    **Example**
-    ```python
-    v = KernelVersion(5, 10, 0, "-rc1")
-    ```
     """
 
     outdir: Optional[str]
@@ -54,10 +32,9 @@ class KernelVersion(Plugin):
     machine: Optional[str]
     domainname: Optional[str]
 
+
     def __init__(self) -> None:
-        """
-        Initialize the KernelVersion plugin and subscribe to the 'igloo_uname' event.
-        """
+ 
         self.outdir = self.get_arg("outdir")
         self.sysname = self.get_arg("sysname")
         self.nodename = self.get_arg("nodename")
@@ -65,8 +42,6 @@ class KernelVersion(Plugin):
         self.version = self.get_arg("kversion")
         self.machine = self.get_arg("machine")
         self.domainname = self.get_arg("domainname")
-
-        plugins.subscribe(plugins.Events, "igloo_uname", self.change_uname)
 
     def create_string(self) -> str:
         """
@@ -84,30 +59,53 @@ class KernelVersion(Plugin):
         uname_str += self.machine + "," if self.machine else "none,"
         uname_str += self.domainname + "," if self.domainname else "none,"
 
+
         return uname_str
 
-    def change_uname(self, cpu: Any, buf_ptr: int, filler: Any) -> None:
-        """
-        Event handler to change the uname string in the guest.
+    @plugins.syscalls.syscall(
+    name_or_pattern="sys_newuname", 
+    on_enter=False,
+    on_return=True,)
 
-        Args:
-            cpu (Any): The CPU context.
-            buf_ptr (int): Pointer to the buffer where uname is written.
-            filler (Any): Unused filler argument.
-
-        Returns:
-            None
-        """
+    def change_newuname(self, pt_regs, proto, syscall, *args):
+ 
         new_uname = self.create_string()
+        new_uname_list = new_uname.split(',')
+        uname_fields = ["sysname", "nodename", "release", "version", "machine", "domainname"]
+        new_uname_dir = dict(zip(uname_fields, new_uname_list))
 
-        if new_uname == "none,none,none,none,none,none,":
-            self.panda.arch.set_retval(cpu, NO_CHANGE)
-            return
+        (struct_ptr) = args[0]
 
-        try:
-            plugins.mem.write_bytes_panda(
-                cpu, buf_ptr, (new_uname.encode("utf-8") + b"\0")
-            )
-            self.panda.arch.set_retval(cpu, 0x1)
-        except ValueError:
-            self.panda.arch.set_retval(cpu, RETRY)
+        new_utsname = yield from plugins.kffi.read_type(args[0], "struct new_utsname")
+       # breakpoint()
+
+        for uname_field, field_val in new_uname_dir.items():
+            #print(uname_field)
+            if field_val != 'none':
+                char_list = [ord(c) for c in field_val]
+                char_list.extend([0] * (65 - len(field_val)))
+                #print(char_list)
+            
+                for i in range(65):
+                    getattr(new_utsname, uname_field)[i] = char_list[i]
+
+            else:
+                continue
+                
+                
+                
+        final = new_utsname.to_bytes()
+        #print(f"buffer length {len(final)}")
+
+        yield from plugins.mem.write_bytes(struct_ptr, final)
+        # data = yield from plugins.mem.read_bytes(struct_ptr, 390)
+        # print(data)
+        
+        # breakpoint()
+        pt_regs.set_retval(1)
+
+
+ 
+                
+                
+                

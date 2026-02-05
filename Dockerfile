@@ -153,6 +153,10 @@ ARG IGLOO_DRIVER_VERSION
 RUN /get_release.sh rehosting igloo_driver ${IGLOO_DRIVER_VERSION} igloo_driver.tar.gz | \
     tar xzf - -C /igloo_static
 
+# ARG LOONGARCH64_BIOS_URL
+# RUN wget -qO- ${LOONGARCH64_BIOS_URL} | \
+#     bsdtar -xOf - ./usr/share/edk2/loongarch64/QEMU_EFI.fd > /igloo_static/loongarch64/QEMU_EFI.fd
+
 # Download prototype files for ltrace.
 #
 # Download the tarball from Fedora, because ltrace.org doesn't store old
@@ -214,9 +218,21 @@ RUN if [ -f /tmp/local_packages/nmap.tar.gz ]; then \
     touch /build/nmap/etc/nmap/.custom /build/nmap/etc/nmap/.custom_local; \
     fi
 
+
+
+
 ### Python Builder: Build all wheel files necessary###
 FROM $BASE_IMAGE AS python_builder
 ARG PANDANG_VERSION
+
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m pip install --upgrade pip setuptools wheel
+
+
+RUN pip install uv uv-build
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -224,7 +240,7 @@ RUN apt-get update && apt-get install -y python3-pip git wget liblzo2-dev
 RUN wget -O /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl \
     https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare2-${PANDANG_VERSION}-py3-none-any.whl
 RUN --mount=type=cache,target=/root/.cache/pip \
-      pip wheel --no-cache-dir --wheel-dir /app/wheels \
+      pip wheel --no-build-isolation --no-cache-dir --wheel-dir /app/wheels \
       angr \
       beautifulsoup4 \
       coloredlogs \
@@ -265,7 +281,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       setuptools \
       sqlalchemy \
       telnetlib3 \
-      tk \
+      #tk \
       ujson \
       cxxfilt \
       zstandard \
@@ -599,4 +615,6 @@ RUN  cd /igloo_static &&  \
             fi; \
         done \
     done
+
+
 RUN date +%s%N > /igloo_static/container_timestamp.txt
