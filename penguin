@@ -354,7 +354,7 @@ penguin_run() {
     fi
 
     # Similarly if we are running a shell in the container, start it if it's not already running, otherwise exec into that container
-    if [[ "${cmd[0]}" == "shell" ]]; then
+    if [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "shell" ]]; then
         if [[ -n "$container_name" ]] && docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
             docker_cmd=("docker" "exec" "-it" "-w" "/workspace" "${container_name}" "bash")
             "${docker_cmd[@]}"
@@ -502,7 +502,7 @@ penguin_run() {
     done
     
     # NEW: Default to current directory if running 'shell' with no path args
-    if [ -z "$host_workspace_dir" ] && [[ "${cmd[0]}" == "shell" ]]; then
+    if [[ ${#cmd[@]} -gt 0 && -z "$host_workspace_dir" && "${cmd[0]}" == "shell" ]]; then
         host_workspace_dir=$(pwd)
         # We append "." to the arguments passed to the container. 
         # Since we effectively map cwd -> /workspace and set -w /workspace, 
@@ -531,7 +531,7 @@ penguin_run() {
     fi
 
     # NEW: Force working directory to /workspace if running shell
-    if [[ "${cmd[0]}" == "shell" ]]; then
+    if [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "shell" ]]; then
         docker_cmd+=("-w" "/workspace")
     fi
 
