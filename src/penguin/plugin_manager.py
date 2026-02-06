@@ -484,7 +484,7 @@ class IGLOOPluginManager:
             if not hasattr(self, name.lower()):
                 setattr(self, name.lower(), self.plugins[name])
 
-    def load_plugin(self, plugin_name: str) -> None:
+    def load_plugin(self, plugin_name: str, extra_args: Dict[str, Any]=None) -> None:
         """
         Load a plugin by name.
 
@@ -522,7 +522,15 @@ class IGLOOPluginManager:
                 continue
             self.logger.debug(f"Setting {plugin_name} arg: {k} to {v}")
             args[k] = v
-
+        if extra_args:
+            for k, v in extra_args.items():
+                if k in args.keys():
+                    if args[k] != v:
+                        self.logger.error(
+                            f"Extra arg for {plugin_name} overwrites argument {k} {args[k]} -> {v}")
+                    continue
+                self.logger.debug(f"Setting extra arg for {plugin_name}: {k} to {v}")
+                args[k] = v
         try:
             plugins_loaded = self.load_all(path, args)
         except SyntaxError as e:
