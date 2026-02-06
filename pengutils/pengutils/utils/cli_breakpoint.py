@@ -37,7 +37,7 @@ def list(sock):
     """List all breakpoints/hooks."""
     cmd = {"type": "list"}
     try:
-        resp = send_command(cmd, socket=sock)
+        resp = send_command(cmd, sock=sock)
         if not resp:
             print(f"[red]No response from socket {sock}[/red]")
             sys.exit(1)
@@ -67,7 +67,7 @@ def disable(sock, id):
     if id is not None:
         cmd["id"] = id
     try:
-        resp = send_command(cmd, socket=sock)
+        resp = send_command(cmd, sock=sock)
         if not resp:
             print(f"[red]No response from socket {sock}[/red]")
             sys.exit(1)
