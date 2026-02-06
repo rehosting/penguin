@@ -25,8 +25,41 @@ class SyscallTest(Plugin):
         self.ioctl_ret_num = 0
         self.ioctl_ret2_num = 0
         self.ioctl_ret3_num = 0
+        self.test_skip_retval_handle = syscalls.syscall("on_sys_ioctl_enter", comm_filter="send_syscall",
+                          arg_filters=[None, 0xabcd])(self.test_skip_retval)
+        
+        self.unregistered_count = 0
+        self.unregister_test_handle = syscalls.syscall("on_sys_ioctl_enter", comm_filter="send_syscall",
+                          arg_filters=[0x14, 0x1234])(self.test_unregister)
+        
+        # Test double registration for unregister logic
+        self.double_reg_count = 0
+        self.double_reg1 = syscalls.syscall("on_sys_ioctl_enter", comm_filter="send_syscall",
+                          arg_filters=[0x15, 0x1234])(self.test_double_reg)
+        self.double_reg2 = syscalls.syscall("on_sys_ioctl_enter", comm_filter="send_syscall",
+                          arg_filters=[0x15, 0x1234])(self.test_double_reg)
+
+        # Test unregister by name
+        self.by_name_count = 0
         syscalls.syscall("on_sys_ioctl_enter", comm_filter="send_syscall",
-                         arg_filters=[None, 0xabcd])(self.test_skip_retval)
+                          arg_filters=[0x16, 0x1234])(self.test_unregister_by_name)
+
+    def test_unregister_by_name(self, regs, proto, syscall, fd, op, arg):
+        self.by_name_count += 1
+        syscalls.unregister("test_unregister_by_name")
+
+    def test_double_reg(self, regs, proto, syscall, fd, op, arg):
+        self.double_reg_count += 1
+        if self.double_reg_count == 2:
+            # Unregister the first handle only after both have run once
+            # This avoids race conditions where H2 runs first and unregisters H1 before H1 runs
+            syscalls.unregister(self.double_reg1)
+
+    def test_unregister(self, regs, proto, syscall, fd, op, arg):
+        self.unregistered_count += 1
+        # Should only be called once
+        assert self.unregistered_count == 1, "Unregistered hook called multiple times"
+        syscalls.unregister(self.test_unregister)
 
     def test_skip_retval(self, regs, proto, syscall, fd, op, arg):
         assert fd == 9, f"Expected fd 9, got {fd:#x}"
@@ -150,6 +183,29 @@ class SyscallTest(Plugin):
             self.logger.info(f"Syscall getpid test: {result}")
             f.write(f"Syscall getpid test: {result}\n")
 
+    def check_unregister_results(self):
+        with open(join(self.outdir, "syscall_test.txt"), "a") as f:
+             # unregister: triggered twice, should run once
+             if self.unregistered_count == 1:
+                 f.write("Syscall unregister: passed\n")
+             else:
+                 f.write(f"Syscall unregister: failed {self.unregistered_count}\n")
+             
+             # double_reg: triggered twice.
+             # Call 1: handle1 runs (unregister handle1), handle2 runs. Count = 2.
+             # Call 2: handle1 gone, handle2 runs. Count = 3.
+             if self.double_reg_count == 3:
+                 f.write("Syscall double_reg: passed\n")
+             else:
+                 f.write(f"Syscall double_reg: failed {self.double_reg_count}\n")
+
+             # by_name: triggered twice, should run once
+             if self.by_name_count == 1:
+                 f.write("Syscall unregister_by_name: passed\n")
+             else:
+                 f.write(f"Syscall unregister_by_name: failed {self.by_name_count}\n")
+
     def uninit(self):
         self.report_clone()
         self.report_getpid()
+        self.check_unregister_results()

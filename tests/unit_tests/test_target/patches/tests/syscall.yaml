@@ -34,6 +34,18 @@ plugins:
         type: file_contains
         file: syscall_test.txt
         string: "Syscall ioctl_reg3: success 1"
+      syscall_hypercall+unregister:
+        type: file_contains
+        file: syscall_test.txt
+        string: "Syscall unregister: passed"
+      syscall_hypercall+double_reg:
+        type: file_contains
+        file: syscall_test.txt
+        string: "Syscall double_reg: passed"
+      syscall_hypercall+unregister_by_name:
+        type: file_contains
+        file: syscall_test.txt
+        string: "Syscall unregister_by_name: passed"
 
 static_files:
   /tests/syscall.sh:
@@ -47,6 +59,18 @@ static_files:
       /igloo/utils/send_syscall ioctl 0x13 0x1234 0xabce
       /igloo/utils/send_syscall ioctl 0x13 0x1234 0xabcd
       
+      # Unregister test - called twice, triggers once
+      /igloo/utils/send_syscall ioctl 0x14 0x1234
+      /igloo/utils/send_syscall ioctl 0x14 0x1234
+
+      # Double Reg test - called twice, triggers 3 times (2 then 1)
+      /igloo/utils/send_syscall ioctl 0x15 0x1234
+      /igloo/utils/send_syscall ioctl 0x15 0x1234
+
+      # Unregister by name test - called twice, triggers once
+      /igloo/utils/send_syscall ioctl 0x16 0x1234
+      /igloo/utils/send_syscall ioctl 0x16 0x1234
+
       /igloo/utils/send_syscall ioctl 0x9  0xabcd 
 
       if [ $? -ne 43 ]; then
@@ -63,4 +87,4 @@ static_files:
       echo "Syscall test: passed"
         exit 0
       fi
-    mode: 73
+    mode: 755
