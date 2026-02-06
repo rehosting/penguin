@@ -62,19 +62,6 @@ from pengutils.utils.util_base import get_default_results_path
 def query_fds(results, procname, follow, fd, output):
     """
     Query file descriptor write events from the database with optional filters and output options.
-
-    Parameters
-    ----------
-    results : str
-        Path to results folder.
-    procname : str or None
-        Process name substring to filter for.
-    follow : bool
-        Whether to show latest results as they appear.
-    fd : str or None
-        File descriptor number to filter for.
-    output : str
-        Output file path (default: /dev/stdout).
     """
     db_path = join(results, "plugins.db")
     if not exists(db_path):

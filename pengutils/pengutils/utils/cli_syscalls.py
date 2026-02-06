@@ -99,21 +99,6 @@ def syscall_filter(sess, procname, syscall, errors):
 def query_syscalls(results, procname, syscall, errors, follow, output):
     """
     Query syscall events from the database with optional filters and output options.
-
-    Parameters
-    ----------
-    results : str
-        Path to results folder.
-    procname : str or None
-        Process name substring to filter for.
-    syscall : str or None
-        Syscall name substring to filter for.
-    errors : bool
-        Whether to show only syscalls that returned an error.
-    follow : bool
-        Whether to show latest results as they appear.
-    output : str
-        Output file path (default: /dev/stdout).
     """
     print_procname = procname is None
     args = (procname, syscall, errors)
