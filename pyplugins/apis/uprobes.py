@@ -4,11 +4,13 @@
 """
 
 from penguin import plugins, Plugin
-from typing import Dict, Any, Callable, Optional, Iterator, Union
+from typing import Dict, Any, Callable, Optional, Iterator, Union, List
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import portal_type
 from hyper.portal import PortalCmd
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
+import functools
+from collections import defaultdict
 
 __all__ = [
     "Uprobes"
@@ -28,11 +30,16 @@ class Uprobes(Plugin):
         self.projdir = self.get_arg("proj_dir")
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
+        
+        # Maps probe_id to (callback_handle, is_method, read_only, original_func)
         self._hooks: Dict[int, tuple] = {}
         self._hook_info = {}
         self._pending_uprobes = []
-        self._func_to_probe_id = {}
-        self._name_to_probe_id = {}
+        
+        # Mappings for unregistering
+        self._handle_to_probe_ids: Dict[Callable, List[int]] = defaultdict(list)
+        self._func_to_probe_ids: Dict[Callable, List[int]] = defaultdict(list)
+        self._name_to_probe_ids: Dict[str, List[int]] = defaultdict(list)
 
         self.portal = plugins.portal
         self.portal.register_interrupt_handler(
@@ -52,9 +59,10 @@ class Uprobes(Plugin):
                 if instance and hasattr(instance, method_name):
                     bound_method = getattr(instance, method_name)
                     if hook_ptr in self._hooks:
-                        _, _, read_only = self._hooks[hook_ptr]
+                        # Update the callback but preserve metadata
+                        _, _, read_only, original_func = self._hooks[hook_ptr]
                         self._hooks[hook_ptr] = (
-                            bound_method, False, read_only)
+                            bound_method, False, read_only, original_func)
                     return bound_method
             except AttributeError:
                 pass
@@ -66,7 +74,8 @@ class Uprobes(Plugin):
         hook_id = sce.id
         if hook_id not in self._hooks:
             return
-        f, is_method, read_only = self._hooks[hook_id]
+        
+        f, is_method, read_only, _ = self._hooks[hook_id]
         ptregs_addr = sce.regs.address
         pt_regs_raw = plugins.kffi.read_type_panda(cpu, ptregs_addr, "pt_regs")
         pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
@@ -127,13 +136,7 @@ class Uprobes(Plugin):
 
     def _uprobe_interrupt_handler(self) -> bool:
         """
-        Handle interrupts for pending uprobe registrations.
-        Processes one pending uprobe registration per call.
-        Returns True if more uprobes are pending, False otherwise.
-        Returns
-        -------
-        bool
-            True if more uprobes are pending, False otherwise.
+        Handle interrupts for pending uprobe registrations and unregistrations.
         """
         if not self._pending_uprobes:
             return False
@@ -142,22 +145,43 @@ class Uprobes(Plugin):
         self._pending_uprobes = []
 
         while pending_uprobes:
-            uprobe_config, func = pending_uprobes.pop(0)
+            item = pending_uprobes.pop(0)
+
+            # Handle unregister
+            if isinstance(item, tuple) and item[0] == 'unregister':
+                _, probe_id = item
+                import struct
+                if getattr(self.panda, 'bits', 64) == 32:
+                    data = struct.pack("<I", probe_id)
+                else:
+                    data = struct.pack("<Q", probe_id)
+                yield PortalCmd("unregister_uprobe", size=len(data), data=data)
+                continue
+
+            # Handle register
+            uprobe_config, handle = item
+            original_func = getattr(handle, '_original_func', handle)
+
             probe_id = yield from self._register_uprobe(uprobe_config)
 
             if probe_id:
-                is_method = uprobe_config["is_method"]
+                is_method = uprobe_config.get("is_method", False)
                 read_only = uprobe_config.get("read_only", False)
 
-                self._hooks[probe_id] = (func, is_method, read_only)
+                # Store callback info: (handle, is_method, read_only, original_func)
+                self._hooks[probe_id] = (handle, is_method, read_only, original_func)
                 self._hook_info[probe_id] = uprobe_config
 
-                self._func_to_probe_id[func] = probe_id
-                if hasattr(func, "__name__"):
-                    self._name_to_probe_id[func.__name__] = probe_id
+                # Populate mappings
+                self._handle_to_probe_ids[handle].append(probe_id)
+                self._func_to_probe_ids[original_func].append(probe_id)
+                
+                func_name = getattr(original_func, "__name__", None)
+                if func_name:
+                    self._name_to_probe_ids[func_name].append(probe_id)
 
                 self.logger.debug(
-                    f"Registered uprobe ID {probe_id} for {uprobe_config['path']}:{uprobe_config['offset']:#x}")
+                    f"Registered uprobe ID {probe_id} for {uprobe_config['path']}:{uprobe_config.get('offset', 0):#x}")
             else:
                 self.logger.error("Failed to register uprobe")
 
@@ -213,32 +237,31 @@ class Uprobes(Plugin):
             f"Uprobe successfully registered with ID: {probe_id}")
         return result
 
-    def _unregister_uprobe(self, probe_id: int) -> Iterator[bool]:
-        """
-        Unregister a uprobe by its ID.
+    def _cleanup_probe_maps(self, probe_id: int):
+        if probe_id in self._hooks:
+            handle, _, _, original_func = self._hooks[probe_id]
 
-        Parameters
-        ----------
-        probe_id : int
-            ID of the uprobe to unregister.
+            if handle in self._handle_to_probe_ids:
+                if probe_id in self._handle_to_probe_ids[handle]:
+                    self._handle_to_probe_ids[handle].remove(probe_id)
+            
+            if original_func in self._func_to_probe_ids:
+                if probe_id in self._func_to_probe_ids[original_func]:
+                    self._func_to_probe_ids[original_func].remove(probe_id)
+            
+            name = getattr(original_func, "__name__", None)
+            if name and name in self._name_to_probe_ids:
+                if probe_id in self._name_to_probe_ids[name]:
+                    self._name_to_probe_ids[name].remove(probe_id)
 
-        Yields
-        ------
-        bool
-            True if successfully unregistered, False otherwise.
-        """
-        self.logger.debug(f"unregister_uprobe called: probe_id={probe_id}")
-        result = yield PortalCmd("unregister_uprobe", probe_id, 0)
-        if result is True:
-            if probe_id in self._hooks:
-                del self._hooks[probe_id]
-            return True
-        return False
+            del self._hooks[probe_id]
+            if probe_id in self._hook_info:
+                del self._hook_info[probe_id]
 
     def uprobe(
         self,
-        path: Optional[str],
-        symbol: Union[str, int],
+        path: Optional[str] = None,
+        symbol: Union[str, int] = None,
         process_filter: Optional[str] = None,
         on_enter: bool = True,
         on_return: bool = False,
@@ -274,17 +297,26 @@ class Uprobes(Plugin):
         """
         def _register_decorator(uprobe_configs):
             def decorator(func):
+                # Wrapper to act as a unique handle
+                @functools.wraps(func)
+                def wrapper(*args, **kwargs):
+                    return func(*args, **kwargs)
+                wrapper._original_func = func
+
                 is_method = hasattr(func, '__self__') or (
                     hasattr(func, '__qualname__') and '.' in func.__qualname__)
-                qualname = getattr(func, '__qualname__', None)
+                
                 for uprobe_config in uprobe_configs:
                     uprobe_config["callback"] = func
                     uprobe_config["is_method"] = is_method
-                    uprobe_config["qualname"] = qualname
-                    self._pending_uprobes.append((uprobe_config, func))
+                    uprobe_config["read_only"] = read_only
+                    
+                    # Store wrapper instead of raw func
+                    self._pending_uprobes.append((uprobe_config, wrapper))
+                
                 if plugins.live_image.fs_generated:
                     self.portal.queue_interrupt("uprobes")
-                return func
+                return wrapper
             return decorator
 
         base_config = {
@@ -345,18 +377,45 @@ class Uprobes(Plugin):
         kwargs['on_enter'] = False
         kwargs['on_return'] = True
         return self.uprobe(path, symbol, **kwargs)
-
-    def unregister(self, probe_id: int) -> None:
+    
+    def unregister(self, target: Union[Callable, str]):
         """
-        Unregister a uprobe by its ID.
+        Unregister a uprobe by handle, function, or name.
 
-        Parameters
-        ----------
-        probe_id : int
-            ID of the uprobe to unregister.
-
-        Returns
-        -------
-        None
+        Args:
+            target: The handle (returned by decorator), function, or name of the uprobe to unregister.
         """
-        self._unregister_uprobe(probe_id)
+        probe_ids = []
+
+        # 1. Try by handle (wrapper)
+        if target in self._handle_to_probe_ids:
+            probe_ids.extend(self._handle_to_probe_ids[target])
+
+        # 2. Try by original function
+        func = getattr(target, '_original_func', target)
+        if func in self._func_to_probe_ids:
+            for pid in self._func_to_probe_ids[func]:
+                if pid not in probe_ids:
+                    probe_ids.append(pid)
+        # Check if target is a bound method, if so, check its __func__
+        if hasattr(target, '__func__') and target.__func__ in self._func_to_probe_ids:
+             for pid in self._func_to_probe_ids[target.__func__]:
+                if pid not in probe_ids:
+                    probe_ids.append(pid)
+
+        # 3. Try by name
+        if isinstance(target, str):
+            if target in self._name_to_probe_ids:
+                for pid in self._name_to_probe_ids[target]:
+                    if pid not in probe_ids:
+                        probe_ids.append(pid)
+
+        if not probe_ids:
+            self.logger.warning(f"No uprobes found for target {target}")
+            return
+
+        for pid in probe_ids:
+            self._cleanup_probe_maps(pid)
+            self._pending_uprobes.append(('unregister', pid))
+        
+        self.portal.queue_interrupt("uprobes")
