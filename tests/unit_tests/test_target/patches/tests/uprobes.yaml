@@ -46,6 +46,14 @@ plugins:
         type: file_contains
         file: uprobe_tests_summary.txt
         string: "All uprobe tests PASSED!"
+      uprobes_unregister_wrapper:
+        type: file_contains
+        file: uprobe_unregister_test.txt
+        string: "atoi count: 1 (PASSED)"
+      uprobes_unregister_name:
+        type: file_contains
+        file: uprobe_unregister_test.txt
+        string: "atol count: 1 (PASSED)"
 
 static_files:
   /tests/uprobes_test.sh:
@@ -73,6 +81,19 @@ static_files:
 
       env = libc.func("p", "getenv", "p")
       env = env("PROJ_NAME")
+
+      # Unregister tests
+      atoi = libc.func("i", "atoi", "s")
+      atol = libc.func("l", "atol", "s")
+
+      # Trigger atoi twice. Should be unregistered after first.
+      atoi("10")
+      atoi("20")
+
+      # Trigger atol twice. Should be unregistered after first.
+      atol("30")
+      atol("40")
+
       sys.exit(0)
 
     mode: 73

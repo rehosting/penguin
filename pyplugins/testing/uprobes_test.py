@@ -41,6 +41,36 @@ class UprobesTest(Plugin):
 
         self.printf_offset = lib_syms["printf"]
 
+        # Unregister test setup
+        self.atoi_count = 0
+        self.atol_count = 0
+
+        # Test 1: Unregister by wrapper handle
+        self.atoi_handle = uprobes.uprobe(
+            path=libguest,
+            symbol=lib_syms["atoi"],
+            process_filter="uprobes_test.sh"
+        )(self.on_atoi_enter)
+
+        # Test 2: Unregister by name
+        uprobes.uprobe(
+            path=libguest,
+            symbol=lib_syms["atol"],
+            process_filter="uprobes_test.sh"
+        )(self.on_atol_enter)
+
+    def on_atoi_enter(self, pt_regs):
+        self.atoi_count += 1
+        self.logger.info(f"atoi called! count={self.atoi_count}")
+        # Unregister using the handle
+        uprobes.unregister(self.atoi_handle)
+
+    def on_atol_enter(self, pt_regs):
+        self.atol_count += 1
+        self.logger.info(f"atol called! count={self.atol_count}")
+        # Unregister using the function name string
+        uprobes.unregister("on_atol_enter")
+
     def find_lib(self, lib_name):
         """
         Use the nm command to extract symbol addresses from libc.
@@ -295,6 +325,18 @@ class UprobesTest(Plugin):
                 f.write("\nAll uprobe tests PASSED!\n")
             else:
                 f.write("\nSome uprobe tests FAILED!\n")
+        
+        # Write unregister test results
+        with open(join(self.outdir, "uprobe_unregister_test.txt"), "w") as f:
+            if self.atoi_count == 1:
+                f.write(f"atoi count: {self.atoi_count} (PASSED)\n")
+            else:
+                f.write(f"atoi count: {self.atoi_count} (FAILED)\n")
+            
+            if self.atol_count == 1:
+                f.write(f"atol count: {self.atol_count} (PASSED)\n")
+            else:
+                f.write(f"atol count: {self.atol_count} (FAILED)\n")
 
     @plugins.uprobes.uprobe(
         path="/test_executable",
