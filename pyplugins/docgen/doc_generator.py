@@ -33,7 +33,7 @@ class SphinxGenerator(Plugin):
         self.module_specs = {
             "pyplugins": Path("/pyplugins"),
             "penguin": Path("/pkg/penguin"),
-            "events": Path("/db/events"),
+            "pengutils": Path("/pengutils/pengutils"),
         }
 
         # Prepare directories
