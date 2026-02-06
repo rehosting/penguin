@@ -47,11 +47,6 @@ from pengutils.utils.util_base import get_default_results_path
 def query_tasks(results, output):
     """
     Query and list unique process names (tasks) from the events database.
-
-    :param results: Path to results folder.
-    :type results: str
-    :param output: Output file path (default: /dev/stdout).
-    :type output: str
     """
     db_path = join(results, "plugins.db")
     if not exists(db_path):
