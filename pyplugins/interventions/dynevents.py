@@ -97,10 +97,15 @@ class DynEvents(Plugin):
 
     def _handle_load_plugin(self, cmd):
         name = cmd.get('name')
+        args = cmd.get('args', None)
         if not name: raise ValueError("Missing 'name'")
-        getattr(plugins, name)
-        self.logger.info(f"Loaded plugin: {name}")
-        return {}
+        try:
+            plugins.load_plugin(name, extra_args=args)
+            self.logger.info(f"Loaded plugin: {name}")
+            return {"message": f"Plugin '{name}' loaded successfully", "status": "success"}
+        except Exception as e:
+            self.logger.error(f"Plugin '{name}' not found: {e}")
+            return {"status": "error", "message": f"Plugin '{name}' not found: {e}"}
 
     def _handle_uprobe(self, cmd):
         return self._register_uprobe(cmd)
