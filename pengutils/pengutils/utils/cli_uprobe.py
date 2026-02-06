@@ -52,7 +52,7 @@ def uprobe(sock, path, symbol, action, proc, pid, output):
     if output:
         cmd["output"] = output
     try:
-        resp = send_command(cmd, socket=sock)
+        resp = send_command(cmd, sock=sock)
         if not resp:
             print(f"[red]No response from socket {sock}[/red]")
             sys.exit(1)
