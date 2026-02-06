@@ -94,21 +94,6 @@ def exec_filter(sess, procname, fd, filename):
 def query_execs(results, procname, follow, fd, filename, output):
     """
     Query execution events from the database with optional filters and output options.
-
-    Parameters
-    ----------
-    results : str
-        Path to results folder.
-    procname : str or None
-        Process name substring to filter for.
-    follow : bool
-        Whether to show latest results as they appear.
-    fd : str or None
-        File descriptor to filter for.
-    filename : str or None
-        File name substring to filter for.
-    output : str
-        Output file path (default: /dev/stdout).
     """
     print_procname = procname is None
     args = (procname, fd, filename)
