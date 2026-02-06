@@ -224,10 +224,11 @@ class Verifier(Plugin):
             PASSED = f"{GREEN}passed{END}"
             FAILED = f"{RED}failed{END}"
             test_passed = results[tc.name]
-            self.logger.info(
-                f"Test {tc.name} {PASSED if test_passed else FAILED}")
-            self.logger.info(f"STDOUT: {tc.stdout}")
-            self.logger.info(f"STDERR: {tc.stderr}")
+            if not test_passed:
+                self.logger.info(
+                    f"Test {tc.name} {PASSED if test_passed else FAILED}")
+                self.logger.info(f"STDOUT: {tc.stdout}")
+                self.logger.info(f"STDERR: {tc.stderr}")
 
         ts = TestSuite("verifier", test_cases)
         with open(join(self.outdir, "verifier.xml"), "w") as f:
