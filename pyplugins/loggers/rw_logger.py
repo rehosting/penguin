@@ -69,8 +69,8 @@ class RWLog(Plugin):
             return
         data = yield from plugins.mem.read_bytes(buf, size=rv)
         signed_fd = int(self.panda.ffi.cast("target_long", fd))
-        fname = (yield from plugins.portal.get_fd_name(fd)) or "?"
-        args = yield from plugins.portal.get_args()
+        fname = (yield from plugins.OSI.get_fd_name(fd)) or "?"
+        args = yield from plugins.OSI.get_args()
         if args:
             procname = args[0]
         else:
@@ -108,7 +108,7 @@ class RWLog(Plugin):
             return
         data = yield from plugins.mem.read_bytes(buf, rv)
         signed_fd = int(self.panda.ffi.cast("target_long", fd))
-        fname = (yield from plugins.portal.get_fd_name(fd)) or "?"
+        fname = (yield from plugins.OSI.get_fd_name(fd)) or "?"
         # Get name of FD, if it's valid
         signed_fd = int(self.panda.ffi.cast("target_long", fd))
         args = yield from plugins.osi.get_args()
