@@ -64,7 +64,7 @@ class NetBinds(Plugin):
         plugins.register(self, "on_bind")
 
         with open(join(self.outdir, BINDS_FILE), "w") as f:
-            f.write("procname,ipvn,domain,guest_ip,guest_port,time\n")
+            f.write("procname,ipvn,domain,guest_ip,guest_port,pid,time\n")
 
         with open(join(self.outdir, SUMMARY_BINDS_FILE), "w") as f:
             f.write("n_procs,n_sockets,bound_www,time\n")
@@ -106,32 +106,38 @@ class NetBinds(Plugin):
         self.pending_procname = procname
         self.pending_sinaddr = plugins.mem.read_bytes_panda(cpu, sinaddr_addr, 16)
 
-    def on_ipv4_bind(self, cpu, port, is_steam) -> None:
+    def on_ipv4_bind(self, cpu, port_pid_ptr, is_steam) -> None:
         """
         Handle IPv4 bind event, trigger on_bind and clear pending state.
 
         Args:
             cpu: The CPU core where the event occurred.
-            port: The port number being bound, in host byte order.
+            port_pid_ptr: The pointer to a string containing the port number being bound (in host byte order) and pid seperated by a ':'.
             is_steam: Boolean indicating if this is a stream (TCP) bind.
         """
+        port_pid_str = plugins.mem.read_str_panda(cpu, port_pid_ptr)
+        port, pid = port_pid_str.split(':')
+
         self.on_bind(
-            cpu, self.pending_procname, True, is_steam, port, self.pending_sinaddr
+            cpu, self.pending_procname, True, is_steam, int(port), int(pid), self.pending_sinaddr
         )
         self.pending_procname = None
         self.pending_sinaddr = None
 
-    def on_ipv6_bind(self, cpu, port, is_steam) -> None:
+    def on_ipv6_bind(self, cpu, port_pid_ptr, is_steam) -> None:
         """
         Handle IPv6 bind event, trigger on_bind and clear pending state.
 
         Args:
             cpu: The CPU core where the event occurred.
-            port: The port number being bound, in host byte order.
+            port_pid_ptr: The pointer to a string containing the port number being bound (in host byte order) and pid seperated by a ':'.
             is_steam: Boolean indicating if this is a stream (TCP) bind.
         """
+        port_pid_str = plugins.mem.read_str_panda(cpu, port_pid_str)
+        port, pid = port_pid_str.split(':')
+
         self.on_bind(
-            cpu, self.pending_procname, False, is_steam, port, self.pending_sinaddr
+            cpu, self.pending_procname, False, is_steam, int(port), int(pid), self.pending_sinaddr
         )
         self.pending_procname = None
         self.pending_sinaddr = None
@@ -165,7 +171,7 @@ class NetBinds(Plugin):
             ip = ip_part.lstrip('[')
             self.remove_bind(ip, port, sock_type)
 
-    def on_bind(self, cpu, procname, is_ipv4, is_stream, port, sin_addr) -> None:
+    def on_bind(self, cpu, procname, is_ipv4, is_stream, port, pid, sin_addr) -> None:
         """
         Handle a completed bind event, log details, publish event, and optionally shut down.
 
@@ -175,6 +181,7 @@ class NetBinds(Plugin):
             is_ipv4: Boolean indicating if this is an IPv4 bind.
             is_stream: Boolean indicating if this is a stream (TCP) bind.
             port: The port number being bound, in host byte order.
+            pid: The PID of the process that performed the bind.
             sin_addr: The IP address being bound, in network byte order.
         """
         now = time.time()
@@ -203,24 +210,24 @@ class NetBinds(Plugin):
 
         # Only report each bind once, if it's identical
         # VPN / stats will just get confused if we report the same bind twice
-        if (procname, ipvn, sock_type, ip, port) in self.seen_binds:
+        if (procname, ipvn, sock_type, ip, port, pid) in self.seen_binds:
             return
-        self.seen_binds.add((procname, ipvn, sock_type, ip, port))
+        self.seen_binds.add((procname, ipvn, sock_type, ip, port, pid))
 
         # Log details to disk
-        self.report_bind_info(time_delta, procname, ipvn, sock_type, ip, port)
+        self.report_bind_info(time_delta, procname, ipvn, sock_type, ip, port, pid)
 
-        self.track_bind(procname, ipvn, sock_type, ip, port, time_delta)
+        self.track_bind(procname, ipvn, sock_type, ip, port, pid, time_delta)
 
         # Trigger our callback
-        plugins.publish(self, "on_bind", sock_type, ipvn, ip, port, procname)
+        plugins.publish(self, "on_bind", sock_type, ipvn, ip, port, pid, procname)
 
         # If bind is 80 and we have shutdown_www option, end the emulation
         if port == 80 and self.shutdown_on_www:
             self.logger.info("Shutting down emulation due to bind on port 80")
             self.panda.end_analysis()
 
-    def track_bind(self, procname, ipvn, sock_type, ip, port, time) -> None:
+    def track_bind(self, procname, ipvn, sock_type, ip, port, pid, time) -> None:
         """
         Track a bind event in the internal list for later analysis.
 
@@ -230,6 +237,7 @@ class NetBinds(Plugin):
             sock_type: The type of socket (TCP or UDP).
             ip: The IP address being bound.
             port: The port number being bound.
+            pid: The PID of the process that performed the bind.
             time: The time since emulation start when the bind occurred.
         """
         add_dict = {
@@ -238,9 +246,11 @@ class NetBinds(Plugin):
             "Socket Type": sock_type,
             "IP": ip,
             "Port": port,
+            "PID": pid,
             "Time": time
         }
         self.bind_list.append(add_dict)
+        self.logger.info(f"CHECK BIND LIST: {self.bind_list}")
 
     def remove_bind(self, ip, port, sock_type) -> None:
         """
@@ -262,7 +272,7 @@ class NetBinds(Plugin):
         """
         return self.bind_list
 
-    def report_bind_info(self, time_delta, procname, ipvn, sock_type, ip, port) -> None:
+    def report_bind_info(self, time_delta, procname, ipvn, sock_type, ip, port, pid) -> None:
         """
         Log bind details and summary statistics to disk.
 
@@ -281,7 +291,7 @@ class NetBinds(Plugin):
 
         # Report this specific bind
         with open(join(self.outdir, BINDS_FILE), "a") as f:
-            f.write(f"{procname},{ipvn},{sock_type},{ip},{port},{time_delta:.3f}\n")
+            f.write(f"{procname},{ipvn},{sock_type},{ip},{port},{pid},{time_delta:.3f}\n")
 
         # Look through self.seen_binds, count unique procnames, total binds, and bound_www
         for data in self.seen_binds:

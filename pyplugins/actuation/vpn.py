@@ -235,7 +235,7 @@ class VPN(Plugin):
         self.host_vpn = subprocess.Popen(host_vpn_cmd, stdout=subprocess.DEVNULL, stderr=None)
         running_vpns.append(self.host_vpn)
 
-    def on_bind(self, sock_type: str, ipvn: int, ip: str, port: int, procname: str) -> None:
+    def on_bind(self, sock_type: str, ipvn: int, ip: str, port: int, pid: int, procname: str) -> None:
         """
         Handle a new bind event from the guest, set up bridges and publish events.
 
@@ -244,6 +244,7 @@ class VPN(Plugin):
             ipvn (int): IP version (4 or 6).
             ip (str): Guest IP address.
             port (int): Guest port.
+            pid (int): Process PID.
             procname (str): Process name binding the port.
         """
         if port == 0:
