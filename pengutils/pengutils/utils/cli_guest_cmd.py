@@ -25,46 +25,48 @@ import socket as sock
 import sys
 import json
 import os
-from pathlib  import Path
+from pathlib import Path
 from rich import print
 
-@click.command()
-@click.option("--socket", default=None, help="Unix socket made by vhost-device-vsock. Defaults to searching for 'vsocket' in /tmp/*/")
-@click.option("--port", default=12341234, type=int, help="Vsock port number to connect to. Defaults to 12341234")
-@click.argument("command", nargs=-1, required=True)
-def guest_cmd(socket, port, command):
-    """
-    Run a command in a rehosted guest via vsock Unix socket.
-    """
-    if socket is None:
+def _resolve_vsocket(socket_path):
+    """Helper to find the vsocket path."""
+    if socket_path is None:
         unix_socket = list(Path('/tmp').glob('*/vsocket'))
     else:
-        unix_socket = socket
+        unix_socket = socket_path
+
     if unix_socket is None:
-        print("[red]No vsocket found and no socket provided[/red]")
-        sys.exit(1)
+        return None, "[red]No vsocket found and no socket provided[/red]"
+    
     if isinstance(unix_socket, list):
         if len(unix_socket) == 0:
-            print("[red]No vsocket found in /tmp/*/[/red]")
-            sys.exit(1)
+            return None, "[red]No vsocket found in /tmp/*/[/red]"
         elif len(unix_socket) > 1:
-            print("[red]Multiple vsockets found in /tmp/*/. Please specify with --socket[/red]")
+            msg = "[red]Multiple vsockets found in /tmp/*/. Please specify with --socket[/red]\n"
             for s in unix_socket:
-                print(f" - {s}")
-            sys.exit(1)
+                msg += f" - {s}\n"
+            return None, msg
         else:
-            unix_socket = str(unix_socket[0])
+            return str(unix_socket[0]), None
+            
+    return str(unix_socket), None
 
-    cmd_str = ' '.join(command)
+def _send_command(unix_socket, port, cmd_str):
+    """Helper to send command over socket and parse JSON result."""
+    s = None
     try:
         s = sock.socket(sock.AF_UNIX, sock.SOCK_STREAM)
         s.connect(unix_socket)
         s.settimeout(None)
+        # Handshake
         connect_command = f"CONNECT {port}\n"
         s.sendall(connect_command.encode('utf-8'))
         response = s.recv(4096).decode('utf-8')
-        assert f"OK {port}" in response, "OK not received from vsock unix socket"
+        if f"OK {port}" not in response:
+            return 1, "", f"OK not received from vsock unix socket (Got: {response})"
+        # Send Command
         s.sendall(cmd_str.encode('utf-8'))
+        # Read Response
         output = b""
         while True:
             chunk = s.recv(4096)
@@ -73,24 +75,43 @@ def guest_cmd(socket, port, command):
             output += chunk
         received_json = output.decode('utf-8')
         result = json.loads(received_json)
-        print(result["stdout"], end='')
-        if result["stderr"]:
-            print(result["stderr"], file=sys.stderr, end='')
-        sys.exit(result["exit_code"])
+        return result["exit_code"], result["stdout"], result["stderr"]
+        
     except OSError as e:
-        print(f"Socket error: {e}", file=sys.stderr)
-        sys.exit(1)
-    except AssertionError as e:
-        print(f"[red]{e}[/red]", file=sys.stderr)
-        sys.exit(1)
+        return 1, "", f"Socket error: {e}"
     except Exception as e:
-        print(f"[red]{e}[/red]", file=sys.stderr)
-        sys.exit(1)
+        return 1, "", str(e)
     finally:
-        try:
-            s.close()
-        except Exception:
-            pass
+        if s:
+            try: s.close()
+            except: pass
+
+@click.command()
+@click.option("--socket", default=None, help="Unix socket made by vhost-device-vsock. Defaults to searching for 'vsocket' in /tmp/*/")
+@click.option("--port", default=12341234, type=int, help="Vsock port number to connect to. Defaults to 12341234")
+@click.argument("command", nargs=-1, required=True)
+@click.pass_context
+def guest_cmd(ctx, socket, port, command):
+    """
+    Run a command in a rehosted guest via vsock Unix socket.
+    """
+    # 1. Resolve Socket
+    unix_socket, err = _resolve_vsocket(socket)
+    if err:
+        print(err)
+        ctx.exit(1)
+
+    # 2. Run Command
+    cmd_str = ' '.join(command)
+    exit_code, stdout, stderr = _send_command(unix_socket, port, cmd_str)
+
+    # 3. Output
+    if stdout:
+        print(stdout, end='')
+    if stderr:
+        print(stderr, file=sys.stderr, end='')
+
+    ctx.exit(exit_code)
 
 if __name__ == "__main__":
     guest_cmd()

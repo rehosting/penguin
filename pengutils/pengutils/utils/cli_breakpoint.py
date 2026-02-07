@@ -33,14 +33,15 @@ def breakpoint_cli():
 
 @breakpoint_cli.command()
 @click.option("--sock", default="results/latest/penguin_events.sock", help="Path to plugin socket (default: results/latest/penguin_events.sock)")
-def list(sock):
+@click.pass_context
+def list(ctx, sock):
     """List all breakpoints/hooks."""
     cmd = {"type": "list"}
     try:
         resp = send_command(cmd, sock=sock)
         if not resp:
             print(f"[red]No response from socket {sock}[/red]")
-            sys.exit(1)
+            ctx.exit(1)
         if resp.get("status") == "success" and "hooks" in resp:
             print(f"{'ID':<4} {'Type':<12} {'Target':<30} {'Action'}")
             print("-" * 60)
@@ -49,19 +50,22 @@ def list(sock):
                 if len(t) > 28:
                     t = t[:25] + "..."
                 print(f"{h['id']:<4} {h['type']:<12} {t:<30} {h['action']}")
+            ctx.exit(0)
         elif resp.get("status") == "success" and "message" in resp:
             print(f"[green]{resp['message']}[/green]")
+            ctx.exit(0)
         else:
             print(f"[red]Failed: {resp.get('message')}[/red]")
-            sys.exit(1)
+            ctx.exit(1)
     except Exception as e:
         print(f"[red]{e}[/red]")
-        sys.exit(1)
+        ctx.exit(1)
 
 @breakpoint_cli.command()
 @click.option("--sock", default="results/latest/penguin_events.sock", help="Path to plugin socket (default: results/latest/penguin_events.sock)")
 @click.option("--id", default=None, type=int, help="Breakpoint ID to disable (optional)")
-def disable(sock, id):
+@click.pass_context
+def disable(ctx, sock, id):
     """Disable a breakpoint/hook by ID, or all if no ID is given."""
     cmd = {"type": "disable"}
     if id is not None:
@@ -70,18 +74,19 @@ def disable(sock, id):
         resp = send_command(cmd, sock=sock)
         if not resp:
             print(f"[red]No response from socket {sock}[/red]")
-            sys.exit(1)
+            ctx.exit(1)
         if resp.get("status") == "success":
             if "message" in resp:
                 print(f"[green]{resp['message']}[/green]")
             else:
                 print(f"[green]Success: ID {resp.get('id')}[/green]")
+            ctx.exit(0)
         else:
             print(f"[red]Failed: {resp.get('message')}[/red]")
-            sys.exit(1)
+            ctx.exit(1)
     except Exception as e:
         print(f"[red]{e}[/red]")
-        sys.exit(1)
+        ctx.exit(1)
 
 if __name__ == "__main__":
     breakpoint_cli()

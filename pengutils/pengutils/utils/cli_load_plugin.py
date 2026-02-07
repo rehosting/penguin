@@ -19,7 +19,6 @@ Options
 
 """
 
-
 import click
 import sys
 from rich import print
@@ -32,7 +31,8 @@ from pengutils.utils.util_events import send_command
     default="results/latest/penguin_events.sock",
     help="Path to plugin socket (default: results/latest/penguin_events.sock)",
 )
-def load_plugin(sock, plugin_name):
+@click.pass_context
+def load_plugin(ctx, sock, plugin_name):
     """
     Load a plugin by name via the Penguin DynEvents Plugin Unix socket.
     """
@@ -42,19 +42,20 @@ def load_plugin(sock, plugin_name):
         if not resp:
             print(f"[red]No response from socket {sock}[/red]")
             print(f"[red]Is the dyn_events plugin loaded?[/red]")
-            sys.exit(1)
+            ctx.exit(1)
         if resp.get("status") == "success":
             if "message" in resp:
                 print(f"[green]{resp['message']}[/green]")
             else:
                 print(f"[green]Success![/green]")
+            ctx.exit(0)
         else:
             print(f"[red]Failed: {resp.get('message')}[/red]")
-            sys.exit(1)
+            ctx.exit(1)
     except Exception as e:
         print(f"[red]{e}[/red]")
         print(f"[red]Is the dyn_events plugin loaded?[/red]")
-        sys.exit(1)
+        ctx.exit(1)
 
 if __name__ == "__main__":
     load_plugin()
