@@ -24,6 +24,8 @@ The plugin extracts relevant fields and stores them in the database using the ``
 from penguin import plugins, Plugin
 from pengutils.events import Read, Write
 
+syscalls = plugins.syscalls
+
 
 class RWLog(Plugin):
     """
@@ -43,8 +45,19 @@ class RWLog(Plugin):
         """
         self.outdir = self.get_arg("outdir")
         self.DB = plugins.DB
+        self.cbs = []
+        self.enable()
+    
+    def enable(self):
+        self.cbs.append(syscalls.syscall("on_sys_write_return")(self.write))
+        self.cbs.append(syscalls.syscall("on_sys_read_return")(self.read))
+    
+    def disable(self):
+        cbs = self.cbs
+        self.cbs = []
+        for cb in cbs:
+            syscalls.unregister(cb)
 
-    @plugins.syscalls.syscall("on_sys_write_return")
     def write(self, regs, proto, syscall, fd, buf, count) -> None:
         """
         Callback for handling write syscall return events.
@@ -84,7 +97,6 @@ class RWLog(Plugin):
                           }
                           )
 
-    @plugins.syscalls.syscall("on_sys_read_return")
     def read(self, regs, proto, syscall, fd, buf, count) -> None:
         """
         Callback for handling read syscall return events.
