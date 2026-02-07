@@ -80,23 +80,36 @@ class PyPandaSysLog(Plugin):
         self.mem_read_str = plugins.mem.read_str
         self.mem_read_ptr_list = plugins.mem.read_char_ptrlist
         self.osi_get_fd = plugins.osi.get_fd_name
+        self.cbs = []
 
         self._init_error_codes(panda)
         self._init_type_handlers()  # Pre-compile type logic
 
         # Hook registration (Same as original)
         procs = self.get_arg("procs")
-        monitor_enter_syscalls = ['execve', 'execveat', 'exit', 'exit_group', 'vfork', 'reboot', 'sigreturn', 'setcontext']
-
+        self.monitor_enter_syscalls = ['execve', 'execveat', 'exit', 'exit_group', 'vfork', 'reboot', 'sigreturn', 'setcontext']
+        args = {"procs": procs} if procs else {}
+        self.enable(args)
+    
+    def enable(self, args={}):
+        procs = args.get("procs", None)
         if procs:
             for proc in procs:
                 syscalls.syscall("on_all_sys_return", comm_filter=proc, read_only=True)(self.all_sys_ret)
-                for sc in monitor_enter_syscalls:
-                    syscalls.syscall(f"on_sys_{sc}_enter", comm_filter=proc, read_only=True)(self.sys_record_enter)
+                for sc in self.monitor_enter_syscalls:
+                    cb = syscalls.syscall(f"on_sys_{sc}_enter", comm_filter=proc, read_only=True)(self.sys_record_enter)
+                    self.cbs.append(cb)
         else:
             syscalls.syscall("on_all_sys_return", read_only=True)(self.all_sys_ret)
-            for sc in monitor_enter_syscalls:
-                syscalls.syscall(f"on_sys_{sc}_enter", read_only=True)(self.sys_record_enter)
+            for sc in self.monitor_enter_syscalls:
+                cb = syscalls.syscall(f"on_sys_{sc}_enter", read_only=True)(self.sys_record_enter)
+                self.cbs.append(cb)
+    
+    def disable(self):
+        cbs = self.cbs
+        self.cbs = []
+        for cb in cbs:
+            plugins.syscalls.unregister(cb)
 
     def _init_type_handlers(self):
         """Define specialized handlers to avoid string matching in hot path"""
