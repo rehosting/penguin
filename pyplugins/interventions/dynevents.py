@@ -1,5 +1,5 @@
 from penguin import Plugin, plugins
-import threading
+import asyncio
 import socket
 import json
 import os
@@ -8,6 +8,9 @@ import re
 import traceback
 import struct
 from collections import defaultdict
+
+uprobes = plugins.uprobes
+syscalls = plugins.syscalls
 
 class DynEvents(Plugin):
     """
@@ -40,42 +43,41 @@ class DynEvents(Plugin):
         self.arch_bits = 64 if '64' in self.panda.arch_name else 32
         self.ptr_mask = (1 << self.arch_bits) - 1
 
-        self.thread = threading.Thread(target=self._socket_server_loop)
-        self.thread.daemon = True
-        self.thread.start()
+        self.server_task = asyncio.create_task(self._socket_server_loop())
 
     def uninit(self):
         self.running = False
+        if self.server_task:
+            self.server_task.cancel()
         if os.path.exists(self.socket_path):
             try: os.unlink(self.socket_path)
             except OSError: pass
 
-    def _socket_server_loop(self):
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
-            server.bind(self.socket_path)
-            server.listen(1)
-            while self.running:
-                try:
-                    conn, _ = server.accept()
-                    self._handle_connection(conn)
-                except OSError:
-                    if not self.running: break
+    async def _socket_server_loop(self):
+        try:
+            server = await asyncio.start_unix_server(self._handle_client, self.socket_path)
+            async with server:
+                await server.serve_forever()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            self.logger.error(f"Server loop error: {e}")
 
-    def _handle_connection(self, conn):
-        with conn:
-            try:
-                data = b""
-                while True:
-                    chunk = conn.recv(4096)
-                    if not chunk: break
-                    data += chunk
-                
-                response = {"status": "error", "message": "No data received"}
-                if data:
-                    response = self._process_message(data)
-                conn.sendall(json.dumps(response).encode('utf-8'))
-            except Exception as e:
-                self.logger.error(f"Socket error: {e}")
+    async def _handle_client(self, reader, writer):
+        try:
+            data = await reader.read()
+            
+            response = {"status": "error", "message": "No data received"}
+            if data:
+                response = self._process_message(data)
+            
+            writer.write(json.dumps(response).encode('utf-8'))
+            await writer.drain()
+        except Exception as e:
+            self.logger.error(f"Socket error: {e}")
+        finally:
+            writer.close()
+            await writer.wait_closed()
 
     def _process_message(self, data):
         try:
@@ -138,14 +140,30 @@ class DynEvents(Plugin):
                 raise ValueError(f"Hook ID {hook_id} not found")
 
             self.logger.info(f"Disabling hook {hook_id}")
-            del self.hooks_by_id[hook_id]
+            self._unregister_hook(hook_id)
             return {"message": f"Hook {hook_id} disabled"}
         else:
             count = len(self.hooks_by_id)
             self.logger.info(f"Disabling all {count} hooks")
-            self.hooks_by_id.clear()
+            for hid in list(self.hooks_by_id.keys()):
+                self._unregister_hook(hid)
             self.call_stacks.clear()
             return {"message": f"All {count} hooks disabled"}
+
+    def _unregister_hook(self, hook_id):
+        if hook_id not in self.hooks_by_id: return
+        data = self.hooks_by_id[hook_id]
+        
+        for h_type, handle in data.get('handles', []):
+            try:
+                if h_type == 'uprobe':
+                    uprobes.unregister(handle)
+                elif h_type == 'syscall':
+                    syscalls.unregister(handle)
+            except Exception as e:
+                self.logger.error(f"Error unregistering {h_type} hook {hook_id}: {e}")
+
+        del self.hooks_by_id[hook_id]
 
     # --- Context & Parsing ---
 
@@ -203,7 +221,8 @@ class DynEvents(Plugin):
             'type': 'uretprobe' if is_retprobe else 'uprobe',
             'raw_action': action_str,
             'target_desc': f"{path}:{target}",
-            'filters': f"pid={cmd.get('pid_filter')}" if cmd.get('pid_filter') else ""
+            'filters': f"pid={cmd.get('pid_filter')}" if cmd.get('pid_filter') else "",
+            'handles': []
         }
         self.hooks_by_id[hook_id] = hook_data
 
@@ -259,20 +278,22 @@ class DynEvents(Plugin):
         needs_exit = is_retprobe
 
         if needs_entry:
-            self.plugins.uprobes.uprobe(
+            h = uprobes.uprobe(
                 path=path, symbol=target_val,
                 process_filter=cmd.get('process_filter'),
                 pid_filter=cmd.get('pid_filter'),
                 on_enter=True, on_return=False
             )(entry_handler)
+            hook_data['handles'].append(('uprobe', h))
 
         if needs_exit:
-            self.plugins.uprobes.uprobe(
+            h = uprobes.uprobe(
                 path=path, symbol=target_val,
                 process_filter=cmd.get('process_filter'),
                 pid_filter=cmd.get('pid_filter'),
                 on_enter=False, on_return=True
             )(exit_handler)
+            hook_data['handles'].append(('uprobe', h))
 
         self.logger.info(f"Registered {hook_data['type']} {hook_id}: {action_str}")
         return {"id": hook_id}
@@ -291,7 +312,12 @@ class DynEvents(Plugin):
         arg_fmts, _ = self._parse_print_formats(action_str)
         prefix = f"syscall:{name}"
         
-        self.hooks_by_id[hook_id] = {'type': 'syscall', 'raw_action': action_str, 'name': name}
+        self.hooks_by_id[hook_id] = {
+            'type': 'syscall', 
+            'raw_action': action_str, 
+            'name': name,
+            'handles': []
+        }
 
         def handler(regs, proto, sc, *args):
             if hook_id not in self.hooks_by_id: return
@@ -299,11 +325,12 @@ class DynEvents(Plugin):
             vals = yield from regs.get_args_portal(count, 'syscall')
             yield from self._execute_action(vals, [], arg_fmts, [], is_break, prefix)
 
-        self.plugins.syscalls.syscall(
+        h = syscalls.syscall(
             name_or_pattern=name,
             comm_filter=cmd.get('process_filter'),
             pid_filter=cmd.get('pid_filter')
         )(handler)
+        self.hooks_by_id[hook_id]['handles'].append(('syscall', h))
         
         self.logger.info(f"Registered syscall {hook_id}")
         return {"id": hook_id}
@@ -319,7 +346,6 @@ class DynEvents(Plugin):
         for fmt in arg_fmts:
             if fmt == '%proc':
                 try:
-                    if not hasattr(self.plugins, 'osi'): self.plugins.load_plugin('osi')
                     pname = yield from self.plugins.osi.get_proc_name()
                     out_args.append(pname)
                 except: out_args.append("?")
