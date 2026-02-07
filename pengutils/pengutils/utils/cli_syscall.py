@@ -35,7 +35,8 @@ from pengutils.utils.util_events import send_command
 @click.option("--proc", default=None, help="Process name filter")
 @click.option("--pid", default=None, type=int, help="PID filter")
 @click.option("--output", default=None, help="Output file for action")
-def syscall(sock, name, action, proc, pid, output):
+@click.pass_context
+def syscall(ctx, sock, name, action, proc, pid, output):
     """
     Set up a syscall trace via the Penguin DynEvents Plugin Unix socket.
     """
@@ -52,18 +53,19 @@ def syscall(sock, name, action, proc, pid, output):
         resp = send_command(cmd, sock=sock)
         if not resp:
             print(f"[red]No response from socket {sock}[/red]")
-            sys.exit(1)
+            ctx.exit(1)
         if resp.get("status") == "success":
             if "message" in resp:
                 print(f"[green]{resp['message']}[/green]")
             else:
                 print(f"[green]Success: ID {resp.get('id')}[/green]")
+            ctx.exit(0)
         else:
             print(f"[red]Failed: {resp.get('message')}[/red]")
-            sys.exit(1)
+            ctx.exit(1)
     except Exception as e:
         print(f"[red]{e}[/red]")
-        sys.exit(1)
+        ctx.exit(1)
 
 if __name__ == "__main__":
     syscall()
