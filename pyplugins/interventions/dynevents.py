@@ -1,5 +1,6 @@
 from penguin import Plugin, plugins
 import asyncio
+import threading
 import socket
 import json
 import os
@@ -43,25 +44,60 @@ class DynEvents(Plugin):
         self.arch_bits = 64 if '64' in self.panda.arch_name else 32
         self.ptr_mask = (1 << self.arch_bits) - 1
 
-        self.server_task = asyncio.create_task(self._socket_server_loop())
+        # Start the asyncio loop in a separate thread to avoid blocking main init
+        # and to ensure a loop exists.
+        self.loop_thread = threading.Thread(target=self._start_background_loop)
+        self.loop_thread.daemon = True
+        self.loop_thread.start()
 
     def uninit(self):
         self.running = False
-        if self.server_task:
-            self.server_task.cancel()
+        
+        # Thread-safe shutdown of the asyncio loop
+        if hasattr(self, 'loop') and self.loop.is_running():
+            self.loop.call_soon_threadsafe(self._stop_server)
+            self.loop_thread.join(timeout=1.0)
+
         if os.path.exists(self.socket_path):
             try: os.unlink(self.socket_path)
             except OSError: pass
 
+    def _start_background_loop(self):
+        """Runs the asyncio event loop in a background thread."""
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        try:
+            self.loop.run_until_complete(self._socket_server_loop())
+        except Exception as e:
+            self.logger.error(f"DynEvents server loop error: {e}")
+        finally:
+            try:
+                # Cancel all remaining tasks
+                tasks = asyncio.all_tasks(self.loop)
+                for task in tasks:
+                    task.cancel()
+                self.loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+                self.loop.close()
+            except Exception:
+                pass
+
+    def _stop_server(self):
+        """Callback to stop the server from the main thread."""
+        if hasattr(self, 'server') and self.server:
+            self.server.close()
+        # Cancelling the main task (serve_forever) will exit the loop
+        for task in asyncio.all_tasks(self.loop):
+            task.cancel()
+
     async def _socket_server_loop(self):
         try:
-            server = await asyncio.start_unix_server(self._handle_client, self.socket_path)
-            async with server:
-                await server.serve_forever()
+            self.server = await asyncio.start_unix_server(self._handle_client, self.socket_path)
+            async with self.server:
+                await self.server.serve_forever()
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            self.logger.error(f"Server loop error: {e}")
+            self.logger.error(f"Socket server error: {e}")
 
     async def _handle_client(self, reader, writer):
         try:
@@ -69,15 +105,19 @@ class DynEvents(Plugin):
             
             response = {"status": "error", "message": "No data received"}
             if data:
+                # Process message synchronously as plugin APIs are sync
                 response = self._process_message(data)
             
             writer.write(json.dumps(response).encode('utf-8'))
             await writer.drain()
         except Exception as e:
-            self.logger.error(f"Socket error: {e}")
+            self.logger.error(f"Socket handler error: {e}")
         finally:
             writer.close()
-            await writer.wait_closed()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
 
     def _process_message(self, data):
         try:
