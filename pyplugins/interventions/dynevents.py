@@ -25,6 +25,7 @@ class DynEvents(Plugin):
     - Smart Logic: 
       - "print args": Prints at entry.
       - "print args = ret": Captures args at entry, prints at exit.
+      - "myplugin.method": Delegates execution to another plugin's method.
     """
     def __init__(self):
         outdir = self.get_arg("outdir") or "/tmp"
@@ -216,6 +217,21 @@ class DynEvents(Plugin):
         try: return self.panda.get_cpu().env_ptr
         except: return 0
 
+    def _resolve_plugin_method(self, name):
+        """Resolves a string 'plugin.method' to a callable."""
+        if '.' not in name: return None
+        try:
+            parts = name.split('.')
+            if len(parts) != 2: return None
+            pname, mname = parts
+            
+            if not hasattr(plugins, pname): return None
+            p = getattr(plugins, pname)
+            if hasattr(p, mname):
+                return getattr(p, mname)
+        except: return None
+        return None
+
     def _parse_print_formats(self, action_str):
         # Normalize
         body = re.sub(r'^print\s*\(?', '', action_str, flags=re.IGNORECASE).rstrip(')')
@@ -248,9 +264,23 @@ class DynEvents(Plugin):
         is_break = 'break' in action_str or 'bp' in action_str
         arg_fmts, ret_fmts = self._parse_print_formats(action_str)
         
+        # Check for method delegation
+        # If an action is a valid plugin method, we use that instead of printing.
+        entry_method = None
+        if arg_fmts and len(arg_fmts) == 1:
+            entry_method = self._resolve_plugin_method(arg_fmts[0])
+            if entry_method:
+                arg_fmts = [] # Clear formats so we don't try to print/save
+        
+        exit_method = None
+        if ret_fmts and len(ret_fmts) == 1:
+            exit_method = self._resolve_plugin_method(ret_fmts[0])
+            if exit_method:
+                ret_fmts = []
+
         # Determine if we need return probing
-        # inferred from presence of return formats (RHS of =)
-        is_retprobe = (ret_fmts is not None)
+        # inferred from presence of return formats (RHS of =) or exit method
+        is_retprobe = (ret_fmts is not None) or (exit_method is not None)
         
         # If is_retprobe is False, ret_fmts is None. For execution safety set to empty list
         if ret_fmts is None: ret_fmts = []
@@ -269,27 +299,33 @@ class DynEvents(Plugin):
         def entry_handler(regs):
             if hook_id not in self.hooks_by_id: return
             
-            # Fetch args
-            vals = []
-            if arg_fmts:
-                count = len([f for f in arg_fmts if f != '%proc'])
-                vals = yield from regs.get_args_portal(count, convention='userland')
-            
-            if is_retprobe:
-                # Save for exit. We only push if we have args to match the exit pop.
-                # If arg_fmts is empty, we don't strictly need to push, but consistent stack usage is safer.
-                if arg_fmts:
-                    key = yield from self._get_context_key()
-                    self.call_stacks[key].append(vals)
+            if entry_method:
+                yield from entry_method(regs)
+                # If we delegated entry, we cleared arg_fmts, so no stack push happens here.
             else:
-                # Print immediately (Print Once Rule)
-                yield from self._execute_action(vals, [], arg_fmts, [], is_break, prefix)
+                # Fetch args
+                vals = []
+                if arg_fmts:
+                    count = len([f for f in arg_fmts if f != '%proc'])
+                    vals = yield from regs.get_args_portal(count, convention='userland')
+                
+                if is_retprobe:
+                    # Save for exit. We only push if we have args to match the exit pop.
+                    if arg_fmts:
+                        key = yield from self._get_context_key()
+                        self.call_stacks[key].append(vals)
+                else:
+                    # Print immediately (Print Once Rule)
+                    yield from self._execute_action(vals, [], arg_fmts, [], is_break, prefix)
 
         def exit_handler(regs):
             if hook_id not in self.hooks_by_id: return
             
             # 1. Recover Args (if they were saved)
             saved_args = []
+            
+            # NOTE: If we delegated entry, arg_fmts is empty, so we won't pop.
+            # If we had standard entry, arg_fmts is present, so we pop.
             if arg_fmts:
                 key = yield from self._get_context_key()
                 stack = self.call_stacks[key]
@@ -298,21 +334,24 @@ class DynEvents(Plugin):
                 else:
                     saved_args = [None] * len(arg_fmts) # Error state
 
-            # 2. Capture Retval
-            ret_vals = []
-            if ret_fmts:
-                try: retval = regs.get_retval()
-                except: retval = 0
-                ret_vals = [retval]
-                if len(ret_fmts) > 1: ret_vals.extend([None]*(len(ret_fmts)-1))
+            if exit_method:
+                yield from exit_method(regs)
+            else:
+                # 2. Capture Retval
+                ret_vals = []
+                if ret_fmts:
+                    try: retval = regs.get_retval()
+                    except: retval = 0
+                    ret_vals = [retval]
+                    if len(ret_fmts) > 1: ret_vals.extend([None]*(len(ret_fmts)-1))
 
-            # Print (Print Once Rule)
-            yield from self._execute_action(saved_args, ret_vals, arg_fmts, ret_fmts, is_break, prefix, is_ret=True)
+                # Print (Print Once Rule)
+                yield from self._execute_action(saved_args, ret_vals, arg_fmts, ret_fmts, is_break, prefix, is_ret=True)
 
         # Apply Hooks
         
-        # ENTRY: Needed if normal uprobe OR if retprobe needs to capture args
-        needs_entry = (not is_retprobe) or (is_retprobe and len(arg_fmts) > 0)
+        # ENTRY: Needed if normal uprobe OR if retprobe needs to capture args OR if we have delegated entry
+        needs_entry = (not is_retprobe) or (is_retprobe and len(arg_fmts) > 0) or (entry_method is not None)
         
         # EXIT: Needed only if retprobe
         needs_exit = is_retprobe
@@ -350,6 +389,11 @@ class DynEvents(Plugin):
         
         is_break = 'break' in action_str
         arg_fmts, _ = self._parse_print_formats(action_str)
+        
+        syscall_method = None
+        if arg_fmts and len(arg_fmts) == 1:
+            syscall_method = self._resolve_plugin_method(arg_fmts[0])
+
         prefix = f"syscall:{name}"
         
         self.hooks_by_id[hook_id] = {
@@ -361,9 +405,13 @@ class DynEvents(Plugin):
 
         def handler(regs, proto, sc, *args):
             if hook_id not in self.hooks_by_id: return
-            count = len([f for f in arg_fmts if f != '%proc'])
-            vals = yield from regs.get_args_portal(count, 'syscall')
-            yield from self._execute_action(vals, [], arg_fmts, [], is_break, prefix)
+            
+            if syscall_method:
+                yield from syscall_method(regs, proto, sc, *args)
+            else:
+                count = len([f for f in arg_fmts if f != '%proc'])
+                vals = yield from regs.get_args_portal(count, 'syscall')
+                yield from self._execute_action(vals, [], arg_fmts, [], is_break, prefix)
 
         h = syscalls.syscall(
             name_or_pattern=name,
