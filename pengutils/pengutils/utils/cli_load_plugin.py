@@ -10,11 +10,11 @@ Example usage
 
 .. code-block:: bash
 
-    cli_load_plugin.py --sock results/latest/penguin_events.sock plugin_name
+    cli_load_plugin.py --sock /workspace/results/latest/penguin_events.sock plugin_name
 
 Options
 -------
-- ``--sock``: Path to plugin socket (default: results/latest/penguin_events.sock)
+- ``--sock``: Path to plugin socket (default: /workspace/results/latest/penguin_events.sock)
 - ``plugin_name``: Name of the plugin to load (required)
 
 """
@@ -28,8 +28,8 @@ from pengutils.utils.util_events import send_command
 @click.argument("plugin_name")
 @click.option(
     "--sock",
-    default="results/latest/penguin_events.sock",
-    help="Path to plugin socket (default: results/latest/penguin_events.sock)",
+    default="/workspace/results/latest/penguin_events.sock",
+    help="Path to plugin socket (default: /workspace/results/latest/penguin_events.sock)",
 )
 @click.pass_context
 def load_plugin(ctx, sock, plugin_name):
@@ -52,6 +52,8 @@ def load_plugin(ctx, sock, plugin_name):
         else:
             print(f"[red]Failed: {resp.get('message')}[/red]")
             ctx.exit(1)
+    except click.exceptions.Exit:
+        raise
     except Exception as e:
         print(f"[red]{e}[/red]")
         print(f"[red]Is the dyn_events plugin loaded?[/red]")

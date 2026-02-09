@@ -57,6 +57,8 @@ def list(ctx, sock):
         else:
             print(f"[red]Failed: {resp.get('message')}[/red]")
             ctx.exit(1)
+    except click.exceptions.Exit:
+        raise
     except Exception as e:
         print(f"[red]{e}[/red]")
         ctx.exit(1)
@@ -84,6 +86,8 @@ def disable(ctx, sock, id):
         else:
             print(f"[red]Failed: {resp.get('message')}[/red]")
             ctx.exit(1)
+    except click.exceptions.Exit:
+        raise
     except Exception as e:
         print(f"[red]{e}[/red]")
         ctx.exit(1)
