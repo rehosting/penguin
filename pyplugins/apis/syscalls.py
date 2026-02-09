@@ -13,6 +13,7 @@ from hyper.portal import PortalCmd
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
 import functools
 from collections import defaultdict
+from hyper.consts import HYPER_OP as hop
 
 # allows us to not include SyscallPrototype which is internal
 __all__ = [
@@ -471,15 +472,7 @@ class Syscalls(Plugin):
             # Check if this is an unregister request
             if isinstance(item, tuple) and item[0] == 'unregister':
                 _, hook_ptr = item
-
-                import struct
-                # Pack the pointer address (handles 32/64 bit guest)
-                if getattr(self.panda, 'bits', 64) == 32:
-                    data = struct.pack("<I", hook_ptr)
-                else:
-                    data = struct.pack("<Q", hook_ptr)
-
-                yield PortalCmd("unregister_syscall_hook", size=len(data), data=data)
+                yield PortalCmd(hop.HYPER_OP_UNREGISTER_SYSCALL_HOOK, addr=hook_ptr)
             else:
                 hook_config, handle = item
                 # handle is the wrapper created in the decorator
@@ -732,7 +725,6 @@ class Syscalls(Plugin):
         sce = self._get_syscall_event(cpu, arg)
         hook_ptr = sce.hook.address
         if hook_ptr not in self._hooks:
-            breakpoint()
             return
 
         # 2. Unpack Hook Data including read_only flag
@@ -893,7 +885,7 @@ class Syscalls(Plugin):
         as_bytes = sch.to_bytes()
 
         # Send to kernel via portal
-        result = yield PortalCmd("register_syscall_hook", size=len(as_bytes), data=as_bytes)
+        result = yield PortalCmd(hop.HYPER_OP_REGISTER_SYSCALL_HOOK, size=len(as_bytes), data=as_bytes)
         self._hook_info[result] = hook_config
         return result
 
