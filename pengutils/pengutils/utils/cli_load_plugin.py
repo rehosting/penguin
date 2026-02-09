@@ -24,6 +24,7 @@ import sys
 from rich import print
 from pengutils.utils.util_events import send_command
 
+
 @click.command()
 @click.argument("plugin_name")
 @click.option(
@@ -58,6 +59,7 @@ def load_plugin(ctx, sock, plugin_name):
         print(f"[red]{e}[/red]")
         print(f"[red]Is the dyn_events plugin loaded?[/red]")
         ctx.exit(1)
+
 
 if __name__ == "__main__":
     load_plugin()
