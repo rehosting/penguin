@@ -86,7 +86,7 @@ def _send_command(unix_socket, port, cmd_str):
         if s:
             try:
                 s.close()
-            except:
+            except Exception:
                 pass
 
 
