@@ -94,7 +94,7 @@ class PortalCmd:
             self.op = op
         elif isinstance(op, str):
             op_num = getattr(hop, f"HYPER_OP_{op.upper()}", None)
-            if op is None:
+            if op_num is None:
                 op_num = getattr(hop, op.upper(), None)
                 if op_num is None:
                     raise ValueError(f"Invalid operation name: {op}")
