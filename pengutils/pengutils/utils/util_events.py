@@ -1,6 +1,6 @@
 import socket
 from os import environ as env
-from os.path import join, isabs, dirname
+from os.path import join
 from typing import Optional
 import json
 
