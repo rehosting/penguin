@@ -86,7 +86,9 @@ def _send_command(unix_socket, port, cmd_str):
             try: s.close()
             except: pass
 
-@click.command()
+@click.command(context_settings=dict(
+    ignore_unknown_options=True,
+))
 @click.option("--socket", default=None, help="Unix socket made by vhost-device-vsock. Defaults to searching for 'vsocket' in /tmp/*/")
 @click.option("--port", default=12341234, type=int, help="Vsock port number to connect to. Defaults to 12341234")
 @click.argument("command", nargs=-1, required=True)
