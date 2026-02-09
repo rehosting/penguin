@@ -41,12 +41,12 @@ from sqlalchemy.orm import Session
 from rich import print as rprint
 from time import sleep
 from os.path import join, exists
-import sys
 
 from pengutils.events import Event, Exec, Read, Syscall, Write
 from pengutils.utils.util_base import wrapper, get_default_results_path
 
 # --- Filter Helpers ---
+
 
 def exec_filter(sess, procname, fd, filename):
     query = sess.query(Exec)
@@ -58,6 +58,7 @@ def exec_filter(sess, procname, fd, filename):
         query = query.filter(Exec.fname.contains(filename))
     return query
 
+
 def read_filter(sess, procname, fd, filename):
     query = sess.query(Read)
     if procname:
@@ -68,6 +69,7 @@ def read_filter(sess, procname, fd, filename):
         query = query.filter(Read.fname.contains(filename))
     return query
 
+
 def write_filter(sess, procname, fd, filename):
     query = sess.query(Write)
     if procname:
@@ -77,6 +79,7 @@ def write_filter(sess, procname, fd, filename):
     if filename:
         query = query.filter(Write.fname.contains(filename))
     return query
+
 
 def syscall_filter(sess, procname, syscall, errors):
     query = sess.query(Syscall)
@@ -92,12 +95,14 @@ def syscall_filter(sess, procname, syscall, errors):
 
 # --- CLI Group ---
 
+
 @click.group(name="db")
 def db_cli():
     """Database query commands."""
     pass
 
 # --- Commands ---
+
 
 @db_cli.command()
 @click.option("--results", default=get_default_results_path(), help="Path to results folder")
@@ -123,10 +128,11 @@ def fds(results, procname, follow, fd, output):
     """Query file descriptor write events (unique combinations)."""
     db_path = join(results, "plugins.db")
     if not exists(db_path):
-        rprint(f"[red]Failed to find db at {db_path}. Check your --results[/red]")
+        rprint(
+            f"[red]Failed to find db at {db_path}. Check your --results[/red]")
         return
     engine = create_engine(f"sqlite:///{db_path}")
-    
+
     # Use built-in print for files to avoid ANSI codes, rprint for stdout
     printer = rprint if output == "/dev/stdout" else print
 
@@ -138,7 +144,7 @@ def fds(results, procname, follow, fd, output):
             if follow:
                 if id_num := sess.execute(func.max(Event.id)).first():
                     highest_id = id_num[0] - 4
-            
+
             while True:
                 query = sess.query(Write)
                 if procname:
@@ -206,7 +212,8 @@ def tasks(results, output):
     """Query and list unique process names (tasks)."""
     db_path = join(results, "plugins.db")
     if not exists(db_path):
-        rprint(f"[red]Failed to find db at {db_path}. Check your --results[/red]")
+        rprint(
+            f"[red]Failed to find db at {db_path}. Check your --results[/red]")
         return
     engine = create_engine(f"sqlite:///{db_path}")
 
