@@ -7,9 +7,7 @@ registered console_scripts in the pengutils package.
 """
 
 import click
-import sys
-# importlib.metadata is in the standard library for Python 3.8+
-from importlib.metadata import distribution, EntryPoint
+from importlib.metadata import distribution
 
 
 class PenguinCLI(click.MultiCommand):

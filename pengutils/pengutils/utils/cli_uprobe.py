@@ -25,7 +25,6 @@ Options
 """
 
 import click
-import sys
 from rich import print
 from pengutils.utils.util_events import send_command
 
