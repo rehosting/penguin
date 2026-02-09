@@ -11,6 +11,7 @@ from hyper.portal import PortalCmd
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
 import functools
 from collections import defaultdict
+from hyper.consts import HYPER_OP as hop
 
 __all__ = [
     "Uprobes"
@@ -156,7 +157,7 @@ class Uprobes(Plugin):
                     data = struct.pack("<I", probe_id)
                 else:
                     data = struct.pack("<Q", probe_id)
-                yield PortalCmd("unregister_uprobe", size=len(data), data=data)
+                yield PortalCmd(hop.HYPER_OP_UNREGISTER_UPROBE, size=len(data), data=data)
                 continue
 
             # Handle register
@@ -227,7 +228,7 @@ class Uprobes(Plugin):
             reg.comm[0] = 0
 
         reg_bytes = reg.to_bytes()
-        result = yield PortalCmd("register_uprobe", offset, len(reg_bytes), None, reg_bytes)
+        result = yield PortalCmd(hop.HYPER_OP_REGISTER_UPROBE, offset, len(reg_bytes), None, reg_bytes)
 
         if result is None:
             self.logger.error(
