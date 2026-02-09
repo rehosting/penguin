@@ -336,9 +336,12 @@ class Syscalls(Plugin):
 
         # Track function -> hook_ptr and name -> hook_ptr for easier lookup
         # Track mappings for unregistering
-        self._handle_to_hook_ptr: Dict[Callable, int] = {} # specific handle -> hook_ptr
-        self._func_to_hook_ptrs: Dict[Callable, List[int]] = defaultdict(list) # original func -> [hook_ptrs]
-        self._name_to_hook_ptrs: Dict[str, List[int]] = defaultdict(list) # name -> [hook_ptrs]
+        # specific handle -> hook_ptr
+        self._handle_to_hook_ptr: Dict[Callable, int] = {}
+        self._func_to_hook_ptrs: Dict[Callable, List[int]] = defaultdict(
+            list)  # original func -> [hook_ptrs]
+        self._name_to_hook_ptrs: Dict[str, List[int]] = defaultdict(
+            list)  # name -> [hook_ptrs]
 
         # Syscall type information - using dictionary for fast name-based
         # lookups
@@ -468,14 +471,14 @@ class Syscalls(Plugin):
             # Check if this is an unregister request
             if isinstance(item, tuple) and item[0] == 'unregister':
                 _, hook_ptr = item
-                
+
                 import struct
                 # Pack the pointer address (handles 32/64 bit guest)
                 if getattr(self.panda, 'bits', 64) == 32:
                     data = struct.pack("<I", hook_ptr)
                 else:
                     data = struct.pack("<Q", hook_ptr)
-                    
+
                 yield PortalCmd("unregister_syscall_hook", size=len(data), data=data)
             else:
                 hook_config, handle = item
@@ -489,7 +492,8 @@ class Syscalls(Plugin):
                 read_only = hook_config.get("read_only", False)
 
                 # Store 5-tuple (on_all, handle, is_method, read_only, original_func)
-                self._hooks[hook_ptr] = (on_all, handle, is_method, read_only, original_func)
+                self._hooks[hook_ptr] = (
+                    on_all, handle, is_method, read_only, original_func)
 
                 # 1. Map specific handle (fun1, fun2) to hook_ptr
                 self._handle_to_hook_ptr[handle] = hook_ptr
@@ -546,7 +550,8 @@ class Syscalls(Plugin):
 
         # 4. Parse the C-string (Fast)
         # Split at the first null byte, take the left side, and decode
-        sce.name = name_bytes.split(b'\x00', 1)[0].decode('utf-8', errors='replace')
+        sce.name = name_bytes.split(b'\x00', 1)[0].decode(
+            'utf-8', errors='replace')
 
         return sce
 
@@ -662,13 +667,16 @@ class Syscalls(Plugin):
                     # Update cache for fast-path next time
                     if hook_ptr is not None and hook_ptr in self._hooks:
                         on_all, _, _, read_only, original_func = self._hooks[hook_ptr]
-                        self._hooks[hook_ptr] = (on_all, bound_method, False, read_only, original_func)
+                        self._hooks[hook_ptr] = (
+                            on_all, bound_method, False, read_only, original_func)
                     return bound_method
                 else:
-                    self.logger.error(f"Could not find method {method_name} on instance")
+                    self.logger.error(
+                        f"Could not find method {method_name} on instance")
                     return None
             except AttributeError:
-                self.logger.error(f"Could not find instance for class {class_name}")
+                self.logger.error(
+                    f"Could not find instance for class {class_name}")
                 return None
         return f
 
@@ -1018,22 +1026,22 @@ class Syscalls(Plugin):
                 "is_method": is_method,  # Store method detection result
                 "read_only": read_only,  # Store read_only flag
             }
-            
+
             # Create a unique wrapper handle for this registration
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
                 return func(*args, **kwargs)
-            
+
             # Attach original function to wrapper for lookup
             wrapper._original_func = func
-            
+
             # Add to pending hooks and queue interrupt
             self._pending_hooks.append((hook_config, wrapper))
             plugins.portal.queue_interrupt("syscalls")
             return wrapper
 
         return decorator
-    
+
     def _queue_unregister(self, hook_ptr: int):
         """Helper to queue unregister command"""
         self._pending_hooks.append(('unregister', hook_ptr))
@@ -1052,14 +1060,14 @@ class Syscalls(Plugin):
         # 1. Remove from handle map
         if handle in self._handle_to_hook_ptr:
             del self._handle_to_hook_ptr[handle]
-        
+
         # 2. Remove from func map list
         if original_func in self._func_to_hook_ptrs:
             if hook_ptr in self._func_to_hook_ptrs[original_func]:
                 self._func_to_hook_ptrs[original_func].remove(hook_ptr)
             if not self._func_to_hook_ptrs[original_func]:
                 del self._func_to_hook_ptrs[original_func]
-        
+
         # 3. Remove from name map list
         func_name = getattr(original_func, "__name__", None)
         if func_name and func_name in self._name_to_hook_ptrs:
@@ -1067,7 +1075,7 @@ class Syscalls(Plugin):
                 self._name_to_hook_ptrs[func_name].remove(hook_ptr)
             if not self._name_to_hook_ptrs[func_name]:
                 del self._name_to_hook_ptrs[func_name]
-        
+
         # 4. Remove from main hooks map
         del self._hooks[hook_ptr]
 
@@ -1077,7 +1085,7 @@ class Syscalls(Plugin):
     def unregister(self, target: Any) -> None:
         """
         Unregister syscall hook(s).
-        
+
         Can accept:
         1. A specific handle returned by syscall() (unregisters only that hook).
         2. The original function (unregisters ALL hooks for that function).
@@ -1093,21 +1101,22 @@ class Syscalls(Plugin):
         # Case 1: Specific Handle (Result of decorator)
         if callable(target) and target in self._handle_to_hook_ptr:
             targets_found.append(self._handle_to_hook_ptr[target])
-        
+
         # Case 2: Original Function (e.g., self.callback)
         # Check direct match
         elif callable(target) and target in self._func_to_hook_ptrs:
             targets_found.extend(self._func_to_hook_ptrs[target])
         # Check __func__ (unbound method vs bound method match)
         elif callable(target) and hasattr(target, '__func__') and target.__func__ in self._func_to_hook_ptrs:
-             targets_found.extend(self._func_to_hook_ptrs[target.__func__])
-            
+            targets_found.extend(self._func_to_hook_ptrs[target.__func__])
+
         # Case 3: Name
         elif isinstance(target, str) and target in self._name_to_hook_ptrs:
             targets_found.extend(self._name_to_hook_ptrs[target])
 
         if not targets_found:
-            self.logger.warning(f"Could not find hook to unregister for {target}")
+            self.logger.warning(
+                f"Could not find hook to unregister for {target}")
             return
 
         # Unregister all found matches

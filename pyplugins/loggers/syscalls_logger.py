@@ -87,24 +87,29 @@ class PyPandaSysLog(Plugin):
 
         # Hook registration (Same as original)
         procs = self.get_arg("procs")
-        self.monitor_enter_syscalls = ['execve', 'execveat', 'exit', 'exit_group', 'vfork', 'reboot', 'sigreturn', 'setcontext']
+        self.monitor_enter_syscalls = [
+            'execve', 'execveat', 'exit', 'exit_group', 'vfork', 'reboot', 'sigreturn', 'setcontext']
         args = {"procs": procs} if procs else {}
         self.enable(args)
-    
+
     def enable(self, args={}):
         procs = args.get("procs", None)
         if procs:
             for proc in procs:
-                syscalls.syscall("on_all_sys_return", comm_filter=proc, read_only=True)(self.all_sys_ret)
+                syscalls.syscall("on_all_sys_return", comm_filter=proc, read_only=True)(
+                    self.all_sys_ret)
                 for sc in self.monitor_enter_syscalls:
-                    cb = syscalls.syscall(f"on_sys_{sc}_enter", comm_filter=proc, read_only=True)(self.sys_record_enter)
+                    cb = syscalls.syscall(f"on_sys_{sc}_enter", comm_filter=proc, read_only=True)(
+                        self.sys_record_enter)
                     self.cbs.append(cb)
         else:
-            syscalls.syscall("on_all_sys_return", read_only=True)(self.all_sys_ret)
+            syscalls.syscall("on_all_sys_return",
+                             read_only=True)(self.all_sys_ret)
             for sc in self.monitor_enter_syscalls:
-                cb = syscalls.syscall(f"on_sys_{sc}_enter", read_only=True)(self.sys_record_enter)
+                cb = syscalls.syscall(f"on_sys_{sc}_enter", read_only=True)(
+                    self.sys_record_enter)
                 self.cbs.append(cb)
-    
+
     def disable(self):
         cbs = self.cbs
         self.cbs = []
@@ -222,7 +227,8 @@ class PyPandaSysLog(Plugin):
         else:
             content = errno_base + "\n" + read_file("generic.h")
 
-        self.errcode_to_errname, self.errcode_to_explanation = parse_errors(content)
+        self.errcode_to_errname, self.errcode_to_explanation = parse_errors(
+            content)
 
     def cstr(self, x) -> str:
         if isinstance(x, str):

@@ -193,7 +193,8 @@ class UprobesTest(Plugin):
             pc_mapping = m.get_mapping_by_addr(pc)
 
             # look up the first mapping with that name
-            first_mapping_addr = m.get_mappings_by_name(pc_mapping.name)[0].start
+            first_mapping_addr = m.get_mappings_by_name(pc_mapping.name)[
+                0].start
 
             # Calculate offset
             offset = pc - first_mapping_addr
@@ -325,14 +326,14 @@ class UprobesTest(Plugin):
                 f.write("\nAll uprobe tests PASSED!\n")
             else:
                 f.write("\nSome uprobe tests FAILED!\n")
-        
+
         # Write unregister test results
         with open(join(self.outdir, "uprobe_unregister_test.txt"), "w") as f:
             if self.atoi_count == 1:
                 f.write(f"atoi count: {self.atoi_count} (PASSED)\n")
             else:
                 f.write(f"atoi count: {self.atoi_count} (FAILED)\n")
-            
+
             if self.atol_count == 1:
                 f.write(f"atol count: {self.atol_count} (PASSED)\n")
             else:
@@ -348,10 +349,12 @@ class UprobesTest(Plugin):
         x, y = pt_regs.get_args(2)
         expected_args = (3, 5)
         self.logger.info(f"/test_executable called with args: {(x, y)}")
-        assert (x, y) == expected_args, f"Expected args {expected_args}, got {(x, y)}"
+        assert (
+            x, y) == expected_args, f"Expected args {expected_args}, got {(x, y)}"
         self.test_results["executable"]["entry"] = True
         with open(join(self.outdir, "uprobe_executable_test.txt"), "a") as f:
-            f.write(f"executable entry test passed: test_add({x}, {y}) called\n")
+            f.write(
+                f"executable entry test passed: test_add({x}, {y}) called\n")
 
     @plugins.uprobes.uprobe(
         path="/test_executable",
@@ -366,4 +369,5 @@ class UprobesTest(Plugin):
         assert retval == expected_retval, f"Expected return value {expected_retval}, got {retval}"
         self.test_results["executable"]["return"] = True
         with open(join(self.outdir, "uprobe_executable_test.txt"), "a") as f:
-            f.write(f"executable return test passed: test_add returned {retval}\n")
+            f.write(
+                f"executable return test passed: test_add returned {retval}\n")
