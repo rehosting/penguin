@@ -22,7 +22,7 @@ class DynEvents(Plugin):
     Features:
     - Register uprobe (entry/return inferred) and syscall hooks.
     - Extended Format Support (%d, %s, %fd, %proc, etc.).
-    - Smart Logic: 
+    - Smart Logic:
       - "print args": Prints at entry.
       - "print args = ret": Captures args at entry, prints at exit.
       - "myplugin.method": Delegates execution to another plugin's method.
@@ -87,6 +87,7 @@ class DynEvents(Plugin):
                     asyncio.gather(*tasks, return_exceptions=True))
                 self.loop.close()
             except Exception:
+                # Catch-all strictly for loop teardown to prevent uninit crashes
                 pass
 
     def _stop_server(self):
@@ -124,7 +125,8 @@ class DynEvents(Plugin):
             writer.close()
             try:
                 await writer.wait_closed()
-            except Exception:
+            except (OSError, ConnectionError):
+                # Connection likely dropped by client already
                 pass
 
     def _process_message(self, data):
@@ -184,7 +186,7 @@ class DynEvents(Plugin):
         if hook_id is not None:
             try:
                 hook_id = int(hook_id)
-            except:
+            except (ValueError, TypeError):
                 raise ValueError("Invalid 'id' format")
 
             if hook_id not in self.hooks_by_id:
@@ -228,10 +230,12 @@ class DynEvents(Plugin):
             if proc:
                 return proc.pid
         except Exception:
+            # OSI failure is common if introspection isn't ready
             pass
         try:
             return self.panda.get_cpu().env_ptr
-        except:
+        except Exception:
+            # Generic PANDA access failure
             return 0
 
     def _resolve_plugin_method(self, name):
@@ -249,7 +253,8 @@ class DynEvents(Plugin):
             p = getattr(plugins, pname)
             if hasattr(p, mname):
                 return getattr(p, mname)
-        except:
+        except AttributeError:
+            # Safely handle missing attributes during resolution
             return None
         return None
 
@@ -281,7 +286,7 @@ class DynEvents(Plugin):
 
         try:
             target_val = int(target, 0)
-        except:
+        except (ValueError, TypeError):
             target_val = target
 
         hook_id = self.next_hook_id
@@ -371,7 +376,8 @@ class DynEvents(Plugin):
                 if ret_fmts:
                     try:
                         retval = regs.get_retval()
-                    except:
+                    except Exception:
+                        # Fallback if architecture doesn't define retval or access fails
                         retval = 0
                     ret_vals = [retval]
                     if len(ret_fmts) > 1:
@@ -472,7 +478,8 @@ class DynEvents(Plugin):
                 try:
                     pname = yield from self.plugins.osi.get_proc_name()
                     out_args.append(pname)
-                except:
+                except Exception:
+                    # Introspection failure
                     out_args.append("?")
             else:
                 if idx < len(arg_vals):
@@ -530,13 +537,13 @@ class DynEvents(Plugin):
                     self.plugins.load_plugin('osi')
                 name = yield from self.plugins.osi.get_fd_name(val)
                 return f"{val}({name or '?'})"
-            except:
+            except Exception:
                 return f"{val}(?)"
 
         if fmt == '%s':
             try:
                 return f'"{yield from self.plugins.mem.read_str(val)}"'
-            except:
+            except Exception:
                 return f"<bad-str:{val:x}>"
 
         m = re.match(r'%(?P<t>[uix])(?P<b>8|16|32|64)', fmt)
@@ -549,7 +556,7 @@ class DynEvents(Plugin):
                     c = c.lower()
                 v = struct.unpack(f"<{c}", d)[0]
                 return f"{v:x}" if t == 'x' else str(v)
-            except:
+            except Exception:
                 return f"<bad-mem:{val:x}>"
 
         return f"{val:x}(?)"
