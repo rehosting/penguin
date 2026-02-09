@@ -6,7 +6,7 @@ import json
 
 
 def in_container() -> bool:
-    return env.get("PENGUIN_PROJECT_DIR", None) != None
+    return env.get("PENGUIN_PROJECT_DIR", None) is not None
 
 
 def send_command(data: dict = None, sock: Optional[str] = None) -> Optional[dict]:

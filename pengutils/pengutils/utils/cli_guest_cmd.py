@@ -24,7 +24,6 @@ import click
 import socket as sock
 import sys
 import json
-import os
 from pathlib import Path
 from rich import print
 
