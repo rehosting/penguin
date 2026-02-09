@@ -30,6 +30,7 @@ def breakpoint_cli():
     """Breakpoint management commands."""
     pass
 
+
 @breakpoint_cli.command()
 @click.option("--sock", default="results/latest/penguin_events.sock", help="Path to plugin socket (default: results/latest/penguin_events.sock)")
 @click.pass_context
@@ -62,6 +63,7 @@ def list(ctx, sock):
         print(f"[red]{e}[/red]")
         ctx.exit(1)
 
+
 @breakpoint_cli.command()
 @click.option("--sock", default="results/latest/penguin_events.sock", help="Path to plugin socket (default: results/latest/penguin_events.sock)")
 @click.option("--id", default=None, type=int, help="Breakpoint ID to disable (optional)")
@@ -90,6 +92,7 @@ def disable(ctx, sock, id):
     except Exception as e:
         print(f"[red]{e}[/red]")
         ctx.exit(1)
+
 
 if __name__ == "__main__":
     breakpoint_cli()

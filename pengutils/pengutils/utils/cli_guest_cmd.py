@@ -28,6 +28,7 @@ import os
 from pathlib import Path
 from rich import print
 
+
 def _resolve_vsocket(socket_path):
     """Helper to find the vsocket path."""
     if socket_path is None:
@@ -37,7 +38,7 @@ def _resolve_vsocket(socket_path):
 
     if unix_socket is None:
         return None, "[red]No vsocket found and no socket provided[/red]"
-    
+
     if isinstance(unix_socket, list):
         if len(unix_socket) == 0:
             return None, "[red]No vsocket found in /tmp/*/[/red]"
@@ -48,8 +49,9 @@ def _resolve_vsocket(socket_path):
             return None, msg
         else:
             return str(unix_socket[0]), None
-            
+
     return str(unix_socket), None
+
 
 def _send_command(unix_socket, port, cmd_str):
     """Helper to send command over socket and parse JSON result."""
@@ -76,15 +78,18 @@ def _send_command(unix_socket, port, cmd_str):
         received_json = output.decode('utf-8')
         result = json.loads(received_json)
         return result["exit_code"], result["stdout"], result["stderr"]
-        
+
     except OSError as e:
         return 1, "", f"Socket error: {e}"
     except Exception as e:
         return 1, "", str(e)
     finally:
         if s:
-            try: s.close()
-            except: pass
+            try:
+                s.close()
+            except:
+                pass
+
 
 @click.command(context_settings=dict(
     ignore_unknown_options=True,
@@ -114,6 +119,7 @@ def guest_cmd(ctx, socket, port, command):
         print(stderr, file=sys.stderr, end='')
 
     ctx.exit(exit_code)
+
 
 if __name__ == "__main__":
     guest_cmd()
