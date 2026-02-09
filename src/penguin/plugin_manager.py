@@ -484,7 +484,7 @@ class IGLOOPluginManager:
             if not hasattr(self, name.lower()):
                 setattr(self, name.lower(), self.plugins[name])
 
-    def load_plugin(self, plugin_name: str, extra_args: Dict[str, Any]=None) -> None:
+    def load_plugin(self, plugin_name: str, extra_args: Dict[str, Any] = None) -> None:
         """
         Load a plugin by name.
 
