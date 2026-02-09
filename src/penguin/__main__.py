@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import argparse
+import click
 import logging
 import os
 import shutil
@@ -23,7 +23,7 @@ from penguin.penguin_config import load_config
 from .genetic import ga_search
 from .graph_search import graph_search
 from .patch_search import patch_search
-from .patch_minimizer import minimize
+from .patch_minimizer import minimize as patch_minimize
 
 logger = getColoredLogger("penguin")
 
@@ -86,7 +86,7 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
             show_output=True,
             verbose=verbose,
             resolved_kernel=config["core"]["kernel"],
-        )  # niters is 1
+        )
     except RuntimeError:
         logger.error("No post-run analysis since there was no .run file")
         return
@@ -140,7 +140,7 @@ def explore_from_config(
         )
 
     if explore_type == "minimize":
-        return minimize(
+        return patch_minimize(
             proj_dir, config_path, output_dir, timeout, max_iters=niters,
             nworkers=nworkers, verbose=verbose
         )
@@ -148,403 +148,6 @@ def explore_from_config(
     raise ValueError(f"Invalid explore_type: {explore_type}")
 
 
-def add_common_arguments(parser):
-    """
-    This function is for adding arguments we want available to all commands.
-    """
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Set log level to debug"
-    )
-
-
-def add_init_arguments(parser):
-    add_common_arguments(parser)
-    parser.add_argument(
-        "rootfs", type=str, help="The rootfs path. (e.g. path/to/fw_rootfs.tar.gz)"
-    )
-    parser.add_argument(
-        "--output",
-        type=str,
-        help="Optional argument specifying the path where the project will be created. Default is projects/<basename of firmware file>.",
-        default=None,
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        default=False,
-        help="Forcefully delete project directory if it exists",
-    )
-    parser.add_argument(
-        "--output_base",
-        type=str,
-        help="Default project directory base. Default is 'projects'",
-        default="projects",
-    )
-
-
-def penguin_init(args):
-    """
-    Initialize a project from a firmware rootfs
-    """
-    firmware = Path(args.rootfs)
-
-    if not firmware.exists():
-        raise ValueError(f"Firmware file not found: {firmware}")
-
-    if args.rootfs.endswith(".yaml"):
-        raise ValueError(
-            "FATAL: It looks like you provided a config file (it ends with .yaml)."
-            "Please provide a firmware file"
-        )
-
-    if "/host_" in args.rootfs or (args.output and args.output.startswith("/host_")):
-        logger.info(
-            "Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments"
-        )
-
-    if args.output is None:
-        # Expect filename to end with .tar.gz - drop that extension
-        if args.rootfs.endswith(".rootfs.tar.gz"):
-            basename_stem = os.path.basename(args.rootfs)[
-                0:-14
-            ]  # Drop the .rootfs.tar.gz
-        elif args.rootfs.endswith(".tar.gz"):
-            basename_stem = os.path.basename(args.rootfs)[0:-7]  # Drop the .tar.gz
-        else:
-            # Drop the extension
-            basename_stem = os.path.splitext(os.path.basename(args.rootfs))[0]
-
-        if not os.path.exists(args.output_base):
-            print("Creating output_base:", args.output_base)
-            os.makedirs(args.output_base, exist_ok=True)
-
-        args.output = args.output_base + "/" + basename_stem
-        output_type = "generated"
-    else:
-        output_type = "specified"
-    logger.info(f"Creating project at {output_type} path: {args.output}")
-
-    # Note the penguin wrapper for docker will auto-create output dir, but it will be empty unless previously initialized
-    if os.path.isdir(args.output) and (
-        os.path.exists(os.path.join(args.output, "config.yaml"))
-        or os.path.exists(os.path.join(args.output, "base"))
-    ):
-        if args.force:
-            logger.info(f"Deleting existing project directory: {args.output}")
-            shutil.rmtree(args.output, ignore_errors=True)
-        else:
-            raise ValueError(
-                f"Project directory already exists: {args.output}. Use --force to delete."
-            )
-
-    # Ensure output parent directory exists
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
-
-    out_config_path = Path(args.output, "config.yaml")
-    config = fakeroot_gen_config(
-        args.rootfs, out_config_path, args.output, args.verbose
-    )
-    if config:
-        logger.info(f"Generated config at {config}")
-    else:
-        # We failed to generate a config. We'll have written a result file to the output dir
-        logger.error(
-            f"Failed to generate config for {args.rootfs}. See {args.output}/result for details."
-        )
-        exit(1)
-
-
-def add_docs_arguments(parser):
-    add_common_arguments(parser)
-    # parser.add_argument('filename', type=str,
-    #    help='Documentation file to render. If unset, filenames are printed.',
-    #    default=None)
-    parser.add_argument(
-        "--filename",
-        type=str,
-        default=None,
-        nargs="?",
-        help="Documentation file to render. If unset, filenames are printed.",
-    )
-
-
-def penguin_docs(args):
-    # docs_path = join(dirname(dirname(__file__)), "docs")
-    # Only valid in container
-    docs_path = "/docs"
-
-    if args.filename:
-        filename = args.filename
-    else:
-        doc_files = glob.glob("**/*.md", root_dir=docs_path, recursive=True)
-        gum_args = ["gum", "choose"] + doc_files
-        try:
-            filename = subprocess.check_output(gum_args, text=True).strip()
-        except subprocess.CalledProcessError:
-            return
-
-    if not filename.endswith(".md"):
-        filename += ".md"
-
-    full_path = join(docs_path, filename)
-    if ".." in filename:
-        raise ValueError("Invalid filename")
-
-    if not os.path.isfile(full_path):
-        logger.info(f"Documentation file not found: {filename}")
-    else:
-        # How many lines are in the file?
-        with open(full_path, "r") as f:
-            lines = len(f.readlines())
-
-        # How many lines are in the terminal (if available)
-        try:
-            rows, _ = os.get_terminal_size()
-        except OSError:
-            rows = None
-
-        glow_args = ["glow", full_path]
-        if rows and lines > rows:
-            # We'll render with a pager
-            subprocess.run(glow_args + ["--pager"])
-        else:
-            # Otherwise print directly
-            subprocess.run(glow_args)
-
-
-def add_run_arguments(parser):
-    add_common_arguments(parser)
-    parser.add_argument(
-        "project_dir", type=str, help="Path to project directory. For backwards compatability, a path to a config file within a project directory is also accepted."
-    )
-
-    parser.add_argument(
-        "--config",
-        type=str,
-        help="Path to a config file. Defaults to <project_dir>/config.yaml."
-    )
-
-    parser.add_argument(
-        "--output",
-        type=str,
-        help="The output directory path. Defaults to results/X in project directory where X auto-increments.",
-        default=None,
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        default=False,
-        help="Forcefully delete output directory if it exists.",
-    )
-    parser.add_argument(
-        "--timeout",
-        type=int,
-        default=None,
-        help="Number of seconds that run/iteration should last. Default is None (must manually kill)"
-    )
-    parser.add_argument("-a", "--auto", action="store_true", help="Run in auto mode (don't start telnet shell).")
-
-
-def penguin_run(args):
-    if not os.path.isabs(args.project_dir):
-        # Convert relative project_dir values to absolute
-        current_dir = os.getcwd()
-        args.project_dir = os.path.join(current_dir, args.project_dir)
-
-    if os.path.isfile(args.project_dir) or args.project_dir.endswith("/config.yaml"):
-        # Backwards compatability: if we have a config file in project_dir, take
-        # the directory of it as project_dir and set config to the config file
-        args.config = args.project_dir  # Full path to config
-        args.project_dir = os.path.dirname(args.config)
-
-    if args.force and os.path.isdir(args.output):
-        shutil.rmtree(args.output, ignore_errors=True)
-
-    if not args.config and os.path.isdir(args.project_dir) and os.path.exists(
-        os.path.join(args.project_dir, "config.yaml")
-    ):
-        # If config is unset, check if it's in the project directory as config.yaml
-        # We'll use this as a default
-        args.config = os.path.join(args.project_dir, "config.yaml")
-
-    if args.config is None:
-        raise ValueError(f"Could not find config and none was provided. Auto-checked {args.project_dir} for config.yaml")
-
-    config = Path(args.config)
-    if not config.exists():
-        raise ValueError(f"Config file does not exist: {args.config}")
-
-    # Sanity check, should have a 'base' directory next to the config
-    if not os.path.isdir(os.path.join(args.project_dir, "base")):
-        raise ValueError(
-            f"Project directory does not contain a 'base' directory: {args.project_dir}."
-        )
-
-    if args.output is None:
-        # Expect a config like ./project/myfirmware/config.yaml, get myfirmware from there
-        # and create ./project/myfirmware/results/X and auto-increment X
-        results_base = os.path.join(args.project_dir, "results")
-
-        if not os.path.exists(results_base):
-            os.makedirs(results_base)
-            idx = 0
-        else:
-
-            def getint(d):
-                try:
-                    return int(d)
-                except ValueError:
-                    return -1
-
-            results = [
-                getint(d)
-                for d in os.listdir(results_base)
-                if os.path.isdir(os.path.join(results_base, d))
-            ]
-            if len(results) == 0:
-                idx = 0
-            else:
-                idx = max(results) + 1
-
-        # Create symlink in results directory to latest
-        latest_dir = os.path.join(results_base, "latest")
-        if os.path.islink(latest_dir):
-            os.unlink(latest_dir)
-        os.symlink(f"./{idx}", latest_dir)
-
-        args.output = os.path.join(results_base, str(idx))
-
-    friendly_config = args.config
-    if friendly_config.startswith(args.project_dir):
-        # Trim project_dir if it's relative
-        friendly_config = friendly_config[len(args.project_dir):]
-
-    logger.info(f"Running project {args.project_dir} with config {friendly_config}")
-    logger.info(f"Saving results to {args.output}")
-
-    if "/host_" in args.config or "/host_" in args.output:
-        logger.info(
-            "Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments"
-        )
-
-    run_from_config(args.project_dir, args.config, args.output, timeout=args.timeout, verbose=args.verbose)
-
-
-def guest_cmd(args):
-    guest_cmd_args = ["python3", "/igloo_static/guesthopper/guest_cmd.py"]+args.args
-
-    # A little goofy, but we run with check=False so we can promote the return code
-    result = subprocess.run(guest_cmd_args, capture_output=True, text=True, check=False)
-    if result.stdout:
-        sys.stdout.write(result.stdout)
-    if result.stderr:
-        sys.stderr.write(result.stderr)
-    sys.exit(result.returncode)
-
-
-def add_explore_arguments(parser):
-    add_common_arguments(parser)
-    parser.add_argument(
-        "config",
-        type=str,
-        help="Path to a config file within a project directory or a project directory that contains a config.yaml.",
-    )
-    parser.add_argument(
-        "--niters",
-        type=int,
-        default=100,
-        help="Number of iterations to run. Default is 100.",
-    )
-    parser.add_argument(
-        "--nworkers",
-        type=int,
-        default=4,
-        help="Number of workers to run in parallel. Default is 4",
-    )
-    parser.add_argument(
-        "--timeout",
-        type=int,
-        default=300,
-        help="Number of seconds that automated runs will execute for. Default is 300."
-    )
-    parser.add_argument(
-        "--output",
-        type=str,
-        help="The output directory path. Defaults to results/explore.",
-        default=None,
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        default=False,
-        help="Forcefully delete output directory if it exists.",
-    )
-
-
-def add_ga_explore_arguments(parser):
-    add_explore_arguments(parser)
-    parser.add_argument(
-        "--nmuts",
-        type=int,
-        default=1,
-        help="Number of mutations to try per chromosome per generation. Default is 1.",
-    )
-
-
-def penguin_explore(args):
-    config = Path(args.config)
-    if not config.exists():
-        raise ValueError(f"Config file does not exist: {args.config}")
-
-    # Allow config to be the project dir (which contains config.yaml)
-    if os.path.isdir(args.config) and os.path.exists(
-        os.path.join(args.config, "config.yaml")
-    ):
-        args.config = os.path.join(args.config, "config.yaml")
-
-    # Sanity check, should have a 'base' directory next to the config
-    if not os.path.isdir(os.path.join(os.path.dirname(args.config), "base")):
-        raise ValueError(
-            f"Config directory does not contain a 'base' directory: {os.path.dirname(args.config)}."
-        )
-
-    if args.output is None:
-        # Default to results/{explore,ga_explore,patch_explore} in the project directory
-        # Multiple directories allow for easier comparison
-        args.output = os.path.join(os.path.dirname(args.config), args.cmd)
-
-    if args.force and os.path.isdir(args.output):
-        # Delete the output directory if it exists
-        shutil.rmtree(args.output, ignore_errors=True)
-
-    # If output exists error (if force we already deleted it)
-    if os.path.exists(args.output):
-        raise ValueError(
-            f"Output directory exists: {args.output}. Run with --force to delete."
-        )
-
-    os.makedirs(args.output)
-
-    logger.info(f"Exploring from {args.config} and saving results to {args.output}")
-
-    if "/host_" in args.config or "/host_" in args.output:
-        logger.info(
-            "Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments"
-        )
-
-    explore_from_config(
-        args.cmd,
-        dirname(args.config),
-        args.config,
-        args.output,
-        args.niters,
-        args.timeout,
-        nworkers=args.nworkers,
-        verbose=args.verbose
-    )
-
-
-# Function to calculate the SHA-256 hash of a file
 def get_file_hash(filename):
     sha256 = hashlib.sha256()
     try:
@@ -557,9 +160,97 @@ def get_file_hash(filename):
     return sha256.hexdigest()
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description=f"""
+def _setup_explore_dirs(config_path, output, force, cmd_name):
+    """Shared logic for setting up explore/minimize output directories."""
+    config_path = Path(config_path)
+    if not config_path.exists():
+        raise ValueError(f"Config file does not exist: {config_path}")
+
+    # Allow config to be the project dir (which contains config.yaml)
+    if os.path.isdir(config_path) and os.path.exists(
+        os.path.join(config_path, "config.yaml")
+    ):
+        config_path = Path(config_path, "config.yaml")
+
+    # Sanity check, should have a 'base' directory next to the config
+    if not os.path.isdir(os.path.join(os.path.dirname(config_path), "base")):
+        raise ValueError(
+            f"Config directory does not contain a 'base' directory: {os.path.dirname(config_path)}."
+        )
+
+    if output is None:
+        output = os.path.join(os.path.dirname(config_path), cmd_name)
+
+    if force and os.path.isdir(output):
+        shutil.rmtree(output, ignore_errors=True)
+
+    if os.path.exists(output):
+        raise ValueError(
+            f"Output directory exists: {output}. Run with --force to delete."
+        )
+
+    os.makedirs(output)
+    return config_path, output
+
+
+def _startup_checks(verbose):
+    """Performs hash checks and logging that should only run during execution, not help."""
+    if verbose:
+        logger.setLevel(logging.DEBUG)
+        logger.debug("Verbose logging enabled")
+
+    logger.info("penguin %s", VERSION)
+
+    penguin_hash_env = os.getenv("PENGUIN_HASH")
+    if penguin_hash_env is None:
+        logger.error("PENGUIN_HASH environment variable is not set.")
+
+    penguin_file = "/usr/local/src/penguin_wrapper"
+    if os.path.exists(penguin_file):
+        penguin_hash = get_file_hash(penguin_file)
+
+        if penguin_hash != penguin_hash_env:
+            logger.warning(
+                "Current penguin file does not match /usr/local/src/penguin_wrapper."
+            )
+            logger.warning(
+                'Reinstall global penguin from container with "docker run rehosting/penguin penguin_install | sudo sh"'
+            )
+            logger.warning(
+                'Reinstall local penguin from container with "docker run rehosting/penguin penguin_install.local | sh"'
+            )
+
+# --- Click Utilities ---
+
+
+class RawHelpGroup(click.Group):
+    """
+    Overwrites the help formatting to preserve whitespace (for ASCII art).
+    """
+
+    def format_help_text(self, ctx, formatter):
+        if self.help:
+            formatter.write(self.help)
+            formatter.write('\n')
+
+
+def verbose_option(f):
+    """
+    Common option for commands that support verbose logging.
+    Updates the context VERBOSE object so it can be merged with group-level verbose flag.
+    """
+    def callback(ctx, param, value):
+        if value:
+            # Update the context object
+            ctx.ensure_object(dict)
+            ctx.obj['VERBOSE'] = True
+        return value
+    return click.option("-v", "--verbose", is_flag=True, help="Set log level to debug", expose_value=False, callback=callback)(f)
+
+# --- Click Commands ---
+
+
+LOGO = f"""
     {art.text2art("PENGUIN", font='tarty1-large')}
 \t\t\t\tversion {VERSION}
 
@@ -600,110 +291,409 @@ you can then select to view with the --filename flag. The `README.md` file conta
 contains details on the configuration file format and options.
 
     penguin docs --filename schema_doc.md
-    """,
-        formatter_class=argparse.RawTextHelpFormatter,
-    )
+"""
 
-    add_common_arguments(parser)
 
-    subparsers = parser.add_subparsers(help="subcommand", dest="cmd", required=False)
+@click.group(cls=RawHelpGroup, help=LOGO)
+@click.option("-v", "--verbose", is_flag=True, help="Set log level to debug")
+@click.option("--wrapper-help", is_flag=True, help="Show help for host penguin wrapper")
+@click.version_option(version=VERSION)
+@click.pass_context
+def cli(ctx, verbose, wrapper_help):
+    # Store verbose in context object for subcommands
+    ctx.ensure_object(dict)
+    # If already set by callback (rare, usually callbacks run after), or defaults
+    if verbose:
+        ctx.obj['VERBOSE'] = True
+    elif 'VERBOSE' not in ctx.obj:
+        ctx.obj['VERBOSE'] = False
 
-    parser_cmd_init = subparsers.add_parser(
-        "init", help="Create project from firmware root filesystem archive"
-    )
-    add_init_arguments(parser_cmd_init)
+    if wrapper_help:
+        click.echo(ctx.get_help())
+        ctx.exit()
 
-    parser_cmd_run = subparsers.add_parser("run", help="Run from a config")
-    add_run_arguments(parser_cmd_run)
 
-    parser_cmd_shell = subparsers.add_parser(
-        "shell", help="Get a shell inside the penguin container (will attach to running container if available)"
-    )
-    add_run_arguments(parser_cmd_shell)
+@cli.command()
+@click.argument("rootfs", type=str)
+@click.option("--output", type=str, default=None, help="Optional argument specifying the path where the project will be created. Default is projects/<basename of firmware file>.")
+@click.option("--force", is_flag=True, default=False, help="Forcefully delete project directory if it exists")
+@click.option("--output_base", type=str, default="projects", help="Default project directory base. Default is 'projects'")
+@verbose_option
+@click.pass_context
+def init(ctx, rootfs, output, force, output_base):
+    """
+    Create project from firmware root filesystem archive.
 
-    parser_cmd_docs = subparsers.add_parser("docs", help="Show documentation")
-    add_docs_arguments(parser_cmd_docs)
+    ROOTFS is the rootfs path. (e.g. path/to/fw_rootfs.tar.gz)
+    """
+    _startup_checks(ctx.obj['VERBOSE'])
 
-    parser_cmd_explore = subparsers.add_parser(
-        "explore", help="Search for alternative configurations to improve system health by walking a configuration graph."
-    )
-    add_explore_arguments(parser_cmd_explore)
+    firmware = Path(rootfs)
 
-    parser_cmd_guest_cmd = subparsers.add_parser(
-        "guest_cmd", help="Execute a command inside a guest and capture stdout/stderr"
-    )
-    parser_cmd_guest_cmd.add_argument('args', nargs=argparse.REMAINDER, help='Pass remaining arguments as a command to the guest')
-    parser_cmd_ga_explore = subparsers.add_parser(
-        "ga_explore", help="Search for alternative configurations to improve system health by using a genetic algorithm."
-    )
-    add_ga_explore_arguments(parser_cmd_ga_explore)
+    if not firmware.exists():
+        raise ValueError(f"Firmware file not found: {firmware}")
 
-    parser_cmd_patch_explore = subparsers.add_parser(
-        "patch_explore", help="Search for alternative configurations to improve system health by using a patch-based search."
-    )
-    add_explore_arguments(parser_cmd_patch_explore)
-
-    parser_cmd_minimize = subparsers.add_parser(
-        "minimize", help="Search for a minimal set of patches to rehost a system."
-    )
-    add_explore_arguments(parser_cmd_minimize)
-
-    # Add --wrapper-help stub
-    parser.add_argument(
-        "--wrapper-help", action="store_true", help="Show help for host penguin wrapper"
-    )
-
-    parser.add_argument(
-        "--version", action="version", help="Show version information", version=VERSION
-    )
-
-    args = parser.parse_args()
-
-    # If cmd is unset show help
-    if not args.cmd:
-        parser.print_help()
-        return
-
-    if args.verbose:
-        # Set level to debug
-        logger.setLevel(logging.DEBUG)
-        logger.debug("Verbose logging enabled")
-
-    logger.info("penguin %s", VERSION)
-
-    penguin_hash_env = os.getenv("PENGUIN_HASH")
-    if penguin_hash_env is None:
-        logger.error("PENGUIN_HASH environment variable is not set.")
-    penguin_file = "/usr/local/src/penguin_wrapper"
-    penguin_hash = get_file_hash(penguin_file)
-
-    if penguin_hash != penguin_hash_env:
-        logger.warning(
-            "Current penguin file does not match /usr/local/src/penguin_wrapper."
-        )
-        logger.warning(
-            'Reinstall global penguin from container with "docker run rehosting/penguin penguin_install | sudo sh"'
-        )
-        logger.warning(
-            'Reinstall local penguin from container with "docker run rehosting/penguin penguin_install.local | sh"'
+    if rootfs.endswith(".yaml"):
+        raise ValueError(
+            "FATAL: It looks like you provided a config file (it ends with .yaml)."
+            "Please provide a firmware file"
         )
 
-    if args.cmd == "init":
-        penguin_init(args)
-    elif args.cmd == "run":
-        penguin_run(args)
-    elif args.cmd == "docs":
-        penguin_docs(args)
-    elif args.cmd == "guest_cmd":
-        guest_cmd(args)
-    elif args.cmd in ["explore", "ga_explore", "patch_explore", "minimize"]:
-        penguin_explore(args)
-    elif args.cmd == "shell":
-        logger.error("The 'shell' command is not available in this context. Please use the 'penguin' wrapper script to start a container shell.")
-        return 1
+    if "/host_" in rootfs or (output and output.startswith("/host_")):
+        logger.info(
+            "Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments"
+        )
+
+    if output is None:
+        if rootfs.endswith(".rootfs.tar.gz"):
+            basename_stem = os.path.basename(rootfs)[0:-14]
+        elif rootfs.endswith(".tar.gz"):
+            basename_stem = os.path.basename(rootfs)[0:-7]
+        else:
+            basename_stem = os.path.splitext(os.path.basename(rootfs))[0]
+
+        if not os.path.exists(output_base):
+            print("Creating output_base:", output_base)
+            os.makedirs(output_base, exist_ok=True)
+
+        output = output_base + "/" + basename_stem
+        output_type = "generated"
     else:
-        parser.print_help()
+        output_type = "specified"
+    logger.info(f"Creating project at {output_type} path: {output}")
+
+    if os.path.isdir(output) and (
+        os.path.exists(os.path.join(output, "config.yaml"))
+        or os.path.exists(os.path.join(output, "base"))
+    ):
+        if force:
+            logger.info(f"Deleting existing project directory: {output}")
+            shutil.rmtree(output, ignore_errors=True)
+        else:
+            raise ValueError(
+                f"Project directory already exists: {output}. Use --force to delete."
+            )
+
+    os.makedirs(os.path.dirname(output), exist_ok=True)
+
+    out_config_path = Path(output, "config.yaml")
+    config = fakeroot_gen_config(
+        rootfs, out_config_path, output, ctx.obj['VERBOSE']
+    )
+    if config:
+        logger.info(f"Generated config at {config}")
+    else:
+        logger.error(
+            f"Failed to generate config for {rootfs}. See {output}/result for details."
+        )
+        exit(1)
+
+
+@cli.command()
+@click.argument("project_dir", type=str)
+@click.option("--config", type=str, help="Path to a config file. Defaults to <project_dir>/config.yaml.")
+@click.option("--output", type=str, default=None, help="The output directory path. Defaults to results/X in project directory where X auto-increments.")
+@click.option("--force", is_flag=True, default=False, help="Forcefully delete output directory if it exists.")
+@click.option("--timeout", type=int, default=None, help="Number of seconds that run/iteration should last. Default is None (must manually kill)")
+@click.option("-a", "--auto", is_flag=True, help="Run in auto mode (don't start telnet shell).")
+@verbose_option
+@click.pass_context
+def run(ctx, project_dir, config, output, force, timeout, auto):
+    """
+    Run from a config.
+
+    PROJECT_DIR is the path to project directory. For backwards compatability, a path to a config file within a project directory is also accepted.
+    """
+    _startup_checks(ctx.obj['VERBOSE'])
+
+    if not os.path.isabs(project_dir):
+        current_dir = os.getcwd()
+        project_dir = os.path.join(current_dir, project_dir)
+
+    if os.path.isfile(project_dir) or project_dir.endswith("/config.yaml"):
+        config = project_dir
+        project_dir = os.path.dirname(config)
+
+    if force and output and os.path.isdir(output):
+        shutil.rmtree(output, ignore_errors=True)
+
+    if not config and os.path.isdir(project_dir) and os.path.exists(
+        os.path.join(project_dir, "config.yaml")
+    ):
+        config = os.path.join(project_dir, "config.yaml")
+
+    if config is None:
+        raise ValueError(f"Could not find config and none was provided. Auto-checked {project_dir} for config.yaml")
+
+    config_path = Path(config)
+    if not config_path.exists():
+        raise ValueError(f"Config file does not exist: {config}")
+
+    if not os.path.isdir(os.path.join(project_dir, "base")):
+        raise ValueError(
+            f"Project directory does not contain a 'base' directory: {project_dir}."
+        )
+
+    if output is None:
+        results_base = os.path.join(project_dir, "results")
+
+        if not os.path.exists(results_base):
+            os.makedirs(results_base)
+            idx = 0
+        else:
+            def getint(d):
+                try:
+                    return int(d)
+                except ValueError:
+                    return -1
+
+            results = [
+                getint(d)
+                for d in os.listdir(results_base)
+                if os.path.isdir(os.path.join(results_base, d))
+            ]
+            if len(results) == 0:
+                idx = 0
+            else:
+                idx = max(results) + 1
+
+        latest_dir = os.path.join(results_base, "latest")
+        if os.path.islink(latest_dir):
+            os.unlink(latest_dir)
+        os.symlink(f"./{idx}", latest_dir)
+
+        output = os.path.join(results_base, str(idx))
+
+    friendly_config = config
+    if friendly_config.startswith(project_dir):
+        friendly_config = friendly_config[len(project_dir):]
+
+    logger.info(f"Running project {project_dir} with config {friendly_config}")
+    logger.info(f"Saving results to {output}")
+
+    if "/host_" in config or "/host_" in output:
+        logger.info(
+            "Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments"
+        )
+
+    run_from_config(project_dir, config, output, timeout=timeout, verbose=ctx.obj['VERBOSE'])
+
+
+@cli.command()
+@verbose_option
+@click.pass_context
+def shell(ctx):
+    """Get a shell inside the penguin container"""
+    _startup_checks(ctx.obj['VERBOSE'])
+    logger.error("The 'shell' command is not available in this context. Please use the 'penguin' wrapper script to start a container shell.")
+    sys.exit(1)
+
+
+@cli.command()
+@click.option("--filename", type=str, default=None, help="Documentation file to render. If unset, filenames are printed.")
+@verbose_option
+@click.pass_context
+def docs(ctx, filename):
+    """Show documentation"""
+    _startup_checks(ctx.obj['VERBOSE'])
+    docs_path = "/docs"
+
+    if filename:
+        fn = filename
+    else:
+        doc_files = glob.glob("**/*.md", root_dir=docs_path, recursive=True)
+        gum_args = ["gum", "choose"] + doc_files
+        try:
+            fn = subprocess.check_output(gum_args, text=True).strip()
+        except subprocess.CalledProcessError:
+            return
+
+    if not fn.endswith(".md"):
+        fn += ".md"
+
+    full_path = join(docs_path, fn)
+    if ".." in fn:
+        raise ValueError("Invalid filename")
+
+    if not os.path.isfile(full_path):
+        logger.info(f"Documentation file not found: {fn}")
+    else:
+        with open(full_path, "r") as f:
+            lines = len(f.readlines())
+
+        try:
+            rows, _ = os.get_terminal_size()
+        except OSError:
+            rows = None
+
+        glow_args = ["glow", full_path]
+        if rows and lines > rows:
+            subprocess.run(glow_args + ["--pager"])
+        else:
+            subprocess.run(glow_args)
+
+
+@cli.command()
+@click.argument("config", type=str)
+@click.option("--niters", type=int, default=100, help="Number of iterations to run. Default is 100.")
+@click.option("--nworkers", type=int, default=4, help="Number of workers to run in parallel. Default is 4")
+@click.option("--timeout", type=int, default=300, help="Number of seconds that automated runs will execute for. Default is 300.")
+@click.option("--output", type=str, default=None, help="The output directory path. Defaults to results/explore.")
+@click.option("--force", is_flag=True, default=False, help="Forcefully delete output directory if it exists.")
+@verbose_option
+@click.pass_context
+def explore(ctx, config, niters, nworkers, timeout, output, force):
+    """
+    Search for alternative configurations to improve system health by walking a configuration graph.
+
+    CONFIG is the path to a config file within a project directory or a project directory that contains a config.yaml.
+    """
+    _startup_checks(ctx.obj['VERBOSE'])
+    config_path, output_dir = _setup_explore_dirs(config, output, force, "explore")
+    logger.info(f"Exploring from {config_path} and saving results to {output_dir}")
+
+    if "/host_" in str(config_path) or "/host_" in output_dir:
+        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories")
+
+    explore_from_config(
+        "explore",
+        dirname(config_path),
+        str(config_path),
+        output_dir,
+        niters,
+        timeout,
+        nworkers=nworkers,
+        verbose=ctx.obj['VERBOSE']
+    )
+
+
+@cli.command()
+@click.argument("config", type=str)
+@click.option("--niters", type=int, default=100, help="Number of iterations to run. Default is 100.")
+@click.option("--nworkers", type=int, default=4, help="Number of workers to run in parallel. Default is 4")
+@click.option("--timeout", type=int, default=300, help="Number of seconds that automated runs will execute for. Default is 300.")
+@click.option("--output", type=str, default=None, help="The output directory path.")
+@click.option("--force", is_flag=True, default=False, help="Forcefully delete output directory if it exists.")
+@click.option("--nmuts", type=int, default=1, help="Number of mutations to try per chromosome per generation. Default is 1.")
+@verbose_option
+@click.pass_context
+def ga_explore(ctx, config, niters, nworkers, timeout, output, force, nmuts):
+    """
+    Search for alternative configurations to improve system health by using a genetic algorithm.
+
+    CONFIG is the path to a config file within a project directory or a project directory that contains a config.yaml.
+    """
+    _startup_checks(ctx.obj['VERBOSE'])
+    config_path, output_dir = _setup_explore_dirs(config, output, force, "ga_explore")
+    logger.info(f"Exploring from {config_path} and saving results to {output_dir}")
+
+    if "/host_" in str(config_path) or "/host_" in output_dir:
+        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories")
+
+    explore_from_config(
+        "ga_explore",
+        dirname(config_path),
+        str(config_path),
+        output_dir,
+        niters,
+        timeout,
+        nworkers=nworkers,
+        verbose=ctx.obj['VERBOSE']
+    )
+
+
+@cli.command()
+@click.argument("config", type=str)
+@click.option("--niters", type=int, default=100, help="Number of iterations to run. Default is 100.")
+@click.option("--nworkers", type=int, default=4, help="Number of workers to run in parallel. Default is 4")
+@click.option("--timeout", type=int, default=300, help="Number of seconds that automated runs will execute for. Default is 300.")
+@click.option("--output", type=str, default=None, help="The output directory path.")
+@click.option("--force", is_flag=True, default=False, help="Forcefully delete output directory if it exists.")
+@verbose_option
+@click.pass_context
+def patch_explore(ctx, config, niters, nworkers, timeout, output, force):
+    """
+    Search for alternative configurations to improve system health by using a patch-based search.
+
+    CONFIG is the path to a config file within a project directory or a project directory that contains a config.yaml.
+    """
+    _startup_checks(ctx.obj['VERBOSE'])
+    config_path, output_dir = _setup_explore_dirs(config, output, force, "patch_explore")
+    logger.info(f"Exploring from {config_path} and saving results to {output_dir}")
+
+    if "/host_" in str(config_path) or "/host_" in output_dir:
+        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories")
+
+    explore_from_config(
+        "patch_explore",
+        dirname(config_path),
+        str(config_path),
+        output_dir,
+        niters,
+        timeout,
+        nworkers=nworkers,
+        verbose=ctx.obj['VERBOSE']
+    )
+
+
+@cli.command()
+@click.argument("config", type=str)
+@click.option("--niters", type=int, default=100, help="Number of iterations to run. Default is 100.")
+@click.option("--nworkers", type=int, default=4, help="Number of workers to run in parallel. Default is 4")
+@click.option("--timeout", type=int, default=300, help="Number of seconds that automated runs will execute for. Default is 300.")
+@click.option("--output", type=str, default=None, help="The output directory path.")
+@click.option("--force", is_flag=True, default=False, help="Forcefully delete output directory if it exists.")
+@verbose_option
+@click.pass_context
+def minimize(ctx, config, niters, nworkers, timeout, output, force):
+    """
+    Search for a minimal set of patches to rehost a system.
+
+    CONFIG is the path to a config file within a project directory or a project directory that contains a config.yaml.
+    """
+    _startup_checks(ctx.obj['VERBOSE'])
+    config_path, output_dir = _setup_explore_dirs(config, output, force, "minimize")
+    logger.info(f"Exploring from {config_path} and saving results to {output_dir}")
+
+    if "/host_" in str(config_path) or "/host_" in output_dir:
+        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories")
+
+    explore_from_config(
+        "minimize",
+        dirname(config_path),
+        str(config_path),
+        output_dir,
+        niters,
+        timeout,
+        nworkers=nworkers,
+        verbose=ctx.obj['VERBOSE']
+    )
+
+
+@cli.command(context_settings=dict(
+    ignore_unknown_options=True,
+    allow_extra_args=True,
+))
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.pass_context
+def guest_cmd(ctx, args):
+    """
+    Execute a command inside a guest and capture stdout/stderr.
+
+    ARGS are passed as the command to the guest.
+    """
+    # NOTE: guest_cmd does NOT accept -v for the host script.
+    # We pass ctx.obj['VERBOSE'] (set by global flag) to startup checks.
+    _startup_checks(ctx.obj['VERBOSE'])
+
+    guest_cmd_args = ["python3", "/igloo_static/guesthopper/guest_cmd.py"] + list(args)
+    result = subprocess.run(guest_cmd_args, capture_output=True, text=True, check=False)
+    if result.stdout:
+        sys.stdout.write(result.stdout)
+    if result.stderr:
+        sys.stderr.write(result.stderr)
+    sys.exit(result.returncode)
 
 
 if __name__ == "__main__":
-    main()
+    cli()
