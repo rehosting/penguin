@@ -11,6 +11,7 @@ import sys
 # importlib.metadata is in the standard library for Python 3.8+
 from importlib.metadata import distribution, EntryPoint
 
+
 class PenguinCLI(click.MultiCommand):
     def list_commands(self, ctx):
         """Dynamically list commands registered in setup.cfg under console_scripts."""
@@ -19,7 +20,7 @@ class PenguinCLI(click.MultiCommand):
         except Exception:
             # Fallback if package isn't installed (e.g. running raw script)
             return []
-        
+
         commands = []
         # Filter for console_scripts belonging to this package
         for ep in dist.entry_points:
@@ -27,7 +28,7 @@ class PenguinCLI(click.MultiCommand):
             # to prevent recursion ('peng peng')
             if ep.group == 'console_scripts' and ep.name != 'peng':
                 commands.append(ep.name)
-        
+
         return sorted(commands)
 
     def get_command(self, ctx, name):
@@ -36,16 +37,18 @@ class PenguinCLI(click.MultiCommand):
             dist = distribution('pengutils')
         except Exception:
             return None
-        
+
         for ep in dist.entry_points:
             if ep.group == 'console_scripts' and ep.name == name:
                 return ep.load()
-        
+
         return None
+
 
 @click.command(cls=PenguinCLI, help="Pengutils meta-CLI to run other registered commands.")
 def main():
     pass
+
 
 if __name__ == "__main__":
     main()

@@ -28,6 +28,7 @@ import sys
 from rich import print
 from pengutils.utils.util_events import send_command
 
+
 @click.command()
 @click.option("--sock", default="results/latest/penguin_events.sock", help="Path to plugin socket (default: results/latest/penguin_events.sock)")
 @click.option("--name", required=True, help="Syscall name")
@@ -68,6 +69,7 @@ def syscall(ctx, sock, name, action, proc, pid, output):
     except Exception as e:
         print(f"[red]{e}[/red]")
         ctx.exit(1)
+
 
 if __name__ == "__main__":
     syscall()

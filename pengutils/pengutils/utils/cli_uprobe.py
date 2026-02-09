@@ -29,6 +29,7 @@ import sys
 from rich import print
 from pengutils.utils.util_events import send_command
 
+
 @click.command()
 @click.option("--sock", default="results/latest/penguin_events.sock", help="Path to plugin socket (default: results/latest/penguin_events.sock)")
 @click.option("--path", required=True, help="Path to library or binary")
@@ -71,6 +72,7 @@ def uprobe(ctx, sock, path, symbol, action, proc, pid, output):
     except Exception as e:
         print(f"[red]{e}[/red]")
         ctx.exit(1)
+
 
 if __name__ == "__main__":
     uprobe()
