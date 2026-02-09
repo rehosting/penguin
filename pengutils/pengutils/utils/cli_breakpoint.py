@@ -2,22 +2,32 @@
 Breakpoint CLI
 ==============
 
-This script provides a command-line interface (CLI) for listing and disabling breakpoints via the Penguin DynEvents Plugin Unix socket.
-It is modeled after the list and disable commands in penguin_ctrl.py and uses Click for the CLI interface.
+This script provides a command-line interface (CLI) for managing breakpoints, syscall traces, and uprobes via the Penguin DynEvents Plugin Unix socket.
+It combines functionality for listing, disabling, and creating various event hooks.
 
 Example usage
 -------------
 
 .. code-block:: bash
 
+    # List breakpoints
     cli_breakpoint.py list --sock results/latest/penguin_events.sock
+
+    # Disable a breakpoint
     cli_breakpoint.py disable --sock results/latest/penguin_events.sock --id 3
+
+    # Add a syscall trace
+    cli_breakpoint.py syscall --name sys_write --action "print %fd, %s, %d"
+
+    # Add a uprobe
+    cli_breakpoint.py uprobe --path /lib/libc.so.6 --symbol malloc --action "print %d"
 
 Options
 -------
+Common options:
 - ``--sock``: Path to plugin socket (default: results/latest/penguin_events.sock)
-- ``--id``: Breakpoint ID to disable (optional for disable)
 
+See individual commands for specific options.
 """
 
 import click
@@ -73,6 +83,92 @@ def disable(ctx, sock, id):
     cmd = {"type": "disable"}
     if id is not None:
         cmd["id"] = id
+    try:
+        resp = send_command(cmd, sock=sock)
+        if not resp:
+            print(f"[red]No response from socket {sock}[/red]")
+            ctx.exit(1)
+        if resp.get("status") == "success":
+            if "message" in resp:
+                print(f"[green]{resp['message']}[/green]")
+            else:
+                print(f"[green]Success: ID {resp.get('id')}[/green]")
+            ctx.exit(0)
+        else:
+            print(f"[red]Failed: {resp.get('message')}[/red]")
+            ctx.exit(1)
+    except click.exceptions.Exit:
+        raise
+    except Exception as e:
+        print(f"[red]{e}[/red]")
+        ctx.exit(1)
+
+
+@breakpoint_cli.command()
+@click.option("--sock", default="results/latest/penguin_events.sock", help="Path to plugin socket (default: results/latest/penguin_events.sock)")
+@click.option("--name", required=True, help="Syscall name")
+@click.option("--action", required=True, help="Action string")
+@click.option("--proc", default=None, help="Process name filter")
+@click.option("--pid", default=None, type=int, help="PID filter")
+@click.option("--output", default=None, help="Output file for action")
+@click.pass_context
+def syscall(ctx, sock, name, action, proc, pid, output):
+    """
+    Set up a syscall trace via the Penguin DynEvents Plugin Unix socket.
+    """
+    cmd = {
+        "type": "syscall",
+        "name": name,
+        "action": action,
+        "process_filter": proc,
+        "pid_filter": pid,
+    }
+    if output:
+        cmd["output"] = output
+    try:
+        resp = send_command(cmd, sock=sock)
+        if not resp:
+            print(f"[red]No response from socket {sock}[/red]")
+            ctx.exit(1)
+        if resp.get("status") == "success":
+            if "message" in resp:
+                print(f"[green]{resp['message']}[/green]")
+            else:
+                print(f"[green]Success: ID {resp.get('id')}[/green]")
+            ctx.exit(0)
+        else:
+            print(f"[red]Failed: {resp.get('message')}[/red]")
+            ctx.exit(1)
+    except click.exceptions.Exit:
+        raise
+    except Exception as e:
+        print(f"[red]{e}[/red]")
+        ctx.exit(1)
+
+
+@breakpoint_cli.command()
+@click.option("--sock", default="results/latest/penguin_events.sock", help="Path to plugin socket (default: results/latest/penguin_events.sock)")
+@click.option("--path", required=True, help="Path to library or binary")
+@click.option("--symbol", required=True, help="Symbol to probe")
+@click.option("--action", required=True, help="Action string")
+@click.option("--proc", default=None, help="Process name filter")
+@click.option("--pid", default=None, type=int, help="PID filter")
+@click.option("--output", default=None, help="Output file for action")
+@click.pass_context
+def uprobe(ctx, sock, path, symbol, action, proc, pid, output):
+    """
+    Set up a uprobe via the Penguin DynEvents Plugin Unix socket.
+    """
+    cmd = {
+        "type": "uprobe",
+        "path": path,
+        "symbol": symbol,
+        "action": action,
+        "process_filter": proc,
+        "pid_filter": pid,
+    }
+    if output:
+        cmd["output"] = output
     try:
         resp = send_command(cmd, sock=sock)
         if not resp:
