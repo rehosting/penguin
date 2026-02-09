@@ -1,7 +1,6 @@
 from penguin import Plugin, plugins
 import asyncio
 import threading
-import socket
 import json
 import os
 import pdb
@@ -13,12 +12,13 @@ from collections import defaultdict
 uprobes = plugins.uprobes
 syscalls = plugins.syscalls
 
+
 class DynEvents(Plugin):
     """
     DynEvents Plugin
     ================
     Listens on a Unix Domain Socket for commands.
-    
+
     Features:
     - Register uprobe (entry/return inferred) and syscall hooks.
     - Extended Format Support (%d, %s, %fd, %proc, etc.).
@@ -27,21 +27,25 @@ class DynEvents(Plugin):
       - "print args = ret": Captures args at entry, prints at exit.
       - "myplugin.method": Delegates execution to another plugin's method.
     """
+
     def __init__(self):
         outdir = self.get_arg("outdir") or "/tmp"
         self.socket_path = os.path.join(outdir, "penguin_events.sock")
-        
+
         if os.path.exists(self.socket_path):
-            try: os.unlink(self.socket_path)
-            except OSError: pass
+            try:
+                os.unlink(self.socket_path)
+            except OSError:
+                pass
 
         self.running = True
-        self.logger.info(f"DynEvents: Listening for events on: {self.socket_path}")
-        
+        self.logger.info(
+            f"DynEvents: Listening for events on: {self.socket_path}")
+
         self.next_hook_id = 1
         self.hooks_by_id = {}
         self.call_stacks = defaultdict(list)
-        
+
         self.arch_bits = 64 if '64' in self.panda.arch_name else 32
         self.ptr_mask = (1 << self.arch_bits) - 1
 
@@ -53,15 +57,17 @@ class DynEvents(Plugin):
 
     def uninit(self):
         self.running = False
-        
+
         # Thread-safe shutdown of the asyncio loop
         if hasattr(self, 'loop') and self.loop.is_running():
             self.loop.call_soon_threadsafe(self._stop_server)
             self.loop_thread.join(timeout=1.0)
 
         if os.path.exists(self.socket_path):
-            try: os.unlink(self.socket_path)
-            except OSError: pass
+            try:
+                os.unlink(self.socket_path)
+            except OSError:
+                pass
 
     def _start_background_loop(self):
         """Runs the asyncio event loop in a background thread."""
@@ -77,7 +83,8 @@ class DynEvents(Plugin):
                 tasks = asyncio.all_tasks(self.loop)
                 for task in tasks:
                     task.cancel()
-                self.loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+                self.loop.run_until_complete(
+                    asyncio.gather(*tasks, return_exceptions=True))
                 self.loop.close()
             except Exception:
                 pass
@@ -103,12 +110,12 @@ class DynEvents(Plugin):
     async def _handle_client(self, reader, writer):
         try:
             data = await reader.read()
-            
+
             response = {"status": "error", "message": "No data received"}
             if data:
                 # Process message synchronously as plugin APIs are sync
                 response = self._process_message(data)
-            
+
             writer.write(json.dumps(response).encode('utf-8'))
             await writer.drain()
         except Exception as e:
@@ -125,7 +132,7 @@ class DynEvents(Plugin):
             cmd = json.loads(data.decode('utf-8'))
             cmd_type = cmd.get('type')
             handler_name = f"_handle_{cmd_type}"
-            
+
             if hasattr(self, handler_name):
                 handler = getattr(self, handler_name)
                 result = handler(cmd)
@@ -141,7 +148,8 @@ class DynEvents(Plugin):
     def _handle_load_plugin(self, cmd):
         name = cmd.get('name')
         args = cmd.get('args', None)
-        if not name: raise ValueError("Missing 'name'")
+        if not name:
+            raise ValueError("Missing 'name'")
         try:
             plugins.load_plugin(name, extra_args=args)
             self.logger.info(f"Loaded plugin: {name}")
@@ -174,9 +182,11 @@ class DynEvents(Plugin):
     def _handle_disable(self, cmd):
         hook_id = cmd.get('id')
         if hook_id is not None:
-            try: hook_id = int(hook_id)
-            except: raise ValueError("Invalid 'id' format")
-            
+            try:
+                hook_id = int(hook_id)
+            except:
+                raise ValueError("Invalid 'id' format")
+
             if hook_id not in self.hooks_by_id:
                 raise ValueError(f"Hook ID {hook_id} not found")
 
@@ -192,9 +202,10 @@ class DynEvents(Plugin):
             return {"message": f"All {count} hooks disabled"}
 
     def _unregister_hook(self, hook_id):
-        if hook_id not in self.hooks_by_id: return
+        if hook_id not in self.hooks_by_id:
+            return
         data = self.hooks_by_id[hook_id]
-        
+
         for h_type, handle in data.get('handles', []):
             try:
                 if h_type == 'uprobe':
@@ -202,7 +213,8 @@ class DynEvents(Plugin):
                 elif h_type == 'syscall':
                     syscalls.unregister(handle)
             except Exception as e:
-                self.logger.error(f"Error unregistering {h_type} hook {hook_id}: {e}")
+                self.logger.error(
+                    f"Error unregistering {h_type} hook {hook_id}: {e}")
 
         del self.hooks_by_id[hook_id]
 
@@ -210,32 +222,42 @@ class DynEvents(Plugin):
 
     def _get_context_key(self):
         try:
-            if not hasattr(self.plugins, 'osi'): self.plugins.load_plugin('osi')
+            if not hasattr(self.plugins, 'osi'):
+                self.plugins.load_plugin('osi')
             proc = yield from self.plugins.osi.get_proc(None)
-            if proc: return proc.pid
-        except Exception: pass
-        try: return self.panda.get_cpu().env_ptr
-        except: return 0
+            if proc:
+                return proc.pid
+        except Exception:
+            pass
+        try:
+            return self.panda.get_cpu().env_ptr
+        except:
+            return 0
 
     def _resolve_plugin_method(self, name):
         """Resolves a string 'plugin.method' to a callable."""
-        if '.' not in name: return None
+        if '.' not in name:
+            return None
         try:
             parts = name.split('.')
-            if len(parts) != 2: return None
+            if len(parts) != 2:
+                return None
             pname, mname = parts
-            
-            if not hasattr(plugins, pname): return None
+
+            if not hasattr(plugins, pname):
+                return None
             p = getattr(plugins, pname)
             if hasattr(p, mname):
                 return getattr(p, mname)
-        except: return None
+        except:
+            return None
         return None
 
     def _parse_print_formats(self, action_str):
         # Normalize
-        body = re.sub(r'^print\s*\(?', '', action_str, flags=re.IGNORECASE).rstrip(')')
-        
+        body = re.sub(r'^print\s*\(?', '', action_str,
+                      flags=re.IGNORECASE).rstrip(')')
+
         if '=' in body:
             parts = body.split('=', 1)
             arg_fmts = [f.strip() for f in parts[0].split(',') if f.strip()]
@@ -252,26 +274,30 @@ class DynEvents(Plugin):
         path = cmd.get('path')
         target = cmd.get('symbol')
         action_str = cmd.get('action')
-        if not path or not target: raise ValueError("Missing path or symbol")
-        if not action_str: raise ValueError("Missing action")
-        
-        try: target_val = int(target, 0)
-        except: target_val = target
+        if not path or not target:
+            raise ValueError("Missing path or symbol")
+        if not action_str:
+            raise ValueError("Missing action")
+
+        try:
+            target_val = int(target, 0)
+        except:
+            target_val = target
 
         hook_id = self.next_hook_id
         self.next_hook_id += 1
-        
+
         is_break = 'break' in action_str or 'bp' in action_str
         arg_fmts, ret_fmts = self._parse_print_formats(action_str)
-        
+
         # Check for method delegation
         # If an action is a valid plugin method, we use that instead of printing.
         entry_method = None
         if arg_fmts and len(arg_fmts) == 1:
             entry_method = self._resolve_plugin_method(arg_fmts[0])
             if entry_method:
-                arg_fmts = [] # Clear formats so we don't try to print/save
-        
+                arg_fmts = []  # Clear formats so we don't try to print/save
+
         exit_method = None
         if ret_fmts and len(ret_fmts) == 1:
             exit_method = self._resolve_plugin_method(ret_fmts[0])
@@ -281,12 +307,13 @@ class DynEvents(Plugin):
         # Determine if we need return probing
         # inferred from presence of return formats (RHS of =) or exit method
         is_retprobe = (ret_fmts is not None) or (exit_method is not None)
-        
+
         # If is_retprobe is False, ret_fmts is None. For execution safety set to empty list
-        if ret_fmts is None: ret_fmts = []
+        if ret_fmts is None:
+            ret_fmts = []
 
         prefix = f"{os.path.basename(path)}:{target_val}"
-        
+
         hook_data = {
             'type': 'uretprobe' if is_retprobe else 'uprobe',
             'raw_action': action_str,
@@ -297,8 +324,9 @@ class DynEvents(Plugin):
         self.hooks_by_id[hook_id] = hook_data
 
         def entry_handler(regs):
-            if hook_id not in self.hooks_by_id: return
-            
+            if hook_id not in self.hooks_by_id:
+                return
+
             if entry_method:
                 yield from entry_method(regs)
                 # If we delegated entry, we cleared arg_fmts, so no stack push happens here.
@@ -308,7 +336,7 @@ class DynEvents(Plugin):
                 if arg_fmts:
                     count = len([f for f in arg_fmts if f != '%proc'])
                     vals = yield from regs.get_args_portal(count, convention='userland')
-                
+
                 if is_retprobe:
                     # Save for exit. We only push if we have args to match the exit pop.
                     if arg_fmts:
@@ -319,11 +347,12 @@ class DynEvents(Plugin):
                     yield from self._execute_action(vals, [], arg_fmts, [], is_break, prefix)
 
         def exit_handler(regs):
-            if hook_id not in self.hooks_by_id: return
-            
+            if hook_id not in self.hooks_by_id:
+                return
+
             # 1. Recover Args (if they were saved)
             saved_args = []
-            
+
             # NOTE: If we delegated entry, arg_fmts is empty, so we won't pop.
             # If we had standard entry, arg_fmts is present, so we pop.
             if arg_fmts:
@@ -332,7 +361,7 @@ class DynEvents(Plugin):
                 if stack:
                     saved_args = stack.pop()
                 else:
-                    saved_args = [None] * len(arg_fmts) # Error state
+                    saved_args = [None] * len(arg_fmts)  # Error state
 
             if exit_method:
                 yield from exit_method(regs)
@@ -340,19 +369,23 @@ class DynEvents(Plugin):
                 # 2. Capture Retval
                 ret_vals = []
                 if ret_fmts:
-                    try: retval = regs.get_retval()
-                    except: retval = 0
+                    try:
+                        retval = regs.get_retval()
+                    except:
+                        retval = 0
                     ret_vals = [retval]
-                    if len(ret_fmts) > 1: ret_vals.extend([None]*(len(ret_fmts)-1))
+                    if len(ret_fmts) > 1:
+                        ret_vals.extend([None]*(len(ret_fmts)-1))
 
                 # Print (Print Once Rule)
                 yield from self._execute_action(saved_args, ret_vals, arg_fmts, ret_fmts, is_break, prefix, is_ret=True)
 
         # Apply Hooks
-        
+
         # ENTRY: Needed if normal uprobe OR if retprobe needs to capture args OR if we have delegated entry
-        needs_entry = (not is_retprobe) or (is_retprobe and len(arg_fmts) > 0) or (entry_method is not None)
-        
+        needs_entry = (not is_retprobe) or (is_retprobe and len(
+            arg_fmts) > 0) or (entry_method is not None)
+
         # EXIT: Needed only if retprobe
         needs_exit = is_retprobe
 
@@ -374,38 +407,41 @@ class DynEvents(Plugin):
             )(exit_handler)
             hook_data['handles'].append(('uprobe', h))
 
-        self.logger.info(f"Registered {hook_data['type']} {hook_id}: {action_str}")
+        self.logger.info(
+            f"Registered {hook_data['type']} {hook_id}: {action_str}")
         return {"id": hook_id}
-        
 
     def _register_syscall(self, cmd):
         name = cmd.get('name')
-        if not name: raise ValueError("Missing 'name'")
+        if not name:
+            raise ValueError("Missing 'name'")
         action_str = cmd.get('action')
-        if not action_str: raise ValueError("Missing action")
+        if not action_str:
+            raise ValueError("Missing action")
 
         hook_id = self.next_hook_id
         self.next_hook_id += 1
-        
+
         is_break = 'break' in action_str
         arg_fmts, _ = self._parse_print_formats(action_str)
-        
+
         syscall_method = None
         if arg_fmts and len(arg_fmts) == 1:
             syscall_method = self._resolve_plugin_method(arg_fmts[0])
 
         prefix = f"syscall:{name}"
-        
+
         self.hooks_by_id[hook_id] = {
-            'type': 'syscall', 
-            'raw_action': action_str, 
+            'type': 'syscall',
+            'raw_action': action_str,
             'name': name,
             'handles': []
         }
 
         def handler(regs, proto, sc, *args):
-            if hook_id not in self.hooks_by_id: return
-            
+            if hook_id not in self.hooks_by_id:
+                return
+
             if syscall_method:
                 yield from syscall_method(regs, proto, sc, *args)
             else:
@@ -419,7 +455,7 @@ class DynEvents(Plugin):
             pid_filter=cmd.get('pid_filter')
         )(handler)
         self.hooks_by_id[hook_id]['handles'].append(('syscall', h))
-        
+
         self.logger.info(f"Registered syscall {hook_id}")
         return {"id": hook_id}
 
@@ -436,7 +472,8 @@ class DynEvents(Plugin):
                 try:
                     pname = yield from self.plugins.osi.get_proc_name()
                     out_args.append(pname)
-                except: out_args.append("?")
+                except:
+                    out_args.append("?")
             else:
                 if idx < len(arg_vals):
                     out_args.append((yield from self._format_value(fmt, arg_vals[idx])))
@@ -455,50 +492,64 @@ class DynEvents(Plugin):
 
         lhs = ", ".join(out_args)
         rhs = ", ".join(out_rets)
-        
+
         if is_ret:
             # If we are printing at return, and we had args, format is `func(args) = ret`
             # If no args were captured, just `func = ret`
             msg = f"{prefix}({lhs}) = {rhs}" if arg_fmts else f"{prefix} = {rhs}"
         else:
             msg = f"{prefix}({lhs})"
-            
+
         self.logger.info(msg)
 
     def _to_signed(self, val, bits=None):
         bits = bits or self.arch_bits
-        if val & (1 << (bits - 1)): return val - (1 << bits)
+        if val & (1 << (bits - 1)):
+            return val - (1 << bits)
         return val
 
     def _format_value(self, fmt, val):
-        if val is None: return "nil"
-        if fmt in ['%d', '%i']: return str(self._to_signed(val))
-        if fmt == '%u': return str(val)
-        if fmt in ['%x', '%X']: return f"{val:x}" if fmt=='%x' else f"{val:X}"
-        if fmt == '%p': return f"0x{val:0{self.arch_bits//4}x}"
-        if fmt == '%c': return chr(val & 0xFF) if 32 <= (val&0xFF) <= 126 else '.'
-        if fmt == '%b': return str(bool(val))
-        
+        if val is None:
+            return "nil"
+        if fmt in ['%d', '%i']:
+            return str(self._to_signed(val))
+        if fmt == '%u':
+            return str(val)
+        if fmt in ['%x', '%X']:
+            return f"{val:x}" if fmt == '%x' else f"{val:X}"
+        if fmt == '%p':
+            return f"0x{val:0{self.arch_bits//4}x}"
+        if fmt == '%c':
+            return chr(val & 0xFF) if 32 <= (val & 0xFF) <= 126 else '.'
+        if fmt == '%b':
+            return str(bool(val))
+
         if fmt == '%fd':
             try:
-                if not hasattr(self.plugins, 'osi'): self.plugins.load_plugin('osi')
+                if not hasattr(self.plugins, 'osi'):
+                    self.plugins.load_plugin('osi')
                 name = yield from self.plugins.osi.get_fd_name(val)
                 return f"{val}({name or '?'})"
-            except: return f"{val}(?)"
+            except:
+                return f"{val}(?)"
 
         if fmt == '%s':
-            try: return f'"{yield from self.plugins.mem.read_str(val)}"'
-            except: return f"<bad-str:{val:x}>"
+            try:
+                return f'"{yield from self.plugins.mem.read_str(val)}"'
+            except:
+                return f"<bad-str:{val:x}>"
 
         m = re.match(r'%(?P<t>[uix])(?P<b>8|16|32|64)', fmt)
         if m:
             t, b = m.group('t'), int(m.group('b'))
             try:
                 d = yield from self.plugins.mem.read_bytes(val, b//8)
-                c = {1:'B', 2:'H', 4:'I', 8:'Q'}[b//8]
-                if t=='i': c = c.lower()
+                c = {1: 'B', 2: 'H', 4: 'I', 8: 'Q'}[b//8]
+                if t == 'i':
+                    c = c.lower()
                 v = struct.unpack(f"<{c}", d)[0]
-                return f"{v:x}" if t=='x' else str(v)
-            except: return f"<bad-mem:{val:x}>"
+                return f"{v:x}" if t == 'x' else str(v)
+            except:
+                return f"<bad-mem:{val:x}>"
 
         return f"{val:x}(?)"

@@ -47,11 +47,11 @@ class RWLog(Plugin):
         self.DB = plugins.DB
         self.cbs = []
         self.enable()
-    
+
     def enable(self):
         self.cbs.append(syscalls.syscall("on_sys_write_return")(self.write))
         self.cbs.append(syscalls.syscall("on_sys_read_return")(self.read))
-    
+
     def disable(self):
         cbs = self.cbs
         self.cbs = []
