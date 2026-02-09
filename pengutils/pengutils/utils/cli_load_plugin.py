@@ -41,13 +41,13 @@ def load_plugin(ctx, sock, plugin_name):
         resp = send_command(cmd, sock=sock)
         if not resp:
             print(f"[red]No response from socket {sock}[/red]")
-            print(f"[red]Is the dyn_events plugin loaded?[/red]")
+            print("[red]Is the dyn_events plugin loaded?[/red]")
             ctx.exit(1)
         if resp.get("status") == "success":
             if "message" in resp:
                 print(f"[green]{resp['message']}[/green]")
             else:
-                print(f"[green]Success![/green]")
+                print("[green]Success![/green]")
             ctx.exit(0)
         else:
             print(f"[red]Failed: {resp.get('message')}[/red]")
@@ -56,7 +56,7 @@ def load_plugin(ctx, sock, plugin_name):
         raise
     except Exception as e:
         print(f"[red]{e}[/red]")
-        print(f"[red]Is the dyn_events plugin loaded?[/red]")
+        print("[red]Is the dyn_events plugin loaded?[/red]")
         ctx.exit(1)
 
 
