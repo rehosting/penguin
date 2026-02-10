@@ -351,6 +351,31 @@ class Uprobes(Plugin):
         # 2. Specific Path
         if isinstance(symbol, int):
             offset = symbol
+            
+            # Check for potential Virtual Address confusion
+            if path and '*' not in path:
+                try:
+                    fs = plugins.static_fs
+                    size = fs.get_size(path)
+
+                    if size is not None:
+                        if offset >= size:
+                            self.logger.warning(
+                                f"Offset provided ({offset:#x}) exceeds file size ({size:#x}) of {path}. "
+                                "Attempting to resolve as virtual address..."
+                            )
+                            new_offset = plugins.symbols.resolve_addr(path, offset)
+                            if new_offset is not None:
+                                self.logger.info(
+                                    f"Resolved address {offset:#x} -> file offset {new_offset:#x}")
+                                offset = new_offset
+                            else:
+                                self.logger.error(
+                                    f"Could not resolve address {offset:#x} to a valid file offset.")
+                                offset = 0
+                except Exception as e:
+                    self.logger.debug(f"Could not verify offset vs file size: {e}")
+
             symbol_name = f"offset_{offset:#x}"
             resolved_path = path
         else:
