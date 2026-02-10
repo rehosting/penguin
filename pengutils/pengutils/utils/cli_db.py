@@ -3,7 +3,7 @@ Database CLI
 ============
 
 This script consolidates various database query utilities into a single command-line interface.
-It allows querying execution events, file descriptor usage, file reads/writes, syscalls, and unique tasks (process names) from the Penguin DynEvents Plugin database.
+It allows querying execution events, file descriptor usage, file reads/writes, syscalls, and unique tasks (process names) from the Penguin RemoteCtrl Plugin database.
 
 Example usage
 -------------
