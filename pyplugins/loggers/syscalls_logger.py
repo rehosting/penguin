@@ -105,7 +105,7 @@ class PyPandaSysLog(Plugin):
                     self.cbs.append(cb)
         else:
             cb = syscalls.syscall("on_all_sys_return",
-                             read_only=True)(self.all_sys_ret)
+                                  read_only=True)(self.all_sys_ret)
             self.cbs.append(cb)
             for sc in self.monitor_enter_syscalls:
                 cb = syscalls.syscall(f"on_sys_{sc}_enter", read_only=True)(

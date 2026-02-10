@@ -165,11 +165,11 @@ class DynEvents(Plugin):
         args = cmd.get('args', {})
         if not name:
             raise ValueError("Missing 'name'")
-        
+
         p = plugins.get_plugin_by_name(name)
         if not p:
             return {"status": "error", "message": f"Plugin '{name}' is not loaded"}
-        
+
         if hasattr(p, 'enable') and callable(p.enable):
             try:
                 p.enable(**args)
@@ -185,11 +185,11 @@ class DynEvents(Plugin):
         name = cmd.get('name')
         if not name:
             raise ValueError("Missing 'name'")
-        
+
         p = plugins.get_plugin_by_name(name)
         if not p:
             return {"status": "error", "message": f"Plugin '{name}' is not loaded"}
-        
+
         if hasattr(p, 'disable') and callable(p.disable):
             try:
                 p.disable()

@@ -69,7 +69,7 @@ def _send_plugin_cmd(ctx, cmd_type, plugin_name, args=None):
     cmd = {"type": cmd_type, "name": plugin_name}
     if args:
         cmd['args'] = args
-        
+
     try:
         resp = send_command(cmd, sock=sock)
         if not resp:
@@ -100,7 +100,7 @@ def _send_plugin_cmd(ctx, cmd_type, plugin_name, args=None):
 def load(ctx, plugin_name, extra_args):
     """
     Load a plugin.
-    
+
     EXTRA_ARGS: Optional arguments (key=value) to pass to the plugin configuration.
     """
     args_dict = parse_extra_args(extra_args)
@@ -114,7 +114,7 @@ def load(ctx, plugin_name, extra_args):
 def enable(ctx, plugin_name, extra_args):
     """
     Enable a plugin (calls .enable()).
-    
+
     EXTRA_ARGS: Optional arguments (key=value) passed to the enable method.
     """
     args_dict = parse_extra_args(extra_args)
@@ -128,7 +128,7 @@ def enable(ctx, plugin_name, extra_args):
 def disable(ctx, plugin_name, extra_args):
     """
     Disable a plugin (calls .disable()).
-    
+
     EXTRA_ARGS: Optional arguments (key=value) passed to the disable method.
     """
     args_dict = parse_extra_args(extra_args)
