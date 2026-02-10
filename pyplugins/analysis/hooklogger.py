@@ -2,7 +2,7 @@
 HookLogger Plugin
 =================
 
-The HookLogger plugin provides a high-level, "easy mode" interface for dynamic binary instrumentation in Penguin. 
+The HookLogger plugin provides a high-level, "easy mode" interface for dynamic binary instrumentation in Penguin.
 It allows users to register uprobes and syscall hooks using simple, format-string-style "actions" without writing custom callback code.
 
 It handles the complexities of:
@@ -87,7 +87,7 @@ Example Usage
 .. code-block:: python
 
     plugins.load_plugin('hooklogger')
-    
+
     # Register a hook
     plugins.hooklogger.register_uprobe(
         path="/usr/bin/wget",
@@ -116,14 +116,14 @@ class HookLogger(Plugin):
     HookLogger Plugin
     =================
     The "easy mode" for dynamic instrumentation.
-    
-    Transforms simple action strings (e.g., 'print(%s, %d)') into 
+
+    Transforms simple action strings (e.g., 'print(%s, %d)') into
     complex, reliable uprobes and syscall hooks.
-    
+
     Features:
     - Parses action strings to determine what data to capture.
     - Automatically handles memory resolution (dereferencing pointers) at entry.
-    - **Deferred Resolution**: Use '%s:out' to capture a pointer at entry but read 
+    - **Deferred Resolution**: Use '%s:out' to capture a pointer at entry but read
       the string at return (useful for output buffers like in read()).
     - Manages context stacks to safely print return values ('func() = ret').
     """
@@ -140,7 +140,8 @@ class HookLogger(Plugin):
 
         # Detect Endianness
         # PANDA arch names: mipsel/mips64el (Little), mips/mips64 (Big), ppc/ppc64 (Big), etc.
-        self.endian_fmt = '>' if hasattr(self.panda, 'endianness') and self.panda.endianness == 'big' else '<'
+        self.endian_fmt = '>' if hasattr(
+            self.panda, 'endianness') and self.panda.endianness == 'big' else '<'
 
     def list_hooks(self):
         hook_list = []
@@ -161,7 +162,7 @@ class HookLogger(Plugin):
     def disable_hook(self, hook_id):
         if hook_id not in self.hooks_by_id:
             raise ValueError(f"Hook ID {hook_id} not found")
-        
+
         self.logger.info(f"Disabling hook {hook_id}")
         self._unregister_hook(hook_id)
         return True
@@ -177,7 +178,7 @@ class HookLogger(Plugin):
     def register_uprobe(self, path, symbol, action_str, pid_filter=None, process_filter=None, logfile=None):
         if not path or not symbol:
             raise ValueError("Missing path or symbol")
-        
+
         try:
             target_val = int(symbol, 0)
         except (ValueError, TypeError):
@@ -208,8 +209,9 @@ class HookLogger(Plugin):
         # 1. We want to print return values (ret_fmts)
         # 2. We have a custom exit method
         # 3. We have deferred arguments (need to read them at exit)
-        is_retprobe = (ret_fmts is not None) or (exit_method is not None) or has_deferred
-        
+        is_retprobe = (ret_fmts is not None) or (
+            exit_method is not None) or has_deferred
+
         if ret_fmts is None:
             ret_fmts = []
 
@@ -236,20 +238,21 @@ class HookLogger(Plugin):
                 if arg_fmts:
                     count = len([f for f in arg_fmts if f != '%proc'])
                     vals = yield from regs.get_args_portal(count, convention='userland')
-                
+
                 resolved_args = []
                 if arg_fmts:
                     # Resolve values. If is_retprobe is True, allow deferral (:out)
                     resolved_args = yield from self._resolve_values(arg_fmts, vals, allow_defer=is_retprobe)
 
                 if is_retprobe:
-                    # Even if arg_fmts is empty, we might push empty list to track call depth? 
-                    # But usually we only push if we have args. 
+                    # Even if arg_fmts is empty, we might push empty list to track call depth?
+                    # But usually we only push if we have args.
                     if arg_fmts:
                         self.call_stacks[hook_id].append(resolved_args)
                 else:
                     # Print immediately
-                    self._log_action(resolved_args, [], prefix, is_break, logfile)
+                    self._log_action(resolved_args, [],
+                                     prefix, is_break, logfile)
 
         def exit_handler(regs):
             if hook_id not in self.hooks_by_id:
@@ -261,7 +264,7 @@ class HookLogger(Plugin):
                 if stack:
                     # Pop the raw/partially-resolved args
                     raw_saved = stack.pop()
-                    
+
                     # FINAL RESOLUTION: Check for deferred items
                     for arg in raw_saved:
                         # Identifier for deferred: tuple like ("__DEFERRED__", fmt, val)
@@ -287,12 +290,14 @@ class HookLogger(Plugin):
                     ret_vals = [retval]
                     if len(ret_fmts) > 1:
                         ret_vals.extend([None]*(len(ret_fmts)-1))
-                
+
                 # Return values are always resolved immediately at exit
                 resolved_rets = yield from self._resolve_values(ret_fmts, ret_vals, allow_defer=False)
-                self._log_action(saved_args, resolved_rets, prefix, is_break, logfile, is_ret=True)
+                self._log_action(saved_args, resolved_rets,
+                                 prefix, is_break, logfile, is_ret=True)
 
-        needs_entry = (not is_retprobe) or (is_retprobe and len(arg_fmts) > 0) or (entry_method is not None)
+        needs_entry = (not is_retprobe) or (is_retprobe and len(
+            arg_fmts) > 0) or (entry_method is not None)
         needs_exit = is_retprobe
 
         if needs_entry:
@@ -314,7 +319,8 @@ class HookLogger(Plugin):
             hook_data['handles'].append(('uprobe', h))
 
         target_log = logfile if logfile else "Logger"
-        self.logger.info(f"HookLogger: Attached at {hook_data['target_desc']} -> {target_log}")
+        self.logger.info(
+            f"HookLogger: Attached at {hook_data['target_desc']} -> {target_log}")
         return hook_id
 
     def register_syscall(self, name, action_str, pid_filter=None, process_filter=None, logfile=None):
@@ -344,7 +350,7 @@ class HookLogger(Plugin):
                 if arg_fmts:
                     count = len([f for f in arg_fmts if f != '%proc'])
                     vals = yield from regs.get_args_portal(count, 'syscall')
-                
+
                 # Syscalls in this mode are entry-only, so allow_defer=False
                 resolved_args = yield from self._resolve_values(arg_fmts, vals, allow_defer=False)
                 self._log_action(resolved_args, [], prefix, is_break, logfile)
@@ -357,7 +363,8 @@ class HookLogger(Plugin):
         self.hooks_by_id[hook_id]['handles'].append(('syscall', h))
 
         target_log = logfile if logfile else "Logger"
-        self.logger.info(f"HookLogger: Syscall attached at {name} -> {target_log}")
+        self.logger.info(
+            f"HookLogger: Syscall attached at {name} -> {target_log}")
         return hook_id
 
     def _unregister_hook(self, hook_id):
@@ -420,7 +427,7 @@ class HookLogger(Plugin):
             # Check for deferred modifier
             is_deferred = False
             if allow_defer and fmt.endswith(':out'):
-                fmt = fmt[:-4] # Strip :out
+                fmt = fmt[:-4]  # Strip :out
                 is_deferred = True
             elif fmt.endswith(':out') and not allow_defer:
                 # User asked for deferral but we can't do it (e.g. no return probe)
@@ -437,7 +444,7 @@ class HookLogger(Plugin):
                 if val_idx < len(vals):
                     val = vals[val_idx]
                     val_idx += 1
-                    
+
                     if is_deferred:
                         # Store tuple for later resolution
                         out.append(("__DEFERRED__", fmt, val))
