@@ -260,6 +260,8 @@ class Uprobes(Plugin):
         self,
         path: Optional[str] = None,
         symbol: Union[str, int] = None,
+        address: Optional[int] = None,
+        base_addr: Optional[int] = None,
         process_filter: Optional[str] = None,
         on_enter: bool = True,
         on_return: bool = False,
@@ -268,14 +270,23 @@ class Uprobes(Plugin):
         fail_register_ok: bool = False
     ) -> Callable[[Callable], Callable]:
         """
-        Decorator to register a uprobe at the specified path and symbol/offset.
+        Decorator to register a uprobe.
+
+        Can register by symbol name, file offset, or virtual address.
 
         Parameters
         ----------
         path : Optional[str]
-            Path to the executable or library file (can include wildcards), or None to match all libraries containing the symbol.
+            Path to the executable or library file (can include wildcards).
+            Required if 'address' is used.
+            If None (and using 'symbol'), matches all libraries containing the symbol.
         symbol : Union[str, int]
-            Symbol name (string) or offset (integer) in the file.
+            Symbol name (string) or file offset (integer).
+        address : Optional[int]
+            Virtual address to hook. If provided, overrides 'symbol'.
+        base_addr : Optional[int]
+            If provided with 'address', offset is calculated as address - base_addr.
+            If None, attempts to resolve 'address' using ELF headers.
         process_filter : Optional[str]
             Process name to filter events.
         on_enter : bool
@@ -317,6 +328,9 @@ class Uprobes(Plugin):
                 return wrapper
             return decorator
 
+        def _no_op_decorator(func):
+            return func
+
         base_config = {
             'process_filter': process_filter,
             'on_enter': on_enter,
@@ -325,19 +339,82 @@ class Uprobes(Plugin):
             'read_only': read_only
         }
 
-        # 1. Search Everywhere (path is None)
+        # --- CASE A: ADDRESS PROVIDED ---
+        if address is not None:
+            if path is None:
+                self.logger.error("Path must be specified when using 'address'.")
+                return _no_op_decorator
+            
+            offset = None
+            if base_addr is not None:
+                offset = address - base_addr
+            else:
+                # 1. Try resolve_addr (ELF Segment parsing)
+                try:
+                    if hasattr(plugins.symbols, 'resolve_addr'):
+                        offset = plugins.symbols.resolve_addr(path, address)
+                    else:
+                        self.logger.warning("Symbols plugin outdated: cannot resolve address.")
+                except Exception as e:
+                    self.logger.debug(f"Error resolving address {address:#x}: {e}")
+
+                # 2. Fallback: Common Reverse Engineering Base Addresses
+                if offset is None:
+                    file_size = None
+                    try:
+                        fs = plugins.static_fs
+                        file_size = fs.get_size(path)
+                    except Exception:
+                        pass
+                    
+                    if file_size:
+                        # Common bases: Linux 64-bit ET_EXEC (0x400000), Ghidra PIE default (0x100000),
+                        # ARM/MIPS/Older (0x10000), Linux 32-bit (0x8048000).
+                        common_bases = [0x400000, 0x100000, 0x10000, 0x8048000]
+                        for base in common_bases:
+                            candidate = address - base
+                            if 0 <= candidate < file_size:
+                                self.logger.warning(
+                                    f"Address {address:#x} resolved by assuming common base {base:#x} -> offset {candidate:#x}"
+                                )
+                                offset = candidate
+                                break
+
+            if offset is None:
+                if fail_register_ok:
+                    return _no_op_decorator
+                if base_addr is None:
+                    self.logger.warning(
+                        f"Could not resolve address {address:#x} in {path} to a file offset. "
+                        "Assuming it is a raw offset."
+                    )
+                offset = address # Fallback to using raw value
+
+            cfg = base_config.copy()
+            cfg.update({
+                "path": path, 
+                "offset": offset, 
+                "symbol": f"addr_{address:#x}"
+            })
+            return _register_decorator([cfg])
+
+        # --- CASE B: SEARCH EVERYWHERE (path is None) ---
         if path is None:
             if isinstance(symbol, int):
-                raise ValueError("If path is None, symbol must be a string.")
+                self.logger.error("If path is None, symbol must be a string.")
+                return _no_op_decorator
+            if symbol is None:
+                self.logger.error("Must specify symbol or address.")
+                return _no_op_decorator
 
             matching_libs = plugins.symbols.find_all(symbol)
 
             if not matching_libs:
                 if fail_register_ok:
-                    return lambda x: x
+                    return _no_op_decorator
                 self.logger.warning(
                     f"Symbol '{symbol}' not found in any library.")
-                return lambda x: x
+                return _no_op_decorator
 
             uprobe_configs = []
             for lib_path, offset in matching_libs:
@@ -348,7 +425,11 @@ class Uprobes(Plugin):
 
             return _register_decorator(uprobe_configs)
 
-        # 2. Specific Path
+        # --- CASE C: SPECIFIC PATH (Symbol or Offset) ---
+        if symbol is None:
+            self.logger.error("Must specify symbol or address.")
+            return _no_op_decorator
+
         if isinstance(symbol, int):
             offset = symbol
             
@@ -361,10 +442,26 @@ class Uprobes(Plugin):
                     if size is not None:
                         if offset >= size:
                             self.logger.warning(
-                                f"Offset provided ({offset:#x}) exceeds file size ({size:#x}) of {path}. "
+                                f"Offset {offset:#x} exceeds file size ({size:#x}) of {path}. "
                                 "Attempting to resolve as virtual address..."
                             )
-                            new_offset = plugins.symbols.resolve_addr(path, offset)
+                            # 1. Try ELF resolution
+                            new_offset = None
+                            if hasattr(plugins.symbols, 'resolve_addr'):
+                                new_offset = plugins.symbols.resolve_addr(path, offset)
+
+                            # 2. Try Common Bases Fallback
+                            if new_offset is None:
+                                common_bases = [0x400000, 0x100000, 0x10000, 0x8048000]
+                                for base in common_bases:
+                                    candidate = offset - base
+                                    if 0 <= candidate < size:
+                                        self.logger.warning(
+                                            f"Offset {offset:#x} resolved by assuming common base {base:#x} -> offset {candidate:#x}"
+                                        )
+                                        new_offset = candidate
+                                        break
+                            
                             if new_offset is not None:
                                 self.logger.info(
                                     f"Resolved address {offset:#x} -> file offset {new_offset:#x}")
@@ -372,7 +469,6 @@ class Uprobes(Plugin):
                             else:
                                 self.logger.error(
                                     f"Could not resolve address {offset:#x} to a valid file offset.")
-                                offset = 0
                 except Exception as e:
                     self.logger.debug(f"Could not verify offset vs file size: {e}")
 
@@ -384,7 +480,7 @@ class Uprobes(Plugin):
 
             if offset is None:
                 if fail_register_ok:
-                    return lambda x: x
+                    return _no_op_decorator
                 self.logger.warning(
                     f"Symbol '{symbol}' not found in '{path}'. Defaulting to offset 0.")
                 offset = 0
@@ -396,10 +492,17 @@ class Uprobes(Plugin):
 
         return _register_decorator([cfg])
 
-    def uretprobe(self, path: Optional[str], symbol: Union[str, int], **kwargs) -> Callable:
+    def uretprobe(
+        self, 
+        path: Optional[str] = None, 
+        symbol: Union[str, int] = None, 
+        address: Optional[int] = None,
+        base_addr: Optional[int] = None,
+        **kwargs
+    ) -> Callable:
         kwargs['on_enter'] = False
         kwargs['on_return'] = True
-        return self.uprobe(path, symbol, **kwargs)
+        return self.uprobe(path, symbol, address=address, base_addr=base_addr, **kwargs)
 
     def unregister(self, target: Union[Callable, str]):
         """
