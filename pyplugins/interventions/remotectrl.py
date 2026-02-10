@@ -196,8 +196,9 @@ class RemoteCtrl(Plugin):
         action = cmd.get('action')
         pid = cmd.get('pid_filter')
         proc = cmd.get('process_filter')
+        logfile = cmd.get('logfile', None)
         
-        hid = hooklogger.register_uprobe(path, symbol, action, pid, proc)
+        hid = hooklogger.register_uprobe(path, symbol, action, pid, proc, logfile)
         return {"id": hid}
 
     def _handle_syscall(self, cmd):
@@ -205,8 +206,9 @@ class RemoteCtrl(Plugin):
         action = cmd.get('action')
         pid = cmd.get('pid_filter')
         proc = cmd.get('process_filter')
+        logfile = cmd.get('logfile', None)
         
-        hid = hooklogger.register_syscall(name, action, pid, proc)
+        hid = hooklogger.register_syscall(name, action, pid, proc, logfile)
         return {"id": hid}
 
     def _handle_list(self, cmd):
