@@ -5,7 +5,7 @@ import json
 import os
 import traceback
 
-dynamic_hooks = plugins.dynamic_hooks
+hooklogger = plugins.hooklogger
 
 
 class RemoteCtrl(Plugin):
@@ -14,7 +14,7 @@ class RemoteCtrl(Plugin):
     =================
     The remote control plane for Penguin instrumentation.
     Listens on a Unix socket to register probes and manipulate execution
-    via the DynamicHooks plugin.
+    via the HookLogger plugin.
     """
 
     def __init__(self):
@@ -197,7 +197,7 @@ class RemoteCtrl(Plugin):
         pid = cmd.get('pid_filter')
         proc = cmd.get('process_filter')
         
-        hid = dynamic_hooks.register_uprobe(path, symbol, action, pid, proc)
+        hid = hooklogger.register_uprobe(path, symbol, action, pid, proc)
         return {"id": hid}
 
     def _handle_syscall(self, cmd):
@@ -206,11 +206,11 @@ class RemoteCtrl(Plugin):
         pid = cmd.get('pid_filter')
         proc = cmd.get('process_filter')
         
-        hid = dynamic_hooks.register_syscall(name, action, pid, proc)
+        hid = hooklogger.register_syscall(name, action, pid, proc)
         return {"id": hid}
 
     def _handle_list(self, cmd):
-        return {"hooks": dynamic_hooks.list_hooks()}
+        return {"hooks": hooklogger.list_hooks()}
 
     def _handle_disable(self, cmd):
         hook_id = cmd.get('id')
@@ -220,8 +220,8 @@ class RemoteCtrl(Plugin):
             except (ValueError, TypeError):
                 raise ValueError("Invalid 'id' format")
             
-            dynamic_hooks.disable_hook(hook_id)
+            hooklogger.disable_hook(hook_id)
             return {"message": f"Hook {hook_id} disabled"}
         else:
-            count = dynamic_hooks.disable_all()
+            count = hooklogger.disable_all()
             return {"message": f"All {count} hooks disabled"}
