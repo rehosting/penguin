@@ -11,10 +11,10 @@ Example usage
 .. code-block:: bash
 
     # List breakpoints
-    cli_breakpoint.py list --sock results/latest/penguin_events.sock
+    cli_breakpoint.py list --sock results/latest/remotectrl.sock
 
     # Disable a breakpoint
-    cli_breakpoint.py disable --sock results/latest/penguin_events.sock --id 3
+    cli_breakpoint.py disable --sock results/latest/remotectrl.sock --id 3
 
     # Add a syscall trace
     cli_breakpoint.py syscall --name sys_write --action "print %fd, %s, %d"
@@ -25,7 +25,7 @@ Example usage
 Options
 -------
 Common options:
-- ``--sock``: Path to plugin socket (default: results/latest/penguin_events.sock)
+- ``--sock``: Path to plugin socket (default: results/latest/remotectrl.sock)
 
 See individual commands for specific options.
 """
@@ -42,7 +42,7 @@ def breakpoint_cli():
 
 
 @breakpoint_cli.command()
-@click.option("--sock", default="results/latest/penguin_events.sock", help="Path to plugin socket (default: results/latest/penguin_events.sock)")
+@click.option("--sock", default="results/latest/remotectrl.sock", help="Path to plugin socket (default: results/latest/remotectrl.sock)")
 @click.pass_context
 def list(ctx, sock):
     """List all breakpoints/hooks."""
@@ -75,7 +75,7 @@ def list(ctx, sock):
 
 
 @breakpoint_cli.command()
-@click.option("--sock", default="results/latest/penguin_events.sock", help="Path to plugin socket (default: results/latest/penguin_events.sock)")
+@click.option("--sock", default="results/latest/remotectrl.sock", help="Path to plugin socket (default: results/latest/remotectrl.sock)")
 @click.option("--id", default=None, type=int, help="Breakpoint ID to disable (optional)")
 @click.argument("arg_id", required=False, type=int)
 @click.pass_context
@@ -108,7 +108,7 @@ def disable(ctx, sock, id, arg_id):
 
 
 @breakpoint_cli.command()
-@click.option("--sock", default="results/latest/penguin_events.sock", help="Path to plugin socket (default: results/latest/penguin_events.sock)")
+@click.option("--sock", default="results/latest/remotectrl.sock", help="Path to plugin socket (default: results/latest/remotectrl.sock)")
 @click.option("--name", required=True, help="Syscall name")
 @click.option("--action", required=True, help="Action string")
 @click.option("--proc", default=None, help="Process name filter")
@@ -150,7 +150,7 @@ def syscall(ctx, sock, name, action, proc, pid, output):
 
 
 @breakpoint_cli.command()
-@click.option("--sock", default="results/latest/penguin_events.sock", help="Path to plugin socket (default: results/latest/penguin_events.sock)")
+@click.option("--sock", default="results/latest/remotectrl.sock", help="Path to plugin socket (default: results/latest/remotectrl.sock)")
 @click.option("--path", required=True, help="Path to library or binary")
 @click.option("--symbol", required=True, help="Symbol to probe")
 @click.option("--action", required=True, help="Action string")

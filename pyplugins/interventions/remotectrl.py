@@ -41,6 +41,15 @@ class RemoteCtrl(Plugin):
         self.running = True
         self.logger.info(
             f"RemoteCtrl: Listening for events on: {self.socket_path}")
+        
+        # Pre-register handlers to avoid repetitive getattr/hasattr calls
+        self.handlers = {}
+        for attr_name in dir(self):
+            if attr_name.startswith("_handle_"):
+                handler = getattr(self, attr_name)
+                if callable(handler):
+                    cmd_type = attr_name[len("_handle_"):]
+                    self.handlers[cmd_type] = handler
 
         self.next_hook_id = 1
         self.hooks_by_id = {}

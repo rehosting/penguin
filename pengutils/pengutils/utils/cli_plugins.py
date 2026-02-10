@@ -16,7 +16,7 @@ Example usage
 
 Options
 -------
-- ``--sock``: Path to plugin socket (default: /workspace/results/latest/penguin_events.sock)
+- ``--sock``: Path to plugin socket (default: /workspace/results/latest/remotectrl.sock)
 """
 
 import click
@@ -52,8 +52,8 @@ def parse_extra_args(args_tuple):
 @click.group()
 @click.option(
     "--sock",
-    default="/workspace/results/latest/penguin_events.sock",
-    help="Path to plugin socket (default: /workspace/results/latest/penguin_events.sock)",
+    default="/workspace/results/latest/remotectrl.sock",
+    help="Path to plugin socket (default: /workspace/results/latest/remotectrl.sock)",
 )
 @click.pass_context
 def plugins(ctx, sock):
