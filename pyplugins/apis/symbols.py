@@ -17,6 +17,7 @@ Features
   4. Manual PT_DYNAMIC segment parsing (handles "sstripped" binaries with no section headers).
   5. ``readelf`` fallbacks, including MIPS GOT scraping for embedded targets.
 - **Reverse Resolution:** Maps file offsets back to the nearest symbol name (useful for stack trace generation).
+- **Address Resolution:** Maps virtual addresses to file offsets (useful for handling raw addresses provided by users).
 - **Introspection:** Methods to list, filter, and bulk-load symbols for specific binaries.
 - **Architecture Aware:** Automatically handles absolute addressing (ET_EXEC) vs relative offsets (ET_DYN) and architecture-specific symbol tables.
 
@@ -33,26 +34,17 @@ Example Usage
     if offset:
         print(f"Function located at offset {hex(offset)} in {path}")
 
-    # 2. Reverse Lookup: Identify a function from a crash/instruction pointer
-    #    Returns tuple: (SymbolName, BytesFromStartOfSymbol)
-    result = plugins.Symbols.resolve_offset("/usr/lib/libc.so.0", 0x12345)
-    if result:
-        name, dist = result
-        print(f"Offset is inside {name} + {dist} bytes")
+    # 2. Address Resolution: Convert a virtual address to a file offset
+    offset = plugins.Symbols.resolve_addr("/usr/bin/httpd", 0x400500)
 
-    # 3. List Symbols: Find interesting functions containing "ssl"
-    ssl_funcs = plugins.Symbols.list_symbols("/usr/lib/libssl.so", filter_str="ssl")
-
-    # 4. Bulk Load: Pre-warm the cache for a binary
-    plugins.Symbols.load_symbols("/bin/busybox")
+    # 3. Reverse Lookup: Identify a function from a crash/instruction pointer
+    name, dist = plugins.Symbols.resolve_offset("/usr/lib/libc.so.0", 0x12345)
 
 Purpose
 -------
 
 The Symbols plugin bridges the gap between high-level analysis names (functions) and low-level
-binary offsets required for instrumentation, hooking, and static analysis. It is specifically
-engineered to handle embedded firmware peculiarities, such as stripped section headers and
-GOT-only symbols.
+binary offsets required for instrumentation.
 """
 
 import os
@@ -145,6 +137,51 @@ class Symbols(Plugin):
         if best_symbol:
             return best_symbol, min_dist
 
+        return None
+
+    def resolve_addr(self, path: str, vaddr: int) -> Optional[int]:
+        """
+        Resolves a virtual address to a file offset by parsing ELF segments.
+        Returns the file offset or None if resolution fails.
+        """
+        resolved_path = path
+        if '*' not in path:
+            resolved_path = self._resolve_staticfs_symlink(path)
+
+        fs = plugins.static_fs
+        f = None
+        try:
+            f = fs.open(resolved_path)
+            if not f:
+                return None
+
+            try:
+                elffile = ELFFile(f)
+                is_exec = elffile.header['e_type'] == 'ET_EXEC'
+                segments = []
+                image_base = 0
+
+                for segment in elffile.iter_segments():
+                    if segment['p_type'] == 'PT_LOAD':
+                        seg_info = {
+                            'vaddr': segment['p_vaddr'],
+                            'memsz': segment['p_memsz'],
+                            'offset': segment['p_offset']
+                        }
+                        segments.append(seg_info)
+                        if image_base == 0 or seg_info['vaddr'] < image_base:
+                            image_base = seg_info['vaddr']
+
+                return self._vaddr_to_file_offset_optimized(
+                    segments, vaddr, is_exec, image_base)
+
+            except ELFError:
+                return None
+        except Exception as e:
+            self.logger.debug(f"resolve_addr failed for {path}: {e}")
+        finally:
+            if f:
+                f.close()
         return None
 
     def list_symbols(self, path: str, filter_str: Optional[str] = None) -> List[str]:
