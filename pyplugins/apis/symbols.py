@@ -206,9 +206,10 @@ class Symbols(Plugin):
                             f"Resolved {vaddr:#x} using common base {base:#x} -> {offset:#x}")
                         return offset
 
-            except ELFError:
+            except ELFError as e:
                 # Not an ELF or parse error, fall through to raw size check
-                pass
+                self.logger.error(
+                    f"ELF parsing failed for {resolved_path}: {e}")
 
             # 3. Fallback: Raw File Size Check
             # If ELF parsing failed or no segments matched, check if a common base adjustment
@@ -225,8 +226,16 @@ class Symbols(Plugin):
                         self.logger.debug(
                             f"Resolved {vaddr:#x} using common base {base:#x} -> raw offset {adjusted:#x}")
                         return adjusted
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.error(
+                    f"Raw file fallback failed for {resolved_path}: {e}")
+
+        except Exception as e:
+            self.logger.error(
+                f"Unexpected error resolving addr {vaddr:#x} in {resolved_path}: {e}")
+            pass
+
+        return None
 
     def list_symbols(self, path: str, filter_str: Optional[str] = None) -> List[str]:
         """
