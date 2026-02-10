@@ -77,12 +77,15 @@ def list(ctx, sock):
 @breakpoint_cli.command()
 @click.option("--sock", default="results/latest/penguin_events.sock", help="Path to plugin socket (default: results/latest/penguin_events.sock)")
 @click.option("--id", default=None, type=int, help="Breakpoint ID to disable (optional)")
+@click.argument("arg_id", required=False, type=int)
 @click.pass_context
-def disable(ctx, sock, id):
+def disable(ctx, sock, id, arg_id):
     """Disable a breakpoint/hook by ID, or all if no ID is given."""
+    # Allow passing ID as an argument or flag
+    id_val = arg_id if arg_id is not None else id
     cmd = {"type": "disable"}
-    if id is not None:
-        cmd["id"] = id
+    if id_val is not None:
+        cmd["id"] = id_val
     try:
         resp = send_command(cmd, sock=sock)
         if not resp:
