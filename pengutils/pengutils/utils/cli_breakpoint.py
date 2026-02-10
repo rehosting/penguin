@@ -19,8 +19,8 @@ Example usage
     # Add a syscall trace
     cli_breakpoint.py syscall --name sys_write --action "print %fd, %s, %d"
 
-    # Add a uprobe
-    cli_breakpoint.py uprobe --path /lib/libc.so.6 --symbol malloc --action "print %d"
+    # Add a uprobe with custom output file
+    cli_breakpoint.py uprobe --path /lib/libc.so.6 --symbol malloc --action "print %d" --output malloc.log
 
 Options
 -------
@@ -53,13 +53,22 @@ def list(ctx, sock):
             print(f"[red]No response from socket {sock}[/red]")
             ctx.exit(1)
         if resp.get("status") == "success" and "hooks" in resp:
-            print(f"{'ID':<4} {'Type':<12} {'Target':<30} {'Action'}")
-            print("-" * 60)
+            # Added 'Output' column
+            print(f"{'ID':<4} {'Type':<12} {'Target':<30} {'Action':<30} {'Output'}")
+            print("-" * 90)
             for h in resp['hooks']:
                 t = h.get('target') or "?"
                 if len(t) > 28:
                     t = t[:25] + "..."
-                print(f"{h['id']:<4} {h['type']:<12} {t:<30} {h['action']}")
+                
+                a = h.get('action') or "?"
+                if len(a) > 28:
+                    a = a[:25] + "..."
+
+                # Show filename or 'Logger'
+                out = h.get('logfile') or "Logger"
+                
+                print(f"{h['id']:<4} {h['type']:<12} {t:<30} {a:<30} {out}")
             ctx.exit(0)
         elif resp.get("status") == "success" and "message" in resp:
             print(f"[green]{resp['message']}[/green]")
@@ -127,7 +136,8 @@ def syscall(ctx, sock, name, action, proc, pid, output):
         "pid_filter": pid,
     }
     if output:
-        cmd["output"] = output
+        # Map CLI '--output' to JSON 'logfile'
+        cmd["logfile"] = output
     try:
         resp = send_command(cmd, sock=sock)
         if not resp:
@@ -171,7 +181,8 @@ def uprobe(ctx, sock, path, symbol, action, proc, pid, output):
         "pid_filter": pid,
     }
     if output:
-        cmd["output"] = output
+        # Map CLI '--output' to JSON 'logfile'
+        cmd["logfile"] = output
     try:
         resp = send_command(cmd, sock=sock)
         if not resp:
