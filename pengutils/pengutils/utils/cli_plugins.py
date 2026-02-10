@@ -10,9 +10,9 @@ Example usage
 
 .. code-block:: bash
 
-    plugins load plugin_name
-    plugins enable plugin_name
-    plugins disable plugin_name
+    plugins load plugin_name [key=value ...]
+    plugins enable plugin_name [key=value ...]
+    plugins disable plugin_name [key=value ...]
 
 Options
 -------
@@ -22,6 +22,31 @@ Options
 import click
 from rich import print
 from pengutils.utils.util_events import send_command
+
+
+def parse_extra_args(args_tuple):
+    """
+    Parses a tuple of arguments into a dictionary.
+    Supports 'key=value' for key-value pairs.
+    Supports 'flag' (no equals sign) as {flag: True}.
+    Performs basic type inference for booleans and integers.
+    """
+    args_dict = {}
+    for arg in args_tuple:
+        if '=' in arg:
+            key, value = arg.split('=', 1)
+            # Try to infer type
+            if value.lower() == 'true':
+                value = True
+            elif value.lower() == 'false':
+                value = False
+            elif value.isdigit():
+                value = int(value)
+            args_dict[key] = value
+        else:
+            # Handle flags as boolean True
+            args_dict[arg] = True
+    return args_dict
 
 
 @click.group()
@@ -39,9 +64,12 @@ def plugins(ctx, sock):
     ctx.obj['sock'] = sock
 
 
-def _send_plugin_cmd(ctx, cmd_type, plugin_name):
+def _send_plugin_cmd(ctx, cmd_type, plugin_name, args=None):
     sock = ctx.obj['sock']
     cmd = {"type": cmd_type, "name": plugin_name}
+    if args:
+        cmd['args'] = args
+        
     try:
         resp = send_command(cmd, sock=sock)
         if not resp:
@@ -67,26 +95,44 @@ def _send_plugin_cmd(ctx, cmd_type, plugin_name):
 
 @plugins.command()
 @click.argument("plugin_name")
+@click.argument("extra_args", nargs=-1)
 @click.pass_context
-def load(ctx, plugin_name):
-    """Load a plugin."""
-    _send_plugin_cmd(ctx, "load_plugin", plugin_name)
+def load(ctx, plugin_name, extra_args):
+    """
+    Load a plugin.
+    
+    EXTRA_ARGS: Optional arguments (key=value) to pass to the plugin configuration.
+    """
+    args_dict = parse_extra_args(extra_args)
+    _send_plugin_cmd(ctx, "load_plugin", plugin_name, args=args_dict)
 
 
 @plugins.command()
 @click.argument("plugin_name")
+@click.argument("extra_args", nargs=-1)
 @click.pass_context
-def enable(ctx, plugin_name):
-    """Enable a plugin (calls .enable())."""
-    _send_plugin_cmd(ctx, "enable_plugin", plugin_name)
+def enable(ctx, plugin_name, extra_args):
+    """
+    Enable a plugin (calls .enable()).
+    
+    EXTRA_ARGS: Optional arguments (key=value) passed to the enable method.
+    """
+    args_dict = parse_extra_args(extra_args)
+    _send_plugin_cmd(ctx, "enable_plugin", plugin_name, args=args_dict)
 
 
 @plugins.command()
 @click.argument("plugin_name")
+@click.argument("extra_args", nargs=-1)
 @click.pass_context
-def disable(ctx, plugin_name):
-    """Disable a plugin (calls .disable())."""
-    _send_plugin_cmd(ctx, "disable_plugin", plugin_name)
+def disable(ctx, plugin_name, extra_args):
+    """
+    Disable a plugin (calls .disable()).
+    
+    EXTRA_ARGS: Optional arguments (key=value) passed to the disable method.
+    """
+    args_dict = parse_extra_args(extra_args)
+    _send_plugin_cmd(ctx, "disable_plugin", plugin_name, args=args_dict)
 
 
 if __name__ == "__main__":

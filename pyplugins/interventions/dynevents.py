@@ -149,16 +149,56 @@ class DynEvents(Plugin):
 
     def _handle_load_plugin(self, cmd):
         name = cmd.get('name')
-        args = cmd.get('args', None)
+        args = cmd.get('args', {})
         if not name:
             raise ValueError("Missing 'name'")
         try:
             plugins.load_plugin(name, extra_args=args)
-            self.logger.info(f"Loaded plugin: {name}")
+            self.logger.info(f"Loaded plugin: {name} with args: {args}")
             return {"message": f"Plugin '{name}' loaded successfully", "status": "success"}
         except Exception as e:
             self.logger.error(f"Plugin '{name}' not found: {e}")
             return {"status": "error", "message": f"Plugin '{name}' not found: {e}"}
+
+    def _handle_enable_plugin(self, cmd):
+        name = cmd.get('name')
+        args = cmd.get('args', {})
+        if not name:
+            raise ValueError("Missing 'name'")
+        
+        p = plugins.get_plugin_by_name(name)
+        if not p:
+            return {"status": "error", "message": f"Plugin '{name}' is not loaded"}
+        
+        if hasattr(p, 'enable') and callable(p.enable):
+            try:
+                p.enable(**args)
+                self.logger.info(f"Enabled plugin: {name} with args: {args}")
+                return {"status": "success", "message": f"Plugin '{name}' enabled successfully"}
+            except Exception as e:
+                self.logger.error(f"Error enabling plugin '{name}': {e}")
+                return {"status": "error", "message": f"Error enabling plugin '{name}': {e}"}
+        else:
+            return {"status": "error", "message": f"Plugin '{name}' does not implement 'enable'"}
+
+    def _handle_disable_plugin(self, cmd):
+        name = cmd.get('name')
+        if not name:
+            raise ValueError("Missing 'name'")
+        
+        p = plugins.get_plugin_by_name(name)
+        if not p:
+            return {"status": "error", "message": f"Plugin '{name}' is not loaded"}
+        
+        if hasattr(p, 'disable') and callable(p.disable):
+            try:
+                p.disable()
+                return {"status": "success", "message": f"Plugin '{name}' disabled successfully"}
+            except Exception as e:
+                self.logger.error(f"Error disabling plugin '{name}': {e}")
+                return {"status": "error", "message": f"Error disabling plugin '{name}': {e}"}
+        else:
+            return {"status": "error", "message": f"Plugin '{name}' does not implement 'disable'"}
 
     def _handle_uprobe(self, cmd):
         return self._register_uprobe(cmd)
