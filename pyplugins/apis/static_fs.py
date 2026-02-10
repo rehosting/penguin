@@ -74,7 +74,7 @@ class StaticFS(Plugin):
                 except Exception:
                     return None
             return 0
-        
+
         # Use cached FileInfo from ratarmountcore
         fileInfo = self._fileinfo_cache.get(norm_path)
         if fileInfo is not None:

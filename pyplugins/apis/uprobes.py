@@ -342,10 +342,12 @@ class Uprobes(Plugin):
         # --- CASE A: ADDRESS PROVIDED ---
         if address is not None:
             if path is None:
-                self.logger.error("Path must be specified when using 'address'.")
+                self.logger.error(
+                    "Path must be specified when using 'address'.")
                 return _no_op_decorator
-            
-            offset = plugins.symbols.resolve_addr(path, address, base_addr=base_addr)
+
+            offset = plugins.symbols.resolve_addr(
+                path, address, base_addr=base_addr)
 
             if offset is None:
                 if fail_register_ok:
@@ -358,8 +360,8 @@ class Uprobes(Plugin):
 
             cfg = base_config.copy()
             cfg.update({
-                "path": path, 
-                "offset": offset, 
+                "path": path,
+                "offset": offset,
                 "symbol": f"addr_{address:#x}"
             })
             return _register_decorator([cfg])
@@ -398,7 +400,7 @@ class Uprobes(Plugin):
 
         if isinstance(symbol, int):
             offset = symbol
-            
+
             # Check for potential Virtual Address confusion
             if path and '*' not in path:
                 try:
@@ -411,8 +413,9 @@ class Uprobes(Plugin):
                                 f"Offset {offset:#x} exceeds file size ({size:#x}) of {path}. "
                                 "Attempting to resolve as virtual address..."
                             )
-                            resolved = plugins.symbols.resolve_addr(path, offset)
-                            
+                            resolved = plugins.symbols.resolve_addr(
+                                path, offset)
+
                             if resolved is not None:
                                 self.logger.info(
                                     f"Resolved address {offset:#x} -> file offset {resolved:#x}")
@@ -422,7 +425,8 @@ class Uprobes(Plugin):
                                     f"Could not resolve address {offset:#x} to a valid file offset. Defaulting to offset 0.")
                                 offset = 0
                 except Exception as e:
-                    self.logger.debug(f"Could not verify offset vs file size: {e}")
+                    self.logger.debug(
+                        f"Could not verify offset vs file size: {e}")
 
             symbol_name = f"offset_{offset:#x}"
             resolved_path = path
@@ -445,9 +449,9 @@ class Uprobes(Plugin):
         return _register_decorator([cfg])
 
     def uretprobe(
-        self, 
-        path: Optional[str] = None, 
-        symbol: Union[str, int] = None, 
+        self,
+        path: Optional[str] = None,
+        symbol: Union[str, int] = None,
         address: Optional[int] = None,
         base_addr: Optional[int] = None,
         **kwargs
