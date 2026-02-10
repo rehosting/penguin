@@ -139,11 +139,21 @@ class Symbols(Plugin):
 
         return None
 
-    def resolve_addr(self, path: str, vaddr: int) -> Optional[int]:
+    def resolve_addr(self, path: str, vaddr: int, base_addr: Optional[int] = None) -> Optional[int]:
         """
-        Resolves a virtual address to a file offset by parsing ELF segments.
+        Resolves a virtual address to a file offset.
+
+        If `base_addr` is provided, the offset is calculated as `vaddr - base_addr`.
+        Otherwise, it attempts to map the virtual address to a file offset using ELF segments.
+        If that fails, it retries by assuming common base addresses (e.g., 0x400000) and
+        checking if the adjusted address maps to a segment or valid file offset.
+
         Returns the file offset or None if resolution fails.
         """
+        # 1. Explicit Base Address
+        if base_addr is not None:
+            return vaddr - base_addr
+
         resolved_path = path
         if '*' not in path:
             resolved_path = self._resolve_staticfs_symlink(path)
@@ -155,6 +165,7 @@ class Symbols(Plugin):
             if not f:
                 return None
 
+            # 2. ELF Segment Analysis
             try:
                 elffile = ELFFile(f)
                 is_exec = elffile.header['e_type'] == 'ET_EXEC'
@@ -172,17 +183,50 @@ class Symbols(Plugin):
                         if image_base == 0 or seg_info['vaddr'] < image_base:
                             image_base = seg_info['vaddr']
 
-                return self._vaddr_to_file_offset_optimized(
+                # A. Try Direct Mapping
+                offset = self._vaddr_to_file_offset_optimized(
                     segments, vaddr, is_exec, image_base)
+                if offset is not None:
+                    return offset
+
+                # B. Try Common Bases
+                # Common bases: Linux 64-bit ET_EXEC (0x400000), Ghidra PIE default (0x100000),
+                # ARM/MIPS/Older (0x10000), Linux 32-bit (0x8048000).
+                common_bases = [0x400000, 0x100000, 0x10000, 0x8048000]
+                for base in common_bases:
+                    adjusted = vaddr - base
+                    if adjusted < 0:
+                        continue
+                    
+                    # Check if adjusted fits in ELF segments
+                    offset = self._vaddr_to_file_offset_optimized(
+                        segments, adjusted, is_exec, image_base)
+                    if offset is not None:
+                        self.logger.debug(
+                            f"Resolved {vaddr:#x} using common base {base:#x} -> {offset:#x}")
+                        return offset
 
             except ELFError:
-                return None
-        except Exception as e:
-            self.logger.debug(f"resolve_addr failed for {path}: {e}")
-        finally:
-            if f:
-                f.close()
-        return None
+                # Not an ELF or parse error, fall through to raw size check
+                pass
+            
+            # 3. Fallback: Raw File Size Check
+            # If ELF parsing failed or no segments matched, check if a common base adjustment
+            # yields a valid raw offset within the file.
+            try:
+                # We need file size. f is already open.
+                f.seek(0, 2)
+                file_size = f.tell()
+                
+                common_bases = [0x400000, 0x100000, 0x10000, 0x8048000]
+                for base in common_bases:
+                    adjusted = vaddr - base
+                    if 0 <= adjusted < file_size:
+                         self.logger.debug(
+                            f"Resolved {vaddr:#x} using common base {base:#x} -> raw offset {adjusted:#x}")
+                         return adjusted
+            except Exception:
+                pass
 
     def list_symbols(self, path: str, filter_str: Optional[str] = None) -> List[str]:
         """
