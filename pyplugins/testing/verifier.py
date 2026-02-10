@@ -11,7 +11,7 @@ import time
 
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
-from pengutils.utils.cli_syscalls import syscall_filter
+from pengutils.utils.cli_db import syscall_filter
 
 
 class Verifier(Plugin):
