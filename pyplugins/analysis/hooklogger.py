@@ -34,7 +34,8 @@ class HookLogger(Plugin):
         # Stack: { hook_id: [ [arg1_str, arg2_str], ... ] }
         self.call_stacks = defaultdict(list)
 
-        self.arch_bits = 64 if '64' in self.panda.arch_name else 32
+        self.outdir = self.get_arg("outdir")
+        self.arch_bits = self.panda.bits
         self.ptr_mask = (1 << self.arch_bits) - 1
 
         # Detect Endianness
@@ -48,6 +49,7 @@ class HookLogger(Plugin):
                 "id": hook_id,
                 "type": data.get('type', '?'),
                 "action": data.get('raw_action', '?'),
+                "logfile": data.get('logfile', None)
             }
             if 'target_desc' in data:
                 info['target'] = data['target_desc']
@@ -72,7 +74,7 @@ class HookLogger(Plugin):
         self.call_stacks.clear()
         return count
 
-    def register_uprobe(self, path, symbol, action_str, pid_filter=None, process_filter=None):
+    def register_uprobe(self, path, symbol, action_str, pid_filter=None, process_filter=None, logfile=None):
         if not path or not symbol:
             raise ValueError("Missing path or symbol")
         
@@ -118,6 +120,7 @@ class HookLogger(Plugin):
             'raw_action': action_str,
             'target_desc': f"{path}:{symbol}",
             'filters': f"pid={pid_filter}" if pid_filter else "",
+            'logfile': logfile,
             'handles': []
         }
         self.hooks_by_id[hook_id] = hook_data
@@ -146,7 +149,7 @@ class HookLogger(Plugin):
                         self.call_stacks[hook_id].append(resolved_args)
                 else:
                     # Print immediately
-                    yield from self._log_action(resolved_args, [], prefix, is_break)
+                    yield from self._log_action(resolved_args, [], prefix, is_break, logfile)
 
         def exit_handler(regs):
             if hook_id not in self.hooks_by_id:
@@ -187,7 +190,7 @@ class HookLogger(Plugin):
                 
                 # Return values are always resolved immediately at exit
                 resolved_rets = yield from self._resolve_values(ret_fmts, ret_vals, allow_defer=False)
-                yield from self._log_action(saved_args, resolved_rets, prefix, is_break, is_ret=True)
+                yield from self._log_action(saved_args, resolved_rets, prefix, is_break, logfile, is_ret=True)
 
         needs_entry = (not is_retprobe) or (is_retprobe and len(arg_fmts) > 0) or (entry_method is not None)
         needs_exit = is_retprobe
@@ -210,10 +213,11 @@ class HookLogger(Plugin):
             )(exit_handler)
             hook_data['handles'].append(('uprobe', h))
 
-        self.logger.info(f"HookLogger: Attached at {hook_data['target_desc']} ({action_str})")
+        target_log = logfile if logfile else "Logger"
+        self.logger.info(f"HookLogger: Attached at {hook_data['target_desc']} -> {target_log}")
         return hook_id
 
-    def register_syscall(self, name, action_str, pid_filter=None, process_filter=None):
+    def register_syscall(self, name, action_str, pid_filter=None, process_filter=None, logfile=None):
         hook_id = self.next_hook_id
         self.next_hook_id += 1
 
@@ -226,7 +230,7 @@ class HookLogger(Plugin):
 
         prefix = f"syscall:{name}"
         self.hooks_by_id[hook_id] = {
-            'type': 'syscall', 'raw_action': action_str, 'name': name, 'handles': []
+            'type': 'syscall', 'raw_action': action_str, 'name': name, 'logfile': logfile, 'handles': []
         }
 
         def handler(regs, proto, sc, *args):
@@ -243,7 +247,7 @@ class HookLogger(Plugin):
                 
                 # Syscalls in this mode are entry-only, so allow_defer=False
                 resolved_args = yield from self._resolve_values(arg_fmts, vals, allow_defer=False)
-                yield from self._log_action(resolved_args, [], prefix, is_break)
+                yield from self._log_action(resolved_args, [], prefix, is_break, logfile)
 
         h = syscalls.syscall(
             name_or_pattern=name,
@@ -252,7 +256,8 @@ class HookLogger(Plugin):
         )(handler)
         self.hooks_by_id[hook_id]['handles'].append(('syscall', h))
 
-        self.logger.info(f"HookLogger: Syscall attached at {name}")
+        target_log = logfile if logfile else "Logger"
+        self.logger.info(f"HookLogger: Syscall attached at {name} -> {target_log}")
         return hook_id
 
     def _unregister_hook(self, hook_id):
@@ -344,7 +349,7 @@ class HookLogger(Plugin):
                     out.append("?")
         return out
 
-    def _log_action(self, arg_strs, ret_strs, prefix, is_break, is_ret=False):
+    def _log_action(self, arg_strs, ret_strs, prefix, is_break, logfile=None, is_ret=False):
         if is_break:
             self.logger.warning(f"Dynamic Breakpoint: {prefix}")
             pdb.set_trace()
@@ -357,7 +362,15 @@ class HookLogger(Plugin):
         else:
             msg = f"{prefix}({lhs})"
 
-        self.logger.info(msg)
+        if logfile:
+            path = os.path.join(self.outdir, logfile)
+            try:
+                with open(path, "a") as f:
+                    f.write(msg + "\n")
+            except Exception as e:
+                self.logger.error(f"Failed to write to {path}: {e}")
+        else:
+            self.logger.info(msg)
 
     def _to_signed(self, val, bits=None):
         bits = bits or self.arch_bits
