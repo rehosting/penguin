@@ -1,3 +1,76 @@
+"""
+RemoteCtrl Plugin
+=================
+
+The RemoteCtrl plugin serves as the external control interface for the Penguin analysis environment.
+It binds to a Unix Domain Socket and accepts JSON-formatted commands to orchestrate
+dynamic instrumentation and plugin management during runtime without pausing or restarting the emulation.
+
+This plugin acts as the backend server for command-line tools (like ``cli_breakpoint.py``).
+
+Socket Protocol
+---------------
+
+- **Socket Path**: Defaults to ``<outdir>/remotectrl.sock`` (e.g., ``/tmp/remotectrl.sock``).
+- **Input**: JSON-formatted string representing a command.
+- **Output**: JSON-formatted string containing a ``status`` ("success" or "error") and relevant data.
+
+Supported Commands
+------------------
+
+**1. Instrumentation (Delegated to HookLogger)**
+
+These commands interface directly with the ``HookLogger`` plugin to register dynamic probes.
+
+- **``uprobe``**
+    - ``path`` *(str)*: Target binary or library path (e.g., ``/bin/ls``).
+    - ``symbol`` *(str)*: Function name or address (e.g., ``malloc``, ``0x400500``).
+    - ``action`` *(str)*: The format string defining capture logic (e.g., ``print(%s)``).
+    - ``logfile`` *(str, optional)*: Filename in results dir to append output to.
+    - ``pid_filter`` / ``process_filter``: Optional scope constraints.
+
+- **``syscall``**
+    - ``name`` *(str)*: Syscall name (e.g., ``sys_read``).
+    - ``action`` *(str)*: The format string defining capture logic.
+
+- **``list``**
+    - Returns a list of all active hooks, their IDs, targets, and output destinations.
+
+- **``disable``**
+    - ``id`` *(int, optional)*: The specific hook ID to unregister. If omitted, **ALL** hooks are disabled.
+
+**2. Plugin Management**
+
+Allows for dynamic loading and toggling of other Penguin analysis plugins.
+
+- **``load_plugin``**: Import and initialize a new plugin from disk.
+    - ``name``: Plugin filename or module name.
+    - ``args``: Dictionary of arguments for the plugin.
+- **``enable_plugin``**: Call the ``enable()`` method of a loaded plugin.
+- **``disable_plugin``**: Call the ``disable()`` method of a loaded plugin.
+
+Example Payload
+---------------
+
+To register a hook via the socket, send a JSON payload like this:
+
+.. code-block:: json
+
+    {
+        "type": "uprobe",
+        "path": "/lib/libc.so.6",
+        "symbol": "open",
+        "action": "print(%s) = %d",
+        "process_filter": "nginx",
+        "logfile": "nginx_opens.log"
+    }
+
+Dependencies
+------------
+This plugin requires the **HookLogger** plugin to be loaded to perform actual instrumentation. 
+It attempts to load HookLogger automatically if it is missing.
+"""
+
 from penguin import Plugin, plugins
 import asyncio
 import threading
