@@ -30,7 +30,7 @@ class RemoteCtrl(Plugin):
 
     def __init__(self):
         outdir = self.get_arg("outdir") or "/tmp"
-        self.socket_path = os.path.join(outdir, "penguin_events.sock")
+        self.socket_path = os.path.join(outdir, "remotectrl.sock")
 
         if os.path.exists(self.socket_path):
             try:
