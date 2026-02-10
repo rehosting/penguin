@@ -2,7 +2,7 @@
 Breakpoint CLI
 ==============
 
-This script provides a command-line interface (CLI) for managing breakpoints, syscall traces, and uprobes via the Penguin DynEvents Plugin Unix socket.
+This script provides a command-line interface (CLI) for managing breakpoints, syscall traces, and uprobes via the Penguin RemoteCtrl Plugin Unix socket.
 It combines functionality for listing, disabling, and creating various event hooks.
 
 Example usage
@@ -117,7 +117,7 @@ def disable(ctx, sock, id, arg_id):
 @click.pass_context
 def syscall(ctx, sock, name, action, proc, pid, output):
     """
-    Set up a syscall trace via the Penguin DynEvents Plugin Unix socket.
+    Set up a syscall trace via the Penguin RemoteCtrl Plugin Unix socket.
     """
     cmd = {
         "type": "syscall",
@@ -160,7 +160,7 @@ def syscall(ctx, sock, name, action, proc, pid, output):
 @click.pass_context
 def uprobe(ctx, sock, path, symbol, action, proc, pid, output):
     """
-    Set up a uprobe via the Penguin DynEvents Plugin Unix socket.
+    Set up a uprobe via the Penguin RemoteCtrl Plugin Unix socket.
     """
     cmd = {
         "type": "uprobe",

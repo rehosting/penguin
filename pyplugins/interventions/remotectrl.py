@@ -13,9 +13,9 @@ uprobes = plugins.uprobes
 syscalls = plugins.syscalls
 
 
-class DynEvents(Plugin):
+class RemoteCtrl(Plugin):
     """
-    DynEvents Plugin
+    RemoteCtrl Plugin
     ================
     Listens on a Unix Domain Socket for commands.
 
@@ -40,7 +40,7 @@ class DynEvents(Plugin):
 
         self.running = True
         self.logger.info(
-            f"DynEvents: Listening for events on: {self.socket_path}")
+            f"RemoteCtrl: Listening for events on: {self.socket_path}")
 
         self.next_hook_id = 1
         self.hooks_by_id = {}
@@ -76,7 +76,7 @@ class DynEvents(Plugin):
         try:
             self.loop.run_until_complete(self._socket_server_loop())
         except Exception as e:
-            self.logger.error(f"DynEvents server loop error: {e}")
+            self.logger.error(f"RemoteCtrl server loop error: {e}")
         finally:
             try:
                 # Cancel all remaining tasks

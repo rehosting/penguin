@@ -2,7 +2,7 @@
 Plugins CLI
 ===========
 
-This script provides a command-line interface (CLI) for managing plugins via the Penguin DynEvents Plugin Unix socket.
+This script provides a command-line interface (CLI) for managing plugins via the Penguin RemoteCtrl Plugin Unix socket.
 It uses Click for the CLI interface.
 
 Example usage
@@ -58,7 +58,7 @@ def parse_extra_args(args_tuple):
 @click.pass_context
 def plugins(ctx, sock):
     """
-    Manage plugins via the Penguin DynEvents Plugin Unix socket.
+    Manage plugins via the Penguin RemoteCtrl Plugin Unix socket.
     """
     ctx.ensure_object(dict)
     ctx.obj['sock'] = sock
