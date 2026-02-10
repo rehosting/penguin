@@ -197,7 +197,7 @@ class Symbols(Plugin):
                     adjusted = vaddr - base
                     if adjusted < 0:
                         continue
-                    
+
                     # Check if adjusted fits in ELF segments
                     offset = self._vaddr_to_file_offset_optimized(
                         segments, adjusted, is_exec, image_base)
@@ -209,7 +209,7 @@ class Symbols(Plugin):
             except ELFError:
                 # Not an ELF or parse error, fall through to raw size check
                 pass
-            
+
             # 3. Fallback: Raw File Size Check
             # If ELF parsing failed or no segments matched, check if a common base adjustment
             # yields a valid raw offset within the file.
@@ -217,14 +217,14 @@ class Symbols(Plugin):
                 # We need file size. f is already open.
                 f.seek(0, 2)
                 file_size = f.tell()
-                
+
                 common_bases = [0x400000, 0x100000, 0x10000, 0x8048000]
                 for base in common_bases:
                     adjusted = vaddr - base
                     if 0 <= adjusted < file_size:
-                         self.logger.debug(
+                        self.logger.debug(
                             f"Resolved {vaddr:#x} using common base {base:#x} -> raw offset {adjusted:#x}")
-                         return adjusted
+                        return adjusted
             except Exception:
                 pass
 
