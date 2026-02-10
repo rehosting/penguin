@@ -67,7 +67,7 @@ To register a hook via the socket, send a JSON payload like this:
 
 Dependencies
 ------------
-This plugin requires the **HookLogger** plugin to be loaded to perform actual instrumentation. 
+This plugin requires the **HookLogger** plugin to be loaded to perform actual instrumentation.
 It attempts to load HookLogger automatically if it is missing.
 """
 
@@ -103,7 +103,7 @@ class RemoteCtrl(Plugin):
         self.running = True
         self.logger.info(
             f"RemoteCtrl: Listening for events on: {self.socket_path}")
-        
+
         # Pre-register handlers to avoid repetitive getattr/hasattr calls
         self.handlers = {}
         for attr_name in dir(self):
@@ -270,8 +270,9 @@ class RemoteCtrl(Plugin):
         pid = cmd.get('pid_filter')
         proc = cmd.get('process_filter')
         logfile = cmd.get('logfile', None)
-        
-        hid = hooklogger.register_uprobe(path, symbol, action, pid, proc, logfile)
+
+        hid = hooklogger.register_uprobe(
+            path, symbol, action, pid, proc, logfile)
         return {"id": hid}
 
     def _handle_syscall(self, cmd):
@@ -280,7 +281,7 @@ class RemoteCtrl(Plugin):
         pid = cmd.get('pid_filter')
         proc = cmd.get('process_filter')
         logfile = cmd.get('logfile', None)
-        
+
         hid = hooklogger.register_syscall(name, action, pid, proc, logfile)
         return {"id": hid}
 
@@ -294,7 +295,7 @@ class RemoteCtrl(Plugin):
                 hook_id = int(hook_id)
             except (ValueError, TypeError):
                 raise ValueError("Invalid 'id' format")
-            
+
             hooklogger.disable_hook(hook_id)
             return {"message": f"Hook {hook_id} disabled"}
         else:

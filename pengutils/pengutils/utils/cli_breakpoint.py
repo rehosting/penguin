@@ -60,14 +60,14 @@ def list(ctx, sock):
                 t = h.get('target') or "?"
                 if len(t) > 28:
                     t = t[:25] + "..."
-                
+
                 a = h.get('action') or "?"
                 if len(a) > 28:
                     a = a[:25] + "..."
 
                 # Show filename or 'Logger'
                 out = h.get('logfile') or "Logger"
-                
+
                 print(f"{h['id']:<4} {h['type']:<12} {t:<30} {a:<30} {out}")
             ctx.exit(0)
         elif resp.get("status") == "success" and "message" in resp:
