@@ -345,50 +345,16 @@ class Uprobes(Plugin):
                 self.logger.error("Path must be specified when using 'address'.")
                 return _no_op_decorator
             
-            offset = None
-            if base_addr is not None:
-                offset = address - base_addr
-            else:
-                # 1. Try resolve_addr (ELF Segment parsing)
-                try:
-                    if hasattr(plugins.symbols, 'resolve_addr'):
-                        offset = plugins.symbols.resolve_addr(path, address)
-                    else:
-                        self.logger.warning("Symbols plugin outdated: cannot resolve address.")
-                except Exception as e:
-                    self.logger.debug(f"Error resolving address {address:#x}: {e}")
-
-                # 2. Fallback: Common Reverse Engineering Base Addresses
-                if offset is None:
-                    file_size = None
-                    try:
-                        fs = plugins.static_fs
-                        file_size = fs.get_size(path)
-                    except Exception:
-                        pass
-                    
-                    if file_size:
-                        # Common bases: Linux 64-bit ET_EXEC (0x400000), Ghidra PIE default (0x100000),
-                        # ARM/MIPS/Older (0x10000), Linux 32-bit (0x8048000).
-                        common_bases = [0x400000, 0x100000, 0x10000, 0x8048000]
-                        for base in common_bases:
-                            candidate = address - base
-                            if 0 <= candidate < file_size:
-                                self.logger.warning(
-                                    f"Address {address:#x} resolved by assuming common base {base:#x} -> offset {candidate:#x}"
-                                )
-                                offset = candidate
-                                break
+            offset = plugins.symbols.resolve_addr(path, address, base_addr=base_addr)
 
             if offset is None:
                 if fail_register_ok:
                     return _no_op_decorator
-                if base_addr is None:
-                    self.logger.warning(
-                        f"Could not resolve address {address:#x} in {path} to a file offset. "
-                        "Assuming it is a raw offset."
-                    )
-                offset = address # Fallback to using raw value
+                self.logger.error(
+                    f"Could not resolve address {address:#x} in {path} to a file offset. "
+                    "Defaulting to offset 0."
+                )
+                offset = 0
 
             cfg = base_config.copy()
             cfg.update({
@@ -445,30 +411,16 @@ class Uprobes(Plugin):
                                 f"Offset {offset:#x} exceeds file size ({size:#x}) of {path}. "
                                 "Attempting to resolve as virtual address..."
                             )
-                            # 1. Try ELF resolution
-                            new_offset = None
-                            if hasattr(plugins.symbols, 'resolve_addr'):
-                                new_offset = plugins.symbols.resolve_addr(path, offset)
-
-                            # 2. Try Common Bases Fallback
-                            if new_offset is None:
-                                common_bases = [0x400000, 0x100000, 0x10000, 0x8048000]
-                                for base in common_bases:
-                                    candidate = offset - base
-                                    if 0 <= candidate < size:
-                                        self.logger.warning(
-                                            f"Offset {offset:#x} resolved by assuming common base {base:#x} -> offset {candidate:#x}"
-                                        )
-                                        new_offset = candidate
-                                        break
+                            resolved = plugins.symbols.resolve_addr(path, offset)
                             
-                            if new_offset is not None:
+                            if resolved is not None:
                                 self.logger.info(
-                                    f"Resolved address {offset:#x} -> file offset {new_offset:#x}")
-                                offset = new_offset
+                                    f"Resolved address {offset:#x} -> file offset {resolved:#x}")
+                                offset = resolved
                             else:
                                 self.logger.error(
-                                    f"Could not resolve address {offset:#x} to a valid file offset.")
+                                    f"Could not resolve address {offset:#x} to a valid file offset. Defaulting to offset 0.")
+                                offset = 0
                 except Exception as e:
                     self.logger.debug(f"Could not verify offset vs file size: {e}")
 
