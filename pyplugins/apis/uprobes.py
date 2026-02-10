@@ -152,12 +152,7 @@ class Uprobes(Plugin):
             # Handle unregister
             if isinstance(item, tuple) and item[0] == 'unregister':
                 _, probe_id = item
-                import struct
-                if getattr(self.panda, 'bits', 64) == 32:
-                    data = struct.pack("<I", probe_id)
-                else:
-                    data = struct.pack("<Q", probe_id)
-                yield PortalCmd(hop.HYPER_OP_UNREGISTER_UPROBE, size=len(data), data=data)
+                yield PortalCmd(hop.HYPER_OP_UNREGISTER_UPROBE, addr=probe_id)
                 continue
 
             # Handle register
