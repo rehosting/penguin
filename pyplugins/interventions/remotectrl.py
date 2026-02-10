@@ -142,10 +142,9 @@ class RemoteCtrl(Plugin):
         try:
             cmd = json.loads(data.decode('utf-8'))
             cmd_type = cmd.get('type')
-            handler_name = f"_handle_{cmd_type}"
+            handler = self.handlers.get(cmd_type)
 
-            if hasattr(self, handler_name):
-                handler = getattr(self, handler_name)
+            if handler:
                 result = handler(cmd)
                 return {"status": "success", **(result if isinstance(result, dict) else {})}
             else:
