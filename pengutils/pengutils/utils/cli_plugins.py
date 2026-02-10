@@ -1,8 +1,8 @@
 """
-Load Plugin CLI
-===============
+Plugins CLI
+===========
 
-This script provides a command-line interface (CLI) for loading a plugin via the Penguin DynEvents Plugin Unix socket.
+This script provides a command-line interface (CLI) for managing plugins via the Penguin DynEvents Plugin Unix socket.
 It uses Click for the CLI interface.
 
 Example usage
@@ -10,13 +10,13 @@ Example usage
 
 .. code-block:: bash
 
-    cli_load_plugin.py --sock /workspace/results/latest/penguin_events.sock plugin_name
+    plugins load plugin_name
+    plugins enable plugin_name
+    plugins disable plugin_name
 
 Options
 -------
 - ``--sock``: Path to plugin socket (default: /workspace/results/latest/penguin_events.sock)
-- ``plugin_name``: Name of the plugin to load (required)
-
 """
 
 import click
@@ -24,19 +24,24 @@ from rich import print
 from pengutils.utils.util_events import send_command
 
 
-@click.command()
-@click.argument("plugin_name")
+@click.group()
 @click.option(
     "--sock",
     default="/workspace/results/latest/penguin_events.sock",
     help="Path to plugin socket (default: /workspace/results/latest/penguin_events.sock)",
 )
 @click.pass_context
-def load_plugin(ctx, sock, plugin_name):
+def plugins(ctx, sock):
     """
-    Load a plugin by name via the Penguin DynEvents Plugin Unix socket.
+    Manage plugins via the Penguin DynEvents Plugin Unix socket.
     """
-    cmd = {"type": "load_plugin", "name": plugin_name}
+    ctx.ensure_object(dict)
+    ctx.obj['sock'] = sock
+
+
+def _send_plugin_cmd(ctx, cmd_type, plugin_name):
+    sock = ctx.obj['sock']
+    cmd = {"type": cmd_type, "name": plugin_name}
     try:
         resp = send_command(cmd, sock=sock)
         if not resp:
@@ -60,5 +65,29 @@ def load_plugin(ctx, sock, plugin_name):
         ctx.exit(1)
 
 
+@plugins.command()
+@click.argument("plugin_name")
+@click.pass_context
+def load(ctx, plugin_name):
+    """Load a plugin."""
+    _send_plugin_cmd(ctx, "load_plugin", plugin_name)
+
+
+@plugins.command()
+@click.argument("plugin_name")
+@click.pass_context
+def enable(ctx, plugin_name):
+    """Enable a plugin (calls .enable())."""
+    _send_plugin_cmd(ctx, "enable_plugin", plugin_name)
+
+
+@plugins.command()
+@click.argument("plugin_name")
+@click.pass_context
+def disable(ctx, plugin_name):
+    """Disable a plugin (calls .disable())."""
+    _send_plugin_cmd(ctx, "disable_plugin", plugin_name)
+
+
 if __name__ == "__main__":
-    load_plugin()
+    plugins()
