@@ -37,6 +37,10 @@ class HookLogger(Plugin):
         self.arch_bits = 64 if '64' in self.panda.arch_name else 32
         self.ptr_mask = (1 << self.arch_bits) - 1
 
+        # Detect Endianness
+        # PANDA arch names: mipsel/mips64el (Little), mips/mips64 (Big), ppc/ppc64 (Big), etc.
+        self.endian_fmt = '>' if hasattr(self._panda, 'endianness') and self._panda.endianness == 'big' else '<'
+
     def list_hooks(self):
         hook_list = []
         for hook_id, data in self.hooks_by_id.items():
@@ -398,7 +402,7 @@ class HookLogger(Plugin):
                 c = {1: 'B', 2: 'H', 4: 'I', 8: 'Q'}[b//8]
                 if t == 'i':
                     c = c.lower()
-                v = struct.unpack(f"<{c}", d)[0]
+                v = struct.unpack(f"{self.endian_fmt}{c}", d)[0]
                 return f"{v:x}" if t == 'x' else str(v)
             except Exception:
                 return f"<bad-mem:{val:x}>"
