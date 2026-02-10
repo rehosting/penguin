@@ -53,6 +53,34 @@ class StaticFS(Plugin):
             self._fileinfo_cache[norm_path] = None
             return False
 
+    def get_size(self, path: str) -> Optional[int]:
+        """
+        Returns the size of the file in bytes without opening it.
+        """
+        norm_path = self._normalize_path(path)
+        if not self.exists(norm_path):
+            return None
+
+        # Check static_files first
+        if norm_path in self._static_files:
+            action = self._static_files[norm_path]
+            if action.get("type") == "inline_file":
+                contents = action.get("contents", "").encode()
+                return len(contents)
+            elif action.get("type") == "host_file":
+                host_path = action.get("host_path")
+                try:
+                    return os.path.getsize(host_path)
+                except Exception:
+                    return None
+            return 0
+        
+        # Use cached FileInfo from ratarmountcore
+        fileInfo = self._fileinfo_cache.get(norm_path)
+        if fileInfo is not None:
+            return fileInfo.size
+        return None
+
     def open(self, path: str) -> Optional[IO[bytes]]:
         norm_path = self._normalize_path(path)
         if not self.exists(norm_path):
