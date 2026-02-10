@@ -249,7 +249,7 @@ class HookLogger(Plugin):
                         self.call_stacks[hook_id].append(resolved_args)
                 else:
                     # Print immediately
-                    yield from self._log_action(resolved_args, [], prefix, is_break, logfile)
+                    self._log_action(resolved_args, [], prefix, is_break, logfile)
 
         def exit_handler(regs):
             if hook_id not in self.hooks_by_id:
@@ -290,7 +290,7 @@ class HookLogger(Plugin):
                 
                 # Return values are always resolved immediately at exit
                 resolved_rets = yield from self._resolve_values(ret_fmts, ret_vals, allow_defer=False)
-                yield from self._log_action(saved_args, resolved_rets, prefix, is_break, logfile, is_ret=True)
+                self._log_action(saved_args, resolved_rets, prefix, is_break, logfile, is_ret=True)
 
         needs_entry = (not is_retprobe) or (is_retprobe and len(arg_fmts) > 0) or (entry_method is not None)
         needs_exit = is_retprobe
@@ -347,7 +347,7 @@ class HookLogger(Plugin):
                 
                 # Syscalls in this mode are entry-only, so allow_defer=False
                 resolved_args = yield from self._resolve_values(arg_fmts, vals, allow_defer=False)
-                yield from self._log_action(resolved_args, [], prefix, is_break, logfile)
+                self._log_action(resolved_args, [], prefix, is_break, logfile)
 
         h = syscalls.syscall(
             name_or_pattern=name,
