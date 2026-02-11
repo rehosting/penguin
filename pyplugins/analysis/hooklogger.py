@@ -296,27 +296,44 @@ class HookLogger(Plugin):
                 self._log_action(saved_args, resolved_rets,
                                  prefix, is_break, logfile, is_ret=True)
 
+        def combined_handler(regs, is_enter=True):
+            if is_enter:
+                yield from entry_handler(regs)
+            else:
+                yield from exit_handler(regs)
+
         needs_entry = (not is_retprobe) or (is_retprobe and len(
             arg_fmts) > 0) or (entry_method is not None)
         needs_exit = is_retprobe
 
-        if needs_entry:
+        # Register ONCE if both are needed
+        if needs_entry and needs_exit:
             h = uprobes.uprobe(
                 path=path, symbol=target_val,
                 process_filter=process_filter,
                 pid_filter=pid_filter,
-                on_enter=True, on_return=False
-            )(entry_handler)
+                on_enter=True, on_return=True
+            )(combined_handler)
             hook_data['handles'].append(('uprobe', h))
+        else:
+            # Fallback for single cases
+            if needs_entry:
+                h = uprobes.uprobe(
+                    path=path, symbol=target_val,
+                    process_filter=process_filter,
+                    pid_filter=pid_filter,
+                    on_enter=True, on_return=False
+                )(entry_handler)
+                hook_data['handles'].append(('uprobe', h))
 
-        if needs_exit:
-            h = uprobes.uprobe(
-                path=path, symbol=target_val,
-                process_filter=process_filter,
-                pid_filter=pid_filter,
-                on_enter=False, on_return=True
-            )(exit_handler)
-            hook_data['handles'].append(('uprobe', h))
+            if needs_exit:
+                h = uprobes.uprobe(
+                    path=path, symbol=target_val,
+                    process_filter=process_filter,
+                    pid_filter=pid_filter,
+                    on_enter=False, on_return=True
+                )(exit_handler)
+                hook_data['handles'].append(('uprobe', h))
 
         target_log = logfile if logfile else "Logger"
         self.logger.info(
