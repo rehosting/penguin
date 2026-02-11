@@ -12,6 +12,7 @@ from wrappers.ptregs_wrap import get_pt_regs_wrapper
 import functools
 from collections import defaultdict
 from hyper.consts import HYPER_OP as hop
+import inspect
 
 __all__ = [
     "Uprobes"
@@ -32,7 +33,7 @@ class Uprobes(Plugin):
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
 
-        # Maps probe_id to (callback_handle, is_method, read_only, original_func)
+        # Maps probe_id to (callback_handle, is_method, read_only, original_func, injection_config)
         self._hooks: Dict[int, tuple] = {}
         self._hook_info = {}
         self._pending_uprobes = []
@@ -62,13 +63,111 @@ class Uprobes(Plugin):
                     bound_method = getattr(instance, method_name)
                     if hook_ptr in self._hooks:
                         # Update the callback but preserve metadata
-                        _, _, read_only, original_func = self._hooks[hook_ptr]
+                        _, _, read_only, original_func, injection = self._hooks[hook_ptr]
                         self._hooks[hook_ptr] = (
-                            bound_method, False, read_only, original_func)
+                            bound_method, False, read_only, original_func, injection)
                     return bound_method
             except AttributeError:
                 pass
         return f
+
+    def _analyze_signature(self, func):
+        """
+        Analyze signature to determine argument injection based on "sugar" rules.
+        
+        Context Indices:
+        0: is_enter (bool)
+        1: tgid_pid (u64)
+        2: cpu (Any)
+        
+        Rules:
+        - Kwargs matching 'is_enter', 'tgid_pid'are explicitly bound.
+        - If **kwargs exists, all context is passed.
+        - Remaining Positional Args logic:
+          - 1 arg:  (is_enter)
+          - 2 args: (is_enter, tgid_pid)
+        """
+        try:
+            sig = inspect.signature(func)
+            params = list(sig.parameters.values())
+        except Exception:
+            return [], {}
+
+        # Skip 'self' if method
+        if params and params[0].name == 'self':
+            params = params[1:]
+        
+        # Skip 'regs' (always first)
+        if params:
+            params = params[1:]
+        
+        pos_indices = []
+        kw_indices = {}
+        
+        # Context Mapping
+        CTX_ENTER = 0
+        CTX_TGID_PID = 1
+        
+        has_varkw = False
+        
+        # Temporary list of positionals to assign standard meanings to
+        positional_candidates = []
+
+        for p in params:
+            if p.kind == p.VAR_KEYWORD:
+                has_varkw = True
+                kw_indices['is_enter'] = CTX_ENTER
+                kw_indices['tgid_pid'] = CTX_TGID_PID
+                continue
+            
+            if p.kind == p.VAR_POSITIONAL:
+                continue
+
+            # Explicit Name Matching
+            mapped_idx = -1
+            if p.name == 'is_enter':
+                mapped_idx = CTX_ENTER
+            elif p.name == 'tgid_pid':
+                mapped_idx = CTX_TGID_PID
+            
+            if mapped_idx != -1:
+                # Explicit match found
+                if p.kind == p.KEYWORD_ONLY:
+                    kw_indices[p.name] = mapped_idx
+                else:
+                    # It's positional-capable, but we treated it by name. 
+                    # We add it to positionals list but pre-filled.
+                    # Actually, simplistic approach: explicit names are satisfied.
+                    # We just need to handle the "unnamed" positionals.
+                    pos_indices.append(mapped_idx)
+            else:
+                # Candidate for Sugar assignment
+                if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD):
+                    positional_candidates.append(len(pos_indices)) # Store index in pos_indices to patch later
+                    pos_indices.append(None) # Placeholder
+
+        # Apply Sugar Rules to unnamed positionals
+        count = len(positional_candidates)
+        
+        if count == 1:
+            # 1 Arg -> is_enter
+            idx = positional_candidates[0]
+            pos_indices[idx] = CTX_ENTER
+        elif count == 2:
+            # 2 Args -> is_enter, tgid_pid
+            idx0 = positional_candidates[0]
+            idx1 = positional_candidates[1]
+            pos_indices[idx0] = CTX_ENTER
+            pos_indices[idx1] = CTX_TGID_PID
+        else:
+            # Fallback: fill with None or maybe assume is_enter, tgid_pid order?
+            # For now, safe default is None to avoid injection errors
+            pass
+
+        # Clean up any None entries (shouldn't happen with valid logic above unless >2 positionals)
+        pos_indices = [x if x is not None else -1 for x in pos_indices]
+                
+        return pos_indices, kw_indices
 
     def _uprobe_event(self, cpu: Any, is_enter: bool) -> Any:
         arg = self.panda.arch.get_arg(cpu, 2, convention="syscall")
@@ -77,7 +176,7 @@ class Uprobes(Plugin):
         if hook_id not in self._hooks:
             return
 
-        f, is_method, read_only, _ = self._hooks[hook_id]
+        f, is_method, read_only, _, injection = self._hooks[hook_id]
         ptregs_addr = sce.regs.address
         pt_regs_raw = plugins.kffi.read_type_panda(cpu, ptregs_addr, "pt_regs")
         pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
@@ -90,7 +189,24 @@ class Uprobes(Plugin):
             f, is_method, hook_id)
 
         if fn_to_call:
-            fn_ret = fn_to_call(pt_regs)
+            tgid_pid = (sce.tgid << 32) | sce.tid
+            
+            # Context Map: 0->is_enter, 1->tgid_pid
+            ctx_values = (is_enter, tgid_pid)
+            pos_ids, kw_ids = injection
+            
+            args = []
+            for i in pos_ids:
+                if i >= 0:
+                    args.append(ctx_values[i])
+                else:
+                    args.append(None) # Should not happen with 1 or 2 args
+            kwargs = {}
+            if kw_ids:
+                kwargs = {k: ctx_values[i] for k, i in kw_ids.items()}
+            
+            fn_ret = fn_to_call(pt_regs, *args, **kwargs)
+
             if isinstance(fn_ret, Iterator):
                 fn_ret = yield from fn_ret
         else:
@@ -165,9 +281,11 @@ class Uprobes(Plugin):
                 is_method = uprobe_config.get("is_method", False)
                 read_only = uprobe_config.get("read_only", False)
 
-                # Store callback info: (handle, is_method, read_only, original_func)
+                # [PATCH] Analyze signature
+                injection = self._analyze_signature(original_func)
+
                 self._hooks[probe_id] = (
-                    handle, is_method, read_only, original_func)
+                    handle, is_method, read_only, original_func, injection)
                 self._hook_info[probe_id] = uprobe_config
 
                 # Populate mappings
@@ -237,7 +355,7 @@ class Uprobes(Plugin):
 
     def _cleanup_probe_maps(self, probe_id: int):
         if probe_id in self._hooks:
-            handle, _, _, original_func = self._hooks[probe_id]
+            handle, _, _, original_func, _ = self._hooks[probe_id]
 
             if handle in self._handle_to_probe_ids:
                 if probe_id in self._handle_to_probe_ids[handle]:
