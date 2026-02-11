@@ -131,8 +131,8 @@ class HookLogger(Plugin):
     def __init__(self):
         self.next_hook_id = 1
         self.hooks_by_id = {}
-        # Stack: { hook_id: [ [arg1_str, arg2_str], ... ] }
-        self.call_stacks = defaultdict(list)
+        # Stack: { hook_id: { tid: [ [arg1_str, arg2_str], ... ] } }
+        self.call_stacks = defaultdict(lambda: defaultdict(list))
 
         self.outdir = self.get_arg("outdir")
         self.arch_bits = self.panda.bits
@@ -227,7 +227,7 @@ class HookLogger(Plugin):
         }
         self.hooks_by_id[hook_id] = hook_data
 
-        def entry_handler(regs):
+        def entry_handler(regs, **kwargs):
             if hook_id not in self.hooks_by_id:
                 return
 
@@ -248,19 +248,24 @@ class HookLogger(Plugin):
                     # Even if arg_fmts is empty, we might push empty list to track call depth?
                     # But usually we only push if we have args.
                     if arg_fmts:
-                        self.call_stacks[hook_id].append(resolved_args)
+                        # Use TID/PID from kwargs (injected by uprobes) for thread safety
+                        # The tgid_pid comes as a 64-bit int: (tgid << 32) | tid
+                        # We just need tid for stack matching
+                        tgid_pid = kwargs.get('tgid_pid', 0)
+                        self.call_stacks[hook_id][tgid_pid].append(resolved_args)
                 else:
                     # Print immediately
                     self._log_action(resolved_args, [],
                                      prefix, is_break, logfile)
 
-        def exit_handler(regs):
+        def exit_handler(regs, **kwargs):
             if hook_id not in self.hooks_by_id:
                 return
 
             saved_args = []
             if arg_fmts:
-                stack = self.call_stacks[hook_id]
+                tgid_pid = kwargs.get('tgid_pid', 0)
+                stack = self.call_stacks[hook_id][tgid_pid]
                 if stack:
                     # Pop the raw/partially-resolved args
                     raw_saved = stack.pop()
@@ -296,11 +301,11 @@ class HookLogger(Plugin):
                 self._log_action(saved_args, resolved_rets,
                                  prefix, is_break, logfile, is_ret=True)
 
-        def combined_handler(regs, is_enter=True):
+        def combined_handler(regs, is_enter=True, **kwargs):
             if is_enter:
-                yield from entry_handler(regs)
+                yield from entry_handler(regs, **kwargs)
             else:
-                yield from exit_handler(regs)
+                yield from exit_handler(regs, **kwargs)
 
         needs_entry = (not is_retprobe) or (is_retprobe and len(
             arg_fmts) > 0) or (entry_method is not None)
