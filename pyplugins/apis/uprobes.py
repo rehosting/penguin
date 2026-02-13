@@ -112,12 +112,17 @@ class Uprobes(Plugin):
         
         # Temporary list of positionals to assign standard meanings to
         positional_candidates = []
+        # Pre-identify parameter names to avoid double-injection
+        param_names = {p.name for p in params}
 
         for p in params:
             if p.kind == p.VAR_KEYWORD:
                 has_varkw = True
-                kw_indices['is_enter'] = CTX_ENTER
-                kw_indices['tgid_pid'] = CTX_TGID_PID
+                # ONLY inject if the context names aren't already explicitly handled
+                if 'is_enter' not in param_names:
+                    kw_indices['is_enter'] = CTX_ENTER
+                if 'tgid_pid' not in param_names:
+                    kw_indices['tgid_pid'] = CTX_TGID_PID
                 continue
             
             if p.kind == p.VAR_POSITIONAL:
