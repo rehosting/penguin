@@ -74,12 +74,12 @@ class Uprobes(Plugin):
     def _analyze_signature(self, func):
         """
         Analyze signature to determine argument injection based on "sugar" rules.
-        
+
         Context Indices:
         0: is_enter (bool)
         1: tgid_pid (u64)
         2: cpu (Any)
-        
+
         Rules:
         - Kwargs matching 'is_enter', 'tgid_pid'are explicitly bound.
         - If **kwargs exists, all context is passed.
@@ -96,20 +96,20 @@ class Uprobes(Plugin):
         # Skip 'self' if method
         if params and params[0].name == 'self':
             params = params[1:]
-        
+
         # Skip 'regs' (always first)
         if params:
             params = params[1:]
-        
+
         pos_indices = []
         kw_indices = {}
-        
+
         # Context Mapping
         CTX_ENTER = 0
         CTX_TGID_PID = 1
-        
+
         has_varkw = False
-        
+
         # Temporary list of positionals to assign standard meanings to
         positional_candidates = []
         # Pre-identify parameter names to avoid double-injection
@@ -124,7 +124,7 @@ class Uprobes(Plugin):
                 if 'tgid_pid' not in param_names:
                     kw_indices['tgid_pid'] = CTX_TGID_PID
                 continue
-            
+
             if p.kind == p.VAR_POSITIONAL:
                 continue
 
@@ -134,13 +134,13 @@ class Uprobes(Plugin):
                 mapped_idx = CTX_ENTER
             elif p.name == 'tgid_pid':
                 mapped_idx = CTX_TGID_PID
-            
+
             if mapped_idx != -1:
                 # Explicit match found
                 if p.kind == p.KEYWORD_ONLY:
                     kw_indices[p.name] = mapped_idx
                 else:
-                    # It's positional-capable, but we treated it by name. 
+                    # It's positional-capable, but we treated it by name.
                     # We add it to positionals list but pre-filled.
                     # Actually, simplistic approach: explicit names are satisfied.
                     # We just need to handle the "unnamed" positionals.
@@ -148,12 +148,13 @@ class Uprobes(Plugin):
             else:
                 # Candidate for Sugar assignment
                 if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD):
-                    positional_candidates.append(len(pos_indices)) # Store index in pos_indices to patch later
-                    pos_indices.append(None) # Placeholder
+                    # Store index in pos_indices to patch later
+                    positional_candidates.append(len(pos_indices))
+                    pos_indices.append(None)  # Placeholder
 
         # Apply Sugar Rules to unnamed positionals
         count = len(positional_candidates)
-        
+
         if count == 1:
             # 1 Arg -> is_enter
             idx = positional_candidates[0]
@@ -171,7 +172,7 @@ class Uprobes(Plugin):
 
         # Clean up any None entries (shouldn't happen with valid logic above unless >2 positionals)
         pos_indices = [x if x is not None else -1 for x in pos_indices]
-                
+
         return pos_indices, kw_indices
 
     def _uprobe_event(self, cpu: Any, is_enter: bool) -> Any:
@@ -195,21 +196,21 @@ class Uprobes(Plugin):
 
         if fn_to_call:
             tgid_pid = (sce.tgid << 32) | sce.tid
-            
+
             # Context Map: 0->is_enter, 1->tgid_pid
             ctx_values = (is_enter, tgid_pid)
             pos_ids, kw_ids = injection
-            
+
             args = []
             for i in pos_ids:
                 if i >= 0:
                     args.append(ctx_values[i])
                 else:
-                    args.append(None) # Should not happen with 1 or 2 args
+                    args.append(None)  # Should not happen with 1 or 2 args
             kwargs = {}
             if kw_ids:
                 kwargs = {k: ctx_values[i] for k, i in kw_ids.items()}
-            
+
             fn_ret = fn_to_call(pt_regs, *args, **kwargs)
 
             if isinstance(fn_ret, Iterator):
