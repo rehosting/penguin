@@ -4,7 +4,7 @@ import re
 import coloredlogs
 import yaml
 from os.path import join, isfile
-from yamlcore import CoreDumper
+from yamlcore import CoreDumper, CoreLoader
 
 
 # Hex integers
@@ -33,6 +33,11 @@ yaml.Dumper.add_representer(str, literal_presenter)
 yaml.SafeDumper.add_representer(str, literal_presenter)
 yaml.Dumper.add_representer(tuple, int_to_hex_representer)
 yaml.SafeDumper.add_representer(tuple, int_to_hex_representer)
+yaml.add_constructor(
+    'tag:yaml.org,2002:binary', 
+    yaml.constructor.SafeConstructor.construct_yaml_binary, 
+    Loader=CoreLoader,
+)
 # yaml.Dumper.add_representer(tuple, tuple_representer)
 # yaml.SafeDumper.add_representer(tuple, tuple_representer)
 
