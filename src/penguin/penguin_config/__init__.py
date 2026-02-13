@@ -13,7 +13,7 @@ from collections import defaultdict
 import click
 import jsonschema
 import yaml
-from yamlcore import CoreLoader
+from yamlcore import CoreLoader, CoreDumper
 from pydantic import BaseModel, Field, RootModel
 from pydantic.config import ConfigDict
 
@@ -266,7 +266,7 @@ def dump_config(config, path):
         f.write(
             "# yaml-language-server: $schema=https://github.com/rehosting/penguin/releases/latest/download/config_schema.yaml\n"
         )
-        yaml.dump(config, f, sort_keys=False, default_flow_style=False, width=None)
+        yaml.dump(config, f, sort_keys=False, default_flow_style=False, width=None, Dumper=CoreDumper)
 
 
 def hash_yaml_config(config: dict):
