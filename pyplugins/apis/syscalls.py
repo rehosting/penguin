@@ -5,7 +5,7 @@
 
 from penguin import plugins, Plugin
 import json
-from typing import Dict, List, Any, Callable, Optional, Iterator
+from typing import Dict, List, Any, Callable, Optional, Iterator, Union
 from hyper.consts import value_filter_type as vft
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import igloo_base_hypercalls as bconsts
@@ -42,10 +42,11 @@ class ValueFilter:
         The bitmask for bitmask filters.
     """
 
-    __slots__ = ('filter_type', 'value', 'min_value', 'max_value', 'bitmask')
+    __slots__ = ('filter_type', 'value', 'min_value', 'max_value', 'bitmask', 'pattern')
 
     def __init__(self, filter_type: int = vft.SYSCALLS_HC_FILTER_EXACT, value: int = 0,
-                 min_value: int = 0, max_value: int = 0, bitmask: int = 0) -> None:
+                 min_value: int = 0, max_value: int = 0, bitmask: int = 0,
+                 pattern: Optional[bytes] = None) -> None:
         """
         Initialize a ValueFilter.
 
@@ -67,6 +68,17 @@ class ValueFilter:
         self.min_value = min_value
         self.max_value = max_value
         self.bitmask = bitmask
+        self.pattern = pattern
+    
+    @classmethod
+    def _encode_pattern(cls, pattern: str) -> bytes:
+        """
+        Encodes a string pattern to bytes with a null terminator.
+        """
+        if pattern is None:
+            return None
+        # Ensure it's null-terminated for C-string safety
+        return pattern.encode('utf-8') + b'\x00'
 
     @classmethod
     def exact(cls, value: int) -> "ValueFilter":
@@ -249,6 +261,38 @@ class ValueFilter:
         """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_BITMASK_CLEAR,
                    bitmask=bitmask)
+
+    @classmethod
+    def string_exact(cls, pattern: str) -> "ValueFilter":
+        """
+        Create an exact string match filter.
+        """
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_STR_EXACT,
+                pattern=cls._encode_pattern(pattern))
+
+    @classmethod
+    def string_contains(cls, pattern: str) -> "ValueFilter":
+        """
+        Create a string contains filter.
+        """
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_STR_CONTAINS,
+                pattern=cls._encode_pattern(pattern))
+
+    @classmethod
+    def string_startswith(cls, pattern: str) -> "ValueFilter":
+        """
+        Create a string starts-with filter.
+        """
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_STR_STARTSWITH,
+                pattern=cls._encode_pattern(pattern))
+
+    @classmethod
+    def string_endswith(cls, pattern: str) -> "ValueFilter":
+        """
+        Create a string ends-with filter.
+        """
+        return cls(filter_type=vft.SYSCALLS_HC_FILTER_STR_ENDSWITH,
+                pattern=cls._encode_pattern(pattern))
 
 
 class SyscallPrototype:
@@ -832,6 +876,10 @@ class Syscalls(Plugin):
                     sch.arg_filters[i].min_value = arg_filter.min_value
                     sch.arg_filters[i].max_value = arg_filter.max_value
                     sch.arg_filters[i].bitmask = arg_filter.bitmask
+                    if arg_filter.pattern:
+                        sch.arg_filters[i].pattern_len = len(arg_filter.pattern)
+                        kaddr = yield from plugins.mem.copy_buf_guest(arg_filter.pattern)
+                        sch.arg_filters[i].pattern = kaddr
                 elif isinstance(arg_filter, (int, float)):
                     # Simple exact match for backward compatibility
                     sch.arg_filters[i].enabled = True
@@ -840,6 +888,20 @@ class Syscalls(Plugin):
                     sch.arg_filters[i].min_value = 0
                     sch.arg_filters[i].max_value = 0
                     sch.arg_filters[i].bitmask = 0
+                elif isinstance(arg_filter, str):
+                    # Simple exact match for backward compatibility
+                    sch.arg_filters[i].enabled = True
+                    sch.arg_filters[i].type = vft.SYSCALLS_HC_FILTER_STR_STARTSWITH
+                    sch.arg_filters[i].value = 0
+                    sch.arg_filters[i].min_value = 0
+                    sch.arg_filters[i].max_value = 0
+                    sch.arg_filters[i].bitmask = 0
+                    if arg_filter:
+                        encoded = arg_filter.encode('utf-8') + b'\0'
+                        sch.arg_filters[i].pattern_len = len(arg_filter)
+                        kaddr = yield from plugins.mem.copy_buf_guest(encoded)
+                        sch.arg_filters[i].pattern = kaddr
+
             else:
                 # No filter for this argument
                 sch.arg_filters[i].enabled = False
@@ -866,6 +928,10 @@ class Syscalls(Plugin):
                 sch.retval_filter.min_value = retval_filter.min_value
                 sch.retval_filter.max_value = retval_filter.max_value
                 sch.retval_filter.bitmask = retval_filter.bitmask
+                if retval_filter.pattern:
+                    sch.retval_filter.pattern_len = len(retval_filter.pattern)
+                    kaddr = yield from plugins.mem.copy_buf_guest(retval_filter.pattern)
+                    sch.retval_filter.pattern = kaddr
             elif isinstance(retval_filter, (int, float)):
                 # Simple exact match for backward compatibility
                 sch.retval_filter.enabled = True
@@ -874,6 +940,20 @@ class Syscalls(Plugin):
                 sch.retval_filter.min_value = 0
                 sch.retval_filter.max_value = 0
                 sch.retval_filter.bitmask = 0
+            elif isinstance(retval_filter, str):
+                # Simple exact match for backward compatibility
+                sch.retval_filter.enabled = True
+                sch.retval_filter.type = vft.SYSCALLS_HC_FILTER_STR_STARTSWITH
+                sch.retval_filter.value = 0
+                sch.retval_filter.min_value = 0
+                sch.retval_filter.max_value = 0
+                sch.retval_filter.bitmask = 0
+                if retval_filter:
+                    sch.retval_filter.pattern_len = len(retval_filter)
+                    encoded = retval_filter.encode('utf-8') + b'\0'
+                    kaddr = yield from plugins.mem.copy_buf_guest(encoded)
+                    sch.retval_filter.pattern = kaddr
+
         else:
             sch.retval_filter.enabled = False
             sch.retval_filter.type = vft.SYSCALLS_HC_FILTER_EXACT
@@ -895,9 +975,9 @@ class Syscalls(Plugin):
         on_enter: Optional[bool] = None,
         on_return: Optional[bool] = None,
         comm_filter: Optional[str] = None,
-        arg_filters: Optional[List[Any]] = None,
+        arg_filters: Optional[List[Optional[Union[ValueFilter, str, int]]]] = None,
         pid_filter: Optional[int] = None,
-        retval_filter: Optional[Any] = None,
+        retval_filter: Optional[Union[ValueFilter, str, int]] = None,
         enabled: bool = True,
         read_only: bool = False
     ) -> Callable:
