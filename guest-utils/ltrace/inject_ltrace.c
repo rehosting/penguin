@@ -46,62 +46,45 @@ __attribute__((constructor)) void igloo_start_ltrace(void)
 	bool should_trace = true;
 
     // Check include list first
-    FILE *include_fp = popen("/igloo/utils/get_config core.ltrace.include 2>/dev/null", "r");
-    if (include_fp) {
-        char included_cmds[1024];
-        if (fgets(included_cmds, sizeof(included_cmds), include_fp)) {
-            if (included_cmds[strlen(included_cmds) - 1] == '\n') {
-                included_cmds[strlen(included_cmds) - 1] = '\0';
-            }
+	char included_cmds[1024];
+	if (libinject_get_config("core.ltrace.include", included_cmds, sizeof(included_cmds)) == 0) {
+		// If there's an include list, default to false and only trace if included
+		should_trace = false;
+		char *included_copy = strdup(included_cmds);
+		char *tok = strtok(included_copy, ",");
+		while (tok) {
+			if (!strcmp(tok, comm)) {
+				should_trace = true;
+				break;
+			}
+			tok = strtok(NULL, ",");
+		}
+		free(included_copy);
+	}
 
-            // If there's an include list, default to false and only trace if included
-            should_trace = false;
-            char *included_copy = strdup(included_cmds);
-            char *tok = strtok(included_copy, ",");
-            while (tok) {
-                if (!strcmp(tok, comm)) {
-                    should_trace = true;
-                    break;
-                }
-                tok = strtok(NULL, ",");
-            }
-            free(included_copy);
-        }
-        pclose(include_fp);
-    }
+	// If we're not supposed to trace based on include list, return early
+	if (!should_trace) {
+		return;
+	}
 
-    // If we're not supposed to trace based on include list, return early
-    if (!should_trace) {
-        return;
-    }
-
-    // Check exclude list
-    FILE *exclude_fp = popen("/igloo/utils/get_config core.ltrace.exclude 2>/dev/null", "r");
-    if (exclude_fp) {
-        char excluded_cmds[1024];
-        if (fgets(excluded_cmds, sizeof(excluded_cmds), exclude_fp)) {
-            if (excluded_cmds[strlen(excluded_cmds) - 1] == '\n') {
-                excluded_cmds[strlen(excluded_cmds) - 1] = '\0';
-            }
-
-            bool excluded = false;
-            char *excluded_copy = strdup(excluded_cmds);
-            char *tok = strtok(excluded_copy, ",");
-            while (tok) {
-                if (!strcmp(tok, comm)) {
-                    excluded = true;
-                    break;
-                }
-                tok = strtok(NULL, ",");
-            }
-            free(excluded_copy);
-            if (excluded) {
-                pclose(exclude_fp);
-                return;
-            }
-        }
-        pclose(exclude_fp);
-    }
+	// Check exclude list
+	char excluded_cmds[1024];
+	if (libinject_get_config("core.ltrace.exclude", excluded_cmds, sizeof(excluded_cmds)) == 0) {
+		bool excluded = false;
+		char *excluded_copy = strdup(excluded_cmds);
+		char *tok = strtok(excluded_copy, ",");
+		while (tok) {
+			if (!strcmp(tok, comm)) {
+				excluded = true;
+				break;
+			}
+			tok = strtok(NULL, ",");
+		}
+		free(excluded_copy);
+		if (excluded) {
+			return;
+		}
+	}
 
 	if (fork()) {
 		// In parent, wait for child to set up tracing and then continue to the
