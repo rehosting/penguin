@@ -211,7 +211,6 @@ static int _libinject_mkdir_p(const char *path) {
 }
 
 static int value_to_bool(char *value) {
-    printf("value_to_bool: value='%s'\n", value);
     if (!strncmp(value, "False", 5) || !strncmp(value, "None", 4) ||
         !strncmp(value, "false", 5) || !strncmp(value, "", 1)) {
         return 1;
