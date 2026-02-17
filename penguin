@@ -240,7 +240,7 @@ penguin_run() {
         local rewritten=false
 
         # Skip rewriting if this argument is one of our flags
-        if [[ $i -gt 1 && "${cmd[$((i-1))]}" =~ ^--(timeout|config|output|name|image|subnet|extra_docker_args)$ ]]; then
+        if [[ $i -gt 1 && "${cmd[$((i-1))]}" =~ ^--(timeout|name|image|subnet|extra_docker_args)$ ]]; then
             new_cmd+=("$arg")
             continue
         fi
