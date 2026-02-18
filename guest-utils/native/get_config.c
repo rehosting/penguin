@@ -213,9 +213,9 @@ static int _libinject_mkdir_p(const char *path) {
 static int value_to_bool(char *value) {
     if (!strncmp(value, "False", 5) || !strncmp(value, "None", 4) ||
         !strncmp(value, "false", 5) || !strncmp(value, "", 1)) {
-        return 1;
+        return 0;
     }
-    return 0;
+    return 1;
 }
 
 int libinject_get_config(const char *key, char *output, unsigned long buf_size) {
@@ -241,8 +241,15 @@ int libinject_get_config_int(const char *config_key) {
 int libinject_get_config_bool(const char *config_key) {
     char *str = malloc(64);
     int result;
+    int rv;
     PRINT_MSG("Getting bool config key '%s'\n", config_key);
-    libinject_get_config(config_key, str, 64);
+    rv = libinject_get_config(config_key, str, 64);
+    if (rv != 0) {
+        // Config key doesn't exist or failed to retrieve
+        PRINT_MSG("Failed to get bool config key '%s', returning false\n", config_key);
+        free(str);
+        return 0;
+    }
     result = value_to_bool(str);
     PRINT_MSG("Got bool config key '%s' with value %s (bool %d)\n", config_key, str, result);
     free(str);
