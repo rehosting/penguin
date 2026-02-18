@@ -7,8 +7,8 @@
 #include <string.h>
 #include <unistd.h>
 
-int libinject_get_config_bool(const char *config_key);
 int libinject_get_config(const char *key, char *output, unsigned long buf_size);
+int libinject_get_config_bool(const char *config_key);
 
 __attribute__((constructor)) void igloo_start_ltrace(void)
 {

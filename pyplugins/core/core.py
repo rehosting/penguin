@@ -271,31 +271,30 @@ class Core(Plugin):
         Returns:
             int: 0 on success, -1 on error
         """
-        self.logger.info("get_config called, reading key")
-        key = yield from plugins.mem.read_str(key_ptr)
-        keys = key.split('.')
+        full_key = yield from plugins.mem.read_str(key_ptr)
+        keys = full_key.split('.')
         current = self.config
-        self.logger.info(f"get_config called for key: {key}")
+        self.logger.info(f"get_config called for key: {full_key}")
 
         try:
-            for key in keys:
-                if isinstance(current, Mapping) and key in current:
-                    current = current[key]
+            for key_part in keys:
+                if isinstance(current, Mapping) and key_part in current:
+                    current = current[key_part]
                 elif isinstance(current, Sequence) and not isinstance(current, str):
                     try:
-                        index = int(key)
+                        index = int(key_part)
                         current = current[index]
                     except (ValueError, IndexError):
                         raise
-                elif hasattr(current, key):
-                    current = getattr(current, key)
+                elif hasattr(current, key_part):
+                    current = getattr(current, key_part)
                 else:
-                    raise KeyError
+                    raise KeyError(f"Key '{key_part}' not found")
             value = str(current)
-            self.logger.debug(f"get_config found value '{value}' for key: {key}")
+            self.logger.info(f"get_config found value '{value}' for key: {full_key}")
             yield from plugins.mem.write_str(output_ptr, value[:buf_size-1])
             return 0  # Success
         except (KeyError, AttributeError, TypeError) as e:
-            self.logger.warning(f"get_config failed for key '{key}': {e}")
+            self.logger.warning(f"get_config failed for key '{full_key}': {e}")
             yield from plugins.mem.write_str(output_ptr, "")
             return -1  # Error
