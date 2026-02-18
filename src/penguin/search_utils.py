@@ -1,6 +1,5 @@
 import random
 import threading
-import numpy as np
 from .graphs import Failure, Mitigation
 from .utils import get_mitigation_providers
 from typing import List
@@ -151,6 +150,7 @@ class MABWeightedSet:
         #    print("\t", s)
 
         if solutions:
+            import numpy as np
             # Use Thompson Sampling by sampling from Beta(alpha, beta) for each solution
             sampled_weights = [np.random.beta(sol["alpha"], sol["beta"]) for sol in solutions]
             solution_idx = sampled_weights.index(max(sampled_weights))  # Choose the solution with the highest sample
