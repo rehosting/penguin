@@ -134,7 +134,7 @@ class Netdevs(Plugin):
         Returns the pointer to net_device struct or None if not found.
         """
         buf = name.encode("latin-1", errors="ignore") + b"\0"
-        result = yield PortalCmd(hop.HYPER_OP_NET_LOOKUP_NETDEV, 0, len(buf), None, buf)
+        result = yield PortalCmd(hop.HYPER_OP_NETDEV_LOOKUP, 0, len(buf), None, buf)
         if result == 0 or result is None:
             self.logger.debug(f"Netdev '{name}' not found (kernel returned 0)")
             return None
@@ -167,7 +167,7 @@ class Netdevs(Plugin):
 
         for name in names:
             buf = name.encode("latin-1", errors="ignore") + b"\0"
-            result = yield PortalCmd(hop.HYPER_OP_NET_REGISTER_NETDEV, 0, len(buf), None, buf)
+            result = yield PortalCmd(hop.HYPER_OP_NETDEV_REGISTER, 0, len(buf), None, buf)
             is_up = yield from self.set_netdev_state(name, True)
             if not is_up:
                 self.logger.error(f"Failed to set netdev '{name}' UP state")
@@ -210,7 +210,7 @@ class Netdevs(Plugin):
         """
         buf = name.encode("latin-1", errors="ignore") + b"\0"
         requested_state = 1 if up else 0
-        result = yield PortalCmd(hop.HYPER_OP_NET_SET_NETDEV_STATE, 0, requested_state, None, buf)
+        result = yield PortalCmd(hop.HYPER_OP_NETDEV_SET_STATE, 0, requested_state, None, buf)
         if result == requested_state:
             self.logger.debug(f"Netdev '{name}' state set to {requested_state}")
             return True
@@ -224,7 +224,7 @@ class Netdevs(Plugin):
         Returns True if up, False if down, or None if not found.
         """
         buf = name.encode("latin-1", errors="ignore") + b"\0"
-        result = yield PortalCmd(hop.HYPER_OP_NET_GET_NETDEV_STATE, 0, len(buf), None, buf)
+        result = yield PortalCmd(hop.HYPER_OP_NETDEV_GET_STATE, 0, len(buf), None, buf)
         if result is None:
             self.logger.error(f"Failed to get state for netdev '{name}'")
             return None
