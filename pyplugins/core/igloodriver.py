@@ -21,7 +21,7 @@ class IGLOODriver(Plugin):
 
     def module_init(self, cpu):
         yield from plugins.portal_publish(self, "module_init")
-    
+
     def hyp_report_igloo_module_baseaddr(self, cpu):
         igloo_test_function = self.panda.arch.get_arg(cpu, 1, convention="syscall")
         addr = plugins.kffi.get_function_address("igloo_test_function")

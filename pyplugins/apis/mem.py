@@ -224,7 +224,6 @@ class Mem(Plugin):
         if isinstance(addr, Ptr):
             addr = addr.address
         self.logger.debug(f"read_bytes called: addr={addr}, size={size}")
-        data = b""
         cpu = None
 
         # Calculate number of chunks needed

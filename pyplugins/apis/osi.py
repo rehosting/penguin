@@ -563,7 +563,6 @@ class OSI(Plugin):
             else:
                 self.logger.debug(f"No mapping found for addr={addr:#x}")
 
-
     def get_ptregs(self) -> Generator[Any, None, Optional[int]]:
         """
         ### Get the pt_regs pointer for the current process

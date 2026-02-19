@@ -88,9 +88,11 @@ class KFFI(Plugin):
         # Register trampoline hit hypercall handler
         from hyper.consts import igloo_hypercall_constants as iconsts
         self.portal = plugins.portal
-        self._on_tramp_hit_hypercall =  \
-                self.panda.hypercall(iconsts.IGLOO_HYP_TRAMP_HIT)(
-                self.portal.wrap(self._on_tramp_hit_hypercall))
+        self._on_tramp_hit_hypercall = (
+            self.panda.hypercall(iconsts.IGLOO_HYP_TRAMP_HIT)(
+                self.portal.wrap(self._on_tramp_hit_hypercall)
+            )
+        )
 
         # Register with portal's interrupt handler system
         self.portal.register_interrupt_handler(
@@ -659,11 +661,11 @@ class KFFI(Plugin):
         new = pt_regs.to_bytes()
         if original_bytes != new:
             yield from plugins.mem.write_bytes(pt_regs_addr, new)
-    
+
     def write_struct(self, addr: Union[int, Ptr], instance: BoundTypeInstance):
         if isinstance(addr, Ptr):
             addr = addr.address
-        
+
         data = instance.to_bytes()
         yield from plugins.mem.write_bytes(addr, data)
 

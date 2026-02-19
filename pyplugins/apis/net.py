@@ -1,16 +1,15 @@
 from penguin import Plugin, plugins
-from hyper.consts import igloo_hypercall_constants as iconsts
 from typing import Optional, List, Iterator, Generator, Set, Dict
 from hyper.portal import PortalCmd
 from hyper.consts import HYPER_OP as hop
-import struct
+
 
 class Netdevs(Plugin):
     def __init__(self):
         self._pending_netdevs = []
         self._netdevs = {}
         self._netdev_structs = {}  # name -> net_device pointer
-        self._exist_ok = {} # name -> bool
+        self._exist_ok = {}  # name -> bool
 
         self._netdev_ops = self._build_netdev_ops_lookup()
         plugins.portal.register_interrupt_handler(
@@ -19,7 +18,7 @@ class Netdevs(Plugin):
         netdevs = self.get_arg("conf").get("netdevs", [])
         for nd in netdevs:
             self.register_netdev(nd)
-        
+
         # self.panda.hypercall(iconsts.IGLOO_NET_SETUP)(plugins.portal.wrap(self._net_setup))
         self._packet_queue = []  # List of (name, buf)
 
@@ -128,7 +127,7 @@ class Netdevs(Plugin):
             fn_ret = netdev_class.setup(name, netdev)
             if isinstance(fn_ret, Iterator):
                 fn_ret = yield from fn_ret
-    
+
     def lookup_netdev(self, name: str) -> Generator[PortalCmd, Optional[int], Optional[int]]:
         """
         Look up a network device by name using the portal.
@@ -142,7 +141,7 @@ class Netdevs(Plugin):
         self.logger.debug(f"Netdev '{name}' found at {result:#x}")
         return result
 
-    def register_netdev(self, name: str, backing_class: Optional[Plugin]=None, exist_ok: bool=False):
+    def register_netdev(self, name: str, backing_class: Optional[Plugin] = None, exist_ok: bool = False):
         '''
         Register a network device with the given name.
         '''
@@ -184,7 +183,6 @@ class Netdevs(Plugin):
                     return
             self._netdev_structs[name] = result
             yield from self._net_setup(name, result)
-
 
     def _netdevs_interrupt_handler(self) -> Iterator[bool]:
         """
