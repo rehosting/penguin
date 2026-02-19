@@ -29,10 +29,8 @@ def literal_presenter(dumper, data):
 
 
 # Representer. Need special handling for dumping literals and tuples. Support base dumper or safe
-yaml.Dumper.add_representer(str, literal_presenter)
-yaml.SafeDumper.add_representer(str, literal_presenter)
-yaml.Dumper.add_representer(tuple, int_to_hex_representer)
-yaml.SafeDumper.add_representer(tuple, int_to_hex_representer)
+CoreDumper.add_representer(str, literal_presenter)
+CoreDumper.add_representer(int, int_to_hex_representer)
 yaml.add_constructor(
     'tag:yaml.org,2002:binary', 
     yaml.constructor.SafeConstructor.construct_yaml_binary, 
