@@ -39,7 +39,7 @@ class AlteredNetworkDevice(Plugin):
     def ioctl_handler(self, pt_regs, netdev_ptr, ifreq_ptr, cmd):
         args = yield from plugins.osi.get_args()
         netdevs = yield from kffi.read_type(netdev_ptr, "net_device")
-        #ifreq = yield from kffi.read_type(ifreq_ptr, "ifreq")
+        # ifreq = yield from kffi.read_type(ifreq_ptr, "ifreq")
         name = str(netdevs.name)
         print(name, args, cmd)
         return 0

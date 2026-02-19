@@ -24,7 +24,7 @@ class Netdevs(Plugin):
 
     def _is_function_pointer(self, attr) -> bool:
         """Check if an attribute is a function pointer."""
-        return (hasattr(attr, "_subtype_info") and 
+        return (hasattr(attr, "_subtype_info") and
                 attr._subtype_info.get("kind") == "function")
 
     def _get_ops_functions(self, struct_name: str) -> Dict[str, Optional[str]]:
@@ -191,7 +191,7 @@ class Netdevs(Plugin):
         # Process pending network device registrations. Generator-style like _uprobe_interrupt_handler.
         # Processes each pending (name, backing_class) and attempts kernel registration.
         if not self._pending_netdevs:
-            return False 
+            return False
 
         pending = self._pending_netdevs[:]
 
