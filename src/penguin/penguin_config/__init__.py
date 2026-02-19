@@ -12,8 +12,11 @@ from collections import defaultdict
 
 import click
 import jsonschema
-import yaml
-from yamlcore import CoreLoader, CoreDumper
+try:
+    from penguin.common import yaml, CoreDumper, CoreLoader
+except ImportError:
+    from yamlcore import CoreLoader, CoreDumper
+    import yaml
 from pydantic import BaseModel, Field, RootModel
 from pydantic.config import ConfigDict
 
