@@ -228,7 +228,9 @@ class Mem(Plugin):
 
         # Calculate number of chunks needed
         # (size + rsize - 1) // rsize is equivalent to ceil(size / rsize)
+        rsize = self._get_rsize()
         num_chunks = (size + rsize - 1) // rsize
+        read_chunks = []
 
         for i in range(num_chunks):
             offset = i * rsize
