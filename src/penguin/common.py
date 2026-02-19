@@ -32,8 +32,8 @@ def literal_presenter(dumper, data):
 CoreDumper.add_representer(str, literal_presenter)
 CoreDumper.add_representer(int, int_to_hex_representer)
 yaml.add_constructor(
-    'tag:yaml.org,2002:binary', 
-    yaml.constructor.SafeConstructor.construct_yaml_binary, 
+    'tag:yaml.org,2002:binary',
+    yaml.constructor.SafeConstructor.construct_yaml_binary,
     Loader=CoreLoader,
 )
 # yaml.Dumper.add_representer(tuple, tuple_representer)
