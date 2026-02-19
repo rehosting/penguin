@@ -279,6 +279,56 @@ class Mem(Plugin):
 
         return self.ffi.unpack(buf, size)
 
+    def read_str_panda(self, cpu, addr: int) -> str:
+        """
+        Read a null-terminated string from guest memory using PANDA only.
+
+        Reads a null-terminated string from guest memory at a specified address,
+        using PANDA's virtual_memory_read in page-aligned chunks. Never falls back
+        to the portal.
+
+        Parameters
+        ----------
+        cpu  : Any (CPUState)
+        addr : int
+            Address to read from.
+
+        Returns
+        -------
+        str
+            String read from memory.
+        """
+        if addr == 0:
+            return ""
+        self.logger.debug(f"read_str_panda called: addr={addr:#x}")
+
+        result = bytearray()
+        PAGE_SIZE = 0x1000
+        SAFE_MAX = PAGE_SIZE
+        total_read = 0
+        curr_addr = addr
+
+        while total_read < SAFE_MAX:
+            page_offset = curr_addr & (PAGE_SIZE - 1)
+            bytes_left_in_page = PAGE_SIZE - page_offset
+            to_read = min(bytes_left_in_page, SAFE_MAX - total_read)
+            try:
+                chunk = self.read_bytes_panda(cpu, curr_addr, to_read)
+            except ValueError:
+                self.logger.debug(f"PANDA read failed at {curr_addr:#x}")
+                break
+            if not chunk:
+                break
+            null_idx = chunk.find(b'\x00')
+            if null_idx != -1:
+                result.extend(chunk[:null_idx])
+                break
+            else:
+                result.extend(chunk)
+                total_read += len(chunk)
+                curr_addr += len(chunk)
+        return result.decode('latin-1', errors='replace')
+
     def read_str(self, addr: Union[int, Ptr],
                  pid: Optional[int] = None) -> Generator[Any, Any, str]:
         """
