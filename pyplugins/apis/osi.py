@@ -47,6 +47,7 @@ from hyper.portal import PortalCmd
 from wrappers.generic import Wrapper
 from wrappers.osi_wrap import MappingWrapper, MappingsWrapper
 from typing import List, Dict, Any, Optional, Generator
+from wrappers.ptregs_wrap import get_pt_regs_wrapper
 
 kffi = plugins.kffi
 CONST_UNKNOWN_STR = "[???]"
@@ -561,3 +562,17 @@ class OSI(Plugin):
                 return mapping
             else:
                 self.logger.debug(f"No mapping found for addr={addr:#x}")
+
+    def get_ptregs(self) -> Generator[Any, None, Optional[int]]:
+        """
+        ### Get the pt_regs pointer for the current process
+
+        **Returns:**
+        - `int` or `None`: The pt_regs pointer as an integer, or None if not available.
+        """
+        ptregs_ptr = yield PortalCmd(hop.HYPER_OP_OSI_PROC_PTREGS)
+        if ptregs_ptr:
+            pt_regs_raw = yield from plugins.kffi.read_type(
+               ptregs_ptr, "pt_regs")
+            pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
+            return pt_regs
