@@ -239,8 +239,8 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None):
 
     # when loading a patch we don't need a completely valid config
     if validate:
-        _validate_config(config)
         _validate_config_version(config, path)
+        _validate_config(config)
         # Not required in schema as to allow for patches, but these really are required
         if config["core"].get("arch", None) is None:
             raise ValueError("No core.arch specified in config")

@@ -120,10 +120,11 @@ def run_config(
         # An arugument setting a timeout overrides the config's timeout
         conf["plugins"]["core"]["timeout"] = timeout
 
-    if "igloo_init" not in conf["env"]:
+    if "igloo_init" not in conf["core"]:
         if init:
-            conf["env"]["igloo_init"] = init
+            conf["core"]["igloo_init"] = init
         else:
+            # This is from automated analyses, we can remove if/when we refactor env.py
             try:
                 with open(
                     os.path.join(*[os.path.dirname(conf_yaml), "base", "env.yaml"]), "r"
@@ -133,7 +134,7 @@ def run_config(
             except FileNotFoundError:
                 inits = []
             raise RuntimeError(
-                f"No init binary is specified in configuration, set one in config's env section as igloo_init. Static analysis identified the following: {inits}"
+                f"No init binary is specified in configuration, set one in core as igloo_init. Static analysis identified the following: {inits}"
             )
 
     archend = conf["core"]["arch"]
