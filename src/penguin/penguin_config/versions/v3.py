@@ -16,11 +16,11 @@ class V3:
     2. update init.sh in static_patches/base.yaml to use get_config to obtain igloo_init:
     ```
     #ADD BEFORE `if` check for igloo_init
-    igloo_init = $(/igloo/utils/get_config core.igloo_init)
+    igloo_init = $(/igloo/utils/get_config core.init)
     if [ ! -z "${igloo_init}" ]; then
     ```
 
-    The auto-fix (if you say Y in the next step) will just set `core.igloo_init`=`env.igloo_init`
+    The auto-fix (if you say Y in the next step) will just set `core.init`=`env.igloo_init`
     `env.igloo_init` will be retained for backwards compability
     """
 
@@ -32,4 +32,4 @@ class V3:
     )
 
     def auto_fix(config):
-        config["core"]["igloo_init"] = config["env"]["igloo_init"]
+        config["core"]["init"] = config["env"]["igloo_init"]

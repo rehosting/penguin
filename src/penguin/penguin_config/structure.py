@@ -301,15 +301,6 @@ class Core(PartialModelMixin, BaseModel):
         ),
     ]
     init: Annotated[
-        Optional[str],
-        Field(
-            None,
-            title="init script script",
-            description="Path to custom igloo init script to run during guest startup",
-            examples=["/igloo/utils/custom_init.sh", "scripts/my_init.sh"],
-        ),
-    ]
-    igloo_init: Annotated[
         str,
         Field(
             None,
@@ -894,14 +885,6 @@ class Main(PartialModelMixin, BaseModel):
     static_files: StaticFiles
     plugins: Annotated[dict[str, Plugin], Field(title="Plugins")]
     network: Optional[Network] = None
-    internal: Annotated[
-        Optional[dict],
-        Field(
-            None,
-            title="Internal runtime data",
-            description="Reserved for internal tool use - not part of the public API",
-        ),
-    ]
 
 
 Patch = create_partial_model(Main, recursive=True)
