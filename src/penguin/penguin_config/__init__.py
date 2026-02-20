@@ -165,15 +165,19 @@ def _validate_config_version(config, path):
         if click.confirm("Automatically apply fixes?", default=True):
             path_old = f"{path}.old"
             shutil.copyfile(path, path_old)
-            for version in changes:
-                version.auto_fix(config)
-                config["core"]["version"] = version.num
-            dump_config(config, path)
-            logger.info(
-                "Config updated."
-                f" Backup saved to '{path_old}'."
-                " Try running PENGUIN again."
-            )
+            try:
+                for version in changes:
+                    version.auto_fix(config)
+                    config["core"]["version"] = version.num
+                dump_config(config, path)
+                logger.info(
+                    "Config updated."
+                    "Try running PENGUIN again."
+                )
+            finally:
+                logger.info(
+                    f"Backup saved to '{path_old}'."
+                )
         sys.exit(1)
 
 
