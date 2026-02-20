@@ -33,3 +33,6 @@ class V3:
 
     def auto_fix(config):
         config["core"]["init"] = config["env"]["igloo_init"]
+
+    def make_patch(config):
+        return {"core": {"init": config["env"]["igloo_init"]}}
