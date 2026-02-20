@@ -13,7 +13,7 @@ from os.path import dirname
 
 vnc_password: str = "IGLOOPassw0rd!"
 
-default_version: int = 2
+default_version: int = 3
 static_dir: str = "/igloo_static/"
 # XXX in config_patchers we append .0 to this - may need to update
 DEFAULT_KERNEL: str = "4.10"

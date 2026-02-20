@@ -7,10 +7,13 @@
 #include <string.h>
 #include <unistd.h>
 
+int libinject_get_config(const char *key, char *output, unsigned long buf_size);
+int libinject_get_config_bool(const char *config_key);
+
 __attribute__((constructor)) void igloo_start_ltrace(void)
 {
 	// Don't do anything if the user doesn't want to ltrace
-	if (!getenv("IGLOO_LTRACE")) {
+	if(!libinject_get_config_bool("core.ltrace")) {
 		return;
 	}
 
@@ -40,11 +43,36 @@ __attribute__((constructor)) void igloo_start_ltrace(void)
 	}
 
 	// Don't do anything if the user doesn't want to ltrace this process
-	char *excluded_cmds = getenv("IGLOO_LTRACE_EXCLUDED");
-	if (excluded_cmds) {
+	bool should_trace = true;
+
+    // Check include list first
+	char included_cmds[1024];
+	if (libinject_get_config("core.ltrace.include", included_cmds, sizeof(included_cmds)) == 0) {
+		// If there's an include list, default to false and only trace if included
+		should_trace = false;
+		char *included_copy = strdup(included_cmds);
+		char *tok = strtok(included_copy, ",");
+		while (tok) {
+			if (!strcmp(tok, comm)) {
+				should_trace = true;
+				break;
+			}
+			tok = strtok(NULL, ",");
+		}
+		free(included_copy);
+	}
+
+	// If we're not supposed to trace based on include list, return early
+	if (!should_trace) {
+		return;
+	}
+
+	// Check exclude list
+	char excluded_cmds[1024];
+	if (libinject_get_config("core.ltrace.exclude", excluded_cmds, sizeof(excluded_cmds)) == 0) {
 		bool excluded = false;
-		excluded_cmds = strdup(excluded_cmds);
-		char *tok = strtok(excluded_cmds, ",");
+		char *excluded_copy = strdup(excluded_cmds);
+		char *tok = strtok(excluded_copy, ",");
 		while (tok) {
 			if (!strcmp(tok, comm)) {
 				excluded = true;
@@ -52,7 +80,7 @@ __attribute__((constructor)) void igloo_start_ltrace(void)
 			}
 			tok = strtok(NULL, ",");
 		}
-		free(excluded_cmds);
+		free(excluded_copy);
 		if (excluded) {
 			return;
 		}

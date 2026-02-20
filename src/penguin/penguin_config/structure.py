@@ -157,15 +157,23 @@ class Core(PartialModelMixin, BaseModel):
         ),
     ]
     ltrace: Annotated[
-        Union[bool, list[str]],
+        Union[bool, list[str], dict],
         Field(
             False,
             title="Enable ltrace",
             description=" ".join((
                 "If true, run ltrace for entire system starting from init.",
                 "If names of programs, enable ltrace only for those programs.",
+                "If dict with 'include' and/or 'exclude' keys, specify programs to trace or exclude.",
             )),
-            examples=[False, True, ["lighttpd"]],
+            examples=[
+                False,
+                True,
+                ["lighttpd"],
+                {"include": ["lighttpd"]},
+                {"exclude": ["busybox", "sh"]},
+                {"include": ["lighttpd"], "exclude": ["busybox"]}
+            ],
         ),
     ]
     gdbserver: Optional[GDBServerPrograms] = None
@@ -223,7 +231,7 @@ class Core(PartialModelMixin, BaseModel):
         ),
     ]
     version: Annotated[
-        Literal["1.0.0", 2],
+        Literal["1.0.0", 2, 3],
         Field(
             title="Config format version",
             description="Version of the config file format",
@@ -290,6 +298,15 @@ class Core(PartialModelMixin, BaseModel):
             title="Enable graphics",
             description="Whether to enable graphics in the guest",
             examples=[False, True],
+        ),
+    ]
+    init: Annotated[
+        str,
+        Field(
+            None,
+            title="init to run after rehosting starts",
+            description="Path to init you expect to run in the system. This is the last thing executed by penguin during guest startup",
+            examples=["/sbin/init", "/sbin/preinit"],
         ),
     ]
 
