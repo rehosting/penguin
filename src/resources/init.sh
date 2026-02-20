@@ -15,9 +15,10 @@ if [ -d /igloo/init.d ]; then
   done
 fi
 
+igloo_init = $(/igloo/utils/get_config core.igloo_init)
 if [ ! -z "${igloo_init}" ]; then
   echo '[IGLOO INIT] Running specified init binary';
   exec "${igloo_init}"
 fi
-echo "[IGLOO INIT] Fatal: no igloo_init specified in env. Abort"
+echo "[IGLOO INIT] Fatal: no igloo_init specified in config. Abort"
 exit 1

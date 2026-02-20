@@ -231,7 +231,7 @@ class Core(PartialModelMixin, BaseModel):
         ),
     ]
     version: Annotated[
-        Literal["1.0.0", 2],
+        Literal["1.0.0", 2, 3],
         Field(
             title="Config format version",
             description="Version of the config file format",
@@ -307,6 +307,15 @@ class Core(PartialModelMixin, BaseModel):
             title="init script script",
             description="Path to custom igloo init script to run during guest startup",
             examples=["/igloo/utils/custom_init.sh", "scripts/my_init.sh"],
+        ),
+    ]
+    igloo_init: Annotated[
+        str,
+        Field(
+            None,
+            title="init to run after rehosting starts",
+            description="Path to init you expect to run in the system. This is the last thing executed by penguin during guest startup",
+            examples=["/sbin/init", "/sbin/preinit"],
         ),
     ]
 
