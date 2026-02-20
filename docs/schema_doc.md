@@ -140,10 +140,10 @@ true
 
 |||
 |-|-|
-|__Type__|boolean or list of string|
+|__Type__|boolean or list of string or dict|
 |__Default__|`false`|
 
-If true, run ltrace for entire system starting from init. If names of programs, enable ltrace only for those programs.
+If true, run ltrace for entire system starting from init. If names of programs, enable ltrace only for those programs. If dict with 'include' and/or 'exclude' keys, specify programs to trace or exclude.
 
 ```yaml
 false
@@ -154,6 +154,24 @@ true
 ```
 
 ```yaml
+- lighttpd
+```
+
+```yaml
+include:
+- lighttpd
+```
+
+```yaml
+exclude:
+- busybox
+- sh
+```
+
+```yaml
+exclude:
+- busybox
+include:
 - lighttpd
 ```
 
@@ -275,7 +293,7 @@ my_shared_directory
 
 |||
 |-|-|
-|__Type__|`"1.0.0"` or `2`|
+|__Type__|`"1.0.0"` or `2` or `3`|
 
 Version of the config file format
 
@@ -405,6 +423,23 @@ false
 
 ```yaml
 true
+```
+
+### `core.init` init to run after rehosting starts
+
+|||
+|-|-|
+|__Type__|string|
+|__Default__|`null`|
+
+Path to init you expect to run in the system. This is the last thing executed by penguin during guest startup
+
+```yaml
+/sbin/init
+```
+
+```yaml
+/sbin/preinit
 ```
 
 ## `patches` Patches

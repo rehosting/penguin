@@ -15,7 +15,7 @@ if [ -d /igloo/init.d ]; then
   done
 fi
 
-igloo_init = $(/igloo/utils/get_config core.igloo_init)
+igloo_init = $(/igloo/utils/get_config core.init)
 if [ ! -z "${igloo_init}" ]; then
   echo '[IGLOO INIT] Running specified init binary';
   exec "${igloo_init}"
