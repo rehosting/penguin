@@ -605,19 +605,8 @@ class Syscalls(Plugin):
 
         # If still not found, create a new generic prototype with unknown args
         if not proto:
-            # Generate generic argument names (unknown1, unknown2, etc.)
-            generic_args = []
-            for i in range(6):  # Most syscalls have 6 or fewer args
-                arg_name = f"unknown{i+1}"
-                generic_args.append(("int", arg_name))
-
-            # Create new prototype with the appropriate name and generic args
-            proto = SyscallPrototype(
-                name=f'sys_{cleaned_name}',
-                args=generic_args
-            )
-
-            # Add to our table for future lookups
+            generic_args = [("int", f"unknown{i+1}") for i in range(6)]
+            proto = SyscallPrototype(name=f'sys_{cleaned_name}', args=generic_args)
             self._syscall_info_table[cleaned_name] = proto
             self.logger.error(
                 f"Syscall {name} not registered {cleaned_name=}, created generic prototype with {len(generic_args)} args")
@@ -730,15 +719,12 @@ class Syscalls(Plugin):
         # 2. Unpack Hook Data including read_only flag
         # _hooks now stores (on_all, handle, is_method, read_only, original_func)
         entry = self._hooks[hook_ptr]
-        on_all = entry[0]
-        f = entry[1]
-        is_method = entry[2]
-        read_only = entry[3]
+        on_all, f, is_method, read_only = entry[0], entry[1], entry[2], entry[3]
 
-        # 3. Calculate 'original' bytes ONLY if we might write back (not read_only)
+        # 1. ZERO-COPY UPGRADE
         original = None
         if not read_only:
-            original = sce.to_bytes()
+            original = bytes(plugins.kffi.ffi.buffer(sce))
 
         # 4. Get Prototype (Optimized with Caching)
         proto = self._get_proto(cpu, sce, on_all)
@@ -768,7 +754,7 @@ class Syscalls(Plugin):
 
         # 5. Write Back (Skipped if read_only)
         if not read_only:
-            new = sce.to_bytes()
+            new = bytes(plugins.kffi.ffi.buffer(sce))
             if original != new:
                 yield from plugins.mem.write_bytes(arg, new)
 
@@ -817,11 +803,8 @@ class Syscalls(Plugin):
             sch.comm_filter_enabled = False
 
         # Handle complex argument filtering
-        arg_filters = hook_config.get("arg_filters", [])
-        if arg_filters is None:
-            arg_filters = []
-
-        for i in range(6):  # IGLOO_SYSCALL_MAXARGS
+        arg_filters = hook_config.get("arg_filters", []) or []
+        for i in range(6):   # IGLOO_SYSCALL_MAXARGS
             if i < len(arg_filters) and arg_filters[i] is not None:
                 arg_filter = arg_filters[i]
                 if arg_filter.__class__.__name__ == 'ValueFilter':
@@ -882,8 +865,8 @@ class Syscalls(Plugin):
             sch.retval_filter.max_value = 0
             sch.retval_filter.bitmask = 0
 
-        as_bytes = sch.to_bytes()
-
+        # 3. ZERO-COPY UPGRADE
+        as_bytes = bytes(plugins.kffi.ffi.buffer(sch))
         # Send to kernel via portal
         result = yield PortalCmd(hop.HYPER_OP_REGISTER_SYSCALL_HOOK, size=len(as_bytes), data=as_bytes)
         self._hook_info[result] = hook_config
