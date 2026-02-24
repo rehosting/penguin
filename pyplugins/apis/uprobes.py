@@ -186,7 +186,7 @@ class Uprobes(Plugin):
 
         original_bytes = None
         if not read_only:
-            original_bytes = pt_regs.to_bytes()[:]
+            original_bytes = bytes(plugins.kffi.ffi.buffer(pt_regs_raw))
 
         fn_to_call = f if not is_method else self._resolve_callback(
             f, is_method, hook_id)
@@ -216,7 +216,7 @@ class Uprobes(Plugin):
             return
 
         if not read_only:
-            new_bytes = pt_regs.to_bytes()
+            new_bytes = bytes(plugins.kffi.ffi.buffer(pt_regs_raw))
             if original_bytes != new_bytes:
                 plugins.mem.write_bytes_panda(cpu, ptregs_addr, new_bytes)
         return fn_ret
@@ -343,7 +343,7 @@ class Uprobes(Plugin):
         else:
             reg.comm[0] = 0
 
-        reg_bytes = reg.to_bytes()
+        reg_bytes = bytes(plugins.kffi.ffi.buffer(reg))
         result = yield PortalCmd(hop.HYPER_OP_REGISTER_UPROBE, offset, len(reg_bytes), None, reg_bytes)
 
         if result is None:
