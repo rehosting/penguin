@@ -81,8 +81,7 @@ class TestIoctlInteraction(Plugin):
     @plugins.syscalls.syscall("on_sys_ioctl_return", arg_filters=[None, 0x89f1])
     def ioctl_ret(self, regs, proto, syscall, fd, op, arg):
         ifreq = yield from plugins.kffi.read_type(arg, "ifreq")
-        interface = bytes(ifreq.ifr_ifrn.ifrn_name).decode(
-            "latin-1").rstrip("\x00")
+        interface = plugins.kffi.ffi.string(ifreq.ifr_ifrn.ifrn_name).decode("latin-1")
         self.logger.info(f"Interface: {interface}")
         esw_reg_ptr = ifreq.ifr_ifru.ifru_data.address
         off = yield from plugins.mem.read_int(esw_reg_ptr)
