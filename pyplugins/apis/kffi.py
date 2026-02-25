@@ -33,7 +33,6 @@ Example usage
     yield from plugins.kffi.write_kernel_memory(0xffff888000000000, b"\x90\x90\x90\x90")
 """
 
-import functools
 import inspect
 from os.path import isfile, join, realpath
 from typing import Any, Generator, Iterator, Optional, Tuple, Union
@@ -182,11 +181,11 @@ class KFFI(Plugin):
             return None
         if isinstance(addr, Ptr):
             addr = addr.address
-        buf = yield from plugins.mem.read_bytes(addr, t.size)
+        buf = yield from plugins.mem.read_bytes(addr, size)
         if not buf:
             self.logger.error(f"Failed to read bytes from {addr:#x}")
             return None
-        instance = self.ffi.create_instance(t, buf)
+        instance = self.ffi.create_instance(type_, buf)
         if not hasattr(instance, "_address"):
             setattr(instance, "_address", addr)
         return instance
@@ -221,7 +220,7 @@ class KFFI(Plugin):
             return thing.address
         if hasattr(thing, "_address"):
             return thing._address
-        if hasattr(thing, "_instance_offset"): 
+        if hasattr(thing, "_instance_offset"):
             return thing._instance_offset
         return None
 
@@ -401,7 +400,7 @@ class KFFI(Plugin):
                     ffi_call.args[i] = boundtype_ptrs[i]
             else:
                 raise TypeError(f"Unsupported argument type for FFI: {type(arg)}")
-                
+
         # ZERO-COPY UPGRADE: Extract the FFI portal structure dynamically via memoryview slice
         return bytes(self.ffi.buffer(ffi_call)), kmem_addr, func_typeinfo
 
