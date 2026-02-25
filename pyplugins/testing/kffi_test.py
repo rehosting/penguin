@@ -75,7 +75,7 @@ class KFFITest(Plugin):
         # Testing types with a known result
         inode = yield from plugins.kffi.read_type(exe_file.f_inode, "inode")
         i_opflags = plugins.kffi.get_field_casted(inode, "i_opflags")
-        
+
         # DWARFFI UPGRADE: Use dwarffi's typeof instead of panda.ffi
         expected_type = plugins.kffi.ffi.typeof("unsigned short")
         actual_type = plugins.kffi.ffi.typeof(i_opflags)
