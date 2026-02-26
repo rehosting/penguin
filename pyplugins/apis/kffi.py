@@ -185,7 +185,7 @@ class KFFI(Plugin):
         if not buf:
             self.logger.error(f"Failed to read bytes from {addr:#x}")
             return None
-        instance = self.ffi.new(type_, buf)
+        instance = self.ffi.from_buffer(type_, buf)
         if not hasattr(instance, "_address"):
             setattr(instance, "_address", addr)
         return instance
@@ -277,7 +277,10 @@ class KFFI(Plugin):
         Returns:
             Optional[int]: Address of the function, or None if not found.
         """
-        sym = self.ffi.get_symbol(function)
+        sym = self.ffi.get_symbol(function, path=self.igloo_ko_isf)
+        if sym and hasattr(sym, "address") and sym.address not in [None, 0]:
+            return sym.address
+        sym = self.ffi.get_symbol(function, path=self.isf)
         if sym and hasattr(sym, "address") and sym.address not in [None, 0]:
             return sym.address
         return None
@@ -366,8 +369,8 @@ class KFFI(Plugin):
                     aligned_addr = (raw_addr + 63) & ~63
                     yield from plugins.mem.write_bytes(aligned_addr, to_write)
                     boundtype_ptrs[i] = aligned_addr
-            elif hasattr(arg, 'to_bytes') and hasattr(arg, 'size'):
-                b = arg.to_bytes()
+            elif hasattr(arg, '__bytes__'):
+                b = bytes(arg)
                 arg_bytes.append(b)
                 arg_ptr_indices.append((i, total_bytes, len(b)))
                 total_bytes += len(b)
