@@ -271,7 +271,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       zstandard \
       pdoc \
       numpy \
-      dwarffi \
+      dwarffi>=0.0.12 \
       ratarmountcore[full]
 
 FROM python_builder AS version_generator
