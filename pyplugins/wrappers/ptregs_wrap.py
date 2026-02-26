@@ -144,7 +144,7 @@ class PtRegsWrapper(Wrapper):
 
     def to_bytes(self):
         """Pass-through to underlying bound object for serialization."""
-        return self._obj.to_bytes()
+        return bytes(self._obj)
 
     # --- Standard Accessors (Proxied via get_register for simplicity) ---
 
