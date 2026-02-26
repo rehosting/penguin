@@ -185,7 +185,7 @@ class KFFI(Plugin):
         if not buf:
             self.logger.error(f"Failed to read bytes from {addr:#x}")
             return None
-        instance = self.ffi.create_instance(type_, buf)
+        instance = self.ffi.new(type_, buf)
         if not hasattr(instance, "_address"):
             setattr(instance, "_address", addr)
         return instance
