@@ -619,7 +619,7 @@ class Syscalls(Plugin):
 
             # Add to our table for future lookups
             self._syscall_info_table[cleaned_name] = proto
-            self.logger.error(
+            self.logger.debug(
                 f"Syscall {name} not registered {cleaned_name=}, created generic prototype with {len(generic_args)} args")
 
         # Update caches
