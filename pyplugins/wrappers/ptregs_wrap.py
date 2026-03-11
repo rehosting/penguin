@@ -605,28 +605,21 @@ class ArmPtRegsWrapper(PtRegsWrapper):
 class AArch64PtRegsWrapper(PtRegsWrapper):
     """Wrapper for AArch64 pt_regs"""
 
-    # Helper for nested access: obj.unnamed_field_0.unnamed_field_0
-    # We can pre-calculate the getter to jump straight to the inner struct
-
     _ACCESSORS = {}
-
-    @staticmethod
-    def _get_inner(obj):
-        return obj.unnamed_field_0.unnamed_field_0
 
     # Build accessors
     for i in range(31):
         _ACCESSORS[f"x{i}"] = (
-            lambda obj, i=i: AArch64PtRegsWrapper._get_inner(obj).regs[i],
-            lambda obj, val, i=i: AArch64PtRegsWrapper._get_inner(obj).regs.__setitem__(i, val)
+            lambda obj, i=i: obj.regs[i],
+            lambda obj, val, i=i: obj.regs.__setitem__(i, val)
         )
 
-    _ACCESSORS["sp"] = (lambda obj: AArch64PtRegsWrapper._get_inner(obj).sp,
-                        lambda obj, val: setattr(AArch64PtRegsWrapper._get_inner(obj), 'sp', val))
-    _ACCESSORS["pc"] = (lambda obj: AArch64PtRegsWrapper._get_inner(obj).pc,
-                        lambda obj, val: setattr(AArch64PtRegsWrapper._get_inner(obj), 'pc', val))
-    _ACCESSORS["pstate"] = (lambda obj: AArch64PtRegsWrapper._get_inner(obj).pstate,
-                            lambda obj, val: setattr(AArch64PtRegsWrapper._get_inner(obj), 'pstate', val))
+    _ACCESSORS["sp"] = (lambda obj: obj.sp,
+                        lambda obj, val: setattr(obj, 'sp', val))
+    _ACCESSORS["pc"] = (lambda obj: obj.pc,
+                        lambda obj, val: setattr(obj, 'pc', val))
+    _ACCESSORS["pstate"] = (lambda obj: obj.pstate,
+                            lambda obj, val: setattr(obj, 'pstate', val))
 
     # Direct fields
     _ACCESSORS["syscallno"] = (_make_attr_getter("syscallno"), _make_attr_setter("syscallno"))
@@ -658,7 +651,7 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         self._checking_mode = True
         try:
             # Check pstate nRW bit (bit 4). 1 = 32-bit.
-            pstate = self._get_inner(self._obj).pstate
+            pstate = self._obj.pstate
             return (pstate & 0x10) != 0
         except (AttributeError, TypeError):
             return False
@@ -836,27 +829,20 @@ class Mips64PtRegsWrapper(MipsPtRegsWrapper):
 class PowerPCPtRegsWrapper(PtRegsWrapper):
     """Wrapper for PowerPC pt_regs"""
 
-    # Helper to traverse PANDA's nested union structure for PPC
-    # obj.unnamed_field_0.unnamed_field_0.gpr[i]
-    @staticmethod
-    def _get_inner(obj):
-        # Optimistic access: assumes standard PANDA nesting
-        return obj.unnamed_field_0.unnamed_field_0
-
     _ACCESSORS = {}
 
     # 1. GPRs (r0-r31)
     for i in range(32):
         _ACCESSORS[f"r{i}"] = (
-            lambda obj, i=i: PowerPCPtRegsWrapper._get_inner(obj).gpr[i],
-            lambda obj, val, i=i: PowerPCPtRegsWrapper._get_inner(obj).gpr.__setitem__(i, val)
+            lambda obj, i=i: obj.gpr[i],
+            lambda obj, val, i=i: obj.gpr.__setitem__(i, val)
         )
 
     # 2. Special Registers (Direct fields in inner struct)
     for reg in ["nip", "msr", "orig_gpr3", "ctr", "link", "xer", "ccr", "softe", "trap", "dar", "dsisr", "result"]:
         _ACCESSORS[reg] = (
-            lambda obj, r=reg: getattr(PowerPCPtRegsWrapper._get_inner(obj), r),
-            lambda obj, val, r=reg: setattr(PowerPCPtRegsWrapper._get_inner(obj), r, val)
+            lambda obj, r=reg: getattr(obj, r),
+            lambda obj, val, r=reg: setattr(obj, r, val)
         )
 
     # 3. Aliases
@@ -870,13 +856,6 @@ class PowerPCPtRegsWrapper(PtRegsWrapper):
 
     def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
         super().__init__(obj, panda)
-        # Check if we need to adjust the object for non-nested structures (rare case)
-        if not hasattr(obj, "unnamed_field_0"):
-            # If struct is flat, we patch _get_inner to return obj identity
-            # (Note: This monkeypatch is per-instance if we attach it to self,
-            # but accessors are class-level. Standard PANDA is nested.
-            # We assume nested for the optimized path).
-            pass
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get PowerPC syscall argument"""
