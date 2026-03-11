@@ -163,7 +163,7 @@ class KFFI(Plugin):
         if not buf:
             self.logger.error(f"Failed to read bytes from {addr:#x}")
             return None
-        return self.ffi.from_buffer(type_, bytearray(buf))
+        return self.ffi.from_buffer(type_, bytearray(buf), address=addr)
 
     def read_type(self, addr: int, type_: str) -> Generator[Any, Any, Any]:
         """
@@ -185,9 +185,7 @@ class KFFI(Plugin):
         if not buf:
             self.logger.error(f"Failed to read bytes from {addr:#x}")
             return None
-        instance = self.ffi.from_buffer(type_, buf)
-        if not hasattr(instance, "_address"):
-            setattr(instance, "_address", addr)
+        instance = self.ffi.from_buffer(type_, buf, address=addr)
         return instance
 
     def deref(self, ptr: Ptr) -> Generator[Any, Any, Any]:
@@ -216,13 +214,7 @@ class KFFI(Plugin):
         Returns:
             int: The address, or None if no address attribute.
         """
-        if hasattr(thing, "address"):
-            return thing.address
-        if hasattr(thing, "_address"):
-            return thing._address
-        if hasattr(thing, "_instance_offset"):
-            return thing._instance_offset
-        return None
+        return self.ffi.addressof(thing)
 
     def get_enum_dict(self, enum_name: str) -> Wrapper:
         """
@@ -491,8 +483,6 @@ class KFFI(Plugin):
                 struct_type = name
                 if result != 0:
                     val = yield from self.read_type(result, struct_type)
-                    if not hasattr(val, "_address"):
-                        setattr(val, "_address", result)
                     result = val
                 else:
                     result = None
