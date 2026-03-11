@@ -21,6 +21,38 @@ __all__ = [
     "Syscalls"
 ]
 
+class SyscallEvent:
+    __slots__ = ('_sce', 'name')
+
+    def __init__(self, sce):
+        self._sce = sce
+        
+        # 1. Fast C-string extraction natively supported by dwarffi.
+        # Calling bytes() on the array field does a direct buffer slice 
+        # (equivalent to your old start:start+size math) without the boilerplate.
+        raw_bytes = bytes(sce.syscall_name)
+        
+        # 2. Parse the C-string
+        self.name = raw_bytes.split(b'\x00', 1)[0].decode('utf-8', errors='replace')
+
+    def __getattr__(self, attr):
+        # 3. Transparently pass through any standard field accesses 
+        # (e.g., event.orig_x0) to the underlying dwarffi instance.
+        return getattr(self._sce, attr)
+    
+    def __setattr__(self, attr, value):
+        # If the attribute belongs to the wrapper, set it locally
+        if attr in self.__slots__:
+            object.__setattr__(self, attr, value)
+        else:
+            # Otherwise, forward the write to the underlying dwarffi instance
+            setattr(self._sce, attr, value)
+    
+    @property
+    def size(self) -> int:
+        # Expose the size from the underlying dwarffi BoundTypeInstance
+        return self._sce._instance_type_def.size
+
 
 class ValueFilter:
     """
@@ -509,44 +541,6 @@ class Syscalls(Plugin):
     sequence number is the same. If it is we use the original object.
     '''
 
-    def _get_syscall_event(self, cpu: int, arg: int) -> Any:
-        """
-        Retrieve the syscall event object from the guest.
-
-        Parameters
-        ----------
-        cpu : int
-            CPU id.
-        arg : int
-            Argument pointer.
-
-        Returns
-        -------
-        Any
-            The syscall event object.
-        """
-        sce = plugins.kffi.read_type_panda(cpu, arg, "syscall_event")
-
-        # 1. Get field metadata
-        field_def = sce._instance_type_def.fields["syscall_name"]
-
-        # 2. Calculate absolute start and end positions in the buffer
-        start = sce._instance_offset + field_def.offset
-
-        # We need the size of the array to slice correctly.
-        # The accessor helper can calculate this from the type info.
-        size = sce._instance_vtype_accessor.get_type_size(field_def.type_info)
-
-        # 3. Slice the buffer directly (Fast)
-        # We access the protected _instance_buffer directly for speed
-        name_bytes = sce._instance_buffer[start: start + size]
-
-        # 4. Parse the C-string (Fast)
-        # Split at the first null byte, take the left side, and decode
-        sce.name = name_bytes.split(b'\x00', 1)[0].decode(
-            'utf-8', errors='replace')
-
-        return sce
 
     def _get_proto(self, cpu: int, sce: Any, on_all: bool) -> SyscallPrototype:
         """
@@ -711,7 +705,7 @@ class Syscalls(Plugin):
         arg = self.panda.arch.get_arg(cpu, 1, convention="syscall")
 
         # 1. Get Event Object (No bytes serialization yet)
-        sce = self._get_syscall_event(cpu, arg)
+        sce = SyscallEvent(plugins.kffi.read_type_panda(cpu, arg, "syscall_event"))
         hook_ptr = sce.hook.address
         if hook_ptr not in self._hooks:
             return
