@@ -21,25 +21,26 @@ __all__ = [
     "Syscalls"
 ]
 
+
 class SyscallEvent:
     __slots__ = ('_sce', 'name')
 
     def __init__(self, sce):
         self._sce = sce
-        
+
         # 1. Fast C-string extraction natively supported by dwarffi.
-        # Calling bytes() on the array field does a direct buffer slice 
+        # Calling bytes() on the array field does a direct buffer slice
         # (equivalent to your old start:start+size math) without the boilerplate.
         raw_bytes = bytes(sce.syscall_name)
-        
+
         # 2. Parse the C-string
         self.name = raw_bytes.split(b'\x00', 1)[0].decode('utf-8', errors='replace')
 
     def __getattr__(self, attr):
-        # 3. Transparently pass through any standard field accesses 
+        # 3. Transparently pass through any standard field accesses
         # (e.g., event.orig_x0) to the underlying dwarffi instance.
         return getattr(self._sce, attr)
-    
+
     def __setattr__(self, attr, value):
         # If the attribute belongs to the wrapper, set it locally
         if attr in self.__slots__:
@@ -47,7 +48,7 @@ class SyscallEvent:
         else:
             # Otherwise, forward the write to the underlying dwarffi instance
             setattr(self._sce, attr, value)
-    
+
     @property
     def size(self) -> int:
         # Expose the size from the underlying dwarffi BoundTypeInstance
@@ -530,17 +531,6 @@ class Syscalls(Plugin):
                 func_name = getattr(original_func, "__name__", None)
                 if func_name:
                     self._name_to_hook_ptrs[func_name].append(hook_ptr)
-
-    '''
-    On repeated calls to the same syscall in portal we produce new
-    syscall_event objects. However, it doesn't update the version of the object
-    that the function has. This means that when it sets values we have a
-    different object and can fail.
-
-    So we keep the original syscall_event object in a dictionary and check if the
-    sequence number is the same. If it is we use the original object.
-    '''
-
 
     def _get_proto(self, cpu: int, sce: Any, on_all: bool) -> SyscallPrototype:
         """
