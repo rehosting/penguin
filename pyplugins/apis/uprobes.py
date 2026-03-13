@@ -307,12 +307,8 @@ class Uprobes(Plugin):
         return False
 
     def _register_uprobe(self, config: Dict[str, Any]) -> Iterator[Optional[int]]:
-        path = config["path"]
-        offset = config["offset"]
         on_enter = config.get("on_enter", True)
         on_return = config.get("on_return", False)
-        pid_filter = config.get("pid_filter")
-        process_filter = config.get("process_filter")
 
         if on_enter and on_return:
             probe_type = portal_type.PORTAL_UPROBE_TYPE_BOTH
@@ -323,32 +319,25 @@ class Uprobes(Plugin):
         else:
             return None
 
-        filter_pid = pid_filter if pid_filter is not None else 0xffffffff
+        init_data = {
+            "path": config["path"].encode('latin-1'),
+            "offset": config["offset"],
+            "type": probe_type,
+            "pid": config.get("pid_filter") if config.get("pid_filter") is not None else 0xffffffff,
+            "comm": config["process_filter"].encode('latin-1') if config.get("process_filter") else b""
+        }
 
-        reg = plugins.kffi.new("uprobe_registration")
-        path_bytes = path.encode('latin-1')
-        for i, b in enumerate(path_bytes[:255]):
-            reg.path[i] = b
-        reg.path[min(len(path_bytes), 255)] = 0
+        # 1. Allocate and initialize the struct in one call
+        reg = plugins.kffi.new("uprobe_registration", init_data)
 
-        reg.offset = offset
-        reg.type = probe_type
-        reg.pid = filter_pid
-
-        if process_filter:
-            comm_bytes = process_filter.encode('latin-1')
-            for i, b in enumerate(comm_bytes[:15]):
-                reg.comm[i] = b
-            reg.comm[min(len(comm_bytes), 15)] = 0
-        else:
-            reg.comm[0] = 0
-
-        reg_bytes = bytes(plugins.kffi.ffi.buffer(reg))
-        result = yield PortalCmd(hop.HYPER_OP_REGISTER_UPROBE, offset, len(reg_bytes), None, reg_bytes)
+        # 2. Extract the native bytes representation directly
+        reg_bytes = bytes(reg)
+        
+        result = yield PortalCmd(hop.HYPER_OP_REGISTER_UPROBE, reg.offset, len(reg_bytes), None, reg_bytes)
 
         if result is None:
             self.logger.error(
-                f"Failed to register uprobe at {path}:{offset:#x}")
+                f"Failed to register uprobe at {config['path']}:{config['offset']:#x}")
             return None
 
         probe_id = result
