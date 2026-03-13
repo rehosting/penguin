@@ -97,18 +97,19 @@ class KFFI(Plugin):
         self.portal.register_interrupt_handler(
             "kffi", self._tramp_interrupt_handler)
 
-    def new(self, type_: str) -> Any:
+    def new(self, type_: str, init: Any = None) -> Any:
         """
         Create a new instance of a type.
 
         Args:
             type_ (str): Name of the type.
+            init (Any): Initial value for the instance (optional).
 
         Returns:
             Any: Instance of the type, or None if type not found.
         """
         try:
-            return self.ffi.new(type_)
+            return self.ffi.new(type_, init)
         except (KeyError, ValueError):
             return None
 
