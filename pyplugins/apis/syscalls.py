@@ -761,96 +761,69 @@ class Syscalls(Plugin):
         """
         # Clone the hook config for internal storage and ensure it has enabled
         # flag
-        sch = plugins.kffi.new("syscall_hook")
+        def _parse_filter(f):
+            """Helper to translate a ValueFilter object or primitive into a dwarffi init dict."""
+            if f is None:
+                return {
+                    "enabled": False, 
+                    "type": vft.SYSCALLS_HC_FILTER_EXACT, 
+                    "value": 0, 
+                    "min_value": 0, 
+                    "max_value": 0, 
+                    "bitmask": 0
+                }
+            if getattr(f, "__class__", None) and f.__class__.__name__ == 'ValueFilter':
+                return {
+                    "enabled": True,
+                    "type": f.filter_type,
+                    "value": f.value,
+                    "min_value": f.min_value,
+                    "max_value": f.max_value,
+                    "bitmask": f.bitmask
+                }
+            elif isinstance(f, (int, float)):
+                return {
+                    "enabled": True,
+                    "type": vft.SYSCALLS_HC_FILTER_EXACT,
+                    "value": int(f),
+                    "min_value": 0,
+                    "max_value": 0,
+                    "bitmask": 0
+                }
+            return {"enabled": False}
 
-        sch.enabled = True
-        sch.on_enter = hook_config.get("on_enter", False)
-        sch.on_return = hook_config.get("on_return", False)
-        sch.on_all = hook_config.get("on_all", False)
-        sch.enabled = hook_config.get("enabled", True)
+        raw_arg_filters = hook_config.get("arg_filters", []) or []
+        arg_filters_init = [
+            _parse_filter(raw_arg_filters[i] if i < len(raw_arg_filters) else None)
+            for i in range(6) # IGLOO_SYSCALL_MAXARGS
+        ]
 
-        if hook_config.get("name", None):
-            name = hook_config.get("name", "")
-            to_write = name.encode('latin-1') + b'\0'
-            for i, j in enumerate(to_write):
-                sch.name[i] = j
-        else:
-            sch.name[0] = 0
-        if hook_config.get("procname", None):
-            sch.comm_filter_enabled = True
-            # Ensure procname is never None
-            procname = hook_config.get("procname", "") or ""
-            to_write = procname.encode('latin-1') + b'\0'
-            for i, j in enumerate(to_write):
-                sch.comm_filter[i] = j
-        else:
-            sch.comm_filter_enabled = False
+        procname = hook_config.get("procname", None)
+        pid_filter = hook_config.get("pid_filter", None)
+        init_data = {
+            "enabled": hook_config.get("enabled", True),
+            "on_enter": hook_config.get("on_enter", False),
+            "on_return": hook_config.get("on_return", False),
+            "on_all": hook_config.get("on_all", False),
+    
+            "name": hook_config.get("name", ""),
+    
+            "comm_filter_enabled": procname is not None,
+            "comm_filter": procname or "",
+    
+            "pid_filter_enabled": pid_filter is not None,
+            "filter_pid": pid_filter if pid_filter is not None else 0,
+    
+            # Nested structs and arrays are passed as lists of dicts
+            "arg_filters": arg_filters_init,
+            "retval_filter": _parse_filter(hook_config.get("retval_filter", None))
+        }
 
-        # Handle complex argument filtering
-        arg_filters = hook_config.get("arg_filters", []) or []
-        for i in range(6):   # IGLOO_SYSCALL_MAXARGS
-            if i < len(arg_filters) and arg_filters[i] is not None:
-                arg_filter = arg_filters[i]
-                if arg_filter.__class__.__name__ == 'ValueFilter':
-                    # Complex filter
-                    sch.arg_filters[i].enabled = True
-                    sch.arg_filters[i].type = arg_filter.filter_type
-                    sch.arg_filters[i].value = arg_filter.value
-                    sch.arg_filters[i].min_value = arg_filter.min_value
-                    sch.arg_filters[i].max_value = arg_filter.max_value
-                    sch.arg_filters[i].bitmask = arg_filter.bitmask
-                elif isinstance(arg_filter, (int, float)):
-                    # Simple exact match for backward compatibility
-                    sch.arg_filters[i].enabled = True
-                    sch.arg_filters[i].type = vft.SYSCALLS_HC_FILTER_EXACT
-                    sch.arg_filters[i].value = int(arg_filter)
-                    sch.arg_filters[i].min_value = 0
-                    sch.arg_filters[i].max_value = 0
-                    sch.arg_filters[i].bitmask = 0
-            else:
-                # No filter for this argument
-                sch.arg_filters[i].enabled = False
-                sch.arg_filters[i].type = vft.SYSCALLS_HC_FILTER_EXACT
-                sch.arg_filters[i].value = 0
-                sch.arg_filters[i].min_value = 0
-                sch.arg_filters[i].max_value = 0
-                sch.arg_filters[i].bitmask = 0
-
-        if hook_config.get("pid_filter", None):
-            sch.pid_filter_enabled = True
-            sch.filter_pid = hook_config.get("pid_filter")
-        else:
-            sch.pid_filter_enabled = False
-
-        # Handle complex return value filtering
-        retval_filter = hook_config.get("retval_filter", None)
-        if retval_filter is not None:
-            if type(retval_filter).__name__ == 'ValueFilter':
-                # Complex filter
-                sch.retval_filter.enabled = True
-                sch.retval_filter.type = retval_filter.filter_type
-                sch.retval_filter.value = retval_filter.value
-                sch.retval_filter.min_value = retval_filter.min_value
-                sch.retval_filter.max_value = retval_filter.max_value
-                sch.retval_filter.bitmask = retval_filter.bitmask
-            elif isinstance(retval_filter, (int, float)):
-                # Simple exact match for backward compatibility
-                sch.retval_filter.enabled = True
-                sch.retval_filter.type = vft.SYSCALLS_HC_FILTER_EXACT
-                sch.retval_filter.value = int(retval_filter)
-                sch.retval_filter.min_value = 0
-                sch.retval_filter.max_value = 0
-                sch.retval_filter.bitmask = 0
-        else:
-            sch.retval_filter.enabled = False
-            sch.retval_filter.type = vft.SYSCALLS_HC_FILTER_EXACT
-            sch.retval_filter.value = 0
-            sch.retval_filter.min_value = 0
-            sch.retval_filter.max_value = 0
-            sch.retval_filter.bitmask = 0
+        # 4. Allocate and initialize in one call!
+        sch = plugins.kffi.new("struct syscall_hook", init_data)
 
         # 3. ZERO-COPY UPGRADE
-        as_bytes = bytes(plugins.kffi.ffi.buffer(sch))
+        as_bytes = bytes(sch)
         # Send to kernel via portal
         result = yield PortalCmd(hop.HYPER_OP_REGISTER_SYSCALL_HOOK, size=len(as_bytes), data=as_bytes)
         self._hook_info[result] = hook_config
