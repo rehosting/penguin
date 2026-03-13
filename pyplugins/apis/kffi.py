@@ -37,8 +37,9 @@ import inspect
 from os.path import isfile, join, realpath
 from typing import Any, Generator, Iterator, Optional, Tuple, Union
 
-from dwarffi.instances import Ptr
+from dwarffi.instances import BoundTypeInstance, Ptr, EnumInstance
 from dwarffi.dffi import DFFI
+import struct
 
 from wrappers.generic import Wrapper
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
@@ -315,13 +316,7 @@ class KFFI(Plugin):
                 if i < len(params):
                     param_type = params[i]["type"]
                     kind = param_type.get("kind")
-                    # Unsigned base type: convert negative ints
-                    if kind == "base":
-                        base_type = self.ffi.get_type(param_type.get("name"))
-                        if base_type and base_type.signed is False and isinstance(arg, int) and arg < 0:
-                            arg = arg % (1 << (base_type.size * 8))
-                    # Pointer: allow int or Ptr
-                    elif kind == "pointer":
+                    if kind == "pointer":
                         if isinstance(arg, Ptr):
                             arg = arg.address
                         elif not isinstance(arg, int):
@@ -353,8 +348,9 @@ class KFFI(Plugin):
                 arg_bytes.append(b)
                 arg_ptr_indices.append((i, total_bytes, len(b)))
                 total_bytes += len(b)
-            elif type(arg).__name__ == 'BoundTypeInstance':
-                if not hasattr(arg, 'address'):
+            elif isinstance(arg, BoundTypeInstance):
+                base_addr = getattr(arg, "_base_address", None)
+                if base_addr is None:
                     to_write = bytes(arg)
                     raw_addr = yield from self.kmalloc(len(to_write) + 64)
                     if not raw_addr:
@@ -362,6 +358,8 @@ class KFFI(Plugin):
                     aligned_addr = (raw_addr + 63) & ~63
                     yield from plugins.mem.write_bytes(aligned_addr, to_write)
                     boundtype_ptrs[i] = aligned_addr
+                else:
+                    boundtype_ptrs[i] = self.ffi.addressof(arg).address
             elif hasattr(arg, '__bytes__'):
                 b = bytes(arg)
                 arg_bytes.append(b)
@@ -382,20 +380,19 @@ class KFFI(Plugin):
         ffi_call.func_ptr = func_ptr
         ffi_call.num_args = len(marshalled_args)
         for i, arg in enumerate(marshalled_args):
-            if isinstance(arg, (int, float)) or hasattr(arg, '_value'):
-                ffi_call.args[i] = int(arg) if not isinstance(arg, float) else arg
-            elif isinstance(arg, (str, bytes)) or (hasattr(arg, 'to_bytes') and hasattr(arg, 'size')):
+            if isinstance(arg, float):
+                ffi_call.args[i] = struct.unpack('<Q', struct.pack('<d', arg))[0]
+            elif isinstance(arg, int) or hasattr(arg, '_value'):
+                ffi_call.args[i] = int(arg)
+            elif isinstance(arg, (str, bytes)) or hasattr(arg, '__bytes__'):
                 for idx, off, sz in arg_ptr_indices:
                     if idx == i:
                         ffi_call.args[i] = kmem_addr + off
                         break
-            elif type(arg).__name__ == 'BoundTypeInstance':
-                if hasattr(arg, 'address'):
-                    ffi_call.args[i] = arg.address
-                else:
-                    ffi_call.args[i] = boundtype_ptrs[i]
+            elif isinstance(arg, BoundTypeInstance):
+                ffi_call.args[i] = boundtype_ptrs[i]
             else:
-                raise TypeError(f"Unsupported argument type for FFI: {type(arg)}")
+                raise TypeError(f"Unsupported argument type for FFI assignment: {type(arg)}")
 
         # ZERO-COPY UPGRADE: Extract the FFI portal structure dynamically via memoryview slice
         return bytes(ffi_call), kmem_addr, func_typeinfo
@@ -469,12 +466,11 @@ class KFFI(Plugin):
                         result = bool(result)
             elif kind == "enum":
                 try:
-                    enum_size = self.ffi.sizeof(name)
-                    # Bind bytearray and extract the bound EnumInstance underlying value dynamically
-                    buf = bytearray(result.to_bytes(enum_size, 'little'))
-                    result = self.ffi.from_buffer(name, buf)._value
-                except (KeyError, ValueError):
-                    pass
+                    enum_def = self.ffi.get_enum(name)
+                    if enum_def:
+                        result = EnumInstance(enum_def, result)._value
+                except Exception as e:
+                    self.logger.warning(f"Failed to cast return value to enum {name}: {e}")
             elif kind == "pointer":
                 # Return a Ptr object
                 ptr_type = ret_type.get("subtype")
