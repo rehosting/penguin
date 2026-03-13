@@ -165,15 +165,28 @@ def _validate_config_version(config, path):
         if click.confirm("Automatically apply fixes?", default=True):
             path_old = f"{path}.old"
             shutil.copyfile(path, path_old)
-            for version in changes:
-                version.auto_fix(config)
-                config["core"]["version"] = version.num
-            dump_config(config, path)
-            logger.info(
-                "Config updated."
-                f" Backup saved to '{path_old}'."
-                " Try running PENGUIN again."
-            )
+            try:
+                write_config = False
+                for version in changes:
+                    if hasattr(version, "make_patch"):
+                        logger.info(f"auto fix for config {version.__name__} generates a patch")
+                        patch = version.make_patch(config)
+                        patch["core"]["version"] = version.num
+                        patch_path = Path(path).parent / f"patch_ZZAUTO_{version.__name__}.yaml"
+                        with open(patch_path, "w") as f:
+                            yaml.dump(patch, f, default_flow_style=False)
+                        logger.info(f"Wrote {patch_path.name}")
+                    else:
+                        version.auto_fix(config)
+                        config["core"]["version"] = version.num
+                        write_config = True
+                if write_config:
+                    dump_config(config, path)
+                    logger.info("Config updated.")
+            finally:
+                if write_config:
+                    logger.info(f"Backup saved to '{path_old}'.")
+            logger.info("Try running PENGUIN again.")
         sys.exit(1)
 
 
@@ -239,8 +252,8 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None):
 
     # when loading a patch we don't need a completely valid config
     if validate:
-        _validate_config(config)
         _validate_config_version(config, path)
+        _validate_config(config)
         # Not required in schema as to allow for patches, but these really are required
         if config["core"].get("arch", None) is None:
             raise ValueError("No core.arch specified in config")

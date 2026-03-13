@@ -76,7 +76,9 @@ def add_lib_inject_for_abi(config, abi, cache_dir):
             "-isystem",
             headers_dir,
             f"-DCONFIG_{libnvram_arch_name.upper()}=1",
+            "-DGET_CONFIG_LIBRARY_ONLY",
             "/igloo_static/libnvram/nvram.c",
+            "/igloo_static/guest-utils/native/get_config.c",
             "/igloo_static/guest-utils/ltrace/inject_ltrace.c",
             "--language",
             "c",
@@ -96,7 +98,7 @@ def add_lib_inject_for_abi(config, abi, cache_dir):
     )
     # Create a hash of all relevant inputs for caching
     source_files_content = []
-    for pattern in ["/igloo_static/libnvram/*.c", "/igloo_static/libnvram/*.h"]:
+    for pattern in ["/igloo_static/libnvram/*.c", "/igloo_static/libnvram/*.h", "/igloo_static/guest-utils/native/get_config.c", "/igloo_static/guest-utils/ltrace/inject_ltrace.c"]:
         for file_path in glob.glob(pattern):
             try:
                 with open(file_path, 'rb') as f:
