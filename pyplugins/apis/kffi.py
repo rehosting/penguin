@@ -355,7 +355,7 @@ class KFFI(Plugin):
                 total_bytes += len(b)
             elif type(arg).__name__ == 'BoundTypeInstance':
                 if not hasattr(arg, 'address'):
-                    to_write = bytes(self.ffi.buffer(arg))
+                    to_write = bytes(arg)
                     raw_addr = yield from self.kmalloc(len(to_write) + 64)
                     if not raw_addr:
                         raise RuntimeError("Failed to allocate kernel memory for BoundTypeInstance")
@@ -398,7 +398,7 @@ class KFFI(Plugin):
                 raise TypeError(f"Unsupported argument type for FFI: {type(arg)}")
 
         # ZERO-COPY UPGRADE: Extract the FFI portal structure dynamically via memoryview slice
-        return bytes(self.ffi.buffer(ffi_call)), kmem_addr, func_typeinfo
+        return bytes(ffi_call), kmem_addr, func_typeinfo
 
     def call_kernel_function(
             self, func: Union[int, str], *args: Any) -> Generator[Any, Any, Any]:

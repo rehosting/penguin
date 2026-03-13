@@ -708,7 +708,7 @@ class Syscalls(Plugin):
         # 1. ZERO-COPY UPGRADE
         original = None
         if not read_only:
-            original = bytes(plugins.kffi.ffi.buffer(sce))
+            original = bytes(sce)
 
         # 4. Get Prototype (Optimized with Caching)
         proto = self._get_proto(cpu, sce, on_all)
@@ -738,7 +738,7 @@ class Syscalls(Plugin):
 
         # 5. Write Back (Skipped if read_only)
         if not read_only:
-            new = bytes(plugins.kffi.ffi.buffer(sce))
+            new = bytes(sce)
             if original != new:
                 yield from plugins.mem.write_bytes(arg, new)
 
