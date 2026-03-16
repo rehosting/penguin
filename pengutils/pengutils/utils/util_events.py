@@ -8,6 +8,7 @@ import json
 def in_container() -> bool:
     return env.get("PENGUIN_PROJECT_DIR", None) is not None
 
+
 def get_default_socket_path() -> str:
     if in_container():
         return join(env["PENGUIN_PROJECT_DIR"],
