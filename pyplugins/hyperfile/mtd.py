@@ -124,7 +124,7 @@ class MTD(Plugin):
         kffi = plugins.kffi
         req = kffi.new("struct portal_mtd_nuke_req")
         req.max_scan_index = 64
-        req_bytes = req.to_bytes()
+        req_bytes = bytes(req)
         
         result = yield PortalCmd(hop.HYPER_OP_MTD_NUKE, 0, len(req_bytes), None, req_bytes)
         
@@ -172,7 +172,7 @@ class MTD(Plugin):
                 return # Skip this device
 
         # --- 3. Send Command ---
-        req_bytes = req.to_bytes()
+        req_bytes = bytes(req)
         
         result_id = yield PortalCmd(hop.HYPER_OP_MTD_CREATE, 0, len(req_bytes), None, req_bytes)
 
