@@ -41,13 +41,14 @@ class Proc(Plugin):
         Build a file_operations struct with function pointers for only the overridden methods.
         """
         kffi = plugins.kffi
-        fops = kffi.new("struct igloo_proc_ops")
         overridden = self._get_overridden_methods(proc_file)
-        # Use kffi.callback instead of plugins.portal.register_callback
+        
+        # Build the initialization dictionary dynamically
+        init_data = {}
         for name, fn in overridden.items():
-            c_fn = yield from kffi.callback(fn)
-            setattr(fops, name, c_fn)
-        return fops
+            init_data[name] = yield from kffi.callback(fn)
+            
+        return kffi.new("struct igloo_proc_ops", init_data)
 
     def register_proc(self, proc_file: ProcFile, path: Optional[str] =None):
         """
@@ -84,13 +85,17 @@ class Proc(Plugin):
                 parent_id = self._proc_dirs[cur_path]
             else:
                 kffi = plugins.kffi
-                req = kffi.new("struct portal_procfs_create_req")
-                buf = part.encode("latin-1", errors="ignore")[:255] + b"\0"
-                for j in range(len(buf)):
-                    req.path[j] = buf[j]
-                req.parent_id = parent_id
-                req.replace = 0
-                req_bytes = req.to_bytes()
+                
+                # Dwarffi natively handles null-termination and bounds truncation for byte arrays
+                init_data = {
+                    "path": part.encode("latin-1", errors="ignore"),
+                    "parent_id": parent_id,
+                    "replace": 0
+                }
+                
+                req = kffi.new("struct portal_procfs_create_req", init_data)
+                req_bytes = bytes(req)
+                
                 # Now parent_id is passed for each level
                 result = yield PortalCmd(
                     hop.HYPER_OP_PROCFS_CREATE_OR_LOOKUP_DIR,
@@ -138,16 +143,19 @@ class Proc(Plugin):
                 self.logger.error(f"Invalid proc file name: '{file_name}' from path '{fname}'")
                 continue
 
-            buf = file_name.encode("latin-1", errors="ignore")[:255] + b"\0"
             fops = yield from self._make_fops_struct(proc)
             kffi = plugins.kffi
-            req = kffi.new("struct portal_procfs_create_req")
-            for i in range(len(buf)):
-                req.path[i] = buf[i]
-            req.fops = fops
-            req.parent_id = parent_id
-            req.replace = 1
-            req_bytes = req.to_bytes()
+            
+            init_data = {
+                "path": file_name.encode("latin-1", errors="ignore"),
+                "fops": fops,
+                "parent_id": parent_id,
+                "replace": 1
+            }
+            
+            req = kffi.new("struct portal_procfs_create_req", init_data)
+            req_bytes = bytes(req)
+            
             result = yield PortalCmd(
                 hop.HYPER_OP_PROCFS_CREATE_FILE,
                 0,
