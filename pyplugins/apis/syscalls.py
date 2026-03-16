@@ -40,7 +40,7 @@ class SyscallEvent:
         # 3. Transparently pass through any standard field accesses
         # (e.g., event.orig_x0) to the underlying dwarffi instance.
         return getattr(self._sce, attr)
-    
+
     def __bytes__(self) -> bytes:
         # 4. Allow bytes() to be called on the wrapper to get the raw bytes for writing back to memory.
         return bytes(self._sce)
@@ -769,11 +769,11 @@ class Syscalls(Plugin):
             """Helper to translate a ValueFilter object or primitive into a dwarffi init dict."""
             if f is None:
                 return {
-                    "enabled": False, 
-                    "type": vft.SYSCALLS_HC_FILTER_EXACT, 
-                    "value": 0, 
-                    "min_value": 0, 
-                    "max_value": 0, 
+                    "enabled": False,
+                    "type": vft.SYSCALLS_HC_FILTER_EXACT,
+                    "value": 0,
+                    "min_value": 0,
+                    "max_value": 0,
                     "bitmask": 0
                 }
             if getattr(f, "__class__", None) and f.__class__.__name__ == 'ValueFilter':
@@ -798,8 +798,9 @@ class Syscalls(Plugin):
 
         raw_arg_filters = hook_config.get("arg_filters", []) or []
         arg_filters_init = [
-            _parse_filter(raw_arg_filters[i] if i < len(raw_arg_filters) else None)
-            for i in range(6) # IGLOO_SYSCALL_MAXARGS
+            _parse_filter(raw_arg_filters[i] if i < len(
+                raw_arg_filters) else None)
+            for i in range(6)  # IGLOO_SYSCALL_MAXARGS
         ]
 
         procname = hook_config.get("procname", None)
@@ -809,15 +810,15 @@ class Syscalls(Plugin):
             "on_enter": hook_config.get("on_enter", False),
             "on_return": hook_config.get("on_return", False),
             "on_all": hook_config.get("on_all", False),
-    
+
             "name": hook_config.get("name", ""),
-    
+
             "comm_filter_enabled": procname is not None,
             "comm_filter": procname or "",
-    
+
             "pid_filter_enabled": pid_filter is not None,
             "filter_pid": pid_filter if pid_filter is not None else 0,
-    
+
             # Nested structs and arrays are passed as lists of dicts
             "arg_filters": arg_filters_init,
             "retval_filter": _parse_filter(hook_config.get("retval_filter", None))

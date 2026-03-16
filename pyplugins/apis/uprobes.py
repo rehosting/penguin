@@ -332,7 +332,7 @@ class Uprobes(Plugin):
 
         # 2. Extract the native bytes representation directly
         reg_bytes = bytes(reg)
-        
+
         result = yield PortalCmd(hop.HYPER_OP_REGISTER_UPROBE, reg.offset, len(reg_bytes), None, reg_bytes)
 
         if result is None:
