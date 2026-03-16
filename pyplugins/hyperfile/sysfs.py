@@ -10,7 +10,7 @@ class Sysfs(Plugin):
     def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.proj_dir = self.get_arg("proj_dir")
-        self._pending_sysfs: List[Tuple[str, SysFile]] = []
+        self._pending_sysfs: List[Tuple[str, SysFile, int]] = []
         self._sysfs: Dict[str, SysFile] = {}
         self._sysfs_dirs: Dict[str, int] = {}  # path -> dir id
         plugins.portal.register_interrupt_handler(
@@ -32,12 +32,14 @@ class Sysfs(Plugin):
 
     def _make_ops_struct(self, sysfs_file: SysFile):
         kffi = plugins.kffi
-        ops = kffi.new("struct igloo_sysfs_ops")
         overridden = self._get_overridden_methods(sysfs_file)
+        
+        # Build the initialization dictionary dynamically
+        init_data = {}
         for name, fn in overridden.items():
-            c_fn = yield from kffi.callback(fn)
-            setattr(ops, name, c_fn)
-        return ops
+            init_data[name] = yield from kffi.callback(fn)
+            
+        return kffi.new("struct igloo_sysfs_ops", init_data)
 
     def register_sysfs(self, sysfs_file: SysFile, path: Optional[str] = None, mode: int = 0o644):
         if path:
@@ -68,14 +70,17 @@ class Sysfs(Plugin):
                 parent_id = self._sysfs_dirs[cur_path]
             else:
                 kffi = plugins.kffi
-                req = kffi.new("struct portal_sysfs_create_req")
-                buf = part.encode("latin-1", errors="ignore")[:255] + b"\0"
-                for j in range(len(buf)):
-                    req.path[j] = buf[j]
-                req.parent_id = parent_id
-                req.replace = 0
-                req.mode = 0o755
-                req_bytes = req.to_bytes()
+                
+                init_data = {
+                    "parent_id": parent_id,
+                    "replace": 0,
+                    "mode": 0o755,
+                    "path": part.encode("latin-1", errors="ignore")
+                }
+                
+                req = kffi.new("struct portal_sysfs_create_req", init_data)
+                req_bytes = bytes(req)
+                
                 result = yield PortalCmd(
                     hop.HYPER_OP_SYSFS_CREATE_OR_LOOKUP_DIR,
                     0,
@@ -114,17 +119,20 @@ class Sysfs(Plugin):
                 self.logger.error(f"Invalid sysfs file name: '{file_name}' from path '{fname}'")
                 continue
 
-            buf = file_name.encode("latin-1", errors="ignore")[:255] + b"\0"
             ops = yield from self._make_ops_struct(sysfs_file)
             kffi = plugins.kffi
-            req = kffi.new("struct portal_sysfs_create_req")
-            for i in range(len(buf)):
-                req.path[i] = buf[i]
-            req.ops = ops
-            req.parent_id = parent_id
-            req.replace = 1
-            req.mode = mode
-            req_bytes = req.to_bytes()
+            
+            init_data = {
+                "path": file_name.encode("latin-1", errors="ignore"),
+                "ops": ops,
+                "parent_id": parent_id,
+                "replace": 1,
+                "mode": mode
+            }
+            
+            req = kffi.new("struct portal_sysfs_create_req", init_data)
+            req_bytes = bytes(req)
+            
             result = yield PortalCmd(
                 hop.HYPER_OP_SYSFS_CREATE_FILE,
                 0,
@@ -142,8 +150,8 @@ class Sysfs(Plugin):
             return False
 
         pending = self._pending_sysfs[:]
+        self._pending_sysfs.clear()
         while pending:
             sysfs = pending.pop(0)
             yield from self._register_sysfs([sysfs])
-            self._pending_sysfs.remove(sysfs)
         return False
