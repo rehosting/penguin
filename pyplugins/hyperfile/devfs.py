@@ -38,12 +38,14 @@ class Devfs(Plugin):
 
     def _make_ops_struct(self, devfs_file: DevFile):
         kffi = plugins.kffi
-        ops = kffi.new("struct igloo_dev_ops")
         overridden = self._get_overridden_methods(devfs_file)
+        
+        # Build the initialization dictionary dynamically
+        init_data = {}
         for name, fn in overridden.items():
-            c_fn = yield from kffi.callback(fn)
-            setattr(ops, name, c_fn)
-        return ops
+            init_data[name] = yield from kffi.callback(fn)
+            
+        return kffi.new("struct igloo_dev_ops", init_data)
 
     def register_devfs(self, devfs_file: DevFile, path: Optional[str] = None, major: Optional[int] = None, minor: Optional[int] = None):
         if path:
@@ -99,18 +101,14 @@ class Devfs(Plugin):
                 continue
 
             kffi = plugins.kffi
-            # Reusing devfs_dir_req or similar struct defined in your kernel
-            # If not defined, you might need to define it or reuse create_req carefully
-            req = kffi.new("struct portal_devfs_dir_req")
+            init_data = {
+                "name": part.encode("latin-1", errors="ignore"),
+                "parent_id": parent_id,
+                "replace": 0
+            }
             
-            buf = part.encode("latin-1", errors="ignore")[:63] + b"\0"
-            for j in range(len(buf)):
-                req.name[j] = buf[j]
-            
-            req.parent_id = parent_id
-            req.replace = 0
-            
-            req_bytes = req.to_bytes()
+            req = kffi.new("struct portal_devfs_dir_req", init_data)
+            req_bytes = bytes(req)
             
             # Ensure HYPER_OP_DEVFS_CREATE_OR_LOOKUP_DIR is defined in your hop consts
             result = yield PortalCmd(
@@ -146,24 +144,23 @@ class Devfs(Plugin):
                 self.logger.error(f"Invalid devfs device name after split: '{file_name}'")
                 continue
 
-            buf = file_name.encode("latin-1", errors="ignore")[:255] + b"\0"
             ops = yield from self._make_ops_struct(devfs_file)
-            
             kffi = plugins.kffi
-            req = kffi.new("struct portal_devfs_create_req")
-            for i in range(len(buf)):
-                req.name[i] = buf[i]
             
-            req.major = major
-            req.minor = minor
-            req.ops = ops
-            req.replace = 1
+            init_data = {
+                "name": file_name.encode("latin-1", errors="ignore"),
+                "major": major,
+                "minor": minor,
+                "ops": ops,
+                "replace": 1,
+                # Dwarffi safely ignores keys that don't exist on the target struct, 
+                # entirely replacing the need for 'hasattr(req, "parent_id")' checks!
+                "parent_id": parent_id
+            }
             
-            # Set parent_id if the struct supports it (requires updated KFFI defs)
-            if hasattr(req, 'parent_id'):
-                req.parent_id = parent_id
+            req = kffi.new("struct portal_devfs_create_req", init_data)
+            req_bytes = bytes(req)
             
-            req_bytes = req.to_bytes()
             result = yield PortalCmd(
                 hop.HYPER_OP_DEVFS_CREATE_DEVICE,
                 0,
@@ -183,8 +180,8 @@ class Devfs(Plugin):
             return False
 
         pending = self._pending_devfs[:]
+        self._pending_devfs.clear()
         while pending:
             devfs = pending.pop(0)
             yield from self._register_devfs([devfs])
-            self._pending_devfs.remove(devfs)
         return False
