@@ -8,14 +8,15 @@ import json
 def in_container() -> bool:
     return env.get("PENGUIN_PROJECT_DIR", None) is not None
 
+def get_default_socket_path() -> str:
+    if in_container():
+        return join(env["PENGUIN_PROJECT_DIR"],
+                    "results", "latest", "penguin.sock")
+    else:
+        raise Exception("Socket path required")
 
-def send_command(data: dict = None, sock: Optional[str] = None) -> Optional[dict]:
-    if sock is None:
-        if in_container():
-            sock = join(env["PENGUIN_PROJECT_DIR"],
-                        "results", "latest", "penguin.sock")
-        else:
-            raise Exception("Socket path required")
+
+def send_command(data: dict = None, sock: str = None) -> Optional[dict]:
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as c:
         c.connect(sock)
         c.sendall(json.dumps(data).encode())
