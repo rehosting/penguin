@@ -56,8 +56,8 @@ class KFFITest(Plugin):
         # NEW: DWARFFI ENHANCEMENTS & MARSHALLING TESTS
         # ---------------------------------------------------------
         self.logger.info("Testing DWARFFI nested struct & array initialization...")
-        
-        # 1. Deep initialization & Arrays 
+
+        # 1. Deep initialization & Arrays
         # (Using list_head as it is universally available in the Linux kernel ISF)
         nodes = kffi.new("struct list_head[2]", [
             {"next": 0x1111, "prev": 0x2222},
@@ -77,7 +77,7 @@ class KFFITest(Plugin):
         assert len(raw_bytes) == expected_size, f"Expected {expected_size} bytes, got {len(raw_bytes)}"
 
         # 4. KFFI Auto-Marshalling: Pass BoundTypeInstance to a kernel function
-        # The KFFI _prepare_ffi_call marshaller should automatically kmalloc, 
+        # The KFFI _prepare_ffi_call marshaller should automatically kmalloc,
         # write the bytes, and pass the pointer!
         try:
             yield from kffi.call("igloo_test_function", 1, 2, 3, 4, 5, 6, 7, nodes[0])
@@ -135,7 +135,7 @@ class KFFITest(Plugin):
         assert exe_path == exe_path_from_osi, f"Expected exe path from osi {exe_path_from_osi}, got {exe_path}"
         yield from plugins.kffi.call_kernel_function("fput", exe_file_ptr)
         yield from plugins.kffi.kfree(buf)
-        
+
         with open(join(self.outdir, "kffi_test.txt"), "a") as f:
             f.write(f"Calling program is {exe_path}\n")
 
