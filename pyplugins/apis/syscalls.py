@@ -40,6 +40,10 @@ class SyscallEvent:
         # 3. Transparently pass through any standard field accesses
         # (e.g., event.orig_x0) to the underlying dwarffi instance.
         return getattr(self._sce, attr)
+    
+    def __bytes__(self) -> bytes:
+        # 4. Allow bytes() to be called on the wrapper to get the raw bytes for writing back to memory.
+        return bytes(self._sce)
 
     def __setattr__(self, attr, value):
         # If the attribute belongs to the wrapper, set it locally
