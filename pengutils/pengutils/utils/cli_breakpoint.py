@@ -32,7 +32,7 @@ See individual commands for specific options.
 
 import click
 from rich import print
-from pengutils.utils.util_events import send_command
+from pengutils.utils.util_events import get_default_socket_path, send_command
 
 
 @click.group(name="breakpoint")
@@ -42,10 +42,12 @@ def breakpoint_cli():
 
 
 @breakpoint_cli.command()
-@click.option("--sock", default="results/latest/remotectrl.sock", help="Path to plugin socket (default: results/latest/remotectrl.sock)")
+@click.option("--sock", default=None, help="Path to plugin socket (default: results/latest/remotectrl.sock)")
 @click.pass_context
 def list(ctx, sock):
     """List all breakpoints/hooks."""
+    if not sock:
+        sock = get_default_socket_path()
     cmd = {"type": "list"}
     try:
         resp = send_command(cmd, sock=sock)
@@ -84,12 +86,14 @@ def list(ctx, sock):
 
 
 @breakpoint_cli.command()
-@click.option("--sock", default="results/latest/remotectrl.sock", help="Path to plugin socket (default: results/latest/remotectrl.sock)")
+@click.option("--sock", default=None, help="Path to plugin socket (default: results/latest/remotectrl.sock)")
 @click.option("--id", default=None, type=int, help="Breakpoint ID to disable (optional)")
 @click.argument("arg_id", required=False, type=int)
 @click.pass_context
 def disable(ctx, sock, id, arg_id):
     """Disable a breakpoint/hook by ID, or all if no ID is given."""
+    if not sock:
+        sock = get_default_socket_path()
     # Allow passing ID as an argument or flag
     id_val = arg_id if arg_id is not None else id
     cmd = {"type": "disable"}
@@ -117,7 +121,7 @@ def disable(ctx, sock, id, arg_id):
 
 
 @breakpoint_cli.command()
-@click.option("--sock", default="results/latest/remotectrl.sock", help="Path to plugin socket (default: results/latest/remotectrl.sock)")
+@click.option("--sock", default=None, help="Path to plugin socket (default: results/latest/remotectrl.sock)")
 @click.option("--name", required=True, help="Syscall name")
 @click.option("--action", required=True, help="Action string")
 @click.option("--proc", default=None, help="Process name filter")
@@ -128,6 +132,8 @@ def syscall(ctx, sock, name, action, proc, pid, output):
     """
     Set up a syscall trace via the Penguin RemoteCtrl Plugin Unix socket.
     """
+    if not sock:
+        sock = get_default_socket_path()
     cmd = {
         "type": "syscall",
         "name": name,
@@ -160,7 +166,7 @@ def syscall(ctx, sock, name, action, proc, pid, output):
 
 
 @breakpoint_cli.command()
-@click.option("--sock", default="results/latest/remotectrl.sock", help="Path to plugin socket (default: results/latest/remotectrl.sock)")
+@click.option("--sock", default=None, help="Path to plugin socket (default: results/latest/remotectrl.sock)")
 @click.option("--path", required=True, help="Path to library or binary")
 @click.option("--symbol", required=True, help="Symbol to probe")
 @click.option("--action", required=True, help="Action string")
@@ -183,6 +189,8 @@ def uprobe(ctx, sock, path, symbol, action, proc, pid, output):
     if output:
         # Map CLI '--output' to JSON 'logfile'
         cmd["logfile"] = output
+    if not sock:
+        sock = get_default_socket_path()
     try:
         resp = send_command(cmd, sock=sock)
         if not resp:
