@@ -21,7 +21,7 @@ Options
 
 import click
 from rich import print
-from pengutils.utils.util_events import send_command
+from pengutils.utils.util_events import get_default_socket_path, send_command
 
 
 def parse_extra_args(args_tuple):
@@ -52,7 +52,7 @@ def parse_extra_args(args_tuple):
 @click.group()
 @click.option(
     "--sock",
-    default="/workspace/results/latest/remotectrl.sock",
+    default=None,
     help="Path to plugin socket (default: /workspace/results/latest/remotectrl.sock)",
 )
 @click.pass_context
@@ -61,7 +61,10 @@ def plugins(ctx, sock):
     Manage plugins via the Penguin RemoteCtrl Plugin Unix socket.
     """
     ctx.ensure_object(dict)
-    ctx.obj['sock'] = sock
+    if sock:
+        ctx.obj['sock'] = sock
+    else:
+        ctx.obj['sock'] = get_default_socket_path()
 
 
 def _send_plugin_cmd(ctx, cmd_type, plugin_name, args=None):
