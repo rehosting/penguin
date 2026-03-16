@@ -82,6 +82,7 @@ def list(ctx, sock):
         raise
     except Exception as e:
         print(f"[red]{e}[/red]")
+        print("[red]Is the remotectrl plugin loaded?[/red]")
         ctx.exit(1)
 
 
@@ -117,6 +118,7 @@ def disable(ctx, sock, id, arg_id):
         raise
     except Exception as e:
         print(f"[red]{e}[/red]")
+        print("[red]Is the remotectrl plugin loaded?[/red]")
         ctx.exit(1)
 
 
@@ -162,6 +164,7 @@ def syscall(ctx, sock, name, action, proc, pid, output):
         raise
     except Exception as e:
         print(f"[red]{e}[/red]")
+        print("[red]Is the remotectrl plugin loaded?[/red]")
         ctx.exit(1)
 
 
@@ -209,6 +212,7 @@ def uprobe(ctx, sock, path, symbol, action, proc, pid, output):
         raise
     except Exception as e:
         print(f"[red]{e}[/red]")
+        print("[red]Is the remotectrl plugin loaded?[/red]")
         ctx.exit(1)
 
 

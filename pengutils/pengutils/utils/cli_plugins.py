@@ -77,7 +77,7 @@ def _send_plugin_cmd(ctx, cmd_type, plugin_name, args=None):
         resp = send_command(cmd, sock=sock)
         if not resp:
             print(f"[red]No response from socket {sock}[/red]")
-            print("[red]Is the dyn_events plugin loaded?[/red]")
+            print("[red]Is the remotectrl plugin loaded?[/red]")
             ctx.exit(1)
         if resp.get("status") == "success":
             if "message" in resp:
@@ -92,7 +92,7 @@ def _send_plugin_cmd(ctx, cmd_type, plugin_name, args=None):
         raise
     except Exception as e:
         print(f"[red]{e}[/red]")
-        print("[red]Is the dyn_events plugin loaded?[/red]")
+        print("[red]Is the remotectrl plugin loaded?[/red]")
         ctx.exit(1)
 
 
