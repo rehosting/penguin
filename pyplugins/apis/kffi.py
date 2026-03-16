@@ -382,6 +382,9 @@ class KFFI(Plugin):
         for i, arg in enumerate(marshalled_args):
             if isinstance(arg, float):
                 ffi_call.args[i] = struct.unpack('<Q', struct.pack('<d', arg))[0]
+            elif isinstance(arg, BoundTypeInstance):
+                # FIX: Check for BoundTypeInstance BEFORE checking for __bytes__
+                ffi_call.args[i] = boundtype_ptrs[i]
             elif isinstance(arg, int) or hasattr(arg, '_value'):
                 ffi_call.args[i] = int(arg)
             elif isinstance(arg, (str, bytes)) or hasattr(arg, '__bytes__'):
@@ -389,12 +392,9 @@ class KFFI(Plugin):
                     if idx == i:
                         ffi_call.args[i] = kmem_addr + off
                         break
-            elif isinstance(arg, BoundTypeInstance):
-                ffi_call.args[i] = boundtype_ptrs[i]
             else:
                 raise TypeError(f"Unsupported argument type for FFI assignment: {type(arg)}")
 
-        # ZERO-COPY UPGRADE: Extract the FFI portal structure dynamically via memoryview slice
         return bytes(ffi_call), kmem_addr, func_typeinfo
 
     def call_kernel_function(
