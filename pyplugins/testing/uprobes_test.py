@@ -166,7 +166,7 @@ class UprobesTest(Plugin):
 
     def uprobe_strncmp_ret(self, pt_regs):
         if self.uprobe_strncmp_val == "Hello from uprobe_test\n":
-            retval = pt_regs.get_retval()
+            retval = pt_regs.retval
             self.logger.info(f"strncmp return value: {retval}")
             self.test_results["strncmp"]["return"] = True
             # strncmp should return 0 for identical strings
@@ -187,7 +187,7 @@ class UprobesTest(Plugin):
 
         if format_str.startswith("Hello from uprobe_test"):
             m = yield from osi.get_mappings()
-            pc = pt_regs.get_pc()
+            pc = pt_regs.pc
 
             # Get the mapping associated with printf
             pc_mapping = m.get_mapping_by_addr(pc)
@@ -219,7 +219,7 @@ class UprobesTest(Plugin):
 
     def uprobe_printf_ret(self, pt_regs):
         if self.uprobe_printf_val:
-            retval = pt_regs.get_retval()
+            retval = pt_regs.retval
             self.logger.info(f"printf return value: {retval}")
 
             # printf should return the number of characters printed
