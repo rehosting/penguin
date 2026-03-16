@@ -146,6 +146,48 @@ class PtRegsWrapper(Wrapper):
         """Pass-through to underlying bound object for serialization."""
         return bytes(self._obj)
 
+    def __getattr__(self, name: str) -> Any:
+        """
+        Dynamically intercept attribute access for registers.
+        Allows for `val = regs.pc` instead of `val = regs.get_pc()`.
+        """
+        # Fast path for known registers and aliases
+        entry = self._ACCESSORS.get(name)
+        if entry:
+            return entry[0](self._obj)
+
+        # Fallback to standard attribute resolution
+        # (This will delegate to `Wrapper` if it implements __getattr__,
+        # otherwise raises AttributeError)
+        if hasattr(super(), '__getattr__'):
+            return super().__getattr__(name)
+
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """
+        Dynamically intercept attribute assignment for registers.
+        Allows for `regs.pc = 0x1000` instead of `regs.set_pc(0x1000)`.
+        """
+        # Note: __init__ uses object.__setattr__ for critical internal vars (_obj, _panda),
+        # so this is perfectly safe and won't cause infinite recursion during setup.
+        entry = self._ACCESSORS.get(name)
+        if entry:
+            entry[1](self._obj, value)
+            return
+
+        # Fallback for normal attribute assignment (e.g., self._x86_delegate = ...)
+        super().__setattr__(name, value)
+
+    def __dir__(self) -> List[str]:
+        """
+        Expose register names for IDE autocomplete and the built-in dir() function.
+        """
+        # Combine standard class/instance attributes with our dynamic register names
+        standard_attrs = set(super().__dir__())
+        reg_attrs = set(self._ACCESSORS.keys())
+        return sorted(list(standard_attrs | reg_attrs))
+
     # --- Standard Accessors (Proxied via get_register for simplicity) ---
 
     def get_pc(self) -> Optional[int]:
