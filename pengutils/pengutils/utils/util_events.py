@@ -12,7 +12,7 @@ def in_container() -> bool:
 def get_default_socket_path() -> str:
     if in_container():
         return join(env["PENGUIN_PROJECT_DIR"],
-                    "results", "latest", "penguin.sock")
+                    "results", "latest", "remotectrl.sock")
     else:
         raise Exception("Socket path required")
 
