@@ -1,4 +1,5 @@
 plugins:
+  procfs_test: {}
   verifier:
     conditions:
       proc_mtd:
@@ -35,7 +36,7 @@ static_files:
             echo "All good: The path of the MTD device named 'flash' is: $device_path"
             exit 0
           else
-            echo "Error: MTD device flash has bad data: $(cat $device_path)"
+            echo "Error: MTD device flash has bad data: $(/igloo/utils/busybox cat $device_path)"
             exit 1
           fi
       else
