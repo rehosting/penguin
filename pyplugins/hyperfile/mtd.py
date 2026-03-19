@@ -1,12 +1,25 @@
 import os
 import re
+import io
 from penguin import Plugin, plugins
 from hyper.portal import PortalCmd
 from hyper.consts import HYPER_OP as hop
 
 class MTD(Plugin):
     def __init__(self):
-        self.config = self.get_arg("devices") or {}
+        # Fetch configurations (accounting for global conf fallback)
+        conf = self.get_arg("conf") or {}
+        self.config = self.get_arg("devices") or conf.get("devices") or {}
+        self.pseudofiles = self.get_arg("pseudofiles") or conf.get("pseudofiles") or {}
+        
+        if not isinstance(self.config, dict):
+            self.config = {}
+        if not isinstance(self.pseudofiles, dict):
+            self.pseudofiles = {}
+            
+        # 1. Backwards Compatibility: Migrate legacy pseudofiles MTDs
+        self._migrate_pseudofiles()
+
         self.internal_devices = self._validate_and_build(self.config)
         
         # Registry for open file handles: { mtd_id: file_object }
@@ -21,11 +34,41 @@ class MTD(Plugin):
                 "mtd", self._mtd_interrupt_handler)
             plugins.portal.queue_interrupt("mtd")
 
+    def _migrate_pseudofiles(self):
+        """
+        Scans the legacy pseudofiles block for /dev/mtdX definitions and
+        dynamically injects them into the native MTD devices configuration.
+        """
+        for path, details in list(self.pseudofiles.items()):
+            match = re.match(r"^/dev/mtd(\d+)$", path)
+            if match:
+                mtd_id = int(match.group(1))
+                name = details.get("name", f"mtd{mtd_id}")
+                read_model = details.get("read", {}).get("model", "zeros")
+                
+                dev_config = {
+                    "id": mtd_id,
+                    "name": name,
+                }
+                
+                # Convert const_buf string payloads to byte arrays
+                if read_model in ("const_buf", "return_const"):
+                    dev_config["model"] = "const_buf"
+                    val = details["read"].get("val", b"")
+                    if isinstance(val, str):
+                        val = val.encode('utf-8')
+                    dev_config["val"] = val
+                else:
+                    dev_config["model"] = "zeros"
+                
+                # Merge into the native MTD configuration
+                self.config[name] = dev_config
+
     # -------------------------------------------------------------------------
     # Guest -> Host Callbacks
     # -------------------------------------------------------------------------
 
-    def _mtd_read(self, mtd_id, offset, length, buf_ptr):
+    def _mtd_read(self, ptregs, mtd_id, offset, length, buf_ptr):
         """Called by Guest Kernel to read data from Host file."""
         f = self._handles.get(mtd_id)
         if not f:
@@ -37,30 +80,29 @@ class MTD(Plugin):
             read_len = len(data)
             
             # Copy data from Python bytes -> Guest Memory Pointer
-            plugins.kffi.memmove(buf_ptr, data, read_len)
+            yield from plugins.mem.write_bytes(buf_ptr, data)
             
             # If we hit EOF, pad the rest with 0xFF (Simulate Erased Flash)
             if read_len < length:
                 pad_len = length - read_len
                 pad_ptr = buf_ptr + read_len
                 pad = b'\xff' * pad_len
-                plugins.kffi.memmove(pad_ptr, pad, pad_len)
+                yield from plugins.mem.write_bytes(pad_ptr, pad)
                 
-            return 0 # Success
+            return 0
         except Exception as e:
             self.logger.error(f"MTD Read Error (ID {mtd_id}): {e}")
-            return -5 # -EIO
+            return -5
 
-    def _mtd_write(self, mtd_id, offset, length, buf_ptr):
+    def _mtd_write(self, ptregs, mtd_id, offset, length, buf_ptr):
         """Called by Guest Kernel to write data to Host file."""
         f = self._handles.get(mtd_id)
         if not f:
             return -19
             
         try:
-            # Read data from Guest Memory Pointer -> Python bytes
-            # kffi.buffer creates a view, [:] copies it to bytes
-            data = plugins.kffi.buffer(buf_ptr, length)[:]
+            # Read data from Guest Memory Pointer -> Python bytes using mem plugin
+            data = yield from plugins.mem.read_bytes(buf_ptr, length)
             
             f.seek(offset)
             f.write(data)
@@ -69,7 +111,7 @@ class MTD(Plugin):
             self.logger.error(f"MTD Write Error (ID {mtd_id}): {e}")
             return -5
 
-    def _mtd_erase(self, mtd_id, offset, length):
+    def _mtd_erase(self, ptregs, mtd_id, offset, length):
         """Called by Guest Kernel to erase a block."""
         f = self._handles.get(mtd_id)
         if not f:
@@ -162,14 +204,21 @@ class MTD(Plugin):
             req.cb_write_ptr = self._cb_ptrs['write']
             req.cb_erase_ptr = self._cb_ptrs['erase']
             
-            # Prepare file handle
-            try:
-                # Open with rb+ for Read/Write, rb for Read-Only
-                mode_str = "rb" if dev.get('mode') == 'ro' else "rb+"
-                f_handle = open(dev['backing_path'], mode_str)
-            except Exception as e:
-                self.logger.error(f"Failed to open backing file {dev['backing_path']}: {e}")
-                return # Skip this device
+            if dev['model'] == 'const_buf':
+                # Use io.BytesIO to simulate a file handle entirely in RAM
+                initial_buf = dev.get('val', b'')
+                # Pad to total_size to mimic real flash behavior
+                if len(initial_buf) < req.total_size:
+                    initial_buf += b'\xff' * (req.total_size - len(initial_buf))
+                f_handle = io.BytesIO(initial_buf)
+            else:
+                try:
+                    # Open with rb+ for Read/Write, rb for Read-Only
+                    mode_str = "rb" if dev.get('mode') == 'ro' else "rb+"
+                    f_handle = open(dev['backing_path'], mode_str)
+                except Exception as e:
+                    self.logger.error(f"Failed to open backing file {dev['backing_path']}: {e}")
+                    return # Skip this device
 
         # --- 3. Send Command ---
         req_bytes = bytes(req)
@@ -260,6 +309,11 @@ class MTD(Plugin):
                         final_size = 16 * 1024 * 1024 # 16MB
                     else:
                         final_size = 256 * 1024 * 1024 # 256MB
+                        
+            elif model == "const_buf":
+                # Fallback to an erase block size minimum (128KB) to avoid kernel panics
+                val_len = len(dev.get("val", b""))
+                final_size = max(val_len, 131072)
             
             else:
                 raise ValueError(f"Unknown model type '{model}' for device '{name}'")
@@ -283,7 +337,8 @@ class MTD(Plugin):
                 "mode": dev.get("mode", "rw"),
                 "total_size": final_size,
                 "backing_path": backing_path,
-                "geometry": personality
+                "geometry": personality,
+                "val": dev.get("val")
             })
 
         device_list.sort(key=lambda x: x["id"])
