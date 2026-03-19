@@ -1,6 +1,6 @@
 import inspect
 from penguin import plugins, Plugin
-from hyperfile.models.base import DevFile, ProcFile, SysFile
+from hyperfile.models.base import DevFile, ProcFile, SysFile, SysfsBridge
 from hyperfile.models.read import ReadZero, ReadExternalVFS, ReadExternalLegacy, ReadConstBuf, ReadEmpty, ReadFromFile
 from hyperfile.models.write import WriteDiscard, WriteExternalVFS, WriteExternalLegacy, WriteToFile
 from hyperfile.models.ioctl import (
@@ -188,7 +188,7 @@ class Pseudofiles(Plugin):
             elif domain == "write":
                 return self.write_models.get(model_name, WriteDiscard)
             elif domain == "ioctl":
-                return self.ioctl_models.get(model_name, IoctlZero) # TODO FIX
+                return self.ioctl_models.get(model_name, IoctlZero)
 
         # 2. Handle "from_plugin"
         plugin_name = conf.get("plugin")
@@ -223,14 +223,18 @@ class Pseudofiles(Plugin):
         
         # Assemble
         safe_name = f"Gen_{filename.replace('/', '_')}"
-        bases = (R_Mixin, W_Mixin, IoctlDispatcher, BaseClass)
+        bases = [R_Mixin, W_Mixin, IoctlDispatcher]
+        
+        if BaseClass is SysFile:
+            bases.append(SysfsBridge)
+        bases.append(BaseClass)
         
         all_kwargs = {**r_kwargs, **w_kwargs}
         all_kwargs['ioctl_handlers'] = handlers_map
         all_kwargs['path'] = filename
         all_kwargs['fs'] = BaseClass.FS
 
-        return type(safe_name, bases, {})(**all_kwargs)
+        return type(safe_name, tuple(bases), {})(**all_kwargs)
 
     def _force_removal(self, filename):
         self.config["static_files"][filename] = {"type": "delete"}
@@ -240,6 +244,11 @@ class Pseudofiles(Plugin):
             return
 
         for filename, details in self.config.get("pseudofiles", {}).items():
+            # Ignore MTD devices; they are handled natively by mtd.py and portal_mtd.c
+            if filename.startswith("/dev/mtd") or filename == "/proc/mtd":
+                self.logger.debug(f"Ignoring {filename} in pseudofiles (deferred to native MTD subsystem)")
+                mtd = plugins.mtd
+                continue
             
             # Determine Base Class and Registerer based on path prefix
             if filename.startswith("/proc/"):
