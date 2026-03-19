@@ -28,46 +28,6 @@ class CPUinfoFile(ReadConstBuf, ProcFile):
         data = b"processor       : IGLOO\n"
         super().__init__(buffer=data)
 
-class PenguinNet(ReadConstBuf, ProcFile):
-    PATH = "/proc/penguin_net"  # No /proc prefix
-    def __init__(self, config):
-        netdev_val = " ".join(config["netdevs"])
-        super().__init__(buffer=netdev_val)
-
-class ProcMtd(ReadConstBuf, ProcFile):
-    PATH = "/proc/mtd"  # No /proc prefix
-
-    def __init__(self, config):
-        # Generate the /proc/mtd buffer based on config["pseudofiles"]
-        buf = self._generate_mtd_buf(config)
-        super().__init__(buffer=buf)
-
-    def _generate_mtd_buf(self, config):
-        """
-        Generate the /proc/mtd contents based on /dev/mtd* pseudofiles in config.
-        """
-        buf = ""
-        did_warn = False
-        for filename, details in config.get("pseudofiles", {}).items():
-            if not filename.startswith("/dev/mtd"):
-                continue
-
-            idx = filename.split("/dev/mtd")[1]
-            if idx.startswith("/"):
-                idx = idx[1:]
-
-            if not idx.isdigit():
-                # Optionally log a warning here if needed
-                continue
-
-            if "name" not in details:
-                # Optionally log a warning here if needed
-                continue
-
-            buf += 'mtd{}: {:08x} {:08x} "{}"\n'.format(
-                int(idx), 0x1000000, 0x20000, details["name"]
-            )
-        return buf
 
 class ModulesFile(ReadConstBuf, ProcFile):
     PATH = "/proc/modules"  # No /proc prefix
@@ -154,5 +114,3 @@ class ProcTest(Plugin):
         plugins.procfs.register_proc(SimpleProcfsFile())
         plugins.procfs.register_proc(CPUinfoFile())
         plugins.procfs.register_proc(ModulesFile())
-        plugins.procfs.register_proc(PenguinNet(self.get_arg("conf")))
-        plugins.procfs.register_proc(ProcMtd(self.get_arg("conf")))
