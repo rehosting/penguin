@@ -12,11 +12,13 @@ from hyperfile.models.ioctl import (
     IoctlPluginVFS,
     IoctlPluginLegacy,
 )
+from hyperfile.models.proc import PenguinNet
 
 
 class Pseudofiles(Plugin):
     def __init__(self):
         self.config = self.get_arg("conf")
+        plugins.procfs.register_proc(PenguinNet(self.config))
         self._populate_hf_config()
 
     # 1. MAPPING LEGACY NAMES TO NEW CLASSES
