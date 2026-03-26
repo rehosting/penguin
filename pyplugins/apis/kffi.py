@@ -166,7 +166,7 @@ class KFFI(Plugin):
         try:
             self.ffi.cdef(
                 source=source,
-                compiler="clang",  # Changed from clang-20 to a more universal default
+                compiler="clang-20",
                 compiler_flags=compiler_flags,
                 save_isf_to=str(cache_path)
             )
