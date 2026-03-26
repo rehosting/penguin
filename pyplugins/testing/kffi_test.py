@@ -89,6 +89,24 @@ class KFFITest(Plugin):
         # The KFFI Wrapper class allows dot-attribute access for constants
         assert getattr(enum_dict, "PIDTYPE_PID", None) is not None, "Failed to parse enum pid_type"
 
+        # 6. Dynamic cdef Compilation & Validation
+        self.logger.info("Testing dynamic cdef compilation...")
+        kffi.cdef("""
+            struct penguin_cdef_test {
+                int magic;
+                char buf[12];
+                unsigned long target;
+            };
+        """)
+        
+        cdef_inst = kffi.new("struct penguin_cdef_test")
+        cdef_inst.magic = 0x1337
+        cdef_inst.target = 0xdeadbeef
+        
+        assert cdef_inst.magic == 0x1337, "cdef struct member 'magic' mismatch"
+        assert cdef_inst.target == 0xdeadbeef, "cdef struct member 'target' mismatch"
+        assert kffi.ffi.sizeof("struct penguin_cdef_test") > 0, "cdef struct size is invalid"
+
         self.logger.info("DWARFFI enhancements successfully tested!")
         # ---------------------------------------------------------
 
