@@ -15,6 +15,7 @@ Features
 * Read and write kernel memory.
 * Marshal arguments and results between user-space and kernel-space.
 * Supports type-safe function signatures and return values.
+* Compile and inject dynamic C-structs/typedefs on the fly using DWARFFI.
 
 Example usage
 -------------
@@ -31,10 +32,16 @@ Example usage
 
     # Write to kernel memory
     yield from plugins.kffi.write_kernel_memory(0xffff888000000000, b"\x90\x90\x90\x90")
+
+    # Load a custom struct layout into the emulator's architecture
+    plugins.kffi.cdef("struct my_payload { int a; char b[10]; };")
 """
 
 import inspect
+import hashlib
+import os
 from os.path import isfile, join, realpath
+from pathlib import Path
 from typing import Any, Generator, Iterator, Optional, Tuple, Union
 
 from dwarffi.instances import BoundTypeInstance, Ptr, EnumInstance
@@ -45,6 +52,7 @@ from wrappers.generic import Wrapper
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
 
 from penguin import Plugin, getColoredLogger, plugins
+from penguin.abi_info import ARCH_ABI_INFO
 
 
 class KFFI(Plugin):
@@ -60,6 +68,7 @@ class KFFI(Plugin):
     - ``call_function``: Call a kernel function with arguments.
     - ``read_kernel_memory``: Read bytes from kernel memory.
     - ``write_kernel_memory``: Write bytes to kernel memory.
+    - ``cdef``: Dynamically compile and load C definitions (structs/enums) for the target ABI.
     """
 
     def __init__(self) -> None:
@@ -97,6 +106,72 @@ class KFFI(Plugin):
         # Register with portal's interrupt handler system
         self.portal.register_interrupt_handler(
             "kffi", self._tramp_interrupt_handler)
+
+    def cdef(self, source: str) -> None:
+        """
+        Compile C definitions on the fly and load them into DWARFFI.
+        Automatically handles architecture-specific compiler flags, musl headers, 
+        and caches the ISF output to speed up subsequent runs.
+
+        Args:
+            source (str): The C code containing structs/enums/typedefs to compile.
+        """
+        conf = self.get_arg("conf")
+        proj_dir = self.get_arg("proj_dir")
+        
+        arch = conf["core"]["arch"]
+        arch_info = ARCH_ABI_INFO[arch]
+        abi = arch_info.get("default_abi", list(arch_info.get("abis", {}).keys())[0])
+        abi_info = arch_info["abis"][abi]
+        
+        # Determine caching directory 
+        if proj_dir:
+            cache_dir = Path(proj_dir).resolve() / "qcows" / "cache"
+        else:
+            cache_dir = Path(os.path.dirname(os.path.abspath(__file__))).resolve() / "qcows" / "cache"
+            
+        os.makedirs(cache_dir, exist_ok=True)
+        
+        # Hash input for caching
+        hash_input = f"{arch}_{abi}_{source}".encode()
+        cache_key = hashlib.sha256(hash_input).hexdigest()
+        cache_path = cache_dir / f"kffi_cdef_{arch}_{abi}_{cache_key}.json.xz"
+        
+        # Check cache
+        if cache_path.exists():
+            self.logger.debug(f"Loading cached DWARFFI ISF from {cache_path}")
+            self.ffi.load_isf(str(cache_path))
+            return
+            
+        # Build strict cross-compilation flags based on ABI config
+        headers_dir = f"/igloo_static/musl-headers/{abi_info['musl_arch_name']}/include"
+        target = abi_info.get("target_triple", None) or arch_info["target_triple"]
+        
+        compiler_flags = [
+            "-O3", "-g", "-gdwarf-4", "-fno-eliminate-unused-debug-types", "-c",
+            "-target", target,
+            "-isystem", headers_dir,
+            "-nostdinc",
+        ]
+        
+        for key, value in abi_info.get("m_flags", {}).items():
+            compiler_flags.append(f"-m{key.replace('_', '-')}={value}")
+            
+        compiler_flags.extend(abi_info.get("extra_flags", []))
+        
+        self.logger.info(f"Compiling cdef for {arch} {abi}. Caching to {cache_path.name}")
+        
+        # Delegate to DFFI to invoke clang -> dwarf2json -> load -> cache
+        try:
+            self.ffi.cdef(
+                source=source,
+                compiler="clang",  # Changed from clang-20 to a more universal default
+                compiler_flags=compiler_flags,
+                save_isf_to=str(cache_path)
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to compile and load cdef: {e}")
+            raise
 
     def new(self, type_: str, init: Any = None) -> Any:
         """
