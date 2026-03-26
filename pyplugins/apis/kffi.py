@@ -110,7 +110,7 @@ class KFFI(Plugin):
     def cdef(self, source: str) -> None:
         """
         Compile C definitions on the fly and load them into DWARFFI.
-        Automatically handles architecture-specific compiler flags, musl headers, 
+        Automatically handles architecture-specific compiler flags, musl headers,
         and caches the ISF output to speed up subsequent runs.
 
         Args:
@@ -118,49 +118,50 @@ class KFFI(Plugin):
         """
         conf = self.get_arg("conf")
         proj_dir = self.get_arg("proj_dir")
-        
+
         arch = conf["core"]["arch"]
         arch_info = ARCH_ABI_INFO[arch]
         abi = arch_info.get("default_abi", list(arch_info.get("abis", {}).keys())[0])
         abi_info = arch_info["abis"][abi]
-        
-        # Determine caching directory 
+
+        # Determine caching directory
         if proj_dir:
             cache_dir = Path(proj_dir).resolve() / "qcows" / "cache"
         else:
             cache_dir = Path(os.path.dirname(os.path.abspath(__file__))).resolve() / "qcows" / "cache"
-            
+
         os.makedirs(cache_dir, exist_ok=True)
-        
+
         # Hash input for caching
         hash_input = f"{arch}_{abi}_{source}".encode()
         cache_key = hashlib.sha256(hash_input).hexdigest()
         cache_path = cache_dir / f"kffi_cdef_{arch}_{abi}_{cache_key}.json.xz"
-        
+
         # Check cache
         if cache_path.exists():
             self.logger.debug(f"Loading cached DWARFFI ISF from {cache_path}")
             self.ffi.load_isf(str(cache_path))
             return
-            
+
         # Build strict cross-compilation flags based on ABI config
         headers_dir = f"/igloo_static/musl-headers/{abi_info['musl_arch_name']}/include"
         target = abi_info.get("target_triple", None) or arch_info["target_triple"]
-        
+
         compiler_flags = [
             "-O3", "-g", "-gdwarf-4", "-fno-eliminate-unused-debug-types", "-c",
             "-target", target,
             "-isystem", headers_dir,
             "-nostdinc",
         ]
-        
+
         for key, value in abi_info.get("m_flags", {}).items():
             compiler_flags.append(f"-m{key.replace('_', '-')}={value}")
-            
+
         compiler_flags.extend(abi_info.get("extra_flags", []))
-        
-        self.logger.info(f"Compiling cdef for {arch} {abi}. Caching to {cache_path.name}")
-        
+
+        self.logger.info(
+            f"Compiling cdef for {arch} {abi}. Caching to {cache_path.name}")
+
         # Delegate to DFFI to invoke clang -> dwarf2json -> load -> cache
         try:
             self.ffi.cdef(

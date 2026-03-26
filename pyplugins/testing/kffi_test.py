@@ -98,11 +98,11 @@ class KFFITest(Plugin):
                 unsigned long target;
             };
         """)
-        
+
         cdef_inst = kffi.new("struct penguin_cdef_test")
         cdef_inst.magic = 0x1337
         cdef_inst.target = 0xdeadbeef
-        
+
         assert cdef_inst.magic == 0x1337, "cdef struct member 'magic' mismatch"
         assert cdef_inst.target == 0xdeadbeef, "cdef struct member 'target' mismatch"
         assert kffi.ffi.sizeof("struct penguin_cdef_test") > 0, "cdef struct size is invalid"
