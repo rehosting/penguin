@@ -15,11 +15,17 @@ ARCH_ABI_INFO = dict(
             soft_float=dict(
                 musl_arch_name="arm",
                 m_flags=dict(),
+                extra_flags=[
+                    "-mcpu=cortex-a15",
+                ]
             ),
             hard_float=dict(
                 target_triple="armv7-linux-musleabi",
                 musl_arch_name="arm",
-                m_flags=dict(float_abi="hard")
+                m_flags=dict(float_abi="hard"),
+                extra_flags=[
+                    "-mcpu=cortex-a15",
+                ]
             ),
         ),
     ),
