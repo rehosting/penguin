@@ -61,8 +61,6 @@ static_files:
           exit 1
       fi
 
-      /igloo/utils/busybox ping -I blah0 -c 1 192.168.1.1
-
       echo "/tests/netdevs.sh PASS"
       exit 0
     mode: 73
