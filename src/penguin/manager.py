@@ -20,10 +20,11 @@ import os
 import signal
 import subprocess
 import time
-
+import logging
 from penguin import getColoredLogger
-
 from .common import yaml
+
+logger = getColoredLogger("penguin.manager.calculate_score")
 
 SCORE_CATEGORIES: list[str] = [
     "execs",
@@ -43,93 +44,96 @@ def calculate_score(result_dir: str, have_console: bool = True) -> dict[str, int
     Return a dict of the distinct metrics we care about name: value.
 
     This function loads experiment results and computes a score based on
-    various health and coverage metrics.
+    various health and coverage metrics. It handles missing or corrupt files
+    gracefully by logging warnings and defaulting scores to 0.
 
     :param result_dir: Directory containing experiment results.
-    :type result_dir: str
     :param have_console: Whether console output is available.
-    :type have_console: bool
-
     :return: Dictionary of score metrics.
-    :rtype: dict[str, int]
-
-    :raises RuntimeError: If required files are missing.
-    :raises ValueError: If an unknown score type is encountered.
+    :raises RuntimeError: If the critical .ran file is missing, indicating a failed run.
     """
-    health_data = {}
-    config = {}
-    blocked_signals = 0
+    # FAIL FAST: This is a critical failure. If .ran isn't there, the results are invalid.
     if not os.path.isfile(os.path.join(result_dir, ".ran")):
-        raise RuntimeError(
-            f"calculate_score: {result_dir} does not have a .ran file - check logs for error"
+        logger.error(
+            f"calculate_score: {result_dir} does not have a .ran file - run likely failed."
         )
-
-    # load config
-    with open(f"{result_dir}/core_config.yaml") as f:
-        config = yaml.safe_load(f)
-
-    # System Health: execs, sockets, devices
-    if not os.path.isfile(os.path.join(result_dir, "health_final.yaml")):
-        # Sometimes this file is missing. I can't figure out why. It's related to the unint
-        # method not getting called in health/core after a timeout. But I'm not sure why.
-        print(f"WARNING: {result_dir}/health_final.yaml not found - cannot check for health")
         return {}
 
-    with open(f"{result_dir}/health_final.yaml") as f:
-        health_data = yaml.safe_load(f)
-
-    # Panic or not (inverted so we can maximize)
+    # --- Initialize all potential score values to 0 ---
+    # This ensures we always return a full dictionary.
+    config = {}
+    health_data = {}
     panic = False
+    shell_cov = 0
+    processes_run = 0
+    modules_loaded = 0
+    blocks_covered = 0
+    blocked_signals = 0
 
-    # We can only read console output if it's saved to disk
-    # (instead of being shown on stdout)
-    # if not self.global_state.info['show_output']:
+    # Consistently use try/except for all file parsing.
+    # --- Load core_config.yaml ---
+    try:
+        with open(os.path.join(result_dir, "core_config.yaml")) as f:
+            config = yaml.safe_load(f) or {} # Ensure config is a dict even if file is empty
+    except FileNotFoundError:
+        logger.warning(f"Config file not found in {result_dir}. Cannot determine blocked signals.")
+    except yaml.YAMLError as e:
+        logger.error(f"Error parsing core_config.yaml in {result_dir}: {e}")
 
-    if not os.path.isfile(f"{result_dir}/console.log"):
-        print(f"WARNING: {result_dir}/console.log not found - cannot check for kernel panic")
-        have_console = False
+    # --- System Health: execs, sockets, devices ---
+    try:
+        with open(os.path.join(result_dir, "health_final.yaml")) as f:
+            health_data = yaml.safe_load(f) or {} # Ensure health_data is a dict
+    except FileNotFoundError:
+        # Instead of returning {}, just log a warning and continue. Scores will default to 0.
+        logger.warning(f"{result_dir}/health_final.yaml not found - health scores will be 0.")
+    except yaml.YAMLError as e:
+        logger.error(f"Error parsing health_final.yaml in {result_dir}: {e}")
 
-    if have_console:
-        with open(
-            f"{result_dir}/console.log", "r", encoding="utf-8", errors="ignore"
-        ) as f:
-            for line in f.readlines():
-                if "Kernel panic" in line:
+
+    # --- Panic or not (nopanic) ---
+    console_log_path = os.path.join(result_dir, "console.log")
+    if have_console and os.path.isfile(console_log_path):
+        try:
+            with open(console_log_path, "r", encoding="utf-8", errors="ignore") as f:
+                if any("Kernel panic" in line for line in f):
                     panic = True
-                    break
+        except IOError as e:
+            logger.error(f"Could not read {console_log_path}: {e}")
+    elif have_console:
+        logger.warning(f"{console_log_path} not found - cannot check for kernel panic.")
 
-    # Shell cov: number of lines (minus one) in shell_cov.csv
-    if os.path.isfile(f"{result_dir}/shell_cov.csv"):
-        with open(f"{result_dir}/shell_cov.csv") as f:
-            shell_cov = len(f.readlines()) - 1
-    else:
-        shell_cov = 0
+    # --- Shell coverage ---
+    shell_cov_path = os.path.join(result_dir, "shell_cov.csv")
+    if os.path.isfile(shell_cov_path):
+        try:
+            with open(shell_cov_path) as f:
+                shell_cov = len(f.readlines()) - 1
+        except IOError as e:
+            logger.error(f"Could not read {shell_cov_path}: {e}")
 
-    # Coverage: processes, modules, blocks
-    if os.path.isfile(f"{result_dir}/coverage.csv"):
-        with open(f"{result_dir}/coverage.csv", newline="") as f:
-            reader = csv.reader(f)
-            # Initialize sets to store unique values and a list for all rows
-            processes = set()
-            modules = set()
-            module_offset_pairs = set()
+    # --- Coverage: processes, modules, blocks ---
+    coverage_csv_path = os.path.join(result_dir, "coverage.csv")
+    if os.path.isfile(coverage_csv_path):
+        try:
+            with open(coverage_csv_path, newline="") as f:
+                reader = csv.reader(f)
+                processes, modules, module_offset_pairs = set(), set(), set()
+                for i, row in enumerate(reader):
+                    # Handle malformed CSV rows gracefully.
+                    if len(row) == 3:
+                        process, module, offset = row
+                        processes.add(process)
+                        modules.add(module)
+                        module_offset_pairs.add((module, offset))
+                    else:
+                        logger.warning(f"Skipping malformed row {i+1} in {coverage_csv_path}: {row}")
+            processes_run = len(processes)
+            modules_loaded = len(modules)
+            blocks_covered = len(module_offset_pairs)
+        except (IOError, csv.Error) as e:
+            logger.error(f"Could not read or parse {coverage_csv_path}: {e}")
 
-            for row in reader:
-                # Assuming the structure is process, module, offset
-                process, module, offset = row
-                processes.add(process)
-                modules.add(module)
-                module_offset_pairs.add((module, offset))
-
-        processes_run = len(processes)
-        modules_loaded = len(modules)
-        blocks_covered = len(module_offset_pairs)
-
-    else:
-        # print(f"WARNING: No coverage.csv found in {result_dir}")
-        processes_run = 0
-        modules_loaded = 0
-        blocks_covered = 0
 
     if config:
         blocked_signals = -len(config.get("blocked_signals", []))
