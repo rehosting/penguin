@@ -391,7 +391,7 @@ class PtRegsWrapper(Wrapper):
         try:
             ret = self._get_retaddr()
             return ret
-        except PandaMemReadFail as e:
+        except PandaMemReadFail:
             pass
 
     def get_retaddr_portal(self) -> Generator[Optional[int], Any, Optional[int]]:
