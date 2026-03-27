@@ -1,14 +1,35 @@
-from penguin import Plugin, plugins
-from hyper.consts import igloo_hypercall_constants as iconsts
-from typing import Optional, List, Iterator, Generator, Set, Dict
+from penguin import Plugin, plugins, getColoredLogger
+from typing import Optional, List, Iterator, Generator, Set, Dict, Type
 from hyper.portal import PortalCmd
 from hyper.consts import HYPER_OP as hop
-import struct
+
+class Netdev:
+    """
+    Base class for all network devices.
+    Custom netdev plugins should inherit from this.
+    """
+    interface: str
+    netdev_ptr: int
+    @property
+    def logger(self):
+        if hasattr(self, "_logger"):
+            return self._logger
+        self._logger = getColoredLogger(f"net.{self.__class__.__name__}.{self.interface}")
+        return self._logger
+
+    def setup(self, name: str, netdev_struct) -> Optional[Iterator]:
+        """
+        Called when the netdev is initialized in the kernel.
+        """
+        pass
 
 class Netdevs(Plugin):
     def __init__(self):
         self._pending_netdevs = []
-        self._netdevs = {}
+        
+        # Keep track of the classes and the instantiated elements separately
+        self._netdev_classes: Dict[str, Type[Netdev]] = {}
+        self._netdev_instances: Dict[str, Netdev] = {}
         self._netdev_structs = {}  # name -> net_device pointer
         self._exist_ok = {} # name -> bool
 
@@ -20,7 +41,6 @@ class Netdevs(Plugin):
         for nd in netdevs:
             self.register_netdev(nd)
         
-        # self.panda.hypercall(iconsts.IGLOO_NET_SETUP)(plugins.portal.wrap(self._net_setup))
         self._packet_queue = []  # List of (name, buf)
 
     def _is_function_pointer(self, attr) -> bool:
@@ -119,13 +139,16 @@ class Netdevs(Plugin):
         return match.group(1) if match else None
 
     def _net_setup(self, name, dev_ptr):
-        netdev_class = self._netdevs.get(name, self._netdevs.get("*", None))
-        if netdev_class is None:
+        # Look up the *instantiated* element rather than the class
+        netdev_instance = self._netdev_instances.get(name, self._netdev_instances.get("*", None))
+        if netdev_instance is None:
             return
         netdev = yield from plugins.kffi.read_type(dev_ptr, "net_device")
 
-        if hasattr(netdev_class, "setup"):
-            fn_ret = netdev_class.setup(name, netdev)
+        if hasattr(netdev_instance, "setup"):
+            netdev_instance.interface = name
+            netdev_instance.netdev_ptr = dev_ptr
+            fn_ret = netdev_instance.setup(name, netdev)
             if isinstance(fn_ret, Iterator):
                 fn_ret = yield from fn_ret
     
@@ -141,18 +164,23 @@ class Netdevs(Plugin):
             return None
         self.logger.debug(f"Netdev '{name}' found at {result:#x}")
         return result
+    
+    def register(self, name: str, backing_class: Optional[Type[Netdev]] = None, exist_ok: bool = False, *args, **kwargs):
+        self.register_netdev(name, backing_class, exist_ok, *args, **kwargs)
 
-    def register_netdev(self, name: str, backing_class: Optional[Plugin]=None, exist_ok: bool=False):
+    def register_netdev(self, name: str, backing_class: Optional[Type[Netdev]] = None, exist_ok: bool = False, *args, **kwargs):
         '''
         Register a network device with the given name.
         '''
-        if name not in self._netdevs and name not in self._pending_netdevs:
+        if name not in self._netdev_classes and name not in self._pending_netdevs:
             plugins.portal.queue_interrupt("netdevs")
             if name != "*":
                 self._pending_netdevs.append(name)
         self._exist_ok[name] = exist_ok
         if backing_class:
-            self._netdevs[name] = backing_class
+            self._netdev_classes[name] = backing_class
+            # Instantiate the class using any passed arguments and store the instance
+            self._netdev_instances[name] = backing_class(*args, **kwargs)
 
     def _register_netdevs(self, names: List[str]) -> Iterator[int]:
         """

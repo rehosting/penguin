@@ -15,3 +15,4 @@ These APIs are designed to be used as plugins, enabling advanced instrumentation
 
 ---
 """
+from .net import Netdev
