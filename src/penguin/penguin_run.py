@@ -110,9 +110,9 @@ def run_config(
     # Read input config and validate
     if resolved_kernel:
         logger.info(f"Using pre-resolved kernel: {resolved_kernel}")
-        conf = load_config(proj_dir, conf_yaml, resolved_kernel=resolved_kernel)
+        conf = load_config(proj_dir, conf_yaml, resolved_kernel=resolved_kernel, verbose=True)
     else:
-        conf = load_config(proj_dir, conf_yaml)
+        conf = load_config(proj_dir, conf_yaml, verbose=True)
 
     pkversion = get_penguin_kernel_version(conf)
 

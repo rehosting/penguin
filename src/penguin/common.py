@@ -3,7 +3,7 @@ import logging
 import re
 import coloredlogs
 import yaml
-from os.path import join, isfile
+from os.path import join, isfile, basename
 from yamlcore import CoreDumper, CoreLoader
 
 
@@ -54,21 +54,44 @@ def hash_yaml(section_to_hash):
     return hash_digest
 
 
-def patch_config(logger, base_config, patch):
+def patch_config(logger, base_config, patch, patch_name="patch", origin_map=None, verbose=False):
+    # Initialize origin map if it wasn't passed in
+    if origin_map is None:
+        origin_map = {}
+
+    # Helper to recursively claim ownership of keys in the origin map
+    def _record_origins(obj, path_prefix, source_name):
+        if hasattr(obj, "model_fields_set"):
+            for k in obj.model_fields_set:
+                _record_origins(getattr(obj, k), f"{path_prefix}.{k}" if path_prefix else k, source_name)
+            if obj.model_extra is not None:
+                for k, val in obj.model_extra.items():
+                    _record_origins(val, f"{path_prefix}.{k}" if path_prefix else k, source_name)
+        elif isinstance(obj, dict):
+            for k, val in obj.items():
+                _record_origins(val, f"{path_prefix}.{k}" if path_prefix else k, source_name)
+        else:
+            # Leaves and lists get recorded directly
+            origin_map[path_prefix] = source_name
+
     if not patch:
         # Empty patch, possibly an empty file or one with all comments
         return base_config
 
+    # If this is the very first run, populate the origin map with the base config
+    if not origin_map:
+        _record_origins(base_config, "", "base_config")
+
     # Merge configs.
     def _recursive_update(base, new, config_option):
         if base is None:
+            _record_origins(new, config_option, patch_name)
             return new
         if new is None:
             return base
 
-        # assert type(base) is type(new)
-
         if hasattr(base, "merge"):
+            origin_map[config_option] = patch_name
             return base.merge(new)
 
         if hasattr(base, "model_fields_set"):
@@ -80,61 +103,87 @@ def patch_config(logger, base_config, patch):
                     result[base_key] = base_value
             for new_key in new.model_fields_set:
                 new_value = getattr(new, new_key)
+                full_path = f"{config_option}.{new_key}" if config_option else new_key
                 if new_key in result:
                     result[new_key] = _recursive_update(
                         result[new_key],
                         new_value,
-                        f"{config_option}.{new_key}" if config_option else new_key,
+                        full_path,
                     )
                 else:
                     result[new_key] = new_value
+                    _record_origins(new_value, full_path, patch_name)
+
             if new.model_extra is not None:
                 for new_key, new_value in new.model_extra.items():
+                    full_path = f"{config_option}.{new_key}" if config_option else new_key
                     if new_key in result:
                         result[new_key] = _recursive_update(
                             result[new_key],
                             new_value,
-                            f"{config_option}.{new_key}" if config_option else new_key,
+                            full_path,
                         )
                     else:
                         result[new_key] = new_value
+                        _record_origins(new_value, full_path, patch_name)
             return type(base)(**result)
 
         if isinstance(base, list):
+            # We treat list appends differently, no "conflict" per se, just an addition
             return base + new
 
         if isinstance(base, dict):
             result = dict()
             for key, base_value in base.items():
+                full_path = f"{config_option}.{key}" if config_option else key
                 if key in new:
                     new_value = new[key]
                     result[key] = _recursive_update(
                         base_value,
                         new_value,
-                        f"{config_option}.{key}" if config_option else key,
+                        full_path,
                     )
                 else:
                     result[key] = base_value
             for new_key, new_value in new.items():
                 if new_key not in base:
+                    full_path = f"{config_option}.{new_key}" if config_option else new_key
                     result[new_key] = new_value
+                    _record_origins(new_value, full_path, patch_name)
             return result
 
         if base == new:
             return base
 
-        base_str = yaml.dump(base).strip().removesuffix("...").strip()
-        new_str = yaml.dump(new).strip().removesuffix("...").strip()
-        change_str = (
-            f"\n```\n{base_str}\n```↓\n```\n{new_str}\n```"
-            if "\n" in base_str + new_str
-            else f"`{base_str}` → `{new_str}`"
-        )
-        logger.warning(f"patch conflict: {config_option}: {change_str}")
+        # --> WE HAVE A CONFLICT <--
+        previous_source = origin_map.get(config_option, "base_config")
 
+        # Clean up long paths to just the filenames
+        prev_file = basename(previous_source)
+        new_file = basename(patch_name)
+
+        # Strip out Pydantic '.root' noise from the config key
+        clean_option = config_option.replace(".root", "")
+
+        if verbose:
+            base_str = yaml.dump(base).strip().removesuffix("...").strip()
+            new_str = yaml.dump(new).strip().removesuffix("...").strip()
+            change_str = (
+                f"\n```\n{base_str}\n```↓\n```\n{new_str}\n```"
+                if "\n" in base_str + new_str
+                else f"`{base_str}` → `{new_str}`"
+            )
+
+            # Use a much tighter logging format
+            logger.info(
+                f"conflict: {clean_option}: {change_str} ({prev_file} -> {new_file})"
+            )
+
+        # Claim ownership of the newly overwritten key
+        origin_map[config_option] = patch_name
         return new
 
-    return _recursive_update(base_config, patch, None)
+    return _recursive_update(base_config, patch, "")
 
 
 class PathHighlightingFormatter(coloredlogs.ColoredFormatter):

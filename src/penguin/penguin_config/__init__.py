@@ -191,11 +191,15 @@ def load_unpatched_config(path):
     return config
 
 
-def load_config(proj_dir, path, validate=True, resolved_kernel=None):
+def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=False):
     """Load penguin config from path"""
     with open(path, "r") as f:
         config = yaml.load(f, Loader=CoreLoader)
     config = structure.Patch(**config)
+
+    # 1. Initialize the empty map to track our provenance
+    origin_map = {}
+
     # look for files called patch_*.yaml in the same directory as the config file
     if config.core.auto_patching:
         patch_files = list(Path(proj_dir).glob("patch_*.yaml"))
@@ -213,12 +217,20 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None):
             # patches are loaded relative to the main config file
             patch_relocated = Path(proj_dir, patch)
             if patch_relocated.exists():
-                # TODO: If we're missing a patch we should warn, but this happens 3-4x
-                # and that's too verbose.
                 with open(patch_relocated, "r") as f:
-                    patch = yaml.load(f, Loader=CoreLoader)
-                patch = structure.Patch(**patch)
-                config = patch_config(logger, config, patch)
+                    patch_data = yaml.load(f, Loader=CoreLoader)
+                patch_data = structure.Patch(**patch_data)
+
+                # 2. Pass the origin map and the patch name down into the merger
+                config = patch_config(
+                    logger=logger,
+                    base_config=config,
+                    patch=patch_data,
+                    patch_name=str(patch_relocated),  # Give it a name to log
+                    origin_map=origin_map,           # Pass the state map
+                    verbose=verbose
+                )
+
     config = config.model_dump()
     if config["core"].get("guest_cmd", False) is True:
         config["static_files"]["/igloo/utils/guesthopper"] = dict(
@@ -249,7 +261,8 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None):
             if Path(proj_dir, "base/fs.tar.gz").exists():
                 config["core"]["fs"] = "./base/fs.tar.gz"
             else:
-                logger.info("No core.fs specified in config - using empty fs - most likely a test")
+                if verbose:
+                    logger.info("No core.fs specified in config - using empty fs - most likely a test")
                 config["core"]["fs"] = "./base/empty_fs.tar.gz"
                 empty_fs_path = os.path.join(proj_dir, "./base/empty_fs.tar.gz")
                 if not os.path.exists(empty_fs_path):

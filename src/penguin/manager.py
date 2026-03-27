@@ -20,7 +20,6 @@ import os
 import signal
 import subprocess
 import time
-import logging
 from penguin import getColoredLogger
 from .common import yaml
 
@@ -74,7 +73,7 @@ def calculate_score(result_dir: str, have_console: bool = True) -> dict[str, int
     # --- Load core_config.yaml ---
     try:
         with open(os.path.join(result_dir, "core_config.yaml")) as f:
-            config = yaml.safe_load(f) or {} # Ensure config is a dict even if file is empty
+            config = yaml.safe_load(f) or {}  # Ensure config is a dict even if file is empty
     except FileNotFoundError:
         logger.warning(f"Config file not found in {result_dir}. Cannot determine blocked signals.")
     except yaml.YAMLError as e:
@@ -83,13 +82,12 @@ def calculate_score(result_dir: str, have_console: bool = True) -> dict[str, int
     # --- System Health: execs, sockets, devices ---
     try:
         with open(os.path.join(result_dir, "health_final.yaml")) as f:
-            health_data = yaml.safe_load(f) or {} # Ensure health_data is a dict
+            health_data = yaml.safe_load(f) or {}  # Ensure health_data is a dict
     except FileNotFoundError:
         # Instead of returning {}, just log a warning and continue. Scores will default to 0.
         logger.warning(f"{result_dir}/health_final.yaml not found - health scores will be 0.")
     except yaml.YAMLError as e:
         logger.error(f"Error parsing health_final.yaml in {result_dir}: {e}")
-
 
     # --- Panic or not (nopanic) ---
     console_log_path = os.path.join(result_dir, "console.log")
@@ -133,7 +131,6 @@ def calculate_score(result_dir: str, have_console: bool = True) -> dict[str, int
             blocks_covered = len(module_offset_pairs)
         except (IOError, csv.Error) as e:
             logger.error(f"Could not read or parse {coverage_csv_path}: {e}")
-
 
     if config:
         blocked_signals = -len(config.get("blocked_signals", []))
