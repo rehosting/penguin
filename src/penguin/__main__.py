@@ -348,10 +348,14 @@ def _do_package(project_dir, output_path):
             for pf in project_files_list:
                 f.write(f"{pf}\n")
 
-        # Write the version file
+        # Write the version file as structured YAML
         version_file_path = os.path.join(temp_dir, ".penguin_packaged_version")
+        package_metadata = {
+            "format_version": 1,
+            "penguin_version": VERSION
+        }
         with open(version_file_path, "w") as f:
-            f.write(f"{VERSION}\n")
+            yaml.dump(package_metadata, f, default_flow_style=False, sort_keys=False)
 
         # Handle external files by copying them into the temp directory
         has_external = False
