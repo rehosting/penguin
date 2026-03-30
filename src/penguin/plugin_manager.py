@@ -334,6 +334,22 @@ def gen_search_locations(plugin_name: str, proj_dir: str,
     return search_locations
 
 
+def _find_file(g: List[str]) -> Optional[str]:
+    """Helper function to find the first matching file from a list of patterns"""
+    for f in g:
+        if '*' in f:
+            p = glob.glob(f, recursive=True)
+            if len(p) == 1:
+                if isfile(p[0]) and not isdir(p[0]):
+                    return p[0]
+            elif len(p) > 1:
+                raise ValueError(f"Multiple files found for {f}: {p}")
+        else:
+            if isfile(f) and not isdir(f):
+                return f
+    return None
+
+
 def find_plugin_by_name(plugin_name: str, proj_dir: str,
                         plugin_path: str) -> Tuple[str, bool]:
     """
@@ -351,32 +367,51 @@ def find_plugin_by_name(plugin_name: str, proj_dir: str,
 
     :raises ValueError: If the plugin cannot be found
     """
-    def find_file(g: List[str]) -> Optional[str]:
-        """Helper function to find the first matching file from a list of patterns"""
-        for f in g:
-            if '*' in f:
-                p = glob.glob(f, recursive=True)
-                if len(p) == 1:
-                    if isfile(p[0]) and not isdir(p[0]):
-                        return p[0]
-                elif len(p) > 1:
-                    raise ValueError(f"Multiple files found for {f}: {p}")
-            else:
-                if isfile(f) and not isdir(f):
-                    return f
-        return None
-
     plugin_name_possibilities = [plugin_name,
                                  plugin_name.lower(),
                                  camel_to_snake(plugin_name)]
     if '_' in plugin_name:
         plugin_name_possibilities.append(snake_to_camel(plugin_name))
     for pn in plugin_name_possibilities:
-        if o := find_file(gen_search_locations(pn, proj_dir, plugin_path)):
+        if o := _find_file(gen_search_locations(pn, proj_dir, plugin_path)):
             return o, o.startswith(proj_dir)
     raise ValueError(
         f"Plugin not found: with name={plugin_name} and plugin_path={plugin_path}"
     )
+
+
+def find_local_plugins(plugin_names: List[str], proj_dir: str) -> List[str]:
+    """
+    Find all local plugin files for a given list of plugin names.
+
+    :param plugin_names: List of plugin names to search for.
+    :type plugin_names: List[str]
+    :param proj_dir: The project directory.
+    :type proj_dir: str
+
+    :return: List of valid local file paths for the discovered plugins.
+    :rtype: List[str]
+    """
+    local_paths = []
+    for plugin_name in plugin_names:
+        plugin_name_possibilities = [plugin_name,
+                                     plugin_name.lower(),
+                                     camel_to_snake(plugin_name)]
+        if '_' in plugin_name:
+            plugin_name_possibilities.append(snake_to_camel(plugin_name))
+
+        for pn in plugin_name_possibilities:
+            search_locations = [
+                join(proj_dir, pn),
+                join(proj_dir, pn + ".py"),
+                join(proj_dir, "plugins", pn),
+                join(proj_dir, "plugins", pn + ".py"),
+            ]
+            if o := _find_file(search_locations):
+                local_paths.append(o)
+                break  # Found the local plugin, move to next plugin_name
+
+    return local_paths
 
 
 class IGLOOPluginManager:
