@@ -10,10 +10,10 @@ from os.path import dirname, join
 from pathlib import Path
 import sys
 import hashlib
-
+import tempfile
 import art
 
-from penguin import VERSION, getColoredLogger
+from penguin import VERSION, getColoredLogger, yaml
 
 from .common import get_inits_from_proj
 from .gen_config import fakeroot_gen_config
@@ -24,6 +24,7 @@ from .genetic import ga_search
 from .graph_search import graph_search
 from .patch_search import patch_search
 from .patch_minimizer import minimize as patch_minimize
+from .plugin_manager import find_local_plugins
 
 logger = getColoredLogger("penguin")
 
@@ -219,6 +220,172 @@ def _startup_checks(verbose):
             logger.warning(
                 'Reinstall local penguin from container with "docker run rehosting/penguin penguin_install.local | sh"'
             )
+
+
+def _do_package(project_dir, output_path):
+    project_dir_abs = os.path.abspath(project_dir)
+    config_path = os.path.join(project_dir_abs, "config.yaml")
+
+    # This fully validates and resolves auto-patching files into final config state
+    config = _validate_project(project_dir_abs, config_path)
+
+    if output_path is None:
+        base_name = os.path.basename(project_dir_abs)
+        output_path = f"{base_name}.tar.gz"
+
+    # Route relative output paths into the mapped workspace
+    if not os.path.isabs(output_path):
+        if os.path.exists("/workspace"):
+            output_path = os.path.join("/workspace", output_path)
+        else:
+            output_path = os.path.join(os.path.dirname(project_dir_abs), output_path)
+
+    logger.info(f"Packaging project {project_dir_abs} into {output_path}...")
+
+    # Discover local plugins using the shared logic
+    plugins_dict = config.get("plugins", {})
+    local_plugins = find_local_plugins(list(plugins_dict.keys()), project_dir_abs)
+
+    for lp in local_plugins:
+        logger.info(f"Ensuring local plugin is included: {os.path.relpath(lp, project_dir_abs)}")
+
+    added_project_files = set()
+    external_files_to_copy = set()
+    project_files_list = []
+
+    def _add_file(file_path):
+        if not file_path:
+            return
+
+        file_path_str = str(file_path)
+
+        # Treat absolute paths not starting with project_dir as container paths and skip
+        if os.path.isabs(file_path_str):
+            if file_path_str.startswith(project_dir_abs):
+                abs_path = file_path_str
+            else:
+                logger.debug(f"Skipping absolute (container) path: {file_path_str}")
+                return
+        else:
+            abs_path = os.path.abspath(os.path.join(project_dir_abs, file_path_str))
+
+        if not os.path.exists(abs_path):
+            logger.warning(f"File referenced in config not found: {abs_path}")
+            return
+
+        # If it's outside the project dir, scoop it into external_files staging
+        if not abs_path.startswith(project_dir_abs):
+            logger.info(f"Pulling in external local file into archive: {file_path_str}")
+            external_files_to_copy.add(abs_path)
+        else:
+            rel_path = os.path.relpath(abs_path, project_dir_abs)
+            if rel_path not in added_project_files:
+                project_files_list.append(rel_path)
+                added_project_files.add(rel_path)
+
+    # Always include config.yaml
+    _add_file("config.yaml")
+
+    # Always include the static directory wholesale
+    static_dir = os.path.join(project_dir_abs, "static")
+    if os.path.exists(static_dir):
+        _add_file("static")
+
+    # Add explicit file references from the VALIDATED config
+    core = config.get("core", {})
+    _add_file(core.get("fs"))
+    _add_file(core.get("kernel"))
+
+    static_files = config.get("static_files", {})
+    if isinstance(static_files, dict):
+        for guest_path, file_info in static_files.items():
+            if isinstance(file_info, dict) and file_info.get("type") == "host_file":
+                _add_file(file_info.get("host_path"))
+
+    # Include explicit patches from the UNPATCHED (raw) config
+    with open(config_path, "r") as f:
+        raw_config = yaml.safe_load(f) or {}
+
+    patches_block = raw_config.get("patches")
+    raw_patches = []
+
+    # Gracefully handle both list and dict patch formats
+    if isinstance(patches_block, dict):
+        raw_patches = patches_block.get("root", [])
+    elif isinstance(patches_block, list):
+        raw_patches = patches_block
+
+    if isinstance(raw_patches, list):
+        for patch in raw_patches:
+            _add_file(patch)
+
+    # Include auto-patching files exactly as PENGUIN computes them
+    raw_core = raw_config.get("core", {})
+    if raw_core.get("auto_patching", True):
+        patch_files = list(Path(project_dir_abs).glob("patch_*.yaml"))
+        patches_dir = Path(project_dir_abs, "patches")
+
+        if patches_dir.exists():
+            patch_files += list(patches_dir.glob("*.yaml"))
+
+        for pf in patch_files:
+            _add_file(pf)
+
+        # Catch loose .patch or .diff files too just in case
+        for root_file in os.listdir(project_dir_abs):
+            if root_file.endswith(".patch") or root_file.endswith(".diff"):
+                _add_file(root_file)
+
+    # Include discovered local plugins
+    for lp in local_plugins:
+        _add_file(lp)
+
+    # Build the package using tar and pigz
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Write the project files list
+        files_list_path = os.path.join(temp_dir, "files.txt")
+        with open(files_list_path, "w") as f:
+            for pf in project_files_list:
+                f.write(f"{pf}\n")
+
+        # Write the version file
+        version_file_path = os.path.join(temp_dir, ".penguin_packaged_version")
+        with open(version_file_path, "w") as f:
+            f.write(f"{VERSION}\n")
+
+        # Handle external files by copying them into the temp directory
+        has_external = False
+        if external_files_to_copy:
+            has_external = True
+            ext_dir = os.path.join(temp_dir, "external_files")
+            os.makedirs(ext_dir)
+            for ext_f in external_files_to_copy:
+                # copy2 preserves file metadata
+                shutil.copy2(ext_f, os.path.join(ext_dir, os.path.basename(ext_f)))
+
+        # Construct the tar command using -I pigz
+        tar_cmd = [
+            "tar",
+            "-I", "pigz",
+            "-cf", output_path,
+            "-C", project_dir_abs,
+            "-T", files_list_path,
+            "-C", temp_dir,
+            ".penguin_packaged_version"
+        ]
+
+        # Append external_files directory if we copied anything into it
+        if has_external:
+            tar_cmd.append("external_files")
+
+        logger.debug(f"Running packaging command: {' '.join(tar_cmd)}")
+        try:
+            subprocess.run(tar_cmd, check=True)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to package project using tar/pigz: {e}")
+            exit(1)
+
+    logger.info(f"Successfully packaged to {output_path}")
 
 # --- Click Utilities ---
 
@@ -693,6 +860,31 @@ def guest_cmd(ctx, args):
     if result.stderr:
         sys.stderr.write(result.stderr)
     sys.exit(result.returncode)
+
+
+@cli.command()
+@click.argument("project_dir", type=click.Path(exists=True))
+@click.option("-o", "--out", type=str, default=None, help="Output tar.gz file path. Defaults to <project_dir_name>.tar.gz")
+@verbose_option
+@click.pass_context
+def package(ctx, project_dir, out):
+    """
+    Package a penguin project into a distributable archive.
+
+    Creates a tar.gz pulling in configs, base, and static patches while omitting results and qcows.
+    """
+    _startup_checks(ctx.obj['VERBOSE'])
+    _do_package(project_dir, out)
+
+
+@cli.command(hidden=True)
+@click.argument("project_dir", type=click.Path(exists=True))
+@click.option("-o", "--out", type=str, default=None)
+@verbose_option
+@click.pass_context
+def export(ctx, project_dir, out):
+    """Alias for package"""
+    ctx.invoke(package, project_dir=project_dir, out=out)
 
 
 if __name__ == "__main__":
