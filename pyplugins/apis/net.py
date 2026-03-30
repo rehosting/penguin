@@ -8,13 +8,17 @@ class Netdev:
     Base class for all network devices.
     Custom netdev plugins should inherit from this.
     """
-    interface: str
+    name: str
     netdev_ptr: int
+
+    def __init__(self, name: str, *args, **kwargs):
+        self.name = name
+
     @property
     def logger(self):
         if hasattr(self, "_logger"):
             return self._logger
-        self._logger = getColoredLogger(f"net.{self.__class__.__name__}.{self.interface}")
+        self._logger = getColoredLogger(f"net.{self.__class__.__name__}.{self.name}")
         return self._logger
 
     def setup(self, name: str, netdev_struct) -> Optional[Iterator]:
@@ -146,9 +150,9 @@ class Netdevs(Plugin):
         netdev = yield from plugins.kffi.read_type(dev_ptr, "net_device")
 
         if hasattr(netdev_instance, "setup"):
-            netdev_instance.interface = name
+            netdev_instance.name = name
             netdev_instance.netdev_ptr = dev_ptr
-            fn_ret = netdev_instance.setup(name, netdev)
+            fn_ret = netdev_instance.setup(netdev)
             if isinstance(fn_ret, Iterator):
                 fn_ret = yield from fn_ret
     
@@ -180,7 +184,7 @@ class Netdevs(Plugin):
         if backing_class:
             self._netdev_classes[name] = backing_class
             # Instantiate the class using any passed arguments and store the instance
-            self._netdev_instances[name] = backing_class(*args, **kwargs)
+            self._netdev_instances[name] = backing_class(name, *args, **kwargs)
 
     def _register_netdevs(self, names: List[str]) -> Iterator[int]:
         """
