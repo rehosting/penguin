@@ -351,8 +351,9 @@ def _do_package(project_dir, output_path):
         # Write the version file as structured YAML
         version_file_path = os.path.join(temp_dir, ".penguin_packaged_version")
         package_metadata = {
-            "format_version": 1,
-            "penguin_version": VERSION
+            "format_version": 2,
+            "penguin_version": VERSION,
+            "base_name": base_name
         }
         with open(version_file_path, "w") as f:
             yaml.dump(package_metadata, f, default_flow_style=False, sort_keys=False)
@@ -914,41 +915,10 @@ def unpackage(ctx, archive, output, force):
     else:
         output = os.path.abspath(output)
 
-    # Check if extraction would create a directory that already exists
-    # First peek at what's in the archive to see if it has a top-level directory
-    try:
-        result = subprocess.run(
-            ["tar", "-tzf", archive_path],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        first_entry = result.stdout.split('\n')[0]
-        # If first entry is a directory (ends with /), that's our top-level
-        if first_entry.endswith('/'):
-            top_level_dir = first_entry.rstrip('/')
-            target_dir = os.path.join(output, top_level_dir)
-        else:
-            # No top-level directory in archive, will extract directly
-            target_dir = output
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to read archive: {e}")
-        exit(1)
-
-    if os.path.exists(target_dir):
-        if os.listdir(target_dir):  # Directory exists and is not empty
-            if force:
-                logger.info(f"Deleting existing directory: {target_dir}")
-                shutil.rmtree(target_dir, ignore_errors=True)
-            else:
-                raise ValueError(
-                    f"Output directory exists and is not empty: {target_dir}. Use --force to delete."
-                )
-
     # Ensure output directory exists
     os.makedirs(output, exist_ok=True)
 
-    # Verify the archive contains the version file
+    # Verify the archive contains the version file and extract metadata
     try:
         result = subprocess.run(
             ["tar", "-tzf", archive_path, ".penguin_packaged_version"],
@@ -958,18 +928,56 @@ def unpackage(ctx, archive, output, force):
         )
         if result.returncode != 0:
             raise ValueError(
-                f"Archive is not a valid penguin package: missing .penguin_packaged_version file. "
-                f"This archive was not created with 'penguin package'."
+                "Archive is not a valid penguin package: missing .penguin_packaged_version file. "
+                "This archive was not created with 'penguin package'."
             )
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to verify archive: {e}")
         exit(1)
 
-    logger.info(f"Extracting {archive} to {output}...")
+    # Extract metadata to determine the base_name
+    with tempfile.TemporaryDirectory() as temp_extract_dir:
+        try:
+            subprocess.run(
+                ["tar", "-I", "pigz", "-xf", archive_path, "-C", temp_extract_dir, ".penguin_packaged_version"],
+                check=True
+            )
+            metadata_path = os.path.join(temp_extract_dir, ".penguin_packaged_version")
+            with open(metadata_path, "r") as f:
+                metadata = yaml.safe_load(f) or {}
+
+            base_name = metadata.get("base_name")
+            if not base_name:
+                # Fall back to archive filename without .tar.gz
+                base_name = os.path.basename(archive_path)
+                if base_name.endswith(".tar.gz"):
+                    base_name = base_name[:-7]
+                logger.warning(f"No base_name in metadata, using archive filename: {base_name}")
+        except (subprocess.CalledProcessError, yaml.YAMLError) as e:
+            logger.error(f"Failed to extract metadata: {e}")
+            exit(1)
+
+    # Set target directory based on metadata
+    target_dir = os.path.join(output, base_name)
+
+    # Check if target directory exists
+    if os.path.exists(target_dir):
+        if force:
+            logger.info(f"Deleting existing directory: {target_dir}")
+            shutil.rmtree(target_dir, ignore_errors=True)
+        else:
+            raise ValueError(
+                f"Output directory already exists: {target_dir}. Use --force to delete."
+            )
+
+    logger.info(f"Extracting {archive} to {target_dir}...")
+
+    # Create the target directory
+    os.makedirs(target_dir, exist_ok=True)
 
     try:
         subprocess.run(
-            ["tar", "-I", "pigz", "-xf", archive_path, "-C", output],
+            ["tar", "-I", "pigz", "-xf", archive_path, "-C", target_dir],
             check=True
         )
     except subprocess.CalledProcessError as e:
@@ -979,12 +987,11 @@ def unpackage(ctx, archive, output, force):
     logger.info(f"Successfully extracted to {target_dir}")
 
     # Verify it's a valid penguin project
-    if os.path.isdir(target_dir):
-        config_path = os.path.join(target_dir, "config.yaml")
-        if not os.path.exists(config_path):
-            logger.warning(f"Extracted directory does not contain config.yaml")
-        else:
-            logger.info(f"Project ready at {target_dir}")
+    config_path = os.path.join(target_dir, "config.yaml")
+    if not os.path.exists(config_path):
+        logger.warning("Extracted directory does not contain config.yaml")
+    else:
+        logger.info(f"Project ready at {target_dir}")
 
 
 @cli.command(hidden=True)
@@ -995,6 +1002,7 @@ def unpackage(ctx, archive, output, force):
 def export(ctx, project_dir, out):
     """Alias for package"""
     ctx.invoke(package, project_dir=project_dir, out=out)
+
 
 @cli.command(name="import", hidden=True)
 @click.argument("archive", type=click.Path(exists=True))
