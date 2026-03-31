@@ -120,9 +120,9 @@ def run_config(
         # An arugument setting a timeout overrides the config's timeout
         conf["plugins"]["core"]["timeout"] = timeout
 
-    if "igloo_init" not in conf["core"]:
+    if "init" not in conf["core"]:
         if init:
-            conf["core"]["igloo_init"] = init
+            conf["core"]["init"] = init
         else:
             # This is from automated analyses, we can remove if/when we refactor env.py
             try:

@@ -274,7 +274,7 @@ class Core(Plugin):
         full_key = yield from plugins.mem.read_str(key_ptr)
         keys = full_key.split('.')
         current = self.config
-        self.logger.info(f"get_config called for key: {full_key}")
+        self.logger.debug(f"get_config called for key: {full_key}")
 
         try:
             for key_part in keys:
@@ -291,10 +291,10 @@ class Core(Plugin):
                 else:
                     raise KeyError(f"Key '{key_part}' not found")
             value = str(current)
-            self.logger.info(f"get_config found value '{value}' for key: {full_key}")
+            self.logger.debug(f"get_config found value '{value}' for key: {full_key}")
             yield from plugins.mem.write_str(output_ptr, value[:buf_size-1])
             return 0  # Success
         except (KeyError, AttributeError, TypeError) as e:
-            self.logger.warning(f"get_config failed for key '{full_key}': {e}")
+            self.logger.warning(f"get_config requested but failed for key '{full_key}': {e}")
             yield from plugins.mem.write_str(output_ptr, "")
             return -1  # Error
