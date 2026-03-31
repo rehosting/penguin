@@ -4,6 +4,7 @@ from apis.net import Netdev
 kffi = plugins.kffi
 mem = plugins.mem
 
+
 class SampleNetDev(Netdev):
     def setup(self, netdev):
         self.logger.info(f"Setting up altered network device {self.name}")
@@ -11,7 +12,7 @@ class SampleNetDev(Netdev):
         netdev_ops.ndo_do_ioctl = yield from kffi.callback(self.ioctl_handler)
         netdev_ops.ndo_get_stats64 = yield from kffi.callback(self.stats64_handler)
         yield from mem.write_bytes(netdev.netdev_ops.address, bytes(netdev_ops))
-    
+
     def stats64_handler(self, pt_regs, netdev_ptr, stats64_ptr):
         netdevs = yield from kffi.read_type(netdev_ptr, "net_device")
         stats64 = yield from kffi.read_type(stats64_ptr, "rtnl_link_stats64")
@@ -22,13 +23,14 @@ class SampleNetDev(Netdev):
         stats64.tx_bytes = 1340
         # Just return zeroed stats for now
         yield from mem.write_bytes(stats64_ptr, bytes(stats64))
-    
+
     def ioctl_handler(self, pt_regs, netdev_ptr, ifreq_ptr, cmd):
         args = yield from plugins.osi.get_args()
         netdevs = yield from kffi.read_type(netdev_ptr, "net_device")
         name = kffi.ffi.string(netdevs.name)
         self.logger.info((name, args, cmd))
         return 0
+
 
 class SampleNetDev2(Netdev):
     def setup(self, netdev):
@@ -37,7 +39,7 @@ class SampleNetDev2(Netdev):
         netdev_ops.ndo_do_ioctl = yield from kffi.callback(self.ioctl_handler)
         netdev_ops.ndo_get_stats64 = yield from kffi.callback(self.stats64_handler)
         yield from mem.write_bytes(netdev.netdev_ops.address, bytes(netdev_ops))
-    
+
     def stats64_handler(self, pt_regs, netdev_ptr, stats64_ptr):
         netdevs = yield from kffi.read_type(netdev_ptr, "net_device")
         stats64 = yield from kffi.read_type(stats64_ptr, "rtnl_link_stats64")
@@ -48,13 +50,14 @@ class SampleNetDev2(Netdev):
         stats64.tx_bytes = 431
         # Just return zeroed stats for now
         yield from mem.write_bytes(stats64_ptr, bytes(stats64))
-    
+
     def ioctl_handler(self, pt_regs, netdev_ptr, ifreq_ptr, cmd):
         args = yield from plugins.osi.get_args()
         netdevs = yield from kffi.read_type(netdev_ptr, "net_device")
         name = kffi.ffi.string(netdevs.name)
         self.logger.info((name, args, cmd))
         return 0
+
 
 class NetworkDeviceTest(Plugin):
     def __init__(self):

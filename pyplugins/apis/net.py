@@ -3,6 +3,7 @@ from typing import Optional, List, Iterator, Generator, Set, Dict, Type
 from hyper.portal import PortalCmd
 from hyper.consts import HYPER_OP as hop
 
+
 class Netdev:
     """
     Base class for all network devices.
@@ -27,15 +28,16 @@ class Netdev:
         """
         pass
 
+
 class Netdevs(Plugin):
     def __init__(self):
         self._pending_netdevs = []
-        
+
         # Keep track of the classes and the instantiated elements separately
         self._netdev_classes: Dict[str, Type[Netdev]] = {}
         self._netdev_instances: Dict[str, Netdev] = {}
         self._netdev_structs = {}  # name -> net_device pointer
-        self._exist_ok = {} # name -> bool
+        self._exist_ok = {}  # name -> bool
 
         self._netdev_ops = self._build_netdev_ops_lookup()
         plugins.portal.register_interrupt_handler(
@@ -44,12 +46,12 @@ class Netdevs(Plugin):
         netdevs = self.get_arg("conf").get("netdevs", [])
         for nd in netdevs:
             self.register_netdev(nd)
-        
+
         self._packet_queue = []  # List of (name, buf)
 
     def _is_function_pointer(self, attr) -> bool:
         """Check if an attribute is a function pointer."""
-        return (hasattr(attr, "_subtype_info") and 
+        return (hasattr(attr, "_subtype_info") and
                 attr._subtype_info.get("kind") == "function")
 
     def _get_ops_functions(self, struct_name: str) -> Dict[str, Optional[str]]:
@@ -155,7 +157,7 @@ class Netdevs(Plugin):
             fn_ret = netdev_instance.setup(netdev)
             if isinstance(fn_ret, Iterator):
                 fn_ret = yield from fn_ret
-    
+
     def lookup_netdev(self, name: str) -> Generator[PortalCmd, Optional[int], Optional[int]]:
         """
         Look up a network device by name using the portal.
@@ -168,7 +170,7 @@ class Netdevs(Plugin):
             return None
         self.logger.debug(f"Netdev '{name}' found at {result:#x}")
         return result
-    
+
     def register(self, name: str, backing_class: Optional[Type[Netdev]] = None, exist_ok: bool = False, *args, **kwargs):
         self.register_netdev(name, backing_class, exist_ok, *args, **kwargs)
 
@@ -217,7 +219,6 @@ class Netdevs(Plugin):
             self._netdev_structs[name] = result
             yield from self._net_setup(name, result)
 
-
     def _netdevs_interrupt_handler(self) -> Iterator[bool]:
         """
         Process pending network device registrations and queued packet sends.
@@ -225,7 +226,7 @@ class Netdevs(Plugin):
         # Process pending network device registrations. Generator-style like _uprobe_interrupt_handler.
         # Processes each pending (name, backing_class) and attempts kernel registration.
         if not self._pending_netdevs:
-            return False 
+            return False
 
         pending = self._pending_netdevs[:]
 
