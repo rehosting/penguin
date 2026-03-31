@@ -21,7 +21,7 @@ class Netdev:
         self._logger = getColoredLogger(f"net.{self.__class__.__name__}.{self.name}")
         return self._logger
 
-    def setup(self, name: str, netdev_struct) -> Optional[Iterator]:
+    def setup(self, netdev_struct) -> Optional[Iterator]:
         """
         Called when the netdev is initialized in the kernel.
         """
