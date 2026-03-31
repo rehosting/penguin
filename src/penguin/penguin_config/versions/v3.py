@@ -3,15 +3,15 @@ class V3:
 
     change_description = """
     We expose the config via hypercalls and no longer configure the guest with env plugin.
-    igloo_init is now set in core instead of being set in env
+    The init used is now set in core instead of being set in env
     """
 
     fix_guide = """
-    igloo_init is used by init.sh to launch the correct init program and is generated in static_patches/base.yaml
+    The igloo_init variable in init.sh is used to launch the correct init program
     In a project generated with `penguin init` config v2 init.sh will check the environment for igloo_init
 
     To migrate:
-    1. set `core.igloo_init`
+    1. set `core.init`
 
     2. update init.sh in static_patches/base.yaml to use get_config to obtain igloo_init:
     ```
