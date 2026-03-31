@@ -23,6 +23,7 @@ class SampleNetDev(Netdev):
         stats64.tx_bytes = 1340
         # Just return zeroed stats for now
         yield from mem.write_bytes(stats64_ptr, bytes(stats64))
+        return stats64_ptr
 
     def ioctl_handler(self, pt_regs, netdev_ptr, ifreq_ptr, cmd):
         args = yield from plugins.osi.get_args()
@@ -50,6 +51,7 @@ class SampleNetDev2(Netdev):
         stats64.tx_bytes = 431
         # Just return zeroed stats for now
         yield from mem.write_bytes(stats64_ptr, bytes(stats64))
+        return stats64_ptr
 
     def ioctl_handler(self, pt_regs, netdev_ptr, ifreq_ptr, cmd):
         args = yield from plugins.osi.get_args()
