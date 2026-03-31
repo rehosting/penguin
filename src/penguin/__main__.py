@@ -881,6 +881,112 @@ def package(ctx, project_dir, out):
     _do_package(project_dir, out)
 
 
+@cli.command()
+@click.argument("archive", type=click.Path(exists=True))
+@click.option("-o", "--output", type=str, default="./projects", help="Output directory path. Defaults to ./projects in current directory.")
+@click.option("--force", is_flag=True, default=False, help="Forcefully delete output directory if it exists")
+@verbose_option
+@click.pass_context
+def unpackage(ctx, archive, output, force):
+    """
+    Extract a packaged penguin project.
+
+    ARCHIVE is the path to a .tar.gz file created by 'penguin package'.
+    """
+    _startup_checks(ctx.obj['VERBOSE'])
+
+    archive_path = os.path.abspath(archive)
+    if not archive_path.endswith('.tar.gz'):
+        raise ValueError(f"Archive must be a .tar.gz file: {archive}")
+
+    if not os.path.exists(archive_path):
+        raise ValueError(f"Archive file not found: {archive}")
+
+    # Route relative output paths into the mapped workspace, similar to package command
+    if output is None:
+        output = "./projects"
+
+    if not os.path.isabs(output):
+        if os.path.exists("/workspace"):
+            output = os.path.join("/workspace", output)
+        else:
+            output = os.path.abspath(output)
+    else:
+        output = os.path.abspath(output)
+
+    # Check if extraction would create a directory that already exists
+    # First peek at what's in the archive to see if it has a top-level directory
+    try:
+        result = subprocess.run(
+            ["tar", "-tzf", archive_path],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        first_entry = result.stdout.split('\n')[0]
+        # If first entry is a directory (ends with /), that's our top-level
+        if first_entry.endswith('/'):
+            top_level_dir = first_entry.rstrip('/')
+            target_dir = os.path.join(output, top_level_dir)
+        else:
+            # No top-level directory in archive, will extract directly
+            target_dir = output
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to read archive: {e}")
+        exit(1)
+
+    if os.path.exists(target_dir):
+        if os.listdir(target_dir):  # Directory exists and is not empty
+            if force:
+                logger.info(f"Deleting existing directory: {target_dir}")
+                shutil.rmtree(target_dir, ignore_errors=True)
+            else:
+                raise ValueError(
+                    f"Output directory exists and is not empty: {target_dir}. Use --force to delete."
+                )
+
+    # Ensure output directory exists
+    os.makedirs(output, exist_ok=True)
+
+    # Verify the archive contains the version file
+    try:
+        result = subprocess.run(
+            ["tar", "-tzf", archive_path, ".penguin_packaged_version"],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if result.returncode != 0:
+            raise ValueError(
+                f"Archive is not a valid penguin package: missing .penguin_packaged_version file. "
+                f"This archive was not created with 'penguin package'."
+            )
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to verify archive: {e}")
+        exit(1)
+
+    logger.info(f"Extracting {archive} to {output}...")
+
+    try:
+        subprocess.run(
+            ["tar", "-I", "pigz", "-xf", archive_path, "-C", output],
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to extract archive: {e}")
+        exit(1)
+
+    logger.info(f"Successfully extracted to {target_dir}")
+
+    # Verify it's a valid penguin project
+    if os.path.isdir(target_dir):
+        config_path = os.path.join(target_dir, "config.yaml")
+        if not os.path.exists(config_path):
+            logger.warning(f"Extracted directory does not contain config.yaml")
+        else:
+            logger.info(f"Project ready at {target_dir}")
+
+
 @cli.command(hidden=True)
 @click.argument("project_dir", type=click.Path(exists=True))
 @click.option("-o", "--out", type=str, default=None)
@@ -889,6 +995,16 @@ def package(ctx, project_dir, out):
 def export(ctx, project_dir, out):
     """Alias for package"""
     ctx.invoke(package, project_dir=project_dir, out=out)
+
+@cli.command(name="import", hidden=True)
+@click.argument("archive", type=click.Path(exists=True))
+@click.option("-o", "--output", type=str, default="./projects")
+@click.option("--force", is_flag=True, default=False)
+@verbose_option
+@click.pass_context
+def import_cmd(ctx, archive, output, force):
+    """Alias for unpackage"""
+    ctx.invoke(unpackage, archive=archive, output=output, force=force)
 
 
 if __name__ == "__main__":
