@@ -229,8 +229,10 @@ def _do_package(project_dir, output_path):
     # This fully validates and resolves auto-patching files into final config state
     config = _validate_project(project_dir_abs, config_path)
 
+    # Always compute base_name from the project directory
+    base_name = os.path.basename(project_dir_abs)
+
     if output_path is None:
-        base_name = os.path.basename(project_dir_abs)
         output_path = f"{base_name}.tar.gz"
 
     # Route relative output paths into the mapped workspace
@@ -351,7 +353,7 @@ def _do_package(project_dir, output_path):
         # Write the version file as structured YAML
         version_file_path = os.path.join(temp_dir, ".penguin_packaged_version")
         package_metadata = {
-            "format_version": 2,
+            "format_version": 1,
             "penguin_version": VERSION,
             "base_name": base_name
         }
@@ -920,19 +922,19 @@ def unpackage(ctx, archive, output, force):
 
     # Verify the archive contains the version file and extract metadata
     try:
-        result = subprocess.run(
+        subprocess.run(
             ["tar", "-tzf", archive_path, ".penguin_packaged_version"],
             capture_output=True,
             text=True,
-            check=False
+            check=True
         )
-        if result.returncode != 0:
-            raise ValueError(
-                "Archive is not a valid penguin package: missing .penguin_packaged_version file. "
-                "This archive was not created with 'penguin package'."
-            )
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to verify archive: {e}")
+    except subprocess.CalledProcessError:
+        raise ValueError(
+            "Archive is not a valid penguin package: missing .penguin_packaged_version file. "
+            "This archive was not created with 'penguin package'."
+        )
+    except FileNotFoundError:
+        logger.error("tar command not found. Please ensure tar is installed.")
         exit(1)
 
     # Extract metadata to determine the base_name
