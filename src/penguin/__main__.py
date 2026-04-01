@@ -874,7 +874,7 @@ def guest_cmd(ctx, args):
 @click.option("-o", "--out", type=str, default=None, help="Output tar.gz file path. Defaults to <project_dir_name>.tar.gz")
 @verbose_option
 @click.pass_context
-def package(ctx, project_dir, out):
+def pack(ctx, project_dir, out):
     """
     Package a penguin project into a distributable archive.
 
@@ -890,11 +890,11 @@ def package(ctx, project_dir, out):
 @click.option("--force", is_flag=True, default=False, help="Forcefully delete output directory if it exists")
 @verbose_option
 @click.pass_context
-def unpackage(ctx, archive, output, force):
+def unpack(ctx, archive, output, force):
     """
     Extract a packaged penguin project.
 
-    ARCHIVE is the path to a .tar.gz file created by 'penguin package'.
+    ARCHIVE is the path to a .tar.gz file created by 'penguin pack'.
     """
     _startup_checks(ctx.obj['VERBOSE'])
 
@@ -931,7 +931,7 @@ def unpackage(ctx, archive, output, force):
     except subprocess.CalledProcessError:
         raise ValueError(
             "Archive is not a valid penguin package: missing .penguin_packaged_version file. "
-            "This archive was not created with 'penguin package'."
+            "This archive was not created with 'penguin pack'."
         )
     except FileNotFoundError:
         logger.error("tar command not found. Please ensure tar is installed.")
@@ -1002,8 +1002,8 @@ def unpackage(ctx, archive, output, force):
 @verbose_option
 @click.pass_context
 def export(ctx, project_dir, out):
-    """Alias for package"""
-    ctx.invoke(package, project_dir=project_dir, out=out)
+    """Alias for pack"""
+    ctx.invoke(pack, project_dir=project_dir, out=out)
 
 
 @cli.command(name="import", hidden=True)
@@ -1013,8 +1013,8 @@ def export(ctx, project_dir, out):
 @verbose_option
 @click.pass_context
 def import_cmd(ctx, archive, output, force):
-    """Alias for unpackage"""
-    ctx.invoke(unpackage, archive=archive, output=output, force=force)
+    """Alias for unpack"""
+    ctx.invoke(unpack, archive=archive, output=output, force=force)
 
 
 if __name__ == "__main__":
