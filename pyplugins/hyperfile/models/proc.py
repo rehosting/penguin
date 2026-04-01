@@ -9,6 +9,3 @@ class PenguinNet(ReadConstBuf, ProcFile):
         self.config = config
         super().__init__(buffer=netdev_val)
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
-        self._data = "\n".join(self.config["netdevs"]) + "\n"
-        super().read(ptregs, file, user_buf, size, loff)

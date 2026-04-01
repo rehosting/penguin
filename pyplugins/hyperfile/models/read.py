@@ -17,6 +17,7 @@ class ReadBufWrapper:
             # initialize it differently, or if we want a safe default.
             # However, based on your request for "const_buf", we'll initialize it safely.
             self._data = b"" 
+        self.SIZE = len(self._data) if self._data else 0
             
         super().__init__(**kwargs)
 

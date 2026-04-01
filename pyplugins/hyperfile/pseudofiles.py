@@ -236,6 +236,13 @@ class Pseudofiles(Plugin):
         all_kwargs['path'] = filename
         all_kwargs['fs'] = BaseClass.FS
 
+        # --- FIX: Capture top-level file properties (size, mode, etc.) ---
+        # We ignore the sub-dictionaries since we already parsed them
+        for key, val in details.items():
+            if key not in ("read", "write", "ioctl"):
+                all_kwargs[key] = val
+        # -----------------------------------------------------------------
+
         return type(safe_name, tuple(bases), {})(**all_kwargs)
 
     def _force_removal(self, filename):
