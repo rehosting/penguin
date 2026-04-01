@@ -34,7 +34,7 @@ static_files:
           echo "Expected interface $dev not found"
           exit 1
         fi
-        if ! $bb ifconfig $dev | $bb grep -q "^$dev"; then
+        if ! $bb ifconfig $dev | $bb grep "^$dev" > /dev/null; then
             echo "Expected interface $dev not up"
             exit 1
         fi
@@ -52,19 +52,19 @@ static_files:
           echo "Checking stats for $dev..."
           echo "$ifconfig_out"
 
-          if ! echo "$ifconfig_out" | $bb grep -q "RX packets:$rx_p"; then
+          if ! echo "$ifconfig_out" | $bb grep "RX packets:$rx_p" > /dev/null; then
               echo "$dev: RX packets not $rx_p"
               exit 1
           fi
-          if ! echo "$ifconfig_out" | $bb grep -q "TX packets:$tx_p"; then
+          if ! echo "$ifconfig_out" | $bb grep "TX packets:$tx_p" > /dev/null; then
               echo "$dev: TX packets not $tx_p"
               exit 1
           fi
-          if ! echo "$ifconfig_out" | $bb grep -q "RX bytes:$rx_b"; then
+          if ! echo "$ifconfig_out" | $bb grep "RX bytes:$rx_b" > /dev/null; then
               echo "$dev: RX bytes not $rx_b"
               exit 1
           fi
-          if ! echo "$ifconfig_out" | $bb grep -q "TX bytes:$tx_b"; then
+          if ! echo "$ifconfig_out" | $bb grep "TX bytes:$tx_b" > /dev/null; then
               echo "$dev: TX bytes not $tx_b"
               exit 1
           fi
