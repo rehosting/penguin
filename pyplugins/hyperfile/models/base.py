@@ -9,19 +9,53 @@ class BaseFile:
     """
     PATH = None
     FS = "unknown"
+    SIZE = 0
 
-    def __init__(self, *, path: str = None, fs: str = None, **kwargs):
+    def __init__(self, *, path: str = None, fs: str = None, size: int = 0, mode: int = None, **kwargs):
         """
-        Consumes 'path' and 'fs' arguments.
-        Swallows any remaining kwargs so object.__init__ doesn't crash.
+        Consumes 'path', 'fs', 'size', and 'mode' arguments.
         """
         if path is not None:
             self.PATH = path
         if fs is not None:
             self.FS = fs
         
-        # We do not pass kwargs to super() because object() takes no args.
+        self.SIZE = size
+        
+        # Use provided mode, or automatically derive it
+        if mode is not None:
+            self.MODE = mode
+        else:
+            self.MODE = self._derive_mode()
+            
         super().__init__()
+
+    def _derive_mode(self) -> int:
+        """Derive appropriate file permissions based on implemented methods."""
+        has_read = self._is_overridden('read') or self._is_overridden('show') or self._is_overridden('read_iter')
+        has_write = self._is_overridden('write') or self._is_overridden('store')
+
+        if has_read and has_write:
+            return 0o666  # Read/Write
+        elif has_write:
+            return 0o222  # Write-only
+        else:
+            return 0o444  # Read-only (Default)
+
+    def _is_overridden(self, method_name: str) -> bool:
+        """Check if a method was overridden by the user's subclass."""
+        if not hasattr(self, method_name):
+            return False
+        
+        # Traverse the Method Resolution Order (MRO) to see where the method is defined
+        for cls in type(self).__mro__:
+            if method_name in cls.__dict__:
+                # If the method belongs to one of our framework base classes, it's not custom
+                if cls.__name__ in ('BaseFile', 'VFSFile', 'ProcFile', 'DevFile', 'SysFile', 'SysfsBridge'):
+                    return False
+                # If it belongs to a subclass, the user implemented it!
+                return True
+        return False
     
     @property
     def full_path(self) -> str:

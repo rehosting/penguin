@@ -149,6 +149,8 @@ class Proc(Plugin):
             init_data = {
                 "path": file_name.encode("latin-1", errors="ignore"),
                 "fops": fops,
+                "size": getattr(proc, "SIZE", 0),
+                "mode": getattr(proc, "MODE", 0o444),
                 "parent_id": parent_id,
                 "replace": 1
             }
