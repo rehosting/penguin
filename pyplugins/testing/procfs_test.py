@@ -7,7 +7,7 @@ from hyperfile.models.ioctl import IoctlZero
 
 
 class SimpleProcfsFile(ReadConstBuf, WriteDiscard, IoctlZero, ProcFile):
-    PATH = "s/i/m/p/l/e/simple_proc"  # No /proc prefix
+    PATH = "s/i/m/p/l/e/simple_proc"
 
     def __init__(self):
         super().__init__(buffer=b"Hello from simple_proc!\n")
@@ -17,100 +17,55 @@ class SimpleProcfsFile(ReadConstBuf, WriteDiscard, IoctlZero, ProcFile):
         print(f"SimpleProcfsFile.open called in {procname}")
         ptregs.set_retval(0)
 
-    def release(self, ptregs: PtRegsWrapper, inode: int, file: int):
-        procname = yield from plugins.osi.get_proc_name()
-        print(f"SimpleProcfsFile.release called in {procname}")
-        ptregs.set_retval(0)
-
 class CPUinfoFile(ReadConstBuf, ProcFile):
-    PATH = "/proc/cpuinfo"  # No /proc prefix
+    PATH = "/proc/cpuinfo"
     def __init__(self):
-        data = b"processor       : IGLOO\n"
-        super().__init__(buffer=data)
+        super().__init__(buffer=b"processor       : IGLOO\n")
 
+class DynamicProcfsFile(ProcFile):
+    PATH = "dynamic_proc"
+    MODE = 0o666
 
-class ModulesFile(ReadConstBuf, ProcFile):
-    PATH = "/proc/modules"  # No /proc prefix
+    def __init__(self):
+        self.value = 0
 
-    def __init__(self, modules: dict = None):
-        self.modules = modules if modules is not None else {}
-        formatted = self._format_proc_modules(self.modules)
-        data = formatted.encode("utf-8") if formatted else b""
-        super().__init__(buffer=data)
+    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
+        data = f"{self.value}\n".encode("utf-8")
+        offset = yield from plugins.mem.read_int(loff)
+        if size <= 0 or offset >= len(data):
+            ptregs.set_retval(0)
+            return
+        chunk = min(size, len(data) - offset)
+        yield from plugins.mem.write_bytes(user_buf, data[offset:offset + chunk])
+        yield from plugins.mem.write_int(loff, offset + chunk)
+        ptregs.set_retval(chunk)
 
-    def _format_proc_modules(self, modules: dict) -> str:
-        """
-        Format a dictionary of modules into /proc/modules output.
+    def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
+        raw = yield from plugins.mem.read_bytes(user_buf, size)
+        try:
+            self.value = int(raw.decode("utf-8").strip())
+            ptregs.set_retval(size)
+        except:
+            ptregs.set_retval(-1)
 
-        modules: dict mapping module_name -> attribute dict.
-
-        Valid attribute keys (all optional):
-            init_size: int
-            core_size: int
-            refcount: int or "-"
-            deps: list[str]
-            state: "LIVE", "COMING", "GOING", "UNFORMED"
-            base_addr: int
-            taints: str (e.g., "O", "P", "OE")
-        """
-
-        results = []
-
-        # Kernel state → printed string
-        state_map = {
-            "GOING": "Unloading",
-            "COMING": "Loading",
-            "LIVE": "Live",
-        }
-
-        for name, attr in modules.items():
-            # ----- Defaults -----
-            init_size  = attr.get("init_size", 0)
-            core_size  = attr.get("core_size", 0)
-            total_size = init_size + core_size
-
-            refcount   = attr.get("refcount", "-")
-            deps_list  = attr.get("deps", [])
-            state      = attr.get("state", "LIVE")
-            base_addr  = attr.get("base_addr", 0)
-            taints     = attr.get("taints", "")
-
-            # Skip unformed modules like the kernel
-            if state == "UNFORMED":
-                continue
-
-            # ----- Format fields -----
-            line = f"{name} {total_size}"
-
-            # refcount
-            if refcount is None:
-                refcount = "-"
-            line += f" {refcount}"
-
-            # dependencies
-            deps = ",".join(deps_list) if deps_list else "-"
-            line += f" {deps}"
-
-            # state text
-            state_str = state_map.get(state, "Live")
-            line += f" {state_str}"
-
-            # address (hex)
-            line += f" 0x{base_addr:x}"
-
-            # taints (e.g. "(O)" or "(OE)")
-            if taints:
-                line += f" ({taints})"
-
-            results.append(line)
-
-        # kernel prints nothing if no modules produce output
-        return "\n".join(results) if results else ""
-
+class LargeProcFile(ReadConstBuf, ProcFile):
+    PATH = "large_file"
+    def __init__(self):
+        super().__init__(buffer=b"A" * 8192)
 
 
 class ProcTest(Plugin):
     def __init__(self):
+        # 1. Standard Proc Registrations
         plugins.procfs.register_proc(SimpleProcfsFile())
         plugins.procfs.register_proc(CPUinfoFile())
-        plugins.procfs.register_proc(ModulesFile())
+        plugins.procfs.register_proc(DynamicProcfsFile())
+        plugins.procfs.register_proc(LargeProcFile())
+
+
+        # 3. Duplicate Check
+        try:
+            plugins.procfs.register_proc(SimpleProcfsFile())
+            self.logger.error("Failed to catch duplicate proc registration!")
+        except ValueError:
+            self.logger.info("Successfully caught duplicate proc registration.")
