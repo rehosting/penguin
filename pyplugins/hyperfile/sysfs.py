@@ -40,6 +40,9 @@ class Sysfs(Plugin):
             init_data[name] = yield from kffi.callback(fn)
             
         return kffi.new("struct igloo_sysfs_ops", init_data)
+    
+    def register(self, sysfs_file: SysFile, path: Optional[str] = None, mode: int = 0o644):
+        return self.register_sysfs(sysfs_file, path, mode)
 
     def register_sysfs(self, sysfs_file: SysFile, path: Optional[str] = None, mode: int = 0o644):
         if path:
