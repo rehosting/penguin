@@ -67,7 +67,12 @@ class Proc(Plugin):
         proc_file.PATH = fname
         if fname.startswith("/proc/"):
             fname = fname[len("/proc/"):]  # Remove leading /proc/
-        if fname not in self._procs and proc_file not in self._pending_procs:
+            
+        # 1. ENFORCE SINGLE REGISTRATION: Reject duplicates instantly
+        if fname in self._procs:
+            raise ValueError(f"Cannot register '{fname}': A procfs file is already registered at this path.")
+            
+        if proc_file not in self._pending_procs:
             plugins.portal.queue_interrupt("procfs")
             self._pending_procs.append((fname, proc_file))
         self._procs[fname] = proc_file
