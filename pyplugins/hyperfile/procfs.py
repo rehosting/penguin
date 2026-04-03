@@ -49,6 +49,9 @@ class Proc(Plugin):
             init_data[name] = yield from kffi.callback(fn)
             
         return kffi.new("struct igloo_proc_ops", init_data)
+    
+    def register(self, proc_file: ProcFile, path: Optional[str] =None):
+        return self.register_proc(proc_file, path)
 
     def register_proc(self, proc_file: ProcFile, path: Optional[str] =None):
         """
