@@ -201,6 +201,9 @@ class Netdevs(Plugin):
             return 0
 
         for name in names:
+            if len(name) > 15:
+                self.logger.error(f"Netdev name '{name}' exceeds 15 character limit and will be ignored")
+                continue
             buf = name.encode("latin-1", errors="ignore") + b"\0"
             result = yield PortalCmd(hop.HYPER_OP_REGISTER_NETDEV, 0, len(buf), None, buf)
             is_up = yield from self.set_netdev_state(name, True)
