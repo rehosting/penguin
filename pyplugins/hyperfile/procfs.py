@@ -58,9 +58,10 @@ class Proc(Plugin):
             fname = path
         else:
             fname = getattr(proc_file, "PATH", None)
-        proc_file.PATH = path
         if not fname:
             raise ValueError("ProcFile must define PATH or define it in register_proc")
+            
+        proc_file.PATH = fname
         if fname.startswith("/proc/"):
             fname = fname[len("/proc/"):]  # Remove leading /proc/
         if fname not in self._procs and proc_file not in self._pending_procs:
@@ -77,6 +78,13 @@ class Proc(Plugin):
         if not parts:
             self._proc_dirs[""] = 0
             return 0
+            
+        # ONLY check the first directory component (root-level /proc/ entries)
+        first_dir = parts[0]
+        if first_dir.isdigit() or first_dir == "self":
+            self.logger.error(f"Cannot create reserved procfs directory: '/proc/{first_dir}'")
+            raise RuntimeError(f"Reserved procfs path component: {first_dir}")
+
         parent_id = 0
         cur_path = ""
         for part in parts:
@@ -127,16 +135,24 @@ class Proc(Plugin):
         Register proc files with the kernel via portal.
         """
         for fname, proc in procs:
-            # Check for /proc/self or /proc/<number>
-            norm_path = fname.strip("/")
-            if norm_path == "self" or (norm_path.isdigit()):
+            # Split the path to isolate the very first directory or file
+            parts = [p for p in fname.strip("/").split("/") if p]
+            
+            # Only block if the root-most proc element is 'self' or a digit
+            if parts and (parts[0] == "self" or parts[0].isdigit()):
                 self.logger.error(
-                    f"Cannot register special procfs path '/proc/{norm_path}': not supported."
+                    f"Cannot register special procfs path '/proc/{fname.strip('/')}': not supported."
                 )
                 continue
 
             parent_dir, file_name = self._split_proc_path(fname)
-            parent_id = yield from self._get_or_create_proc_dir(parent_dir)
+            
+            # Gracefully handle failures to create directories
+            try:
+                parent_id = yield from self._get_or_create_proc_dir(parent_dir)
+            except RuntimeError as e:
+                self.logger.error(f"Skipping proc registration for '{fname}': {e}")
+                continue
 
             # Validate file name
             if not file_name or "/" in file_name:
