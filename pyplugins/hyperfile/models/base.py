@@ -1,4 +1,5 @@
 from wrappers.ptregs_wrap import PtRegsWrapper
+from typing import Union
 from penguin import getColoredLogger, plugins
 
 
@@ -234,3 +235,42 @@ class SysfsBridge:
             self.logger.info(f"Discarding sysfs store payload: {data}")
             
         return count  # store() must return the number of bytes consumed
+
+class SysctlFile(BaseFile):
+    FS = "sysctl"
+    PATH: str = ""
+    MODE: int = 0o644
+    MAXLEN: int = 256
+    INITIAL_VALUE: Union[str, bytes] = ""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.PATH = kwargs.get("path", getattr(self, "PATH", ""))
+        self.MODE = kwargs.get("mode", getattr(self, "MODE", 0o644))
+        self.MAXLEN = kwargs.get("maxlen", getattr(self, "MAXLEN", 256))
+        self.INITIAL_VALUE = kwargs.get("INITIAL_VALUE", getattr(self, "INITIAL_VALUE", b""))
+
+    def read(self, ptregs, file, user_buf, size, loff):
+        """No-op generator."""
+        if False: yield
+        return 0
+
+    def write(self, ptregs, file, user_buf, size, loff):
+        """No-op generator."""
+        if False: yield
+        return 0
+
+    def proc_handler(self, ptregs, ctl, write, buffer, lenp, ppos):
+        """
+        Unified sysctl entry point. 
+        Extracts arguments from ptregs and routes to read() or write().
+        """
+        if write:
+            ret = yield from self.write(ptregs, None, buffer, lenp, ppos)
+        else:
+            ret = yield from self.read(ptregs, None, buffer, lenp, ppos)
+        
+        # Ensure we don't return None to the ptregs handler
+        ret_val = ret if ret is not None else 0
+        ptregs.set_retval(ret_val if ret_val < 0 else 0)
+        return ret_val
