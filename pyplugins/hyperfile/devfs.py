@@ -46,6 +46,9 @@ class Devfs(Plugin):
             init_data[name] = yield from kffi.callback(fn)
             
         return kffi.new("struct igloo_dev_ops", init_data)
+    
+    def register(self, devfs_file: DevFile, path: Optional[str] = None, major: Optional[int] = None, minor: Optional[int] = None):
+        return self.register_devfs(devfs_file, path, major, minor)
 
     def register_devfs(self, devfs_file: DevFile, path: Optional[str] = None, major: Optional[int] = None, minor: Optional[int] = None):
         if path:
