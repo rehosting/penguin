@@ -1,6 +1,6 @@
 import inspect
 from penguin import plugins, Plugin
-from hyperfile.models.base import DevFile, ProcFile, SysFile, SysfsBridge
+from hyperfile.models.base import DevFile, ProcFile, SysFile, SysfsBridge, SysctlFile
 from hyperfile.models.read import ReadZero, ReadExternalVFS, ReadExternalLegacy, ReadConstBuf, ReadEmpty, ReadFromFile
 from hyperfile.models.write import WriteDiscard, WriteExternalVFS, WriteExternalLegacy, WriteToFile
 from hyperfile.models.ioctl import (
@@ -231,10 +231,15 @@ class Pseudofiles(Plugin):
         all_kwargs = {**r_kwargs, **w_kwargs}
         all_kwargs['ioctl_handlers'] = handlers_map
         all_kwargs['path'] = filename
-        all_kwargs['fs'] = BaseClass.FS
+        all_kwargs['fs'] = getattr(BaseClass, 'FS', None)
 
-        # --- FIX: Capture top-level file properties (size, mode, etc.) ---
-        # We ignore the sub-dictionaries since we already parsed them
+        # --- Compatibility bridge for SysctlFile ---
+        # If the old config uses a const_buf read mixin to set a static sysctl value, 
+        # map it to INITIAL_VALUE so the C driver can natively handle it.
+        if BaseClass is SysctlFile and "buffer" in r_kwargs:
+            all_kwargs["INITIAL_VALUE"] = str(r_kwargs["buffer"])
+
+        # Capture top-level file properties (size, mode, etc.)
         for key, val in details.items():
             if key not in ("read", "write", "ioctl"):
                 all_kwargs[key] = val
@@ -257,7 +262,10 @@ class Pseudofiles(Plugin):
                 continue
             
             # Determine Base Class and Registerer based on path prefix
-            if filename.startswith("/proc/"):
+            if filename.startswith("/proc/sys/"):
+                BaseClass = SysctlFile
+                registrar = plugins.sysctl.register_sysctl
+            elif filename.startswith("/proc/"):
                 BaseClass = ProcFile
                 registrar = plugins.procfs.register_proc
             elif filename.startswith("/dev/"):
