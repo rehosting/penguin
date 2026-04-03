@@ -1,0 +1,41 @@
+# tests/unit_tests/test_target/patches/tests/sysctl_test.yaml
+plugins:
+  sysctl_test: {} 
+  verifier:
+    conditions:
+      sysctl_test:
+        type: file_contains
+        file: console.log
+        string: "/tests/sysctl_test.sh PASS"
+
+static_files:
+  /tests/sysctl_test.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      echo "Running sysctl comprehensive tests..."
+
+      # 1. Static Read
+      if [ "$(/igloo/utils/busybox cat /proc/sys/kernel/custom_static)" != "hello_sysctl" ]; then
+        echo "Error: custom_static fail"
+        exit 1
+      fi
+
+      # 2. UsageCounter (Side-effect Test)
+      val1=$(/igloo/utils/busybox cat /proc/sys/kernel/usage_counter)
+      if [ "$val1" != "AccessID: 1" ]; then
+        echo "Error: Expected AccessID: 1, got '$val1'"
+        exit 1
+      fi
+
+      val2=$(/igloo/utils/busybox cat /proc/sys/kernel/usage_counter)
+      if [ "$val2" != "AccessID: 2" ]; then
+        echo "Error: Expected AccessID: 2, got '$val2'"
+        exit 1
+      fi
+
+      echo "/tests/sysctl_test.sh PASS"
+      exit 0
+    mode: 73
