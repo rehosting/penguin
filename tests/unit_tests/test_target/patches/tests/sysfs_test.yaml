@@ -1,0 +1,76 @@
+# tests/unit_tests/test_target/patches/tests/sysfs_test.yaml
+plugins:
+  # Load your custom python plugin that registers the sysfs files
+  sysfs_test: {} 
+  verifier:
+    conditions:
+      sysfs_test:
+        type: file_contains
+        file: console.log
+        string: "/tests/sysfs_test.sh PASS"
+
+static_files:
+  /tests/sysfs_test.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      echo "Running sysfs tests..."
+
+      # 1. Test SimpleSysfsFile (Read/Write State Tracking)
+      # Check the initial value
+      VAL=$(/igloo/utils/busybox cat /sys/kernel/simple_sysfs/value)
+      if [ "$VAL" != "0" ]; then
+        echo "Error: /sys/kernel/simple_sysfs/value initialized incorrectly (got $VAL)"
+        exit 1
+      fi
+
+      # Write a new value and verify it updated internally
+      echo "42" > /sys/kernel/simple_sysfs/value
+      VAL=$(/igloo/utils/busybox cat /sys/kernel/simple_sysfs/value)
+      if [ "$VAL" != "42" ]; then
+        echo "Error: /sys/kernel/simple_sysfs/value failed to update on write (got $VAL)"
+        exit 1
+      fi
+
+      # 2. Test RandomSysfsFile
+      # Ensure it produces output and accepts discard writes
+      RAND1=$(/igloo/utils/busybox cat /sys/kernel/simple_sysfs/random)
+      if [ -z "$RAND1" ]; then
+        echo "Error: /sys/kernel/simple_sysfs/random returned empty"
+        exit 1
+      fi
+      # This should succeed silently and discard the data
+      echo "test_write" > /sys/kernel/simple_sysfs/random
+
+      # 3. Test PowerStateSyfsFile
+      # Check constant read behavior
+      PWR=$(/igloo/utils/busybox cat /sys/power/state)
+      if [ "$PWR" != "mem" ]; then
+        echo "Error: /sys/power/state returned incorrect data (got $PWR)"
+        exit 1
+      fi
+      
+      # Write should be discarded but return count successfully (no IO error)
+      echo "disk" > /sys/power/state
+      
+      # Verify the write didn't actually overwrite the hardcoded "mem" string
+      PWR=$(/igloo/utils/busybox cat /sys/power/state)
+      if [ "$PWR" != "mem" ]; then
+        echo "Error: /sys/power/state changed after write discard (got $PWR)"
+        exit 1
+      fi
+
+      # 4. Test BaseStateSyfsFile (Deep Nesting Generation)
+      # Verifies the system can create intermediate directories (s/t/a)
+      BASE=$(/igloo/utils/busybox cat /sys/s/t/a/state)
+      if [ "$BASE" != "mem" ]; then
+        echo "Error: /sys/s/t/a/state returned incorrect data (got $BASE)"
+        exit 1
+      fi
+      echo "dummy" > /sys/s/t/a/state
+
+      echo "/tests/sysfs_test.sh PASS"
+      exit 0
+    mode: 73

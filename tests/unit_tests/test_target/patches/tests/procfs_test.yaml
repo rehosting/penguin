@@ -1,0 +1,56 @@
+# tests/unit_tests/test_target/patches/tests/procfs_test.yaml
+plugins:
+  # Load your custom python plugin that registers the procfiles
+  procfs_test: {} 
+  verifier:
+    conditions:
+      procfs_test:
+        type: file_contains
+        file: console.log
+        string: "/tests/procfs_test.sh PASS"
+
+static_files:
+  /tests/procfs_test.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      echo "Running procfs tests..."
+
+      # 1. Test SimpleProcfsFile
+      if [ "$(/igloo/utils/busybox cat /proc/s/i/m/p/l/e/simple_proc)" != "Hello from simple_proc!" ]; then
+        echo "Error: /proc/s/i/m/p/l/e/simple_proc has incorrect data"
+        exit 1
+      fi
+
+      # 2. Test CPUinfoFile
+      if [ "$(/igloo/utils/busybox cat /proc/cpuinfo)" != "processor       : IGLOO" ]; then
+        echo "Error: /proc/cpuinfo has incorrect data"
+        exit 1
+      fi
+
+      # 3. Test ModulesFile
+      if [ -s /proc/modules ]; then
+        echo "Error: /proc/modules is not empty!"
+        /igloo/utils/busybox cat /proc/modules
+        exit 1
+      fi
+
+      # 4. Test SelfFile (Magic Symlink Handling)
+      # Tests if the new procfs system handles virtual directory routing correctly
+      # through the dynamic /proc/self path.
+      if [ "$(/igloo/utils/busybox cat /proc/self/info)" != "IGLOO was here" ]; then
+        echo "Error: /proc/self/info has incorrect data"
+        exit 1
+      fi
+
+      # 5. Confirm standard file attributes exist and behave normally
+      if [ ! -f /proc/cpuinfo ]; then
+         echo "Error: /proc/cpuinfo is not reporting as a regular file"
+         exit 1
+      fi
+
+      echo "/tests/procfs_test.sh PASS"
+      exit 0
+    mode: 73

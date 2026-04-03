@@ -26,6 +26,7 @@ patches:
   - ./patches/tests/proc_mtd_dynamic.yaml
   - ./patches/tests/proc_mtd.yaml
   - ./patches/tests/proc_self.yaml
+  - ./patches/tests/procfs_test.yaml
   - ./patches/tests/pseudofile_devfs.yaml
   - ./patches/tests/pseudofile_ioctl.yaml
   - ./patches/tests/pseudofile_missing.yaml
@@ -46,6 +47,7 @@ patches:
   - ./patches/tests/lifeguard.yaml
   - ./patches/tests/nvram.yaml
   - ./patches/tests/static_fs.yaml
+  - ./patches/tests/sysfs_test.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 

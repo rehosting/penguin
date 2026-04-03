@@ -1,0 +1,69 @@
+# tests/unit_tests/test_target/patches/tests/devfs_test.yaml
+plugins:
+  # Load the custom python plugin that registers the devfs files
+  devfs_test: {} 
+  verifier:
+    conditions:
+      devfs_test:
+        type: file_contains
+        file: console.log
+        string: "/tests/devfs_test.sh PASS"
+
+static_files:
+  /tests/devfs_test.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      echo "Running devfs tests..."
+
+      # 1. Test SimpleDevfsDevice at default path (relative PATH string)
+      # Check the initial value
+      VAL1=$(/igloo/utils/busybox cat /dev/simpledev)
+      if [ "$VAL1" != "0" ]; then
+        echo "Error: /dev/simpledev initialized incorrectly (got $VAL1)"
+        exit 1
+      fi
+
+      # Write a new value and verify it updated internally
+      echo "42" > /dev/simpledev
+      VAL1=$(/igloo/utils/busybox cat /dev/simpledev)
+      if [ "$VAL1" != "42" ]; then
+        echo "Error: /dev/simpledev failed to update on write (got $VAL1)"
+        exit 1
+      fi
+
+      # 2. Test SimpleDevfsDevice with custom absolute path override
+      # Because this is a separate instance, it should initialize at 0
+      VAL2=$(/igloo/utils/busybox cat /dev/bcde)
+      if [ "$VAL2" != "0" ]; then
+        echo "Error: /dev/bcde initialized incorrectly (got $VAL2)"
+        exit 1
+      fi
+
+      # Write a different value
+      echo "100" > /dev/bcde
+      VAL2=$(/igloo/utils/busybox cat /dev/bcde)
+      if [ "$VAL2" != "100" ]; then
+        echo "Error: /dev/bcde failed to update on write (got $VAL2)"
+        exit 1
+      fi
+
+      # 3. Verify Isolation
+      # Ensure writing to the second device instance didn't mutate the first
+      VAL1=$(/igloo/utils/busybox cat /dev/simpledev)
+      if [ "$VAL1" != "42" ]; then
+        echo "Error: /dev/simpledev state mutated when writing to /dev/bcde (got $VAL1)"
+        exit 1
+      fi
+
+      # 4. Check standard device existence
+      if [ ! -e /dev/simpledev ]; then
+         echo "Error: /dev/simpledev does not exist"
+         exit 1
+      fi
+
+      echo "/tests/devfs_test.sh PASS"
+      exit 0
+    mode: 73
