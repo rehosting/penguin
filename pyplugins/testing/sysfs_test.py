@@ -44,7 +44,7 @@ class RandomSysfsFile(SysFile):
         ptregs.set_retval(len(data))
 
     def store(self, ptregs: PtRegsWrapper, kobj, attr, buf, count):
-        ptregs.set_reval(count)
+        ptregs.set_retval(count)
 
 class PowerStateSyfsFile(SysFile):
     PATH = "/sys/power/state"  # No /sys prefix
