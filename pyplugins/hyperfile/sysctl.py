@@ -126,7 +126,7 @@ class Sysctl(Plugin):
             if result is None or result <= 0:
                 self.logger.error(f"Failed to register sysctl '{fname}'")
                 continue
-            self.logger.info(f"Registered sysctl '{fname}' with kernel (id={result})")
+            self.logger.debug(f"Registered sysctl '{fname}' with kernel (id={result})")
 
     def _sysctl_interrupt_handler(self) -> Generator[bool, None, bool]:
         """

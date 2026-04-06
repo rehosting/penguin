@@ -192,7 +192,7 @@ class Proc(Plugin):
             if result == 0 or result is None:
                 self.logger.error(f"Failed to register proc '{fname}' (kernel returned 0)")
                 continue
-            self.logger.info(f"Registered proc '{fname}' with kernel")
+            self.logger.debug(f"Registered proc '{fname}' with kernel")
 
     def _proc_interrupt_handler(self) -> Generator[bool, None, bool]:
         """

@@ -146,7 +146,7 @@ class Sysfs(Plugin):
             if result == 0 or result is None:
                 self.logger.error(f"Failed to register sysfs '{fname}' (kernel returned 0)")
                 continue
-            self.logger.info(f"Registered sysfs '{fname}' with kernel")
+            self.logger.debug(f"Registered sysfs '{fname}' with kernel")
 
     def _hypersysfs_interrupt_handler(self) -> Generator[bool, None, bool]:
         if not self._pending_sysfs:
