@@ -2,3 +2,5 @@
 qcows/
 results
 log.txt
+empty_fs.tar.gz
+empty_fs.tar.gz.index.sqlite
