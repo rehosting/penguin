@@ -830,7 +830,11 @@ class Syscalls(Plugin):
                     "bitmask": f.bitmask
                 }
                 if getattr(f, 'pattern', None):
-                    res["pattern_len"] = len(f.pattern)
+                    plen = len(f.pattern)
+                    # Exclude the null terminator from the pattern length consistently
+                    if f.pattern.endswith(b'\x00'):
+                        plen -= 1
+                    res["pattern_len"] = plen
                     res["pattern"] = yield from plugins.mem.copy_buf_guest(f.pattern)
                 return res
             elif isinstance(f, (int, float)):
@@ -844,7 +848,9 @@ class Syscalls(Plugin):
                 }
             elif isinstance(f, str):
                 # Simple exact match for strings
-                encoded = f.encode('utf-8') + b'\x00'
+                encoded = f.encode('utf-8')
+                plen = len(encoded)
+                encoded += b'\x00'
                 return {
                     "enabled": True,
                     "type": vft.SYSCALLS_HC_FILTER_STR_STARTSWITH,
@@ -852,7 +858,7 @@ class Syscalls(Plugin):
                     "min_value": 0,
                     "max_value": 0,
                     "bitmask": 0,
-                    "pattern_len": len(f),
+                    "pattern_len": plen,
                     "pattern": (yield from plugins.mem.copy_buf_guest(encoded))
                 }
             return {"enabled": False}
