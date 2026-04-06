@@ -435,8 +435,15 @@ def get_kernel(conf: dict, proj_dir: str) -> str:
     """
     kernel = conf["core"].get("kernel", None)
     if kernel:
+        # Check if the kernel exists as an absolute path or relative to current execution dir
         if os.path.exists(kernel) and os.path.isfile(kernel):
             return kernel
+
+        # Check if the kernel exists relative to the project directory
+        proj_kernel = os.path.join(proj_dir, kernel)
+        if os.path.exists(proj_kernel) and os.path.isfile(proj_kernel):
+            return proj_kernel
+
     from penguin.q_config import load_q_config
     from glob import glob
     q_config = load_q_config(conf)
