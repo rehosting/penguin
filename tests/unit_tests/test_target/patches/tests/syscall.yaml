@@ -46,6 +46,18 @@ plugins:
         type: file_contains
         file: syscall_test.txt
         string: "Syscall unregister_by_name: passed"
+      syscall_string_exact:
+        type: file_contains
+        file: syscall_test.txt
+        string: "Syscall string exact: passed"
+      syscall_string_contains:
+        type: file_contains
+        file: syscall_test.txt
+        string: "Syscall string contains: passed"
+      syscall_string_startswith:
+        type: file_contains
+        file: syscall_test.txt
+        string: "Syscall string startswith: passed"
 
 static_files:
   /tests/syscall.sh:
@@ -54,6 +66,11 @@ static_files:
       #!/igloo/utils/sh
       set -x
       set +e
+
+      # Trigger string filters
+      /igloo/utils/busybox cat /tmp/exact_match_file.txt > /dev/null 2>&1
+      /igloo/utils/busybox cat /tmp/some_contains_file.txt > /dev/null 2>&1
+      /igloo/utils/busybox cat /tmp/startswith_file_suffix.txt > /dev/null 2>&1
 
       /igloo/utils/send_syscall ioctl 0x13 0x0 0x1
       /igloo/utils/send_syscall ioctl 0x13 0x1234 0xabce

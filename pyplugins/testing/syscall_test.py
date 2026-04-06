@@ -44,6 +44,47 @@ class SyscallTest(Plugin):
         syscalls.syscall("on_sys_ioctl_enter", comm_filter="send_syscall",
                          arg_filters=[0x16, 0x1234])(self.test_unregister_by_name)
 
+        # --- String filter tests ---
+        self.exact_passed = False
+        self.contains_passed = False
+        self.startswith_passed = False
+
+        # Exact match
+        syscalls.syscall("on_sys_openat_enter",
+                         arg_filters=[None, ValueFilter.string_exact("/tmp/exact_match_file.txt")])(self.test_string_exact)
+        syscalls.syscall("on_sys_open_enter",
+                         arg_filters=[ValueFilter.string_exact("/tmp/exact_match_file.txt")])(self.test_string_exact)
+
+        # Contains
+        syscalls.syscall("on_sys_openat_enter",
+                         arg_filters=[None, ValueFilter.string_contains("contains_file")])(self.test_string_contains)
+        syscalls.syscall("on_sys_open_enter",
+                         arg_filters=[ValueFilter.string_contains("contains_file")])(self.test_string_contains)
+
+        # Startswith (using primitive string implicitly)
+        syscalls.syscall("on_sys_openat_enter",
+                         arg_filters=[None, "/tmp/startswith_file"])(self.test_string_startswith)
+        syscalls.syscall("on_sys_open_enter",
+                         arg_filters=["/tmp/startswith_file"])(self.test_string_startswith)
+
+    def test_string_exact(self, regs, proto, syscall, *args):
+        if not self.exact_passed:
+            self.exact_passed = True
+            with open(join(self.outdir, "syscall_test.txt"), "a") as f:
+                f.write("Syscall string exact: passed\n")
+
+    def test_string_contains(self, regs, proto, syscall, *args):
+        if not self.contains_passed:
+            self.contains_passed = True
+            with open(join(self.outdir, "syscall_test.txt"), "a") as f:
+                f.write("Syscall string contains: passed\n")
+
+    def test_string_startswith(self, regs, proto, syscall, *args):
+        if not self.startswith_passed:
+            self.startswith_passed = True
+            with open(join(self.outdir, "syscall_test.txt"), "a") as f:
+                f.write("Syscall string startswith: passed\n")
+
     def test_unregister_by_name(self, regs, proto, syscall, fd, op, arg):
         self.by_name_count += 1
         syscalls.unregister("test_unregister_by_name")
