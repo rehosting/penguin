@@ -176,7 +176,7 @@ class Devfs(Plugin):
                 self.logger.error(f"Failed to register devfs device '{fname}' (kernel returned 0)")
                 continue
             
-            self.logger.info(f"Registered devfs device '{fname}' with kernel")
+            self.logger.debug(f"Registered devfs device '{fname}' with kernel")
 
     def _hyperdevfs_interrupt_handler(self) -> Generator[bool, None, bool]:
         if not self._pending_devfs:
