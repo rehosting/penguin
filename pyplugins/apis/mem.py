@@ -990,7 +990,7 @@ class Mem(Plugin):
         ----------
         data : bytes
             The data to copy into guest memory.
-        
+
         Returns
         -------
         int
