@@ -16,6 +16,8 @@ from hyperfile.models.ioctl import (
 class Pseudofiles(Plugin):
     def __init__(self):
         self.config = self.get_arg("conf")
+        if not self.get_arg_bool("disable_tracking"):
+            plugins.pseudofile_tracker.ensure_init()
         self._populate_hf_config()
 
     # 1. MAPPING LEGACY NAMES TO NEW CLASSES
