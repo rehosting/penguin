@@ -106,7 +106,7 @@ class ValueFilter:
         self.max_value = max_value
         self.bitmask = bitmask
         self.pattern = pattern
-    
+
     @classmethod
     def _encode_pattern(cls, pattern: str) -> bytes:
         """
@@ -305,7 +305,7 @@ class ValueFilter:
         Create an exact string match filter.
         """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_STR_EXACT,
-                pattern=cls._encode_pattern(pattern))
+                   pattern=cls._encode_pattern(pattern))
 
     @classmethod
     def string_contains(cls, pattern: str) -> "ValueFilter":
@@ -313,7 +313,7 @@ class ValueFilter:
         Create a string contains filter.
         """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_STR_CONTAINS,
-                pattern=cls._encode_pattern(pattern))
+                   pattern=cls._encode_pattern(pattern))
 
     @classmethod
     def string_startswith(cls, pattern: str) -> "ValueFilter":
@@ -321,7 +321,7 @@ class ValueFilter:
         Create a string starts-with filter.
         """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_STR_STARTSWITH,
-                pattern=cls._encode_pattern(pattern))
+                   pattern=cls._encode_pattern(pattern))
 
     @classmethod
     def string_endswith(cls, pattern: str) -> "ValueFilter":
@@ -329,7 +329,7 @@ class ValueFilter:
         Create a string ends-with filter.
         """
         return cls(filter_type=vft.SYSCALLS_HC_FILTER_STR_ENDSWITH,
-                pattern=cls._encode_pattern(pattern))
+                   pattern=cls._encode_pattern(pattern))
 
 
 class SyscallPrototype:
