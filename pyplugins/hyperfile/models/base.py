@@ -62,7 +62,7 @@ class BaseFile:
     def full_path(self) -> str:
         if self.PATH is None:
             return "unknown_path"
-        pth = self.PATH.lstrip("/")
+        pth = self.PATH
         if self.FS == "procfs":
             if pth.startswith("/proc/"):
                 pth = pth[len("/proc/"):]
