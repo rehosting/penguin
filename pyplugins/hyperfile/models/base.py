@@ -82,7 +82,7 @@ class BaseFile:
     def logger(self):
         if hasattr(self, "_logger"):
             return self._logger
-        self._logger = getColoredLogger(f"hyperfs.{self.FS}.{self.full_path}")
+        self._logger = getColoredLogger(f"hyperfs.{self.full_path}")
         return self._logger
 
 
