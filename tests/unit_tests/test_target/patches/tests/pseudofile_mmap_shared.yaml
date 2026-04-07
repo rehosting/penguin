@@ -5,6 +5,18 @@ plugins:
         type: file_contains
         file: console.log
         string: "/tests/pseudofile_mmap_shared.sh PASS"
+      pseudofile_mmap_private:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_mmap_private.sh PASS"
+      pseudofile_permissions:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_permissions.sh PASS"
+      pseudofile_lseek:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_lseek.sh PASS"
 
 pseudofiles:
   /proc/aaaa/pf:
@@ -14,37 +26,79 @@ pseudofiles:
       val: "Hello from pseudofile!"
 
 static_files:
+  # 1. Shared MMAP Test
   /tests/pseudofile_mmap_shared.sh:
     type: inline_file
     contents: |
       #!/igloo/utils/micropython
-
-      import uos
-      import os
-      import uctypes
-      import ffilib
-
-      # Check file size
+      import uos, os, uctypes, ffilib
       assert os.stat("/proc/aaaa/pf")[6] == 22
-
       libc = ffilib.libc()
-
-      # Initialize constants
       mmap = libc.func("p", "mmap", "pLiiiq")
-      NULL = O_RDONLY = 0
-      PROT_READ = MAP_SHARED = 1
-      MAP_PRIVATE = 2
-
-      # Read file with mmap()
-      # Using built-in open function instead of os.open
+      NULL = O_RDONLY = 0; PROT_READ = MAP_SHARED = 1; MAP_PRIVATE = 2
+      
       with open("/proc/aaaa/pf", "rb") as f:
-          fd = f.fileno()
-          addr = mmap(NULL, 0x1000, PROT_READ, MAP_SHARED, fd, 0)
-          if addr == -1:
-            raise OSError(uos.errno())
+          addr = mmap(NULL, 0x1000, PROT_READ, MAP_SHARED, f.fileno(), 0)
+          if addr == -1: raise OSError(uos.errno())
           assert uctypes.bytes_at(addr, 22) == b"Hello from pseudofile!"
-
       print("tests pass")
-
     mode: 73
 
+  # 2. Private MMAP Test
+  /tests/pseudofile_mmap_private.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/micropython
+      import uos, os, uctypes, ffilib
+      libc = ffilib.libc()
+      mmap = libc.func("p", "mmap", "pLiiiq")
+      NULL = O_RDONLY = 0; PROT_READ = 1; PROT_WRITE = 2; MAP_PRIVATE = 2
+      
+      with open("/proc/aaaa/pf", "rb") as f:
+          addr = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE, MAP_PRIVATE, f.fileno(), 0)
+          if addr == -1: raise OSError(uos.errno())
+          assert uctypes.bytes_at(addr, 22) == b"Hello from pseudofile!"
+      print("tests pass")
+    mode: 73
+
+  # 3. Permissions & Failing Open Test
+  /tests/pseudofile_permissions.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/micropython
+      import uos, os
+      
+      try:
+          with open("/proc/write_only_proc", "rb") as f:
+              f.read()
+          print("FAIL: Was able to read a write-only file")
+      except OSError as e:
+          pass
+          
+      try:
+          with open("/proc/fail_open_proc", "rb") as f:
+              pass
+          print("FAIL: Was able to open failing file")
+      except OSError as e:
+          pass 
+
+      print("tests pass")
+    mode: 73
+
+  # 4. Sequential Offset Test (Replaces lseek)
+  /tests/pseudofile_lseek.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/micropython
+      import os
+      
+      with open("/proc/aaaa/pf", "rb") as f:
+          # Read first 5 chars
+          assert f.read(5) == b"Hello"
+          
+          # Read next 5 chars to ensure the logical offset (loff) 
+          # advances implicitly without throwing ESPIPE from a seek
+          assert f.read(5) == b" from"
+          
+      print("tests pass")
+    mode: 73
