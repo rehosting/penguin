@@ -37,8 +37,9 @@ static_files:
         fi
         
         # Use shell string matching instead of grep to avoid segfaults
+        # Quotes around < and > prevent busybox from interpreting them as redirection
         case "$link_info" in
-          *<*UP*>*) ;;
+          *"<"*UP*">"*) ;;
           *) echo "Expected interface $dev not up"; exit 1 ;;
         esac
       done
