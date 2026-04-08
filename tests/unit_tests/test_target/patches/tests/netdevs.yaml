@@ -30,17 +30,21 @@ static_files:
 
       # 1. Check that all expected interfaces exist and are UP
       for dev in nd0 nd1 end4 wlan0 sample0 sample1 sample2; do
-        if ! $bb ip link show dev $dev; then
+        link_info=$($bb ip link show dev $dev)
+        if [ -z "$link_info" ]; then
           echo "Expected interface $dev not found"
           exit 1
         fi
-        if ! $bb ifconfig $dev | $bb grep "^$dev" > /dev/null; then
-            echo "Expected interface $dev not up"
-            exit 1
-        fi
+        
+        # Use shell string matching instead of grep to avoid segfaults
+        case "$link_info" in
+          *<*UP*>*) ;;
+          *) echo "Expected interface $dev not up"; exit 1 ;;
+        esac
       done
 
-      # 2. Helper function to check interface stats
+      # 2. Helper function to check interface stats via sysfs 
+      # This completely bypasses the ifconfig/grep pipelines 
       check_stats() {
           local dev=$1
           local rx_p=$2
@@ -48,24 +52,27 @@ static_files:
           local rx_b=$4
           local tx_b=$5
 
-          ifconfig_out=$($bb ifconfig $dev)
           echo "Checking stats for $dev..."
-          echo "$ifconfig_out"
 
-          if ! echo "$ifconfig_out" | $bb grep "RX packets:$rx_p" > /dev/null; then
-              echo "$dev: RX packets not $rx_p"
+          local real_rx_p=$($bb cat /sys/class/net/$dev/statistics/rx_packets)
+          local real_tx_p=$($bb cat /sys/class/net/$dev/statistics/tx_packets)
+          local real_rx_b=$($bb cat /sys/class/net/$dev/statistics/rx_bytes)
+          local real_tx_b=$($bb cat /sys/class/net/$dev/statistics/tx_bytes)
+
+          if [ "$real_rx_p" -ne "$rx_p" ]; then
+              echo "$dev: RX packets not $rx_p (got $real_rx_p)"
               exit 1
           fi
-          if ! echo "$ifconfig_out" | $bb grep "TX packets:$tx_p" > /dev/null; then
-              echo "$dev: TX packets not $tx_p"
+          if [ "$real_tx_p" -ne "$tx_p" ]; then
+              echo "$dev: TX packets not $tx_p (got $real_tx_p)"
               exit 1
           fi
-          if ! echo "$ifconfig_out" | $bb grep "RX bytes:$rx_b" > /dev/null; then
-              echo "$dev: RX bytes not $rx_b"
+          if [ "$real_rx_b" -ne "$rx_b" ]; then
+              echo "$dev: RX bytes not $rx_b (got $real_rx_b)"
               exit 1
           fi
-          if ! echo "$ifconfig_out" | $bb grep "TX bytes:$tx_b" > /dev/null; then
-              echo "$dev: TX bytes not $tx_b"
+          if [ "$real_tx_b" -ne "$tx_b" ]; then
+              echo "$dev: TX bytes not $tx_b (got $real_tx_b)"
               exit 1
           fi
       }
