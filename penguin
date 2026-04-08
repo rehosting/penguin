@@ -43,7 +43,7 @@ generate_network_name() {
 # Optimized function to find a free subnet
 find_available_subnet() {
     local base="192.168"
-    
+
     # 1. Get all used 3rd octets (e.g., from 192.168.5.0 -> 5) in one pass
     # We inspect all networks, filter for our base IP, extract the 3rd octet, and sort numerically
     local used_octets
@@ -55,8 +55,8 @@ find_available_subnet() {
     # 2. Find the first integer between 0-255 that is NOT in the used list
     local free_octet
     free_octet=$(echo "$used_octets" | awk '
-        BEGIN { next_val=0 } 
-        $1 == next_val { next_val++ } 
+        BEGIN { next_val=0 }
+        $1 == next_val { next_val++ }
         END { if (next_val < 256) print next_val }
     ')
 
@@ -286,7 +286,7 @@ penguin_run() {
     docker_cmd=("docker" "run" "--rm")
 
     # If we have a name set, ensure it's available. We only really care about this for run/guest_cmd/shell (and maybe explore) action
-    if [[ ${#cmd[@]} -gt 1 && ( "${cmd[0]}" == "run" || "${cmd[0]}" == "guest_cmd" || "${cmd[0]}" == "shell" ) ]]; then
+    if [[ ${#cmd[@]} -gt 1 && ( "${cmd[0]}" == "run" || "${cmd[0]}" == "guest_cmd" || "${cmd[0]}" == "guest-cmd" || "${cmd[0]}" == "shell" ) ]]; then
         if [ -z "$container_name" ]; then
             # No name set - try to grab it - find last argument with host path and use that
             for ((i=${#cmd[@]}-1; i>0; i--)); do
@@ -327,7 +327,7 @@ penguin_run() {
             fi
         fi
 
-        if [[ -n "$container_name" && "${cmd[0]}" != "guest_cmd" && "${cmd[0]}" != "shell" ]]; then
+        if [[ -n "$container_name" && "${cmd[0]}" != "guest_cmd" && "${cmd[0]}" != "guest-cmd" && "${cmd[0]}" != "shell" ]]; then
             if docker inspect --type container "$container_name" >/dev/null 2>&1; then
                 echo "${BOLD}ERROR: Container name ${RED}$container_name${RESET}${BOLD} is already in use!${RESET}"
                 echo "  Please specify a different name with ${BOLD}--name${RESET}"
@@ -339,7 +339,7 @@ penguin_run() {
     fi
 
     # If we are running a command in the guest, we want to docker exec then bail
-    if [[ ${#cmd[@]} -gt 1 && "${cmd[0]}" == "guest_cmd" ]]; then
+    if [[ ${#cmd[@]} -gt 1 && ( "${cmd[0]}" == "guest_cmd" || "${cmd[0]}" == "guest-cmd" ) ]]; then
         # Filter out any file/directory arguments that were used for container naming
         guest_cmd_args=()
         for ((i=1; i<${#cmd[@]}; i++)); do
@@ -363,14 +363,14 @@ penguin_run() {
         if $standalone; then
              if [ -z "$container_name" ]; then container_name="penguin_standalone_$RANDOM"; fi
              if $verbose; then echo "Standalone mode: Forcing new container '$container_name'"; fi
-             
+
              # FIX: Actually enable shell mode so we run bash, not 'penguin shell'
              subnet="none"
              shell_mode=true
         else
             # CRITICAL: Canonicalize the path so it matches the label format exactly
             local target_path="$(realpath "$(pwd)")"
-            
+
             # 1. Ask Docker for running containers with this specific label
             local matches
             matches=$(docker ps --filter "label=penguin.root=$target_path" --filter "status=running" --format "{{.ID}}|{{.Names}}|{{.CreatedAt}}")
@@ -401,7 +401,7 @@ penguin_run() {
                 # NONE: Fall through to start a new one
                 echo "No active session found for: $target_path"
                 echo "Starting new session..."
-                
+
                 # Check for *other* penguin containers to be helpful
                 # We look for any container with the penguin.root label
                 local others=$(docker ps --filter "label=penguin.root" --filter "status=running" --format "table {{.Names}}\t{{.Label \"penguin.root\"}}")
@@ -417,7 +417,7 @@ penguin_run() {
                 shell_mode=true
             fi
         fi
-        
+
         # If we found a container, exec into it
         if [[ -n "$container_name" ]] && docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
             docker_cmd=("docker" "exec" "-it" "-w" "/workspace" "${container_name}" "bash")
@@ -500,12 +500,12 @@ penguin_run() {
             break
         fi
     done
-    
+
     # NEW: Default to current directory if running 'shell' with no path args
     if [[ ${#cmd[@]} -gt 0 && -z "$host_workspace_dir" && "${cmd[0]}" == "shell" ]]; then
         host_workspace_dir=$(pwd)
-        # We append "." to the arguments passed to the container. 
-        # Since we effectively map cwd -> /workspace and set -w /workspace, 
+        # We append "." to the arguments passed to the container.
+        # Since we effectively map cwd -> /workspace and set -w /workspace,
         # "." correctly resolves to the project directory inside the container.
         new_cmd+=(".")
     fi
