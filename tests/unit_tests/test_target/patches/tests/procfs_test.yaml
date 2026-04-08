@@ -1,0 +1,46 @@
+# tests/unit_tests/test_target/patches/tests/procfs_test.yaml
+plugins:
+  procfs_test: {} 
+  verifier:
+    conditions:
+      procfs_test:
+        type: file_contains
+        file: console.log
+        string: "/tests/procfs_test.sh PASS"
+
+static_files:
+  /tests/procfs_test.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      echo "Running procfs comprehensive tests..."
+
+      # 1. State Tracking & Write Logic
+      if [ "$(/igloo/utils/busybox cat /proc/dynamic_proc)" != "0" ]; then
+        echo "Error: /proc/dynamic_proc initialized incorrectly"
+        exit 1
+      fi
+      echo "42" > /proc/dynamic_proc
+      if [ "$(/igloo/utils/busybox cat /proc/dynamic_proc)" != "42" ]; then
+        echo "Error: /proc/dynamic_proc failed to update"
+        exit 1
+      fi
+
+      # 2. 4KB Page Boundary Test
+      SIZE=$(/igloo/utils/busybox wc -c < /proc/large_file)
+      if [ "$SIZE" != "8192" ]; then
+        echo "Error: /proc/large_file returned $SIZE bytes instead of 8192"
+        exit 1
+      fi
+
+      # 3. Permission Enforcement
+      if echo "test" > /proc/cpuinfo 2>/dev/null; then
+        echo "Error: Was able to write to read-only /proc/cpuinfo"
+        exit 1
+      fi
+
+      echo "/tests/procfs_test.sh PASS"
+      exit 0
+    mode: 73

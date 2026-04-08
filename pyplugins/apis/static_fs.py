@@ -232,13 +232,5 @@ class StaticFS(Plugin):
         Cleanly closes the underlying MountSource and forces a disk sync.
         """
         if self._fs:
-            self.logger.info("Calling MountSource.close()...")
             self._fs.close()
             self._fs = None
-            # Add this:
-            # Force the OS to flush all filesystem buffers to disk NOW.
-            try:
-                subprocess.run(["sync"], check=True)
-            except Exception as e:
-                self.logger.info(f"Warning: 'sync' command failed: {e}")
-            self.logger.info("Sync complete. Shutdown can proceed.")

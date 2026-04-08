@@ -20,8 +20,8 @@ static_files:
       #!/igloo/utils/sh
       set -eux
 
-      for dir in b d f; do
-        /igloo/utils/busybox mkdir -p "/igloo/pfs/real/dev/a/$dir"
+      for dir in d f; do
+        /igloo/utils/busybox mkdir -p "/dev/a/$dir"
       done
 
       /igloo/utils/strace /igloo/utils/busybox ls -a /dev/a
