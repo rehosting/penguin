@@ -372,9 +372,27 @@ def find_plugin_by_name(plugin_name: str, proj_dir: str,
                                  camel_to_snake(plugin_name)]
     if '_' in plugin_name:
         plugin_name_possibilities.append(snake_to_camel(plugin_name))
+        plugin_name_possibilities.append(plugin_name.replace('_', ''))
+    # 1. Exact and normalized match checks
     for pn in plugin_name_possibilities:
         if o := _find_file(gen_search_locations(pn, proj_dir, plugin_path)):
             return o, o.startswith(proj_dir)
+
+    # 2. Fallback: Fuzzy matching (ignoring underscores and case)
+    target = plugin_name.replace('_', '').lower()
+    search_globs = [
+        join(plugin_path, '**', '*.py'),
+        join(proj_dir, '*.py'),
+        join(proj_dir, 'plugins', '*.py'),
+    ]
+
+    for g in search_globs:
+        for p in glob.glob(g, recursive=True):
+            if isfile(p) and not isdir(p):
+                base = splitext(basename(p))[0]
+                if base.replace('_', '').lower() == target:
+                    return p, p.startswith(proj_dir)
+
     raise ValueError(
         f"Plugin not found: with name={plugin_name} and plugin_path={plugin_path}"
     )
@@ -399,7 +417,10 @@ def find_local_plugins(plugin_names: List[str], proj_dir: str) -> List[str]:
                                      camel_to_snake(plugin_name)]
         if '_' in plugin_name:
             plugin_name_possibilities.append(snake_to_camel(plugin_name))
+            plugin_name_possibilities.append(plugin_name.replace('_', ''))
 
+        found = False
+        # 1. Exact and normalized match checks
         for pn in plugin_name_possibilities:
             search_locations = [
                 join(proj_dir, pn),
@@ -409,7 +430,26 @@ def find_local_plugins(plugin_names: List[str], proj_dir: str) -> List[str]:
             ]
             if o := _find_file(search_locations):
                 local_paths.append(o)
+                found = True
                 break  # Found the local plugin, move to next plugin_name
+
+        # 2. Fallback: Fuzzy matching
+        if not found:
+            target = plugin_name.replace('_', '').lower()
+            search_globs = [
+                join(proj_dir, '*.py'),
+                join(proj_dir, 'plugins', '*.py'),
+            ]
+            for g in search_globs:
+                for p in glob.glob(g, recursive=True):
+                    if isfile(p) and not isdir(p):
+                        base = splitext(basename(p))[0]
+                        if base.replace('_', '').lower() == target:
+                            local_paths.append(p)
+                            found = True
+                            break
+                if found:
+                    break
 
     return local_paths
 
@@ -532,8 +572,19 @@ class IGLOOPluginManager:
             return
 
         # Check if the plugin is disabled explicitly before loading
-        details = self.args["plugins"]
-        plugin_args = details.get(plugin_name, {})
+        details = self.args.get("plugins", {})
+        plugin_args = details.get(plugin_name)
+
+        # Fallback: Find config entry ignoring underscores so user args aren't missed
+        if plugin_args is None:
+            target = plugin_name.replace('_', '').lower()
+            for k, v in details.items():
+                if k.replace('_', '').lower() == target:
+                    plugin_args = v
+                    plugin_name = k  # Re-align the name with what the config expects
+                    break
+            if plugin_args is None:
+                plugin_args = {}
 
         if plugin_args.get("enabled", True) is False:
             self.logger.debug(f"Plugin {plugin_name} is disabled")
@@ -607,8 +658,26 @@ class IGLOOPluginManager:
         # Resolve alias if present
         if plugin_name in self.aliases:
             plugin_name = self.aliases[plugin_name]
+            
         # Fast lookup using lowercased name
-        return self._plugin_name_map.get(plugin_name.lower(), None)
+        res = self._plugin_name_map.get(plugin_name.lower(), None)
+        if res is not None:
+            return res
+
+        # Fallback: fuzzy lookup ignoring underscores and case
+        target = plugin_name.replace('_', '').lower()
+
+        for alias_key, alias_val in self.aliases.items():
+            if alias_key.replace('_', '').lower() == target:
+                res = self._plugin_name_map.get(alias_val.lower(), None)
+                if res is not None: 
+                    return res
+
+        for key, plugin_instance in self._plugin_name_map.items():
+            if key.replace('_', '').lower() == target:
+                return plugin_instance
+
+        return None
 
     def __contains__(self, plugin: str) -> bool:
         """
@@ -649,20 +718,22 @@ class IGLOOPluginManager:
         # First try by plugin name (existing behavior)
         p = self.get_plugin_by_name(plugin)
         if p:
-            setattr(self, plugin, p)
+            setattr(self, plugin, p) # Cache it natively to the manager instance
             return p
         try:
             self.load_plugin(plugin)
             p = self.get_plugin_by_name(plugin)
             if p:
-                setattr(self, plugin, p)
+                setattr(self, plugin, p) # Cache it natively to the manager instance
                 return p
         except ValueError:
             pass
 
-        # Then try by class name - search through all plugins
+        # Then try by class name - search through all plugins ignoring underscores
+        target = plugin.replace('_', '').lower()
         for plugin_name, plugin_instance in self.plugins.items():
-            if plugin_instance.__class__.__name__ == plugin:
+            if plugin_instance.__class__.__name__.replace('_', '').lower() == target:
+                setattr(self, plugin, plugin_instance) # Cache it natively to the manager instance
                 return plugin_instance
 
         # If not found by either method, try to load it
