@@ -24,8 +24,8 @@ from collections import defaultdict
 from pathlib import Path
 from penguin import getColoredLogger
 
-from . import config_patchers as CP
-from . import static_analyses as STATIC
+from .static_plugin import StaticAnalysisPlugin, ConfigPatcherPlugin
+from .static_plugin_manager import StaticPluginManager
 
 from .defaults import (
     default_version as DEFAULT_VERSION,
@@ -63,10 +63,18 @@ class ConfigBuilder:
             ["find", str(extracted_fs), "-type", "d", "-exec", "chmod", "u+rx", "{}", "+"])
 
         try:
+            # Initialize StaticPluginManager
+            # We look for plugins in pyplugins/static_analysis and pyplugins/config_patchers
+            plugin_dirs = [
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "pyplugins", "static_analysis"),
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "pyplugins", "config_patchers"),
+            ]
+            self.plugin_manager = StaticPluginManager(plugin_dirs)
+
             # First run static analyses and produce info about the filesystem
             # This informs how we generate configs (e.g., what's the arch, what's the init prog)
             # and also subsequent analyses after a run (i.e., guiding refinement)
-            static_results = self.run_static_analyses(output_dir, extracted_fs)
+            static_results = self.run_static_analyses(output_dir, archive_fs, extracted_fs)
 
             # TODO: Is there a better way to manage order of patches?
             patches = self.create_patches(archive_fs, static_results, extracted_fs)
@@ -85,6 +93,7 @@ class ConfigBuilder:
     def run_static_analyses(
         self,
         output_dir: str | Path,
+        fs_archive: str | Path,
         extracted_dir: str | Path,
         static_dir_name: str = "static"
     ) -> dict:
@@ -93,6 +102,8 @@ class ConfigBuilder:
 
         :param output_dir: Output directory for results.
         :type output_dir: str or Path
+        :param fs_archive: Path to filesystem archive.
+        :type fs_archive: str or Path
         :param extracted_dir: Directory containing extracted filesystem.
         :type extracted_dir: str or Path
         :param static_dir_name: Name of static results subdirectory.
@@ -103,42 +114,34 @@ class ConfigBuilder:
         results_dir = Path(output_dir, static_dir_name)
         results_dir.mkdir(exist_ok=True, parents=True)
 
-        # Collect a list of all files in advance so we don't regenerate
-        # archive_files = TarHelper.get_all_members(fs_archive)
-
-        # Ordered list of static analyses to run (from static_analyses.py)
-        # Each has an init method that can return results
-        # If any raises an exception, it will be fatal to config generation and shown
-        # to a user
-        static_analyses = [
-            STATIC.ArchId,
-            STATIC.InitFinder,
-            STATIC.EnvFinder,
-            STATIC.PseudofileFinder,
-            STATIC.InterfaceFinder,
-            STATIC.ClusterCollector,
-            STATIC.LibrarySymbols,
-            STATIC.KernelVersionFinder,
-        ]
-
         USE_JSON_XZ = [
-            STATIC.LibrarySymbols
+            "LibrarySymbols"
         ]
 
         results = {}
-        for analysis in static_analyses:
-            # Call each analysis and store results
-            this_result = analysis().run(extracted_dir, results)
-            results[analysis.__name__] = this_result
+        ordered_plugins = self.plugin_manager.get_ordered_plugins()
 
-            # If we have results, store on disk. Always store in results dict, even if empty
-            if this_result:
-                if analysis in USE_JSON_XZ:
-                    with lzma.open(results_dir / f"{analysis.__name__}.json.xz", "wt", encoding="utf-8") as f:
-                        json.dump(this_result, f)
-                else:
-                    with open(results_dir / f"{analysis.__name__}.yaml", "w") as f:
-                        yaml.dump(this_result, f)
+        for plugin_cls in ordered_plugins:
+            if not issubclass(plugin_cls, StaticAnalysisPlugin):
+                continue
+
+            logger.info(f"Running static analysis: {plugin_cls.__name__}")
+            try:
+                plugin_instance = plugin_cls(str(fs_archive), str(extracted_dir), results)
+                this_result = plugin_instance.run()
+                results[plugin_cls.__name__] = this_result
+
+                # If we have results, store on disk. Always store in results dict, even if empty
+                if this_result:
+                    if plugin_cls.__name__ in USE_JSON_XZ:
+                        with lzma.open(results_dir / f"{plugin_cls.__name__}.json.xz", "wt", encoding="utf-8") as f:
+                            json.dump(this_result, f)
+                    else:
+                        with open(results_dir / f"{plugin_cls.__name__}.yaml", "w") as f:
+                            yaml.dump(this_result, f)
+            except Exception as e:
+                logger.error(f"Error running static analysis {plugin_cls.__name__}: {e}")
+                raise e
 
         return results
 
@@ -234,54 +237,26 @@ class ConfigBuilder:
         :rtype: dict
         """
 
-        # Collect a list of all files in advance so we don't regenerate
-        archive_files = CP.TarHelper.get_all_members(fs_archive)
-
-        # Instantiate and apply patch generators
-        # Later patches will override earlier ones
-        patch_generators = [
-            CP.BasePatch(static_results['ArchId'], static_results['InitFinder'], static_results['KernelVersionFinder']),
-            CP.RootShell(),
-            CP.DynamicExploration(),
-            CP.SingleShotFICD(),
-            CP.ManualInteract(),
-            CP.NetdevsDefault(),
-            CP.NetdevsTailored(static_results['InterfaceFinder']),
-            CP.PseudofilesExpert(),
-            CP.PseudofilesTailored(static_results['PseudofileFinder']),
-            CP.LibInjectSymlinks(extract_dir),
-            CP.LibInjectStringIntrospection(static_results['LibrarySymbols']),
-            CP.LibInjectTailoredAliases(static_results['LibrarySymbols']),
-            CP.LibInjectFixedAliases(),
-            CP.ForceWWW(extract_dir),
-            CP.GenerateMissingDirs(fs_archive, archive_files),
-            CP.GenerateReferencedDirs(extract_dir),
-            CP.GenerateShellMounts(extract_dir, archive_files),
-            CP.GenerateMissingFiles(extract_dir),
-            CP.DeleteFiles(extract_dir),
-            CP.LinksysHack(extract_dir),
-            CP.KernelModules(extract_dir, static_results['KernelVersionFinder']),
-            CP.ShimStopBins(archive_files),
-            CP.ShimNoModules(archive_files),
-            CP.ShimBusybox(archive_files),
-            CP.ShimCrypto(archive_files),
-            # ShimFwEnv(archive_files),
-            CP.NvramFirmAEFileSpecific(extract_dir),
-            CP.NvramDefaults(),
-            CP.NvramConfigRecoveryWild(extract_dir),
-            CP.NvramConfigRecovery(extract_dir),
-            CP.NvramLibraryRecovery(static_results['LibrarySymbols']),
-        ]
-
         # collect patches in patches[patchfile_name] -> {section -> {key -> value}}
         patches = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
 
-        for generator in patch_generators:
-            if result := generator.generate(patches):
-                if len(result):
-                    patches[generator.patch_name] = (result, generator.enabled)
-                    if not generator.enabled:
-                        logger.info(f"{generator.patch_name} patch generated but disabled")
+        ordered_plugins = self.plugin_manager.get_ordered_plugins()
+
+        for plugin_cls in ordered_plugins:
+            if not issubclass(plugin_cls, ConfigPatcherPlugin):
+                continue
+
+            logger.info(f"Running config patcher: {plugin_cls.__name__}")
+            try:
+                generator = plugin_cls(str(fs_archive), str(extract_dir), static_results)
+                if result := generator.generate(patches):
+                    if len(result):
+                        patches[generator.patch_name] = (result, generator.enabled)
+                        if not generator.enabled:
+                            logger.info(f"{generator.patch_name} patch generated but disabled")
+            except Exception as e:
+                logger.error(f"Error running config patcher {plugin_cls.__name__}: {e}")
+                raise e
 
         return patches
 
@@ -335,7 +310,14 @@ def initialize_and_build_config(
     os.umask(0o000)
 
     # Generate our config and patches
-    ConfigBuilder(fs, output_dir)
+    builder = ConfigBuilder(fs, output_dir)
+
+    # Save the hash of the static plugins to detect changes later
+    state_hash = builder.plugin_manager.get_state_hash()
+    # Save .plugin_cache in the same directory as the output config
+    cache_dir = os.path.dirname(out) if out else str(output_dir)
+    with open(os.path.join(cache_dir, ".plugin_cache"), "w") as f:
+        f.write(state_hash)
 
     outfile = os.path.join(output_dir, "config.yaml")
 
