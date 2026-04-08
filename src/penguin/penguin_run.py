@@ -135,6 +135,11 @@ def run_config(
             raise RuntimeError(
                 f"No init binary is specified in configuration, set one in config's env section as igloo_init. Static analysis identified the following: {inits}"
             )
+    if conf["env"]["igloo_init"] == "UNKNOWN_FIX_ME":
+        logger.error("No init binary specified in config, and static analysis did not identify any candidates")
+        raise RuntimeError(
+            "env.igloo_init in configuration is set to UNKNOWN_FIX_ME. This indicates that we could not find the correct init binary. Please determine the correct init binary and update the config value in static_files/base.yaml"
+        )
 
     archend = conf["core"]["arch"]
     q_config = load_q_config(conf)
