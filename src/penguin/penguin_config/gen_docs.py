@@ -59,6 +59,8 @@ def gen_docs_type_name(t):
         return " or ".join([gen_docs_literal_arg(a) for a in args])
     elif og in (list, tuple):
         return "list of " + gen_docs_type_name(args[0])
+    elif t is dict:
+        return "dict"
     elif t is int:
         return "integer"
     elif t is str:
