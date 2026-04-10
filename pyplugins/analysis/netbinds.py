@@ -64,7 +64,7 @@ class NetBinds(Plugin):
         plugins.register(self, "on_bind")
 
         with open(join(self.outdir, BINDS_FILE), "w") as f:
-            f.write("procname,ipvn,domain,guest_ip,guest_port,time\n")
+            f.write("procname,ipvn,domain,guest_ip,guest_port,pid,time\n")
 
         with open(join(self.outdir, SUMMARY_BINDS_FILE), "w") as f:
             f.write("n_procs,n_sockets,bound_www,time\n")
@@ -165,7 +165,7 @@ class NetBinds(Plugin):
             ip = ip_part.lstrip('[')
             self.remove_bind(ip, port, sock_type)
 
-    def on_bind(self, cpu, procname, is_ipv4, is_stream, port, sin_addr) -> None:
+    def on_bind(self, cpu, procname, is_ipv4, is_stream, port_pid, sin_addr) -> None:
         """
         Handle a completed bind event, log details, publish event, and optionally shut down.
 
@@ -183,8 +183,15 @@ class NetBinds(Plugin):
         is_le = self.panda.endianness == "little"
         time_delta = now - self.start_time
 
-        # Convert to little endian if necessary and ensure it's only 16 bits
-        port = port & 0xFFFF
+        try:
+            port_str, pid_str = port_pid.split(":")
+            # Ensure port is only 16 bits
+            port = int(port_str) & 0xFFFF
+            pid = int(pid_str)
+        except ValueError:
+            raise ValueError(f"Invalid port_pid format: {port_pid}. Expected format 'port:pid'.")
+
+        # Convert to little endian if necessary
         if is_le:
             port = socket.ntohs(port)
 
@@ -208,9 +215,9 @@ class NetBinds(Plugin):
         self.seen_binds.add((procname, ipvn, sock_type, ip, port))
 
         # Log details to disk
-        self.report_bind_info(time_delta, procname, ipvn, sock_type, ip, port)
+        self.report_bind_info(time_delta, procname, ipvn, sock_type, ip, port, pid)
 
-        self.track_bind(procname, ipvn, sock_type, ip, port, time_delta)
+        self.track_bind(procname, ipvn, sock_type, ip, port, pid, time_delta)
 
         # Trigger our callback
         plugins.publish(self, "on_bind", sock_type, ipvn, ip, port, procname)
@@ -220,7 +227,7 @@ class NetBinds(Plugin):
             self.logger.info("Shutting down emulation due to bind on port 80")
             self.panda.end_analysis()
 
-    def track_bind(self, procname, ipvn, sock_type, ip, port, time) -> None:
+    def track_bind(self, procname, ipvn, sock_type, ip, port, pid, time) -> None:
         """
         Track a bind event in the internal list for later analysis.
 
@@ -238,6 +245,7 @@ class NetBinds(Plugin):
             "Socket Type": sock_type,
             "IP": ip,
             "Port": port,
+            "PID": pid,
             "Time": time
         }
         self.bind_list.append(add_dict)
@@ -262,7 +270,7 @@ class NetBinds(Plugin):
         """
         return self.bind_list
 
-    def report_bind_info(self, time_delta, procname, ipvn, sock_type, ip, port) -> None:
+    def report_bind_info(self, time_delta, procname, ipvn, sock_type, ip, port, pid) -> None:
         """
         Log bind details and summary statistics to disk.
 
@@ -281,7 +289,7 @@ class NetBinds(Plugin):
 
         # Report this specific bind
         with open(join(self.outdir, BINDS_FILE), "a") as f:
-            f.write(f"{procname},{ipvn},{sock_type},{ip},{port},{time_delta:.3f}\n")
+            f.write(f"{procname},{ipvn},{sock_type},{ip},{port},{pid},{time_delta:.3f}\n")
 
         # Look through self.seen_binds, count unique procnames, total binds, and bound_www
         for data in self.seen_binds:
