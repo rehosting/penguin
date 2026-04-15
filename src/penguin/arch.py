@@ -208,9 +208,17 @@ def arch_filter(elf):
 
     # Special processing for ARM and MIPS
     if arch == "arm":
-        return _identify_arm_arch(elf)
+        try:
+            return _identify_arm_arch(elf)
+        except Exception as e:
+            logger.error(f"Error identifying ARM architecture: {e}")
+            return ArchInfo()  # Return unknown if we fail to parse for some reason
     elif arch == "mips":
-        return _identify_mips_arch(header)
+        try:
+            return _identify_mips_arch(header)
+        except Exception as e:
+            logger.error(f"Error identifying MIPS architecture: {e}")
+            return ArchInfo()  # Return unknown if we fail to parse for some reason
     elif arch == "riscv":
         return ArchInfo(arch=f"{arch}{_elf_bits(elf.header)}", bits=_elf_bits(elf.header))
     elif arch == "ppc":
