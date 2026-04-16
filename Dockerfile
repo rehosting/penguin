@@ -19,6 +19,7 @@ ARG FW2TAR_TAG="v2.0.6"
 ARG PANDA_VERSION="pandav0.0.49"
 ARG PANDANG_VERSION="0.0.38"
 ARG RIPGREP_VERSION="14.1.1"
+ARG APT_MIRROR="ubuntu"
 
 FROM ${REGISTRY}/golang:latest AS go
 RUN git clone --depth 1 https://github.com/volatilityfoundation/dwarf2json.git \
@@ -46,10 +47,19 @@ RUN cd /root/vhost-device/ && \
   git checkout $VHOST_DEVICE_VERSION && \
    cargo build --release --bin vhost-device-vsock --target x86_64-unknown-linux-gnu
 
+### MIRRORED BASE ###
+# Create a mirrored base image to DRY up the apt-get mirror logic
+FROM $BASE_IMAGE AS base_mirrored
+ARG APT_MIRROR
+RUN if [ "$APT_MIRROR" = "MIT" ]; then \
+      sed -i 's/archive.ubuntu.com/mirrors.mit.edu/g' /etc/apt/sources.list && \
+      sed -i 's/security.ubuntu.com/mirrors.mit.edu/g' /etc/apt/sources.list; \
+    fi
+
 ### DOWNLOADER ###
 # Fetch and extract our various dependencies. Roughly ordered on
 # least-frequently changing to most-frequently changing
-FROM $BASE_IMAGE AS downloader
+FROM base_mirrored AS downloader
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y \
@@ -181,7 +191,7 @@ RUN wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h
 RUN make all
 
 #### NMAP BUILDER: Build nmap ####
-FROM $BASE_IMAGE AS nmap_builder
+FROM base_mirrored AS nmap_builder
 ENV DEBIAN_FRONTEND=noninteractive
 ARG SSH
 
@@ -220,7 +230,7 @@ RUN if [ -f /tmp/local_packages/nmap.tar.gz ]; then \
     fi
 
 ### Python Builder: Build all wheel files necessary###
-FROM $BASE_IMAGE AS python_builder
+FROM base_mirrored AS python_builder
 ARG PANDANG_VERSION
 
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -276,7 +286,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       zstandard \
       pdoc \
       numpy \
-      dwarffi>=0.0.21 \
+      dwarffi>=0.0.35 \
       ratarmountcore[full]
 
 FROM python_builder AS version_generator
@@ -293,7 +303,7 @@ RUN if [ ! -z "${OVERRIDE_VERSION}" ]; then \
     fi;
 
 ### Build fw2tar deps ahead of time ###
-FROM $BASE_IMAGE AS fw2tar_dep_builder
+FROM base_mirrored AS fw2tar_dep_builder
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y -q git android-sdk-libsparse-utils arj automake build-essential bzip2 cabextract clang cpio cramfsswap curl default-jdk e2fsprogs fakeroot gcc git gzip lhasa libarchive-dev libfontconfig1-dev libacl1-dev libcap-dev liblzma-dev liblzo2-dev liblz4-dev libbz2-dev libssl-dev libmagic1 locales lz4 lziprecover lzop mtd-utils openssh-client p7zip p7zip-full python3 python3-pip qtbase5-dev sleuthkit squashfs-tools srecord tar unar unrar unrar-free unyaffs unzip wget xz-utils zlib1g-dev zstd
@@ -315,7 +325,7 @@ RUN --mount=type=ssh git clone git@github.com:rehosting/fakeroot.git /fakeroot &
 RUN mkdir /fakeroot || true
 
 ### E2FSPROGS BUILDER: Build newer e2fsprogs with mke2fs tarball support ###
-FROM $BASE_IMAGE AS e2fsprogs_builder
+FROM base_mirrored AS e2fsprogs_builder
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install build dependencies (add libarchive-dev and zlib1g-dev)
@@ -340,7 +350,7 @@ RUN git clone https://git.kernel.org/pub/scm/fs/ext2/e2fsprogs.git /tmp/e2fsprog
     make install
 
 ### MAIN CONTAINER ###
-FROM $BASE_IMAGE AS penguin
+FROM base_mirrored AS penguin
 # Build argument to control whether to keep wheels for downstream processes
 ARG KEEP_WHEELS=false
 
