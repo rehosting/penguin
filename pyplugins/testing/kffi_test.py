@@ -46,9 +46,30 @@ class KFFITest(Plugin):
     def test_kffi(self, regs, proto, syscall, fd, op, arg):
         self.logger.info("Starting KFFI & DWARFFI Integration Tests...")
 
+        # Standard test
         args = [3, 8, 9, 0x1338c0de, 12, 13, 14, 15]
         val = yield from kffi.call("igloo_test_function", *args)
         assert val == sum(args), f"Expected {sum(args)}, got {val}, r/w failed"
+
+        # ---------------------------------------------------------
+        # NEW: 64-BIT & MIXED ARCHITECTURE TESTS
+        # ---------------------------------------------------------
+        self.logger.info("Testing 64-bit and mixed argument marshalling...")
+
+        # Test 1: All 64-bit arguments
+        args_64 = [0x1111111111111111, 0x2222222222222222, 3, 4, 5, 6, 7, 0x8888888888888888]
+        val_64 = yield from kffi.call("igloo_test_64b_function", *args_64)
+        expected_64 = sum(args_64) & 0xFFFFFFFF  # Return type of the C function is still 'int'
+        assert val_64 == expected_64, f"Expected {expected_64}, got {val_64} in 64-bit test"
+
+        # Test 2: Interleaved 32-bit and 64-bit arguments
+        args_mixed = [1, 0x100000002, 3, 0x300000004, 5, 0x500000006, 7, 0x700000008]
+        val_mixed = yield from kffi.call("igloo_test_mixed_function", *args_mixed)
+        # In C logic: a+c+e+g = 1+3+5+7 = 16
+        # b+d+f+h = 0x100000002 + 0x300000004 + 0x500000006 + 0x700000008 = 0x1000000014
+        # (int)(0x1000000014) = 0x14 = 20
+        # Return value = 16 + 20 = 36
+        assert val_mixed == 36, f"Expected 36, got {val_mixed} in mixed arg test"
         level = b"\x01\x03"
         yield from kffi.call("igloo_printk", level + b"test printk %d %d %d %d\x00", 1, 2, 3, 4)
 
@@ -111,6 +132,7 @@ class KFFITest(Plugin):
         # ---------------------------------------------------------
 
         tramp_addr = yield from kffi.callback(self.callback)
+        breakpoint()
         ret = yield from kffi.call(tramp_addr, *self.cb_args)
 
         assert ret == 42, f"Expected 42 from callback, got {ret}"
