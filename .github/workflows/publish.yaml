@@ -28,16 +28,21 @@ jobs:
               sudo rm -rf /var/lib/apt/lists/*
               sudo apt-get clean
               
-              # Switch to MIT mirror (handling both legacy and deb822 source files)
-              for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+              # Targeted replacement to avoid mangling the protocol slashes
+              # This targets the domain names specifically
+              SOURCES_FILES="/etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources"
+              
+              for f in $SOURCES_FILES; do
                 if [ -f "$f" ]; then
-                  sudo sed -i 's/[a-z]*.archive.ubuntu.com/mirrors.mit.edu/g' "$f"
-                  sudo sed -i 's/archive.ubuntu.com/mirrors.mit.edu/g' "$f"
-                  sudo sed -i 's/security.ubuntu.com/mirrors.mit.edu/g' "$f"
+                  echo "Updating $f to use MIT mirror..."
+                  sudo sed -i -E 's/([a-z]+\.)?archive\.ubuntu\.com/mirrors.mit.edu/g' "$f"
+                  sudo sed -i -E 's/security\.ubuntu\.com/mirrors.mit.edu/g' "$f"
                 fi
               done
      
-              # Try updating again
+              # Verify the file content if it fails again
+              # cat /etc/apt/sources.list.d/ubuntu.sources
+
               sudo apt-get update
               sudo apt-get install -yy curl jq
 
