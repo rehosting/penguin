@@ -22,10 +22,15 @@ jobs:
         runs-on: rehosting-arc
 
         steps:
-          - name: Setup runner
+          - name: Update and Install Dependencies
             run: |
-                  sudo apt-get update;
-                  sudo apt-get install -yy curl jq
+              # Nuke the existing corrupted lists
+              sudo rm -rf /var/lib/apt/lists/*
+              sudo apt-get clean
+    
+              # Try updating again
+              sudo apt-get update
+              sudo apt-get install -yy curl jq
 
           - name: Get next version
             uses: reecetech/version-increment@2023.10.1
