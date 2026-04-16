@@ -89,6 +89,7 @@ class KFFI(Plugin):
         self._tramp_callbacks = {}
         self._tramp_addresses = {}
         self.tramp_init = False
+        self._is_32bit = self.panda.bits == 32
 
     def __init_tramp_functionality(self):
         if self.tramp_init:
@@ -355,7 +356,7 @@ class KFFI(Plugin):
     def _fixup_igloo_module_baseaddr(self, addr):
         self.ffi.vtypejsons[self.igloo_ko_isf].shift_symbol_addresses(addr)
 
-    def _prepare_ffi_call(self, func_ptr: int, args: list, func_name: str = None) -> Generator[Tuple[bytes, Optional[int], Optional[dict]], Any, Any]:
+    def _prepare_ffi_call(self, func_ptr: int, args: list, func_name: str = None) -> Generator[Tuple[bytes, Optional[int], Optional[dict], bool], Any, Any]:
         """
         Prepare FFI call structure for kernel execution, using function signature if available.
 
@@ -371,36 +372,72 @@ class KFFI(Plugin):
         self.logger.debug(
             f"Preparing FFI call: func_ptr={func_ptr:#x}, args={args}, func_name={func_name}")
 
-        # Lookup function signature if possible
-        func_typeinfo = None
+        # Helper to extract the raw dictionary from dwarffi objects
+        def get_t_dict(p):
+            if hasattr(p, "type_info"): return p.type_info
+            if isinstance(p, dict): return p.get("type", p)
+            return p
+
+        # Helper to recursively identify 64-bit types
+        def is_type_64bit(t_info):
+            t_info = get_t_dict(t_info)
+            if not isinstance(t_info, dict): return False
+            if t_info.get("kind") == "pointer": return False
+            if t_info.get("size") == 8: return True
+            
+            name = t_info.get("name", "")
+            if name:
+                nl = name.lower()
+                if any(x in nl for x in ["long long", "int64", "u64", "uint64"]): 
+                    return True
+                try:
+                    t_def = self.ffi.get_type(name)
+                    if t_def and getattr(t_def, "size", 0) == 8: 
+                        return True
+                except Exception: 
+                    pass
+            return False
+
+        # 1. Lookup function signature prioritizing the new dwarffi get_function mapping
+        func_info = None
         if func_name:
-            sym = self.ffi.get_symbol(func_name)
-            if sym and sym.type_info and sym.type_info.get("kind") == "function":
-                func_typeinfo = sym.type_info
-        # Validate arguments
+            func_obj = self.ffi.get_function(func_name)
+            if func_obj:
+                func_info = {
+                    "return_type": get_t_dict(getattr(func_obj, "return_type", None)),
+                    "parameters": [get_t_dict(p) for p in getattr(func_obj, "parameters", [])]
+                }
+            else:
+                sym = self.ffi.get_symbol(func_name)
+                if sym and hasattr(sym, "type_info") and isinstance(sym.type_info, dict):
+                    if sym.type_info.get("kind") == "function":
+                        func_info = {
+                            "return_type": get_t_dict(sym.type_info.get("return_type")),
+                            "parameters": [get_t_dict(p) for p in sym.type_info.get("parameters", [])]
+                        }
+                
         if len(args) > 8:
-            raise ValueError(
-                f"Too many arguments for FFI call: {len(args)} > 8")
-        # Use signature to cast/corral arguments
+            raise ValueError(f"Too many arguments for FFI call: {len(args)} > 8")
+            
+        # UNIVERSAL UNWRAP: Automatically extract the integer address from any Ptr objects
+        args = [arg.address if isinstance(arg, Ptr) else arg for arg in args]
+        
         marshalled_args = []
-        if func_typeinfo and "parameters" in func_typeinfo:
-            params = func_typeinfo["parameters"]
+        if func_info and "parameters" in func_info:
+            params = func_info["parameters"]
             for i, arg in enumerate(args):
                 if i < len(params):
-                    param_type = params[i]["type"]
-                    kind = param_type.get("kind")
-                    if kind == "pointer":
-                        if isinstance(arg, Ptr):
-                            arg = arg.address
-                        elif not isinstance(arg, int):
-                            raise TypeError(f"Argument {i} expected pointer/int, got {type(arg)}")
-                    # String: allow str/bytes
-                    elif kind == "base" and param_type.get("name") in ("char", "unsigned char"):
-                        if isinstance(arg, str):
-                            arg = arg.encode() + b"\x00"
-                        elif isinstance(arg, bytes):
-                            arg = arg if arg.endswith(b"\x00") else arg + b"\x00"
-                    # TODO: struct/array/enum
+                    param_type = params[i]
+                    if isinstance(param_type, dict):
+                        kind = param_type.get("kind")
+                        if kind == "pointer":
+                            if not isinstance(arg, (int, str, bytes, BoundTypeInstance)) and not hasattr(arg, '__bytes__'): 
+                                raise TypeError(f"Argument {i} expected pointer/int/str/bytes/struct, got {type(arg)}")
+                        elif kind == "base" and param_type.get("name") in ("char", "unsigned char"):
+                            if isinstance(arg, str): arg = arg.encode() + b"\x00"
+                            elif isinstance(arg, bytes):
+                                arg = arg if arg.endswith(b"\x00") else arg + b"\x00"
+                        # TODO: struct/array/enum
                 marshalled_args.append(arg)
         else:
             marshalled_args = list(args)
@@ -452,23 +489,45 @@ class KFFI(Plugin):
         ffi_call = self.new("portal_ffi_call")
         ffi_call.func_ptr = func_ptr
         ffi_call.num_args = len(marshalled_args)
+        
+        sig_mask = (len(marshalled_args) << 8)
+        
+        is_64bit_return = getattr(self.panda, "bits", 64) == 64
+        if not is_64bit_return and func_info and "return_type" in func_info:
+            is_64bit_return = is_type_64bit(func_info["return_type"])
+
         for i, arg in enumerate(marshalled_args):
+            is_64bit = False
+            
+            if func_info and "parameters" in func_info and i < len(func_info["parameters"]):
+                is_64bit = is_type_64bit(func_info["parameters"][i])
+
+            # Python-side fallback: Force 64-bit if value requires it
+            if not is_64bit and isinstance(arg, int) and (arg > 0xFFFFFFFF or arg < -0x80000000):
+                is_64bit = True
+
+            if is_64bit:
+                sig_mask |= (1 << i)
+
             if isinstance(arg, float):
-                ffi_call.args[i] = struct.unpack('<Q', struct.pack('<d', arg))[0]
+                ffi_call.args[i] = struct.unpack('<Q', struct.pack('<d', arg))[0] & 0xFFFFFFFFFFFFFFFF
             elif isinstance(arg, BoundTypeInstance):
                 # FIX: Check for BoundTypeInstance BEFORE checking for __bytes__
-                ffi_call.args[i] = boundtype_ptrs[i]
+                ffi_call.args[i] = boundtype_ptrs[i] & 0xFFFFFFFFFFFFFFFF
             elif isinstance(arg, int) or hasattr(arg, '_value'):
-                ffi_call.args[i] = int(arg)
+                ffi_call.args[i] = int(arg) & 0xFFFFFFFFFFFFFFFF
             elif isinstance(arg, (str, bytes)) or hasattr(arg, '__bytes__'):
                 for idx, off, sz in arg_ptr_indices:
                     if idx == i:
-                        ffi_call.args[i] = kmem_addr + off
+                        ffi_call.args[i] = (kmem_addr + off) & 0xFFFFFFFFFFFFFFFF
                         break
             else:
                 raise TypeError(f"Unsupported argument type for FFI assignment: {type(arg)}")
 
-        return bytes(ffi_call), kmem_addr, func_typeinfo
+        ffi_call.sig_mask = sig_mask
+
+        return bytes(ffi_call), kmem_addr, func_info, is_64bit_return
+
 
     def call_kernel_function(
             self, func: Union[int, str], *args: Any) -> Generator[Any, Any, Any]:
@@ -504,7 +563,7 @@ class KFFI(Plugin):
             f"call_kernel_function: func_ptr={func_ptr:#x}, args={args}")
 
         func_name = func if isinstance(func, str) else None
-        buf, optsbuf, func_typeinfo = yield from self._prepare_ffi_call(func_ptr, args, func_name)
+        buf, optsbuf, func_info, is_64bit_return = yield from self._prepare_ffi_call(func_ptr, args, func_name)
 
         # importing here to avoid circular import issues
         from hyper.portal import PortalCmd
@@ -520,42 +579,46 @@ class KFFI(Plugin):
         result_struct = self.from_buffer("portal_ffi_call", response)
         result = result_struct.result
         # Marshal return value if function signature is available
-        if func_typeinfo and "return_type" in func_typeinfo:
-            ret_type = func_typeinfo["return_type"]
-            kind = ret_type.get("kind")
-            name = ret_type.get("name")
-            if kind == "base":
-                base_type = self.ffi.get_type(name)
-                if base_type:
-                    # Unsigned fixup
-                    if base_type.signed is False and result < 0:
-                        result = result % (1 << (base_type.size * 8))
-                    # Convert to correct Python type
-                    if base_type.kind in ("int", "pointer"):
-                        result = int(result)
-                    elif base_type.kind == "float":
-                        result = float(result)
-                    elif base_type.kind == "bool":
-                        result = bool(result)
-            elif kind == "enum":
-                try:
-                    enum_def = self.ffi.get_enum(name)
-                    if enum_def:
-                        result = EnumInstance(enum_def, result)._value
-                except Exception as e:
-                    self.logger.warning(f"Failed to cast return value to enum {name}: {e}")
-            elif kind == "pointer":
-                # Return a Ptr object
-                ptr_type = ret_type.get("subtype")
-                result = Ptr(result, ptr_type, self.ffi)
-            elif kind in ("struct", "union"):
-                # Read struct/union from kernel memory at returned address
-                struct_type = name
-                if result != 0:
-                    val = yield from self.read_type(result, struct_type)
-                    result = val
-                else:
-                    result = None
+        if self._is_32bit and not is_64bit_return:
+            result = result & 0xFFFFFFFF
+            
+        if func_info and "return_type" in func_info:
+            ret_type = func_info["return_type"]
+            if isinstance(ret_type, dict):
+                kind = ret_type.get("kind")
+                name = ret_type.get("name")
+                if kind == "base":
+                    base_type = self.ffi.get_type(name)
+                    if base_type:
+                        # Unsigned fixup
+                        if base_type.signed is False and result < 0:
+                            result = result % (1 << (base_type.size * 8))
+                        # Convert to correct Python type
+                        if base_type.kind in ("int", "pointer"):
+                            result = int(result)
+                        elif base_type.kind == "float":
+                            result = float(result)
+                        elif base_type.kind == "bool":
+                            result = bool(result)
+                elif kind == "enum":
+                    try:
+                        enum_def = self.ffi.get_enum(name)
+                        if enum_def:
+                            result = EnumInstance(enum_def, result)._value
+                    except Exception as e:
+                        self.logger.warning(f"Failed to cast return value to enum {name}: {e}")
+                elif kind == "pointer":
+                    # Return a Ptr object
+                    ptr_type = ret_type.get("subtype")
+                    result = Ptr(result, ptr_type, self.ffi)
+                elif kind in ("struct", "union"):
+                    # Read struct/union from kernel memory at returned address
+                    struct_type = name
+                    if result != 0:
+                        val = yield from self.read_type(result, struct_type)
+                        result = val
+                    else:
+                        result = None
         return result
 
     def call(self, func: Union[int, str], *args: Any) -> Generator[Any, Any, Any]:
