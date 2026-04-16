@@ -132,7 +132,6 @@ class KFFITest(Plugin):
         # ---------------------------------------------------------
 
         tramp_addr = yield from kffi.callback(self.callback)
-        breakpoint()
         ret = yield from kffi.call(tramp_addr, *self.cb_args)
 
         assert ret == 42, f"Expected 42 from callback, got {ret}"
