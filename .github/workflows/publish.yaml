@@ -24,14 +24,18 @@ jobs:
         steps:
           - name: Update and Install Dependencies
             run: |
-              # # Nuke the existing corrupted lists
-              # sudo rm -rf /var/lib/apt/lists/*
-              # sudo apt-get clean
+              # Nuke the existing corrupted lists
+              sudo rm -rf /var/lib/apt/lists/*
+              sudo apt-get clean
               
-              # Switch to MIT mirror (catching optional regional prefixes like us.archive...)
-              sudo sed -i 's/[a-z]*.archive.ubuntu.com/mirrors.mit.edu/g' /etc/apt/sources.list
-              sudo sed -i 's/archive.ubuntu.com/mirrors.mit.edu/g' /etc/apt/sources.list
-              sudo sed -i 's/security.ubuntu.com/mirrors.mit.edu/g' /etc/apt/sources.list
+              # Switch to MIT mirror (handling both legacy and deb822 source files)
+              for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+                if [ -f "$f" ]; then
+                  sudo sed -i 's/[a-z]*.archive.ubuntu.com/mirrors.mit.edu/g' "$f"
+                  sudo sed -i 's/archive.ubuntu.com/mirrors.mit.edu/g' "$f"
+                  sudo sed -i 's/security.ubuntu.com/mirrors.mit.edu/g' "$f"
+                fi
+              done
      
               # Try updating again
               sudo apt-get update
