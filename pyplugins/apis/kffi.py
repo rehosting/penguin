@@ -562,29 +562,38 @@ class KFFI(Plugin):
         val = yield from self.call_kernel_function(func, *args)
         return val
 
-    def kmalloc(self, size: int) -> Generator[Any, Any, Any]:
+    def kmalloc(self, size: Union[int, Ptr]) -> Generator[Any, Any, Any]:
         """
         Allocate memory in the kernel using ``kmalloc``.
 
         Args:
-            size (int): Size of memory to allocate.
+            size (Union[int, Ptr]): Size of memory to allocate.
 
         Returns:
             Any: Address of allocated memory, or None if allocation fails.
         """
         val = yield from self.call_kernel_function("igloo_kzalloc", size)
+        
+        # Unwrap the pointer object so math (kmem_addr + offset) works correctly
+        if isinstance(val, Ptr):
+            return val.address
+            
         return val
 
-    def kfree(self, addr: int) -> Generator[Any, Any, Any]:
+    def kfree(self, addr: Union[int, Ptr]) -> Generator[Any, Any, Any]:
         """
         Free memory in the kernel using ``kfree``.
 
         Args:
-            addr (int): Address of memory to free.
+            addr (Union[int, Ptr]): Address of memory to free.
 
         Returns:
             None
         """
+        # Unwrap the pointer object so math (kmem_addr + offset) works correctly
+        if isinstance(addr, Ptr):
+            addr = addr.address
+            
         yield from self.call_kernel_function("igloo_kfree", addr)
 
     def kallsyms_lookup(self, symbol: str) -> Generator[Any, Any, Any]:
