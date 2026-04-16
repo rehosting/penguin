@@ -93,6 +93,7 @@ jobs:
               build-args: |
                 OVERRIDE_VERSION=${{ steps.version.outputs.v-version }}
                 REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy
+                APT_MIRROR=MIT
           
           - name: Set up Python for config schema
             uses: actions/setup-python@v5

@@ -119,6 +119,7 @@ jobs:
           tags: ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }}
           build-args: |
             REGISTRY=${{ env.CACHE }}
+            APT_MIRROR=MIT
           cache-from: |
             type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache,mode=max
             type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache-PR-${{github.event.number}},mode=max
