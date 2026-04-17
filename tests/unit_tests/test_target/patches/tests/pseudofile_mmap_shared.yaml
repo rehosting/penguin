@@ -25,6 +25,14 @@ plugins:
         type: file_contains
         file: console.log
         string: "/tests/pseudofile_mmap_rw.sh PASS"
+      pseudofile_release:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_release.sh PASS"
+      pseudofile_poll:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_poll.sh PASS"
 
 pseudofiles:
   /proc/aaaa/pf:
@@ -169,4 +177,45 @@ static_files:
           assert f.read(12) == b"ModifiedData"
           
       print("tests pass")
+    mode: 73
+  /tests/pseudofile_release.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/micropython
+      import os
+      
+      # Step 1: Open and close the file to bump the counters
+      f = open("/proc/release_tracker", "r")
+      f.close()
+      
+      # Step 2: Open it again to read the stats. 
+      # Since this is the second open, active_opens should be 1, total_opens 2, and total_releases 1.
+      with open("/proc/release_tracker", "r") as f:
+          data = f.read().strip()
+          assert data == "active:1,opens:2,releases:1", f"Unexpected release data: {data}"
+          
+      print("release tests pass")
+    mode: 73
+  /tests/pseudofile_poll.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/micropython
+      import select
+      
+      with open("/proc/pollable_proc", "r") as f:
+          poll_obj = select.poll()
+          poll_obj.register(f, select.POLLIN)
+          
+          events = poll_obj.poll(100)
+          
+          assert len(events) == 1, "Expected exactly 1 event"
+          obj, event_mask = events[0]
+          
+          # MicroPython returns the object itself, not the integer FD!
+          assert obj == f or obj == f.fileno(), "Event obj does not match file"
+          assert event_mask & select.POLLIN, "POLLIN flag not set in event mask"
+          
+          assert f.read() == "Data is ready!\n"
+          
+      print("poll tests pass")
     mode: 73

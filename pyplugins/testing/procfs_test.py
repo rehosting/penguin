@@ -134,6 +134,61 @@ class SeekableRWProcFile(ProcFile):
         else:
             ptregs.set_retval(-22)
 
+class ReleaseTrackingProcFile(ProcFile):
+    PATH = "release_tracker"
+    MODE = 0o444
+
+    def __init__(self):
+        self.active_opens = 0
+        self.total_opens = 0
+        self.total_releases = 0
+
+    def open(self, ptregs: PtRegsWrapper, inode: int, file: int):
+        self.active_opens += 1
+        self.total_opens += 1
+        self.logger.info(f"release_tracker opened. Active: {self.active_opens}")
+        ptregs.set_retval(0)
+
+    def release(self, ptregs: PtRegsWrapper, inode: int, file: int):
+        self.active_opens -= 1
+        self.total_releases += 1
+        self.logger.info(f"release_tracker released. Active: {self.active_opens}")
+        ptregs.set_retval(0)
+
+    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
+        data = f"active:{self.active_opens},opens:{self.total_opens},releases:{self.total_releases}\n".encode("utf-8")
+        offset = yield from plugins.mem.read_int(loff)
+        if size <= 0 or offset >= len(data):
+            ptregs.set_retval(0)
+            return
+        chunk = min(size, len(data) - offset)
+        yield from plugins.mem.write_bytes(user_buf, data[offset:offset + chunk])
+        yield from plugins.mem.write_int(loff, offset + chunk)
+        ptregs.set_retval(chunk)
+
+
+class PollableProcFile(ProcFile):
+    PATH = "pollable_proc"
+    MODE = 0o444
+
+    def poll(self, ptregs: PtRegsWrapper, file: int, poll_table: int):
+        self.logger.info("pollable_proc polled!")
+        # 1 = POLLIN (There is data to read)
+        # 64 = POLLRDNORM (Normal data may be read without blocking)
+        # Standard Linux bitmask for a readable file is typically POLLIN | POLLRDNORM (0x41)
+        ptregs.set_retval(0x41)
+
+    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
+        data = b"Data is ready!\n"
+        offset = yield from plugins.mem.read_int(loff)
+        if size <= 0 or offset >= len(data):
+            ptregs.set_retval(0)
+            return
+        chunk = min(size, len(data) - offset)
+        yield from plugins.mem.write_bytes(user_buf, data[offset:offset + chunk])
+        yield from plugins.mem.write_int(loff, offset + chunk)
+        ptregs.set_retval(chunk)
+
 
 class ProcTest(Plugin):
     def __init__(self):
@@ -155,3 +210,7 @@ class ProcTest(Plugin):
             self.logger.error("Failed to catch duplicate proc registration!")
         except ValueError:
             self.logger.info("Successfully caught duplicate proc registration.")
+
+        # 4. Advanced Operations Registrations
+        plugins.procfs.register_proc(ReleaseTrackingProcFile())
+        plugins.procfs.register_proc(PollableProcFile())
