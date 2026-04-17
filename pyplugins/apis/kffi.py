@@ -42,7 +42,7 @@ import hashlib
 import os
 from os.path import isfile, join, realpath
 from pathlib import Path
-from typing import Any, Generator, Iterator, Optional, Tuple, Union
+from typing import Any, Generator, Iterator, Optional, Tuple, Union, Dict
 
 from dwarffi.instances import BoundTypeInstance, Ptr, EnumInstance
 from dwarffi.dffi import DFFI
@@ -703,7 +703,7 @@ class KFFI(Plugin):
             "status": tramp_struct.status,
         }
 
-    def callback(self, func) -> Generator[Any, Any, Any]:
+    def callback(self, func, func_type: Optional[Dict] = None) -> Generator[Any, Any, Any]:
         """
         Register a trampoline callback and return an integer guest virtual address.
 
@@ -715,7 +715,9 @@ class KFFI(Plugin):
         tramp_id = tramp_info.get("tramp_id")
         tramp_addr = tramp_info.get("tramp_addr")
         num_args = len(inspect.signature(func).parameters)
-        self._tramp_callbacks[tramp_id] = (func, num_args)
+        
+        # Save the func_type into our callbacks lookup table
+        self._tramp_callbacks[tramp_id] = (func, num_args, func_type)
         self._tramp_callbacks[func] = tramp_id
         self._tramp_addresses[tramp_id] = tramp_addr
         self._tramp_addresses[func] = tramp_addr
@@ -742,14 +744,22 @@ class KFFI(Plugin):
         pending_tramp_callbacks = self._pending_tramp_callbacks[:]
         self._pending_tramp_callbacks = []
         while pending_tramp_callbacks:
-            func = pending_tramp_callbacks.pop(0)
+            item = pending_tramp_callbacks.pop(0)
+            
+            # Safely unpack in case older plugins append just the function
+            if isinstance(item, tuple) and len(item) == 2:
+                func, func_type = item
+            else:
+                func = item
+                func_type = None
+                
             tramp_info = yield from self.generate_trampoline()
             tramp_id = tramp_info.get("tramp_id")
             tramp_addr = tramp_info.get("tramp_addr")
             tramp_status = tramp_info.get("status")
             if tramp_id is not None and tramp_addr is not None:
                 num_args = len(inspect.signature(func).parameters)
-                self._tramp_callbacks[tramp_id] = (func, num_args)
+                self._tramp_callbacks[tramp_id] = (func, num_args, func_type)
                 self.logger.debug(f"Registered trampoline callback {func.__name__} with id={tramp_id} addr={tramp_addr}")
                 # Set Callback info if exists
                 if hasattr(self, '_tramp_proxy_map') and func in self._tramp_proxy_map:
@@ -771,17 +781,29 @@ class KFFI(Plugin):
         if not hasattr(self, '_tramp_callbacks') or tramp_id not in self._tramp_callbacks:
             self.logger.error(f"Trampoline hit for unknown id: {tramp_id}")
             return
+            
         entry = self._tramp_callbacks[tramp_id]
-        callback, num_args = entry
+        if len(entry) == 3:
+            callback, num_args, func_type = entry
+        else:
+            callback, num_args = entry
+            func_type = None
 
         self.logger.debug(f"Invoking trampoline callback for id={tramp_id}: {getattr(callback, '__name__', repr(callback))}")
         try:
             pt_regs_raw = yield from self.read_type(pt_regs_addr, "pt_regs")
-            pt_regs = get_pt_regs_wrapper(self.panda, pt_regs_raw)
+            
+            # INJECT Context Dictionary Here
+            pt_regs = get_pt_regs_wrapper(
+                self.panda, 
+                pt_regs_raw, 
+                extra_context={"func_type": func_type}
+            )
+            
             original_bytes = pt_regs.to_bytes()[:]
             # Get args from pt_regs
             if num_args > 1:
-                # Get args from pt_regs
+                # No longer need to explicitly pass func_type since it's in the extra_context
                 args = yield from pt_regs.get_args_portal(num_args - 1, convention="userland")
             else:
                 args = []
