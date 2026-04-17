@@ -7,7 +7,7 @@ plugins:
       kffi+igloo_test_function:
         type: file_contains
         file: console.log
-        string: "igloo: test_function called with args: 3 8 9 322486494 12 13 14 15"
+        string: "igloo: test_function called with args: 3 8 9 1338c0de c d e f"
       kffi+printk:
         type: file_contains
         file: console.log
