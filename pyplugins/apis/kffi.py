@@ -832,7 +832,7 @@ class KFFI(Plugin):
             
         field_info = struct_def.fields[field]
         offset = field_info.offset
-        size = field_info.size
+        size = self.ffi.sizeof(field_info.type_info)
         
         # Read the current memory for this field's width to safely handle bitfields
         existing_bytes = yield from plugins.mem.read_bytes(addr + offset, size)
@@ -862,7 +862,7 @@ class KFFI(Plugin):
             
         field_info = struct_def.fields[field]
         offset = field_info.offset
-        size = field_info.size
+        size = self.ffi.sizeof(field_info.type_info)
         
         raw_bytes = yield from plugins.mem.read_bytes(addr + offset, size)
         if not raw_bytes:
