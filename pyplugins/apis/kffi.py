@@ -820,3 +820,56 @@ class KFFI(Plugin):
 
         except Exception as e:
             self.logger.error(f"Error in trampoline callback {callback.__name__}: {e}")
+
+    def write_field(self, addr: int, type_: str, field: str, val: Any) -> Generator[Any, Any, None]:
+        """
+        Write a single field of a struct in kernel memory.
+        Automatically handles offsets, endianness, and bitfield masking.
+        """
+        struct_def = self.ffi.get_type(type_)
+        if not struct_def or not hasattr(struct_def, 'fields') or field not in struct_def.fields:
+            raise ValueError(f"Invalid field '{field}' for type '{type_}'")
+            
+        field_info = struct_def.fields[field]
+        offset = field_info.offset
+        size = field_info.size
+        
+        # Read the current memory for this field's width to safely handle bitfields
+        existing_bytes = yield from plugins.mem.read_bytes(addr + offset, size)
+        if not existing_bytes:
+            raise RuntimeError(f"Failed to read memory at {addr + offset:#x}")
+            
+        # Embed it into a dummy bytearray buffer of the full struct size
+        dummy_buf = bytearray(self.ffi.sizeof(type_))
+        dummy_buf[offset:offset+size] = existing_bytes
+        
+        # Parse it with dwarffi and modify the field (this triggers the packing logic)
+        dummy = self.ffi.from_buffer(type_, dummy_buf)
+        setattr(dummy, field, val)
+        
+        # Extract the newly packed bytes and write them back to memory
+        new_bytes = dummy_buf[offset:offset+size]
+        if existing_bytes != new_bytes:
+            yield from plugins.mem.write_bytes(addr + offset, new_bytes)
+
+    def read_field(self, addr: int, type_: str, field: str) -> Generator[Any, Any, Any]:
+        """
+        Read a single field of a struct from kernel memory.
+        """
+        struct_def = self.ffi.get_type(type_)
+        if not struct_def or not hasattr(struct_def, 'fields') or field not in struct_def.fields:
+            raise ValueError(f"Invalid field '{field}' for type '{type_}'")
+            
+        field_info = struct_def.fields[field]
+        offset = field_info.offset
+        size = field_info.size
+        
+        raw_bytes = yield from plugins.mem.read_bytes(addr + offset, size)
+        if not raw_bytes:
+            raise RuntimeError(f"Failed to read memory at {addr + offset:#x}")
+            
+        dummy_buf = bytearray(self.ffi.sizeof(type_))
+        dummy_buf[offset:offset+size] = raw_bytes
+        
+        dummy = self.ffi.from_buffer(type_, dummy_buf, address=addr)
+        return getattr(dummy, field)
