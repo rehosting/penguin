@@ -17,6 +17,14 @@ plugins:
         type: file_contains
         file: console.log
         string: "/tests/pseudofile_lseek.sh PASS"
+      pseudofile_explicit_lseek:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_explicit_lseek.sh PASS"
+      pseudofile_mmap_rw:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_mmap_rw.sh PASS"
 
 pseudofiles:
   /proc/aaaa/pf:
@@ -99,6 +107,66 @@ static_files:
           # Read next 5 chars to ensure the logical offset (loff) 
           # advances implicitly without throwing ESPIPE from a seek
           assert f.read(5) == b" from"
+          
+      print("tests pass")
+    mode: 73
+  /tests/pseudofile_explicit_lseek.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/micropython
+      import os
+      
+      with open("/proc/seekable_rw", "r+b") as f:
+          # Verify initial state
+          assert f.read(12) == b"Initial Data"
+          
+          # Explicitly seek back to absolute 0 (SEEK_SET)
+          f.seek(0)
+          assert f.read(7) == b"Initial"
+          
+          # Explicitly seek to offset 8
+          f.seek(8)
+          assert f.read(4) == b"Data"
+          
+      print("tests pass")
+    mode: 73
+
+  # 6. MMAP Read, Write, and msync() Commit Test
+  /tests/pseudofile_mmap_rw.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/micropython
+      import uos, os, uctypes, ffilib
+      
+      libc = ffilib.libc()
+      mmap = libc.func("p", "mmap", "pLiiiq")
+      munmap = libc.func("i", "munmap", "pL")
+      
+      NULL = 0; PROT_READ = 1; PROT_WRITE = 2; MAP_SHARED = 1
+      
+      with open("/proc/seekable_rw", "r+b") as f:
+          fd = f.fileno()
+          
+          # Map 4KB as Shared & Writable
+          addr = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)
+          if addr == -1: raise OSError(uos.errno())
+          
+          # 1. Verify memory reflects the file
+          assert uctypes.bytes_at(addr, 12) == b"Initial Data"
+          
+          # 2. Write to the memory mapping directly (bypassing f.write)
+          buf = uctypes.bytearray_at(addr, 12)
+          buf[0:12] = b"ModifiedData"
+          
+          # Unmap the memory (msync doesn't trigger the proxy flush anyway)
+          munmap(addr, 0x1000)
+          
+      # 3. EXITING the 'with' block calls f.close().
+      # This triggers Linux VFS release() -> igloo_proxy_release -> igloo_flush_shm_to_hypervisor!
+          
+      # 4. Reopen and verify the hypervisor received the committed changes
+      with open("/proc/seekable_rw", "rb") as f:
+          assert f.read(12) == b"ModifiedData"
           
       print("tests pass")
     mode: 73

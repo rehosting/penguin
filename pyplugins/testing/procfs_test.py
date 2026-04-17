@@ -86,6 +86,54 @@ class IoctlCustomProcFile(ReadConstBuf, ProcFile):
         else:
             ptregs.set_retval(-25) # ENOTTY (Inappropriate ioctl for device)
 
+class SeekableRWProcFile(ProcFile):
+    PATH = "seekable_rw"
+    MODE = 0o666
+
+    def __init__(self):
+        # Initialize a 4KB mutable buffer
+        self.data = bytearray(b"Initial Data" + b"\x00" * 4084)
+
+    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
+        offset = yield from plugins.mem.read_int(loff)
+        if offset >= len(self.data) or size <= 0:
+            ptregs.set_retval(0)
+            return
+        chunk = min(size, len(self.data) - offset)
+        yield from plugins.mem.write_bytes(user_buf, bytes(self.data[offset:offset+chunk]))
+        yield from plugins.mem.write_int(loff, offset + chunk)
+        self.logger.debug(f"Read from seekable_rw at offset {offset} with data: {self.data[offset:offset+chunk]}")
+        ptregs.set_retval(chunk)
+
+    def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
+        offset = yield from plugins.mem.read_int(loff)
+        if offset >= len(self.data) or size <= 0:
+            ptregs.set_retval(-28) # ENOSPC
+            return
+        chunk = min(size, len(self.data) - offset)
+        raw = yield from plugins.mem.read_bytes(user_buf, chunk)
+        
+        # Mutate the underlying buffer
+        self.logger.debug(f"Writing to seekable_rw at offset {offset} with data: {raw[:chunk]}")
+        self.data[offset:offset+chunk] = raw
+        
+        yield from plugins.mem.write_int(loff, offset + chunk)
+        ptregs.set_retval(chunk)
+
+    def lseek(self, ptregs: PtRegsWrapper, file: int, offset: int, whence: int):
+        self.logger.debug(f"lseek called with offset={offset}, whence={whence}")
+        if whence == 0:
+            if offset < 0 or offset > len(self.data):
+                ptregs.set_retval(-22) # EINVAL
+            else:
+                # Dynamically write the offset using dwarffi's architecture awareness
+                yield from plugins.kffi.write_field(file, "struct file", "f_pos", offset)
+                
+                # Return the new offset as required by the llseek signature
+                ptregs.set_retval(offset)
+        else:
+            ptregs.set_retval(-22)
+
 
 class ProcTest(Plugin):
     def __init__(self):
@@ -99,7 +147,7 @@ class ProcTest(Plugin):
         plugins.procfs.register_proc(WriteOnlyProcFile())
         plugins.procfs.register_proc(FailingOpenProcFile())
         plugins.procfs.register_proc(IoctlCustomProcFile())
-
+        plugins.procfs.register_proc(SeekableRWProcFile())
 
         # 3. Duplicate Check
         try:
