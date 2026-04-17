@@ -43,12 +43,27 @@ class Proc(Plugin):
         kffi = plugins.kffi
         overridden = self._get_overridden_methods(proc_file)
         
+        # Look up the struct definition in dwarffi
+        proc_ops_type = kffi.ffi.get_type("igloo_proc_ops")
+        
         # Build the initialization dictionary dynamically
         init_data = {}
         for name, fn in overridden.items():
-            init_data[name] = yield from kffi.callback(fn)
+            op_signature = None
+            if proc_ops_type and name in proc_ops_type.members:
+                member_type = proc_ops_type.members[name].type_info
+                
+                # Function pointers are stored as pointers to functions.
+                # We must unwrap the pointer layer so kffi sees the raw function signature.
+                if member_type and member_type.get("kind") == "pointer":
+                    op_signature = member_type.get("subtype")
+                else:
+                    op_signature = member_type
+                    
+            # Pass the unwrapped function signature into kffi callback registration
+            init_data[name] = yield from kffi.callback(fn, func_type=op_signature)
             
-        return kffi.new("struct igloo_proc_ops", init_data)
+        return kffi.new("igloo_proc_ops", init_data)
     
     def register(self, proc_file: ProcFile, path: Optional[str] =None):
         return self.register_proc(proc_file, path)
