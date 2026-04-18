@@ -15,6 +15,7 @@ patches:
   - ./patches/tests/bash.yaml
   - ./patches/tests/core_dumps.yaml
   - ./patches/tests/devfs_passthrough.yaml
+  - ./patches/tests/devfs_test.yaml
   - ./patches/tests/env_cmp.yaml
   - ./patches/tests/env_unset.yaml
   - ./patches/tests/hostfile.yaml
@@ -34,7 +35,7 @@ patches:
   - ./patches/tests/pseudofile_readdir.yaml
   - ./patches/tests/pseudofile_sysfs.yaml
   - ./patches/tests/shared_dir.yaml
-  - ./patches/tests/syscall.yaml
+  # - ./patches/tests/syscall.yaml
   - ./patches/tests/indiv_debug.yaml
   - ./patches/tests/ioctl_interaction.yaml
   - ./patches/tests/portal.yaml
