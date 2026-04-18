@@ -18,7 +18,7 @@ class SimpleProcfsFile(ReadConstBuf, WriteDiscard, IoctlZero, ProcFile):
         ptregs.set_retval(0)
 
 class CPUinfoFile(ReadConstBuf, ProcFile):
-    PATH = "/proc/cpuinfo"
+    PATH = "cpuinfo"
     def __init__(self):
         super().__init__(buffer=b"processor       : IGLOO\n")
 
