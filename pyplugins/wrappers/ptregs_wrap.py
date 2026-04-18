@@ -843,8 +843,12 @@ class ArmPtRegsWrapper(PtRegsWrapper):
     _ACCESSORS["retval"] = _ACCESSORS["r0"]
 
     def _set_split_retval(self, low: int, high: int):
-        self.set_register("r0", low)
-        self.set_register("r1", high)
+        if self._is_big_endian:
+            self.set_register("r0", high)
+            self.set_register("r1", low)
+        else:
+            self.set_register("r0", low)
+            self.set_register("r1", high)
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get ARM syscall argument"""
@@ -1052,8 +1056,12 @@ class MipsPtRegsWrapper(PtRegsWrapper):
     })
 
     def _set_split_retval(self, low: int, high: int):
-        self.set_register("v0", low)
-        self.set_register("v1", high)
+        if self._is_big_endian:
+            self.set_register("v0", high)
+            self.set_register("v1", low)
+        else:
+            self.set_register("v0", low)
+            self.set_register("v1", high)
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get MIPS syscall argument"""
@@ -1166,8 +1174,12 @@ class PowerPCPtRegsWrapper(PtRegsWrapper):
         super().__init__(obj, panda=panda, extra_context=extra_context)
 
     def _set_split_retval(self, low: int, high: int):
-        self.set_register("r3", low)
-        self.set_register("r4", high)
+        if self._is_big_endian:
+            self.set_register("r3", high)
+            self.set_register("r4", low)
+        else:
+            self.set_register("r3", low)
+            self.set_register("r4", high)
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get PowerPC syscall argument"""
