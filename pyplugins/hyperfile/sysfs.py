@@ -31,13 +31,32 @@ class Sysfs(Plugin):
         return overridden
 
     def _make_ops_struct(self, sysfs_file: SysFile):
+        """
+        Build an igloo_sysfs_ops struct with function pointers for only the overridden methods,
+        extracting the exact function signature from DWARF metadata.
+        """
         kffi = plugins.kffi
         overridden = self._get_overridden_methods(sysfs_file)
+        
+        # Look up the struct definition in dwarffi to extract signatures
+        sysfs_ops_type = kffi.ffi.get_type("struct igloo_sysfs_ops")
         
         # Build the initialization dictionary dynamically
         init_data = {}
         for name, fn in overridden.items():
-            init_data[name] = yield from kffi.callback(fn)
+            op_signature = None
+            if sysfs_ops_type and name in sysfs_ops_type.members:
+                member_type = sysfs_ops_type.members[name].type_info
+                
+                # Function pointers are stored as pointers to functions.
+                # We must unwrap the pointer layer so kffi sees the raw function signature.
+                if member_type and member_type.get("kind") == "pointer":
+                    op_signature = member_type.get("subtype")
+                else:
+                    op_signature = member_type
+                    
+            # Pass the unwrapped function signature into kffi callback registration
+            init_data[name] = yield from kffi.callback(fn, func_type=op_signature)
             
         return kffi.new("struct igloo_sysfs_ops", init_data)
     
