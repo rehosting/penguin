@@ -37,13 +37,32 @@ class Devfs(Plugin):
         return overridden
 
     def _make_ops_struct(self, devfs_file: DevFile):
+        """
+        Build an igloo_dev_ops struct with function pointers for only the overridden methods,
+        extracting the exact function signature from DWARF metadata.
+        """
         kffi = plugins.kffi
         overridden = self._get_overridden_methods(devfs_file)
+        
+        # Look up the struct definition in dwarffi to extract signatures
+        dev_ops_type = kffi.ffi.get_type("struct igloo_dev_ops")
         
         # Build the initialization dictionary dynamically
         init_data = {}
         for name, fn in overridden.items():
-            init_data[name] = yield from kffi.callback(fn)
+            op_signature = None
+            if dev_ops_type and name in dev_ops_type.members:
+                member_type = dev_ops_type.members[name].type_info
+                
+                # Function pointers are stored as pointers to functions.
+                # We must unwrap the pointer layer so kffi sees the raw function signature.
+                if member_type and member_type.get("kind") == "pointer":
+                    op_signature = member_type.get("subtype")
+                else:
+                    op_signature = member_type
+            
+            # Register the callback with the explicit signature found in DWARF
+            init_data[name] = yield from kffi.callback(fn, func_type=op_signature)
             
         return kffi.new("struct igloo_dev_ops", init_data)
     
