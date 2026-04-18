@@ -146,7 +146,8 @@ class PseudofileTracker(Plugin):
         # ---------------------------------------------------------
         arg0_syscalls = [
             "sys_open", "sys_stat", "sys_lstat", "sys_access",
-            "sys_stat64", "sys_lstat64"
+            "sys_stat64", "sys_lstat64", "sys_newstat", "sys_newlstat",
+            "sys_readlink", "sys_old_stat", "sys_old_lstat", "sys_creat"
         ]
         for sc in arg0_syscalls:
             syscalls.syscall(
@@ -159,8 +160,8 @@ class PseudofileTracker(Plugin):
         # ---------------------------------------------------------
         arg1_syscalls = [
             "sys_openat", "sys_openat2", "sys_newfstatat", 
-            "sys_faccessat", "sys_statx", "sys_readlinkat",
-            "sys_fstatat64"
+            "sys_faccessat", "sys_faccessat2", "sys_statx", "sys_readlinkat",
+            "sys_fstatat64", "sys_fstatat"
         ]
         for sc in arg1_syscalls:
             syscalls.syscall(
@@ -171,6 +172,8 @@ class PseudofileTracker(Plugin):
         # ---------------------------------------------------------
         # 3. sys_ioctl
         # ---------------------------------------------------------
+        # Only "sys_ioctl" is needed because the C proxy's normalize_syscall_name 
+        # transparently folds "compat_sys_ioctl" into the same hash bucket!
         syscalls.syscall(
             "sys_ioctl", on_return=True,
             retval_filter=ValueFilter.exact(-25)  # -ENOTTY
@@ -184,16 +187,20 @@ class PseudofileTracker(Plugin):
         fd = self.panda.from_unsigned_guest(syscall.retval)
         if fd == -self.ENOENT:
             filename = yield from mem.read_str(filename_ptr)
-            path = yield from self._resolve_absolute_path(AT_FDCWD, filename)
-            self.centralized_log(path, "open")
+            if filename:
+                path = yield from self._resolve_absolute_path(AT_FDCWD, filename)
+                self.centralized_log(path, "open")
 
-    def _handle_enoent_arg1(self, regs, proto, syscall, dfd, filename_ptr, *args):
+    def _handle_enoent_arg1(self, regs, proto, syscall, dfd_raw, filename_ptr, *args):
         """Triggered when arg1 syscalls fail with -ENOENT."""
         fd = self.panda.from_unsigned_guest(syscall.retval)
         if fd == -self.ENOENT:
+            # Cast dfd safely to a signed integer for AT_FDCWD
+            dfd = self.panda.from_unsigned_guest(dfd_raw)
             filename = yield from mem.read_str(filename_ptr)
-            path = yield from self._resolve_absolute_path(dfd, filename)
-            self.centralized_log(path, "open")
+            if filename:
+                path = yield from self._resolve_absolute_path(dfd, filename)
+                self.centralized_log(path, "open")
 
     def _handle_ioctl_enotty(self, regs, proto, syscall, fd_arg, cmd, arg):
         """Triggered when ioctl returns -ENOTTY (-25)."""
