@@ -578,10 +578,8 @@ class KFFI(Plugin):
         # Parse the response
         result_struct = self.from_buffer("portal_ffi_call", response)
         result = result_struct.result
+
         # Marshal return value if function signature is available
-        if self._is_32bit and not is_64bit_return:
-            result = result & 0xFFFFFFFF
-            
         if func_info and "return_type" in func_info:
             ret_type = func_info["return_type"]
             if isinstance(ret_type, dict):
@@ -590,9 +588,14 @@ class KFFI(Plugin):
                 if kind == "base":
                     base_type = self.ffi.get_type(name)
                     if base_type:
-                        # Unsigned fixup
-                        if base_type.signed is False and result < 0:
-                            result = result % (1 << (base_type.size * 8))
+                        # 1. Truncate strictly to the C-type's native size
+                        mask = (1 << (base_type.size * 8)) - 1
+                        result = result & mask
+                        
+                        # 2. Sign extend to a native Python integer if the type requires it
+                        if base_type.signed and (result & (1 << (base_type.size * 8 - 1))):
+                            result -= (1 << (base_type.size * 8))
+                            
                         # Convert to correct Python type
                         if base_type.kind in ("int", "pointer"):
                             result = int(result)
@@ -619,6 +622,11 @@ class KFFI(Plugin):
                         result = val
                     else:
                         result = None
+        else:
+            # Fallback if no DWARFFI signature was found
+            if not is_64bit_return:
+                result = result & 0xFFFFFFFF
+                
         return result
 
     def call(self, func: Union[int, str], *args: Any) -> Generator[Any, Any, Any]:
