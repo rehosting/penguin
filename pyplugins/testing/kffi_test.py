@@ -59,7 +59,12 @@ class KFFITest(Plugin):
         # Test 1: All 64-bit arguments
         args_64 = [0x1111111111111111, 0x2222222222222222, 3, 4, 5, 6, 7, 0x8888888888888888]
         val_64 = yield from kffi.call("igloo_test_64b_function", *args_64)
-        expected_64 = sum(args_64) & 0xFFFFFFFF  # Return type of the C function is still 'int'
+        
+        # Calculate expected value and force signed 32-bit overflow 
+        expected_64 = sum(args_64) & 0xFFFFFFFF  
+        if expected_64 >= 0x80000000:
+            expected_64 -= 0x100000000
+            
         assert val_64 == expected_64, f"Expected {expected_64}, got {val_64} in 64-bit test"
 
         # Test 2: Interleaved 32-bit and 64-bit arguments
