@@ -154,12 +154,12 @@ class PortalTest(Plugin):
             mods_pid[pid] = yield from osi.get_mappings(pid)
             fds_pid[pid] = yield from osi.get_fds(pid)
 
-            print(f"PID: {pid}")
-            print(f"Name: {p.name}")
-            print(f"Args: {args}")
-            print(f"Mappings:\n{mods_pid[pid]}")
+            self.logger.debug(f"PID: {pid}")
+            self.logger.debug(f"Name: {p.name}")
+            self.logger.debug(f"Args: {args}")
+            self.logger.debug(f"Mappings:\n{mods_pid[pid]}")
             for f in fds_pid[pid]:
-                print(f"FD: {f.fd} -> {f.name}")
+                self.logger.debug(f"FD: {f.fd} -> {f.name}")
 
     @plugins.syscalls.syscall("on_sys_ioctl_return", arg_filters=[None, 0x89f3])
     def ioctl_val(self, regs, proto, syscall, fd, op, arg):

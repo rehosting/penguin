@@ -21,11 +21,6 @@ ARG PANDANG_VERSION="0.0.38"
 ARG RIPGREP_VERSION="14.1.1"
 ARG APT_MIRROR="ubuntu"
 
-FROM ${REGISTRY}/golang:latest AS go
-RUN git clone --depth 1 https://github.com/volatilityfoundation/dwarf2json.git \
-    && cd dwarf2json \
-    && go build
-
 FROM ${REGISTRY}/rust:1.86 AS rust_builder
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
 ARG VHOST_DEVICE_VERSION
@@ -374,7 +369,6 @@ COPY --from=downloader /tmp/pandare-plugins.deb /tmp/
 COPY --from=downloader /tmp/glow.deb /tmp/
 COPY --from=downloader /tmp/gum.deb /tmp/
 COPY --from=downloader /tmp/ripgrep.deb /tmp/
-COPY --from=go /go/dwarf2json/dwarf2json /bin/dwarf2json
 
 # We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
 # we'll fail because we get a distutils distribution of pycparser 2.19 that we can't

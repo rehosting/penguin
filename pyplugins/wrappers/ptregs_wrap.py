@@ -106,25 +106,36 @@ class PtRegsWrapper(Wrapper):
     Args:
         obj: The pt_regs structure to wrap.
         panda: Optional PANDA object for memory reading.
+        extra_context: Optional dictionary to pass state to register operations.
     """
     # Optimization: Use slots for fast attribute access
-    __slots__ = ('_panda', '_obj')
+    __slots__ = ('_panda', '_obj', '_extra_context')
 
     # Class-level cache for accessors. Subclasses must populate this.
     # Format: { "reg_name": (getter_func, setter_func) }
     _ACCESSORS: Dict[str, Any] = {}
+    _ALIGN_64BIT_ARGS = False
 
-    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
+    def __init__(self, obj: Any, panda: Optional[Any] = None, extra_context: Optional[Dict] = None) -> None:
         # Bypass Wrapper.__init__ overhead if it just sets _obj
         object.__setattr__(self, '_obj', obj)
         object.__setattr__(self, '_extra_attrs', {})
         object.__setattr__(self, '_is_dict', False)  # pt_regs is never a dict
-        self._panda = panda
+        object.__setattr__(self, '_panda', panda)
+        object.__setattr__(self, '_extra_context', extra_context or {})
 
     @property
     def REG_NAMES(self) -> List[str]:
         """Returns a list of all valid register names for this architecture."""
         return list(self._ACCESSORS.keys())
+
+    @property
+    def _is_32bit(self) -> bool:
+        return getattr(self._panda, "bits", 64) == 32
+        
+    @property
+    def _is_big_endian(self) -> bool:
+        return getattr(self._panda, "endianness", "little") == "big"
 
     def get_register(self, reg_name: str) -> Optional[int]:
         """Get register value by name (Optimized)."""
@@ -210,9 +221,68 @@ class PtRegsWrapper(Wrapper):
         """Get return value (alias for get_return_value)."""
         return self.get_return_value()
 
+    # --- Common Architecture Helpers ---
+    def _check_type_is_64bit(self, param_type: Any) -> bool:
+        """Safely determine if a parameter type dictionary defines a 64-bit integer."""
+        if hasattr(param_type, "type_info"):
+            param_type = param_type.type_info
+        elif isinstance(param_type, dict) and "type" in param_type:
+            param_type = param_type["type"]
+            
+        if not isinstance(param_type, dict):
+            return False
+            
+        kind = param_type.get("kind")
+        name = param_type.get("name", "")
+        
+        if kind == "pointer" or not name:
+            return False
+            
+        t_def = plugins.kffi.ffi.get_type(name)
+        if t_def and getattr(t_def, "size", 0) == 8:
+            return True
+            
+        return any(x in name.lower() for x in ["long long", "int64", "u64", "loff_t"])
+
+    def _sign_extend_64bit(self, val: int, param_type: Optional[Dict]) -> int:
+        """Sign-extend a 64-bit integer if the type dictates it."""
+        if not param_type:
+            return val
+            
+        is_signed = False
+        if param_type.get("kind") == "base" and param_type.get("signed", False):
+            is_signed = True
+        elif any(x in param_type.get("name", "") for x in ["loff_t", "int64_t", "long long"]) and "unsigned" not in param_type.get("name", ""):
+            is_signed = True
+            
+        if is_signed and val >= 0x8000000000000000:
+            val -= 0x10000000000000000
+        return val
+
     def set_retval(self, value: int) -> None:
-        """Set the return value (typically in a0/r0/rax)."""
-        self.set_register("retval", value)
+        """
+        Set the return value (typically in a0/r0/rax), accounting for 64-bit
+        splits on 32-bit architectures if the function type indicates it.
+        """
+        is_64bit = False
+        func_type = self._extra_context.get("func_type")
+        
+        if func_type and func_type.get("kind") == "pointer" and "subtype" in func_type:
+            func_type = func_type["subtype"]
+            
+        if func_type and "return_type" in func_type:
+            is_64bit = self._check_type_is_64bit(func_type["return_type"])
+
+        if is_64bit and self._is_32bit:
+            high = (value >> 32) & 0xFFFFFFFF
+            low = value & 0xFFFFFFFF
+            self._set_split_retval(low, high)
+        else:
+            self.set_register("retval", value)
+
+    def _set_split_retval(self, low: int, high: int):
+        """Architectures must override this if they support 32-bit execution."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement 32-bit return value splitting.")
 
     def dump(self) -> Dict[str, Optional[int]]:
         """Dump all registers to a dictionary."""
@@ -221,18 +291,57 @@ class PtRegsWrapper(Wrapper):
             result[reg_name] = getter(self._obj)
         return result
 
-    def get_args(self, count: int, convention: Optional[str] = None) -> List[Optional[int]]:
+    # --- Argument Extraction Base Logic ---
+
+    def get_args(self, count: int, convention: Optional[str] = None, func_type: Optional[Dict] = None) -> List[Optional[int]]:
         """
         Get a list of function arguments according to the calling convention.
 
         Args:
             count: Number of arguments to retrieve.
             convention: Calling convention ('syscall' or 'userland').
+            func_type: Optional explicit signature definition.
 
         Returns:
             List of argument values (may include None if unavailable).
         """
-        return [self.get_arg(i, convention) for i in range(count)]
+        func_type = func_type or self._extra_context.get("func_type")
+        
+        if not func_type or not self._is_32bit:
+            return [self.get_arg(i, convention) for i in range(count)]
+            
+        if func_type.get("kind") == "pointer" and "subtype" in func_type:
+            func_type = func_type["subtype"]
+            
+        parameters = func_type.get("parameters", []) if func_type.get("kind") == "function" else []
+            
+        arr = []
+        slot_idx = 0
+        for i in range(count):
+            param_type = parameters[i] if i < len(parameters) else None
+            is_64bit = self._check_type_is_64bit(param_type) if param_type else False
+            
+            if is_64bit:
+                if self._ALIGN_64BIT_ARGS and slot_idx % 2 != 0:
+                    slot_idx += 1 
+                        
+                first = self.get_arg(slot_idx, convention)
+                second = self.get_arg(slot_idx + 1, convention)
+                
+                if first is not None and second is not None:
+                    if self._is_big_endian:
+                        val = (first << 32) | (second & 0xFFFFFFFF)
+                    else:
+                        val = ((second & 0xFFFFFFFF) << 32) | (first & 0xFFFFFFFF)
+                    arr.append(self._sign_extend_64bit(val, param_type))
+                else:
+                    arr.append(None)
+                slot_idx += 2
+            else:
+                arr.append(self.get_arg(slot_idx, convention))
+                slot_idx += 1
+                
+        return arr
 
     def get_arg(self, num: int, convention: Optional[str] = None) -> Optional[int]:
         """
@@ -254,20 +363,57 @@ class PtRegsWrapper(Wrapper):
         except PandaMemReadFail:
             return None
 
-    def get_args_portal(self, count: int, convention: Optional[str] = None) -> Generator[Optional[int], Any, List[Optional[int]]]:
+    def get_args_portal(self, count: int, convention: Optional[str] = None, func_type: Optional[Dict] = None) -> Generator[Optional[int], Any, List[Optional[int]]]:
         """
         Coroutine/generator version of get_args for portal/coroutine use.
 
         Args:
             count: Number of arguments to retrieve.
             convention: Calling convention ('syscall' or 'userland').
+            func_type: Optional explicit signature definition.
 
         Returns:
             List of argument values (may include None if unavailable).
         """
+        func_type = func_type or self._extra_context.get("func_type")
+        
+        if not func_type or not self._is_32bit:
+            arr = []
+            for i in range(count):
+                arr.append((yield from self.get_arg_portal(i, convention)))
+            return arr
+            
+        if func_type.get("kind") == "pointer" and "subtype" in func_type:
+            func_type = func_type["subtype"]
+            
+        parameters = func_type.get("parameters", []) if func_type.get("kind") == "function" else []
+            
         arr = []
+        slot_idx = 0
         for i in range(count):
-            arr.append((yield from self.get_arg_portal(i, convention)))
+            param_type = parameters[i] if i < len(parameters) else None
+            is_64bit = self._check_type_is_64bit(param_type) if param_type else False
+                            
+            if is_64bit:
+                if self._ALIGN_64BIT_ARGS and slot_idx % 2 != 0:
+                    slot_idx += 1 
+                        
+                first = yield from self.get_arg_portal(slot_idx, convention)
+                second = yield from self.get_arg_portal(slot_idx + 1, convention)
+                
+                if first is not None and second is not None:
+                    if self._is_big_endian:
+                        val = (first << 32) | (second & 0xFFFFFFFF)
+                    else:
+                        val = ((second & 0xFFFFFFFF) << 32) | (first & 0xFFFFFFFF)
+                    arr.append(self._sign_extend_64bit(val, param_type))
+                else:
+                    arr.append(None)
+                slot_idx += 2
+            else:
+                arr.append((yield from self.get_arg_portal(slot_idx, convention)))
+                slot_idx += 1
+                
         return arr
 
     def get_arg_portal(self, num: int, convention: Optional[str] = None) -> Generator[Optional[int], Any, Optional[int]]:
@@ -324,7 +470,7 @@ class PtRegsWrapper(Wrapper):
                 return data.decode('latin-1', errors='replace')
 
             # Use the correct endianness format based on the architecture
-            endian_fmt = '>' if hasattr(self._panda, 'endianness') and self._panda.endianness == 'big' else '<'
+            endian_fmt = '>' if self._is_big_endian else '<'
 
             if fmt == 'int' or fmt == 'ptr':
                 # Fast path struct unpacking
@@ -357,7 +503,7 @@ class PtRegsWrapper(Wrapper):
 
         # Default word size based on architecture
         if word_size is None:
-            word_size = 4 if self._panda.bits == 32 else 8
+            word_size = 4 if self._is_32bit else 8
 
         # Get stack pointer
         sp = self.get_sp()
@@ -455,6 +601,10 @@ class X86PtRegsWrapper(PtRegsWrapper):
         "retval": (_make_attr_getter("ax"), _make_attr_setter("ax")),
     }
 
+    def _set_split_retval(self, low: int, high: int):
+        self.set_register("eax", low)
+        self.set_register("edx", high)
+
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get x86 syscall argument"""
         if num == 0:
@@ -520,8 +670,8 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
     _ACCESSORS["sp"] = _ACCESSORS["rsp"]
     _ACCESSORS["retval"] = _ACCESSORS["rax"]
 
-    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
-        super().__init__(obj, panda=panda)
+    def __init__(self, obj: Any, panda: Optional[Any] = None, extra_context: Optional[Dict] = None) -> None:
+        super().__init__(obj, panda=panda, extra_context=extra_context)
         # Create a delegate for x86 (32-bit) mode access (but don't initialize it yet)
         self._x86_delegate = None
         # Flag to prevent recursion in _is_compatibility_mode
@@ -532,7 +682,7 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
         Get or create an X86PtRegsWrapper delegate for 32-bit compatibility mode access.
         """
         if self._x86_delegate is None:
-            self._x86_delegate = X86PtRegsWrapper(self._obj, panda=self._panda)
+            self._x86_delegate = X86PtRegsWrapper(self._obj, panda=self._panda, extra_context=self._extra_context)
         return self._x86_delegate
 
     def _is_compatibility_mode(self) -> bool:
@@ -676,6 +826,7 @@ class X86_64PtRegsWrapper(PtRegsWrapper):
 
 class ArmPtRegsWrapper(PtRegsWrapper):
     """Wrapper for ARM pt_regs"""
+    _ALIGN_64BIT_ARGS = True
 
     # Pre-calculate accessors for uregs array
     _ACCESSORS = {
@@ -690,6 +841,14 @@ class ArmPtRegsWrapper(PtRegsWrapper):
         "orig_r0": (_make_array_getter("uregs", 17), _make_array_setter("uregs", 17)),
     })
     _ACCESSORS["retval"] = _ACCESSORS["r0"]
+
+    def _set_split_retval(self, low: int, high: int):
+        if self._is_big_endian:
+            self.set_register("r0", high)
+            self.set_register("r1", low)
+        else:
+            self.set_register("r0", low)
+            self.set_register("r1", high)
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get ARM syscall argument"""
@@ -753,8 +912,8 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
     _ACCESSORS["fp"] = _ACCESSORS["x29"]
     _ACCESSORS["lr"] = _ACCESSORS["x30"]
 
-    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
-        super().__init__(obj, panda)
+    def __init__(self, obj: Any, panda: Optional[Any] = None, extra_context: Optional[Dict] = None) -> None:
+        super().__init__(obj, panda, extra_context=extra_context)
         self._arm_delegate = None
         self._checking_mode = False
 
@@ -787,7 +946,7 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
         """
         if self._arm_delegate is None:
             # Create delegate with our original object but use ARM wrapper
-            self._arm_delegate = ArmPtRegsWrapper(self._obj, panda=self._panda)
+            self._arm_delegate = ArmPtRegsWrapper(self._obj, panda=self._panda, extra_context=self._extra_context)
         return self._arm_delegate
 
     def get_register(self, reg_name: str) -> Optional[int]:
@@ -868,6 +1027,7 @@ class AArch64PtRegsWrapper(PtRegsWrapper):
 
 class MipsPtRegsWrapper(PtRegsWrapper):
     """Wrapper for MIPS pt_regs"""
+    _ALIGN_64BIT_ARGS = True
 
     # Pre-calculate MIPS regs array
     _ACCESSORS = {
@@ -894,6 +1054,14 @@ class MipsPtRegsWrapper(PtRegsWrapper):
         "pc": (_make_attr_getter("cp0_epc"), _make_attr_setter("cp0_epc")),
         "retval": (_make_array_getter("regs", 2), _make_array_setter("regs", 2))  # v0
     })
+
+    def _set_split_retval(self, low: int, high: int):
+        if self._is_big_endian:
+            self.set_register("v0", high)
+            self.set_register("v1", low)
+        else:
+            self.set_register("v0", low)
+            self.set_register("v1", high)
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get MIPS syscall argument"""
@@ -934,6 +1102,7 @@ class MipsPtRegsWrapper(PtRegsWrapper):
 
 class Mips64PtRegsWrapper(MipsPtRegsWrapper):
     """Wrapper for MIPS64 pt_regs"""
+    _ALIGN_64BIT_ARGS = False
 
     # Copy accessors from base and update for MIPS64 args aliases
     _ACCESSORS = MipsPtRegsWrapper._ACCESSORS.copy()
@@ -1001,8 +1170,16 @@ class PowerPCPtRegsWrapper(PtRegsWrapper):
     # r3 holds return value
     _ACCESSORS["retval"] = _ACCESSORS["r3"]
 
-    def __init__(self, obj: Any, panda: Optional[Any] = None) -> None:
-        super().__init__(obj, panda)
+    def __init__(self, obj: Any, panda: Optional[Any] = None, extra_context: Optional[Dict] = None) -> None:
+        super().__init__(obj, panda=panda, extra_context=extra_context)
+
+    def _set_split_retval(self, low: int, high: int):
+        if self._is_big_endian:
+            self.set_register("r3", high)
+            self.set_register("r4", low)
+        else:
+            self.set_register("r3", low)
+            self.set_register("r4", high)
 
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get PowerPC syscall argument"""
@@ -1025,7 +1202,7 @@ class PowerPCPtRegsWrapper(PtRegsWrapper):
         # Determine stack layout based on architecture
         base_offset = 0
         word_size = 0
-        if self._panda.bits == 32:
+        if self._is_32bit:
             # 32-bit PowerPC - args start at SP+8
             base_offset = 8
             word_size = 4
@@ -1163,6 +1340,10 @@ class Riscv32PtRegsWrapper(PtRegsWrapper):
     _ACCESSORS["fp"] = _ACCESSORS["s0"]
     _ACCESSORS["retval"] = _ACCESSORS["a0"]
 
+    def _set_split_retval(self, low: int, high: int):
+        self.set_register("a0", low)
+        self.set_register("a1", high)
+
     def get_syscall_arg(self, num: int) -> Optional[int]:
         """Get RISC-V 32-bit syscall argument"""
         if 0 <= num < 8:  # a0-a7 for syscall args
@@ -1249,7 +1430,8 @@ _WRAPPER_CACHE = {
 def get_pt_regs_wrapper(
     panda: Optional[Any],
     regs: Any,
-    arch_name: Optional[str] = None
+    arch_name: Optional[str] = None,
+    extra_context: Optional[Dict[str, Any]] = None
 ) -> PtRegsWrapper:
     """
     Factory function to create the appropriate pt_regs wrapper based on architecture.
@@ -1271,6 +1453,10 @@ def get_pt_regs_wrapper(
     # Fast lookup from cache
     klass = _WRAPPER_CACHE.get(arch_name.lower())
     if klass:
-        return klass(regs, panda)
+        return klass(regs, panda, extra_context=extra_context)
+        
+    # Check for armel, armhf, etc.
+    if arch_name.lower().startswith("arm"):
+        return ArmPtRegsWrapper(regs, panda, extra_context=extra_context)
 
-    return PtRegsWrapper(regs, panda)
+    return PtRegsWrapper(regs, panda, extra_context=extra_context)

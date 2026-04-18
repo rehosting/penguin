@@ -16,7 +16,7 @@ class SampleNetDev(Netdev):
     def stats64_handler(self, pt_regs, netdev_ptr, stats64_ptr):
         netdevs = yield from kffi.read_type(netdev_ptr, "net_device")
         stats64 = yield from kffi.read_type(stats64_ptr, "rtnl_link_stats64")
-        self.logger.info(f"Getting stats64 for device {kffi.ffi.string(netdevs.name)}")
+        self.logger.debug(f"Getting stats64 for device {kffi.ffi.string(netdevs.name)}")
         stats64.rx_packets = 1337
         stats64.tx_packets = 1338
         stats64.rx_bytes = 1339
@@ -29,7 +29,7 @@ class SampleNetDev(Netdev):
         args = yield from plugins.osi.get_args()
         netdevs = yield from kffi.read_type(netdev_ptr, "net_device")
         name = kffi.ffi.string(netdevs.name)
-        self.logger.info((name, args, cmd))
+        self.logger.debug((name, args, cmd))
         return 0
 
 
@@ -44,7 +44,7 @@ class SampleNetDev2(Netdev):
     def stats64_handler(self, pt_regs, netdev_ptr, stats64_ptr):
         netdevs = yield from kffi.read_type(netdev_ptr, "net_device")
         stats64 = yield from kffi.read_type(stats64_ptr, "rtnl_link_stats64")
-        self.logger.info(f"Getting stats64 for device {kffi.ffi.string(netdevs.name)}")
+        self.logger.debug(f"Getting stats64 for device {kffi.ffi.string(netdevs.name)}")
         stats64.rx_packets = 7331
         stats64.tx_packets = 8331
         stats64.rx_bytes = 9331

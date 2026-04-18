@@ -50,7 +50,7 @@ from typing import List, Dict, Any, Optional, Generator
 
 kffi = plugins.kffi
 CONST_UNKNOWN_STR = "[???]"
-
+AT_FDCWD = -100
 
 class OSI(Plugin):
     """
@@ -64,6 +64,12 @@ class OSI(Plugin):
         Logger for debug and error messages.
     """
 
+    def get_cwd(self, pid: Optional[int] = None) -> Generator[Any, None, Optional[str]]:
+        """
+        Get the current working directory for a process.
+        """
+        return (yield from self.get_fd_name(AT_FDCWD, pid))
+
     def get_fd_name(
             self, fd: int, pid: Optional[int] = None) -> Generator[Any, None, Optional[str]]:
         """
@@ -74,7 +80,7 @@ class OSI(Plugin):
         Parameters
         ----------
         fd : int
-            File descriptor number.
+            File descriptor number. Passing AT_FDCWD (-100) resolves the Current Working Directory.
         pid : int, optional
             Process ID, or None for current process.
 
@@ -88,7 +94,7 @@ class OSI(Plugin):
         # Try using the get_fds functionality first (more efficient)
         # Only request the single FD we need
         fds = yield from self.get_fds(pid=pid, start_fd=fd, count=1)
-        if fds and len(fds) > 0 and fds[0].fd == fd:
+        if fds and len(fds) > 0 and getattr(fds[0], 'fd', None) == fd:
             fd_name = fds[0].name
             self.logger.debug(
                 f"File descriptor name read successfully: {fd_name}")
