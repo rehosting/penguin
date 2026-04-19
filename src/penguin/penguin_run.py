@@ -108,6 +108,34 @@ def run_config(
     # Image isn't in our config, but the path we use is a property
     # of configs files section - we'll hash it to get a path
     # Read input config and validate
+
+    # Check if static plugins have changed and we need to regenerate the config
+    cache_file = os.path.join(proj_dir, ".plugin_cache")
+    if os.path.isfile(cache_file):
+        try:
+            with open(cache_file, "r") as f:
+                saved_hash = f.read().strip()
+
+            from .static_plugin_manager import StaticPluginManager
+            plugin_dirs = [
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "pyplugins", "static_analysis"),
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "pyplugins", "config_patchers"),
+            ]
+            current_hash = StaticPluginManager(plugin_dirs).get_state_hash()
+
+            if saved_hash != current_hash:
+                logger.warning("Static plugins have changed. Auto-regenerating the config...")
+                from .gen_config import initialize_and_build_config
+                fs_tar = conf["core"].get("fs", "")
+                if fs_tar:
+                    full_fs_tar = os.path.join(proj_dir, fs_tar)
+                    # Use a temporary directory for artifacts to avoid FileExistsError
+                    # if proj_dir has conflicting contents, and let initialize_and_build_config
+                    # write out safely to conf_yaml.
+                    initialize_and_build_config(full_fs_tar, out=conf_yaml, artifacts_dir=None)
+        except Exception as e:
+            logger.warning(f"Could not check plugin cache: {e}")
+
     if resolved_kernel:
         logger.info(f"Using pre-resolved kernel: {resolved_kernel}")
         conf = load_config(proj_dir, conf_yaml, resolved_kernel=resolved_kernel, verbose=True)
