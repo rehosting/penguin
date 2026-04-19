@@ -9,8 +9,10 @@ from hyperfile.models.ioctl import IoctlZero
 class SimpleProcfsFile(ReadConstBuf, WriteDiscard, IoctlZero, ProcFile):
     PATH = "s/i/m/p/l/e/simple_proc"
 
-    def __init__(self):
-        super().__init__(buffer=b"Hello from simple_proc!\n")
+    def __init__(self, **kwargs):
+        if "buffer" not in kwargs:
+            kwargs["buffer"] = b"Hello from simple_proc!\n"
+        super().__init__(**kwargs)
 
     def open(self, ptregs: PtRegsWrapper, inode: int, file: int):
         procname = yield from plugins.osi.get_proc_name()
@@ -19,15 +21,18 @@ class SimpleProcfsFile(ReadConstBuf, WriteDiscard, IoctlZero, ProcFile):
 
 class CPUinfoFile(ReadConstBuf, ProcFile):
     PATH = "cpuinfo"
-    def __init__(self):
-        super().__init__(buffer=b"processor       : IGLOO\n")
+    def __init__(self, **kwargs):
+        if "buffer" not in kwargs:
+            kwargs["buffer"] = b"processor        : IGLOO\n"
+        super().__init__(**kwargs)
 
 class DynamicProcfsFile(ProcFile):
     PATH = "dynamic_proc"
     MODE = 0o666
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.value = 0
+        super().__init__(**kwargs)
 
     def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
         data = f"{self.value}\n".encode("utf-8")
@@ -50,8 +55,10 @@ class DynamicProcfsFile(ProcFile):
 
 class LargeProcFile(ReadConstBuf, ProcFile):
     PATH = "large_file"
-    def __init__(self):
-        super().__init__(buffer=b"A" * 8192)
+    def __init__(self, **kwargs):
+        if "buffer" not in kwargs:
+            kwargs["buffer"] = b"A" * 8192
+        super().__init__(**kwargs)
 
 class WriteOnlyProcFile(ProcFile):
     PATH = "write_only_proc"
@@ -76,8 +83,10 @@ class IoctlCustomProcFile(ReadConstBuf, ProcFile):
     PATH = "custom_ioctl_proc"
     MODE = 0o666
 
-    def __init__(self):
-        super().__init__(buffer=b"Send me ioctls!\n")
+    def __init__(self, **kwargs):
+        if "buffer" not in kwargs:
+            kwargs["buffer"] = b"Send me ioctls!\n"
+        super().__init__(**kwargs)
 
     def ioctl(self, ptregs: PtRegsWrapper, file: int, cmd: int, arg: int):
         # Custom IOCTL handling: respond to a specific magic command
@@ -89,10 +98,15 @@ class IoctlCustomProcFile(ReadConstBuf, ProcFile):
 class SeekableRWProcFile(ProcFile):
     PATH = "seekable_rw"
     MODE = 0o666
+    
+    # Explicitly authorize memory mapping for this test device
+    SUPPORT_MMAP = True
+    SIZE = 4096
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         # Initialize a 4KB mutable buffer
         self.data = bytearray(b"Initial Data" + b"\x00" * 4084)
+        super().__init__(**kwargs)
 
     def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
         offset = yield from plugins.mem.read_int(loff)
@@ -138,10 +152,11 @@ class ReleaseTrackingProcFile(ProcFile):
     PATH = "release_tracker"
     MODE = 0o444
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.active_opens = 0
         self.total_opens = 0
         self.total_releases = 0
+        super().__init__(**kwargs)
 
     def open(self, ptregs: PtRegsWrapper, inode: int, file: int):
         self.active_opens += 1
@@ -189,6 +204,29 @@ class PollableProcFile(ProcFile):
         yield from plugins.mem.write_int(loff, offset + chunk)
         ptregs.set_retval(chunk)
 
+# --- NEW MMAP ENFORCEMENT TEST DEVICES ---
+
+class MmapSupportedProcFile(ReadConstBuf, ProcFile):
+    PATH = "mmap_explicit"
+    SUPPORT_MMAP = True
+    
+    def __init__(self, **kwargs):
+        if "buffer" not in kwargs:
+            kwargs["buffer"] = b"mmap_explicit\n"
+        super().__init__(**kwargs)
+
+class MmapCustomProcFile(ReadConstBuf, ProcFile):
+    PATH = "mmap_custom"
+    SUPPORT_MMAP = True
+    
+    def __init__(self, **kwargs):
+        if "buffer" not in kwargs:
+            kwargs["buffer"] = b"mmap_custom\n"
+        super().__init__(**kwargs)
+        
+    def mmap(self, ptregs: PtRegsWrapper, file: int, vm_area_struct: int):
+        ptregs.set_retval(-19) # -ENODEV
+
 
 class ProcTest(Plugin):
     def __init__(self):
@@ -214,3 +252,12 @@ class ProcTest(Plugin):
         # 4. Advanced Operations Registrations
         plugins.procfs.register_proc(ReleaseTrackingProcFile())
         plugins.procfs.register_proc(PollableProcFile())
+
+        # 5. MMAP Registrations
+        plugins.procfs.register_proc(MmapSupportedProcFile())
+        plugins.procfs.register_proc(MmapCustomProcFile())
+        
+        # Fallback test: enable mmap just by passing size dynamically
+        plugins.procfs.register_proc(
+            SimpleProcfsFile(path="mmap_fallback", size=4096)
+        )
