@@ -191,7 +191,8 @@ class Proc(Plugin):
                 "size": getattr(proc, "SIZE", 0),
                 "mode": getattr(proc, "MODE", 0o444),
                 "parent_id": parent_id,
-                "replace": 1
+                "replace": 1,
+                "support_mmap": 1 if getattr(proc, "SUPPORT_MMAP", False) else 0
             }
             
             req = kffi.new("struct portal_procfs_create_req", init_data)
