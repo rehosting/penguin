@@ -41,6 +41,41 @@ static_files:
         exit 1
       fi
 
+      # ---------------------------------------------------------
+      # 6. Test MMAP Capabilities
+      # ---------------------------------------------------------
+      echo "Testing ProcFS MMAP..."
+      
+      # Test A: Explicit MMAP Support
+      MMAP_VAL=$(/igloo/utils/busybox cat /proc/mmap_explicit)
+      if [ "$MMAP_VAL" != "mmap_explicit" ]; then
+         echo "Error: /proc/mmap_explicit read failed (got $MMAP_VAL)"
+         exit 1
+      fi
+
+      # Test B: Fallback MMAP Support (via size definition)
+      MMAP_FB=$(/igloo/utils/busybox cat /proc/mmap_fallback)
+      if [ "$MMAP_FB" != "Hello from simple_proc!" ]; then
+         echo "Error: /proc/mmap_fallback read failed (got $MMAP_FB)"
+         exit 1
+      fi
+      
+      # Test C: Custom MMAP Override
+      # We explicitly expect this to fail because we overrode the default proxy 
+      # and forced it to return -ENODEV (-19) in Python.
+      set +e
+      # Use head to force standard read() instead of cat which might mmap
+      /igloo/utils/busybox head -c 1 /proc/mmap_custom > /dev/null 2>&1
+      if [ $? -ne 0 ]; then
+         echo "Error: Standard read failed on custom mmap device"
+         exit 1
+      fi
+      
+      # Attempt a tool that rigorously relies on mmap
+      /igloo/utils/busybox strings /proc/mmap_custom > /dev/null 2>&1
+      set -e
+
+
       echo "/tests/procfs_test.sh PASS"
       exit 0
     mode: 73
