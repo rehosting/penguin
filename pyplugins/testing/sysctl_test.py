@@ -33,7 +33,7 @@ class DynamicSysctlFile(SysctlFile):
         data = self.INITIAL_VALUE
         
         if offset >= len(data):
-            yield from plugins.mem.write_int(lenp_ptr, 0)
+            yield from plugins.mem.write_ptr(lenp_ptr, 0)
             return 0
 
         # 2. Write data to the guest's provided user buffer
@@ -41,7 +41,7 @@ class DynamicSysctlFile(SysctlFile):
         yield from plugins.mem.write_bytes(user_buf, chunk)
         
         # lenp is a 4-byte size_t on 32-bit architectures
-        yield from plugins.mem.write_int(lenp_ptr, len(chunk))
+        yield from plugins.mem.write_ptr(lenp_ptr, len(chunk))
         
         # Write back the full 8-byte loff_t
         yield from plugins.mem.write_long(ppos_ptr, offset + len(chunk))
@@ -61,7 +61,7 @@ class UsageCounterSysctl(SysctlFile):
             ptregs.set_retval(-22) # -EINVAL
             return -22
 
-        # Read the 8-byte loff_t
+        # loff_t is 8 bytes
         offset = yield from plugins.mem.read_long(ppos)
 
         # FIX: Only increment the counter on the FIRST read of a cat command
@@ -72,14 +72,14 @@ class UsageCounterSysctl(SysctlFile):
         data = f"AccessID: {self.total_reads}\n".encode("latin-1")
 
         if offset >= len(data):
-            yield from plugins.mem.write_int(lenp, 0)
+            yield from plugins.mem.write_ptr(lenp, 0)
             ptregs.set_retval(0)
             return 0
 
         chunk = data[offset:]
         yield from plugins.mem.write_bytes(buffer, chunk)
 
-        yield from plugins.mem.write_int(lenp, len(chunk))
+        yield from plugins.mem.write_ptr(lenp, len(chunk))
         yield from plugins.mem.write_long(ppos, offset + len(chunk))
 
         ptregs.set_retval(0)
