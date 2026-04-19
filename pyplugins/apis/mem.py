@@ -1117,19 +1117,19 @@ class Mem(Plugin):
         if not isinstance(ptr, Ptr):
             raise TypeError("write_deref requires a dwarffi.Ptr object.")
 
-        # Extract the C-type that the pointer points to
-        target_type = getattr(ptr._ctype, 'subtype', None)
-        if not target_type:
+        # Extract the C-type name that the pointer points to
+        target_type_name = ptr.points_to_type_name
+        if not target_type_name:
             raise ValueError(f"Could not determine the target type for pointer: {ptr}")
 
         try:
             # Delegate all packing, alignment, and endianness logic to dwarffi.
             # ffi.new allocates a local, detached instance of the target type,
             # populating it with the provided value (primitive or nested dict).
-            dummy_instance = self.ffi.new(target_type, init=value)
+            dummy_instance = plugins.kffi.ffi.new(target_type_name, init=value)
             packed_bytes = bytes(dummy_instance)
         except Exception as e:
-            self.logger.error(f"Failed to serialize type {target_type}: {e}")
+            self.logger.error(f"Failed to serialize type {target_type_name}: {e}")
             raise
 
         # Write the packed bytes directly to the physical/virtual address
@@ -1158,18 +1158,20 @@ class Mem(Plugin):
         int
             Number of bytes written.
         """
-        # 1. Pointer-Driven Write (Highest Priority)
-        # If we have a dwarffi Ptr, we defer entirely to the C-type definition
-        if isinstance(addr, Ptr):
-            return (yield from self.write_deref(addr, data, pid))
-            
-        # 2. Data-Type Driven Write (For raw int addresses)
+        # 1. Data-Type Driven Write (For raw int addresses or explicit buffers)
+        # If the payload is bytes or str, the user explicitly wants a buffer write, 
+        # which overrides dwarffi's single-element pointer sizing.
         if isinstance(data, bytes):
             return (yield from self.write_bytes(addr, data, pid))
             
         elif isinstance(data, str):
             return (yield from self.write_str(addr, data, pid=pid))
             
+        # 2. Pointer-Driven Write (Deep Structs / Primitives)
+        if isinstance(addr, Ptr):
+            return (yield from self.write_deref(addr, data, pid))
+            
+        # 3. Primitive Fallbacks
         elif isinstance(data, int):
             if size == 1:
                 return (yield from self.write_byte(addr, data, pid))
@@ -1214,21 +1216,29 @@ class Mem(Plugin):
         """
         # 1. Attempt to infer missing context from dwarffi Ptr
         if isinstance(addr, Ptr):
-            target_type = getattr(addr._ctype, 'subtype', None)
-            if target_type:
+            target_info = addr.points_to_type_info
+            
+            if target_info:
+                target_name = addr.points_to_type_name
+                # Fetch the full Type object from FFI to get accurate size data
+                target_type = plugins.kffi.ffi.get_type(target_name) if target_name else None
+                
                 # Infer size automatically
-                if size is None and hasattr(target_type, 'size'):
+                if size is None and target_type and hasattr(target_type, 'size'):
                     size = target_type.size
                 
                 # If the user didn't explicitly override the default `bytes` format,
                 # infer the best Python format based on the C type
                 if fmt is bytes:
-                    if target_type.kind == "base":
-                        if "char" in target_type.name:
+                    kind = target_info.get("kind")
+                    name = target_info.get("name", "")
+                    
+                    if kind == "base":
+                        if "char" in name:
                             fmt = str
-                        elif any(x in target_type.name for x in ("int", "long", "size_t", "loff_t")):
+                        elif any(x in name for x in ("int", "long", "size_t", "loff_t", "short")):
                             fmt = int
-                    elif target_type.kind == "pointer":
+                    elif kind == "pointer":
                         fmt = "ptr"
 
         # 2. Dispatch based on the determined format
