@@ -11,18 +11,23 @@ class BaseFile:
     PATH = None
     FS = "unknown"
     SIZE = 0
+    SUPPORT_MMAP = False  # Explicitly declare mmap capability
 
-    def __init__(self, *, path: str = None, fs: str = None, size: int = 0, mode: int = None, **kwargs):
+    def __init__(self, *, path: str = None, fs: str = None, size: int = None, mode: int = None, support_mmap: bool = None, **kwargs):
         """
-        Consumes 'path', 'fs', 'size', and 'mode' arguments.
+        Consumes 'path', 'fs', 'size', 'mode', and 'support_mmap' arguments.
         """
         if path is not None:
             self.PATH = path
         if fs is not None:
             self.FS = fs
-        
-        self.SIZE = size
-        
+            
+        if size is not None:
+            self.SIZE = size
+            
+        if support_mmap is not None:
+            self.SUPPORT_MMAP = support_mmap
+            
         # Use provided mode, or automatically derive it
         if mode is not None:
             self.MODE = mode
@@ -52,7 +57,7 @@ class BaseFile:
         for cls in type(self).__mro__:
             if method_name in cls.__dict__:
                 # If the method belongs to one of our framework base classes, it's not custom
-                if cls.__name__ in ('BaseFile', 'VFSFile', 'ProcFile', 'DevFile', 'SysFile', 'SysfsBridge'):
+                if cls.__name__ in ('BaseFile', 'VFSFile', 'ProcFile', 'DevFile', 'SysFile', 'SysfsBridge', 'SysctlFile'):
                     return False
                 # If it belongs to a subclass, the user implemented it!
                 return True
