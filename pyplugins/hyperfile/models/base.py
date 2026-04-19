@@ -1,6 +1,24 @@
 from wrappers.ptregs_wrap import PtRegsWrapper
-from typing import Union
+from typing import Union, Annotated, Any
 from penguin import getColoredLogger, plugins
+from dwarffi import Ptr
+
+# --- DWARFFI Kernel Pointer Aliases ---
+FilePtr = Annotated[Ptr, "struct file *"]
+InodePtr = Annotated[Ptr, "struct inode *"]
+KiocbPtr = Annotated[Ptr, "struct kiocb *"]
+IovIterPtr = Annotated[Ptr, "struct iov_iter *"]
+LoffTPtr = Annotated[Ptr, "loff_t *"]
+CharPtr = Annotated[Ptr, "char *"]
+PollTablePtr = Annotated[Ptr, "struct poll_table_struct *"]
+VmAreaPtr = Annotated[Ptr, "struct vm_area_struct *"]
+FileLockPtr = Annotated[Ptr, "struct file_lock *"]
+
+# SysFS & Sysctl Specific Pointers
+SizeTPtr = Annotated[Ptr, "size_t *"]
+KobjPtr = Annotated[Ptr, "struct kobject *"]
+AttrPtr = Annotated[Ptr, "struct attribute *"]
+CtlTablePtr = Annotated[Ptr, "struct ctl_table *"]
 
 
 class BaseFile:
@@ -93,39 +111,39 @@ class BaseFile:
 
 class VFSFile(BaseFile):
     """
-    Base class defining the VFS interface.
+    Base class defining the VFS interface, strictly typed with dwarffi Ptrs.
     """
-    def open(self, ptregs: PtRegsWrapper, inode: int, file: int) -> None:
+    def open(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr) -> None:
         pass
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, offset_ptr: int) -> None:
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: int, offset_ptr: LoffTPtr) -> None:
         pass
 
-    def read_iter(self, ptregs: PtRegsWrapper, kiocb: int, iov_iter: int) -> None:
+    def read_iter(self, ptregs: PtRegsWrapper, kiocb: KiocbPtr, iov_iter: IovIterPtr) -> None:
         pass
 
-    def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, offset_ptr: int) -> None:
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: int, offset_ptr: LoffTPtr) -> None:
         pass
 
-    def lseek(self, ptregs: PtRegsWrapper, file: int, offset: int, whence: int) -> None:
+    def lseek(self, ptregs: PtRegsWrapper, file: FilePtr, offset: int, whence: int) -> None:
         pass
 
-    def release(self, ptregs: PtRegsWrapper, inode: int, file: int) -> None:
+    def release(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr) -> None:
         pass
 
-    def poll(self, ptregs: PtRegsWrapper, file: int, poll_table_struct: int) -> None:
+    def poll(self, ptregs: PtRegsWrapper, file: FilePtr, poll_table_struct: PollTablePtr) -> None:
         pass
 
-    def ioctl(self, ptregs: PtRegsWrapper, file: int, cmd: int, arg: int) -> None:
+    def ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: int, arg: int) -> None:
         pass
 
-    def compat_ioctl(self, ptregs: PtRegsWrapper, file: int, cmd: int, arg: int) -> None:
+    def compat_ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: int, arg: int) -> None:
         pass
 
-    def mmap(self, ptregs: PtRegsWrapper, file: int, vm_area_struct: int) -> None:
+    def mmap(self, ptregs: PtRegsWrapper, file: FilePtr, vm_area_struct: VmAreaPtr) -> None:
         pass
 
-    def get_unmapped_area(self, ptregs: PtRegsWrapper, file: int, addr: int, len_: int, pgoff: int, flags: int) -> None:
+    def get_unmapped_area(self, ptregs: PtRegsWrapper, file: FilePtr, addr: int, len_: int, pgoff: int, flags: int) -> None:
         pass
 
 
@@ -153,16 +171,16 @@ class DevFile(VFSFile):
             
         super().__init__(**kwargs)
 
-    def flush(self, ptregs: PtRegsWrapper, file: int, owner: int) -> None:
+    def flush(self, ptregs: PtRegsWrapper, file: FilePtr, owner: int) -> None:
         pass
 
-    def fsync(self, ptregs: PtRegsWrapper, file: int, start: int, end: int, datasync: int) -> None:
+    def fsync(self, ptregs: PtRegsWrapper, file: FilePtr, start: int, end: int, datasync: int) -> None:
         pass
 
-    def fasync(self, ptregs: PtRegsWrapper, fd: int, file: int, on: int) -> None:
+    def fasync(self, ptregs: PtRegsWrapper, fd: int, file: FilePtr, on: int) -> None:
         pass
 
-    def lock(self, ptregs: PtRegsWrapper, file: int, cmd: int, file_lock: int) -> None:
+    def lock(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: int, file_lock: FileLockPtr) -> None:
         pass
 
 
@@ -172,14 +190,14 @@ class SysFile(BaseFile):
     """
     FS = "sysfs"
 
-    def show(self, ptregs: PtRegsWrapper, kobj, attr, buf) -> None:
+    def show(self, ptregs: PtRegsWrapper, kobj: KobjPtr, attr: AttrPtr, buf: CharPtr) -> None:
         pass
 
-    def store(self, ptregs: PtRegsWrapper, kobj, attr, buf, count) -> None:
+    def store(self, ptregs: PtRegsWrapper, kobj: KobjPtr, attr: AttrPtr, buf: CharPtr, count: int) -> None:
         pass
 
 
-class SysfsBridge:
+class SysfsBridge(SysFile):
     """
     Bridging class that handles SysFS show/store natively.
     Bypasses VFS read/write mixins to safely read/write directly 
@@ -200,7 +218,7 @@ class SysfsBridge:
         # Pass remaining kwargs up the MRO (eventually hitting BaseFile's sink)
         super().__init__(**kwargs)
 
-    def show(self, ptregs: PtRegsWrapper, kobj: int, attr: int, buf: int):
+    def show(self, ptregs: PtRegsWrapper, kobj: KobjPtr, attr: AttrPtr, buf: CharPtr):
         data = None
         
         # Priority 1: In-memory data
@@ -223,17 +241,18 @@ class SysfsBridge:
             
             # Sysfs show buffers are strictly limited to PAGE_SIZE (typically 4096)
             write_size = min(len(data), 4096)
-            yield from plugins.mem.write_bytes(buf, data[:write_size])
+            yield from plugins.mem.write(buf, data[:write_size])
             return write_size  # show() must return the number of bytes printed
             
         return 0
 
-    def store(self, ptregs: PtRegsWrapper, kobj: int, attr: int, buf: int, count: int):
+    def store(self, ptregs: PtRegsWrapper, kobj: KobjPtr, attr: AttrPtr, buf: CharPtr, count: int):
         if count <= 0:
             return 0
             
         # Read the data the guest wrote to the kernel buffer
-        data = yield from plugins.mem.read_bytes(buf, count)
+        # Using fmt=bytes to explicitly request raw bytes instead of attempting string interpretation
+        data = yield from plugins.mem.read(buf, size=count, fmt=bytes)
         
         # Priority 1: Write out to a host file
         if self.write_filepath is not None:
@@ -263,17 +282,17 @@ class SysctlFile(BaseFile):
         self.MAXLEN = kwargs.get("maxlen", getattr(self, "MAXLEN", 256))
         self.INITIAL_VALUE = kwargs.get("INITIAL_VALUE", getattr(self, "INITIAL_VALUE", b""))
 
-    def read(self, ptregs, file, user_buf, size, loff):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: int, loff: LoffTPtr):
         """No-op generator."""
         if False: yield
         return 0
 
-    def write(self, ptregs, file, user_buf, size, loff):
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: int, loff: LoffTPtr):
         """No-op generator."""
         if False: yield
         return 0
 
-    def proc_handler(self, ptregs, ctl, write, buffer, lenp, ppos):
+    def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: int, buffer: CharPtr, lenp: SizeTPtr, ppos: LoffTPtr):
         """
         Unified sysctl entry point. 
         Extracts arguments from ptregs and routes to read() or write().
@@ -285,5 +304,5 @@ class SysctlFile(BaseFile):
         
         # Ensure we don't return None to the ptregs handler
         ret_val = ret if ret is not None else 0
-        ptregs.set_retval(ret_val if ret_val < 0 else 0)
+        ptregs.retval = ret_val if ret_val < 0 else 0
         return ret_val
