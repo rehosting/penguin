@@ -90,6 +90,7 @@ class KFFI(Plugin):
         self._tramp_addresses = {}
         self.tramp_init = False
         self._is_32bit = self.panda.bits == 32
+        self._is_big_endian = getattr(self.panda, "endianness", "little") == "big"
 
     def __init_tramp_functionality(self):
         if self.tramp_init:
@@ -579,6 +580,11 @@ class KFFI(Plugin):
         result_struct = self.from_buffer("portal_ffi_call", response)
         result = result_struct.result
 
+        # --- FIX: Architecture-Aware Big Endian Result Alignment ---
+        # On 32-bit Big Endian (mipseb), the 32-bit return value in $v0 
+        # ends up in the upper 32 bits of the 64-bit result field.
+        if self._is_big_endian and self._is_32bit:
+            result = result >> 32
         # Marshal return value if function signature is available
         if func_info and "return_type" in func_info:
             ret_type = func_info["return_type"]
