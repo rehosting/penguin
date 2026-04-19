@@ -818,7 +818,7 @@ class KFFI(Plugin):
             # Get args from pt_regs
             if num_args > 1:
                 # No longer need to explicitly pass func_type since it's in the extra_context
-                args = yield from pt_regs.get_args_portal(num_args - 1, convention="userland")
+                args = yield from pt_regs.get_typed_args_portal(num_args - 1, convention="userland")
             else:
                 args = []
             # Call callback with pt_regs and args
