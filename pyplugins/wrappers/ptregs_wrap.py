@@ -163,6 +163,10 @@ class PtRegsWrapper(Wrapper):
         Dynamically intercept attribute access for registers.
         Allows for `val = regs.pc` instead of `val = regs.get_pc()`.
         """
+        # Route .retval through the split-aware getter
+        if name in ("retval", "return_value"):
+            return self.get_retval()
+
         # Fast path for known registers and aliases
         entry = self._ACCESSORS.get(name)
         if entry:
@@ -181,6 +185,11 @@ class PtRegsWrapper(Wrapper):
         Dynamically intercept attribute assignment for registers.
         Allows for `regs.pc = 0x1000` instead of `regs.set_pc(0x1000)`.
         """
+        # Route .retval through the split-aware setter
+        if name in ("retval", "return_value"):
+            self.set_retval(value)
+            return
+
         # Note: __init__ uses object.__setattr__ for critical internal vars (_obj, _panda),
         # so this is perfectly safe and won't cause infinite recursion during setup.
         entry = self._ACCESSORS.get(name)
