@@ -28,8 +28,8 @@ class DynamicSysctlFile(SysctlFile):
     def read(self, ptregs, file, user_buf, lenp_ptr, ppos_ptr):
         self.hit_count += 1
         
-        # 1. Read current file offset from guest memory
-        offset = yield from plugins.mem.read_int(ppos_ptr)
+        # ppos is an 8-byte loff_t. Use read_long to grab the full offset.
+        offset = yield from plugins.mem.read_long(ppos_ptr)
         data = self.INITIAL_VALUE
         
         if offset >= len(data):
@@ -40,11 +40,12 @@ class DynamicSysctlFile(SysctlFile):
         chunk = data[offset:]
         yield from plugins.mem.write_bytes(user_buf, chunk)
         
-        # 3. Update the kernel's length and offset pointers
+        # lenp is a 4-byte size_t on 32-bit architectures
         yield from plugins.mem.write_int(lenp_ptr, len(chunk))
-        yield from plugins.mem.write_int(ppos_ptr, offset + len(chunk))
         
-        # Return positive bytes read (SysctlFile will map this to 0 for the kernel)
+        # Write back the full 8-byte loff_t
+        yield from plugins.mem.write_long(ppos_ptr, offset + len(chunk))
+        
         return len(chunk)
 
 class UsageCounterSysctl(SysctlFile):
@@ -60,8 +61,8 @@ class UsageCounterSysctl(SysctlFile):
             ptregs.set_retval(-22) # -EINVAL
             return -22
 
-        # Read the current file offset from guest memory
-        offset = yield from plugins.mem.read_int(ppos)
+        # Read the 8-byte loff_t
+        offset = yield from plugins.mem.read_long(ppos)
 
         # FIX: Only increment the counter on the FIRST read of a cat command
         if offset == 0:
@@ -79,7 +80,7 @@ class UsageCounterSysctl(SysctlFile):
         yield from plugins.mem.write_bytes(buffer, chunk)
 
         yield from plugins.mem.write_int(lenp, len(chunk))
-        yield from plugins.mem.write_int(ppos, offset + len(chunk))
+        yield from plugins.mem.write_long(ppos, offset + len(chunk))
 
         ptregs.set_retval(0)
         return 0
