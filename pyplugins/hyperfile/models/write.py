@@ -89,7 +89,7 @@ class WriteToFile:
             return
 
         buf = yield from plugins.mem.read_bytes(user_buf, size)
-        offset =yield from plugins.mem.read_int(loff)
+        offset =yield from plugins.mem.read_long(loff)
         
         with open(self.write_filepath, "wb") as f:
             f.seek(offset)

@@ -36,13 +36,13 @@ class DynamicProcfsFile(ProcFile):
 
     def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
         data = f"{self.value}\n".encode("utf-8")
-        offset = yield from plugins.mem.read_int(loff)
+        offset = yield from plugins.mem.read_long(loff)
         if size <= 0 or offset >= len(data):
             ptregs.set_retval(0)
             return
         chunk = min(size, len(data) - offset)
         yield from plugins.mem.write_bytes(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write_int(loff, offset + chunk)
+        yield from plugins.mem.write_long(loff, offset + chunk)
         ptregs.set_retval(chunk)
 
     def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
@@ -109,18 +109,18 @@ class SeekableRWProcFile(ProcFile):
         super().__init__(**kwargs)
 
     def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
-        offset = yield from plugins.mem.read_int(loff)
+        offset = yield from plugins.mem.read_long(loff)
         if offset >= len(self.data) or size <= 0:
             ptregs.set_retval(0)
             return
         chunk = min(size, len(self.data) - offset)
         yield from plugins.mem.write_bytes(user_buf, bytes(self.data[offset:offset+chunk]))
-        yield from plugins.mem.write_int(loff, offset + chunk)
+        yield from plugins.mem.write_long(loff, offset + chunk)
         self.logger.debug(f"Read from seekable_rw at offset {offset} with data: {self.data[offset:offset+chunk]}")
         ptregs.set_retval(chunk)
 
     def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
-        offset = yield from plugins.mem.read_int(loff)
+        offset = yield from plugins.mem.read_long(loff)
         if offset >= len(self.data) or size <= 0:
             ptregs.set_retval(-28) # ENOSPC
             return
@@ -131,7 +131,7 @@ class SeekableRWProcFile(ProcFile):
         self.logger.debug(f"Writing to seekable_rw at offset {offset} with data: {raw[:chunk]}")
         self.data[offset:offset+chunk] = raw
         
-        yield from plugins.mem.write_int(loff, offset + chunk)
+        yield from plugins.mem.write_long(loff, offset + chunk)
         ptregs.set_retval(chunk)
 
     def lseek(self, ptregs: PtRegsWrapper, file: int, offset: int, whence: int):
@@ -172,13 +172,13 @@ class ReleaseTrackingProcFile(ProcFile):
 
     def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
         data = f"active:{self.active_opens},opens:{self.total_opens},releases:{self.total_releases}\n".encode("utf-8")
-        offset = yield from plugins.mem.read_int(loff)
+        offset = yield from plugins.mem.read_long(loff)
         if size <= 0 or offset >= len(data):
             ptregs.set_retval(0)
             return
         chunk = min(size, len(data) - offset)
         yield from plugins.mem.write_bytes(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write_int(loff, offset + chunk)
+        yield from plugins.mem.write_long(loff, offset + chunk)
         ptregs.set_retval(chunk)
 
 
@@ -195,13 +195,13 @@ class PollableProcFile(ProcFile):
 
     def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
         data = b"Data is ready!\n"
-        offset = yield from plugins.mem.read_int(loff)
+        offset = yield from plugins.mem.read_long(loff)
         if size <= 0 or offset >= len(data):
             ptregs.set_retval(0)
             return
         chunk = min(size, len(data) - offset)
         yield from plugins.mem.write_bytes(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write_int(loff, offset + chunk)
+        yield from plugins.mem.write_long(loff, offset + chunk)
         ptregs.set_retval(chunk)
 
 # --- NEW MMAP ENFORCEMENT TEST DEVICES ---
