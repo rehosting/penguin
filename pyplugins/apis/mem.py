@@ -1092,3 +1092,174 @@ class Mem(Plugin):
             # Write remaining data to guest buffer at guest_addr + offset
             yield from self.write_bytes(guest_addr + offset, view[offset:], None)
         return guest_addr
+
+    def write_deref(self, ptr: Ptr, value: Any, pid: Optional[int] = None) -> Generator[Any, Any, int]:
+        """
+        Write a Python value or dictionary directly to the memory address pointed 
+        to by a dwarffi Ptr. Automatically handles size, endianness, padding, 
+        and nested struct serialization via dwarffi's type system.
+
+        Parameters
+        ----------
+        ptr : Ptr
+            A dwarffi pointer object pointing to the destination address.
+        value : Any
+            The value to write. Can be a primitive (int, bytes) or a dict 
+            for deep struct initialization.
+        pid : int, optional
+            Process ID for context.
+
+        Returns
+        -------
+        int
+            Number of bytes written.
+        """
+        if not isinstance(ptr, Ptr):
+            raise TypeError("write_deref requires a dwarffi.Ptr object.")
+
+        # Extract the C-type that the pointer points to
+        target_type = getattr(ptr._ctype, 'subtype', None)
+        if not target_type:
+            raise ValueError(f"Could not determine the target type for pointer: {ptr}")
+
+        try:
+            # Delegate all packing, alignment, and endianness logic to dwarffi.
+            # ffi.new allocates a local, detached instance of the target type,
+            # populating it with the provided value (primitive or nested dict).
+            dummy_instance = self.ffi.new(target_type, init=value)
+            packed_bytes = bytes(dummy_instance)
+        except Exception as e:
+            self.logger.error(f"Failed to serialize type {target_type}: {e}")
+            raise
+
+        # Write the packed bytes directly to the physical/virtual address
+        yield from self.write_bytes(ptr.address, packed_bytes, pid)
+        return len(packed_bytes)
+    
+    def write(self, addr: Union[int, Ptr], data: Any, size: Optional[int] = None, 
+              pid: Optional[int] = None) -> Generator[Any, Any, int]:
+        """
+        Smart dispatcher for memory writes. Examines the address type and data type 
+        to automatically select the correct write method.
+
+        Parameters
+        ----------
+        addr : int or Ptr
+            The destination address or a dwarffi Ptr object.
+        data : Any
+            The data to write (bytes, str, int, list, or dict/object for Ptrs).
+        size : int, optional
+            Explicit size override for integer writes.
+        pid : int, optional
+            Process ID for context.
+
+        Returns
+        -------
+        int
+            Number of bytes written.
+        """
+        # 1. Pointer-Driven Write (Highest Priority)
+        # If we have a dwarffi Ptr, we defer entirely to the C-type definition
+        if isinstance(addr, Ptr):
+            return (yield from self.write_deref(addr, data, pid))
+            
+        # 2. Data-Type Driven Write (For raw int addresses)
+        if isinstance(data, bytes):
+            return (yield from self.write_bytes(addr, data, pid))
+            
+        elif isinstance(data, str):
+            return (yield from self.write_str(addr, data, pid=pid))
+            
+        elif isinstance(data, int):
+            if size == 1:
+                return (yield from self.write_byte(addr, data, pid))
+            elif size == 2:
+                return (yield from self.write_word(addr, data, pid))
+            elif size == 8:
+                return (yield from self.write_long(addr, data, pid))
+            elif size == 4:
+                return (yield from self.write_int(addr, data, pid))
+            else:
+                # Default to the architecture's native pointer size
+                return (yield from self.write_ptr(addr, data, pid))
+                
+        elif isinstance(data, list):
+            # Heuristic: assume a list of integers
+            return (yield from self.write_int_array(addr, data, pid))
+            
+        else:
+            raise TypeError(f"Cannot dispatch write for unsupported data type: {type(data)}")
+
+    def read(self, addr: Union[int, Ptr], size: Optional[int] = None, 
+             fmt: Union[type, str] = bytes, pid: Optional[int] = None) -> Generator[Any, Any, Any]:
+        """
+        Smart dispatcher for memory reads. Automatically infers sizes and types
+        if a dwarffi Ptr is provided.
+
+        Parameters
+        ----------
+        addr : int or Ptr
+            The source address or a dwarffi Ptr object.
+        size : int, optional
+            Number of bytes (or elements) to read. Can be inferred from Ptr.
+        fmt : type or str, optional
+            The requested return format (bytes, str, int, list, 'ptr'). Default is bytes.
+        pid : int, optional
+            Process ID for context.
+
+        Returns
+        -------
+        Any
+            The read data in the requested format.
+        """
+        # 1. Attempt to infer missing context from dwarffi Ptr
+        if isinstance(addr, Ptr):
+            target_type = getattr(addr._ctype, 'subtype', None)
+            if target_type:
+                # Infer size automatically
+                if size is None and hasattr(target_type, 'size'):
+                    size = target_type.size
+                
+                # If the user didn't explicitly override the default `bytes` format,
+                # infer the best Python format based on the C type
+                if fmt is bytes:
+                    if target_type.kind == "base":
+                        if "char" in target_type.name:
+                            fmt = str
+                        elif any(x in target_type.name for x in ("int", "long", "size_t", "loff_t")):
+                            fmt = int
+                    elif target_type.kind == "pointer":
+                        fmt = "ptr"
+
+        # 2. Dispatch based on the determined format
+        if fmt is bytes or fmt == "bytes":
+            if size is None:
+                raise ValueError("Must specify a 'size' to read raw bytes.")
+            return (yield from self.read_bytes(addr, size, pid))
+            
+        elif fmt is str or fmt == "str":
+            return (yield from self.read_str(addr, pid))
+            
+        elif fmt is int or fmt == "int":
+            if size == 1:
+                return (yield from self.read_byte(addr, pid))
+            elif size == 2:
+                return (yield from self.read_word(addr, pid))
+            elif size == 8:
+                return (yield from self.read_long(addr, pid))
+            elif size == 4:
+                return (yield from self.read_int(addr, pid))
+            else:
+                # Default to architecture pointer size
+                return (yield from self.read_ptr(addr, pid))
+                
+        elif fmt == "ptr":
+            return (yield from self.read_ptr(addr, pid))
+            
+        elif fmt is list or fmt == "list":
+            if size is None:
+                raise ValueError("Must specify an element count ('size') for list reads.")
+            return (yield from self.read_int_array(addr, size, pid))
+            
+        else:
+            raise ValueError(f"Unknown read format requested: {fmt}")
