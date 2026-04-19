@@ -40,6 +40,7 @@ from hyper.consts import HYPER_OP as hop
 from hyper.portal import PortalCmd
 from struct import pack, unpack
 from typing import Optional, List, Union, Any, Generator
+from dwarffi import Ptr
 
 
 class Mem(Plugin):
@@ -111,7 +112,7 @@ class Mem(Plugin):
         # Fallback default if portal isn't ready (prevents div/0 errors)
         return 4096
 
-    def write_bytes(self, addr: int, data: bytes,
+    def write_bytes(self, addr: Union[int, Ptr], data: bytes,
                     pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         Write bytes to guest memory.
@@ -120,7 +121,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to write to.
         data : bytes
             Data to write.
@@ -132,6 +133,9 @@ class Mem(Plugin):
         int
             Number of bytes written.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         # Use memoryview to avoid copying bytes on slice
         view = memoryview(data)
         total_len = len(view)
@@ -182,10 +186,13 @@ class Mem(Plugin):
 
         return total_len
 
-    def write_bytes_panda(self, cpu, addr: int, data: bytes) -> None:
+    def write_bytes_panda(self, cpu, addr: Union[int, Ptr], data: bytes) -> None:
         '''
         Write a bytearray into memory at the specified physical/virtual address
         '''
+        if isinstance(addr, Ptr):
+            addr = addr.address
+            
         length = len(data)
         c_buf = self.ffi.from_buffer(data)
         buf_a = self.ffi.cast("char*", c_buf)
@@ -195,12 +202,15 @@ class Mem(Plugin):
         if err < 0:
             raise ValueError(f"Memory write failed with err={err}")  # TODO: make a PANDA Exn class
 
-    def read_bytes(self, addr: int, size: int,
+    def read_bytes(self, addr: Union[int, Ptr], size: int,
                    pid: Optional[int] = None) -> Generator[Any, Any, bytes]:
         """
         Reads bytes from guest memory.
         Optimized with a Fast Path for single-chunk reads.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         rsize = self._get_rsize()
 
         # --- FAST PATH: Single Chunk (Common Case) ---
@@ -258,10 +268,13 @@ class Mem(Plugin):
         # Optimization: Use b''.join only once at the end
         return b"".join(read_chunks)
 
-    def read_bytes_panda(self, cpu, addr: int, size: int) -> bytes:
+    def read_bytes_panda(self, cpu, addr: Union[int, Ptr], size: int) -> bytes:
         """
         Optimized PANDA read.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         # Create buffer
         buf = self.ffi.new("char[]", size)
 
@@ -277,7 +290,7 @@ class Mem(Plugin):
 
         return self.ffi.unpack(buf, size)
 
-    def read_str(self, addr: int,
+    def read_str(self, addr: Union[int, Ptr],
                  pid: Optional[int] = None) -> Generator[Any, Any, str]:
         """
         Read a null-terminated string from guest memory.
@@ -288,7 +301,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to read from.
         pid : int, optional
             Process ID for context.
@@ -298,6 +311,9 @@ class Mem(Plugin):
         str
             String read from memory.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         if addr != 0:
             self.logger.debug(f"read_str called: addr={addr:#x}")
 
@@ -365,7 +381,7 @@ class Mem(Plugin):
 
         return ""
 
-    def read_str_panda(self, cpu, addr: int) -> str:
+    def read_str_panda(self, cpu, addr: Union[int, Ptr]) -> str:
         """
         Read a null-terminated string from guest memory using PANDA only.
 
@@ -376,7 +392,7 @@ class Mem(Plugin):
         Parameters
         ----------
         cpu  : Any (CPUState)
-        addr : int
+        addr : int or Ptr
             Address to read from.
 
         Returns
@@ -384,6 +400,9 @@ class Mem(Plugin):
         str
             String read from memory.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         if addr == 0:
             return ""
         self.logger.debug(f"read_str_panda called: addr={addr:#x}")
@@ -415,7 +434,7 @@ class Mem(Plugin):
                 curr_addr += len(chunk)
         return result.decode('latin-1', errors='replace')
 
-    def read_int(self, addr: int,
+    def read_int(self, addr: Union[int, Ptr],
                  pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
         """
         Read a 4-byte integer from guest memory.
@@ -424,7 +443,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to read from.
         pid : int, optional
             Process ID for context.
@@ -434,17 +453,20 @@ class Mem(Plugin):
         int or None
             Integer value read, or None on failure.
         """
-        self.logger.debug(f"read_int called: addr={addr}")
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
+        self.logger.debug(f"read_int called: addr={addr:#x}")
         data = yield from self.read_bytes(addr, 4, pid)
         if len(data) != 4:
             self.logger.error(
-                f"Failed to read int at addr={addr}, data_len={len(data)}")
+                f"Failed to read int at addr={addr:#x}, data_len={len(data)}")
             return None
         value = int.from_bytes(data, self.endian_str)
         return value
 
     def read_long(
-            self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
+            self, addr: Union[int, Ptr], pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
         """
         Read an 8-byte long integer from guest memory.
 
@@ -452,7 +474,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to read from.
         pid : int, optional
             Process ID for context.
@@ -462,16 +484,19 @@ class Mem(Plugin):
         int or None
             Long value read, or None on failure.
         """
-        self.logger.debug(f"read_long called: addr={addr}")
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
+        self.logger.debug(f"read_long called: addr={addr:#x}")
         data = yield from self.read_bytes(addr, 8, pid)
         if len(data) != 8:
             self.logger.error(
-                f"Failed to read long at addr={addr}, data_len={len(data)}")
+                f"Failed to read long at addr={addr:#x}, data_len={len(data)}")
             return None
         value = int.from_bytes(data, self.endian_str)
         return value
 
-    def read_ptr(self, addr: int,
+    def read_ptr(self, addr: Union[int, Ptr],
                  pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
         """
         Read a pointer-sized value from guest memory.
@@ -480,7 +505,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to read from.
         pid : int, optional
             Process ID for context.
@@ -493,7 +518,7 @@ class Mem(Plugin):
         # this function is bound in __init__
         pass
 
-    def write_int(self, addr: int, value: int,
+    def write_int(self, addr: Union[int, Ptr], value: int,
                   pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         Write a 4-byte integer to guest memory.
@@ -502,7 +527,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to write to.
         value : int
             Integer value to write.
@@ -514,12 +539,15 @@ class Mem(Plugin):
         int
             Number of bytes written.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         # Pack the integer according to system endianness
         data = value.to_bytes(4, self.endian_str)
         bytes_written = yield from self.write_bytes(addr, data, pid)
         return bytes_written
 
-    def write_long(self, addr: int, value: int,
+    def write_long(self, addr: Union[int, Ptr], value: int,
                    pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         Write an 8-byte long integer to guest memory.
@@ -528,7 +556,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to write to.
         value : int
             Long value to write.
@@ -540,12 +568,15 @@ class Mem(Plugin):
         int
             Number of bytes written.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         # Pack the long according to system endianness
         data = value.to_bytes(8, self.endian_str)
         bytes_written = yield from self.write_bytes(addr, data, pid)
         return bytes_written
 
-    def write_ptr(self, addr: int, value: int,
+    def write_ptr(self, addr: Union[int, Ptr], value: int,
                   pid: Optional[int] = None) -> Generator[Any, Any, None]:
         """
         Write a pointer-sized value to guest memory.
@@ -554,7 +585,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to write to.
         value : int
             Pointer value to write.
@@ -568,7 +599,7 @@ class Mem(Plugin):
         # this function is bound in __init__
         pass
 
-    def write_str(self, addr: int, string: Union[str, bytes], null_terminate: bool = True,
+    def write_str(self, addr: Union[int, Ptr], string: Union[str, bytes], null_terminate: bool = True,
                   pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         Write a string to guest memory.
@@ -577,7 +608,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to write to.
         string : str or bytes
             String to write.
@@ -591,8 +622,11 @@ class Mem(Plugin):
         int
             Number of bytes written.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         self.logger.debug(
-            f"write_str called: addr={addr}, string_len={len(string)}")
+            f"write_str called: addr={addr:#x}, string_len={len(string)}")
         # Convert string to bytes
         if isinstance(string, str):
             data = string.encode('latin-1')
@@ -607,7 +641,7 @@ class Mem(Plugin):
         self.logger.debug(f"String written successfully: {len(data)} bytes")
         return bytes_written
 
-    def read_ptrlist(self, addr: int, length: int,
+    def read_ptrlist(self, addr: Union[int, Ptr], length: int,
                      pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
         """
         Read a list of pointer values from guest memory.
@@ -616,7 +650,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to start reading from.
         length : int
             Maximum number of pointers to read.
@@ -628,6 +662,9 @@ class Mem(Plugin):
         list of int
             List of pointer values.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         ptrs = []
         ptrsize = self.ptr_size
         for start in range(length):
@@ -637,7 +674,7 @@ class Mem(Plugin):
             ptrs.append(ptr)
         return ptrs
 
-    def read_char_ptrlist(self, addr: int, length: int,
+    def read_char_ptrlist(self, addr: Union[int, Ptr], length: int,
                           pid: Optional[int] = None) -> Generator[Any, Any, List[str]]:
         """
         Read a list of null-terminated strings from a list of pointers.
@@ -646,7 +683,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to start reading pointer list from.
         length : int
             Maximum number of pointers to read.
@@ -658,6 +695,9 @@ class Mem(Plugin):
         list of str
             List of strings read from memory.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         ptrlist = yield from self.read_ptrlist(addr, length, pid)
         vals = []
         for start in range(len(ptrlist)):
@@ -665,7 +705,7 @@ class Mem(Plugin):
             vals.append(strs)
         return vals
 
-    def read_int_array(self, addr: int, count: int,
+    def read_int_array(self, addr: Union[int, Ptr], count: int,
                        pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
         """
         Read an array of 4-byte integers from guest memory.
@@ -674,7 +714,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to start reading from.
         count : int
             Number of integers to read.
@@ -686,15 +726,18 @@ class Mem(Plugin):
         list of int
             List of integers read from memory.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         data = yield from self.read_bytes(addr, 4 * count, pid)
         if len(data) != 4 * count:
             self.logger.error(
-                f"Failed to read int array at addr={addr}, expected {4*count} bytes, got {len(data)}")
+                f"Failed to read int array at addr={addr:#x}, expected {4*count} bytes, got {len(data)}")
             return []
         return list(unpack(f"{self.endian_format}{count}I", data))
 
     def write_int_array(
-            self, addr: int, values: List[int], pid: Optional[int] = None) -> Generator[Any, Any, int]:
+            self, addr: Union[int, Ptr], values: List[int], pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         Write an array of 4-byte integers to guest memory.
 
@@ -702,7 +745,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to start writing to.
         values : list of int
             List of integers to write.
@@ -714,10 +757,13 @@ class Mem(Plugin):
         int
             Number of bytes written.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         data = pack(f"{self.endian_format}{len(values)}I", *values)
         return (yield from self.write_bytes(addr, data, pid))
 
-    def read_long_array(self, addr: int, count: int,
+    def read_long_array(self, addr: Union[int, Ptr], count: int,
                         pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
         """
         Read an array of 8-byte long integers from guest memory.
@@ -726,7 +772,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to start reading from.
         count : int
             Number of longs to read.
@@ -738,14 +784,17 @@ class Mem(Plugin):
         list of int
             List of long integers read from memory.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         data = yield from self.read_bytes(addr, 8 * count, pid)
         if len(data) != 8 * count:
             self.logger.error(
-                f"Failed to read long array at addr={addr}, expected {8*count} bytes, got {len(data)}")
+                f"Failed to read long array at addr={addr:#x}, expected {8*count} bytes, got {len(data)}")
             return []
         return list(unpack(f"{self.endian_format}{count}Q", data))
 
-    def read_uint64_array(self, addr: int, count: int, pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
+    def read_uint64_array(self, addr: Union[int, Ptr], count: int, pid: Optional[int] = None) -> Generator[Any, Any, List[int]]:
         """
         Read an array of 8-byte unsigned integers from guest memory.
 
@@ -753,7 +802,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to start reading from.
         count : int
             Number of uint64s to read.
@@ -765,10 +814,13 @@ class Mem(Plugin):
         list of int
             List of uint64s read from memory.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         return (yield from self.read_long_array(addr, count, pid))
 
     def read_utf8_str(
-            self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, str]:
+            self, addr: Union[int, Ptr], pid: Optional[int] = None) -> Generator[Any, Any, str]:
         """
         Read a null-terminated UTF-8 string from guest memory.
 
@@ -776,7 +828,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to read from.
         pid : int, optional
             Process ID for context.
@@ -786,6 +838,9 @@ class Mem(Plugin):
         str
             UTF-8 string read from memory.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         if addr != 0:
             chunk = yield from self.read_str(addr, pid)
             if chunk:
@@ -794,7 +849,7 @@ class Mem(Plugin):
         return ""
 
     def read_byte(
-            self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
+            self, addr: Union[int, Ptr], pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
         """
         Read a single byte from guest memory.
 
@@ -802,7 +857,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to read from.
         pid : int, optional
             Process ID for context.
@@ -812,13 +867,16 @@ class Mem(Plugin):
         int or None
             Byte value read (0-255), or None on failure.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         data = yield from self.read_bytes(addr, 1, pid)
         if len(data) != 1:
-            self.logger.error(f"Failed to read byte at addr={addr}")
+            self.logger.error(f"Failed to read byte at addr={addr:#x}")
             return None
         return data[0]
 
-    def write_byte(self, addr: int, value: int,
+    def write_byte(self, addr: Union[int, Ptr], value: int,
                    pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         Write a single byte to guest memory.
@@ -827,7 +885,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to write to.
         value : int
             Byte value to write (0-255).
@@ -839,11 +897,14 @@ class Mem(Plugin):
         int
             Number of bytes written (should be 1).
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         data = bytes([value & 0xFF])
         return (yield from self.write_bytes(addr, data, pid))
 
     def read_word(
-            self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
+            self, addr: Union[int, Ptr], pid: Optional[int] = None) -> Generator[Any, Any, Optional[int]]:
         """
         Read a 2-byte word from guest memory.
 
@@ -851,7 +912,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to read from.
         pid : int, optional
             Process ID for context.
@@ -861,13 +922,16 @@ class Mem(Plugin):
         int or None
             Word value read, or None on failure.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         data = yield from self.read_bytes(addr, 2, pid)
         if len(data) != 2:
-            self.logger.error(f"Failed to read word at addr={addr}")
+            self.logger.error(f"Failed to read word at addr={addr:#x}")
             return None
         return int.from_bytes(data, self.endian_str)
 
-    def write_word(self, addr: int, value: int,
+    def write_word(self, addr: Union[int, Ptr], value: int,
                    pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         Write a 2-byte word to guest memory.
@@ -876,7 +940,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to write to.
         value : int
             Word value to write.
@@ -888,10 +952,13 @@ class Mem(Plugin):
         int
             Number of bytes written (should be 2).
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         data = value.to_bytes(2, self.endian_str)
         return (yield from self.write_bytes(addr, data, pid))
 
-    def memset(self, addr: int, value: int, size: int,
+    def memset(self, addr: Union[int, Ptr], value: int, size: int,
                pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
         Set a region of guest memory to a specific byte value.
@@ -900,7 +967,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address to start setting.
         value : int
             Byte value to set (0-255).
@@ -914,10 +981,13 @@ class Mem(Plugin):
         int
             Number of bytes written.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         data = bytes([value & 0xFF]) * size
         return (yield from self.write_bytes(addr, data, pid))
 
-    def memcmp(self, addr1: int, addr2: int, size: int,
+    def memcmp(self, addr1: Union[int, Ptr], addr2: Union[int, Ptr], size: int,
                pid: Optional[int] = None) -> Generator[Any, Any, bool]:
         """
         Compare two regions of guest memory for equality.
@@ -926,9 +996,9 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr1 : int
+        addr1 : int or Ptr
             First address.
-        addr2 : int
+        addr2 : int or Ptr
             Second address.
         size : int
             Number of bytes to compare.
@@ -940,11 +1010,16 @@ class Mem(Plugin):
         bool
             True if memory regions are equal, False otherwise.
         """
+        if isinstance(addr1, Ptr):
+            addr1 = addr1.address
+        if isinstance(addr2, Ptr):
+            addr2 = addr2.address
+
         data1 = yield from self.read_bytes(addr1, size, pid)
         data2 = yield from self.read_bytes(addr2, size, pid)
         return data1 == data2
 
-    def read_ptr_array(self, addr: int, pid: Optional[int] = None) -> Generator[Any, Any, List[str]]:
+    def read_ptr_array(self, addr: Union[int, Ptr], pid: Optional[int] = None) -> Generator[Any, Any, List[str]]:
         """
         Read a NULL-terminated array of pointers to strings from guest memory using the portal's optimized handler.
 
@@ -952,7 +1027,7 @@ class Mem(Plugin):
 
         Parameters
         ----------
-        addr : int
+        addr : int or Ptr
             Address of the pointer array in guest memory.
         pid : int, optional
             Process ID for context.
@@ -962,6 +1037,9 @@ class Mem(Plugin):
         list of str
             List of strings read from the array.
         """
+        if isinstance(addr, Ptr):
+            addr = addr.address
+
         buf = yield PortalCmd(hop.HYPER_OP_READ_PTR_ARRAY, addr, 0, pid)
         if not buf:
             return []
