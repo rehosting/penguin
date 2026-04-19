@@ -62,6 +62,7 @@ from wrappers.generic import Wrapper
 import struct
 from penguin import plugins
 from typing import Any, Dict, List, Optional, Union, Generator
+from dwarffi import Ptr, EnumInstance
 
 
 class PandaMemReadFail(Exception):
@@ -438,6 +439,87 @@ class PtRegsWrapper(Wrapper):
             else:
                 val = yield from plugins.mem.read_long(e.addr)
             return val
+    
+    def get_typed_args(self, count: int, convention: Optional[str] = None) -> List[Any]:
+        """
+        Get a list of function arguments, automatically cast to their dwarffi 
+        types (Ptr, EnumInstance) if func_type context is available.
+        """
+        func_type = self._extra_context.get("func_type")
+        
+        # 1. Get the raw integers (this natively handles 64-bit stitching)
+        raw_args = self.get_args(count, convention=convention, func_type=func_type)
+
+        if not func_type or "parameters" not in func_type:
+            return raw_args
+
+        typed_args = []
+        params = func_type.get("parameters", [])
+        
+        # 2. Cast to dwarffi types
+        for i, arg_val in enumerate(raw_args):
+            if arg_val is None:
+                typed_args.append(None)
+                continue
+
+            if i < len(params):
+                param_type = params[i]
+                if isinstance(param_type, dict):
+                    kind = param_type.get("kind")
+                    
+                    if kind == "pointer":
+                        ptr_type = param_type.get("subtype")
+                        arg_val = Ptr(arg_val, ptr_type, plugins.kffi.ffi)
+                        
+                    elif kind == "enum":
+                        enum_name = param_type.get("name")
+                        enum_def = plugins.kffi.ffi.get_enum(enum_name)
+                        if enum_def:
+                            arg_val = EnumInstance(enum_def, arg_val)
+
+            typed_args.append(arg_val)
+            
+        return typed_args
+
+    def get_typed_args_portal(self, count: int, convention: Optional[str] = None) -> Generator[Any, Any, List[Any]]:
+        """
+        Coroutine/generator version of get_typed_args for portal/coroutine use.
+        """
+        func_type = self._extra_context.get("func_type")
+        
+        # 1. Get the raw integers via portal (handles stack derefs gracefully)
+        raw_args = yield from self.get_args_portal(count, convention=convention, func_type=func_type)
+
+        if not func_type or "parameters" not in func_type:
+            return raw_args
+
+        typed_args = []
+        params = func_type.get("parameters", [])
+        
+        # 2. Cast to dwarffi types
+        for i, arg_val in enumerate(raw_args):
+            if arg_val is None:
+                typed_args.append(None)
+                continue
+
+            if i < len(params):
+                param_type = params[i]
+                if isinstance(param_type, dict):
+                    kind = param_type.get("kind")
+                    
+                    if kind == "pointer":
+                        ptr_type = param_type.get("subtype")
+                        arg_val = Ptr(arg_val, ptr_type, plugins.kffi.ffi)
+                        
+                    elif kind == "enum":
+                        enum_name = param_type.get("name")
+                        enum_def = plugins.kffi.ffi.get_enum(enum_name)
+                        if enum_def:
+                            arg_val = EnumInstance(enum_def, arg_val)
+
+            typed_args.append(arg_val)
+            
+        return typed_args
 
     def _read_memory(self, addr: int, size: int, fmt: str = 'int') -> Union[int, bytes, str]:
         """
