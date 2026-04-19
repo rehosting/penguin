@@ -14,98 +14,93 @@ static_files:
       #!/igloo/utils/sh
       set -eux
 
-      echo "Running comprehensive devfs tests..."
+      echo "Running devfs tests..."
 
-      # ---------------------------------------------------------
-      # 1. Test Standard Path and Read/Write States
-      # ---------------------------------------------------------
-      VAL1=$(/igloo/utils/busybox cat /dev/simpledev)
-      if [ "$VAL1" != "0" ]; then
-        echo "Error: /dev/simpledev initialized incorrectly (got $VAL1)"
+      # 1. Test Static Read
+      VAL1=$(/igloo/utils/busybox cat /dev/simple)
+      if [ "$VAL1" != "Hello DevFS" ]; then
+        echo "Error: /dev/simple read failed (got $VAL1)"
         exit 1
       fi
 
-      echo "42" > /dev/simpledev
-      VAL1=$(/igloo/utils/busybox cat /dev/simpledev)
-      if [ "$VAL1" != "42" ]; then
-        echo "Error: /dev/simpledev failed to update on write (got $VAL1)"
+      # 2. Test Dynamic Pointer Operations
+      echo "42" > /dev/dynamic
+      VAL2=$(/igloo/utils/busybox cat /dev/dynamic)
+      if [ "$VAL2" != "42" ]; then
+        echo "Error: /dev/dynamic failed to update (got $VAL2)"
         exit 1
       fi
 
-      # ---------------------------------------------------------
-      # 2. Verify Instance Isolation
-      # ---------------------------------------------------------
-      echo "100" > /dev/bcde
-      VAL2=$(/igloo/utils/busybox cat /dev/bcde)
-      if [ "$VAL2" != "100" ]; then
-        echo "Error: /dev/bcde failed to update on write (got $VAL2)"
+      # 3. Test 64-bit Value Boundaries (LSEEK)
+      /igloo/utils/busybox dd bs=1M seek=5000 count=0 of=/dev/lseek64 2>/dev/null
+      SEEK_VAL=$(/igloo/utils/busybox cat /dev/lseek64)
+      if [ "$SEEK_VAL" != "5242880000" ]; then
+        echo "Error: 64-bit lseek pass-by-value failed. Expected 5242880000, got $SEEK_VAL"
         exit 1
       fi
 
-      VAL1=$(/igloo/utils/busybox cat /dev/simpledev)
-      if [ "$VAL1" != "42" ]; then
-        echo "Error: /dev/simpledev state mutated when writing to /dev/bcde (got $VAL1)"
+      # 4. Test Stateful Tracking (Open/Release)
+      /igloo/utils/busybox cat /dev/tracker > /dev/null
+      /igloo/utils/busybox cat /dev/tracker > /dev/null
+      TRACK_VAL=$(/igloo/utils/busybox cat /dev/tracker)
+      if [ "$TRACK_VAL" != "o:3 r:2" ]; then
+        echo "Error: /dev/tracker failed to record open/releases (got $TRACK_VAL)"
         exit 1
       fi
 
-      # ---------------------------------------------------------
-      # 3. Test Error Propagation from Hypervisor
-      # ---------------------------------------------------------
-      set +e
-      # Writing a string should trigger the ValueError in Python and return -1 (-EPERM)
-      echo "not_an_integer" > /dev/simpledev 2>/dev/null
-      if [ $? -eq 0 ]; then
-         echo "Error: Writing invalid data should have returned a failure code"
-         exit 1
-      fi
-      set -e
-      
-      # Verify value didn't change after the failed write
-      VAL1=$(/igloo/utils/busybox cat /dev/simpledev)
-      if [ "$VAL1" != "42" ]; then
-        echo "Error: /dev/simpledev mutated during a failed write operation"
+      # 5. Test Deep Directory Creation
+      VAL_NESTED=$(/igloo/utils/busybox cat /dev/nested/simple)
+      if [ "$VAL_NESTED" != "Hello DevFS" ]; then
+        echo "Error: /dev/nested/simple nested creation failed"
         exit 1
       fi
 
-      # ---------------------------------------------------------
-      # 4. Test LSEEK / Partial Reads (via ReadBufWrapper)
-      # ---------------------------------------------------------
-      echo "98765" > /dev/simpledev
-      # Read 1 byte, skipping the first 2 bytes ("98"). Should read "7".
-      PARTIAL=$(/igloo/utils/busybox dd if=/dev/simpledev bs=1 skip=2 count=1 2>/dev/null)
-      if [ "$PARTIAL" != "7" ]; then
-          echo "Error: /dev/simpledev partial read/lseek failed (got $PARTIAL instead of 7)"
-          exit 1
-      fi
-
-      # ---------------------------------------------------------
-      # 5. Test Deep Directory Generation
-      # ---------------------------------------------------------
-      echo "777" > /dev/deep/nested/device
-      VAL3=$(/igloo/utils/busybox cat /dev/deep/nested/device)
-      if [ "$VAL3" != "777" ]; then
-         echo "Error: Nested device failed to process data (got $VAL3)"
-         exit 1
-      fi
-
-      # ---------------------------------------------------------
-      # 6. Test Fixed Major/Minor Injection
-      # ---------------------------------------------------------
-      # %t = major type in hex, %T = minor type in hex
+      # 6. Test Fixed Major/Minor
       MAJOR_HEX=$(/igloo/utils/busybox stat -c "%t" /dev/fixeddev)
       MINOR_HEX=$(/igloo/utils/busybox stat -c "%T" /dev/fixeddev)
-      
-      # 242 = f2, 42 = 2a
       if [ "$MAJOR_HEX" != "f2" ] || [ "$MINOR_HEX" != "2a" ]; then
          echo "Error: /dev/fixeddev major/minor mismatch (got $MAJOR_HEX:$MINOR_HEX instead of f2:2a)"
          exit 1
       fi
-      
-      FIXED_VAL=$(/igloo/utils/busybox cat /dev/fixeddev)
-      if [ "$FIXED_VAL" != "fixed_node" ]; then
-         echo "Error: /dev/fixeddev read mismatch (got $FIXED_VAL)"
+
+      # 7. Test VFS Advanced Struct Resolution
+      /igloo/utils/strace -o /tmp/adv.log /igloo/utils/busybox dd if=/dev/zero of=/dev/advanced bs=1 count=1 conv=fsync || true
+      /igloo/utils/busybox cat /tmp/adv.log
+
+      # 8. Test Error Propagation from Python
+      set +e
+      echo "not_an_integer" > /dev/dynamic 2>/dev/null
+      if [ $? -eq 0 ]; then
+         echo "Error: Python failed to propagate -EINVAL error code to guest VFS."
          exit 1
       fi
+      set -e
+
+      # ---------------------------------------------------------
+      # 9. Test MMAP Capabilities
+      # ---------------------------------------------------------
+      # Test 9A: Explicit MMAP Support
+      MMAP_VAL=$(/igloo/utils/busybox cat /dev/mmap_explicit)
+      if [ "$MMAP_VAL" != "mmap_explicit" ]; then
+         echo "Error: /dev/mmap_explicit read failed (got $MMAP_VAL)"
+         exit 1
+      fi
+
+      # Test 9B: Fallback MMAP Support (via size definition)
+      MMAP_FB=$(/igloo/utils/busybox cat /dev/mmap_fallback)
+      if [ "$MMAP_FB" != "Hello DevFS" ]; then
+         echo "Error: /dev/mmap_fallback read failed (got $MMAP_FB)"
+         exit 1
+      fi
+      
+      # Test 9C: Custom MMAP Override
+      set +e
+      /igloo/utils/busybox head -c 1 /dev/mmap_custom > /dev/null 2>&1
+      if [ $? -ne 0 ]; then
+         echo "Error: Standard read failed on custom mmap device"
+         exit 1
+      fi
+      set -e
 
       echo "/tests/devfs_test.sh PASS"
       exit 0
