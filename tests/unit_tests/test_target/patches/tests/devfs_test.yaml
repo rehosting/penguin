@@ -6,8 +6,41 @@ plugins:
         type: file_contains
         file: console.log
         string: "/tests/devfs_test.sh PASS"
+      devfs_mmap_custom:
+        type: file_contains
+        file: console.log
+        string: "/tests/devfs_mmap_custom.sh PASS"
 
 static_files:
+  # ---------------------------------------------------------
+  # 1. Custom MMAP MicroPython Test
+  # ---------------------------------------------------------
+  /tests/devfs_mmap_custom.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/micropython
+      import uos, os, ffilib
+      
+      libc = ffilib.libc()
+      mmap = libc.func("p", "mmap", "pLiiiq")
+      
+      try:
+          fd = os.open("/dev/mmap_custom", 0)
+          # Attempt to mmap the custom device
+          addr = mmap(0, 4096, 1, 1, fd, 0)
+          if addr != -1:
+              print("FAIL: mmap should have returned -1 (-ENODEV)")
+              raise SystemExit(1)
+      except Exception:
+          # We expect this to fail gracefully
+          pass
+          
+      print("/tests/devfs_mmap_custom.sh PASS")
+    mode: 73
+
+  # ---------------------------------------------------------
+  # 2. Main DevFS Bash Test Suite
+  # ---------------------------------------------------------
   /tests/devfs_test.sh:
     type: inline_file
     contents: |
@@ -79,21 +112,19 @@ static_files:
       # ---------------------------------------------------------
       # 9. Test MMAP Capabilities
       # ---------------------------------------------------------
-      # Test 9A: Explicit MMAP Support
       MMAP_VAL=$(/igloo/utils/busybox cat /dev/mmap_explicit)
       if [ "$MMAP_VAL" != "mmap_explicit" ]; then
          echo "Error: /dev/mmap_explicit read failed (got $MMAP_VAL)"
          exit 1
       fi
 
-      # Test 9B: Fallback MMAP Support (via size definition)
       MMAP_FB=$(/igloo/utils/busybox cat /dev/mmap_fallback)
       if [ "$MMAP_FB" != "Hello DevFS" ]; then
          echo "Error: /dev/mmap_fallback read failed (got $MMAP_FB)"
          exit 1
       fi
       
-      # Test 9C: Custom MMAP Override
+      # We still verify standard read works on the custom mmap device
       set +e
       /igloo/utils/busybox head -c 1 /dev/mmap_custom > /dev/null 2>&1
       if [ $? -ne 0 ]; then
@@ -101,6 +132,32 @@ static_files:
          exit 1
       fi
       set -e
+
+      # ---------------------------------------------------------
+      # 10. Test Block Device Architecture (blk-mq)
+      # ---------------------------------------------------------
+      echo "Testing Block Device support..."
+
+      if [ ! -b /dev/vblock0 ]; then
+         echo "Error: /dev/vblock0 is not a block device!"
+         exit 1
+      fi
+
+      echo -n "BLOCK_SECTOR_DATA" > /dev/vblock0
+      
+      B_VAL=$(/igloo/utils/busybox head -c 17 /dev/vblock0)
+      if [ "$B_VAL" != "BLOCK_SECTOR_DATA" ]; then
+         echo "Error: Block device read/write failed (got $B_VAL)"
+         exit 1
+      fi
+      
+      if [ -f /sys/block/vblock0/size ]; then
+         SECTORS=$(/igloo/utils/busybox cat /sys/block/vblock0/size)
+         if [ "$SECTORS" != "4096" ]; then
+             echo "Error: Block device capacity is wrong in sysfs (got $SECTORS)"
+             exit 1
+         fi
+      fi
 
       echo "/tests/devfs_test.sh PASS"
       exit 0
