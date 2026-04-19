@@ -137,12 +137,20 @@ class DevFile(VFSFile):
     FS = "devfs"
     MAJOR = -1   # -1 for dynamic
     MINOR = 0
+    IS_BLOCK = False
 
-    def __init__(self, *, major: int = None, minor: int = None, **kwargs):
+    def __init__(self, *, major: int = None, minor: int = None, is_block: bool = None, logical_block_size: int = None, **kwargs):
         if major is not None:
             self.MAJOR = major
         if minor is not None:
             self.MINOR = minor
+            
+        # Only overwrite the class attributes if explicitly provided
+        if is_block is not None:
+            self.IS_BLOCK = is_block
+        if logical_block_size is not None:
+            self.LOGICAL_BLOCK_SIZE = logical_block_size
+            
         super().__init__(**kwargs)
 
     def flush(self, ptregs: PtRegsWrapper, file: int, owner: int) -> None:

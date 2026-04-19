@@ -178,10 +178,10 @@ class Devfs(Plugin):
                 # Dwarffi safely ignores keys that don't exist on the target struct, 
                 # entirely replacing the need for 'hasattr(req, "parent_id")' checks!
                 "parent_id": parent_id,
-                
-                # --- NEW MMAP ENFORCEMENT FIELDS ---
                 "size": getattr(devfs_file, "SIZE", 0),
-                "support_mmap": 1 if getattr(devfs_file, "SUPPORT_MMAP", False) else 0
+                "support_mmap": 1 if getattr(devfs_file, "SUPPORT_MMAP", False) else 0,
+                "is_block": 1 if getattr(devfs_file, "IS_BLOCK", False) else 0,
+                "logical_block_size": getattr(devfs_file, "LOGICAL_BLOCK_SIZE", 512)
             }
             
             req = kffi.new("struct portal_devfs_create_req", init_data)
