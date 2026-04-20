@@ -192,7 +192,7 @@ class Mem(Plugin):
         '''
         if isinstance(addr, Ptr):
             addr = addr.address
-            
+
         length = len(data)
         c_buf = self.ffi.from_buffer(data)
         buf_a = self.ffi.cast("char*", c_buf)
@@ -1095,8 +1095,8 @@ class Mem(Plugin):
 
     def write_deref(self, ptr: Ptr, value: Any, pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
-        Write a Python value or dictionary directly to the memory address pointed 
-        to by a dwarffi Ptr. Automatically handles size, endianness, padding, 
+        Write a Python value or dictionary directly to the memory address pointed
+        to by a dwarffi Ptr. Automatically handles size, endianness, padding,
         and nested struct serialization via dwarffi's type system.
 
         Parameters
@@ -1104,7 +1104,7 @@ class Mem(Plugin):
         ptr : Ptr
             A dwarffi pointer object pointing to the destination address.
         value : Any
-            The value to write. Can be a primitive (int, bytes) or a dict 
+            The value to write. Can be a primitive (int, bytes) or a dict
             for deep struct initialization.
         pid : int, optional
             Process ID for context.
@@ -1135,11 +1135,11 @@ class Mem(Plugin):
         # Write the packed bytes directly to the physical/virtual address
         yield from self.write_bytes(ptr.address, packed_bytes, pid)
         return len(packed_bytes)
-    
-    def write(self, addr: Union[int, Ptr], data: Any, size: Optional[int] = None, 
+
+    def write(self, addr: Union[int, Ptr], data: Any, size: Optional[int] = None,
               pid: Optional[int] = None) -> Generator[Any, Any, int]:
         """
-        Smart dispatcher for memory writes. Examines the address type and data type 
+        Smart dispatcher for memory writes. Examines the address type and data type
         to automatically select the correct write method.
 
         Parameters
@@ -1159,18 +1159,18 @@ class Mem(Plugin):
             Number of bytes written.
         """
         # 1. Data-Type Driven Write (For raw int addresses or explicit buffers)
-        # If the payload is bytes or str, the user explicitly wants a buffer write, 
+        # If the payload is bytes or str, the user explicitly wants a buffer write,
         # which overrides dwarffi's single-element pointer sizing.
         if isinstance(data, bytes):
             return (yield from self.write_bytes(addr, data, pid))
-            
+
         elif isinstance(data, str):
             return (yield from self.write_str(addr, data, pid=pid))
-            
+
         # 2. Pointer-Driven Write (Deep Structs / Primitives)
         if isinstance(addr, Ptr):
             return (yield from self.write_deref(addr, data, pid))
-            
+
         # 3. Primitive Fallbacks
         elif isinstance(data, int):
             if size == 1:
@@ -1184,15 +1184,16 @@ class Mem(Plugin):
             else:
                 # Default to the architecture's native pointer size
                 return (yield from self.write_ptr(addr, data, pid))
-                
+
         elif isinstance(data, list):
             # Heuristic: assume a list of integers
             return (yield from self.write_int_array(addr, data, pid))
-            
-        else:
-            raise TypeError(f"Cannot dispatch write for unsupported data type: {type(data)}")
 
-    def read(self, addr: Union[int, Ptr], size: Optional[int] = None, 
+        else:
+            raise TypeError(
+                f"Cannot dispatch write for unsupported data type: {type(data)}")
+
+    def read(self, addr: Union[int, Ptr], size: Optional[int] = None,
              fmt: Union[type, str, None] = None, pid: Optional[int] = None) -> Generator[Any, Any, Any]:
         """
         Smart dispatcher for memory reads. Automatically infers sizes and types
@@ -1215,7 +1216,7 @@ class Mem(Plugin):
             The read data in the requested format.
         """
         actual_fmt = fmt
-        
+
         # 1. Infer size from Ptr using kffi's type system
         if isinstance(addr, Ptr) and size is None:
             # Resolve the type name through the DWARF-backed kffi
@@ -1230,7 +1231,7 @@ class Mem(Plugin):
                 kind = target_info.get("kind")
                 name = target_info.get("name", "")
                 if kind == "base":
-                    if "char" in name: 
+                    if "char" in name:
                         actual_fmt = str
                     elif any(x in name for x in ("int", "long", "size_t", "loff_t", "short")):
                         actual_fmt = int
@@ -1243,7 +1244,7 @@ class Mem(Plugin):
 
         # 4. Dispatch based on the determined format
         if actual_fmt is bytes or actual_fmt == "bytes":
-            if size is None: 
+            if size is None:
                 raise ValueError("Size required for bytes read.")
             return (yield from self.read_bytes(addr, size, pid))
         elif actual_fmt is str or actual_fmt == "str":
@@ -1255,13 +1256,13 @@ class Mem(Plugin):
                 return (yield from self.read_word(addr, pid))
             if size == 8:
                 return (yield from self.read_long(addr, pid))
-            if size == 4: 
+            if size == 4:
                 return (yield from self.read_int(addr, pid))
             return (yield from self.read_ptr(addr, pid))
         elif actual_fmt == "ptr":
             return (yield from self.read_ptr(addr, pid))
         elif actual_fmt is list or actual_fmt == "list":
-            if size is None: 
+            if size is None:
                 raise ValueError("Count required for list read.")
             return (yield from self.read_int_array(addr, size, pid))
         raise ValueError(f"Unknown read format: {actual_fmt}")

@@ -33,20 +33,20 @@ class Sysctl(Plugin):
             kffi = plugins.kffi
             ctl_table_type = kffi.ffi.get_type("struct ctl_table")
             op_signature = None
-            
+
             if ctl_table_type and hasattr(ctl_table_type, "fields") and "proc_handler" in ctl_table_type.fields:
                 member_type = ctl_table_type.fields["proc_handler"].type_info
-                
+
                 # Function pointers are stored as pointers to functions.
                 # We must unwrap the pointer layer so kffi sees the raw function signature.
                 if member_type and member_type.get("kind") == "pointer":
                     op_signature = member_type.get("subtype")
                 else:
                     op_signature = member_type
-                    
+
             return kffi.callback(meth, func_type=op_signature)
         return None
-    
+
     def register(self, sysctl_file: SysctlFile, path: Optional[str] = None):
         return self.register_sysctl(sysctl_file, path)
 
@@ -58,24 +58,26 @@ class Sysctl(Plugin):
             fname = path
         else:
             fname = getattr(sysctl_file, "PATH", None)
-        
+
         if not fname:
-            raise ValueError("SysctlFile must define PATH or define it in register_sysctl")
-            
+            raise ValueError(
+                "SysctlFile must define PATH or define it in register_sysctl")
+
         sysctl_file.PATH = fname
-        
+
         # Normalize the path to strip out common prefixes
         if fname.startswith("/proc/sys/"):
             fname = fname[len("/proc/sys/"):]
         elif fname.startswith("sys/"):
             fname = fname[len("sys/"):]
-        
+
         fname = fname.lstrip("/")
-            
+
         # ENFORCE SINGLE REGISTRATION
         if fname in self._sysctls:
-            raise ValueError(f"Cannot register '{fname}': A sysctl is already registered at this path.")
-            
+            raise ValueError(
+                f"Cannot register '{fname}': A sysctl is already registered at this path.")
+
         # Add to interrupt queue
         # Check against tuple (fname, sysctl_file)
         if not any(f == fname for f, _ in self._pending_sysctls):
@@ -94,7 +96,7 @@ class Sysctl(Plugin):
             return parent, fname
         else:
             return "", path
-    
+
     def _is_customized(self, sysctl_file: SysctlFile) -> bool:
         base = SysctlFile
         # Check if any of the three logic points are overridden
@@ -109,26 +111,26 @@ class Sysctl(Plugin):
         for fname, sysctl_file in sysctls:
             dir_path, entry_name = self._split_sysctl_path(fname)
             kffi = plugins.kffi
-            
+
             # If any VFS-style or raw handler is present, we use the unified handler
             handler_ptr = 0
             if self._is_customized(sysctl_file):
                 # Look up the struct ctl_table definition in dwarffi
                 ctl_table_type = kffi.ffi.get_type("struct ctl_table")
                 op_signature = None
-                
+
                 # Dynamically extract the proc_handler signature to ensure correct argument packing
                 if ctl_table_type and hasattr(ctl_table_type, "fields") and "proc_handler" in ctl_table_type.fields:
                     member_type = ctl_table_type.fields["proc_handler"].type_info
-                    
+
                     if member_type and member_type.get("kind") == "pointer":
                         op_signature = member_type.get("subtype")
                     else:
                         op_signature = member_type
-                
+
                 # We always wrap the unified proc_handler entry point using the discovered signature
                 handler_ptr = yield from kffi.callback(sysctl_file.proc_handler, func_type=op_signature)
-                
+
             init_data = {
                 "dir_path": dir_path.encode("latin-1", errors="ignore"),
                 "entry_name": entry_name.encode("latin-1", errors="ignore"),
@@ -137,10 +139,10 @@ class Sysctl(Plugin):
                 "maxlen": getattr(sysctl_file, "MAXLEN", 256),
                 "handler": handler_ptr
             }
-            
+
             req = kffi.new("struct portal_sysctl_create_req", init_data)
             req_bytes = bytes(req)
-            
+
             result = yield PortalCmd(
                 hop.HYPER_OP_SYSCTL_CREATE_FILE,
                 0,
@@ -148,12 +150,13 @@ class Sysctl(Plugin):
                 None,
                 req_bytes
             )
-            
+
             # Since we now return HYPER_RESP_READ_NUM, result will be > 0 on success
             if result is None or result <= 0:
                 self.logger.error(f"Failed to register sysctl '{fname}'")
                 continue
-            self.logger.debug(f"Registered sysctl '{fname}' with kernel (id={result})")
+            self.logger.debug(
+                f"Registered sysctl '{fname}' with kernel (id={result})")
 
     def _sysctl_interrupt_handler(self) -> Generator[bool, None, bool]:
         """

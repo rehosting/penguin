@@ -4,22 +4,24 @@ from wrappers.ptregs_wrap import PtRegsWrapper
 from .base import FilePtr, CharPtr, LoffTPtr, SizeT
 import os
 
+
 class ReadBufWrapper:
     '''
     The Logic Mixin: Consumes 'buffer' to set up the buffer.
     '''
+
     def __init__(self, *, buffer: Union[bytes, str] = None, cycle: bool = False, **kwargs):
         self._cycle = cycle
         if buffer is not None:
             self._data = buffer
         else:
             # If buffer is None, default to empty bytes instead of raising an exception immediately,
-            # unless you strictly require it. This handles cases where a mixin chain might 
+            # unless you strictly require it. This handles cases where a mixin chain might
             # initialize it differently, or if we want a safe default.
             # However, based on your request for "const_buf", we'll initialize it safely.
-            self._data = b"" 
+            self._data = b""
         self.SIZE = len(self._data) if self._data else 0
-            
+
         super().__init__(**kwargs)
 
     def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
@@ -28,13 +30,13 @@ class ReadBufWrapper:
         Returns 0 if offset is beyond the data.
         """
         size_val = int(size)
-        
+
         if isinstance(self._data, bytes):
             data_bytes = self._data
         else:
             data_bytes = self._data.encode("utf-8")
         data_len = len(data_bytes)
-        
+
         # We pass size=8 to support legacy setups where loff is passed as a raw integer
         offset = yield from plugins.mem.read(loff, fmt=int, size=8)
 
@@ -73,6 +75,7 @@ class ReadConstBuf(ReadBufWrapper):
     '''
     The Translator: Takes 'buffer' or 'const_buf'
     '''
+
     def __init__(self, *, const_buf: str = None, buffer: str = None, **kwargs):
         self.cycle = False
         # Support both argument names
@@ -84,17 +87,21 @@ class ReadEmpty(ReadBufWrapper):
     '''
     The Preset: Hardcodes the data.
     '''
+
     def __init__(self, **kwargs):
         # Just inject the hardcoded value
         super().__init__(buffer="", **kwargs)
+
 
 class ReadZero(ReadBufWrapper):
     '''
     The Preset: Hardcodes the data.
     '''
+
     def __init__(self, **kwargs):
         # Just inject the hardcoded value
         super().__init__(buffer="0", **kwargs)
+
 
 class ReadDefault:
     def __init__(self, **kwargs):
@@ -103,10 +110,12 @@ class ReadDefault:
     def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
         ptregs.retval = -22
 
+
 class ReadFromFile:
     '''
     The Loader: Takes 'read_filepath' or 'filename', loads it.
     '''
+
     def __init__(self, *, read_filepath: str = None, filename: str = None, **kwargs):
         self.filename = read_filepath if read_filepath is not None else filename
         super().__init__(**kwargs)
@@ -129,16 +138,18 @@ class ReadFromFile:
                 chunk = f.read(size_val)
         except Exception:
             chunk = b""
-            
+
         yield from plugins.mem.write(user_buf, chunk)
         yield from plugins.mem.write(loff, offset + len(chunk), size=8)
         ptregs.retval = len(chunk)
+
 
 class ReadConstMap(ReadBufWrapper):
     '''
     Reads a sparse map of offsets to values, with optional padding and size.
     '''
-    def __init__(self, *, vals=None, pad: Union[str, int, bytes]=b"\x00", size: int=0x10000, **kwargs):
+
+    def __init__(self, *, vals=None, pad: Union[str, int, bytes] = b"\x00", size: int = 0x10000, **kwargs):
         self.vals = vals or {}
         # Normalize pad to bytes
         if isinstance(pad, str):
@@ -171,7 +182,8 @@ class ReadConstMap(ReadBufWrapper):
                 elif isinstance(first_val, str):
                     val = b"\x00".join([x.encode() for x in val])
                 else:
-                    raise ValueError("const_map: list values must be int or str")
+                    raise ValueError(
+                        "const_map: list values must be int or str")
             elif isinstance(val, bytes):
                 pass
             else:
@@ -179,15 +191,18 @@ class ReadConstMap(ReadBufWrapper):
             # Pad before this value, then add the value
             data += self.pad * (off - len(data)) + val
         # Pad up to size
-        assert len(data) <= self.size, f"Data is too long: {len(data)} > size {self.size}"
+        assert len(
+            data) <= self.size, f"Data is too long: {len(data)} > size {self.size}"
         data += self.pad * (self.size - len(data))
         return data
+
 
 class ReadConstMapFile(ReadConstMap):
     '''
     Like ReadConstMap, but persists the buffer to a file and reads from it.
     '''
-    def __init__(self, *, filename, vals=None, pad: Union[str, int, bytes]=b"\x00", size: int=0x10000, **kwargs):
+
+    def __init__(self, *, filename, vals=None, pad: Union[str, int, bytes] = b"\x00", size: int = 0x10000, **kwargs):
         self.filename = filename
         self.vals = vals or {}
         # Normalize pad to bytes
@@ -221,39 +236,49 @@ class ReadConstMapFile(ReadConstMap):
         yield from plugins.mem.write(loff, offset + len(chunk), size=8)
         ptregs.retval = len(chunk)
 
+
 class ReadCycle(ReadBufWrapper):
     '''
     Like ReadBufWrapper, but cycles the buffer forever.
     '''
+
     def __init__(self, *, buffer: Union[bytes, str] = None, **kwargs):
         super().__init__(buffer=buffer, cycle=True, **kwargs)
+
 
 class ReadZeroCycle(ReadCycle):
     '''
     Cycles "0" forever.
     '''
+
     def __init__(self, **kwargs):
         super().__init__(buffer="0", **kwargs)
+
 
 class ReadOneCycle(ReadCycle):
     '''
     Cycles "1" forever.
     '''
+
     def __init__(self, **kwargs):
         super().__init__(buffer="1", **kwargs)
+
 
 class ReadConstBufCycle(ReadCycle):
     '''
     Cycles a constant buffer forever.
     '''
+
     def __init__(self, *, buffer: str = None, **kwargs):
         super().__init__(buffer=buffer, **kwargs)
+
 
 class ReadExternalVFS:
     """
     Modern Adapter: Calls a plugin function with the standard VFS signature.
     func(ptregs, file, user_buf, size, loff) -> Generator
     """
+
     def __init__(self, *, read_plugin: str = None, read_function: str = "read", **kwargs):
         self._func = getattr(getattr(plugins, read_plugin), read_function)
         super().__init__(**kwargs)
@@ -261,25 +286,27 @@ class ReadExternalVFS:
     def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
         yield from self._func(ptregs, file, user_buf, size, loff)
 
+
 class ReadExternalLegacy:
     """
     Legacy Adapter: Adapts the old synchronous/complex return signature to VFS.
     func(self, filename, user_buf, size, offset, details=kwargs) -> (data, retval)
     """
+
     def __init__(self, *, read_plugin: str = None, read_function: str = "read", **kwargs):
         self._func = getattr(getattr(plugins, read_plugin), read_function)
-        self._legacy_kwargs = kwargs.copy() # Capture extra args for 'details'
+        self._legacy_kwargs = kwargs.copy()  # Capture extra args for 'details'
         super().__init__(**kwargs)
 
     def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
         size_val = int(size)
         offset = yield from plugins.mem.read(loff, fmt=int, size=8)
-        
+
         # Call the legacy function
         # Note: We pass 'self' as the first arg because legacy plugins expected the file instance
         # self.full_path comes from BaseFile via composition
         filename = getattr(self, "full_path", "unknown")
-        
+
         val = yield from self._func(self, filename, user_buf, size_val, offset, details=self._legacy_kwargs)
 
         # Handle the polymorphic return types of the old system
@@ -293,11 +320,11 @@ class ReadExternalLegacy:
         elif isinstance(val, (bytes, str)):
             write_data = val
             retval = len(val)
-        
+
         if write_data:
             if isinstance(write_data, str):
                 write_data = write_data.encode("utf-8")
             yield from plugins.mem.write(user_buf, write_data)
             yield from plugins.mem.write(loff, offset + len(write_data), size=8)
-        
+
         ptregs.retval = retval

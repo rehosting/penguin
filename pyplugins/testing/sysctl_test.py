@@ -4,18 +4,24 @@ from hyperfile.models.base import SysctlFile, FilePtr, CharPtr, SizeTPtr, LoffTP
 from hyperfile.models.read import ReadConstBuf
 
 # 1. Basic Static Read/Write
+
+
 class StaticSysctlFile(SysctlFile):
-    PATH = "kernel/custom_static" # The C driver expects paths relative to /proc/sys/
+    PATH = "kernel/custom_static"  # The C driver expects paths relative to /proc/sys/
     INITIAL_VALUE = b"hello_sysctl"
-    MODE = 0o666 # Read/Write
+    MODE = 0o666  # Read/Write
 
 # 2. Deep Directory Auto-Creation
+
+
 class DeepSysctlFile(SysctlFile):
     PATH = "net/ipv4/conf/custom_net"
     INITIAL_VALUE = b"1"
-    MODE = 0o644 # Read Only
+    MODE = 0o644  # Read Only
 
 # 3. Dynamic Python Interception via FFI
+
+
 class DynamicSysctlFile(SysctlFile):
     PATH = "debug/dynamic_sysctl"
     INITIAL_VALUE = b"dynamic_init\n"
@@ -27,10 +33,10 @@ class DynamicSysctlFile(SysctlFile):
 
     def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, lenp_ptr: SizeTPtr, ppos_ptr: LoffTPtr):
         self.hit_count += 1
-        
+
         offset = yield from plugins.mem.read(ppos_ptr, fmt=int, size=8)
         data = self.INITIAL_VALUE
-        
+
         if offset >= len(data):
             yield from plugins.mem.write(lenp_ptr, 0)
             ptregs.retval = 0
@@ -38,29 +44,30 @@ class DynamicSysctlFile(SysctlFile):
 
         chunk = data[offset:]
         yield from plugins.mem.write(user_buf, chunk)
-        
+
         yield from plugins.mem.write(lenp_ptr, len(chunk))
         yield from plugins.mem.write(ppos_ptr, offset + len(chunk), size=8)
-        
+
         ptregs.retval = len(chunk)
         return len(chunk)
 
     def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, lenp_ptr: SizeTPtr, ppos_ptr: LoffTPtr):
         offset = yield from plugins.mem.read(ppos_ptr, fmt=int, size=8)
         size = yield from plugins.mem.read(lenp_ptr, fmt=int, size=8)
-        
+
         if size <= 0:
             yield from plugins.mem.write(lenp_ptr, 0)
             ptregs.retval = 0
             return 0
-            
+
         data = yield from plugins.mem.read(user_buf, size, fmt="bytes")
         self.INITIAL_VALUE = data
-        
+
         yield from plugins.mem.write(ppos_ptr, offset + size, size=8)
         yield from plugins.mem.write(lenp_ptr, size)
         ptregs.retval = 0
         return 0
+
 
 class UsageCounterSysctl(SysctlFile):
     PATH = "kernel/usage_counter"
@@ -72,7 +79,7 @@ class UsageCounterSysctl(SysctlFile):
 
     def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: CInt, buffer: CharPtr, lenp: SizeTPtr, ppos: LoffTPtr):
         if int(write):
-            ptregs.retval = -22 # -EINVAL
+            ptregs.retval = -22  # -EINVAL
             return -22
 
         offset = yield from plugins.mem.read(ppos, fmt=int, size=8)
@@ -80,7 +87,7 @@ class UsageCounterSysctl(SysctlFile):
         # FIX: Only increment the counter on the FIRST read of a cat command
         if offset == 0:
             self.total_reads += 1
-        
+
         data = f"AccessID: {self.total_reads}\n".encode("latin-1")
 
         if offset >= len(data):
@@ -99,15 +106,19 @@ class UsageCounterSysctl(SysctlFile):
 
 # --- New Sysctl Subsystem Tests ---
 
+
 class MergedSysctlFile(ReadConstBuf, SysctlFile):
     """Replaces the old MergedSysProcFile hack with proper shadowing."""
-    PATH = "kernel/custom_merged" # Relative to /proc/sys/
+    PATH = "kernel/custom_merged"  # Relative to /proc/sys/
+
     def __init__(self):
         super().__init__(buffer=b"merged!\n")
+
 
 class CollisionSysctlFile(ReadConstBuf, SysctlFile):
     """Tests the C driver's ability to handle root-level sysctls."""
     PATH = "collision_test"
+
     def __init__(self):
         super().__init__(buffer=b"collision_ok\n")
 
@@ -118,11 +129,10 @@ class SysctlTest(Plugin):
         plugins.sysctl.register_sysctl(StaticSysctlFile())
         plugins.sysctl.register_sysctl(DeepSysctlFile())
 
-
         # 2. Sysctl Subsystem Registrations
         plugins.sysctl.register_sysctl(MergedSysctlFile())
         plugins.sysctl.register_sysctl(CollisionSysctlFile())
-        
+
         self.dynamic_file = DynamicSysctlFile()
         plugins.sysctl.register_sysctl(self.dynamic_file)
         plugins.sysctl.register_sysctl(UsageCounterSysctl())
