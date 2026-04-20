@@ -71,7 +71,6 @@ class UsageCounterSysctl(SysctlFile):
         self.total_reads = 0
 
     def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: CInt, buffer: CharPtr, lenp: SizeTPtr, ppos: LoffTPtr):
-        breakpoint()
         if int(write):
             ptregs.retval = -22 # -EINVAL
             return -22
