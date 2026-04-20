@@ -2,6 +2,7 @@ from wrappers.ptregs_wrap import PtRegsWrapper
 from penguin import plugins
 from typing import Union
 from .base import FilePtr, CInt
+import inspect
 
 
 class IoctlReturnMixin:
@@ -66,7 +67,9 @@ class IoctlExternalVFS:
         super().__init__(**kwargs)
 
     def ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
-        yield from self._func(ptregs, file, cmd, arg)
+        res = self._func(ptregs, file, cmd, arg)
+        if inspect.isgenerator(res):
+            yield from res
 
 
 class IoctlExternalLegacy:
@@ -79,8 +82,14 @@ class IoctlExternalLegacy:
 
     def ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
         # Legacy ioctls were often synchronous and returned the value directly
-        result = self._func(self, getattr(self, "full_path", "unknown"), int(
+        res = self._func(self, getattr(self, "full_path", "unknown"), int(
             cmd), int(arg), self._legacy_kwargs)
+            
+        if inspect.isgenerator(res):
+            result = yield from res
+        else:
+            result = res
+            
         ptregs.retval = result if result is not None else 0
 
 
@@ -111,7 +120,9 @@ class IoctlDispatcher:
         # 4. Dispatch or Fail
         if handler:
             # We pass 'self' so handlers can access file attributes if needed
-            yield from handler.handle(self, ptregs, file, cmd_val, arg)
+            res = handler.handle(self, ptregs, file, cmd_val, arg)
+            if inspect.isgenerator(res):
+                yield from res
         else:
             # Default error for unhandled ioctl
             ptregs.retval = -25  # -ENOTTY
@@ -130,8 +141,6 @@ class IoctlReturnConst(IoctlHandlerBase):
 
     def handle(self, file_obj, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
         ptregs.retval = self.val
-        if False:
-            yield  # Ensure it's a generator
 
 
 class IoctlPluginVFS(IoctlHandlerBase):
@@ -141,7 +150,9 @@ class IoctlPluginVFS(IoctlHandlerBase):
         self.func = getattr(getattr(plugins, plugin_name), func_name)
 
     def handle(self, file_obj, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
-        yield from self.func(ptregs, file, cmd, arg)
+        res = self.func(ptregs, file, cmd, arg)
+        if inspect.isgenerator(res):
+            yield from res
 
 
 class IoctlPluginLegacy(IoctlHandlerBase):
@@ -154,13 +165,17 @@ class IoctlPluginLegacy(IoctlHandlerBase):
     def handle(self, file_obj, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
         # Legacy signature often expects (self, filename, cmd, arg, details)
         # We pass file_obj as 'self' to the plugin
-        result = self.func(
+        res = self.func(
             file_obj,
             getattr(file_obj, "full_path", "unknown"),
             int(cmd),
             int(arg),
             self.extra_kwargs
         )
+        
+        if inspect.isgenerator(res):
+            result = yield from res
+        else:
+            result = res
+            
         ptregs.retval = result if result is not None else 0
-        if False:
-            yield  # Ensure it's a generator

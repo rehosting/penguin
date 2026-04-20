@@ -152,13 +152,22 @@ class WriteFromPlugin:
         buf = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
         if self._old_style:
             fname = getattr(self, "full_path", "unknown")
-            result = self._func(self, fname, user_buf,
+            res = self._func(self, fname, user_buf,
                                 size_val, loff, buf, self._kwargs)
+                                
+            # Smart router for generators
+            if inspect.isgenerator(res):
+                result = yield from res
+            else:
+                result = res
+                
             # If the plugin returns a value, use it as retval, else default to size
             ptregs.retval = result if result is not None else size_val
         else:
             # New style: (self, ptregs, file, user_buf, size, loff)
-            yield from self._func(ptregs, file, user_buf, size, loff)
+            res = self._func(ptregs, file, user_buf, size, loff)
+            if inspect.isgenerator(res):
+                yield from res
 
 
 class WriteExternalVFS:
@@ -169,7 +178,9 @@ class WriteExternalVFS:
         super().__init__(**kwargs)
 
     def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
-        yield from self._func(ptregs, file, user_buf, size, loff)
+        res = self._func(ptregs, file, user_buf, size, loff)
+        if inspect.isgenerator(res):
+            yield from res
 
 
 class WriteExternalLegacy:
@@ -185,8 +196,13 @@ class WriteExternalLegacy:
         # Legacy writes often expected the buffer to be pre-read for them
         buf = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
 
-        result = self._func(self, getattr(self, "full_path", "unknown"),
+        res = self._func(self, getattr(self, "full_path", "unknown"),
                             user_buf, size_val, loff, buf, self._legacy_kwargs)
+
+        if inspect.isgenerator(res):
+            result = yield from res
+        else:
+            result = res
 
         # Legacy plugins usually return the bytes written or an error code
         ptregs.retval = result if result is not None else size_val

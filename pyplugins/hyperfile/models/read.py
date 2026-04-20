@@ -3,6 +3,7 @@ from penguin import plugins
 from wrappers.ptregs_wrap import PtRegsWrapper
 from .base import FilePtr, CharPtr, LoffTPtr, SizeT
 import os
+import inspect
 
 
 class ReadBufWrapper:
@@ -284,7 +285,9 @@ class ReadExternalVFS:
         super().__init__(**kwargs)
 
     def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
-        yield from self._func(ptregs, file, user_buf, size, loff)
+        res = self._func(ptregs, file, user_buf, size, loff)
+        if inspect.isgenerator(res):
+            yield from res
 
 
 class ReadExternalLegacy:
@@ -307,7 +310,12 @@ class ReadExternalLegacy:
         # self.full_path comes from BaseFile via composition
         filename = getattr(self, "full_path", "unknown")
 
-        val = yield from self._func(self, filename, user_buf, size_val, offset, details=self._legacy_kwargs)
+        res = self._func(self, filename, user_buf, size_val, offset, details=self._legacy_kwargs)
+        
+        if inspect.isgenerator(res):
+            val = yield from res
+        else:
+            val = res
 
         # Handle the polymorphic return types of the old system
         retval = 0
