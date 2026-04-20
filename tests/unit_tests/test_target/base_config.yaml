@@ -50,6 +50,7 @@ patches:
   - ./patches/tests/static_fs.yaml
   - ./patches/tests/sysfs_test.yaml
   - ./patches/tests/sysctl_test.yaml
+  - ./patches/tests/mtd_test.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 

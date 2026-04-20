@@ -313,3 +313,49 @@ class SysctlFile(BaseFile):
         ret_val = ret if ret is not None else 0
         ptregs.retval = ret_val if ret_val < 0 else 0
         return ret_val
+
+class MtdDevice(BaseFile):
+    """
+    Object-Oriented representation of an MTD (Memory Technology Device).
+    Can be dynamically registered via plugins.mtd.register_mtd(dev)
+    """
+    FS = "mtd"
+    NAME: str = "mtd_custom"
+    SIZE: int = 0
+    ERASE_SIZE: int = 131072
+    WRITE_SIZE: int = 2048
+    OOB_SIZE: int = 64
+    TYPE: str = "nand"  # 'nand' or 'nor'
+    
+    def __init__(self, **kwargs):
+        self.NAME = kwargs.get("name", getattr(self, "NAME", "mtd_custom"))
+        self.SIZE = kwargs.get("size", getattr(self, "SIZE", 0))
+        self.ERASE_SIZE = kwargs.get("erase_size", getattr(self, "ERASE_SIZE", 131072))
+        self.WRITE_SIZE = kwargs.get("write_size", getattr(self, "WRITE_SIZE", 2048))
+        self.OOB_SIZE = kwargs.get("oob_size", getattr(self, "OOB_SIZE", 64))
+        self.TYPE = kwargs.get("type", getattr(self, "TYPE", "nand"))
+        super().__init__(**kwargs)
+
+    def read(self, ptregs: PtRegsWrapper, offset: LoffT, length: SizeT, buf_ptr: CharPtr):
+        """
+        Reads `length` bytes from the flash starting at `offset` into `buf_ptr`.
+        Should return 0 on success, or a negative error code (e.g. -EIO).
+        """
+        if False: yield
+        return 0
+
+    def write(self, ptregs: PtRegsWrapper, offset: LoffT, length: SizeT, buf_ptr: CharPtr):
+        """
+        Writes `length` bytes from `buf_ptr` into the flash starting at `offset`.
+        Should return 0 on success, or a negative error code.
+        """
+        if False: yield
+        return 0
+
+    def erase(self, ptregs: PtRegsWrapper, offset: LoffT, length: SizeT):
+        """
+        Erases `length` bytes of the flash starting at `offset`.
+        Should return 0 on success, or a negative error code.
+        """
+        if False: yield
+        return 0

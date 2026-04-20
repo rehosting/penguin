@@ -4,6 +4,7 @@ import io
 from penguin import Plugin, plugins
 from hyper.portal import PortalCmd
 from hyper.consts import HYPER_OP as hop
+from hyperfile.models.base import MtdDevice
 
 class MTD(Plugin):
     def __init__(self):
@@ -17,21 +18,34 @@ class MTD(Plugin):
         if not isinstance(self.pseudofiles, dict):
             self.pseudofiles = {}
             
-        # 1. Backwards Compatibility: Migrate legacy pseudofiles MTDs
+        # Backwards Compatibility: Migrate legacy pseudofiles MTDs
         self._migrate_pseudofiles()
 
         self.internal_devices = self._validate_and_build(self.config)
         
-        # Registry for open file handles: { mtd_id: file_object }
-        self._handles = {}
+        # Registries
+        self._handles = {}                  # { mtd_id: file_object } (Legacy YAML)
+        self._mtd_objects = {}              # { mtd_id: MtdDevice } (OOP dynamic)
+        self._registered_mtds = []          # Queue for dynamic registrations
         
-        # Registry to keep CFFI callbacks alive (prevent Garbage Collection)
+        # State & CFFI
+        self._initialized = False
         self._c_callbacks = [] 
         self._cb_ptrs = {} # { 'read': int_addr, ... }
         
+        plugins.portal.register_interrupt_handler("mtd", self._mtd_interrupt_handler)
+        
         if self.internal_devices:
-            plugins.portal.register_interrupt_handler(
-                "mtd", self._mtd_interrupt_handler)
+            plugins.portal.queue_interrupt("mtd")
+
+    def register(self, dev: MtdDevice):
+        return self.register_mtd(dev)
+
+    def register_mtd(self, dev: MtdDevice):
+        """Dynamically queue a new object-oriented MTD device for registration."""
+        self._registered_mtds.append(dev)
+        # Only queue an interrupt if one isn't already pending
+        if not any(interrupt == "mtd" for interrupt in plugins.portal._pending_interrupts):
             plugins.portal.queue_interrupt("mtd")
 
     def _migrate_pseudofiles(self):
@@ -70,60 +84,98 @@ class MTD(Plugin):
 
     def _mtd_read(self, ptregs, mtd_id, offset, length, buf_ptr):
         """Called by Guest Kernel to read data from Host file."""
-        f = self._handles.get(mtd_id)
+        mtd_id_val = int(mtd_id)
+        offset_val = int(offset)
+        length_val = int(length)
+        
+        # 1. Check for OOP MtdDevice
+        dev = self._mtd_objects.get(mtd_id_val)
+        if dev:
+            try:
+                ptregs.retval = 0
+                ret = yield from dev.read(ptregs, offset_val, length_val, buf_ptr)
+                return ret if ret is not None else getattr(ptregs, 'retval', 0)
+            except Exception as e:
+                self.logger.error(f"MTD Read Error on {dev.NAME}: {e}")
+                return -5
+
+        # 2. Fallback to Legacy Handle (io.BytesIO or file)
+        f = self._handles.get(mtd_id_val)
         if not f:
             return -19 # -ENODEV
             
         try:
-            f.seek(offset)
-            data = f.read(length)
+            f.seek(offset_val)
+            data = f.read(length_val)
             read_len = len(data)
             
-            # Copy data from Python bytes -> Guest Memory Pointer
             yield from plugins.mem.write_bytes(buf_ptr, data)
             
-            # If we hit EOF, pad the rest with 0xFF (Simulate Erased Flash)
-            if read_len < length:
-                pad_len = length - read_len
-                pad_ptr = buf_ptr + read_len
-                pad = b'\xff' * pad_len
-                yield from plugins.mem.write_bytes(pad_ptr, pad)
+            if read_len < length_val:
+                pad_len = length_val - read_len
+                pad_ptr = buf_ptr.address + read_len if hasattr(buf_ptr, "address") else buf_ptr + read_len
+                yield from plugins.mem.write_bytes(pad_ptr, b'\xff' * pad_len)
                 
             return 0
         except Exception as e:
-            self.logger.error(f"MTD Read Error (ID {mtd_id}): {e}")
+            self.logger.error(f"MTD Read Error (ID {mtd_id_val}): {e}")
             return -5
 
     def _mtd_write(self, ptregs, mtd_id, offset, length, buf_ptr):
-        """Called by Guest Kernel to write data to Host file."""
-        f = self._handles.get(mtd_id)
+        mtd_id_val = int(mtd_id)
+        offset_val = int(offset)
+        length_val = int(length)
+        
+        dev = self._mtd_objects.get(mtd_id_val)
+        if dev:
+            try:
+                ptregs.retval = 0
+                ret = yield from dev.write(ptregs, offset_val, length_val, buf_ptr)
+                return ret if ret is not None else getattr(ptregs, 'retval', 0)
+            except Exception as e:
+                self.logger.error(f"MTD Write Error on {dev.NAME}: {e}")
+                return -5
+
+        f = self._handles.get(mtd_id_val)
         if not f:
             return -19
             
         try:
-            # Read data from Guest Memory Pointer -> Python bytes using mem plugin
-            data = yield from plugins.mem.read_bytes(buf_ptr, length)
-            
-            f.seek(offset)
+            data = yield from plugins.mem.read_bytes(buf_ptr, length_val)
+            f.seek(offset_val)
             f.write(data)
             return 0
         except Exception as e:
-            self.logger.error(f"MTD Write Error (ID {mtd_id}): {e}")
+            self.logger.error(f"MTD Write Error (ID {mtd_id_val}): {e}")
             return -5
 
     def _mtd_erase(self, ptregs, mtd_id, offset, length):
         """Called by Guest Kernel to erase a block."""
-        f = self._handles.get(mtd_id)
+        mtd_id_val = int(mtd_id)
+        offset_val = int(offset)
+        length_val = int(length)
+        
+        dev = self._mtd_objects.get(mtd_id_val)
+        if dev:
+            try:
+                ptregs.retval = 0
+                ret = yield from dev.erase(ptregs, offset_val, length_val)
+                return ret if ret is not None else getattr(ptregs, 'retval', 0)
+            except Exception as e:
+                self.logger.error(f"MTD Erase Error on {dev.NAME}: {e}")
+                return -5
+
+        f = self._handles.get(mtd_id_val)
         if not f:
             return -19
 
         try:
             # Simulate erase by writing 0xFFs to the file
-            f.seek(offset)
-            f.write(b'\xff' * length)
+            f.seek(offset_val)
+            f.write(b'\xff' * length_val)
             return 0
         except Exception as e:
-            self.logger.error(f"MTD Erase Error (ID {mtd_id}): {e}")
+            self.logger.error(f"MTD Erase Error (ID {mtd_id_val}): {e}")
             return -5
 
     # -------------------------------------------------------------------------
@@ -131,36 +183,59 @@ class MTD(Plugin):
     # -------------------------------------------------------------------------
 
     def _mtd_interrupt_handler(self):
-        return self._setup_hardware()
+        # Initial Boot Setup
+        if not self._initialized:
+            yield from self._setup_callbacks()
+            yield from self._cmd_nuke()
+            self._initialized = True
+            
+            # Create YAML Defined Devices
+            for dev in self.internal_devices:
+                yield from self._cmd_create_from_dict(dev)
 
-    def _setup_hardware(self):
-        self.logger.info("Initializing MTD Subsystem...")
+        # Process any dynamically registered MTD objects
+        while self._registered_mtds:
+            dev = self._registered_mtds.pop(0)
+            yield from self._cmd_create_from_obj(dev)
+            
+        return False
 
-        # 1. Initialize Callbacks
-        # We must create these once and store references, otherwise CFFI
-        # destroys the callback stub and the kernel crashes on invocation.
+    def _setup_callbacks(self):
+        self.logger.info("Initializing MTD Subsystem Callbacks...")
         kffi = plugins.kffi
-        cb_read  = yield from kffi.callback(self._mtd_read)
-        cb_write = yield from kffi.callback(self._mtd_write)
-        cb_erase = yield from kffi.callback(self._mtd_erase)
+        
+        # Explicitly define the callback signatures using ISF dictionaries 
+        # to ensure correct 32-bit/64-bit argument packing by dwarffi.
+        
+        # int (*)(int id, unsigned long offset, unsigned long len, unsigned char *buf)
+        read_write_sig = {
+            "kind": "function",
+            "return_type": {"kind": "base", "name": "int"},
+            "parameters": [
+                {"type": {"kind": "base", "name": "int"}},
+                {"type": {"kind": "base", "name": "unsigned long"}},
+                {"type": {"kind": "base", "name": "unsigned long"}},
+                {"type": {"kind": "pointer", "subtype": {"kind": "base", "name": "unsigned char"}}}
+            ]
+        }
+        
+        # int (*)(int id, unsigned long offset, unsigned long len)
+        erase_sig = {
+            "kind": "function",
+            "return_type": {"kind": "base", "name": "int"},
+            "parameters": [
+                {"type": {"kind": "base", "name": "int"}},
+                {"type": {"kind": "base", "name": "unsigned long"}},
+                {"type": {"kind": "base", "name": "unsigned long"}}
+            ]
+        }
+        
+        cb_read  = yield from kffi.callback(self._mtd_read, func_type=read_write_sig)
+        cb_write = yield from kffi.callback(self._mtd_write, func_type=read_write_sig)
+        cb_erase = yield from kffi.callback(self._mtd_erase, func_type=erase_sig)
         
         self._c_callbacks = [cb_read, cb_write, cb_erase]
-        
-        # Cache the integer addresses to pass to the struct
-        self._cb_ptrs = {
-            'read': cb_read,
-            'write': cb_write,
-            'erase': cb_erase
-        }
-
-        # 2. Scorched Earth (Nuke existing MTDs)
-        yield from self._cmd_nuke()
-
-        # 3. Create Devices
-        for dev in self.internal_devices:
-            yield from self._cmd_create(dev)
-
-        self.logger.info(f"MTD Subsystem Ready. {len(self.internal_devices)} devices created.")
+        self._cb_ptrs = {'read': cb_read, 'write': cb_write, 'erase': cb_erase}
 
     def _cmd_nuke(self):
         kffi = plugins.kffi
@@ -175,7 +250,36 @@ class MTD(Plugin):
         else:
             self.logger.info(f"MTD Nuke complete. Removed {result} devices.")
 
-    def _cmd_create(self, dev):
+    def _cmd_create_from_obj(self, dev: MtdDevice):
+        kffi = plugins.kffi
+        req = kffi.new("struct portal_mtd_create_req")
+
+        label_bytes = dev.NAME.encode('utf-8')[:63]
+        for i, b in enumerate(label_bytes): req.label[i] = b
+            
+        req.total_size = dev.SIZE
+        req.erase_size = dev.ERASE_SIZE
+        req.write_size = dev.WRITE_SIZE
+        req.oob_size   = dev.OOB_SIZE
+        req.is_nand    = 1 if dev.TYPE == 'nand' else 0
+        
+        # OOP Devices always use Callback Mode
+        req.mode = 1 
+        req.cb_read_ptr  = self._cb_ptrs['read']
+        req.cb_write_ptr = self._cb_ptrs['write']
+        req.cb_erase_ptr = self._cb_ptrs['erase']
+        
+        req_bytes = bytes(req)
+        result_id = yield PortalCmd(hop.HYPER_OP_MTD_CREATE, 0, len(req_bytes), None, req_bytes)
+        
+        if result_id is None or result_id < 0:
+            self.logger.error(f"Failed to create MTD device '{dev.NAME}'")
+        else:
+            self.logger.info(f"Created MTD device '{dev.NAME}' as mtd{result_id}")
+            self._mtd_objects[result_id] = dev
+            dev.MTD_ID = result_id
+
+    def _cmd_create_from_dict(self, dev):
         kffi = plugins.kffi
         req = kffi.new("struct portal_mtd_create_req")
 
@@ -208,6 +312,9 @@ class MTD(Plugin):
                 # Use io.BytesIO to simulate a file handle entirely in RAM
                 initial_buf = dev.get('val', b'')
                 # Pad to total_size to mimic real flash behavior
+                if isinstance(initial_buf, str):
+                    initial_buf = initial_buf.encode('utf-8')
+                    
                 if len(initial_buf) < req.total_size:
                     initial_buf += b'\xff' * (req.total_size - len(initial_buf))
                 f_handle = io.BytesIO(initial_buf)
