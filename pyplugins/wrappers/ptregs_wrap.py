@@ -461,21 +461,25 @@ class PtRegsWrapper(Wrapper):
 
         ffi = plugins.kffi.ffi
         
-        # 1. Resolve the type definition using dwarffi's built-in resolution (handles typedefs)
-        # typeof() returns an ISF dictionary (for pointers/arrays) or a Vtype object
+        # Unwrap VtypeParameter dictionaries 
+        # VtypeFunction.to_dict() wraps parameter types in {"name": "...", "type": {...}}
+        if isinstance(param_type, dict) and "type" in param_type:
+            param_type = param_type["type"]
+
+        # Resolve the type definition using dwarffi's built-in resolution
         t = ffi.typeof(param_type)
         if t is None:
             return arg_val
 
-        # 2. Extract type 'kind' to determine the correct wrapper logic
+        # Extract type 'kind' to determine the correct wrapper logic
         kind = t.get("kind") if isinstance(t, dict) else getattr(t, "kind", None)
 
-        # 3. Pointer Handling: Return Ptr objects
+        # Pointer Handling: Return Ptr objects
         if kind == "pointer":
             subtype = t.get("subtype") if isinstance(t, dict) else None
             return Ptr(arg_val, subtype, ffi)
 
-        # 4. Resolve ISF Dictionaries to Concrete Vtypes for Base Types
+        # Resolve ISF Dictionaries to Concrete Vtypes for Base Types
         # ffi.new() requires a Vtype object for base types, but typeof() on an ISF dict 
         # just returns the dict. We must explicitly fetch the Vtype.
         if isinstance(t, dict):
@@ -490,7 +494,7 @@ class PtRegsWrapper(Wrapper):
                 return arg_val
             t = t_obj
 
-        # 5. Handle all other types (Base Types, Enums, Structs-by-value)
+        # Handle all other types (Base Types, Enums, Structs-by-value)
         try:
             # This creates the "vtypebasetype" (BoundTypeInstance of a base type).
             return ffi.new(t, init=arg_val)
