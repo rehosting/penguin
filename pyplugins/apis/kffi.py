@@ -835,11 +835,12 @@ class KFFI(Plugin):
         except Exception as e:
             self.logger.error(f"Error in trampoline callback {callback.__name__}: {e}")
 
-    def write_field(self, addr: int, type_: str, field: str, val: Any) -> Generator[Any, Any, None]:
+    def write_field(self, addr: Union[int, Ptr], type_: str, field: str, val: Any) -> Generator[Any, Any, None]:
         """
         Write a single field of a struct in kernel memory.
         Automatically handles offsets, endianness, and bitfield masking.
         """
+        addr = addr if isinstance(addr, int) else addr.address
         struct_def = self.ffi.get_type(type_)
         if not struct_def or not hasattr(struct_def, 'fields') or field not in struct_def.fields:
             raise ValueError(f"Invalid field '{field}' for type '{type_}'")
@@ -866,10 +867,11 @@ class KFFI(Plugin):
         if existing_bytes != new_bytes:
             yield from plugins.mem.write_bytes(addr + offset, new_bytes)
 
-    def read_field(self, addr: int, type_: str, field: str) -> Generator[Any, Any, Any]:
+    def read_field(self, addr: Union[int, Ptr], type_: str, field: str) -> Generator[Any, Any, Any]:
         """
         Read a single field of a struct from kernel memory.
         """
+        addr = addr if isinstance(addr, int) else addr.address
         struct_def = self.ffi.get_type(type_)
         if not struct_def or not hasattr(struct_def, 'fields') or field not in struct_def.fields:
             raise ValueError(f"Invalid field '{field}' for type '{type_}'")
