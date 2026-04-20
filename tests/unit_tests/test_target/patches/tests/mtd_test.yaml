@@ -1,0 +1,86 @@
+# Legacy backwards-compatibility check
+pseudofiles:
+  /dev/mtd10:
+    name: legacy_mtd
+    read:
+      model: const_buf
+      val: "Legacy Pseudofile Booted\n"
+
+plugins:
+  # Load our custom OOP MTD device test plugin
+  mtd_test: {}
+  
+  # Modern native MTD registration
+  mtd:
+    devices:
+      yaml_const:
+        model: const_buf
+        val: "Hello from YAML MTD\n"
+        personality:
+          type: nor
+          erase_size: 4k
+          write_size: 1
+
+  # Verification Engine Constraints
+  verifier:
+    conditions:
+      # Check our explicit output file
+      mtd_read_log:
+        type: file_contains
+        file: mtd_test_output.txt
+        string: "DynamicMtdDevice read called"
+      mtd_write_log:
+        type: file_contains
+        file: mtd_test_output.txt
+        string: "DynamicMtdDevice write called"
+        
+      # Ensure the guest console saw the success marker
+      mtd_script_pass_console:
+        type: file_contains
+        file: console.log
+        string: "/tests/verify_mtd.sh PASS"
+        
+      # Ensure the test script's standard output captured the success
+      mtd_script_pass_stdout:
+        type: file_contains
+        file: shared/tests/verify_mtd.sh/stdout
+        string: "All MTD subsystem tests passed!"
+
+# Test script injection
+static_files:
+  /tests/verify_mtd.sh:
+    type: inline_file
+    mode: 73
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+      
+      # Force mdev to populate /dev in case it booted too fast
+      /igloo/utils/busybox mdev -s || true
+      
+      /igloo/utils/busybox echo "Running MTD Subsystem Tests..."
+      
+      # 1. Verify all devices registered successfully in the kernel
+      /igloo/utils/busybox cat /proc/mtd
+      
+      # Find dynamically assigned device nodes
+      CONST_MTD=$(/igloo/utils/busybox grep "yaml_const" /proc/mtd | /igloo/utils/busybox cut -d: -f1)
+      DYN_MTD=$(/igloo/utils/busybox grep "dynamic_mtd" /proc/mtd | /igloo/utils/busybox cut -d: -f1)
+      LEGACY_MTD=$(/igloo/utils/busybox grep "legacy_mtd" /proc/mtd | /igloo/utils/busybox cut -d: -f1)
+      
+      # 2. Test reading from Native YAML Const Buffer
+      /igloo/utils/busybox cat /dev/${CONST_MTD} | /igloo/utils/busybox strings | /igloo/utils/busybox grep "Hello from YAML MTD"
+      
+      # 3. Test reading from Migrated Legacy Pseudofile
+      /igloo/utils/busybox cat /dev/${LEGACY_MTD} | /igloo/utils/busybox strings | /igloo/utils/busybox grep "Legacy Pseudofile Booted"
+      
+      # 4. Test OOP Dynamic MTD (Read/Write)
+      # Write some data directly to the raw character device
+      /igloo/utils/busybox echo "SecretData" > /dev/${DYN_MTD}
+      
+      # Verify the dynamic read/write callbacks retained it
+      /igloo/utils/busybox cat /dev/${DYN_MTD} | /igloo/utils/busybox strings | /igloo/utils/busybox grep "SecretData"
+      
+      /igloo/utils/busybox echo "All MTD subsystem tests passed!"
+      /igloo/utils/busybox echo "/tests/verify_mtd.sh PASS"
+      exit 0
