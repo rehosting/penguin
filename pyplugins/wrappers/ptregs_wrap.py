@@ -133,7 +133,7 @@ class PtRegsWrapper(Wrapper):
     @property
     def _is_32bit(self) -> bool:
         return getattr(self._panda, "bits", 64) == 32
-        
+
     @property
     def _is_big_endian(self) -> bool:
         return getattr(self._panda, "endianness", "little") == "big"
@@ -238,33 +238,33 @@ class PtRegsWrapper(Wrapper):
             param_type = param_type.type_info
         elif isinstance(param_type, dict) and "type" in param_type:
             param_type = param_type["type"]
-            
+
         if not isinstance(param_type, dict):
             return False
-            
+
         kind = param_type.get("kind")
         name = param_type.get("name", "")
-        
+
         if kind == "pointer" or not name:
             return False
-            
+
         t_def = plugins.kffi.ffi.get_type(name)
         if t_def and getattr(t_def, "size", 0) == 8:
             return True
-            
+
         return any(x in name.lower() for x in ["long long", "int64", "u64", "loff_t"])
 
     def _sign_extend_64bit(self, val: int, param_type: Optional[Dict]) -> int:
         """Sign-extend a 64-bit integer if the type dictates it."""
         if not param_type:
             return val
-            
+
         is_signed = False
         if param_type.get("kind") == "base" and param_type.get("signed", False):
             is_signed = True
         elif any(x in param_type.get("name", "") for x in ["loff_t", "int64_t", "long long"]) and "unsigned" not in param_type.get("name", ""):
             is_signed = True
-            
+
         if is_signed and val >= 0x8000000000000000:
             val -= 0x10000000000000000
         return val
@@ -276,13 +276,13 @@ class PtRegsWrapper(Wrapper):
         """
         # Ensure the value is a standard Python integer before bitwise operations
         value = int(value)
-        
+
         is_64bit = False
         func_type = self._extra_context.get("func_type")
-        
+
         if func_type and func_type.get("kind") == "pointer" and "subtype" in func_type:
             func_type = func_type["subtype"]
-            
+
         if func_type and "return_type" in func_type:
             is_64bit = self._check_type_is_64bit(func_type["return_type"])
 
@@ -295,7 +295,8 @@ class PtRegsWrapper(Wrapper):
 
     def _set_split_retval(self, low: int, high: int):
         """Architectures must override this if they support 32-bit execution."""
-        raise NotImplementedError(f"{self.__class__.__name__} does not implement 32-bit return value splitting.")
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement 32-bit return value splitting.")
 
     def dump(self) -> Dict[str, Optional[int]]:
         """Dump all registers to a dictionary."""
@@ -319,33 +320,36 @@ class PtRegsWrapper(Wrapper):
             List of argument values (may include None if unavailable).
         """
         func_type = func_type or self._extra_context.get("func_type")
-        
+
         if not func_type or not self._is_32bit:
             return [self.get_arg(i, convention) for i in range(count)]
-            
+
         if func_type.get("kind") == "pointer" and "subtype" in func_type:
             func_type = func_type["subtype"]
-            
-        parameters = func_type.get("parameters", []) if func_type.get("kind") == "function" else []
-            
+
+        parameters = func_type.get("parameters", []) if func_type.get(
+            "kind") == "function" else []
+
         arr = []
         slot_idx = 0
         for i in range(count):
             param_type = parameters[i] if i < len(parameters) else None
-            is_64bit = self._check_type_is_64bit(param_type) if param_type else False
-            
+            is_64bit = self._check_type_is_64bit(
+                param_type) if param_type else False
+
             if is_64bit:
                 if self._ALIGN_64BIT_ARGS and slot_idx % 2 != 0:
-                    slot_idx += 1 
-                        
+                    slot_idx += 1
+
                 first = self.get_arg(slot_idx, convention)
                 second = self.get_arg(slot_idx + 1, convention)
-                
+
                 if first is not None and second is not None:
                     if self._is_big_endian:
                         val = (first << 32) | (second & 0xFFFFFFFF)
                     else:
-                        val = ((second & 0xFFFFFFFF) << 32) | (first & 0xFFFFFFFF)
+                        val = ((second & 0xFFFFFFFF) << 32) | (
+                            first & 0xFFFFFFFF)
                     arr.append(self._sign_extend_64bit(val, param_type))
                 else:
                     arr.append(None)
@@ -353,7 +357,7 @@ class PtRegsWrapper(Wrapper):
             else:
                 arr.append(self.get_arg(slot_idx, convention))
                 slot_idx += 1
-                
+
         return arr
 
     def get_arg(self, num: int, convention: Optional[str] = None) -> Optional[int]:
@@ -389,36 +393,39 @@ class PtRegsWrapper(Wrapper):
             List of argument values (may include None if unavailable).
         """
         func_type = func_type or self._extra_context.get("func_type")
-        
+
         if not func_type or not self._is_32bit:
             arr = []
             for i in range(count):
                 arr.append((yield from self.get_arg_portal(i, convention)))
             return arr
-            
+
         if func_type.get("kind") == "pointer" and "subtype" in func_type:
             func_type = func_type["subtype"]
-            
-        parameters = func_type.get("parameters", []) if func_type.get("kind") == "function" else []
-            
+
+        parameters = func_type.get("parameters", []) if func_type.get(
+            "kind") == "function" else []
+
         arr = []
         slot_idx = 0
         for i in range(count):
             param_type = parameters[i] if i < len(parameters) else None
-            is_64bit = self._check_type_is_64bit(param_type) if param_type else False
-                            
+            is_64bit = self._check_type_is_64bit(
+                param_type) if param_type else False
+
             if is_64bit:
                 if self._ALIGN_64BIT_ARGS and slot_idx % 2 != 0:
-                    slot_idx += 1 
-                        
+                    slot_idx += 1
+
                 first = yield from self.get_arg_portal(slot_idx, convention)
                 second = yield from self.get_arg_portal(slot_idx + 1, convention)
-                
+
                 if first is not None and second is not None:
                     if self._is_big_endian:
                         val = (first << 32) | (second & 0xFFFFFFFF)
                     else:
-                        val = ((second & 0xFFFFFFFF) << 32) | (first & 0xFFFFFFFF)
+                        val = ((second & 0xFFFFFFFF) << 32) | (
+                            first & 0xFFFFFFFF)
                     arr.append(self._sign_extend_64bit(val, param_type))
                 else:
                     arr.append(None)
@@ -426,7 +433,7 @@ class PtRegsWrapper(Wrapper):
             else:
                 arr.append((yield from self.get_arg_portal(slot_idx, convention)))
                 slot_idx += 1
-                
+
         return arr
 
     def get_arg_portal(self, num: int, convention: Optional[str] = None) -> Generator[Optional[int], Any, Optional[int]]:
@@ -451,7 +458,7 @@ class PtRegsWrapper(Wrapper):
             else:
                 val = yield from plugins.mem.read_long(e.addr)
             return val
-    
+
     def _marshal_typed_arg(self, arg_val: Any, param_type: Any) -> Any:
         """
         Internal helper to convert a raw register/stack value into a typed DFFI instance.
@@ -460,8 +467,8 @@ class PtRegsWrapper(Wrapper):
             return None
 
         ffi = plugins.kffi.ffi
-        
-        # Unwrap VtypeParameter dictionaries 
+
+        # Unwrap VtypeParameter dictionaries
         # VtypeFunction.to_dict() wraps parameter types in {"name": "...", "type": {...}}
         if isinstance(param_type, dict) and "type" in param_type:
             param_type = param_type["type"]
@@ -472,7 +479,8 @@ class PtRegsWrapper(Wrapper):
             return arg_val
 
         # Extract type 'kind' to determine the correct wrapper logic
-        kind = t.get("kind") if isinstance(t, dict) else getattr(t, "kind", None)
+        kind = t.get("kind") if isinstance(
+            t, dict) else getattr(t, "kind", None)
 
         # Pointer Handling: Return Ptr objects
         if kind == "pointer":
@@ -480,7 +488,7 @@ class PtRegsWrapper(Wrapper):
             return Ptr(arg_val, subtype, ffi)
 
         # Resolve ISF Dictionaries to Concrete Vtypes for Base Types
-        # ffi.new() requires a Vtype object for base types, but typeof() on an ISF dict 
+        # ffi.new() requires a Vtype object for base types, but typeof() on an ISF dict
         # just returns the dict. We must explicitly fetch the Vtype.
         if isinstance(t, dict):
             # Resolve typedefs first
@@ -488,7 +496,7 @@ class PtRegsWrapper(Wrapper):
             t_name = t.get("name")
             if not t_name:
                 return arg_val
-                
+
             t_obj = ffi.get_type(t_name)
             if t_obj is None:
                 return arg_val
@@ -501,16 +509,18 @@ class PtRegsWrapper(Wrapper):
         except Exception as e:
             # Log the error instead of silently swallowing it for easier debugging
             if hasattr(self, "logger"):
-                self.logger.debug(f"Failed to marshal argument to {getattr(t, 'name', t)}: {e}")
+                self.logger.debug(
+                    f"Failed to marshal argument to {getattr(t, 'name', t)}: {e}")
             return arg_val
 
     def get_typed_args(self, count: int, convention: Optional[str] = None) -> List[Any]:
         """
-        Get a list of function arguments, automatically cast to their dwarffi 
+        Get a list of function arguments, automatically cast to their dwarffi
         equivalents (Ptr or BoundTypeInstance) using ffi.new().
         """
         func_type = self._extra_context.get("func_type")
-        raw_args = self.get_args(count, convention=convention, func_type=func_type)
+        raw_args = self.get_args(
+            count, convention=convention, func_type=func_type)
 
         if not func_type or "parameters" not in func_type:
             return raw_args
@@ -536,6 +546,7 @@ class PtRegsWrapper(Wrapper):
             self._marshal_typed_arg(val, params[i]) if i < len(params) else val
             for i, val in enumerate(raw_args)
         ]
+
     def _read_memory(self, addr: int, size: int, fmt: str = 'int') -> Union[int, bytes, str]:
         """
         Read memory from guest using PANDA's virtual_memory_read (Optimized).
@@ -553,7 +564,8 @@ class PtRegsWrapper(Wrapper):
             PandaMemReadFail: If memory read fails.
         """
         if not self._panda:
-            raise ValueError("Cannot read memory: no PANDA reference available")
+            raise ValueError(
+                "Cannot read memory: no PANDA reference available")
 
         cpu = self._panda.get_cpu()
         if not cpu:
@@ -1551,7 +1563,7 @@ def get_pt_regs_wrapper(
     klass = _WRAPPER_CACHE.get(arch_name.lower())
     if klass:
         return klass(regs, panda, extra_context=extra_context)
-        
+
     # Check for armel, armhf, etc.
     if arch_name.lower().startswith("arm"):
         return ArmPtRegsWrapper(regs, panda, extra_context=extra_context)

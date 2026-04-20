@@ -1,5 +1,4 @@
 from penguin import Plugin, plugins
-from wrappers.ptregs_wrap import PtRegsWrapper
 from hyper.portal import PortalCmd
 from hyper.consts import HYPER_OP as hop
 from typing import List, Dict, Generator, Optional, Tuple
@@ -37,29 +36,29 @@ class Sysfs(Plugin):
         """
         kffi = plugins.kffi
         overridden = self._get_overridden_methods(sysfs_file)
-        
+
         # Look up the struct definition in dwarffi to extract signatures
         sysfs_ops_type = kffi.ffi.get_type("struct igloo_sysfs_ops")
-        
+
         # Build the initialization dictionary dynamically
         init_data = {}
         for name, fn in overridden.items():
             op_signature = None
             if sysfs_ops_type and name in sysfs_ops_type.members:
                 member_type = sysfs_ops_type.members[name].type_info
-                
+
                 # Function pointers are stored as pointers to functions.
                 # We must unwrap the pointer layer so kffi sees the raw function signature.
                 if member_type and member_type.get("kind") == "pointer":
                     op_signature = member_type.get("subtype")
                 else:
                     op_signature = member_type
-                    
+
             # Pass the unwrapped function signature into kffi callback registration
             init_data[name] = yield from kffi.callback(fn, func_type=op_signature)
-            
+
         return kffi.new("struct igloo_sysfs_ops", init_data)
-    
+
     def register(self, sysfs_file: SysFile, path: Optional[str] = None, mode: int = 0o644):
         return self.register_sysfs(sysfs_file, path, mode)
 
@@ -70,7 +69,8 @@ class Sysfs(Plugin):
             fname = getattr(sysfs_file, "PATH", None)
         sysfs_file.PATH = fname
         if not fname:
-            raise ValueError("SysFile must define PATH or define it in register_sysfs")
+            raise ValueError(
+                "SysFile must define PATH or define it in register_sysfs")
         if fname.startswith("/sys/"):
             fname = fname[len("/sys/"):]
         # Fix: _pending_sysfs contains (fname, sysfs_file, mode)
@@ -92,17 +92,17 @@ class Sysfs(Plugin):
                 parent_id = self._sysfs_dirs[cur_path]
             else:
                 kffi = plugins.kffi
-                
+
                 init_data = {
                     "parent_id": parent_id,
                     "replace": 0,
                     "mode": 0o755,
                     "path": part.encode("latin-1", errors="ignore")
                 }
-                
+
                 req = kffi.new("struct portal_sysfs_create_req", init_data)
                 req_bytes = bytes(req)
-                
+
                 result = yield PortalCmd(
                     hop.HYPER_OP_SYSFS_CREATE_OR_LOOKUP_DIR,
                     0,
@@ -111,7 +111,8 @@ class Sysfs(Plugin):
                     req_bytes
                 )
                 if not result or result < 0:
-                    raise RuntimeError(f"Failed to create/lookup sysfs dir '{cur_path}'")
+                    raise RuntimeError(
+                        f"Failed to create/lookup sysfs dir '{cur_path}'")
                 self._sysfs_dirs[cur_path] = result
                 parent_id = result
         return parent_id
@@ -138,12 +139,13 @@ class Sysfs(Plugin):
             parent_id = yield from self._get_or_create_sysfs_dir(parent_dir)
 
             if not file_name or "/" in file_name:
-                self.logger.error(f"Invalid sysfs file name: '{file_name}' from path '{fname}'")
+                self.logger.error(
+                    f"Invalid sysfs file name: '{file_name}' from path '{fname}'")
                 continue
 
             ops = yield from self._make_ops_struct(sysfs_file)
             kffi = plugins.kffi
-            
+
             init_data = {
                 "path": file_name.encode("latin-1", errors="ignore"),
                 "ops": ops,
@@ -151,10 +153,10 @@ class Sysfs(Plugin):
                 "replace": 1,
                 "mode": mode
             }
-            
+
             req = kffi.new("struct portal_sysfs_create_req", init_data)
             req_bytes = bytes(req)
-            
+
             result = yield PortalCmd(
                 hop.HYPER_OP_SYSFS_CREATE_FILE,
                 0,
@@ -163,7 +165,8 @@ class Sysfs(Plugin):
                 req_bytes
             )
             if result == 0 or result is None:
-                self.logger.error(f"Failed to register sysfs '{fname}' (kernel returned 0)")
+                self.logger.error(
+                    f"Failed to register sysfs '{fname}' (kernel returned 0)")
                 continue
             self.logger.debug(f"Registered sysfs '{fname}' with kernel")
 

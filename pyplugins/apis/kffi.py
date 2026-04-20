@@ -375,27 +375,32 @@ class KFFI(Plugin):
 
         # Helper to extract the raw dictionary from dwarffi objects
         def get_t_dict(p):
-            if hasattr(p, "type_info"): return p.type_info
-            if isinstance(p, dict): return p.get("type", p)
+            if hasattr(p, "type_info"):
+                return p.type_info
+            if isinstance(p, dict):
+                return p.get("type", p)
             return p
 
         # Helper to recursively identify 64-bit types
         def is_type_64bit(t_info):
             t_info = get_t_dict(t_info)
-            if not isinstance(t_info, dict): return False
-            if t_info.get("kind") == "pointer": return False
-            if t_info.get("size") == 8: return True
-            
+            if not isinstance(t_info, dict):
+                return False
+            if t_info.get("kind") == "pointer":
+                return False
+            if t_info.get("size") == 8:
+                return True
+
             name = t_info.get("name", "")
             if name:
                 nl = name.lower()
-                if any(x in nl for x in ["long long", "int64", "u64", "uint64"]): 
+                if any(x in nl for x in ["long long", "int64", "u64", "uint64"]):
                     return True
                 try:
                     t_def = self.ffi.get_type(name)
-                    if t_def and getattr(t_def, "size", 0) == 8: 
+                    if t_def and getattr(t_def, "size", 0) == 8:
                         return True
-                except Exception: 
+                except Exception:
                     pass
             return False
 
@@ -416,13 +421,14 @@ class KFFI(Plugin):
                             "return_type": get_t_dict(sym.type_info.get("return_type")),
                             "parameters": [get_t_dict(p) for p in sym.type_info.get("parameters", [])]
                         }
-                
+
         if len(args) > 8:
-            raise ValueError(f"Too many arguments for FFI call: {len(args)} > 8")
-            
+            raise ValueError(
+                f"Too many arguments for FFI call: {len(args)} > 8")
+
         # UNIVERSAL UNWRAP: Automatically extract the integer address from any Ptr objects
         args = [arg.address if isinstance(arg, Ptr) else arg for arg in args]
-        
+
         marshalled_args = []
         if func_info and "parameters" in func_info:
             params = func_info["parameters"]
@@ -432,12 +438,14 @@ class KFFI(Plugin):
                     if isinstance(param_type, dict):
                         kind = param_type.get("kind")
                         if kind == "pointer":
-                            if not isinstance(arg, (int, str, bytes, BoundTypeInstance)) and not hasattr(arg, '__bytes__'): 
+                            if not isinstance(arg, (int, str, bytes, BoundTypeInstance)) and not hasattr(arg, '__bytes__'):
                                 raise TypeError(f"Argument {i} expected pointer/int/str/bytes/struct, got {type(arg)}")
                         elif kind == "base" and param_type.get("name") in ("char", "unsigned char"):
-                            if isinstance(arg, str): arg = arg.encode() + b"\x00"
+                            if isinstance(arg, str):
+                                arg = arg.encode() + b"\x00"
                             elif isinstance(arg, bytes):
-                                arg = arg if arg.endswith(b"\x00") else arg + b"\x00"
+                                arg = arg if arg.endswith(
+                                    b"\x00") else arg + b"\x00"
                         # TODO: struct/array/enum
                 marshalled_args.append(arg)
         else:
@@ -490,16 +498,16 @@ class KFFI(Plugin):
         ffi_call = self.new("portal_ffi_call")
         ffi_call.func_ptr = func_ptr
         ffi_call.num_args = len(marshalled_args)
-        
+
         sig_mask = (len(marshalled_args) << 8)
-        
+
         is_64bit_return = getattr(self.panda, "bits", 64) == 64
         if not is_64bit_return and func_info and "return_type" in func_info:
             is_64bit_return = is_type_64bit(func_info["return_type"])
 
         for i, arg in enumerate(marshalled_args):
             is_64bit = False
-            
+
             if func_info and "parameters" in func_info and i < len(func_info["parameters"]):
                 is_64bit = is_type_64bit(func_info["parameters"][i])
 
@@ -528,7 +536,6 @@ class KFFI(Plugin):
         ffi_call.sig_mask = sig_mask
 
         return bytes(ffi_call), kmem_addr, func_info, is_64bit_return
-
 
     def call_kernel_function(
             self, func: Union[int, str], *args: Any) -> Generator[Any, Any, Any]:
@@ -581,7 +588,7 @@ class KFFI(Plugin):
         result = result_struct.result
 
         # --- FIX: Architecture-Aware Big Endian Result Alignment ---
-        # On 32-bit Big Endian (mipseb), the 32-bit return value in $v0 
+        # On 32-bit Big Endian (mipseb), the 32-bit return value in $v0
         # ends up in the upper 32 bits of the 64-bit result field.
         if self._is_big_endian and self._is_32bit:
             result = result >> 32
@@ -597,11 +604,11 @@ class KFFI(Plugin):
                         # 1. Truncate strictly to the C-type's native size
                         mask = (1 << (base_type.size * 8)) - 1
                         result = result & mask
-                        
+
                         # 2. Sign extend to a native Python integer if the type requires it
                         if base_type.signed and (result & (1 << (base_type.size * 8 - 1))):
                             result -= (1 << (base_type.size * 8))
-                            
+
                         # Convert to correct Python type
                         if base_type.kind in ("int", "pointer"):
                             result = int(result)
@@ -632,7 +639,7 @@ class KFFI(Plugin):
             # Fallback if no DWARFFI signature was found
             if not is_64bit_return:
                 result = result & 0xFFFFFFFF
-                
+
         return result
 
     def call(self, func: Union[int, str], *args: Any) -> Generator[Any, Any, Any]:
@@ -650,11 +657,11 @@ class KFFI(Plugin):
             Any: Address of allocated memory, or None if allocation fails.
         """
         val = yield from self.call_kernel_function("igloo_kzalloc", size)
-        
+
         # Unwrap the pointer object so math (kmem_addr + offset) works correctly
         if isinstance(val, Ptr):
             return val.address
-            
+
         return val
 
     def kfree(self, addr: Union[int, Ptr]) -> Generator[Any, Any, Any]:
@@ -670,7 +677,7 @@ class KFFI(Plugin):
         # Unwrap the pointer object so math (kmem_addr + offset) works correctly
         if isinstance(addr, Ptr):
             addr = addr.address
-            
+
         yield from self.call_kernel_function("igloo_kfree", addr)
 
     def kallsyms_lookup(self, symbol: str) -> Generator[Any, Any, Any]:
@@ -738,8 +745,8 @@ class KFFI(Plugin):
                         func_type = pt_info
                     else:
                         raise ValueError("The provided Ptr does not point to a function signature.")
-                        
-            # If it's a VtypeFunction object, convert it to a dictionary so the 
+
+            # If it's a VtypeFunction object, convert it to a dictionary so the
             # hypervisor can serialize it into the trampoline manager
             if hasattr(func_type, "to_dict"):
                 func_type = func_type.to_dict()
@@ -750,7 +757,7 @@ class KFFI(Plugin):
         tramp_id = tramp_info.get("tramp_id")
         tramp_addr = tramp_info.get("tramp_addr")
         num_args = len(inspect.signature(func).parameters)
-        
+
         # Save the func_type into our callbacks lookup table
         self._tramp_callbacks[tramp_id] = (func, num_args, func_type)
         self._tramp_callbacks[func] = tramp_id
@@ -780,14 +787,14 @@ class KFFI(Plugin):
         self._pending_tramp_callbacks = []
         while pending_tramp_callbacks:
             item = pending_tramp_callbacks.pop(0)
-            
+
             # Safely unpack in case older plugins append just the function
             if isinstance(item, tuple) and len(item) == 2:
                 func, func_type = item
             else:
                 func = item
                 func_type = None
-                
+
             tramp_info = yield from self.generate_trampoline()
             tramp_id = tramp_info.get("tramp_id")
             tramp_addr = tramp_info.get("tramp_addr")
@@ -816,7 +823,7 @@ class KFFI(Plugin):
         if not hasattr(self, '_tramp_callbacks') or tramp_id not in self._tramp_callbacks:
             self.logger.error(f"Trampoline hit for unknown id: {tramp_id}")
             return
-            
+
         entry = self._tramp_callbacks[tramp_id]
         if len(entry) == 3:
             callback, num_args, func_type = entry
@@ -827,14 +834,14 @@ class KFFI(Plugin):
         self.logger.debug(f"Invoking trampoline callback for id={tramp_id}: {getattr(callback, '__name__', repr(callback))}")
         try:
             pt_regs_raw = yield from self.read_type(pt_regs_addr, "pt_regs")
-            
+
             # INJECT Context Dictionary Here
             pt_regs = get_pt_regs_wrapper(
-                self.panda, 
-                pt_regs_raw, 
+                self.panda,
+                pt_regs_raw,
                 extra_context={"func_type": func_type}
             )
-            
+
             original_bytes = pt_regs.to_bytes()[:]
             # Get args from pt_regs
             if num_args > 1:
@@ -865,24 +872,24 @@ class KFFI(Plugin):
         struct_def = self.ffi.get_type(type_)
         if not struct_def or not hasattr(struct_def, 'fields') or field not in struct_def.fields:
             raise ValueError(f"Invalid field '{field}' for type '{type_}'")
-            
+
         field_info = struct_def.fields[field]
         offset = field_info.offset
         size = self.ffi.sizeof(field_info.type_info)
-        
+
         # Read the current memory for this field's width to safely handle bitfields
         existing_bytes = yield from plugins.mem.read_bytes(addr + offset, size)
         if not existing_bytes:
             raise RuntimeError(f"Failed to read memory at {addr + offset:#x}")
-            
+
         # Embed it into a dummy bytearray buffer of the full struct size
         dummy_buf = bytearray(self.ffi.sizeof(type_))
         dummy_buf[offset:offset+size] = existing_bytes
-        
+
         # Parse it with dwarffi and modify the field (this triggers the packing logic)
         dummy = self.ffi.from_buffer(type_, dummy_buf)
         setattr(dummy, field, val)
-        
+
         # Extract the newly packed bytes and write them back to memory
         new_bytes = dummy_buf[offset:offset+size]
         if existing_bytes != new_bytes:
@@ -896,17 +903,17 @@ class KFFI(Plugin):
         struct_def = self.ffi.get_type(type_)
         if not struct_def or not hasattr(struct_def, 'fields') or field not in struct_def.fields:
             raise ValueError(f"Invalid field '{field}' for type '{type_}'")
-            
+
         field_info = struct_def.fields[field]
         offset = field_info.offset
         size = self.ffi.sizeof(field_info.type_info)
-        
+
         raw_bytes = yield from plugins.mem.read_bytes(addr + offset, size)
         if not raw_bytes:
             raise RuntimeError(f"Failed to read memory at {addr + offset:#x}")
-            
+
         dummy_buf = bytearray(self.ffi.sizeof(type_))
         dummy_buf[offset:offset+size] = raw_bytes
-        
+
         dummy = self.ffi.from_buffer(type_, dummy_buf, address=addr)
         return getattr(dummy, field)

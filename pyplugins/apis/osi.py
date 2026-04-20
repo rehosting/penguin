@@ -52,6 +52,7 @@ kffi = plugins.kffi
 CONST_UNKNOWN_STR = "[???]"
 AT_FDCWD = -100
 
+
 class OSI(Plugin):
     """
     OSI Plugin

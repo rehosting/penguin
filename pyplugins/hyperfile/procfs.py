@@ -42,33 +42,33 @@ class Proc(Plugin):
         """
         kffi = plugins.kffi
         overridden = self._get_overridden_methods(proc_file)
-        
+
         # Look up the struct definition in dwarffi
         proc_ops_type = kffi.ffi.get_type("igloo_proc_ops")
-        
+
         # Build the initialization dictionary dynamically
         init_data = {}
         for name, fn in overridden.items():
             op_signature = None
             if proc_ops_type and name in proc_ops_type.members:
                 member_type = proc_ops_type.members[name].type_info
-                
+
                 # Function pointers are stored as pointers to functions.
                 # We must unwrap the pointer layer so kffi sees the raw function signature.
                 if member_type and member_type.get("kind") == "pointer":
                     op_signature = member_type.get("subtype")
                 else:
                     op_signature = member_type
-                    
+
             # Pass the unwrapped function signature into kffi callback registration
             init_data[name] = yield from kffi.callback(fn, func_type=op_signature)
-            
+
         return kffi.new("igloo_proc_ops", init_data)
-    
-    def register(self, proc_file: ProcFile, path: Optional[str] =None):
+
+    def register(self, proc_file: ProcFile, path: Optional[str] = None):
         return self.register_proc(proc_file, path)
 
-    def register_proc(self, proc_file: ProcFile, path: Optional[str] =None):
+    def register_proc(self, proc_file: ProcFile, path: Optional[str] = None):
         """
         Register a ProcFile for later portal registration.
         """
@@ -78,15 +78,15 @@ class Proc(Plugin):
             fname = getattr(proc_file, "PATH", None)
         if not fname:
             raise ValueError("ProcFile must define PATH or define it in register_proc")
-            
+
         proc_file.PATH = fname
         if fname.startswith("/proc/"):
             fname = fname[len("/proc/"):]  # Remove leading /proc/
-            
+
         # 1. ENFORCE SINGLE REGISTRATION: Reject duplicates instantly
         if fname in self._procs:
             raise ValueError(f"Cannot register '{fname}': A procfs file is already registered at this path.")
-            
+
         if proc_file not in self._pending_procs:
             plugins.portal.queue_interrupt("procfs")
             self._pending_procs.append((fname, proc_file))
@@ -101,11 +101,12 @@ class Proc(Plugin):
         if not parts:
             self._proc_dirs[""] = 0
             return 0
-            
+
         # ONLY check the first directory component (root-level /proc/ entries)
         first_dir = parts[0]
         if first_dir.isdigit() or first_dir == "self":
-            self.logger.error(f"Cannot create reserved procfs directory: '/proc/{first_dir}'")
+            self.logger.error(
+                f"Cannot create reserved procfs directory: '/proc/{first_dir}'")
             raise RuntimeError(f"Reserved procfs path component: {first_dir}")
 
         parent_id = 0
@@ -116,17 +117,17 @@ class Proc(Plugin):
                 parent_id = self._proc_dirs[cur_path]
             else:
                 kffi = plugins.kffi
-                
+
                 # Dwarffi natively handles null-termination and bounds truncation for byte arrays
                 init_data = {
                     "path": part.encode("latin-1", errors="ignore"),
                     "parent_id": parent_id,
                     "replace": 0
                 }
-                
+
                 req = kffi.new("struct portal_procfs_create_req", init_data)
                 req_bytes = bytes(req)
-                
+
                 # Now parent_id is passed for each level
                 result = yield PortalCmd(
                     hop.HYPER_OP_PROCFS_CREATE_OR_LOOKUP_DIR,
@@ -160,7 +161,7 @@ class Proc(Plugin):
         for fname, proc in procs:
             # Split the path to isolate the very first directory or file
             parts = [p for p in fname.strip("/").split("/") if p]
-            
+
             # Only block if the root-most proc element is 'self' or a digit
             if parts and (parts[0] == "self" or parts[0].isdigit()):
                 self.logger.error(
@@ -169,12 +170,13 @@ class Proc(Plugin):
                 continue
 
             parent_dir, file_name = self._split_proc_path(fname)
-            
+
             # Gracefully handle failures to create directories
             try:
                 parent_id = yield from self._get_or_create_proc_dir(parent_dir)
             except RuntimeError as e:
-                self.logger.error(f"Skipping proc registration for '{fname}': {e}")
+                self.logger.error(
+                    f"Skipping proc registration for '{fname}': {e}")
                 continue
 
             # Validate file name
@@ -184,7 +186,7 @@ class Proc(Plugin):
 
             fops = yield from self._make_fops_struct(proc)
             kffi = plugins.kffi
-            
+
             init_data = {
                 "path": file_name.encode("latin-1", errors="ignore"),
                 "fops": fops,
@@ -194,10 +196,10 @@ class Proc(Plugin):
                 "replace": 1,
                 "support_mmap": 1 if getattr(proc, "SUPPORT_MMAP", False) else 0
             }
-            
+
             req = kffi.new("struct portal_procfs_create_req", init_data)
             req_bytes = bytes(req)
-            
+
             result = yield PortalCmd(
                 hop.HYPER_OP_PROCFS_CREATE_FILE,
                 0,

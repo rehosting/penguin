@@ -1,5 +1,5 @@
 from wrappers.ptregs_wrap import PtRegsWrapper
-from typing import Union, Annotated, Any
+from typing import Union, Annotated
 from penguin import getColoredLogger, plugins
 from dwarffi import Ptr
 from dwarffi.instances import BoundTypeInstance
@@ -29,7 +29,7 @@ LoffT = Annotated[CInt, "loff_t"]
 
 class BaseFile:
     """
-    The root base class for all file types. 
+    The root base class for all file types.
     Acts as the 'Argument Sink' to prevent object.__init__ failures.
     """
     PATH = None
@@ -45,25 +45,27 @@ class BaseFile:
             self.PATH = path
         if fs is not None:
             self.FS = fs
-            
+
         if size is not None:
             self.SIZE = size
-            
+
         if support_mmap is not None:
             self.SUPPORT_MMAP = support_mmap
-            
+
         # Use provided mode, or automatically derive it
         if mode is not None:
             self.MODE = mode
         else:
             self.MODE = self._derive_mode()
-            
+
         super().__init__()
 
     def _derive_mode(self) -> int:
         """Derive appropriate file permissions based on implemented methods."""
-        has_read = self._is_overridden('read') or self._is_overridden('show') or self._is_overridden('read_iter')
-        has_write = self._is_overridden('write') or self._is_overridden('store')
+        has_read = self._is_overridden('read') or self._is_overridden(
+            'show') or self._is_overridden('read_iter')
+        has_write = self._is_overridden(
+            'write') or self._is_overridden('store')
 
         if has_read and has_write:
             return 0o666  # Read/Write
@@ -76,7 +78,7 @@ class BaseFile:
         """Check if a method was overridden by the user's subclass."""
         if not hasattr(self, method_name):
             return False
-        
+
         # Traverse the Method Resolution Order (MRO) to see where the method is defined
         for cls in type(self).__mro__:
             if method_name in cls.__dict__:
@@ -86,7 +88,7 @@ class BaseFile:
                 # If it belongs to a subclass, the user implemented it!
                 return True
         return False
-    
+
     @property
     def full_path(self) -> str:
         if self.PATH is None:
@@ -119,6 +121,7 @@ class VFSFile(BaseFile):
     """
     Base class defining the VFS interface, strictly typed with dwarffi Ptrs and BoundTypeInstances.
     """
+
     def open(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr) -> None:
         pass
 
@@ -168,13 +171,13 @@ class DevFile(VFSFile):
             self.MAJOR = major
         if minor is not None:
             self.MINOR = minor
-            
+
         # Only overwrite the class attributes if explicitly provided
         if is_block is not None:
             self.IS_BLOCK = is_block
         if logical_block_size is not None:
             self.LOGICAL_BLOCK_SIZE = logical_block_size
-            
+
         super().__init__(**kwargs)
 
     def flush(self, ptregs: PtRegsWrapper, file: FilePtr, owner: CInt) -> None:
@@ -206,7 +209,7 @@ class SysFile(BaseFile):
 class SysfsBridge(SysFile):
     """
     Bridging class that handles SysFS show/store natively.
-    Bypasses VFS read/write mixins to safely read/write directly 
+    Bypasses VFS read/write mixins to safely read/write directly
     to the kernel PAGE_SIZE buffer.
     """
     _data = None
@@ -220,60 +223,63 @@ class SysfsBridge(SysFile):
             self.filename = filename
         if write_filepath is not None:
             self.write_filepath = write_filepath
-        
+
         # Pass remaining kwargs up the MRO (eventually hitting BaseFile's sink)
         super().__init__(**kwargs)
 
     def show(self, ptregs: PtRegsWrapper, kobj: KobjPtr, attr: AttrPtr, buf: CharPtr):
         data = None
-        
+
         # Priority 1: In-memory data
         if self._data is not None:
             data = self._data
-            
+
         # Priority 2: Read from host file
         elif self.filename is not None:
             try:
                 with open(self.filename, 'rb') as f:
                     data = f.read()
             except Exception as e:
-                self.logger.error(f"Failed to read backing file {self.filename}: {e}")
+                self.logger.error(
+                    f"Failed to read backing file {self.filename}: {e}")
                 return -1  # Return negative error code (e.g., -EIO)
 
         # Write data to the kernel buffer
         if data is not None:
             if isinstance(data, str):
                 data = data.encode('utf-8')
-            
+
             # Sysfs show buffers are strictly limited to PAGE_SIZE (typically 4096)
             write_size = min(len(data), 4096)
             yield from plugins.mem.write(buf, data[:write_size])
             return write_size  # show() must return the number of bytes printed
-            
+
         return 0
 
     def store(self, ptregs: PtRegsWrapper, kobj: KobjPtr, attr: AttrPtr, buf: CharPtr, count: SizeT):
         count_val = int(count)
         if count_val <= 0:
             return 0
-            
+
         # Read the data the guest wrote to the kernel buffer
         # Using fmt=bytes to explicitly request raw bytes instead of attempting string interpretation
         data = yield from plugins.mem.read(buf, size=count_val, fmt="bytes")
-        
+
         # Priority 1: Write out to a host file
         if self.write_filepath is not None:
             try:
                 with open(self.write_filepath, 'ab') as f:
                     f.write(data)
             except Exception as e:
-                self.logger.error(f"Failed to write to backing file {self.write_filepath}: {e}")
+                self.logger.error(
+                    f"Failed to write to backing file {self.write_filepath}: {e}")
                 return -1
         # Priority 2: No backing file, just log it and consume
         else:
             self.logger.info(f"Discarding sysfs store payload: {data}")
-            
+
         return count_val  # store() must return the number of bytes consumed
+
 
 class SysctlFile(BaseFile):
     FS = "sysctl"
@@ -287,32 +293,36 @@ class SysctlFile(BaseFile):
         self.PATH = kwargs.get("path", getattr(self, "PATH", ""))
         self.MODE = kwargs.get("mode", getattr(self, "MODE", 0o644))
         self.MAXLEN = kwargs.get("maxlen", getattr(self, "MAXLEN", 256))
-        self.INITIAL_VALUE = kwargs.get("INITIAL_VALUE", getattr(self, "INITIAL_VALUE", b""))
+        self.INITIAL_VALUE = kwargs.get(
+            "INITIAL_VALUE", getattr(self, "INITIAL_VALUE", b""))
 
     def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
         """No-op generator."""
-        if False: yield
+        if False:
+            yield
         return 0
 
     def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
         """No-op generator."""
-        if False: yield
+        if False:
+            yield
         return 0
 
     def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: CInt, buffer: CharPtr, lenp: SizeTPtr, ppos: LoffTPtr):
         """
-        Unified sysctl entry point. 
+        Unified sysctl entry point.
         Extracts arguments from ptregs and routes to read() or write().
         """
         if write:
             ret = yield from self.write(ptregs, None, buffer, lenp, ppos)
         else:
             ret = yield from self.read(ptregs, None, buffer, lenp, ppos)
-        
+
         # Ensure we don't return None to the ptregs handler
         ret_val = ret if ret is not None else 0
         ptregs.retval = ret_val if ret_val < 0 else 0
         return ret_val
+
 
 class MtdDevice(BaseFile):
     """
@@ -326,12 +336,14 @@ class MtdDevice(BaseFile):
     WRITE_SIZE: int = 2048
     OOB_SIZE: int = 64
     TYPE: str = "nand"  # 'nand' or 'nor'
-    
+
     def __init__(self, **kwargs):
         self.NAME = kwargs.get("name", getattr(self, "NAME", "mtd_custom"))
         self.SIZE = kwargs.get("size", getattr(self, "SIZE", 0))
-        self.ERASE_SIZE = kwargs.get("erase_size", getattr(self, "ERASE_SIZE", 131072))
-        self.WRITE_SIZE = kwargs.get("write_size", getattr(self, "WRITE_SIZE", 2048))
+        self.ERASE_SIZE = kwargs.get(
+            "erase_size", getattr(self, "ERASE_SIZE", 131072))
+        self.WRITE_SIZE = kwargs.get(
+            "write_size", getattr(self, "WRITE_SIZE", 2048))
         self.OOB_SIZE = kwargs.get("oob_size", getattr(self, "OOB_SIZE", 64))
         self.TYPE = kwargs.get("type", getattr(self, "TYPE", "nand"))
         super().__init__(**kwargs)
@@ -341,7 +353,8 @@ class MtdDevice(BaseFile):
         Reads `length` bytes from the flash starting at `offset` into `buf_ptr`.
         Should return 0 on success, or a negative error code (e.g. -EIO).
         """
-        if False: yield
+        if False:
+            yield
         return 0
 
     def write(self, ptregs: PtRegsWrapper, offset: LoffT, length: SizeT, buf_ptr: CharPtr):
@@ -349,7 +362,8 @@ class MtdDevice(BaseFile):
         Writes `length` bytes from `buf_ptr` into the flash starting at `offset`.
         Should return 0 on success, or a negative error code.
         """
-        if False: yield
+        if False:
+            yield
         return 0
 
     def erase(self, ptregs: PtRegsWrapper, offset: LoffT, length: SizeT):
@@ -357,5 +371,6 @@ class MtdDevice(BaseFile):
         Erases `length` bytes of the flash starting at `offset`.
         Should return 0 on success, or a negative error code.
         """
-        if False: yield
+        if False:
+            yield
         return 0

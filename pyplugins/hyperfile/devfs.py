@@ -4,16 +4,17 @@ from hyper.consts import HYPER_OP as hop
 from typing import List, Dict, Generator, Optional, Tuple
 from hyperfile.models.base import DevFile
 
+
 class Devfs(Plugin):
     def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.proj_dir = self.get_arg("proj_dir")
         self._pending_devfs: List[Tuple[str, DevFile, int, int]] = []
         self._devfs: Dict[str, DevFile] = {}
-        
+
         # Cache for directory IDs (path -> id). Root "" is ID 0.
         self._dev_dirs: Dict[str, int] = {"": 0}
-        
+
         plugins.portal.register_interrupt_handler(
             "devfs", self._hyperdevfs_interrupt_handler)
 
@@ -43,29 +44,29 @@ class Devfs(Plugin):
         """
         kffi = plugins.kffi
         overridden = self._get_overridden_methods(devfs_file)
-        
+
         # Look up the struct definition in dwarffi to extract signatures
         dev_ops_type = kffi.ffi.get_type("struct igloo_dev_ops")
-        
+
         # Build the initialization dictionary dynamically
         init_data = {}
         for name, fn in overridden.items():
             op_signature = None
             if dev_ops_type and name in dev_ops_type.members:
                 member_type = dev_ops_type.members[name].type_info
-                
+
                 # Function pointers are stored as pointers to functions.
                 # We must unwrap the pointer layer so kffi sees the raw function signature.
                 if member_type and member_type.get("kind") == "pointer":
                     op_signature = member_type.get("subtype")
                 else:
                     op_signature = member_type
-            
+
             # Register the callback with the explicit signature found in DWARF
             init_data[name] = yield from kffi.callback(fn, func_type=op_signature)
-            
+
         return kffi.new("struct igloo_dev_ops", init_data)
-    
+
     def register(self, devfs_file: DevFile, path: Optional[str] = None, major: Optional[int] = None, minor: Optional[int] = None):
         return self.register_devfs(devfs_file, path, major, minor)
 
@@ -75,21 +76,25 @@ class Devfs(Plugin):
         else:
             fname = getattr(devfs_file, "PATH", None)
         devfs_file.PATH = fname
-        
+
         if not fname:
-            raise ValueError("DevFile must define PATH or define it in register_devfs")
-            
-        major_num = major if major is not None else getattr(devfs_file, "MAJOR", -1)
-        minor_num = minor if minor is not None else getattr(devfs_file, "MINOR", 0)
-        
+            raise ValueError(
+                "DevFile must define PATH or define it in register_devfs")
+
+        major_num = major if major is not None else getattr(
+            devfs_file, "MAJOR", -1)
+        minor_num = minor if minor is not None else getattr(
+            devfs_file, "MINOR", 0)
+
         if fname.startswith("/dev/"):
             fname = fname[len("/dev/"):]  # Remove leading /dev/
-            
+
         # Deduplicate registration
         if fname not in self._devfs and devfs_file not in [f for _, f, _, _ in self._pending_devfs]:
             plugins.portal.queue_interrupt("devfs")
-            self._pending_devfs.append((fname, devfs_file, major_num, minor_num))
-        
+            self._pending_devfs.append(
+                (fname, devfs_file, major_num, minor_num))
+
         self._devfs[fname] = devfs_file
 
     def _split_dev_path(self, path: str) -> Tuple[str, str]:
@@ -116,7 +121,7 @@ class Devfs(Plugin):
 
         for part in parts:
             cur_path = cur_path + "/" + part if cur_path else part
-            
+
             # Use cache if available
             if cur_path in self._dev_dirs:
                 parent_id = self._dev_dirs[cur_path]
@@ -128,10 +133,10 @@ class Devfs(Plugin):
                 "parent_id": parent_id,
                 "replace": 0
             }
-            
+
             req = kffi.new("struct portal_devfs_dir_req", init_data)
             req_bytes = bytes(req)
-            
+
             # Ensure HYPER_OP_DEVFS_CREATE_OR_LOOKUP_DIR is defined in your hop consts
             result = yield PortalCmd(
                 hop.HYPER_OP_DEVFS_CREATE_OR_LOOKUP_DIR,
@@ -140,21 +145,22 @@ class Devfs(Plugin):
                 None,
                 req_bytes
             )
-            
+
             if result is None or result < 0:
-                raise RuntimeError(f"Failed to create/lookup devfs dir '{cur_path}'")
-            
+                raise RuntimeError(
+                    f"Failed to create/lookup devfs dir '{cur_path}'")
+
             self._dev_dirs[cur_path] = result
             parent_id = result
-            
+
         return parent_id
 
     def _register_devfs(self, devfs_list: List[Tuple[str, DevFile, int, int]]) -> Generator[int, None, None]:
         for fname, devfs_file, major, minor in devfs_list:
-            
+
             # 1. Resolve path hierarchy
             parent_dir, file_name = self._split_dev_path(fname)
-            
+
             try:
                 parent_id = yield from self._get_or_create_dev_dir(parent_dir)
             except RuntimeError as e:
@@ -168,14 +174,14 @@ class Devfs(Plugin):
 
             ops = yield from self._make_ops_struct(devfs_file)
             kffi = plugins.kffi
-            
+
             init_data = {
                 "name": file_name.encode("latin-1", errors="ignore"),
                 "major": major,
                 "minor": minor,
                 "ops": ops,
                 "replace": 1,
-                # Dwarffi safely ignores keys that don't exist on the target struct, 
+                # Dwarffi safely ignores keys that don't exist on the target struct,
                 # entirely replacing the need for 'hasattr(req, "parent_id")' checks!
                 "parent_id": parent_id,
                 "size": getattr(devfs_file, "SIZE", 0),
@@ -183,10 +189,10 @@ class Devfs(Plugin):
                 "is_block": 1 if getattr(devfs_file, "IS_BLOCK", False) else 0,
                 "logical_block_size": getattr(devfs_file, "LOGICAL_BLOCK_SIZE", 512)
             }
-            
+
             req = kffi.new("struct portal_devfs_create_req", init_data)
             req_bytes = bytes(req)
-            
+
             result = yield PortalCmd(
                 hop.HYPER_OP_DEVFS_CREATE_DEVICE,
                 0,
@@ -194,11 +200,11 @@ class Devfs(Plugin):
                 None,
                 req_bytes
             )
-            
+
             if result == 0 or result is None:
                 self.logger.error(f"Failed to register devfs device '{fname}' (kernel returned 0)")
                 continue
-            
+
             self.logger.debug(f"Registered devfs device '{fname}' with kernel")
 
     def _hyperdevfs_interrupt_handler(self) -> Generator[bool, None, bool]:

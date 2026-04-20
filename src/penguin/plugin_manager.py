@@ -161,7 +161,7 @@ class Plugin:
         self.args = ArgsBox(args)
         logname = camel_to_snake(self.name)
         self.logger = getColoredLogger(f"plugins.{logname}")
-    
+
     def ensure_init(self):
         """Ensure that the plugin is fully initialized before use."""
         pass

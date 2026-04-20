@@ -16,6 +16,7 @@ from pengutils.utils.cli_db import syscall_filter
 GREEN = "\x1b[32m"
 RED = "\x1b[31m"
 END = "\x1b[0m"
+PASSED = f"{GREEN}passed{END}"
 FAILED = f"{RED}failed{END}"
 
 
@@ -161,9 +162,11 @@ class Verifier(Plugin):
                         if len(found_strings) == len(test_strs):
                             return True
 
-                    missing_strings = [s for s in test_strs if s not in found_strings]
+                    missing_strings = [
+                        s for s in test_strs if s not in found_strings]
                     if missing_strings:
-                        self.logger.debug(f"Test {name}: Missing strings in syscall log: {missing_strings}")
+                        self.logger.debug(
+                            f"Test {name}: Missing strings in syscall log: {missing_strings}")
                         return False
                     return True
 
@@ -174,7 +177,8 @@ class Verifier(Plugin):
                         if test_str in str(result):
                             return True
 
-                    self.logger.debug(f"Test {name}: String '{test_str}' not found in syscall log")
+                    self.logger.debug(
+                        f"Test {name}: String '{test_str}' not found in syscall log")
                     return False
                 else:
                     self.logger.error(f"Test {name}: No strings to test for")

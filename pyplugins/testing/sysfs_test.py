@@ -2,6 +2,7 @@ from penguin import Plugin, plugins
 from wrappers.ptregs_wrap import PtRegsWrapper
 from hyperfile.models.base import SysFile
 
+
 class SimpleSysfsFile(SysFile):
     PATH = "/sys/kernel/simple_sysfs/value"  # No /sys prefix
 
@@ -31,6 +32,7 @@ class SimpleSysfsFile(SysFile):
         except Exception:
             ptregs.set_retval(-1)
 
+
 class RandomSysfsFile(SysFile):
     PATH = "/sys/kernel/simple_sysfs/random"  # No /sys prefix
 
@@ -45,6 +47,7 @@ class RandomSysfsFile(SysFile):
 
     def store(self, ptregs: PtRegsWrapper, kobj, attr, buf, count):
         ptregs.set_retval(count)
+
 
 class PowerStateSyfsFile(SysFile):
     PATH = "/sys/power/state"  # No /sys prefix
@@ -64,6 +67,7 @@ class PowerStateSyfsFile(SysFile):
         """
         ptregs.set_retval(count)
 
+
 class BaseStateSyfsFile(SysFile):
     PATH = "/sys/s/t/a/state"  # No /sys prefix
 
@@ -81,6 +85,7 @@ class BaseStateSyfsFile(SysFile):
         Accepts any write, discards data, and returns the number of bytes written.
         """
         ptregs.set_retval(count)
+
 
 class SysfsTest(Plugin):
     def __init__(self):
