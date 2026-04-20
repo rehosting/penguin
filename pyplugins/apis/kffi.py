@@ -717,12 +717,33 @@ class KFFI(Plugin):
             "status": tramp_struct.status,
         }
 
-    def callback(self, func, func_type: Optional[Dict] = None) -> Generator[Any, Any, Any]:
+    def callback(self, func, func_type: Optional[Union[Dict, Any]] = None) -> Generator[Any, Any, Any]:
         """
         Register a trampoline callback and return an integer guest virtual address.
 
         Immediately generates the trampoline, sets up the interrupt handler, and returns an integer address.
         """
+        # 1. Automatic Signature Extraction from dwarffi Ptr objects
+        if func_type is not None:
+            # Check if it's a Ptr object (duck-typing for the .signature property)
+            if hasattr(func_type, "signature"):
+                sig = func_type.signature
+                if sig is not None:
+                    # Use the VtypeFunction object directly
+                    func_type = sig
+                else:
+                    # Fallback to points_to_type_info if it's an older/raw dict
+                    pt_info = getattr(func_type, "points_to_type_info", None)
+                    if pt_info and isinstance(pt_info, dict) and pt_info.get("kind") == "function":
+                        func_type = pt_info
+                    else:
+                        raise ValueError("The provided Ptr does not point to a function signature.")
+                        
+            # If it's a VtypeFunction object, convert it to a dictionary so the 
+            # hypervisor can serialize it into the trampoline manager
+            if hasattr(func_type, "to_dict"):
+                func_type = func_type.to_dict()
+
         if func in self._tramp_addresses:
             return self._tramp_addresses[func]
         tramp_info = yield from self.generate_trampoline()
