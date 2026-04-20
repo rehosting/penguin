@@ -62,7 +62,7 @@ from wrappers.generic import Wrapper
 import struct
 from penguin import plugins
 from typing import Any, Dict, List, Optional, Union, Generator
-from dwarffi import Ptr, EnumInstance
+from dwarffi import Ptr
 
 
 class PandaMemReadFail(Exception):
@@ -269,11 +269,14 @@ class PtRegsWrapper(Wrapper):
             val -= 0x10000000000000000
         return val
 
-    def set_retval(self, value: int) -> None:
+    def set_retval(self, value: Any) -> None:
         """
         Set the return value (typically in a0/r0/rax), accounting for 64-bit
         splits on 32-bit architectures if the function type indicates it.
         """
+        # Ensure the value is a standard Python integer before bitwise operations
+        value = int(value)
+        
         is_64bit = False
         func_type = self._extra_context.get("func_type")
         
