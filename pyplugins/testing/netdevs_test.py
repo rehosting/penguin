@@ -9,8 +9,9 @@ class SampleNetDev(Netdev):
     def setup(self, netdev):
         self.logger.info(f"Setting up altered network device {self.name}")
         netdev_ops = yield from kffi.deref(netdev.netdev_ops)
-        netdev_ops.ndo_do_ioctl = yield from kffi.callback(self.ioctl_handler)
-        netdev_ops.ndo_get_stats64 = yield from kffi.callback(self.stats64_handler)
+        # Pass the dwarffi function pointer as the signature source!
+        netdev_ops.ndo_do_ioctl = yield from kffi.callback(self.ioctl_handler, netdev_ops.ndo_do_ioctl)
+        netdev_ops.ndo_get_stats64 = yield from kffi.callback(self.stats64_handler, netdev_ops.ndo_get_stats64)
         yield from mem.write_bytes(netdev.netdev_ops.address, bytes(netdev_ops))
 
     def stats64_handler(self, pt_regs, netdev_ptr, stats64_ptr):
@@ -37,8 +38,8 @@ class SampleNetDev2(Netdev):
     def setup(self, netdev):
         self.logger.info(f"Setting up sample network device {self.name}")
         netdev_ops = yield from kffi.deref(netdev.netdev_ops)
-        netdev_ops.ndo_do_ioctl = yield from kffi.callback(self.ioctl_handler)
-        netdev_ops.ndo_get_stats64 = yield from kffi.callback(self.stats64_handler)
+        netdev_ops.ndo_do_ioctl = yield from kffi.callback(self.ioctl_handler, netdev_ops.ndo_do_ioctl)
+        netdev_ops.ndo_get_stats64 = yield from kffi.callback(self.stats64_handler, netdev_ops.ndo_get_stats64)
         yield from mem.write_bytes(netdev.netdev_ops.address, bytes(netdev_ops))
 
     def stats64_handler(self, pt_regs, netdev_ptr, stats64_ptr):
