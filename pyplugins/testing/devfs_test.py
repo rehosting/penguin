@@ -1,7 +1,8 @@
 from penguin import Plugin, plugins
 from wrappers.ptregs_wrap import PtRegsWrapper
-from hyperfile.models.base import DevFile
+from hyperfile.models.base import DevFile, FilePtr, InodePtr, CharPtr, LoffTPtr, PollTablePtr, VmAreaPtr, FileLockPtr, SizeT, CInt, LoffT
 from hyperfile.models.read import ReadConstBuf
+from dwarffi import Ptr
 
 class BaseTestDevFile(DevFile):
     def _verify_args(self, ptregs: PtRegsWrapper, **kwargs):
@@ -10,9 +11,13 @@ class BaseTestDevFile(DevFile):
             if name == "file" and getattr(self, "IS_BLOCK", False):
                 continue
                 
-            if ptr == 0:
+            # Allow raw int 0 checks, or check the inner .address if it's a Ptr,
+            # or dynamically cast a BoundTypeInstance primitive to an int
+            addr_val = ptr.address if isinstance(ptr, Ptr) else int(ptr)
+                
+            if addr_val == 0:
                 self.logger.error(f"Invalid NULL pointer received for {name}!")
-                ptregs.set_retval(-22) # -EINVAL
+                ptregs.retval = -22 # -EINVAL
                 return False
         return True
 
@@ -21,9 +26,9 @@ class SimpleDevFile(ReadConstBuf, BaseTestDevFile):
     def __init__(self):
         super().__init__(buffer=b"Hello DevFS\n")
         
-    def open(self, ptregs: PtRegsWrapper, inode: int, file: int):
+    def open(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr):
         if self._verify_args(ptregs, inode=inode, file=file):
-            ptregs.set_retval(0)
+            ptregs.retval = 0
 
 class DynamicDevFile(BaseTestDevFile):
     PATH = "dynamic"
@@ -31,28 +36,33 @@ class DynamicDevFile(BaseTestDevFile):
         self.value = 0
         super().__init__()
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff_ptr: int):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff_ptr: LoffTPtr):
         if not self._verify_args(ptregs, file=file, user_buf=user_buf, loff_ptr=loff_ptr): return
         
-        offset = yield from plugins.mem.read_int(loff_ptr)
+        size_val = int(size)
+        offset = yield from plugins.mem.read(loff_ptr, fmt=int, size=8)
         data = f"{self.value}\n".encode("utf-8")
         
-        if size <= 0 or offset >= len(data):
-            return ptregs.set_retval(0)
+        if size_val <= 0 or offset >= len(data):
+            ptregs.retval = 0
+            return 
             
-        chunk = min(size, len(data) - offset)
-        yield from plugins.mem.write_bytes(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write_int(loff_ptr, offset + chunk)
-        ptregs.set_retval(chunk)
+        chunk = min(size_val, len(data) - offset)
+        yield from plugins.mem.write(user_buf, data[offset:offset + chunk])
+        yield from plugins.mem.write(loff_ptr, offset + chunk, size=8)
+        ptregs.retval = chunk
 
-    def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff_ptr: int):
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff_ptr: LoffTPtr):
         if not self._verify_args(ptregs, file=file, user_buf=user_buf, loff_ptr=loff_ptr): return
-        raw = yield from plugins.mem.read_bytes(user_buf, size)
+        
+        size_val = int(size)
+        # Bypass smart dispatcher by using string "bytes"
+        raw = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
         try:
             self.value = int(raw.decode("utf-8").strip())
-            ptregs.set_retval(size)
+            ptregs.retval = size_val
         except ValueError:
-            ptregs.set_retval(-22)
+            ptregs.retval = -22
 
 class Lseek64DevFile(BaseTestDevFile):
     PATH = "lseek64"
@@ -60,23 +70,27 @@ class Lseek64DevFile(BaseTestDevFile):
         self.last_seek = 0
         super().__init__()
 
-    def lseek(self, ptregs: PtRegsWrapper, file: int, offset: int, whence: int):
+    def lseek(self, ptregs: PtRegsWrapper, file: FilePtr, offset: LoffT, whence: CInt):
         if not self._verify_args(ptregs, file=file): return
-        self.last_seek = offset
-        ptregs.set_retval(offset) 
+        offset_val = int(offset)
+        self.last_seek = offset_val
+        ptregs.retval = offset_val 
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff_ptr: int):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff_ptr: LoffTPtr):
         if not self._verify_args(ptregs, file=file, user_buf=user_buf, loff_ptr=loff_ptr): return
-        offset = yield from plugins.mem.read_int(loff_ptr)
+        
+        size_val = int(size)
+        offset = yield from plugins.mem.read(loff_ptr, fmt=int, size=8)
         data = f"{self.last_seek}\n".encode("utf-8")
         
-        if size <= 0 or offset >= len(data):
-            return ptregs.set_retval(0)
+        if size_val <= 0 or offset >= len(data):
+            ptregs.retval = 0
+            return 
             
-        chunk = min(size, len(data) - offset)
-        yield from plugins.mem.write_bytes(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write_int(loff_ptr, offset + chunk)
-        ptregs.set_retval(chunk)
+        chunk = min(size_val, len(data) - offset)
+        yield from plugins.mem.write(user_buf, data[offset:offset + chunk])
+        yield from plugins.mem.write(loff_ptr, offset + chunk, size=8)
+        ptregs.retval = chunk
 
 class TrackingDevFile(BaseTestDevFile):
     PATH = "tracker"
@@ -85,53 +99,56 @@ class TrackingDevFile(BaseTestDevFile):
         self.releases = 0
         super().__init__()
 
-    def open(self, ptregs: PtRegsWrapper, inode: int, file: int):
+    def open(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr):
         if self._verify_args(ptregs, inode=inode, file=file):
             self.opens += 1
-            ptregs.set_retval(0)
+            ptregs.retval = 0
 
-    def release(self, ptregs: PtRegsWrapper, inode: int, file: int):
+    def release(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr):
         if self._verify_args(ptregs, inode=inode, file=file):
             self.releases += 1
-            ptregs.set_retval(0)
+            ptregs.retval = 0
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff_ptr: int):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff_ptr: LoffTPtr):
         if not self._verify_args(ptregs, file=file, user_buf=user_buf, loff_ptr=loff_ptr): return
-        offset = yield from plugins.mem.read_int(loff_ptr)
+        
+        size_val = int(size)
+        offset = yield from plugins.mem.read(loff_ptr, fmt=int, size=8)
         data = f"o:{self.opens} r:{self.releases}\n".encode("utf-8")
         
-        if size <= 0 or offset >= len(data):
-            return ptregs.set_retval(0)
+        if size_val <= 0 or offset >= len(data):
+            ptregs.retval = 0
+            return 
             
-        chunk = min(size, len(data) - offset)
-        yield from plugins.mem.write_bytes(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write_int(loff_ptr, offset + chunk)
-        ptregs.set_retval(chunk)
+        chunk = min(size_val, len(data) - offset)
+        yield from plugins.mem.write(user_buf, data[offset:offset + chunk])
+        yield from plugins.mem.write(loff_ptr, offset + chunk, size=8)
+        ptregs.retval = chunk
 
 class AdvancedOpsDevFile(BaseTestDevFile):
     PATH = "advanced"
     
-    def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, offset_ptr: int):
-        ptregs.set_retval(size)
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
+        ptregs.retval = int(size)
 
-    def fsync(self, ptregs: PtRegsWrapper, file: int, start: int, end: int, datasync: int):
+    def fsync(self, ptregs: PtRegsWrapper, file: FilePtr, start: CInt, end: CInt, datasync: CInt):
         if not self._verify_args(ptregs, file=file): return
-        ptregs.set_retval(0)
+        ptregs.retval = 0
         
-    def poll(self, ptregs: PtRegsWrapper, file: int, poll_table: int):
-        if self._verify_args(ptregs, file=file): ptregs.set_retval(0x41)
+    def poll(self, ptregs: PtRegsWrapper, file: FilePtr, poll_table: PollTablePtr):
+        if self._verify_args(ptregs, file=file): ptregs.retval = 0x41
 
-    def lock(self, ptregs: PtRegsWrapper, file: int, cmd: int, file_lock: int):
+    def lock(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, file_lock: FileLockPtr):
         if not self._verify_args(ptregs, file=file, file_lock=file_lock): return
-        ptregs.set_retval(-22)
+        ptregs.retval = -22
 
-    def mmap(self, ptregs: PtRegsWrapper, file: int, vm_area_struct: int):
+    def mmap(self, ptregs: PtRegsWrapper, file: FilePtr, vm_area_struct: VmAreaPtr):
         if not self._verify_args(ptregs, file=file, vm_area_struct=vm_area_struct): return
-        ptregs.set_retval(-19)
+        ptregs.retval = -19
 
-    def get_unmapped_area(self, ptregs: PtRegsWrapper, file: int, addr: int, len_: int, pgoff: int, flags: int):
+    def get_unmapped_area(self, ptregs: PtRegsWrapper, file: FilePtr, addr: CInt, len_: SizeT, pgoff: CInt, flags: CInt):
         if not self._verify_args(ptregs, file=file): return
-        ptregs.set_retval(addr)
+        ptregs.retval = int(addr)
 
 class FixedDevFile(ReadConstBuf, BaseTestDevFile):
     PATH = "fixeddev"
@@ -152,9 +169,9 @@ class MmapCustomDevFile(ReadConstBuf, BaseTestDevFile):
     def __init__(self):
         super().__init__(buffer=b"mmap_custom\n")
         
-    def mmap(self, ptregs: PtRegsWrapper, file: int, vm_area_struct: int):
+    def mmap(self, ptregs: PtRegsWrapper, file: FilePtr, vm_area_struct: VmAreaPtr):
         if not self._verify_args(ptregs, file=file, vm_area_struct=vm_area_struct): return
-        ptregs.set_retval(-19) # -ENODEV
+        ptregs.retval = -19 # -ENODEV
 
 class VirtualBlockDevice(BaseTestDevFile):
     PATH = "vblock0"
@@ -166,31 +183,36 @@ class VirtualBlockDevice(BaseTestDevFile):
         self.disk_data = bytearray(self.SIZE)
         super().__init__()
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff_ptr: int):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff_ptr: LoffTPtr):
         if not self._verify_args(ptregs, file=file, user_buf=user_buf, loff_ptr=loff_ptr): return
         
-        offset = yield from plugins.mem.read_int(loff_ptr)
-        if offset >= self.SIZE or size <= 0:
-            return ptregs.set_retval(0)
+        size_val = int(size)
+        offset = yield from plugins.mem.read(loff_ptr, fmt=int, size=8)
+        if offset >= self.SIZE or size_val <= 0:
+            ptregs.retval = 0
+            return 
             
-        chunk = min(size, self.SIZE - offset)
-        yield from plugins.mem.write_bytes(user_buf, bytes(self.disk_data[offset:offset+chunk]))
-        yield from plugins.mem.write_int(loff_ptr, offset + chunk)
-        ptregs.set_retval(chunk)
+        chunk = min(size_val, self.SIZE - offset)
+        yield from plugins.mem.write(user_buf, bytes(self.disk_data[offset:offset+chunk]))
+        yield from plugins.mem.write(loff_ptr, offset + chunk, size=8)
+        ptregs.retval = chunk
 
-    def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff_ptr: int):
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff_ptr: LoffTPtr):
         if not self._verify_args(ptregs, file=file, user_buf=user_buf, loff_ptr=loff_ptr): return
         
-        offset = yield from plugins.mem.read_int(loff_ptr)
-        if offset >= self.SIZE or size <= 0:
-            return ptregs.set_retval(-28) # ENOSPC
+        size_val = int(size)
+        offset = yield from plugins.mem.read(loff_ptr, fmt=int, size=8)
+        if offset >= self.SIZE or size_val <= 0:
+            ptregs.retval = -28 # ENOSPC
+            return 
             
-        chunk = min(size, self.SIZE - offset)
-        raw = yield from plugins.mem.read_bytes(user_buf, chunk)
+        chunk = min(size_val, self.SIZE - offset)
+        # Bypass smart dispatcher by using string "bytes"
+        raw = yield from plugins.mem.read(user_buf, chunk, fmt="bytes")
         self.disk_data[offset:offset+chunk] = raw
         
-        yield from plugins.mem.write_int(loff_ptr, offset + chunk)
-        ptregs.set_retval(chunk)
+        yield from plugins.mem.write(loff_ptr, offset + chunk, size=8)
+        ptregs.retval = chunk
 
 
 class DevfsTest(Plugin):

@@ -1,6 +1,7 @@
 from typing import Union
 from penguin import plugins
 from wrappers.ptregs_wrap import PtRegsWrapper
+from .base import FilePtr, CharPtr, LoffTPtr, SizeT
 import os
 
 class ReadBufWrapper:
@@ -21,47 +22,51 @@ class ReadBufWrapper:
             
         super().__init__(**kwargs)
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
         """
         Reads data once, respecting offset and size.
         Returns 0 if offset is beyond the data.
         """
+        size_val = int(size)
+        
         if isinstance(self._data, bytes):
             data_bytes = self._data
         else:
             data_bytes = self._data.encode("utf-8")
         data_len = len(data_bytes)
-        offset = yield from plugins.mem.read_long(loff)
+        
+        # We pass size=8 to support legacy setups where loff is passed as a raw integer
+        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
 
         # Check for cycling
         cycle = getattr(self, "_cycle", False)
 
-        if size <= 0 or offset < 0 or (not cycle and offset >= data_len):
-            ptregs.set_retval(0)
+        if size_val <= 0 or offset < 0 or (not cycle and offset >= data_len):
+            ptregs.retval = 0
             return
 
         if not cycle:
-            chunk = min(size, data_len - offset)
-            yield from plugins.mem.write_bytes(user_buf, data_bytes[offset:offset + chunk])
-            yield from plugins.mem.write_long(loff, offset + chunk)
-            ptregs.set_retval(chunk)
+            chunk = min(size_val, data_len - offset)
+            yield from plugins.mem.write(user_buf, data_bytes[offset:offset + chunk])
+            yield from plugins.mem.write(loff, offset + chunk, size=8)
+            ptregs.retval = chunk
         else:
             # Cycle: repeat buffer forever, write the requested size in one go
             if data_len == 0:
-                ptregs.set_retval(0)
+                ptregs.retval = 0
                 return
             pos = offset % data_len
             # Build the output by repeating the buffer as needed
-            full_repeats = (size + data_len - 1 - pos) // data_len
-            end_pos = (pos + size) % data_len
+            full_repeats = (size_val + data_len - 1 - pos) // data_len
+            end_pos = (pos + size_val) % data_len
             if end_pos > pos:
-                chunk = data_bytes[pos:end_pos]
+                chunk_data = data_bytes[pos:end_pos]
             else:
-                chunk = data_bytes[pos:] + data_bytes * (full_repeats - 1) + data_bytes[:end_pos]
-            chunk = chunk[:size]  # Ensure exact size
-            yield from plugins.mem.write_bytes(user_buf, chunk)
-            yield from plugins.mem.write_long(loff, offset + size)
-            ptregs.set_retval(size)
+                chunk_data = data_bytes[pos:] + data_bytes * (full_repeats - 1) + data_bytes[:end_pos]
+            chunk_data = chunk_data[:size_val]  # Ensure exact size
+            yield from plugins.mem.write(user_buf, chunk_data)
+            yield from plugins.mem.write(loff, offset + size_val, size=8)
+            ptregs.retval = size_val
 
 
 class ReadConstBuf(ReadBufWrapper):
@@ -95,8 +100,8 @@ class ReadDefault:
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
-        ptregs.set_retval(-22)
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+        ptregs.retval = -22
 
 class ReadFromFile:
     '''
@@ -106,11 +111,12 @@ class ReadFromFile:
         self.filename = read_filepath if read_filepath is not None else filename
         super().__init__(**kwargs)
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
-        offset = yield from plugins.mem.read_long(loff)
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+        size_val = int(size)
+        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
         fname = self.filename
         if fname is None:
-            ptregs.set_retval(0)
+            ptregs.retval = 0
             return
         if not os.path.isabs(fname):
             # Paths are relative to cwd or caller will resolve relative path
@@ -120,12 +126,13 @@ class ReadFromFile:
         try:
             with open(fpath, "rb") as f:
                 f.seek(offset)
-                chunk = f.read(size)
+                chunk = f.read(size_val)
         except Exception:
             chunk = b""
-        yield from plugins.mem.write_bytes(user_buf, chunk)
-        yield from plugins.mem.write_long(loff, offset + len(chunk))
-        ptregs.set_retval(len(chunk))
+            
+        yield from plugins.mem.write(user_buf, chunk)
+        yield from plugins.mem.write(loff, offset + len(chunk), size=8)
+        ptregs.retval = len(chunk)
 
 class ReadConstMap(ReadBufWrapper):
     '''
@@ -203,15 +210,16 @@ class ReadConstMapFile(ReadConstMap):
                 f.write(data)
         super().__init__(vals=vals, pad=pad, size=size, **kwargs)
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
-        offset = yield from plugins.mem.read_long(loff)
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+        size_val = int(size)
+        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
         # Read from file
         with open(self.filename, "rb") as f:
             f.seek(offset)
-            chunk = f.read(size)
-        yield from plugins.mem.write_bytes(user_buf, chunk)
-        yield from plugins.mem.write_long(loff, offset + len(chunk))
-        ptregs.set_retval(len(chunk))
+            chunk = f.read(size_val)
+        yield from plugins.mem.write(user_buf, chunk)
+        yield from plugins.mem.write(loff, offset + len(chunk), size=8)
+        ptregs.retval = len(chunk)
 
 class ReadCycle(ReadBufWrapper):
     '''
@@ -250,7 +258,7 @@ class ReadExternalVFS:
         self._func = getattr(getattr(plugins, read_plugin), read_function)
         super().__init__(**kwargs)
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
         yield from self._func(ptregs, file, user_buf, size, loff)
 
 class ReadExternalLegacy:
@@ -263,15 +271,16 @@ class ReadExternalLegacy:
         self._legacy_kwargs = kwargs.copy() # Capture extra args for 'details'
         super().__init__(**kwargs)
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
-        offset = yield from plugins.mem.read_long(loff)
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+        size_val = int(size)
+        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
         
         # Call the legacy function
         # Note: We pass 'self' as the first arg because legacy plugins expected the file instance
         # self.full_path comes from BaseFile via composition
         filename = getattr(self, "full_path", "unknown")
         
-        val = yield from self._func(self, filename, user_buf, size, offset, details=self._legacy_kwargs)
+        val = yield from self._func(self, filename, user_buf, size_val, offset, details=self._legacy_kwargs)
 
         # Handle the polymorphic return types of the old system
         retval = 0
@@ -288,7 +297,7 @@ class ReadExternalLegacy:
         if write_data:
             if isinstance(write_data, str):
                 write_data = write_data.encode("utf-8")
-            yield from plugins.mem.write_bytes(user_buf, write_data)
-            yield from plugins.mem.write_long(loff, offset + len(write_data))
+            yield from plugins.mem.write(user_buf, write_data)
+            yield from plugins.mem.write(loff, offset + len(write_data), size=8)
         
-        ptregs.set_retval(retval)
+        ptregs.retval = retval

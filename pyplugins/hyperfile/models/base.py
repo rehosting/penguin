@@ -2,6 +2,7 @@ from wrappers.ptregs_wrap import PtRegsWrapper
 from typing import Union, Annotated, Any
 from penguin import getColoredLogger, plugins
 from dwarffi import Ptr
+from dwarffi.instances import BoundTypeInstance
 
 # --- DWARFFI Kernel Pointer Aliases ---
 FilePtr = Annotated[Ptr, "struct file *"]
@@ -19,6 +20,11 @@ SizeTPtr = Annotated[Ptr, "size_t *"]
 KobjPtr = Annotated[Ptr, "struct kobject *"]
 AttrPtr = Annotated[Ptr, "struct attribute *"]
 CtlTablePtr = Annotated[Ptr, "struct ctl_table *"]
+
+# --- DWARFFI Value Aliases ---
+CInt = Union[int, BoundTypeInstance]
+SizeT = Annotated[CInt, "size_t"]
+LoffT = Annotated[CInt, "loff_t"]
 
 
 class BaseFile:
@@ -111,21 +117,21 @@ class BaseFile:
 
 class VFSFile(BaseFile):
     """
-    Base class defining the VFS interface, strictly typed with dwarffi Ptrs.
+    Base class defining the VFS interface, strictly typed with dwarffi Ptrs and BoundTypeInstances.
     """
     def open(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr) -> None:
         pass
 
-    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: int, offset_ptr: LoffTPtr) -> None:
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr) -> None:
         pass
 
     def read_iter(self, ptregs: PtRegsWrapper, kiocb: KiocbPtr, iov_iter: IovIterPtr) -> None:
         pass
 
-    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: int, offset_ptr: LoffTPtr) -> None:
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr) -> None:
         pass
 
-    def lseek(self, ptregs: PtRegsWrapper, file: FilePtr, offset: int, whence: int) -> None:
+    def lseek(self, ptregs: PtRegsWrapper, file: FilePtr, offset: LoffT, whence: CInt) -> None:
         pass
 
     def release(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr) -> None:
@@ -134,16 +140,16 @@ class VFSFile(BaseFile):
     def poll(self, ptregs: PtRegsWrapper, file: FilePtr, poll_table_struct: PollTablePtr) -> None:
         pass
 
-    def ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: int, arg: int) -> None:
+    def ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt) -> None:
         pass
 
-    def compat_ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: int, arg: int) -> None:
+    def compat_ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt) -> None:
         pass
 
     def mmap(self, ptregs: PtRegsWrapper, file: FilePtr, vm_area_struct: VmAreaPtr) -> None:
         pass
 
-    def get_unmapped_area(self, ptregs: PtRegsWrapper, file: FilePtr, addr: int, len_: int, pgoff: int, flags: int) -> None:
+    def get_unmapped_area(self, ptregs: PtRegsWrapper, file: FilePtr, addr: CInt, len_: SizeT, pgoff: CInt, flags: CInt) -> None:
         pass
 
 
@@ -171,16 +177,16 @@ class DevFile(VFSFile):
             
         super().__init__(**kwargs)
 
-    def flush(self, ptregs: PtRegsWrapper, file: FilePtr, owner: int) -> None:
+    def flush(self, ptregs: PtRegsWrapper, file: FilePtr, owner: CInt) -> None:
         pass
 
-    def fsync(self, ptregs: PtRegsWrapper, file: FilePtr, start: int, end: int, datasync: int) -> None:
+    def fsync(self, ptregs: PtRegsWrapper, file: FilePtr, start: CInt, end: CInt, datasync: CInt) -> None:
         pass
 
-    def fasync(self, ptregs: PtRegsWrapper, fd: int, file: FilePtr, on: int) -> None:
+    def fasync(self, ptregs: PtRegsWrapper, fd: CInt, file: FilePtr, on: CInt) -> None:
         pass
 
-    def lock(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: int, file_lock: FileLockPtr) -> None:
+    def lock(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, file_lock: FileLockPtr) -> None:
         pass
 
 
@@ -193,7 +199,7 @@ class SysFile(BaseFile):
     def show(self, ptregs: PtRegsWrapper, kobj: KobjPtr, attr: AttrPtr, buf: CharPtr) -> None:
         pass
 
-    def store(self, ptregs: PtRegsWrapper, kobj: KobjPtr, attr: AttrPtr, buf: CharPtr, count: int) -> None:
+    def store(self, ptregs: PtRegsWrapper, kobj: KobjPtr, attr: AttrPtr, buf: CharPtr, count: SizeT) -> None:
         pass
 
 
@@ -246,13 +252,14 @@ class SysfsBridge(SysFile):
             
         return 0
 
-    def store(self, ptregs: PtRegsWrapper, kobj: KobjPtr, attr: AttrPtr, buf: CharPtr, count: int):
-        if count <= 0:
+    def store(self, ptregs: PtRegsWrapper, kobj: KobjPtr, attr: AttrPtr, buf: CharPtr, count: SizeT):
+        count_val = int(count)
+        if count_val <= 0:
             return 0
             
         # Read the data the guest wrote to the kernel buffer
         # Using fmt=bytes to explicitly request raw bytes instead of attempting string interpretation
-        data = yield from plugins.mem.read(buf, size=count, fmt=bytes)
+        data = yield from plugins.mem.read(buf, size=count_val, fmt="bytes")
         
         # Priority 1: Write out to a host file
         if self.write_filepath is not None:
@@ -266,7 +273,7 @@ class SysfsBridge(SysFile):
         else:
             self.logger.info(f"Discarding sysfs store payload: {data}")
             
-        return count  # store() must return the number of bytes consumed
+        return count_val  # store() must return the number of bytes consumed
 
 class SysctlFile(BaseFile):
     FS = "sysctl"
@@ -282,17 +289,17 @@ class SysctlFile(BaseFile):
         self.MAXLEN = kwargs.get("maxlen", getattr(self, "MAXLEN", 256))
         self.INITIAL_VALUE = kwargs.get("INITIAL_VALUE", getattr(self, "INITIAL_VALUE", b""))
 
-    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: int, loff: LoffTPtr):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
         """No-op generator."""
         if False: yield
         return 0
 
-    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: int, loff: LoffTPtr):
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
         """No-op generator."""
         if False: yield
         return 0
 
-    def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: int, buffer: CharPtr, lenp: SizeTPtr, ppos: LoffTPtr):
+    def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: CInt, buffer: CharPtr, lenp: SizeTPtr, ppos: LoffTPtr):
         """
         Unified sysctl entry point. 
         Extracts arguments from ptregs and routes to read() or write().
