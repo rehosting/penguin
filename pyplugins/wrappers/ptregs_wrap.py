@@ -449,87 +449,86 @@ class PtRegsWrapper(Wrapper):
                 val = yield from plugins.mem.read_long(e.addr)
             return val
     
+    def _marshal_typed_arg(self, arg_val: Any, param_type: Any) -> Any:
+        """
+        Internal helper to convert a raw register/stack value into a typed DFFI instance.
+        """
+        if arg_val is None:
+            return None
+
+        ffi = plugins.kffi.ffi
+        
+        # 1. Resolve the type definition using dwarffi's built-in resolution (handles typedefs)
+        # typeof() returns an ISF dictionary (for pointers/arrays) or a Vtype object
+        t = ffi.typeof(param_type)
+        if t is None:
+            return arg_val
+
+        # 2. Extract type 'kind' to determine the correct wrapper logic
+        kind = t.get("kind") if isinstance(t, dict) else getattr(t, "kind", None)
+
+        # 3. Pointer Handling: Return Ptr objects
+        if kind == "pointer":
+            subtype = t.get("subtype") if isinstance(t, dict) else None
+            return Ptr(arg_val, subtype, ffi)
+
+        # 4. Resolve ISF Dictionaries to Concrete Vtypes for Base Types
+        # ffi.new() requires a Vtype object for base types, but typeof() on an ISF dict 
+        # just returns the dict. We must explicitly fetch the Vtype.
+        if isinstance(t, dict):
+            # Resolve typedefs first
+            t = ffi._resolve_type_info(t)
+            t_name = t.get("name")
+            if not t_name:
+                return arg_val
+                
+            t_obj = ffi.get_type(t_name)
+            if t_obj is None:
+                return arg_val
+            t = t_obj
+
+        # 5. Handle all other types (Base Types, Enums, Structs-by-value)
+        try:
+            # This creates the "vtypebasetype" (BoundTypeInstance of a base type).
+            return ffi.new(t, init=arg_val)
+        except Exception as e:
+            # Log the error instead of silently swallowing it for easier debugging
+            if hasattr(self, "logger"):
+                self.logger.debug(f"Failed to marshal argument to {getattr(t, 'name', t)}: {e}")
+            return arg_val
+
     def get_typed_args(self, count: int, convention: Optional[str] = None) -> List[Any]:
         """
         Get a list of function arguments, automatically cast to their dwarffi 
-        types (Ptr, EnumInstance) if func_type context is available.
+        equivalents (Ptr or BoundTypeInstance) using ffi.new().
         """
         func_type = self._extra_context.get("func_type")
-        
-        # 1. Get the raw integers (this natively handles 64-bit stitching)
         raw_args = self.get_args(count, convention=convention, func_type=func_type)
 
         if not func_type or "parameters" not in func_type:
             return raw_args
 
-        typed_args = []
         params = func_type.get("parameters", [])
-        
-        # 2. Cast to dwarffi types
-        for i, arg_val in enumerate(raw_args):
-            if arg_val is None:
-                typed_args.append(None)
-                continue
-
-            if i < len(params):
-                param_type = params[i]
-                if isinstance(param_type, dict):
-                    kind = param_type.get("kind")
-                    
-                    if kind == "pointer":
-                        ptr_type = param_type.get("subtype")
-                        arg_val = Ptr(arg_val, ptr_type, plugins.kffi.ffi)
-                        
-                    elif kind == "enum":
-                        enum_name = param_type.get("name")
-                        enum_def = plugins.kffi.ffi.get_enum(enum_name)
-                        if enum_def:
-                            arg_val = EnumInstance(enum_def, arg_val)
-
-            typed_args.append(arg_val)
-            
-        return typed_args
+        return [
+            self._marshal_typed_arg(val, params[i]) if i < len(params) else val
+            for i, val in enumerate(raw_args)
+        ]
 
     def get_typed_args_portal(self, count: int, convention: Optional[str] = None) -> Generator[Any, Any, List[Any]]:
         """
-        Coroutine/generator version of get_typed_args for portal/coroutine use.
+        Coroutine/generator version of get_typed_args for portal use.
         """
         func_type = self._extra_context.get("func_type")
-        
-        # 1. Get the raw integers via portal (handles stack derefs gracefully)
         raw_args = yield from self.get_args_portal(count, convention=convention, func_type=func_type)
 
         if not func_type or "parameters" not in func_type:
             return raw_args
 
-        typed_args = []
         params = func_type.get("parameters", [])
-        
-        # 2. Cast to dwarffi types
-        for i, arg_val in enumerate(raw_args):
-            if arg_val is None:
-                typed_args.append(None)
-                continue
-
-            if i < len(params):
-                param_type = params[i]
-                if isinstance(param_type, dict):
-                    kind = param_type.get("kind")
-                    
-                    if kind == "pointer":
-                        ptr_type = param_type.get("subtype")
-                        arg_val = Ptr(arg_val, ptr_type, plugins.kffi.ffi)
-                        
-                    elif kind == "enum":
-                        enum_name = param_type.get("name")
-                        enum_def = plugins.kffi.ffi.get_enum(enum_name)
-                        if enum_def:
-                            arg_val = EnumInstance(enum_def, arg_val)
-
-            typed_args.append(arg_val)
-            
-        return typed_args
-
+        return [
+            self._marshal_typed_arg(val, params[i]) if i < len(params) else val
+            for i, val in enumerate(raw_args)
+        ]
     def _read_memory(self, addr: int, size: int, fmt: str = 'int') -> Union[int, bytes, str]:
         """
         Read memory from guest using PANDA's virtual_memory_read (Optimized).
