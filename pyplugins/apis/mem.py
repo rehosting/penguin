@@ -1193,7 +1193,7 @@ class Mem(Plugin):
             raise TypeError(f"Cannot dispatch write for unsupported data type: {type(data)}")
 
     def read(self, addr: Union[int, Ptr], size: Optional[int] = None, 
-             fmt: Union[type, str] = bytes, pid: Optional[int] = None) -> Generator[Any, Any, Any]:
+             fmt: Union[type, str, None] = None, pid: Optional[int] = None) -> Generator[Any, Any, Any]:
         """
         Smart dispatcher for memory reads. Automatically infers sizes and types
         if a dwarffi Ptr is provided.
@@ -1214,62 +1214,54 @@ class Mem(Plugin):
         Any
             The read data in the requested format.
         """
-        # 1. Attempt to infer missing context from dwarffi Ptr
-        if isinstance(addr, Ptr):
-            target_info = addr.points_to_type_info
-            
-            if target_info:
-                target_name = addr.points_to_type_name
-                # Fetch the full Type object from FFI to get accurate size data
-                target_type = plugins.kffi.ffi.get_type(target_name) if target_name else None
-                
-                # Infer size automatically
-                if size is None and target_type and hasattr(target_type, 'size'):
-                    size = target_type.size
-                
-                # If the user didn't explicitly override the default `bytes` format,
-                # infer the best Python format based on the C type
-                if fmt is bytes:
-                    kind = target_info.get("kind")
-                    name = target_info.get("name", "")
-                    
-                    if kind == "base":
-                        if "char" in name:
-                            fmt = str
-                        elif any(x in name for x in ("int", "long", "size_t", "loff_t", "short")):
-                            fmt = int
-                    elif kind == "pointer":
-                        fmt = "ptr"
+        actual_fmt = fmt
+        
+        # 1. Infer size from Ptr using kffi's type system
+        if isinstance(addr, Ptr) and size is None:
+            # Resolve the type name through the DWARF-backed kffi
+            target_type = plugins.kffi.ffi.get_type(addr.points_to_type_name)
+            if target_type and hasattr(target_type, 'size'):
+                size = target_type.size
 
-        # 2. Dispatch based on the determined format
-        if fmt is bytes or fmt == "bytes":
-            if size is None:
-                raise ValueError("Must specify a 'size' to read raw bytes.")
+        # 2. Only attempt to infer format if 'fmt' is None
+        if isinstance(addr, Ptr) and actual_fmt is None:
+            target_info = addr.points_to_type_info
+            if target_info:
+                kind = target_info.get("kind")
+                name = target_info.get("name", "")
+                if kind == "base":
+                    if "char" in name: 
+                        actual_fmt = str
+                    elif any(x in name for x in ("int", "long", "size_t", "loff_t", "short")):
+                        actual_fmt = int
+                elif kind == "pointer":
+                    actual_fmt = "ptr"
+
+        # 3. Default to bytes for raw addresses or ambiguous cases
+        if actual_fmt is None:
+            actual_fmt = bytes
+
+        # 4. Dispatch based on the determined format
+        if actual_fmt is bytes or actual_fmt == "bytes":
+            if size is None: 
+                raise ValueError("Size required for bytes read.")
             return (yield from self.read_bytes(addr, size, pid))
-            
-        elif fmt is str or fmt == "str":
+        elif actual_fmt is str or actual_fmt == "str":
             return (yield from self.read_str(addr, pid))
-            
-        elif fmt is int or fmt == "int":
+        elif actual_fmt is int or actual_fmt == "int":
             if size == 1:
                 return (yield from self.read_byte(addr, pid))
-            elif size == 2:
+            if size == 2:
                 return (yield from self.read_word(addr, pid))
-            elif size == 8:
+            if size == 8:
                 return (yield from self.read_long(addr, pid))
-            elif size == 4:
+            if size == 4: 
                 return (yield from self.read_int(addr, pid))
-            else:
-                # Default to architecture pointer size
-                return (yield from self.read_ptr(addr, pid))
-                
-        elif fmt == "ptr":
             return (yield from self.read_ptr(addr, pid))
-            
-        elif fmt is list or fmt == "list":
-            if size is None:
-                raise ValueError("Must specify an element count ('size') for list reads.")
+        elif actual_fmt == "ptr":
+            return (yield from self.read_ptr(addr, pid))
+        elif actual_fmt is list or actual_fmt == "list":
+            if size is None: 
+                raise ValueError("Count required for list read.")
             return (yield from self.read_int_array(addr, size, pid))
-            
-        else:
-            raise ValueError(f"Unknown read format requested: {fmt}")
+        raise ValueError(f"Unknown read format: {actual_fmt}")
