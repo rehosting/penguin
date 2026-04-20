@@ -3,6 +3,7 @@ from typing import Union, Annotated
 from penguin import getColoredLogger, plugins
 from dwarffi import Ptr
 from dwarffi.instances import BoundTypeInstance
+import inspect
 
 # --- DWARFFI Kernel Pointer Aliases ---
 FilePtr = Annotated[Ptr, "struct file *"]
@@ -313,12 +314,18 @@ class SysctlFile(BaseFile):
         Unified sysctl entry point.
         Extracts arguments from ptregs and routes to read() or write().
         """
-        if write:
-            ret = yield from self.write(ptregs, None, buffer, lenp, ppos)
+        if int(write):
+            res = self.write(ptregs, None, buffer, lenp, ppos)
         else:
-            ret = yield from self.read(ptregs, None, buffer, lenp, ppos)
+            res = self.read(ptregs, None, buffer, lenp, ppos)
+            
+        # 2. Conditionally yield if the method was a generator (e.g. uses memory plugins)
+        if inspect.isgenerator(res):
+            ret = yield from res
+        else:
+            ret = res
 
-        # Ensure we don't return None to the ptregs handler
+        # 3. Ensure a safe numeric return for the KFFI callback
         ret_val = ret if ret is not None else 0
         ptregs.retval = ret_val if ret_val < 0 else 0
         return ret_val

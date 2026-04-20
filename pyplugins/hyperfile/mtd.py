@@ -1,6 +1,7 @@
 import os
 import re
 import io
+import inspect
 from penguin import Plugin, plugins
 from hyper.portal import PortalCmd
 from hyper.consts import HYPER_OP as hop
@@ -98,7 +99,11 @@ class MTD(Plugin):
         if dev:
             try:
                 ptregs.retval = 0
-                ret = yield from dev.read(ptregs, offset_val, length_val, buf_ptr)
+                res = dev.read(ptregs, offset_val, length_val, buf_ptr)
+                if inspect.isgenerator(res):
+                    ret = yield from res
+                else:
+                    ret = res
                 return ret if ret is not None else getattr(ptregs, 'retval', 0)
             except Exception as e:
                 self.logger.error(f"MTD Read Error on {dev.NAME}: {e}")
@@ -137,7 +142,11 @@ class MTD(Plugin):
         if dev:
             try:
                 ptregs.retval = 0
-                ret = yield from dev.write(ptregs, offset_val, length_val, buf_ptr)
+                res = dev.write(ptregs, offset_val, length_val, buf_ptr)
+                if inspect.isgenerator(res):
+                    ret = yield from res
+                else:
+                    ret = res
                 return ret if ret is not None else getattr(ptregs, 'retval', 0)
             except Exception as e:
                 self.logger.error(f"MTD Write Error on {dev.NAME}: {e}")
@@ -166,7 +175,11 @@ class MTD(Plugin):
         if dev:
             try:
                 ptregs.retval = 0
-                ret = yield from dev.erase(ptregs, offset_val, length_val)
+                res = dev.erase(ptregs, offset_val, length_val)
+                if inspect.isgenerator(res):
+                    ret = yield from res
+                else:
+                    ret = res
                 return ret if ret is not None else getattr(ptregs, 'retval', 0)
             except Exception as e:
                 self.logger.error(f"MTD Erase Error on {dev.NAME}: {e}")
