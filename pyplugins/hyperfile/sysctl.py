@@ -30,7 +30,21 @@ class Sysctl(Plugin):
             and hasattr(meth, "__code__") and hasattr(base_meth, "__code__")
             and meth.__code__ is not base_meth.__code__
         ):
-            return plugins.kffi.callback(meth)
+            kffi = plugins.kffi
+            ctl_table_type = kffi.ffi.get_type("struct ctl_table")
+            op_signature = None
+            
+            if ctl_table_type and hasattr(ctl_table_type, "fields") and "proc_handler" in ctl_table_type.fields:
+                member_type = ctl_table_type.fields["proc_handler"].type_info
+                
+                # Function pointers are stored as pointers to functions.
+                # We must unwrap the pointer layer so kffi sees the raw function signature.
+                if member_type and member_type.get("kind") == "pointer":
+                    op_signature = member_type.get("subtype")
+                else:
+                    op_signature = member_type
+                    
+            return kffi.callback(meth, func_type=op_signature)
         return None
     
     def register(self, sysctl_file: SysctlFile, path: Optional[str] = None):
@@ -99,8 +113,21 @@ class Sysctl(Plugin):
             # If any VFS-style or raw handler is present, we use the unified handler
             handler_ptr = 0
             if self._is_customized(sysctl_file):
-                # We always wrap the unified proc_handler entry point
-                handler_ptr = yield from kffi.callback(sysctl_file.proc_handler)
+                # Look up the struct ctl_table definition in dwarffi
+                ctl_table_type = kffi.ffi.get_type("struct ctl_table")
+                op_signature = None
+                
+                # Dynamically extract the proc_handler signature to ensure correct argument packing
+                if ctl_table_type and hasattr(ctl_table_type, "fields") and "proc_handler" in ctl_table_type.fields:
+                    member_type = ctl_table_type.fields["proc_handler"].type_info
+                    
+                    if member_type and member_type.get("kind") == "pointer":
+                        op_signature = member_type.get("subtype")
+                    else:
+                        op_signature = member_type
+                
+                # We always wrap the unified proc_handler entry point using the discovered signature
+                handler_ptr = yield from kffi.callback(sysctl_file.proc_handler, func_type=op_signature)
                 
             init_data = {
                 "dir_path": dir_path.encode("latin-1", errors="ignore"),

@@ -1,9 +1,11 @@
 from penguin import Plugin, plugins
 from wrappers.ptregs_wrap import PtRegsWrapper
-from hyperfile.models.base import ProcFile
+from hyperfile.models.base import ProcFile, FilePtr, InodePtr, CharPtr, LoffTPtr, PollTablePtr, VmAreaPtr, SizeT, CInt, LoffT
 from hyperfile.models.read import ReadConstBuf
 from hyperfile.models.write import WriteDiscard
 from hyperfile.models.ioctl import IoctlZero
+from typing import Union
+from dwarffi import Ptr
 
 
 class SimpleProcfsFile(ReadConstBuf, WriteDiscard, IoctlZero, ProcFile):
@@ -14,10 +16,10 @@ class SimpleProcfsFile(ReadConstBuf, WriteDiscard, IoctlZero, ProcFile):
             kwargs["buffer"] = b"Hello from simple_proc!\n"
         super().__init__(**kwargs)
 
-    def open(self, ptregs: PtRegsWrapper, inode: int, file: int):
+    def open(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr):
         procname = yield from plugins.osi.get_proc_name()
-        print(f"SimpleProcfsFile.open called in {procname}")
-        ptregs.set_retval(0)
+        self.logger.info(f"SimpleProcfsFile.open called in {procname}")
+        ptregs.retval = 0
 
 class CPUinfoFile(ReadConstBuf, ProcFile):
     PATH = "cpuinfo"
@@ -34,24 +36,31 @@ class DynamicProcfsFile(ProcFile):
         self.value = 0
         super().__init__(**kwargs)
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+        size_val = int(size)
         data = f"{self.value}\n".encode("utf-8")
-        offset = yield from plugins.mem.read_long(loff)
-        if size <= 0 or offset >= len(data):
-            ptregs.set_retval(0)
+        
+        # Use fmt=int, size=8 to read the 64-bit loff_t offset
+        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
+        
+        if size_val <= 0 or offset >= len(data):
+            ptregs.retval = 0
             return
-        chunk = min(size, len(data) - offset)
-        yield from plugins.mem.write_bytes(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write_long(loff, offset + chunk)
-        ptregs.set_retval(chunk)
+            
+        chunk = min(size_val, len(data) - offset)
+        yield from plugins.mem.write(user_buf, data[offset:offset + chunk])
+        yield from plugins.mem.write(loff, offset + chunk, size=8)
+        ptregs.retval = chunk
 
-    def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
-        raw = yield from plugins.mem.read_bytes(user_buf, size)
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+        size_val = int(size)
+        # Explicitly request raw bytes to bypass CharPtr's automatic string conversion
+        raw = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
         try:
             self.value = int(raw.decode("utf-8").strip())
-            ptregs.set_retval(size)
-        except:
-            ptregs.set_retval(-1)
+            ptregs.retval = size_val
+        except (ValueError, UnicodeDecodeError):
+            ptregs.retval = -1
 
 class LargeProcFile(ReadConstBuf, ProcFile):
     PATH = "large_file"
@@ -64,20 +73,18 @@ class WriteOnlyProcFile(ProcFile):
     PATH = "write_only_proc"
     MODE = 0o222 # Write-only permissions
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
-        # Should ideally be caught by VFS before this, but good defensive programming
-        ptregs.set_retval(-9) # EBADF
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+        ptregs.retval = -9 # EBADF
 
-    def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
-        ptregs.set_retval(size) # Pretend we successfully consumed the data
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+        ptregs.retval = int(size)
 
 class FailingOpenProcFile(ProcFile):
     PATH = "fail_open_proc"
     MODE = 0o444
 
-    def open(self, ptregs: PtRegsWrapper, inode: int, file: int):
-        # Simulate a file that dynamically refuses to be opened (e.g., EACCES)
-        ptregs.set_retval(-13) 
+    def open(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr):
+        ptregs.retval = -13 # EACCES
 
 class IoctlCustomProcFile(ReadConstBuf, ProcFile):
     PATH = "custom_ioctl_proc"
@@ -88,12 +95,11 @@ class IoctlCustomProcFile(ReadConstBuf, ProcFile):
             kwargs["buffer"] = b"Send me ioctls!\n"
         super().__init__(**kwargs)
 
-    def ioctl(self, ptregs: PtRegsWrapper, file: int, cmd: int, arg: int):
-        # Custom IOCTL handling: respond to a specific magic command
-        if cmd == 0xDEADBEEF:
-            ptregs.set_retval(42)
+    def ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
+        if int(cmd) == 0xDEADBEEF:
+            ptregs.retval = 42
         else:
-            ptregs.set_retval(-25) # ENOTTY (Inappropriate ioctl for device)
+            ptregs.retval = -25 # ENOTTY
 
 class SeekableRWProcFile(ProcFile):
     PATH = "seekable_rw"
@@ -108,24 +114,30 @@ class SeekableRWProcFile(ProcFile):
         self.data = bytearray(b"Initial Data" + b"\x00" * 4084)
         super().__init__(**kwargs)
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
-        offset = yield from plugins.mem.read_long(loff)
-        if offset >= len(self.data) or size <= 0:
-            ptregs.set_retval(0)
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+        size_val = int(size)
+        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
+        
+        if offset >= len(self.data) or size_val <= 0:
+            ptregs.retval = 0
             return
-        chunk = min(size, len(self.data) - offset)
-        yield from plugins.mem.write_bytes(user_buf, bytes(self.data[offset:offset+chunk]))
-        yield from plugins.mem.write_long(loff, offset + chunk)
-        self.logger.debug(f"Read from seekable_rw at offset {offset} with data: {self.data[offset:offset+chunk]}")
-        ptregs.set_retval(chunk)
+            
+        chunk = min(size_val, len(self.data) - offset)
+        yield from plugins.mem.write(user_buf, bytes(self.data[offset:offset+chunk]))
+        yield from plugins.mem.write(loff, offset + chunk, size=8)
+        self.logger.debug(f"Read from seekable_rw at offset {offset}")
+        ptregs.retval = chunk
 
-    def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
-        offset = yield from plugins.mem.read_long(loff)
-        if offset >= len(self.data) or size <= 0:
-            ptregs.set_retval(-28) # ENOSPC
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+        size_val = int(size)
+        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
+        
+        if offset >= len(self.data) or size_val <= 0:
+            ptregs.retval = -28 # ENOSPC
             return
-        chunk = min(size, len(self.data) - offset)
-        raw = yield from plugins.mem.read_bytes(user_buf, chunk)
+            
+        chunk = min(size_val, len(self.data) - offset)
+        raw = yield from plugins.mem.read(user_buf, chunk, fmt="bytes")
         
         # Mutate the underlying buffer
         self.logger.debug(f"Writing to seekable_rw at offset {offset} with data: {raw[:chunk]}")
@@ -134,19 +146,20 @@ class SeekableRWProcFile(ProcFile):
         yield from plugins.mem.write_long(loff, offset + chunk)
         ptregs.set_retval(chunk)
 
-    def lseek(self, ptregs: PtRegsWrapper, file: int, offset: int, whence: int):
-        self.logger.debug(f"lseek called with offset={offset}, whence={whence}")
-        if whence == 0:
-            if offset < 0 or offset > len(self.data):
-                ptregs.set_retval(-22) # EINVAL
+    def lseek(self, ptregs: PtRegsWrapper, file: FilePtr, offset: LoffT, whence: CInt):
+        offset_val = int(offset)
+        whence_val = int(whence)
+        
+        self.logger.debug(f"lseek called with offset={offset_val}, whence={whence_val}")
+        if whence_val == 0: # SEEK_SET
+            if offset_val < 0 or offset_val > len(self.data):
+                ptregs.retval = -22 # EINVAL
             else:
-                # Dynamically write the offset using dwarffi's architecture awareness
-                yield from plugins.kffi.write_field(file, "struct file", "f_pos", offset)
-                
-                # Return the new offset as required by the llseek signature
-                ptregs.set_retval(offset)
+                # Update file->f_pos using kffi field writing
+                yield from plugins.kffi.write_field(file, "struct file", "f_pos", offset_val)
+                ptregs.retval = offset_val
         else:
-            ptregs.set_retval(-22)
+            ptregs.retval = -22
 
 class ReleaseTrackingProcFile(ProcFile):
     PATH = "release_tracker"
@@ -158,51 +171,56 @@ class ReleaseTrackingProcFile(ProcFile):
         self.total_releases = 0
         super().__init__(**kwargs)
 
-    def open(self, ptregs: PtRegsWrapper, inode: int, file: int):
+    def open(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr):
         self.active_opens += 1
         self.total_opens += 1
         self.logger.info(f"release_tracker opened. Active: {self.active_opens}")
-        ptregs.set_retval(0)
+        ptregs.retval = 0
 
-    def release(self, ptregs: PtRegsWrapper, inode: int, file: int):
+    def release(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr):
         self.active_opens -= 1
         self.total_releases += 1
         self.logger.info(f"release_tracker released. Active: {self.active_opens}")
-        ptregs.set_retval(0)
+        ptregs.retval = 0
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+        size_val = int(size)
         data = f"active:{self.active_opens},opens:{self.total_opens},releases:{self.total_releases}\n".encode("utf-8")
-        offset = yield from plugins.mem.read_long(loff)
-        if size <= 0 or offset >= len(data):
-            ptregs.set_retval(0)
+        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
+        
+        if size_val <= 0 or offset >= len(data):
+            ptregs.retval = 0
             return
-        chunk = min(size, len(data) - offset)
-        yield from plugins.mem.write_bytes(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write_long(loff, offset + chunk)
-        ptregs.set_retval(chunk)
+        chunk = min(size_val, len(data) - offset)
+        yield from plugins.mem.write(user_buf, data[offset:offset + chunk])
+        yield from plugins.mem.write(loff, offset + chunk, size=8)
+        ptregs.retval = chunk
 
 
 class PollableProcFile(ProcFile):
     PATH = "pollable_proc"
     MODE = 0o444
 
-    def poll(self, ptregs: PtRegsWrapper, file: int, poll_table: int):
+    def poll(self, ptregs: PtRegsWrapper, file: FilePtr, poll_table: PollTablePtr):
         self.logger.info("pollable_proc polled!")
         # 1 = POLLIN (There is data to read)
         # 64 = POLLRDNORM (Normal data may be read without blocking)
-        # Standard Linux bitmask for a readable file is typically POLLIN | POLLRDNORM (0x41)
-        ptregs.set_retval(0x41)
+        # Standard mask for readable file: POLLIN | POLLRDNORM (0x41)
+        ptregs.retval = 0x41
 
-    def read(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+        size_val = int(size)
         data = b"Data is ready!\n"
-        offset = yield from plugins.mem.read_long(loff)
-        if size <= 0 or offset >= len(data):
-            ptregs.set_retval(0)
+        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
+        
+        if size_val <= 0 or offset >= len(data):
+            ptregs.retval = 0
             return
-        chunk = min(size, len(data) - offset)
-        yield from plugins.mem.write_bytes(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write_long(loff, offset + chunk)
-        ptregs.set_retval(chunk)
+            
+        chunk = min(size_val, len(data) - offset)
+        yield from plugins.mem.write(user_buf, data[offset:offset + chunk])
+        yield from plugins.mem.write(loff, offset + chunk, size=8)
+        ptregs.retval = chunk
 
 # --- NEW MMAP ENFORCEMENT TEST DEVICES ---
 
@@ -224,8 +242,8 @@ class MmapCustomProcFile(ReadConstBuf, ProcFile):
             kwargs["buffer"] = b"mmap_custom\n"
         super().__init__(**kwargs)
         
-    def mmap(self, ptregs: PtRegsWrapper, file: int, vm_area_struct: int):
-        ptregs.set_retval(-19) # -ENODEV
+    def mmap(self, ptregs: PtRegsWrapper, file: FilePtr, vm_area_struct: VmAreaPtr):
+        ptregs.retval = -19 # -ENODEV
 
 
 class ProcTest(Plugin):

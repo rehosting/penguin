@@ -1,6 +1,6 @@
-# pyplugins/testing/sysctl_test.py
 from penguin import Plugin, plugins
-from hyperfile.models.base import SysctlFile
+from wrappers.ptregs_wrap import PtRegsWrapper
+from hyperfile.models.base import SysctlFile, FilePtr, CharPtr, SizeTPtr, LoffTPtr, CtlTablePtr, CInt
 from hyperfile.models.read import ReadConstBuf
 
 # 1. Basic Static Read/Write
@@ -25,28 +25,42 @@ class DynamicSysctlFile(SysctlFile):
         super().__init__()
         self.hit_count = 0
 
-    def read(self, ptregs, file, user_buf, lenp_ptr, ppos_ptr):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, lenp_ptr: SizeTPtr, ppos_ptr: LoffTPtr):
         self.hit_count += 1
         
-        # ppos is an 8-byte loff_t. Use read_long to grab the full offset.
-        offset = yield from plugins.mem.read_long(ppos_ptr)
+        offset = yield from plugins.mem.read(ppos_ptr, fmt=int, size=8)
         data = self.INITIAL_VALUE
         
         if offset >= len(data):
-            yield from plugins.mem.write_ptr(lenp_ptr, 0)
+            yield from plugins.mem.write(lenp_ptr, 0)
+            ptregs.retval = 0
             return 0
 
-        # 2. Write data to the guest's provided user buffer
         chunk = data[offset:]
-        yield from plugins.mem.write_bytes(user_buf, chunk)
+        yield from plugins.mem.write(user_buf, chunk)
         
-        # lenp is a 4-byte size_t on 32-bit architectures
-        yield from plugins.mem.write_ptr(lenp_ptr, len(chunk))
+        yield from plugins.mem.write(lenp_ptr, len(chunk))
+        yield from plugins.mem.write(ppos_ptr, offset + len(chunk), size=8)
         
-        # Write back the full 8-byte loff_t
-        yield from plugins.mem.write_long(ppos_ptr, offset + len(chunk))
-        
+        ptregs.retval = len(chunk)
         return len(chunk)
+
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, lenp_ptr: SizeTPtr, ppos_ptr: LoffTPtr):
+        offset = yield from plugins.mem.read(ppos_ptr, fmt=int, size=8)
+        size = yield from plugins.mem.read(lenp_ptr, fmt=int, size=8)
+        
+        if size <= 0:
+            yield from plugins.mem.write(lenp_ptr, 0)
+            ptregs.retval = 0
+            return 0
+            
+        data = yield from plugins.mem.read(user_buf, size, fmt="bytes")
+        self.INITIAL_VALUE = data
+        
+        yield from plugins.mem.write(ppos_ptr, offset + size, size=8)
+        yield from plugins.mem.write(lenp_ptr, size)
+        ptregs.retval = 0
+        return 0
 
 class UsageCounterSysctl(SysctlFile):
     PATH = "kernel/usage_counter"
@@ -56,33 +70,32 @@ class UsageCounterSysctl(SysctlFile):
         super().__init__()
         self.total_reads = 0
 
-    def proc_handler(self, ptregs, ctl, write, buffer, lenp, ppos):
-        if write:
-            ptregs.set_retval(-22) # -EINVAL
+    def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: CInt, buffer: CharPtr, lenp: SizeTPtr, ppos: LoffTPtr):
+        breakpoint()
+        if int(write):
+            ptregs.retval = -22 # -EINVAL
             return -22
 
-        # loff_t is 8 bytes
-        offset = yield from plugins.mem.read_long(ppos)
+        offset = yield from plugins.mem.read(ppos, fmt=int, size=8)
 
         # FIX: Only increment the counter on the FIRST read of a cat command
         if offset == 0:
             self.total_reads += 1
         
-        # Prepare the data based on the counter state
         data = f"AccessID: {self.total_reads}\n".encode("latin-1")
 
         if offset >= len(data):
-            yield from plugins.mem.write_ptr(lenp, 0)
-            ptregs.set_retval(0)
+            yield from plugins.mem.write(lenp, 0)
+            ptregs.retval = 0
             return 0
 
         chunk = data[offset:]
-        yield from plugins.mem.write_bytes(buffer, chunk)
+        yield from plugins.mem.write(buffer, chunk)
 
-        yield from plugins.mem.write_ptr(lenp, len(chunk))
-        yield from plugins.mem.write_long(ppos, offset + len(chunk))
+        yield from plugins.mem.write(lenp, len(chunk))
+        yield from plugins.mem.write(ppos, offset + len(chunk), size=8)
 
-        ptregs.set_retval(0)
+        ptregs.retval = 0
         return 0
 
 # --- New Sysctl Subsystem Tests ---

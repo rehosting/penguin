@@ -2,6 +2,7 @@ from wrappers.ptregs_wrap import PtRegsWrapper
 from penguin import plugins
 import inspect
 from os.path import isabs, join as pjoin
+from .base import FilePtr, CharPtr, LoffTPtr, SizeT
 
 class WriteDiscard:
     '''
@@ -12,12 +13,12 @@ class WriteDiscard:
         # in case we are mixed with something that does.
         super().__init__(**kwargs)
 
-    def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int) -> None:
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr) -> None:
         """
         Discards all written data.
         Always returns the size written.
         """
-        ptregs.set_retval(size)
+        ptregs.retval = int(size)
 
 class WriteReturnConst:
     '''
@@ -27,8 +28,8 @@ class WriteReturnConst:
         self.const = const
         super().__init__(**kwargs)
 
-    def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int) -> None:
-        ptregs.set_retval(self.const)
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr) -> None:
+        ptregs.retval = self.const
 
 
 class WriteUnhandled(WriteReturnConst):
@@ -50,14 +51,15 @@ class WriteRecord:
             self.written_data = b""
         super().__init__(**kwargs)
 
-    def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int) -> None:
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr) -> None:
         """
         Records all written data into self.written_data.
         Always returns the size written.
         """
-        buf = yield from plugins.mem.read_bytes(user_buf, size)
+        size_val = int(size)
+        buf = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
         self.written_data += buf
-        ptregs.set_retval(size)
+        ptregs.retval = size_val
 
 
 class WriteDefault(WriteRecord):
@@ -78,24 +80,25 @@ class WriteToFile:
         # 2. FORWARD: Pass the rest up.
         super().__init__(**kwargs)
 
-    def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int) -> None:
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr) -> None:
         """
         Writes all data to the specified host file.
         Always returns the size written.
         """
         if not self.write_filepath:
             # Fallback if initialized without a path, or return error
-            ptregs.set_retval(-22) 
+            ptregs.retval = -22 
             return
 
-        buf = yield from plugins.mem.read_bytes(user_buf, size)
-        offset =yield from plugins.mem.read_long(loff)
+        size_val = int(size)
+        buf = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
+        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
         
         with open(self.write_filepath, "wb") as f:
             f.seek(offset)
             f.write(buf)
         
-        ptregs.set_retval(size)
+        ptregs.retval = size_val
 
 
 class WriteFromPlugin:
@@ -134,13 +137,14 @@ class WriteFromPlugin:
         self._old_style = (len(required) == 6 and len(optional) == 1)
         super().__init__(**kwargs)
 
-    def write(self, ptregs: PtRegsWrapper, file: int, user_buf: int, size: int, loff: int):
-        buf = yield from plugins.mem.read_bytes(user_buf, size)
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+        size_val = int(size)
+        buf = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
         if self._old_style:
-            fname = self.full_path
-            result = self._func(self, fname, user_buf, size, loff, buf, self._kwargs)
+            fname = getattr(self, "full_path", "unknown")
+            result = self._func(self, fname, user_buf, size_val, loff, buf, self._kwargs)
             # If the plugin returns a value, use it as retval, else default to size
-            ptregs.set_retval(result if result is not None else size)
+            ptregs.retval = result if result is not None else size_val
         else:
             # New style: (self, ptregs, file, user_buf, size, loff)
             yield from self._func(ptregs, file, user_buf, size, loff)
@@ -151,7 +155,7 @@ class WriteExternalVFS:
         self._func = getattr(getattr(plugins, write_plugin), write_function)
         super().__init__(**kwargs)
 
-    def write(self, ptregs, file, user_buf, size, loff):
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
         yield from self._func(ptregs, file, user_buf, size, loff)
 
 class WriteExternalLegacy:
@@ -161,11 +165,12 @@ class WriteExternalLegacy:
         self._legacy_kwargs = kwargs.copy()
         super().__init__(**kwargs)
 
-    def write(self, ptregs, file, user_buf, size, loff):
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+        size_val = int(size)
         # Legacy writes often expected the buffer to be pre-read for them
-        buf = yield from plugins.mem.read_bytes(user_buf, size)
+        buf = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
         
-        result = self._func(self, self.full_path, user_buf, size, loff, buf, self._legacy_kwargs)
+        result = self._func(self, getattr(self, "full_path", "unknown"), user_buf, size_val, loff, buf, self._legacy_kwargs)
         
         # Legacy plugins usually return the bytes written or an error code
-        ptregs.set_retval(result if result is not None else size)
+        ptregs.retval = result if result is not None else size_val

@@ -1,6 +1,7 @@
 from wrappers.ptregs_wrap import PtRegsWrapper
 from penguin import plugins
 from typing import Union
+from .base import FilePtr, CInt
 
 class IoctlReturnMixin:
     '''
@@ -10,8 +11,8 @@ class IoctlReturnMixin:
         self.ioctl_retval = ioctl_retval
         super().__init__(**kwargs)
 
-    def ioctl(self, ptregs: PtRegsWrapper, file: int, cmd: int, arg: int):
-        ptregs.set_retval(self.ioctl_retval)
+    def ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
+        ptregs.retval = self.ioctl_retval
 
 class IoctlZero(IoctlReturnMixin):
     '''
@@ -39,16 +40,14 @@ class IoctlWriteDataArg:
         self.retval = retval
         super().__init__(**kwargs)
 
-    def ioctl(self, ptregs: PtRegsWrapper, file: int, cmd: int, arg: int):
+    def ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
         # Only write if we have data and a valid pointer
-        if self.ioctl_data and arg != 0:
-            if isinstance(self.ioctl_data, int):
-                yield from plugins.mem.write_int(arg, self.ioctl_data)
-            else:
-                yield from plugins.mem.write_bytes(arg, self.ioctl_data)
+        arg_addr = int(arg)
+        if self.ioctl_data and arg_addr != 0:
+            yield from plugins.mem.write(arg_addr, self.ioctl_data)
         
         # Standard success return
-        ptregs.set_retval(self.retval)
+        ptregs.retval = self.retval
 
 
 class IoctlExternalVFS:
@@ -57,7 +56,7 @@ class IoctlExternalVFS:
         self._func = getattr(getattr(plugins, ioctl_plugin), ioctl_function)
         super().__init__(**kwargs)
 
-    def ioctl(self, ptregs, file, cmd, arg):
+    def ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
         yield from self._func(ptregs, file, cmd, arg)
 
 
@@ -68,10 +67,10 @@ class IoctlExternalLegacy:
         self._legacy_kwargs = kwargs.copy()
         super().__init__(**kwargs)
 
-    def ioctl(self, ptregs, file, cmd, arg):
+    def ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
         # Legacy ioctls were often synchronous and returned the value directly
-        result = self._func(self, self.full_path, cmd, arg, self._legacy_kwargs)
-        ptregs.set_retval(result if result is not None else 0)
+        result = self._func(self, getattr(self, "full_path", "unknown"), int(cmd), int(arg), self._legacy_kwargs)
+        ptregs.retval = result if result is not None else 0
 
 
 class IoctlDispatcher:
@@ -83,27 +82,30 @@ class IoctlDispatcher:
         self.ioctl_handlers = ioctl_handlers or {}
         super().__init__(**kwargs)
 
-    def ioctl(self, ptregs: PtRegsWrapper, file: int, cmd: int, arg: int):
+    def ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
+        cmd_val = int(cmd)
+        
         # 1. Try exact match
-        handler = self.ioctl_handlers.get(cmd)
+        handler = self.ioctl_handlers.get(cmd_val)
         
         # 2. Try string match (sometimes yaml parses numbers as strings)
         if handler is None:
-            handler = self.ioctl_handlers.get(str(cmd))
+            handler = self.ioctl_handlers.get(str(cmd_val))
 
         # 3. Try wildcard
         if handler is None:
             handler = self.ioctl_handlers.get("*")
+            
         # 4. Dispatch or Fail
         if handler:
             # We pass 'self' so handlers can access file attributes if needed
-            yield from handler.handle(self, ptregs, file, cmd, arg)
+            yield from handler.handle(self, ptregs, file, cmd_val, arg)
         else:
             # Default error for unhandled ioctl
-            ptregs.set_retval(-25) # -ENOTTY
+            ptregs.retval = -25 # -ENOTTY
 
 class IoctlHandlerBase:
-    def handle(self, file_obj, ptregs, file, cmd, arg):
+    def handle(self, file_obj, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
         raise NotImplementedError
 
 class IoctlReturnConst(IoctlHandlerBase):
@@ -111,16 +113,16 @@ class IoctlReturnConst(IoctlHandlerBase):
     def __init__(self, val):
         self.val = val
 
-    def handle(self, file_obj, ptregs, file, cmd, arg):
-        ptregs.set_retval(self.val)
-        yield from [] # Ensure it's a generator
+    def handle(self, file_obj, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
+        ptregs.retval = self.val
+        if False: yield # Ensure it's a generator
 
 class IoctlPluginVFS(IoctlHandlerBase):
     """Calls a modern VFS plugin function."""
     def __init__(self, plugin_name, func_name):
         self.func = getattr(getattr(plugins, plugin_name), func_name)
 
-    def handle(self, file_obj, ptregs, file, cmd, arg):
+    def handle(self, file_obj, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
         yield from self.func(ptregs, file, cmd, arg)
 
 class IoctlPluginLegacy(IoctlHandlerBase):
@@ -129,15 +131,15 @@ class IoctlPluginLegacy(IoctlHandlerBase):
         self.func = getattr(getattr(plugins, plugin_name), func_name)
         self.extra_kwargs = extra_kwargs
 
-    def handle(self, file_obj, ptregs, file, cmd, arg):
+    def handle(self, file_obj, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
         # Legacy signature often expects (self, filename, cmd, arg, details)
         # We pass file_obj as 'self' to the plugin
         result = self.func(
             file_obj, 
-            file_obj.full_path, 
-            cmd, 
-            arg, 
+            getattr(file_obj, "full_path", "unknown"), 
+            int(cmd), 
+            int(arg), 
             self.extra_kwargs
         )
-        ptregs.set_retval(result if result is not None else 0)
-        yield from [] # Ensure it's a generator
+        ptregs.retval = result if result is not None else 0
+        if False: yield # Ensure it's a generator
