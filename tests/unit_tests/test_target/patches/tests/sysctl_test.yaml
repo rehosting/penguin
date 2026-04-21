@@ -36,6 +36,24 @@ static_files:
         exit 1
       fi
 
+      # 3. Intercepting In-Kernel Node (vm/drop_caches)
+      # Trigger the write callback 
+      echo 3 > /proc/sys/vm/drop_caches
+
+      # Trigger the read callback and verify the python layer returns the data
+      val_drop=$(/igloo/utils/busybox cat /proc/sys/vm/drop_caches)
+      if [ "$val_drop" != "drop_caches_intercepted" ]; then
+        echo "Error: Expected drop_caches_intercepted, got '$val_drop'"
+        exit 1
+      fi
+
+      # 4. Intercepting In-Kernel Node (kernel/hostname)
+      val_host=$(/igloo/utils/busybox cat /proc/sys/kernel/hostname)
+      if [ "$val_host" != "hostname_intercepted" ]; then
+        echo "Error: Expected hostname_intercepted, got '$val_host'"
+        exit 1
+      fi
+
       echo "/tests/sysctl_test.sh PASS"
       exit 0
     mode: 73
