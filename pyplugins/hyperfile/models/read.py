@@ -311,7 +311,7 @@ class ReadExternalLegacy:
         filename = getattr(self, "full_path", "unknown")
 
         res = self._func(self, filename, user_buf, size_val, offset, details=self._legacy_kwargs)
-        
+
         if inspect.isgenerator(res):
             val = yield from res
         else:

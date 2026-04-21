@@ -152,15 +152,14 @@ class WriteFromPlugin:
         buf = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
         if self._old_style:
             fname = getattr(self, "full_path", "unknown")
-            res = self._func(self, fname, user_buf,
-                                size_val, loff, buf, self._kwargs)
-                                
+            res = self._func(self, fname, user_buf, size_val, loff, buf, self._kwargs)
+
             # Smart router for generators
             if inspect.isgenerator(res):
                 result = yield from res
             else:
                 result = res
-                
+
             # If the plugin returns a value, use it as retval, else default to size
             ptregs.retval = result if result is not None else size_val
         else:
@@ -196,8 +195,7 @@ class WriteExternalLegacy:
         # Legacy writes often expected the buffer to be pre-read for them
         buf = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
 
-        res = self._func(self, getattr(self, "full_path", "unknown"),
-                            user_buf, size_val, loff, buf, self._legacy_kwargs)
+        res = self._func(self, getattr(self, "full_path", "unknown"), user_buf, size_val, loff, buf, self._legacy_kwargs)
 
         if inspect.isgenerator(res):
             result = yield from res
