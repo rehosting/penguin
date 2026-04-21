@@ -123,6 +123,59 @@ class CollisionSysctlFile(ReadConstBuf, SysctlFile):
         super().__init__(buffer=b"collision_ok\n")
 
 
+# 4. In-Place Kernel Interceptions
+
+class DropCachesSysctl(SysctlFile):
+    """Replaces the internal /proc/sys/vm/drop_caches handler"""
+    PATH = "vm/drop_caches"
+    MODE = 0o644 # Make it readable for testing the intercept string
+
+    def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: CInt, buffer: CharPtr, lenp: SizeTPtr, ppos: LoffTPtr):
+        if int(write):
+            # Acknowledge the write to avoid shell errors
+            size = yield from plugins.mem.read(lenp, fmt=int, size=8)
+            yield from plugins.mem.write(ppos, size, size=8)
+            ptregs.retval = 0
+            return 0
+        else:
+            # Send custom data on read to prove the Python handler was executed
+            offset = yield from plugins.mem.read(ppos, fmt=int, size=8)
+            if offset == 0:
+                data = b"drop_caches_intercepted\n"
+                yield from plugins.mem.write(buffer, data)
+                yield from plugins.mem.write(lenp, len(data))
+                yield from plugins.mem.write(ppos, len(data), size=8)
+            else:
+                yield from plugins.mem.write(lenp, 0)
+            
+            ptregs.retval = 0
+            return 0
+
+class KernelHostnameSysctl(SysctlFile):
+    """Replaces the internal /proc/sys/kernel/hostname handler"""
+    PATH = "kernel/hostname"
+    MODE = 0o644
+
+    def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: CInt, buffer: CharPtr, lenp: SizeTPtr, ppos: LoffTPtr):
+        if int(write):
+            size = yield from plugins.mem.read(lenp, fmt=int, size=8)
+            yield from plugins.mem.write(ppos, size, size=8)
+            ptregs.retval = 0
+            return 0
+        else:
+            offset = yield from plugins.mem.read(ppos, fmt=int, size=8)
+            if offset == 0:
+                data = b"hostname_intercepted\n"
+                yield from plugins.mem.write(buffer, data)
+                yield from plugins.mem.write(lenp, len(data))
+                yield from plugins.mem.write(ppos, len(data), size=8)
+            else:
+                yield from plugins.mem.write(lenp, 0)
+            
+            ptregs.retval = 0
+            return 0
+
+
 class SysctlTest(Plugin):
     def __init__(self):
         # Register our test files
@@ -136,3 +189,7 @@ class SysctlTest(Plugin):
         self.dynamic_file = DynamicSysctlFile()
         plugins.sysctl.register_sysctl(self.dynamic_file)
         plugins.sysctl.register_sysctl(UsageCounterSysctl())
+
+        # 3. Registering Existing Kernel Sysctl Overrides
+        plugins.sysctl.register_sysctl(DropCachesSysctl())
+        plugins.sysctl.register_sysctl(KernelHostnameSysctl())
