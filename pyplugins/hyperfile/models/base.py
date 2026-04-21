@@ -318,7 +318,7 @@ class SysctlFile(BaseFile):
             res = self.write(ptregs, None, buffer, lenp, ppos)
         else:
             res = self.read(ptregs, None, buffer, lenp, ppos)
-            
+
         # 2. Conditionally yield if the method was a generator (e.g. uses memory plugins)
         if inspect.isgenerator(res):
             ret = yield from res

@@ -84,12 +84,12 @@ class IoctlExternalLegacy:
         # Legacy ioctls were often synchronous and returned the value directly
         res = self._func(self, getattr(self, "full_path", "unknown"), int(
             cmd), int(arg), self._legacy_kwargs)
-            
+
         if inspect.isgenerator(res):
             result = yield from res
         else:
             result = res
-            
+
         ptregs.retval = result if result is not None else 0
 
 
@@ -172,10 +172,10 @@ class IoctlPluginLegacy(IoctlHandlerBase):
             int(arg),
             self.extra_kwargs
         )
-        
+
         if inspect.isgenerator(res):
             result = yield from res
         else:
             result = res
-            
+
         ptregs.retval = result if result is not None else 0

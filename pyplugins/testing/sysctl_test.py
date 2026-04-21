@@ -128,7 +128,7 @@ class CollisionSysctlFile(ReadConstBuf, SysctlFile):
 class DropCachesSysctl(SysctlFile):
     """Replaces the internal /proc/sys/vm/drop_caches handler"""
     PATH = "vm/drop_caches"
-    MODE = 0o644 # Make it readable for testing the intercept string
+    MODE = 0o644  # Make it readable for testing the intercept string
 
     def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: CInt, buffer: CharPtr, lenp: SizeTPtr, ppos: LoffTPtr):
         if int(write):
@@ -147,9 +147,10 @@ class DropCachesSysctl(SysctlFile):
                 yield from plugins.mem.write(ppos, len(data), size=8)
             else:
                 yield from plugins.mem.write(lenp, 0)
-            
+
             ptregs.retval = 0
             return 0
+
 
 class KernelHostnameSysctl(SysctlFile):
     """Replaces the internal /proc/sys/kernel/hostname handler"""
@@ -171,7 +172,7 @@ class KernelHostnameSysctl(SysctlFile):
                 yield from plugins.mem.write(ppos, len(data), size=8)
             else:
                 yield from plugins.mem.write(lenp, 0)
-            
+
             ptregs.retval = 0
             return 0
 

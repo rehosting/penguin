@@ -592,7 +592,7 @@ class KFFI(Plugin):
         # ends up in the upper 32 bits of the 64-bit result field.
         if self._is_big_endian and self._is_32bit:
             result = result >> 32
-        
+
         # +++ NEW FIX: Truncate garbage upper bits for 32-bit returns +++
         if not is_64bit_return:
             result &= 0xFFFFFFFF
