@@ -173,7 +173,7 @@ class AdvancedOpsDevFile(BaseTestDevFile):
 
 class FixedDevFile(ReadConstBuf, BaseTestDevFile):
     PATH = "fixeddev"
-    MAJOR = 242
+    MAJOR = 120 # 120-127 is experimental range
     MINOR = 42
 
     def __init__(self):
