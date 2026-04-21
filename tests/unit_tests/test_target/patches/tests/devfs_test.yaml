@@ -91,8 +91,8 @@ static_files:
       # 6. Test Fixed Major/Minor
       MAJOR_HEX=$(/igloo/utils/busybox stat -c "%t" /dev/fixeddev)
       MINOR_HEX=$(/igloo/utils/busybox stat -c "%T" /dev/fixeddev)
-      if [ "$MAJOR_HEX" != "f2" ] || [ "$MINOR_HEX" != "2a" ]; then
-         echo "Error: /dev/fixeddev major/minor mismatch (got $MAJOR_HEX:$MINOR_HEX instead of f2:2a)"
+      if [ "$MAJOR_HEX" != "78" ] || [ "$MINOR_HEX" != "2a" ]; then
+         echo "Error: /dev/fixeddev major/minor mismatch (got $MAJOR_HEX:$MINOR_HEX instead of 78:2a)"
          exit 1
       fi
 
