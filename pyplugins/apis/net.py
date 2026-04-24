@@ -2,6 +2,7 @@ from penguin import Plugin, plugins, getColoredLogger
 from typing import Optional, List, Iterator, Generator, Set, Dict, Type
 from hyper.portal import PortalCmd
 from hyper.consts import HYPER_OP as hop
+import re
 
 
 class Netdev:
@@ -281,3 +282,32 @@ class Netdevs(Plugin):
         state = bool(result)
         self.logger.debug(f"Netdev '{name}' state is {'up' if state else 'down'}")
         return state
+
+    def ensure_netdev_from_path(self, filepath: str):
+        """
+        Analyzes a normalized pseudofile path and extracts the network interface name.
+        """
+        if not filepath:
+            return
+
+        patterns = [
+            # Matches /proc/sys/net/ipv4/conf/br0/...
+            # and     /proc/sys/net/ipv6/neigh/eth0/...
+            r"^/proc/sys/net/ipv[46]/(?:conf|neigh)/([^/]+)(?:/|$)",
+            
+            # Matches /sys/class/net/ra1/...
+            r"^/sys/class/net/([^/]+)(?:/|$)",
+            
+            # Matches /sys/devices/virtual/net/br0/...
+            r"^/sys/devices/virtual/net/([^/]+)(?:/|$)"
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, filepath)
+            if match:
+                iface = match.group(1)
+                if iface not in ("all", "default", "lo"):
+                    if iface not in self._netdev_classes and iface not in self._pending_netdevs:
+                        self.logger.debug(f"Auto-registering missing netdev '{iface}' referenced by {filepath}")
+                        self.register_netdev(iface, exist_ok=True)
+                return

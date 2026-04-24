@@ -64,6 +64,7 @@ class Sysctl(Plugin):
                 "SysctlFile must define PATH or define it in register_sysctl")
 
         sysctl_file.PATH = fname
+        plugins.netdevs.ensure_netdev_from_path(sysctl_file.full_path)
 
         # Normalize the path to strip out common prefixes
         if fname.startswith("/proc/sys/"):
