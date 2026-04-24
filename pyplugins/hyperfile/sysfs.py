@@ -68,6 +68,7 @@ class Sysfs(Plugin):
         else:
             fname = getattr(sysfs_file, "PATH", None)
         sysfs_file.PATH = fname
+        plugins.netdevs.ensure_netdev_from_path(sysfs_file.full_path)
         if not fname:
             raise ValueError(
                 "SysFile must define PATH or define it in register_sysfs")
