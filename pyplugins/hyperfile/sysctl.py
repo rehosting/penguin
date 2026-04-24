@@ -54,25 +54,13 @@ class Sysctl(Plugin):
         """
         Register a SysctlFile for later portal registration.
         """
-        if path:
-            fname = path
-        else:
-            fname = getattr(sysctl_file, "PATH", None)
-
-        if not fname:
-            raise ValueError(
-                "SysctlFile must define PATH or define it in register_sysctl")
-
-        sysctl_file.PATH = fname
+        raw_path = path if path else getattr(sysctl_file, "PATH", None)
+        if not raw_path:
+            raise ValueError("SysctlFile must define PATH or define it in register_sysctl")
+        sysctl_file.PATH = raw_path
         plugins.netdevs.ensure_netdev_from_path(sysctl_file.full_path)
 
-        # Normalize the path to strip out common prefixes
-        if fname.startswith("/proc/sys/"):
-            fname = fname[len("/proc/sys/"):]
-        elif fname.startswith("sys/"):
-            fname = fname[len("sys/"):]
-
-        fname = fname.lstrip("/")
+        fname = sysctl_file.fs_relative_path
 
         # ENFORCE SINGLE REGISTRATION
         if fname in self._sysctls:

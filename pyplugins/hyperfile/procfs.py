@@ -72,22 +72,18 @@ class Proc(Plugin):
         """
         Register a ProcFile for later portal registration.
         """
-        if path:
-            fname = path
-        else:
-            fname = getattr(proc_file, "PATH", None)
-        if not fname:
+        raw_path = path if path else getattr(proc_file, "PATH", None)
+        if not raw_path:
             raise ValueError("ProcFile must define PATH or define it in register_proc")
+        proc_file.PATH = raw_path
+        plugins.netdevs.ensure_netdev_from_path(proc_file.full_path)
 
-        proc_file.PATH = fname
-        if fname.startswith("/proc/"):
-            fname = fname[len("/proc/"):]  # Remove leading /proc/
+        fname = proc_file.fs_relative_path
 
-        # 1. ENFORCE SINGLE REGISTRATION: Reject duplicates instantly
         if fname in self._procs:
             raise ValueError(f"Cannot register '{fname}': A procfs file is already registered at this path.")
 
-        if proc_file not in self._pending_procs:
+        if not any(f == fname for f, _ in self._pending_procs):
             plugins.portal.queue_interrupt("procfs")
             self._pending_procs.append((fname, proc_file))
         self._procs[fname] = proc_file
