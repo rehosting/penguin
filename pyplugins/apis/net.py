@@ -11,6 +11,7 @@ class Netdev:
     """
     name: str
     netdev_ptr: int
+    ALLOW_DELETE: bool = True # Whether this netdev can be deleted from the kernel (default True)
 
     def __init__(self, name: str, *args, **kwargs):
         self.name = name
@@ -204,8 +205,19 @@ class Netdevs(Plugin):
             if len(name) > 15:
                 self.logger.error(f"Netdev name '{name}' exceeds 15 character limit and will be ignored")
                 continue
-            buf = name.encode("latin-1", errors="ignore") + b"\0"
-            result = yield PortalCmd(hop.HYPER_OP_REGISTER_NETDEV, 0, len(buf), None, buf)
+            
+            # Determine if this interface should be removable based on its Python class
+            # Default to True if no backing class is explicitly registered
+            netdev_instance = self._netdev_instances.get(name, self._netdev_instances.get("*", None))
+            allow_delete = getattr(netdev_instance, "ALLOW_DELETE", True) if netdev_instance else True
+            
+            # Convert boolean to integer for the portal command
+            flag_size = 1 if allow_delete else 0
+
+            buf = name.encode("latin-1", errors="ignore").ljust(16, b"\0")  # Pad to 16 bytes for kernel compatibility
+            
+            # Pass flag_size in the 'size' parameter (which maps to mem_region->header.size in C)
+            result = yield PortalCmd(hop.HYPER_OP_REGISTER_NETDEV, 0, flag_size, None, buf)
             is_up = yield from self.set_netdev_state(name, True)
             if not is_up:
                 self.logger.error(f"Failed to set netdev '{name}' UP state")
