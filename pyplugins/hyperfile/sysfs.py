@@ -63,18 +63,12 @@ class Sysfs(Plugin):
         return self.register_sysfs(sysfs_file, path, mode)
 
     def register_sysfs(self, sysfs_file: SysFile, path: Optional[str] = None, mode: int = 0o644):
-        if path:
-            fname = path
-        else:
-            fname = getattr(sysfs_file, "PATH", None)
-        sysfs_file.PATH = fname
+        raw_path = path if path else getattr(sysfs_file, "PATH", None)
+        if not raw_path:
+            raise ValueError("SysFile must define PATH or define it in register_sysfs")
+        sysfs_file.PATH = raw_path
         plugins.netdevs.ensure_netdev_from_path(sysfs_file.full_path)
-        if not fname:
-            raise ValueError(
-                "SysFile must define PATH or define it in register_sysfs")
-        if fname.startswith("/sys/"):
-            fname = fname[len("/sys/"):]
-        # Fix: _pending_sysfs contains (fname, sysfs_file, mode)
+        fname = sysfs_file.fs_relative_path
         if fname not in self._sysfs and sysfs_file not in [f for _, f, _ in self._pending_sysfs]:
             plugins.portal.queue_interrupt("sysfs")
             self._pending_sysfs.append((fname, sysfs_file, mode))

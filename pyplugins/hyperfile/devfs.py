@@ -71,26 +71,26 @@ class Devfs(Plugin):
         return self.register_devfs(devfs_file, path, major, minor)
 
     def register_devfs(self, devfs_file: DevFile, path: Optional[str] = None, major: Optional[int] = None, minor: Optional[int] = None):
-        if path:
-            fname = path
-        else:
-            fname = getattr(devfs_file, "PATH", None)
-        devfs_file.PATH = fname
+        """
+        Register a DevFile for later portal registration.
+        """
+        raw_path = path if path else getattr(devfs_file, "PATH", None)
+        if not raw_path:
+            raise ValueError("DevFile must define PATH or define it in register_devfs")
+        devfs_file.PATH = raw_path
 
-        if not fname:
-            raise ValueError(
-                "DevFile must define PATH or define it in register_devfs")
+        plugins.netdevs.ensure_netdev_from_path(devfs_file.full_path)
 
-        major_num = major if major is not None else getattr(
-            devfs_file, "MAJOR", -1)
-        minor_num = minor if minor is not None else getattr(
-            devfs_file, "MINOR", 0)
+        fname = devfs_file.fs_relative_path
 
-        if fname.startswith("/dev/"):
-            fname = fname[len("/dev/"):]  # Remove leading /dev/
+        major_num = major if major is not None else getattr(devfs_file, "MAJOR", -1)
+        minor_num = minor if minor is not None else getattr(devfs_file, "MINOR", 0)
 
-        # Deduplicate registration
-        if fname not in self._devfs and devfs_file not in [f for _, f, _, _ in self._pending_devfs]:
+        if fname in self._devfs:
+            raise ValueError(f"Cannot register '{fname}': A devfs file is already registered at this path.")
+
+        # Check against the 4-tuple format (fname, devfs_file, major, minor)
+        if not any(f == fname for f, _, _, _ in self._pending_devfs):
             plugins.portal.queue_interrupt("devfs")
             self._pending_devfs.append(
                 (fname, devfs_file, major_num, minor_num))
