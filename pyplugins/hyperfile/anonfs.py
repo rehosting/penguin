@@ -103,7 +103,7 @@ class AnonFS(Plugin):
         # Assuming you added HYPER_OP_ANONFS_CREATE_FILE to hyper.consts.HYPER_OP
         fd = yield PortalCmd(hop.HYPER_OP_ANONFS_CREATE_FILE, 0, len(req_bytes), None, req_bytes)
 
-        if fd < 0:
+        if fd is None or fd < 0:
             self.logger.error(
                 f"Kernel rejected anon file creation for '{name}', code: {fd}")
             return -1
@@ -136,7 +136,7 @@ class AnonFS(Plugin):
         # Assuming you added HYPER_OP_SOCKFS_CREATE_SOCKET to hyper.consts.HYPER_OP
         fd = yield PortalCmd(hop.HYPER_OP_SOCKFS_CREATE_SOCKET, 0, len(req_bytes), None, req_bytes)
 
-        if fd < 0:
+        if fd is None or fd < 0:
             self.logger.error(f"Kernel rejected socket creation, code: {fd}")
             return -1
 
