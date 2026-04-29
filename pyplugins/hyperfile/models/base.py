@@ -100,7 +100,7 @@ class BaseFile:
         """
         if self.PATH is None:
             return "unknown_path"
-            
+
         pth = self.PATH
 
         # Strip prefixes based on the filesystem type
@@ -109,36 +109,36 @@ class BaseFile:
                 pth = pth[len("/proc/"):]
             elif pth.startswith("proc/"):
                 pth = pth[len("proc/"):]
-                
-            # Sysctls fall under procfs, but the portal expects paths relative 
+
+            # Sysctls fall under procfs, but the portal expects paths relative
             # to /proc/sys/. If this object is a sysctl, strip "sys/" if it remains.
             if self.__class__.__name__ == "SysctlFile":
                 if pth.startswith("sys/"):
                     pth = pth[len("sys/"):]
-                    
+
         # Future-proofing in case you ever explicitly set FS="sysctl" instead of "procfs"
         elif self.FS == "sysctl":
-            if pth.startswith("/proc/sys/"): 
+            if pth.startswith("/proc/sys/"):
                 pth = pth[len("/proc/sys/"):]
-            elif pth.startswith("proc/sys/"): 
+            elif pth.startswith("proc/sys/"):
                 pth = pth[len("proc/sys/"):]
-            elif pth.startswith("/sys/"): 
+            elif pth.startswith("/sys/"):
                 pth = pth[len("/sys/"):]
-            elif pth.startswith("sys/"): 
+            elif pth.startswith("sys/"):
                 pth = pth[len("sys/"):]
-            
+
         elif self.FS == "devfs":
             if pth.startswith("/dev/"):
                 pth = pth[len("/dev/"):]
             elif pth.startswith("dev/"):
                 pth = pth[len("dev/"):]
-                
+
         elif self.FS == "sysfs":
             if pth.startswith("/sys/"):
                 pth = pth[len("/sys/"):]
             elif pth.startswith("sys/"):
                 pth = pth[len("sys/"):]
-                
+
         # Always strip any lingering leading slash so it is truly relative
         return pth.lstrip("/")
 
@@ -150,9 +150,9 @@ class BaseFile:
         """
         if self.PATH is None:
             return "unknown_path"
-            
+
         rel_path = self.fs_relative_path
-        
+
         if self.FS == "procfs":
             return f"/proc/{rel_path}"
         elif self.FS == "devfs":
