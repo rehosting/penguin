@@ -1,0 +1,83 @@
+plugins:
+  anonfs_test: {} 
+  verifier:
+    conditions:
+      anonfs_test_pass:
+        type: file_contains
+        file: console.log
+        string: "/tests/anonfs_test.sh PASS"
+      anonfs_test_counter:
+        type: file_contains
+        file: anonfs_test.txt
+        string: "AnonFS Counter Test: PASS"
+      anonfs_test_socket:
+        type: file_contains
+        file: anonfs_test.txt
+        string: "MOCK_SOCKET_RECEIVED:6"
+
+static_files:
+  /tests/anonfs_test.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+
+      echo "Running anonfs and sockfs comprehensive tests..."
+
+      # ---------------------------------------------------------
+      # 1. Test AnonFS Injection & VFS Logic
+      # ---------------------------------------------------------
+      # The python model is initialized to 10. Writing 5 to it adds to the counter.
+      echo "5" > /tmp/anon_counter
+
+      # Read back the value, expecting 15 (10 + 5).
+      RES=$(/igloo/utils/busybox cat /tmp/anon_counter)
+      if [ "$RES" != "15" ]; then
+        echo "Error: AnonFS counter failed. Expected 15 but got $RES"
+        exit 1
+      fi
+
+      # ---------------------------------------------------------
+      # 2. Test SockFS Injection & Protocol Routing
+      # ---------------------------------------------------------
+      # Writing to a socket FD from the shell triggers vfs_write -> sock_write_iter -> sendmsg.
+      # "HELLO" + newline = 6 bytes.
+      echo "HELLO" > /tmp/anon_sock
+
+      # ---------------------------------------------------------
+      # 3. MicroPython File Type Verification
+      # ---------------------------------------------------------
+      /igloo/utils/micropython /tests/anonfs_stat_test.py
+
+      echo "/tests/anonfs_test.sh PASS"
+      exit 0
+    mode: 73
+
+  /tests/anonfs_stat_test.py:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/micropython
+      import uos
+      import sys
+
+      S_IFMT = 0o170000
+      S_IFSOCK = 0o140000
+
+      # Test Socket (MUST report as a true socket object)
+      f_sock = open("/tmp/anon_sock", "w")
+      st_sock = uos.stat("/proc/self/fd/%d" % f_sock.fileno())
+      if (st_sock[0] & S_IFMT) != S_IFSOCK:
+          print("Error: /tmp/anon_sock is NOT a socket! Mode: " + oct(st_sock[0]))
+          sys.exit(1)
+      f_sock.close()
+
+      # Test Counter (Should NOT be a socket, it should be an anonymous inode)
+      f_counter = open("/tmp/anon_counter", "w")
+      st_counter = uos.stat("/proc/self/fd/%d" % f_counter.fileno())
+      if (st_counter[0] & S_IFMT) == S_IFSOCK:
+          print("Error: /tmp/anon_counter is incorrectly reporting as a socket!")
+          sys.exit(1)
+      f_counter.close()
+
+      print("anonfs stat tests pass")
+    mode: 73
