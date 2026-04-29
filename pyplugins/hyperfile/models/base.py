@@ -22,6 +22,11 @@ KobjPtr = Annotated[Ptr, "struct kobject *"]
 AttrPtr = Annotated[Ptr, "struct attribute *"]
 CtlTablePtr = Annotated[Ptr, "struct ctl_table *"]
 
+# Socket Specific Pointers
+SocketPtr = Annotated[Ptr, "struct socket *"]
+SockAddrPtr = Annotated[Ptr, "struct sockaddr *"]
+MsgHdrPtr = Annotated[Ptr, "struct msghdr *"]
+
 # --- DWARFFI Value Aliases ---
 CInt = Union[int, BoundTypeInstance]
 SizeT = Annotated[CInt, "size_t"]
@@ -84,7 +89,7 @@ class BaseFile:
         for cls in type(self).__mro__:
             if method_name in cls.__dict__:
                 # If the method belongs to one of our framework base classes, it's not custom
-                if cls.__name__ in ('BaseFile', 'VFSFile', 'ProcFile', 'DevFile', 'SysFile', 'SysfsBridge', 'SysctlFile'):
+                if cls.__name__ in ('BaseFile', 'VFSFile', 'ProcFile', 'DevFile', 'SysFile', 'SysfsBridge', 'SysctlFile', 'AnonFile', 'SocketFile'):
                     return False
                 # If it belongs to a subclass, the user implemented it!
                 return True
@@ -434,3 +439,50 @@ class MtdDevice(BaseFile):
         if False:
             yield
         return 0
+
+
+class AnonFile(VFSFile):
+    """
+    Base class representing a dynamic generic anonymous inode.
+    Inherits standard VFS operations (read/write/ioctl/poll) and integrates
+    with the anonfs subsystem to provide ad-hoc file descriptors (e.g., eventfd, bpf maps).
+    """
+    FS = "anonfs"
+
+
+class SocketFile(BaseFile):
+    """
+    Base class for emulating true kernel sockets via proto_ops.
+    This creates an actual S_IFSOCK object in the guest kernel,
+    allowing sendmsg, recvmsg, and standard socket hooks to fire.
+    """
+    FS = "sockfs"
+
+    DOMAIN: int = 0
+    TYPE: int = 0
+    PROTOCOL: int = 0
+
+    def __init__(self, *, domain: int = None, type: int = None, protocol: int = None, **kwargs):
+        if domain is not None:
+            self.DOMAIN = domain
+        if type is not None:
+            self.TYPE = type
+        if protocol is not None:
+            self.PROTOCOL = protocol
+
+        super().__init__(**kwargs)
+
+    def bind(self, ptregs: PtRegsWrapper, sock: SocketPtr, myaddr: SockAddrPtr, addrlen: CInt) -> None:
+        pass
+
+    def connect(self, ptregs: PtRegsWrapper, sock: SocketPtr, vaddr: SockAddrPtr, addrlen: CInt, flags: CInt) -> None:
+        pass
+
+    def sendmsg(self, ptregs: PtRegsWrapper, sock: SocketPtr, msg: MsgHdrPtr, total_len: SizeT) -> None:
+        pass
+
+    def recvmsg(self, ptregs: PtRegsWrapper, sock: SocketPtr, msg: MsgHdrPtr, total_len: SizeT, flags: CInt) -> None:
+        pass
+
+    def release(self, ptregs: PtRegsWrapper, sock: SocketPtr) -> None:
+        pass
