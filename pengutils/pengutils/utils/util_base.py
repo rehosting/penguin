@@ -44,14 +44,8 @@ def get_default_results_path():
     str
         Default results path.
     """
-    import os
-
-    project_dir = os.getenv("PENGUIN_PROJECT_DIR")
-    if project_dir:
-        return os.path.join(project_dir, "results/latest")
-
-    # Fall back to current directory (old default)
-    return "./results"
+    # Hardcoded for the /workspace environment
+    return "/workspace/results/latest"
 
 
 def wrapper(results, output, print_procname, follow, filter_func, args):
