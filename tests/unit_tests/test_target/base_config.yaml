@@ -51,6 +51,7 @@ patches:
   - ./patches/tests/sysfs_test.yaml
   - ./patches/tests/sysctl_test.yaml
   - ./patches/tests/mtd_test.yaml
+  - ./patches/tests/anonfs.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 
