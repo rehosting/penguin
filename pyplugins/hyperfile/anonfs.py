@@ -58,7 +58,7 @@ class AnonFS(Plugin):
         Build an igloo_proto_ops struct with FFI trampolines for Socket methods.
         """
         kffi = plugins.kffi
-        method_names = ["bind", "connect", "sendmsg", "recvmsg", "release"]
+        method_names = ["bind", "connect", "sendmsg", "recvmsg", "release", "poll"]
 
         ops_type = kffi.ffi.get_type("igloo_proto_ops")
 

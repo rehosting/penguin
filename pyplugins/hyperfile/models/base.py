@@ -486,3 +486,6 @@ class SocketFile(BaseFile):
 
     def release(self, ptregs: PtRegsWrapper, sock: SocketPtr) -> None:
         pass
+
+    def poll(self, ptregs: PtRegsWrapper, file: FilePtr, sock: SocketPtr, poll_table: PollTablePtr) -> None:
+        pass
