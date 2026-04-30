@@ -1100,11 +1100,11 @@ class GenerateMissingDirs(PatchGenerator):
             path_parts = resolved_path.split("/")
             for i in range(1, len(path_parts) + 1):
                 subdir = "/".join(path_parts[:i])
-                
+
                 # FIX: Skip if subdir is empty (caused by the leading slash)
                 if not subdir:
                     continue
-                    
+
                 if subdir not in self.archive_files:
                     result['static_files'][subdir] = {
                         "type": "dir",
