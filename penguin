@@ -209,9 +209,11 @@ penguin_run() {
     done
 
     # Create mappings for existing paths
-    paths=("${cmd[@]:1}")
-    for arg in "${paths[@]}"; do
-        if [[ -e "$arg" ]]; then
+    for ((i=1; i<${#cmd[@]}; i++));
+    do
+        arg="${cmd[$i]}"
+        if [[ -e "$arg" ]];
+        then
             local abspath=$(realpath "$arg")
             local host_path=$(dirname "$abspath")
             local guest_path="/host_$(basename "$host_path")"
@@ -227,8 +229,10 @@ penguin_run() {
     fi
 
     # Sort mappings by path length
-    IFS=$'\n' maps=($(sort -r <<<"${maps[*]}"))
-    unset IFS
+    if [[ ${#maps[@]} -gt 0 ]]; then
+        IFS=$'\n' maps=($(sort -r <<<"${maps[*]}"))
+        unset IFS
+    fi
 
     # Rewrite paths
     new_cmd=()
@@ -252,10 +256,13 @@ penguin_run() {
         fi
 
         # Only attempt path rewriting if the argument actually exists as a file/directory
-        if [[ -e "$arg" ]]; then
-            for map in "${maps[@]}"; do
-                local host_path="${map%%:*}"
-                local guest_path="${map#*:}"
+        if [[ -e "$arg" ]];
+        then
+            if [[ ${#maps[@]} -gt 0 ]]; then
+                for map in "${maps[@]}";
+                do
+                    local host_path="${map%%:*}"
+                    local guest_path="${map#*:}"
 
                 # Check if the real directory path of the argument matches the host path
                 local real_arg_path="$(realpath "$arg" 2>/dev/null)"
@@ -265,7 +272,8 @@ penguin_run() {
                     rewritten=true
                     break
                 fi
-            done
+                done
+            fi
         fi
 
         if ! $rewritten; then
@@ -273,11 +281,15 @@ penguin_run() {
         fi
     done
 
-    if $verbose; then
+    if $verbose;
+    then
         echo "${BOLD}Mappings from host paths to guest paths: $RESET"
-        for map in "${maps[@]}"; do
-            echo "  $map"
-        done
+        if [[ ${#maps[@]} -gt 0 ]]; then
+            for map in "${maps[@]}";
+            do
+                echo "  $map"
+            done
+        fi
         echo
     fi
 
@@ -520,9 +532,12 @@ penguin_run() {
     fi
 
     # Add mappings to docker command
-    for map in "${maps[@]}"; do
-        docker_cmd+=("-v" "$map")
-    done
+    if [[ ${#maps[@]} -gt 0 ]]; then
+        for map in "${maps[@]}";
+        do
+            docker_cmd+=("-v" "$map")
+        done
+    fi
 
     # Map workspace dir to /workspace in container
     if [ -n "$host_workspace_dir" ]; then
@@ -628,7 +643,9 @@ penguin_run() {
                 docker_cmd+=("bash")
             else
                 docker_cmd+=("penguin")
-                docker_cmd+=("${new_cmd[@]}")
+                if [[ ${#new_cmd[@]} -gt 0 ]]; then
+                    docker_cmd+=("${new_cmd[@]}")
+                fi
             fi
         fi
     fi
