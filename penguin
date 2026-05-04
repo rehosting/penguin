@@ -6,6 +6,12 @@ set -eu
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
+# Fallback for realpath on macOS/BSD
+if ! command -v realpath >/dev/null 2>&1; then
+    realpath() {
+        python3 -c "import os, sys; print(os.path.realpath(sys.argv[1]))" "$1" 2>/dev/null
+    }
+fi
 
 BOLD=""
 RESET=""
@@ -480,7 +486,11 @@ penguin_run() {
     fi
 
     # Add penguin bash script hash environment variable
-    hash=$(sha256sum "$0" | awk '{print $1}')
+    if command_exists sha256sum; then
+        hash=$(sha256sum "$0" | awk '{print $1}')
+    else
+        hash=$(shasum -a 256 "$0" | awk '{print $1}')
+    fi
     docker_cmd+=("-e" "PENGUIN_HASH=$hash")
 
     # Add container name if set
@@ -628,7 +638,13 @@ penguin_run() {
         docker_cmd+=("--cap-add=NET_BIND_SERVICE")
         docker_cmd+=("$image")
 
-        docker_cmd+=("/bin/bash" "-c" "pip install -e /pkg &>/tmp/log.txt || { cat /tmp/log.txt; exit 1; }; sudo -E -su \"$(id -un)\" -g g penguin ${new_cmd[*]@Q}")
+        # Safely quote arguments for Bash 3.2+ compatibility
+        quoted_args=""
+        if [[ ${#new_cmd[@]} -gt 0 ]]; then
+            quoted_args=$(printf "%q " "${new_cmd[@]}")
+        fi
+        
+        docker_cmd+=("/bin/bash" "-c" "pip install -e /pkg &>/tmp/log.txt || { cat /tmp/log.txt; exit 1; }; sudo -E -su \"$(id -un)\" -g g penguin $quoted_args")
     else
         d=""
         # Ensure we maintain the same user in the container
