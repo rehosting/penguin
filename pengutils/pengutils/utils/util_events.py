@@ -10,11 +10,8 @@ def in_container() -> bool:
 
 
 def get_default_socket_path() -> str:
-    if in_container():
-        return join(env["PENGUIN_PROJECT_DIR"],
-                    "results", "latest", "remotectrl.sock")
-    else:
-        raise Exception("Socket path required")
+    # Hardcoded for the /workspace environment
+    return "/workspace/results/latest/remotectrl.sock"
 
 
 def send_command(data: dict = None, sock: str = None) -> Optional[dict]:
