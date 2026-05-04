@@ -313,14 +313,14 @@ class Netdevs(Plugin):
             match = re.search(pattern, filepath)
             if match:
                 iface = match.group(1)
-                
+
                 # Check against the centralized validation standard
                 if self.VALID_IFACE_PATTERN.match(iface):
                     if iface not in ("all", "default", "lo"):
                         if iface not in self._netdev_classes and iface not in self._pending_netdevs:
                             self.logger.debug(f"Auto-registering missing netdev '{iface}' referenced by {filepath}")
                             self.register_netdev(iface, exist_ok=True)
-                
+
                 # Stop searching patterns once a directory match is found,
                 # even if the interface name was invalid (like .placeholder)
                 return
