@@ -160,7 +160,7 @@ penguin_run() {
         esac
     done
     # If command is empty, parse any un-shifted args into array - probably means we were run with wrapper flags only
-    if [[ ${#cmd[@]} -eq 0 ]]; then
+    if [[ ${#cmd[@]} -eq 0 && $# -gt 0 ]]; then
         cmd=("$@")
     fi
 
@@ -174,7 +174,12 @@ penguin_run() {
         echo "  name: $container_name"
         echo "  extra_docker_args: $extra_docker_args"
         echo "  verbose: $verbose"
-        echo "  penguin cmd: ${cmd[*]}"
+        if [[ ${#cmd[@]} -gt 0 ]]; then
+            echo "  penguin cmd: ${cmd[*]}"
+        else
+            echo "  penguin cmd: "
+        fi
+        echo
         echo
     fi
 
@@ -366,7 +371,10 @@ penguin_run() {
             fi
         done
 
-        docker_cmd=("docker" "exec" "-it" "${container_name}" "python3" "/igloo_static/guesthopper/guest_cmd.py" "${guest_cmd_args[@]}")
+        docker_cmd=("docker" "exec" "-it" "${container_name}" "python3" "/igloo_static/guesthopper/guest_cmd.py")
+        if [[ ${#guest_cmd_args[@]} -gt 0 ]]; then
+            docker_cmd+=("${guest_cmd_args[@]}")
+        fi
         "${docker_cmd[@]}"
         exit $?
     fi
@@ -668,7 +676,11 @@ penguin_run() {
 
     if $verbose; then
         echo "${BOLD}PENGUIN command:${RESET}"
-        echo "  penguin ${new_cmd[@]}"
+        if [[ ${#new_cmd[@]} -gt 0 ]]; then
+            echo "  penguin ${new_cmd[@]}"
+        else
+            echo "  penguin "
+        fi
         echo
 
         echo "${BOLD}Complete docker commands:${RESET}"
@@ -692,9 +704,9 @@ penguin_run() {
 
 # Main function
 main() {
-    penguin_run "$@"
+    penguin_run ${1+"$@"}
 }
 
 # Find and replace /host_ with ./
-#main "$@" | sed 's/\/host_/\.\//g'
-main "$@"
+#main ${1+"$@"} | sed 's/\/host_/\.\//g'
+main ${1+"$@"}
