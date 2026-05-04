@@ -32,6 +32,9 @@ class Netdev:
 
 
 class Netdevs(Plugin):
+    # Single source of truth for valid interface names
+    VALID_IFACE_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
+
     def __init__(self):
         self._pending_netdevs = []
 
@@ -180,6 +183,15 @@ class Netdevs(Plugin):
         '''
         Register a network device with the given name.
         '''
+        # Enforce validation standard at entry-point (allowing the wildcard '*' class)
+        if name != "*" and not self.VALID_IFACE_PATTERN.match(name):
+            self.logger.error(f"Cannot register netdev '{name}': Invalid interface name format.")
+            return
+
+        if len(name) > 15 and name != "*":
+            self.logger.error(f"Cannot register netdev '{name}': Exceeds 15 character limit.")
+            return
+
         if name not in self._netdev_classes and name not in self._pending_netdevs:
             plugins.portal.queue_interrupt("netdevs")
             if name != "*":
@@ -198,15 +210,10 @@ class Netdevs(Plugin):
         Call the hypercall once per name and return the number of successful
         registrations.
         """
-        # New implementation: kernel returns pointer to net_device struct on success, 0/null on failure
         if not names:
             return 0
 
         for name in names:
-            if len(name) > 15:
-                self.logger.error(f"Netdev name '{name}' exceeds 15 character limit and will be ignored")
-                continue
-
             # Determine if this interface should be removable based on its Python class
             # Default to True if no backing class is explicitly registered
             netdev_instance = self._netdev_instances.get(name, self._netdev_instances.get("*", None))
@@ -302,18 +309,13 @@ class Netdevs(Plugin):
             r"^/sys/devices/virtual/net/([^/]+)(?:/|$)"
         ]
 
-        # Explicit regex for validating the extracted interface name
-        # Must start with alphanumeric, followed by alphanumeric, dashes, or underscores.
-        # (If you need to support VLAN tagging like eth0.1, add \. to the character class)
-        valid_iface_pattern = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
-
         for pattern in patterns:
             match = re.search(pattern, filepath)
             if match:
                 iface = match.group(1)
                 
-                # Explicitly validate the interface name
-                if valid_iface_pattern.match(iface):
+                # Check against the centralized validation standard
+                if self.VALID_IFACE_PATTERN.match(iface):
                     if iface not in ("all", "default", "lo"):
                         if iface not in self._netdev_classes and iface not in self._pending_netdevs:
                             self.logger.debug(f"Auto-registering missing netdev '{iface}' referenced by {filepath}")
