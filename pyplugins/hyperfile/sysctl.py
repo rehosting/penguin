@@ -151,6 +151,11 @@ class Sysctl(Plugin):
         """
         Process pending sysctl registrations.
         """
+        # Ensure pending network devices are registered first so that dynamic
+        # interfaces (like br0) create their native sysctls before we try to mutate/create them.
+        if getattr(plugins, "netdevs", None) and plugins.netdevs._pending_netdevs:
+            yield from plugins.netdevs._netdevs_interrupt_handler()
+
         if not self._pending_sysctls:
             return False
 
