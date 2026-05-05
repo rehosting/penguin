@@ -1,0 +1,45 @@
+plugins:
+  verifier:
+    conditions:
+      auto_register:
+        type: file_contains
+        file: console.log
+        string: "/tests/netdev_auto.sh PASS"
+
+pseudofiles:
+  /proc/sys/net/ipv4/conf/br0/proxy_arp:
+    read:
+      model: zero
+    write:
+      model: discard
+
+static_files:
+  /tests/netdev_auto.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -ex
+
+      bb="/igloo/utils/busybox"
+
+      # 1. Check that br0 was auto-created due to the pseudofile
+      link_info=$($bb ip link show dev br0)
+      if [ -z "$link_info" ]; then
+        echo "Expected auto-registered interface br0 not found"
+        exit 1
+      fi
+
+      # 2. Attempt to delete br0. The kernel should reject this with EOPNOTSUPP
+      # because igloonet interfaces do not have rtnl_link_ops.
+      $bb ip link del br0 || echo "Deletion failed as expected"
+
+      # 3. Verify it still exists
+      link_info_after=$($bb ip link show dev br0)
+      if [ -z "$link_info_after" ]; then
+        echo "Interface br0 was deleted! It should not be deletable."
+        exit 1
+      fi
+
+      echo "/tests/netdev_auto.sh PASS"
+      exit 0
+    mode: 73
