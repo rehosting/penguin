@@ -29,14 +29,13 @@ static_files:
         exit 1
       fi
 
-      # 2. Attempt to delete br0. The kernel should reject this with EOPNOTSUPP
-      # because igloonet interfaces do not have rtnl_link_ops.
-      $bb ip link del br0 || echo "Deletion failed as expected"
+      # 2. Attempt to delete br0. This should now succeed.
+      $bb ip link del br0
 
-      # 3. Verify it still exists
-      link_info_after=$($bb ip link show dev br0)
-      if [ -z "$link_info_after" ]; then
-        echo "Interface br0 was deleted! It should not be deletable."
+      # 3. Verify it is gone
+      link_info_after=$($bb ip link show dev br0 || true)
+      if [ -n "$link_info_after" ]; then
+        echo "Interface br0 still exists! It should have been deleted."
         exit 1
       fi
 
