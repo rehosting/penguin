@@ -1,0 +1,50 @@
+plugins:
+  verifier:
+    conditions:
+      netdev_names_pass:
+        type: file_contains
+        file: console.log
+        string: "/tests/netdev_names.sh PASS"
+
+netdevs:
+  - _eth0
+  - eth0.0
+
+pseudofiles:
+  /proc/sys/net/ipv4/conf/eth0.1/forwarding:
+    read:
+      model: const_buf
+      val: "0\n"
+
+static_files:
+  /tests/netdev_names.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -ex
+      bb="/igloo/utils/busybox"
+
+      # 1. Check _eth0 (registered explicitly in netdevs list)
+      if ! $bb ip link show dev _eth0; then
+        echo "_eth0 registration failed"
+        exit 1
+      fi
+
+      # 2. Check eth0.0 (registered explicitly in netdevs list)
+      if ! $bb ip link show dev eth0.0; then
+        echo "eth0.0 registration failed"
+        exit 1
+      fi
+
+      # 3. Trigger auto-registration of eth0.1 via sysctl access
+      $bb cat /proc/sys/net/ipv4/conf/eth0.1/forwarding
+
+      # 4. Check if eth0.1 exists now
+      if ! $bb ip link show dev eth0.1; then
+        echo "eth0.1 auto-registration failed"
+        exit 1
+      fi
+
+      echo "/tests/netdev_names.sh PASS"
+      exit 0
+    mode: 73

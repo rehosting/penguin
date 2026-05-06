@@ -25,6 +25,7 @@ patches:
   - ./patches/tests/netbinds.yaml
   - ./patches/tests/netdevs.yaml
   - ./patches/tests/netdev_auto_register.yaml
+  - ./patches/tests/netdev_names.yaml
   - ./patches/tests/proc_mtd_dynamic.yaml
   - ./patches/tests/proc_mtd.yaml
   - ./patches/tests/proc_self.yaml
