@@ -372,10 +372,16 @@ class SysctlFile(BaseFile):
         Unified sysctl entry point.
         Extracts arguments from ptregs and routes to read() or write().
         """
+        # 1. Read the current size value from the lenp pointer
+        size_val = yield from plugins.mem.read(lenp, fmt=int, size=plugins.kffi.sizeof("size_t"))
+
+        # Initialize retval to 0 (success)
+        ptregs.retval = 0
+
         if int(write):
-            res = self.write(ptregs, None, buffer, lenp, ppos)
+            res = self.write(ptregs, None, buffer, size_val, ppos)
         else:
-            res = self.read(ptregs, None, buffer, lenp, ppos)
+            res = self.read(ptregs, None, buffer, size_val, ppos)
 
         # 2. Conditionally yield if the method was a generator (e.g. uses memory plugins)
         if inspect.isgenerator(res):
@@ -383,9 +389,19 @@ class SysctlFile(BaseFile):
         else:
             ret = res
 
-        # 3. Ensure a safe numeric return for the KFFI callback
-        ret_val = ret if ret is not None else 0
-        ptregs.retval = ret_val if ret_val < 0 else 0
+        # 3. Support both direct return values AND ptregs.retval updates
+        # VFS mixins usually set ptregs.retval and return None.
+        processed_bytes = ret if ret is not None else ptregs.retval
+
+        # 4. Update the value at lenp with the number of bytes processed
+        # and ensure a safe numeric return (0 for success, negative for error)
+        if processed_bytes >= 0:
+            yield from plugins.mem.write(lenp, processed_bytes, size=plugins.kffi.sizeof("size_t"))
+            ret_val = 0
+        else:
+            ret_val = processed_bytes
+
+        ptregs.retval = ret_val
         return ret_val
 
 
