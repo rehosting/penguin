@@ -119,17 +119,13 @@ NONDEFAULT_KERNEL_ARCHES = {
 @click.option("--kernel", "-k", multiple=True, default=DEFAULT_KERNELS)
 @click.option("--arch", "-a", multiple=True, default=DEFAULT_ARCHES)
 @click.option("--image", "-i", default="rehosting/penguin:latest")
-@click.option("--test-file", "-t", default=None, help="Run specific test file from patches/tests/ - no prefix needed (e.g., bash.yaml)")
 @click.option("--docs-only", is_flag=True, help="Only build the docs and leave. Useful for CI.")
 def test(kernel, arch, image, test_file, docs_only):
     if docs_only:
         logger.info("Docs only mode enabled, will only build docs and exit")
         kernel = ['4.10',]
         arch = ['armel',]
-    if test_file:
-        logger.info(f"Running specific test: {test_file} for {kernel} on {arch}")
-    else:
-        logger.info(f"Running all tests for {kernel} on {arch}")
+    logger.info(f"Running all tests for {kernel} on {arch}")
 
     # Allow DEFAULT_ARCHES plus any arches referenced in NONDEFAULT_KERNEL_ARCHES
     allowed_arches = set(DEFAULT_ARCHES)
@@ -153,7 +149,7 @@ def test(kernel, arch, image, test_file, docs_only):
                 continue
 
             logger.info(f"Running tests for kernel {k} on arch {a}")
-            run_test(k, a, image, test_file, docs_only)
+            run_test(k, a, image, None, docs_only)
 
 
 if __name__ == "__main__":
