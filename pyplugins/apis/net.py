@@ -33,7 +33,10 @@ class Netdev:
 
 class Netdevs(Plugin):
     # Single source of truth for valid interface names
-    VALID_IFACE_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
+    # Linux kernel allows anything except /, :, whitespace, control chars, and names '.' or '..'
+    # We restrict it to a sane set of characters: alphanumerics, underscores, dashes, and dots.
+    # It must not be '.' or '..'
+    VALID_IFACE_PATTERN = re.compile(r"^(?!\.\.?$)[a-zA-Z0-9_.-]+$")
 
     def __init__(self):
         self._pending_netdevs = []
