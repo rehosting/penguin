@@ -1,0 +1,60 @@
+# tests/unit_tests/test_target/patches/tests/pseudofiles_comprehensive.yaml
+plugins:
+  pseudofiles_comprehensive_test: {}
+  verifier:
+    conditions:
+      pseudofiles_comprehensive:
+        type: file_contains
+        file: shared/tests/pseudofiles_comprehensive.sh/stdout
+        string: "/tests/pseudofiles_comprehensive.sh PASS"
+
+static_files:
+  /tests/pseudofiles_comprehensive.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+      bb="/igloo/utils/busybox"
+
+      echo "Running comprehensive pseudofile tests..."
+
+      # 1. ProcFile
+      if [ "$($bb cat /proc/comprehensive_proc)" != "proc_works" ]; then
+        echo "Error: ProcFile fail"
+        exit 1
+      fi
+
+      # 2. DevFile
+      if [ "$($bb cat /dev/comprehensive_dev)" != "dev_works" ]; then
+        echo "Error: DevFile fail"
+        exit 1
+      fi
+
+      # 3. SysFile
+      if [ "$($bb cat /sys/kernel/comprehensive_sys)" != "sys_works" ]; then
+        echo "Error: SysFile fail"
+        exit 1
+      fi
+
+      # 4. SysctlFile
+      if [ "$($bb cat /proc/sys/kernel/comprehensive_sysctl)" != "sysctl_works" ]; then
+        echo "Error: SysctlFile fail"
+        exit 1
+      fi
+
+      # 5. MtdDevice
+      # Check mtd device exists (it should be the last one)
+      mtd_dev=$($bb grep "comprehensive_mtd" /proc/mtd | $bb cut -d: -f1)
+      if [ -z "$mtd_dev" ]; then
+        echo "Error: MtdDevice registration fail"
+        exit 1
+      fi
+      # Read from the mtd char device
+      if [ "$($bb dd if=/dev/${mtd_dev}ro bs=10 count=1 2>/dev/null)" != "mtd_works" ]; then
+        echo "Error: MtdDevice read fail"
+        exit 1
+      fi
+
+      echo "/tests/pseudofiles_comprehensive.sh PASS"
+      exit 0
+    mode: 73
