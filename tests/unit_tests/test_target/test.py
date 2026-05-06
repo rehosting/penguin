@@ -120,7 +120,7 @@ NONDEFAULT_KERNEL_ARCHES = {
 @click.option("--arch", "-a", multiple=True, default=DEFAULT_ARCHES)
 @click.option("--image", "-i", default="rehosting/penguin:latest")
 @click.option("--docs-only", is_flag=True, help="Only build the docs and leave. Useful for CI.")
-def test(kernel, arch, image, test_file, docs_only):
+def test(kernel, arch, image, docs_only):
     if docs_only:
         logger.info("Docs only mode enabled, will only build docs and exit")
         kernel = ['4.10',]
@@ -150,6 +150,7 @@ def test(kernel, arch, image, test_file, docs_only):
 
             logger.info(f"Running tests for kernel {k} on arch {a}")
             run_test(k, a, image, None, docs_only)
+
 
 
 if __name__ == "__main__":
