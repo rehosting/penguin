@@ -119,22 +119,24 @@ class ReadFromFile:
 
     def __init__(self, *, read_filepath: str = None, filename: str = None, **kwargs):
         self.filename = read_filepath if read_filepath is not None else filename
+        self.proj_dir = plugins.get_arg("proj_dir")
+        if not os.path.isabs(self.filename) and self.proj_dir:
+            # Paths are relative to proj_dir if not absolute
+            fpath = os.path.join(self.proj_dir, self.filename)
+        else:
+            fpath = self.filename
+        self.readfile_path = fpath
         super().__init__(**kwargs)
 
     def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
         size_val = int(size)
         offset = yield from plugins.mem.read(loff, fmt=int, size=8)
-        fname = self.filename
+        fname = self.readfile_path
         if fname is None:
             ptregs.retval = 0
             return
-        if not os.path.isabs(fname):
-            # Paths are relative to cwd or caller will resolve relative path
-            fpath = fname
-        else:
-            fpath = fname
         try:
-            with open(fpath, "rb") as f:
+            with open(self.readfile_path, "rb") as f:
                 f.seek(offset)
                 chunk = f.read(size_val)
         except Exception:

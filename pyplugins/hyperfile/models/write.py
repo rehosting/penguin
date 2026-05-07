@@ -77,9 +77,9 @@ class WriteToFile:
     Writes incoming data to a file on the host.
     '''
 
-    def __init__(self, *, write_filepath: str = None, proj_dir: str = None, **kwargs):
-        self.proj_dir = proj_dir
-        if not isabs(write_filepath):
+    def __init__(self, *, write_filepath: str = None, **kwargs):
+        self.proj_dir = plugins.get_arg("proj_dir")
+        if not isabs(write_filepath) and self.proj_dir:
             # Paths are relative to the project directory, unless absolute
             self.write_filepath = pjoin(self.proj_dir, write_filepath)
         else:
