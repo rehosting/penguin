@@ -39,8 +39,8 @@ class Pseudofiles(Plugin):
     }
 
     ioctl_models = {
-        "return_const": IoctlZero,
-        "zero": IoctlReturnConst,
+        "return_const": IoctlReturnConst,
+        "zero": IoctlZero,
         # "symex": IoctlSymexMixin, # If you implement symex later
     }
 
