@@ -1,60 +1,126 @@
-# tests/unit_tests/test_target/patches/tests/pseudofiles_comprehensive.yaml
 plugins:
-  pseudofiles_comprehensive_test: {}
   verifier:
     conditions:
       pseudofiles_comprehensive:
         type: file_contains
         file: shared/tests/pseudofiles_comprehensive.sh/stdout
         string: "/tests/pseudofiles_comprehensive.sh PASS"
+      pseudofiles_to_file:
+        type: file_contains
+        file: yaml_write_test.txt
+        string: "to_file_content"
+
+pseudofiles:
+  /proc/yaml_const:
+    read:
+      model: const_buf
+      val: "proc_const\n"
+  /dev/yaml_discard:
+    read:
+      model: empty
+    write:
+      model: discard
+  /dev/yaml_zero:
+    read:
+      model: zero
+  /proc/sys/kernel/yaml_sysctl:
+    read:
+      model: const_buf
+      val: "sysctl_const\n"
+  /sys/kernel/yaml_sys:
+    read:
+      model: const_buf
+      val: "sys_const\n"
+  /proc/yaml_file:
+    read:
+      model: from_file
+      filename: "./host_read_test.txt"
+  /dev/yaml_to_file:
+    write:
+      model: to_file
+      filename: "./results/latest/yaml_write_test.txt"
+  /dev/yaml_ioctl_const:
+    ioctl:
+      1234:
+        model: return_const
+        val: 42
+      4567:
+        model: return_const
+        val: 43
+      '*':
+        model: return_const
+        val: 99
 
 static_files:
+  /tests/test_ioctl.py:
+    type: inline_file
+    mode: 0o755
+    contents: |
+      #!/igloo/utils/micropython
+      import os, ffilib
+      libc = ffilib.libc()
+      ioctl = libc.func("i", "ioctl", "iiP")
+      fd = os.open("/dev/yaml_ioctl_const", 0)
+      res = ioctl(fd, 1234, 0)
+      if res != 42:
+          print("Error: ioctl 1234 got", res)
+          raise SystemExit(1)
+      res = ioctl(fd, 4567, 0)
+      if res != 43:
+          print("Error: ioctl 4567 got", res)
+          raise SystemExit(1)
+      res = ioctl(fd, 12, 0)
+      if res != 99:
+          print("Error: ioctl 12 got", res)
+          raise SystemExit(1)
+      print("ioctl tests pass")
+
   /tests/pseudofiles_comprehensive.sh:
     type: inline_file
+    mode: 0o73
     contents: |
       #!/igloo/utils/sh
       set -eux
       bb="/igloo/utils/busybox"
 
-      echo "Running comprehensive pseudofile tests..."
+      echo "Running comprehensive YAML pseudofile tests..."
 
-      # 1. ProcFile
-      if [ "$($bb cat /proc/comprehensive_proc)" != "proc_works" ]; then
-        echo "Error: ProcFile fail"
-        exit 1
-      fi
-
-      # 2. DevFile
-      if [ "$($bb cat /dev/comprehensive_dev)" != "dev_works" ]; then
-        echo "Error: DevFile fail"
+      if [ "$($bb cat /proc/yaml_const)" != "proc_const" ]; then
+        echo "Error: const_buf fail"
         exit 1
       fi
 
-      # 3. SysFile
-      if [ "$($bb cat /sys/kernel/comprehensive_sys)" != "sys_works" ]; then
-        echo "Error: SysFile fail"
+      if [ "$($bb cat /proc/sys/kernel/yaml_sysctl)" != "sysctl_const" ]; then
+        echo "Error: sysctl const_buf fail"
         exit 1
       fi
 
-      # 4. SysctlFile
-      if [ "$($bb cat /proc/sys/kernel/comprehensive_sysctl)" != "sysctl_works" ]; then
-        echo "Error: SysctlFile fail"
+      if [ "$($bb cat /sys/kernel/yaml_sys)" != "sys_const" ]; then
+        echo "Error: sysfs const_buf fail"
         exit 1
       fi
 
-      # 5. MtdDevice
-      # Check mtd device exists (it should be the last one)
-      mtd_dev=$($bb grep "comprehensive_mtd" /proc/mtd | $bb cut -d: -f1)
-      if [ -z "$mtd_dev" ]; then
-        echo "Error: MtdDevice registration fail"
+      if [ "$($bb cat /dev/yaml_discard)" != "" ]; then
+        echo "Error: empty fail"
         exit 1
       fi
-      # Read from the mtd char device
-      if [ "$($bb dd if=/dev/${mtd_dev}ro bs=10 count=1 2>/dev/null)" != "mtd_works" ]; then
-        echo "Error: MtdDevice read fail"
+
+      echo "test" > /dev/yaml_discard
+
+      zero_bytes=$($bb dd if=/dev/yaml_zero bs=10 count=1 2>/dev/null | $bb wc -c)
+      if [ "$zero_bytes" != "1" ]; then
+        echo "Error: zero fail (expected 1, got $zero_bytes)"
         exit 1
       fi
+
+      if ! $bb grep -q "host_read_content" /proc/yaml_file; then
+        echo "Error: from_file fail"
+        exit 1
+      fi
+
+      echo "to_file_content" > /dev/yaml_to_file
+
+      /igloo/utils/micropython /tests/test_ioctl.py
 
       echo "/tests/pseudofiles_comprehensive.sh PASS"
       exit 0
-    mode: 73
