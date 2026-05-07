@@ -152,6 +152,5 @@ def test(kernel, arch, image, docs_only):
             run_test(k, a, image, None, docs_only)
 
 
-
 if __name__ == "__main__":
     test()
