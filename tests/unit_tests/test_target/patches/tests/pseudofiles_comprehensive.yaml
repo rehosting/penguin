@@ -57,10 +57,16 @@ static_files:
     mode: 0o755
     contents: |
       #!/igloo/utils/micropython
-      import os, ffilib
+      import ffilib
       libc = ffilib.libc()
+      # Bind both native open() and ioctl() from libc
+      c_open = libc.func("i", "open", "si")
       ioctl = libc.func("i", "ioctl", "iiP")
-      fd = os.open("/dev/yaml_ioctl_const", 0)
+      # 0 is standard for O_RDONLY
+      fd = c_open("/dev/yaml_ioctl_const", 0)
+      if fd < 0:
+          print("Error: failed to open device")
+          raise SystemExit(1)
       res = ioctl(fd, 1234, 0)
       if res != 42:
           print("Error: ioctl 1234 got", res)
