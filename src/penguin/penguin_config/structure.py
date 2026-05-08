@@ -198,10 +198,10 @@ class Core(PartialModelMixin, BaseModel):
     log_file: Annotated[
       Optional[str],
       Field(
-          None,
-          title="Penguin log file",
-          description="If set, write penguin/plugin logger output to this file (relative paths resolve under the results dir).",
-          examples=["penguin.log"],
+            None,
+            title="Penguin log file",
+            description="If set, write penguin/plugin logger output to this file (relative paths resolve under the results dir).",
+            examples=["penguin.log"],
       ),
     ]
     immutable: Annotated[
