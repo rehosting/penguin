@@ -11,7 +11,7 @@ _redirect_handler: logging.Handler | None = None
 
 def redirect_logs_to(handler: logging.Handler) -> None:
     """
-    Replace stderr StreamHandlers with `handler` for all current and future
+    Replace StreamHandlers with `handler` for all current and future
     penguin/plugins/config loggers.
     """
     global _redirect_handler
