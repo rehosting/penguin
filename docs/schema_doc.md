@@ -224,6 +224,19 @@ false
 true
 ```
 
+### `core.log_file` Penguin log file
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+If set, write penguin/plugin logger output to this file (relative paths resolve under the results dir).
+
+```yaml
+penguin.log
+```
+
 ### `core.immutable` Enable immutable mode
 
 |||

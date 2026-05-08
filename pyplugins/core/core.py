@@ -33,11 +33,12 @@ The Core plugin ensures the emulation environment is correctly set up, manages s
 procedures, and records essential information for reproducibility and debugging.
 """
 
+import logging
 import os
 import signal
 import threading
 import time
-from penguin import Plugin, yaml, plugins
+from penguin import Plugin, yaml, plugins, common
 from penguin.defaults import vnc_password
 
 
@@ -68,6 +69,17 @@ class Core(Plugin):
         conf = self.get_arg("conf")
 
         telnet_port = self.get_arg("telnet_port")
+        log_file = conf["core"].get("log_file")
+        if log_file:
+            if not os.path.isabs(log_file):
+                log_file = os.path.join(self.outdir, log_file)
+            fh = logging.FileHandler(log_file)
+            fh.setFormatter(common.PathHighlightingFormatter(
+                fmt="%(asctime)s %(name)s %(levelname)s %(message)s",
+                datefmt="%H:%M:%S",
+            ))
+            common.redirect_logs_to(fh)
+            self.logger.info(f"Penguin logs redirected to {log_file}")
 
         # Essential plugins are always loaded with core
         essential_plugins = [
