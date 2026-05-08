@@ -15,6 +15,8 @@ def redirect_logs_to(handler: logging.Handler) -> None:
     penguin/plugins/config loggers.
     """
     global _redirect_handler
+    handler._penguin_redirect = True  # marker for custom_set_level — exclude from per-logger level propagation
+    handler.setLevel(logging.NOTSET)
     _redirect_handler = handler
     for name, lg in list(logging.Logger.manager.loggerDict.items()):
         if not isinstance(lg, logging.Logger):
@@ -266,6 +268,8 @@ def getColoredLogger(name):
             # Call the original method, not the monkeypatched one
             original_set_level(level)
             for handler in logger.handlers:
+                if getattr(handler, '_penguin_redirect', False):
+                    continue
                 handler.setLevel(level)
 
         logger.custom_set_level = custom_set_level
