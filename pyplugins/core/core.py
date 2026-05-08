@@ -73,6 +73,9 @@ class Core(Plugin):
         if log_file:
             if not os.path.isabs(log_file):
                 log_file = os.path.join(self.outdir, log_file)
+            log_dir = os.path.dirname(log_file)
+            if log_dir:
+                os.makedirs(log_dir, exist_ok=True)
             fh = logging.FileHandler(log_file)
             fh.setFormatter(common.PathHighlightingFormatter(
                 fmt="%(asctime)s %(name)s %(levelname)s %(message)s",
