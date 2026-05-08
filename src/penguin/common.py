@@ -6,6 +6,28 @@ import yaml
 from os.path import join, isfile, basename
 from yamlcore import CoreDumper, CoreLoader
 
+_redirect_handler: logging.Handler | None = None
+
+
+def redirect_logs_to(handler: logging.Handler) -> None:
+    """
+    Replace stderr StreamHandlers with `handler` for all current and future
+    penguin/plugins/config loggers.
+    """
+    global _redirect_handler
+    _redirect_handler = handler
+    for name, lg in list(logging.Logger.manager.loggerDict.items()):
+        if not isinstance(lg, logging.Logger):
+            continue
+        if not (name == "penguin" or name.startswith("penguin.")
+                or name == "plugins" or name.startswith("plugins.")
+                or name == "config"):
+            continue
+        # Strict type check: drop plain StreamHandler, keep FileHandler/NullHandler/etc.
+        lg.handlers = [h for h in lg.handlers if type(h) is not logging.StreamHandler]
+        if handler not in lg.handlers:
+            lg.addHandler(handler)
+
 
 # Hex integers
 def int_to_hex_representer(dumper, data):
@@ -217,12 +239,21 @@ def getColoredLogger(name):
 
     # Check if the logger already has handlers to prevent duplicate logs
     if not logger.handlers:
-        # Create and configure a stream handler
-        handler = logging.StreamHandler()
-        logger.setLevel(level)
-        handler.setLevel(level)  # Set the handler level
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
+        if _redirect_handler is not None:
+            # Logs are being redirected: skip the default stderr StreamHandler.
+            logger.setLevel(level)
+            logger.addHandler(_redirect_handler)
+        else:
+            # Default: stderr.
+            handler = logging.StreamHandler()
+            logger.setLevel(level)
+            handler.setLevel(level)
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+    elif _redirect_handler is not None and _redirect_handler not in logger.handlers:
+        # Redirect was set after this logger was already created — swap.
+        logger.handlers = [h for h in logger.handlers if type(h) is not logging.StreamHandler]
+        logger.addHandler(_redirect_handler)
 
     # Prevent log messages from propagating to parent loggers (i.e., penguin.manager should not also log for penguin)
     logger.propagate = False
