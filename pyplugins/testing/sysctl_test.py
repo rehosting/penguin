@@ -1,6 +1,6 @@
 from penguin import Plugin, plugins
 from wrappers.ptregs_wrap import PtRegsWrapper
-from hyperfile.models.base import SysctlFile, FilePtr, CharPtr, SizeTPtr, LoffTPtr, CtlTablePtr, CInt, SizeT
+from hyperfile.models.base import SysctlFile, FilePtr, CharPtr, SizeTPtr, LoffTPtr, CtlTablePtr, CInt
 from hyperfile.models.read import ReadConstBuf
 
 # 1. Basic Static Read/Write
@@ -31,38 +31,42 @@ class DynamicSysctlFile(SysctlFile):
         super().__init__()
         self.hit_count = 0
 
-    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, ppos_ptr: LoffTPtr):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, lenp_ptr: SizeTPtr, ppos_ptr: LoffTPtr):
         self.hit_count += 1
 
-        offset = yield from plugins.mem.read(ppos_ptr, fmt=int, size=8)
+        offset = yield from plugins.mem.read(ppos_ptr, fmt=int)
         data = self.INITIAL_VALUE
 
         if offset >= len(data):
+            yield from plugins.mem.write(lenp_ptr, 0)
             ptregs.retval = 0
             return 0
 
         chunk = data[offset:]
         yield from plugins.mem.write(user_buf, chunk)
 
-        yield from plugins.mem.write(ppos_ptr, offset + len(chunk), size=8)
+        yield from plugins.mem.write(lenp_ptr, len(chunk))
+        yield from plugins.mem.write(ppos_ptr, offset + len(chunk))
 
         ptregs.retval = len(chunk)
         return len(chunk)
 
-    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, ppos_ptr: LoffTPtr):
-        offset = yield from plugins.mem.read(ppos_ptr, fmt=int, size=8)
-        size_val = int(size)
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, lenp_ptr: SizeTPtr, ppos_ptr: LoffTPtr):
+        offset = yield from plugins.mem.read(ppos_ptr, fmt=int)
+        size = yield from plugins.mem.read(lenp_ptr, fmt=int)
 
-        if size_val <= 0:
+        if size <= 0:
+            yield from plugins.mem.write(lenp_ptr, 0)
             ptregs.retval = 0
             return 0
 
-        data = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
+        data = yield from plugins.mem.read(user_buf, size, fmt="bytes")
         self.INITIAL_VALUE = data
 
-        yield from plugins.mem.write(ppos_ptr, offset + size_val, size=8)
-        ptregs.retval = size_val
-        return size_val
+        yield from plugins.mem.write(ppos_ptr, offset + size)
+        yield from plugins.mem.write(lenp_ptr, size)
+        ptregs.retval = 0
+        return 0
 
 
 class UsageCounterSysctl(SysctlFile):
@@ -78,7 +82,7 @@ class UsageCounterSysctl(SysctlFile):
             ptregs.retval = -22  # -EINVAL
             return -22
 
-        offset = yield from plugins.mem.read(ppos, fmt=int, size=8)
+        offset = yield from plugins.mem.read(ppos, fmt=int)
 
         # FIX: Only increment the counter on the FIRST read of a cat command
         if offset == 0:
@@ -95,7 +99,7 @@ class UsageCounterSysctl(SysctlFile):
         yield from plugins.mem.write(buffer, chunk)
 
         yield from plugins.mem.write(lenp, len(chunk))
-        yield from plugins.mem.write(ppos, offset + len(chunk), size=8)
+        yield from plugins.mem.write(ppos, offset + len(chunk))
 
         ptregs.retval = 0
         return 0
@@ -129,18 +133,18 @@ class DropCachesSysctl(SysctlFile):
     def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: CInt, buffer: CharPtr, lenp: SizeTPtr, ppos: LoffTPtr):
         if int(write):
             # Acknowledge the write to avoid shell errors
-            size = yield from plugins.mem.read(lenp, fmt=int, size=plugins.kffi.sizeof("size_t"))
-            yield from plugins.mem.write(ppos, size, size=8)
+            size = yield from plugins.mem.read(lenp, fmt=int)
+            yield from plugins.mem.write(ppos, size)
             ptregs.retval = 0
             return 0
         else:
             # Send custom data on read to prove the Python handler was executed
-            offset = yield from plugins.mem.read(ppos, fmt=int, size=8)
+            offset = yield from plugins.mem.read(ppos, fmt=int)
             if offset == 0:
                 data = b"drop_caches_intercepted\n"
                 yield from plugins.mem.write(buffer, data)
                 yield from plugins.mem.write(lenp, len(data))
-                yield from plugins.mem.write(ppos, len(data), size=8)
+                yield from plugins.mem.write(ppos, len(data))
             else:
                 yield from plugins.mem.write(lenp, 0)
 
@@ -155,17 +159,17 @@ class KernelHostnameSysctl(SysctlFile):
 
     def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: CInt, buffer: CharPtr, lenp: SizeTPtr, ppos: LoffTPtr):
         if int(write):
-            size = yield from plugins.mem.read(lenp, fmt=int, size=plugins.kffi.sizeof("size_t"))
-            yield from plugins.mem.write(ppos, size, size=8)
+            size = yield from plugins.mem.read(lenp, fmt=int)
+            yield from plugins.mem.write(ppos, size)
             ptregs.retval = 0
             return 0
         else:
-            offset = yield from plugins.mem.read(ppos, fmt=int, size=8)
+            offset = yield from plugins.mem.read(ppos, fmt=int)
             if offset == 0:
                 data = b"hostname_intercepted\n"
                 yield from plugins.mem.write(buffer, data)
                 yield from plugins.mem.write(lenp, len(data))
-                yield from plugins.mem.write(ppos, len(data), size=8)
+                yield from plugins.mem.write(ppos, len(data))
             else:
                 yield from plugins.mem.write(lenp, 0)
 
