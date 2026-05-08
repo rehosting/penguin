@@ -230,6 +230,8 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
                     origin_map=origin_map,           # Pass the state map
                     verbose=verbose
                 )
+            else:
+                logger.error(f"patch file {patch} not found, ignoring")
 
     config = config.model_dump()
     if config["core"].get("guest_cmd", False) is True:
