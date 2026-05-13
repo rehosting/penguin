@@ -55,6 +55,7 @@ patches:
   - ./patches/tests/mtd_test.yaml
   - ./patches/tests/anonfs.yaml
   - ./patches/tests/pseudofiles_comprehensive.yaml
+  - ./patches/tests/task_size.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 

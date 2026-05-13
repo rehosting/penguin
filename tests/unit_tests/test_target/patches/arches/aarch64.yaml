@@ -1,6 +1,9 @@
 core:
   arch: aarch64
 
+env:
+  igloo_task_size: "0x4000000000"
+
 static_files:
   /igloo/utils/*:
     host_path: /igloo_static/aarch64/*

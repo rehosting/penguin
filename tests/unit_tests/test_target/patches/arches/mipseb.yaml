@@ -1,6 +1,9 @@
 core:
   arch: mipseb
 
+env:
+  igloo_task_size: "0x7f000000"
+
 static_files:
   /igloo/utils/*:
     host_path: /igloo_static/mipseb/*

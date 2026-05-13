@@ -1,6 +1,9 @@
 core:
   arch: mips64el
 
+env:
+  igloo_task_size: "0x4000000000"
+
 static_files:
   /igloo/utils/*:
     host_path: /igloo_static/mips64el/*

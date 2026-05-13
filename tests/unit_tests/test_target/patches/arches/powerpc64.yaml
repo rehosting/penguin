@@ -1,8 +1,10 @@
 core:
-  arch: powerpc64 
+  arch: powerpc64
 
-static_files:
-  /igloo/utils/*:
+env:
+  igloo_task_size: "0x4000000000"
+
+static_files:  /igloo/utils/*:
     host_path: /igloo_static/powerpc64/*
     mode: 493
     type: host_file

@@ -1,0 +1,26 @@
+plugins:
+  task_size_verify: {}
+  verifier:
+    conditions:
+      task_size_enforcement:
+        type: file_contains
+        file: task_size_test.txt
+        string: "Task size test: passed"
+
+static_files:
+  /tests/task_size.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -x
+      
+      # Trigger verification via a specific ioctl call
+      /igloo/utils/send_syscall ioctl 0x17 0x1234
+      
+      if [ $? -eq 0 ]; then
+        echo "Task size verification passed"
+      else
+        echo "Task size verification failed"
+        exit 1
+      fi
+    mode: 755
