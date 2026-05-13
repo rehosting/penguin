@@ -301,7 +301,7 @@ class Core(PartialModelMixin, BaseModel):
         ),
     ]
     init: Annotated[
-        str,
+        Optional[str],
         Field(
             None,
             title="init to run after rehosting starts",

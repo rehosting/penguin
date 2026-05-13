@@ -12,25 +12,14 @@ int libinject_get_config_bool(const char *config_key);
 
 __attribute__((constructor)) void igloo_start_ltrace(void)
 {
-	// Don't do anything if the user doesn't want to ltrace
-	if(!libinject_get_config_bool("core.ltrace")) {
-		return;
-	}
-
-	// Open tty for output
-	FILE *tty = fopen(TTY_PATH, "w");
-	setlinebuf(tty);
-
 	// Get PID
 	pid_t pid = getpid();
 	char pid_buf[100];
 	sprintf(pid_buf, "%d", pid);
 
-	// Build argv and envp
-	char *const argv[] = { LTRACE_PATH, "-p", pid_buf, NULL };
-	char *const envp[] = { NULL };
-
-	// Read command name
+	// Read comm before any portalcall so we can short-circuit ltrace recursion:
+	// this constructor also runs inside the ltrace child we spawn, and unlike
+	// the old env-based check there's no empty-envp escape hatch via portalcall.
 	char comm[1024];
 	sprintf(comm, "/proc/%d/comm", pid);
 	FILE *f_comm = fopen(comm, "r");
@@ -41,6 +30,23 @@ __attribute__((constructor)) void igloo_start_ltrace(void)
 	if (comm[strlen(comm) - 1] == '\n') {
 		comm[strlen(comm) - 1] = 0;
 	}
+
+	if (!strcmp(comm, "ltrace")) {
+		return;
+	}
+
+	// Don't do anything if the user doesn't want to ltrace
+	if(!libinject_get_config_bool("core.ltrace")) {
+		return;
+	}
+
+	// Open tty for output
+	FILE *tty = fopen(TTY_PATH, "w");
+	setlinebuf(tty);
+
+	// Build argv and envp
+	char *const argv[] = { LTRACE_PATH, "-p", pid_buf, NULL };
+	char *const envp[] = { NULL };
 
 	// Don't do anything if the user doesn't want to ltrace this process
 	bool should_trace = true;

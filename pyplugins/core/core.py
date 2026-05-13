@@ -69,6 +69,12 @@ class Core(Plugin):
         conf = self.get_arg("conf")
         self.config = conf.args  # since the config is an ArgsBox
 
+        # The schema accepts core.ltrace as a bare list of programs to trace;
+        # normalize to the dict form the guest-side include/exclude logic expects.
+        ltrace = self.config["core"].get("ltrace")
+        if isinstance(ltrace, list):
+            self.config["core"]["ltrace"] = {"include": ltrace}
+
         telnet_port = self.get_arg("telnet_port")
 
         # Essential plugins are always loaded with core
@@ -121,16 +127,13 @@ class Core(Plugin):
 
         # Warn if env is set for any of the old options. Can happen with old configs.
         legacy_env_vars = ["ROOT_SHELL", "SHARED_DIR", "STRACE", "IGLOO_LTRACE", "WWW", "PROJ_NAME"]
-        core_env = conf["core"].get("env", {})
+        env = conf.get("env", {}) or {}
 
-        found_legacy_vars = []
-        for var in legacy_env_vars:
-            if var in core_env:
-                found_legacy_vars.append(var)
+        found_legacy_vars = [var for var in legacy_env_vars if var in env]
 
         if found_legacy_vars:
             self.logger.warning(
-                f"Legacy environment variables found in core.env: {', '.join(found_legacy_vars)}. "
+                f"Legacy environment variables found in env: {', '.join(found_legacy_vars)}. "
                 "This likely indicates you are running an old project and this message can safely be ignored."
                 "However, if you have set them intentionally, be aware they will stop working in the future."
             )
@@ -282,20 +285,24 @@ class Core(Plugin):
                 if isinstance(current, Mapping) and key_part in current:
                     current = current[key_part]
                 elif isinstance(current, Sequence) and not isinstance(current, str):
-                    try:
-                        index = int(key_part)
-                        current = current[index]
-                    except (ValueError, IndexError):
-                        raise
+                    index = int(key_part)
+                    current = current[index]
                 elif hasattr(current, key_part):
                     current = getattr(current, key_part)
                 else:
                     raise KeyError(f"Key '{key_part}' not found")
-            value = str(current)
+            # The guest only consumes scalars and lists-of-scalars (CSV).
+            # Dicts can't be parsed on the guest side, so treat them as not found.
+            if isinstance(current, Mapping):
+                raise KeyError(f"Key '{full_key}' resolves to a dict; only leaves are exposed")
+            if isinstance(current, (list, tuple)):
+                value = ",".join(str(x) for x in current)
+            else:
+                value = str(current)
             self.logger.debug(f"get_config found value '{value}' for key: {full_key}")
             yield from plugins.mem.write_str(output_ptr, value[:buf_size-1])
             return 0  # Success
-        except (KeyError, AttributeError, TypeError) as e:
+        except (KeyError, AttributeError, TypeError, ValueError, IndexError) as e:
             self.logger.warning(f"get_config requested but failed for key '{full_key}': {e}")
             yield from plugins.mem.write_str(output_ptr, "")
             return -1  # Error
