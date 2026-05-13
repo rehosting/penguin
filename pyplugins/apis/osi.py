@@ -239,7 +239,7 @@ class OSI(Plugin):
             if not mappings_bytes:
                 self.logger.debug("No mapping data received")
                 if not all_mappings:  # If this was our first request
-                    return [], 0
+                    return MappingsWrapper([])
                 break
 
             orh_struct = kffi.from_buffer("osi_result_header", mappings_bytes)
