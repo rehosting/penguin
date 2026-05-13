@@ -579,15 +579,9 @@ penguin_run() {
 
     if $build; then
         echo "Running with container rebuild (--build). Entire container will be rebuilt."
-        # Rebuild container
-        # Make sure we have Dockerfile and directory is named penguin
+        cd "$(dirname "$(realpath "$0")")"
         if [ ! -f "Dockerfile" ]; then
-            echo "Dockerfile not found in current directory and you requested a container rebuild"
-            exit 1
-        fi
-        # Check if current directory is named penguin
-        if [ ! "$(basename "$(pwd)")" == "penguin" ]; then
-            echo "Current directory is not named penguin and you requested a container rebuild"
+            echo "Dockerfile not found in $(pwd) and you requested a container rebuild"
             exit 1
         fi
 
