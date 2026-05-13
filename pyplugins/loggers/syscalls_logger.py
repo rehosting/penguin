@@ -330,9 +330,10 @@ class PyPandaSysLog(Plugin):
             row_data["retno_repr"] = f"{retval:#x}"
 
         # 5. Get Process Info (OSI)
-        proc_args = yield from plugins.osi.get_args()
+        proc_args, proc_id = yield from plugins.osi.get_args_with_pid()
         if proc_args:
             row_data["procname"] = proc_args[0]
         else:
             row_data["procname"] = "[none]"
+        row_data["proc_id"] = proc_id
         self.DB.add_event(Syscall, row_data)

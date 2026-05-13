@@ -48,6 +48,16 @@ CURRENT_PID_NUM = 0xffffffff
 kffi = plugins.kffi
 
 
+class PortalResponse(bytes):
+    """Bytes subclass for portal response payloads, with the response header's
+    resolved PID exposed as ``.pid``."""
+
+    def __new__(cls, data: bytes, pid: int):
+        obj = super().__new__(cls, data)
+        obj.pid = pid
+        return obj
+
+
 # Global singleton for a no-operation command
 _NONE_CMD = None
 
@@ -374,8 +384,9 @@ class Portal(Plugin):
             self.logger.error(f"Failed to read memregion state and data: {e}")
             return 0, 0, None
 
-        _, _, addr, size = self.region_header_struct.unpack_from(buf, 0)
-        data = buf[self.region_header_size:self.region_header_size + size]
+        _, pid, addr, size = self.region_header_struct.unpack_from(buf, 0)
+        data = PortalResponse(
+            buf[self.region_header_size:self.region_header_size + size], pid)
         return addr, size, data
 
     def _write_memregion_state(

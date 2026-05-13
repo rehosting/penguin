@@ -48,7 +48,7 @@ from pengutils.utils.util_base import wrapper, get_default_results_path
 # --- Filter Helpers ---
 
 
-def exec_filter(sess, procname, fd, filename):
+def exec_filter(sess, procname, fd, filename, pid):
     query = sess.query(Exec)
     if procname:
         query = query.filter(Exec.procname.contains(procname))
@@ -56,10 +56,12 @@ def exec_filter(sess, procname, fd, filename):
         query = query.filter(Exec.fd == fd)
     if filename:
         query = query.filter(Exec.fname.contains(filename))
+    if pid is not None:
+        query = query.filter(Exec.proc_id == pid)
     return query
 
 
-def read_filter(sess, procname, fd, filename):
+def read_filter(sess, procname, fd, filename, pid):
     query = sess.query(Read)
     if procname:
         query = query.filter(Read.procname.contains(procname))
@@ -67,10 +69,12 @@ def read_filter(sess, procname, fd, filename):
         query = query.filter(Read.fd == fd)
     if filename:
         query = query.filter(Read.fname.contains(filename))
+    if pid is not None:
+        query = query.filter(Read.proc_id == pid)
     return query
 
 
-def write_filter(sess, procname, fd, filename):
+def write_filter(sess, procname, fd, filename, pid):
     query = sess.query(Write)
     if procname:
         query = query.filter(Write.procname.contains(procname))
@@ -78,10 +82,12 @@ def write_filter(sess, procname, fd, filename):
         query = query.filter(Write.fd == fd)
     if filename:
         query = query.filter(Write.fname.contains(filename))
+    if pid is not None:
+        query = query.filter(Write.proc_id == pid)
     return query
 
 
-def syscall_filter(sess, procname, syscall, errors):
+def syscall_filter(sess, procname, syscall, errors, pid):
     query = sess.query(Syscall)
     if procname:
         query = query.filter(Syscall.procname.contains(procname))
@@ -91,6 +97,8 @@ def syscall_filter(sess, procname, syscall, errors):
         query = query.filter(Syscall.name.contains(syscall))
     if errors:
         query = query.filter(Syscall.retno < 0)
+    if pid is not None:
+        query = query.filter(Syscall.proc_id == pid)
     return query
 
 # --- CLI Group ---
@@ -110,11 +118,12 @@ def db_cli():
 @click.option("--follow", default=False, help="Show latest results as they appear", is_flag=True)
 @click.option("--fd", default=None, help="Filter for file descriptor")
 @click.option("--filename", default=None, help="Filter for file name")
+@click.option("--pid", default=None, type=int, help="Filter for process ID (exact match)")
 @click.option("--output", default="/dev/stdout", help="Output to file instead of stdout")
-def execs(results, procname, follow, fd, filename, output):
+def execs(results, procname, follow, fd, filename, pid, output):
     """Query execution events."""
     print_procname = procname is None
-    args = (procname, fd, filename)
+    args = (procname, fd, filename, pid)
     wrapper(results, output, print_procname, follow, exec_filter, args)
 
 
@@ -123,8 +132,9 @@ def execs(results, procname, follow, fd, filename, output):
 @click.option("--procname", default=None, help="Process name to filter for (looks for substring)")
 @click.option("--follow", default=False, help="Show latest results as they appear", is_flag=True)
 @click.option("--fd", default=None, help="file descriptor number to filter")
+@click.option("--pid", default=None, type=int, help="Filter for process ID (exact match)")
 @click.option("--output", default="/dev/stdout", help="Output to file instead of stdout")
-def fds(results, procname, follow, fd, output):
+def fds(results, procname, follow, fd, pid, output):
     """Query file descriptor write events (unique combinations)."""
     db_path = join(results, "plugins.db")
     if not exists(db_path):
@@ -157,6 +167,9 @@ def fds(results, procname, follow, fd, output):
                 if fd:
                     query = query.filter(Write.fd == fd)
 
+                if pid is not None:
+                    query = query.filter(Write.proc_id == pid)
+
                 seen = set()
                 for event in query.all():
                     if (event.procname, event.fd, event.fname) not in seen:
@@ -183,11 +196,12 @@ def fds(results, procname, follow, fd, output):
 @click.option("--follow", default=False, help="Show latest results as they appear", is_flag=True)
 @click.option("--fd", default=None, help="Filter for file descriptor")
 @click.option("--filename", default=None, help="Filter for file name")
+@click.option("--pid", default=None, type=int, help="Filter for process ID (exact match)")
 @click.option("--output", default="/dev/stdout", help="Output to file instead of stdout")
-def reads(results, procname, follow, fd, filename, output):
+def reads(results, procname, follow, fd, filename, pid, output):
     """Query file read events."""
     print_procname = procname is None
-    args = (procname, fd, filename)
+    args = (procname, fd, filename, pid)
     wrapper(results, output, print_procname, follow, read_filter, args)
 
 
@@ -197,11 +211,12 @@ def reads(results, procname, follow, fd, filename, output):
 @click.option("--syscall", default=None, help="Syscall name to filter for (looks for substring)")
 @click.option("--errors", default=False, help="Just show syscalls that returned an error", is_flag=True)
 @click.option("--follow", default=False, help="Show latest results as they appear", is_flag=True)
+@click.option("--pid", default=None, type=int, help="Filter for process ID (exact match)")
 @click.option("--output", default="/dev/stdout", help="Output to file instead of stdout")
-def syscalls(results, procname, syscall, errors, follow, output):
+def syscalls(results, procname, syscall, errors, follow, pid, output):
     """Query syscall events."""
     print_procname = procname is None
-    args = (procname, syscall, errors)
+    args = (procname, syscall, errors, pid)
     wrapper(results, output, print_procname, follow, syscall_filter, args)
 
 
@@ -232,11 +247,12 @@ def tasks(results, output):
 @click.option("--follow", default=False, help="Show latest results as they appear", is_flag=True)
 @click.option("--fd", default=None, help="Filter for file descriptor")
 @click.option("--filename", default=None, help="Filter for file name")
+@click.option("--pid", default=None, type=int, help="Filter for process ID (exact match)")
 @click.option("--output", default="/dev/stdout", help="Output to file instead of stdout")
-def writes(results, procname, follow, fd, filename, output):
+def writes(results, procname, follow, fd, filename, pid, output):
     """Query file write events."""
     print_procname = procname is None
-    args = (procname, fd, filename)
+    args = (procname, fd, filename, pid)
     wrapper(results, output, print_procname, follow, write_filter, args)
 
 

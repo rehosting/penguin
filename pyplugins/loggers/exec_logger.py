@@ -80,5 +80,6 @@ class ExecLog(Plugin):
                               "envp": envp_str,
                               "euid": euid,
                               "egid": egid,
+                              "proc_id": data["proc"].pid,
                           }
                           )

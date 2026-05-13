@@ -46,7 +46,7 @@ from hyper.consts import HYPER_OP as hop
 from hyper.portal import PortalCmd
 from wrappers.generic import Wrapper
 from wrappers.osi_wrap import MappingWrapper, MappingsWrapper
-from typing import List, Dict, Any, Optional, Generator
+from typing import List, Dict, Any, Optional, Generator, Tuple
 
 kffi = plugins.kffi
 CONST_UNKNOWN_STR = "[???]"
@@ -102,28 +102,26 @@ class OSI(Plugin):
             return fd_name
         return
 
-    def get_args(self, pid: Optional[int] = None) -> Generator[Any, None, List[str]]:
-        """
-        Get the argument list for a process.
-
-        Parameters
-        ----------
-        pid : int, optional
-            Process ID, or None for current process.
-
-        Returns
-        -------
-        List[str]
-            List of argument strings (empty if not found).
-        """
-        self.logger.debug("read_process_args called")
+    def _get_args_inner(
+            self, pid: Optional[int] = None
+    ) -> Generator[Any, None, Tuple[List[str], int]]:
         proc_args = yield PortalCmd(hop.HYPER_OP_READ_PROCARGS, pid=pid)
         if not proc_args:
-            return []
-        # Optimization: decode only valid data, split fast, filter printable
+            return [], 0
         decoded = proc_args.rstrip(b'\0').decode('latin-1', errors='replace')
-        args = decoded.split()
-        return [arg for arg in args if arg.isprintable()]
+        args = [arg for arg in decoded.split() if arg.isprintable()]
+        return args, proc_args.pid
+
+    def get_args(self, pid: Optional[int] = None) -> Generator[Any, None, List[str]]:
+        """Get the argument list for a process. Returns empty list if not found."""
+        args, _ = yield from self._get_args_inner(pid)
+        return args
+
+    def get_args_with_pid(
+            self, pid: Optional[int] = None
+    ) -> Generator[Any, None, Tuple[List[str], int]]:
+        """Like :py:meth:`get_args` but also returns the resolved PID. One portal call."""
+        return (yield from self._get_args_inner(pid))
 
     def get_proc_name(self, pid: Optional[int] = None) -> Generator[Any, None, str]:
         """
