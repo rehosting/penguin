@@ -17,6 +17,7 @@ class Devfs(Plugin):
 
         plugins.portal.register_interrupt_handler(
             "devfs", self._hyperdevfs_interrupt_handler)
+        self._is_32bit = self.panda.bits == 32
 
     def _get_overridden_methods(self, devfs_file: DevFile) -> Dict[str, callable]:
         base = DevFile
@@ -35,6 +36,13 @@ class Devfs(Plugin):
                 and meth.__code__ is not base_meth.__code__
             ):
                 overridden[name] = meth
+        '''
+        compat_ioctl runs on 64-bit systems in a 32-bit context
+        We auto-register it for 64-bit systems if they don't override it
+        '''
+        if not self._is_32bit:
+            if "ioctl" in overridden and "compat_ioctl" not in overridden:
+                overridden["compat_ioctl"] = overridden["ioctl"]
         return overridden
 
     def _make_ops_struct(self, devfs_file: DevFile):

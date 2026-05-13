@@ -14,6 +14,7 @@ class Proc(Plugin):
         self._proc_dirs: Dict[str, int] = {}  # path -> dir id
         plugins.portal.register_interrupt_handler(
             "procfs", self._proc_interrupt_handler)
+        self._is_32bit = self.panda.bits == 32
 
     def _get_overridden_methods(self, proc_file: ProcFile) -> Dict[str, callable]:
         """
@@ -34,6 +35,14 @@ class Proc(Plugin):
                 and meth.__code__ is not base_meth.__code__
             ):
                 overridden[name] = meth
+        
+        '''
+        compat_ioctl runs on 64-bit systems in a 32-bit context
+        We auto-register it for 64-bit systems if they don't override it
+        '''
+        if not self._is_32bit:
+            if "ioctl" in overridden and "compat_ioctl" not in overridden:
+                overridden["compat_ioctl"] = overridden["ioctl"]
         return overridden
 
     def _make_fops_struct(self, proc_file: ProcFile):
