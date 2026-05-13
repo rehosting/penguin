@@ -35,7 +35,7 @@ class Proc(Plugin):
                 and meth.__code__ is not base_meth.__code__
             ):
                 overridden[name] = meth
-        
+
         '''
         compat_ioctl runs on 64-bit systems in a 32-bit context
         We auto-register it for 64-bit systems if they don't override it
