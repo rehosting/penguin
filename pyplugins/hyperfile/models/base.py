@@ -367,21 +367,22 @@ class SysctlFile(BaseFile):
             yield
         return 0
 
-    def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: CInt, buffer: CharPtr, lenp: SizeTPtr, ppos: LoffTPtr):
+    def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: CInt, buffer: CharPtr, lenp: SizeTPtr, ppos_ptr: LoffTPtr):
         """
         Unified sysctl entry point.
         Extracts arguments from ptregs and routes to read() or write().
         """
-        # 1. Read the current size value from the lenp pointer
-        size_val = yield from plugins.mem.read(lenp, fmt=int, size=plugins.kffi.sizeof("size_t"))
+        # 1. Read the current size value and position from the pointers using deref
+        # This keeps the full type context (size_t and loff_t)
+        size_val = yield from plugins.kffi.deref(lenp)
 
         # Initialize retval to 0 (success)
         ptregs.retval = 0
 
         if int(write):
-            res = self.write(ptregs, None, buffer, size_val, ppos)
+            res = self.write(ptregs, None, buffer, size_val, ppos_ptr)
         else:
-            res = self.read(ptregs, None, buffer, size_val, ppos)
+            res = self.read(ptregs, None, buffer, size_val, ppos_ptr)
 
         # 2. Conditionally yield if the method was a generator (e.g. uses memory plugins)
         if inspect.isgenerator(res):
@@ -396,7 +397,7 @@ class SysctlFile(BaseFile):
         # 4. Update the value at lenp with the number of bytes processed
         # and ensure a safe numeric return (0 for success, negative for error)
         if processed_bytes >= 0:
-            yield from plugins.mem.write(lenp, processed_bytes, size=plugins.kffi.sizeof("size_t"))
+            yield from plugins.mem.write(lenp, processed_bytes)
             ret_val = 0
         else:
             ret_val = processed_bytes

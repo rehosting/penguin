@@ -1,5 +1,6 @@
 from wrappers.ptregs_wrap import PtRegsWrapper
 from penguin import plugins
+from dwarffi import Ptr
 import inspect
 from os.path import isabs, join as pjoin
 from .base import FilePtr, CharPtr, LoffTPtr, SizeT
@@ -15,7 +16,7 @@ class WriteDiscard:
         # in case we are mixed with something that does.
         super().__init__(**kwargs)
 
-    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr) -> None:
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr) -> None:
         """
         Discards all written data.
         Always returns the size written.
@@ -32,7 +33,7 @@ class WriteReturnConst:
         self.const = const
         super().__init__(**kwargs)
 
-    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr) -> None:
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr) -> None:
         ptregs.retval = self.const
 
 
@@ -57,7 +58,7 @@ class WriteRecord:
             self.written_data = b""
         super().__init__(**kwargs)
 
-    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr) -> None:
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr) -> None:
         """
         Records all written data into self.written_data.
         Always returns the size written.
@@ -65,6 +66,11 @@ class WriteRecord:
         size_val = int(size)
         buf = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
         self.written_data += buf
+
+        # Use deref to maintain type context
+        offset = yield from plugins.kffi.deref(offset_ptr)
+        yield from plugins.mem.write(offset_ptr, offset + size_val)
+
         ptregs.retval = size_val
 
 
@@ -87,7 +93,7 @@ class WriteToFile:
         # 2. FORWARD: Pass the rest up.
         super().__init__(**kwargs)
 
-    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr) -> None:
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr) -> None:
         """
         Writes all data to the specified host file.
         Always returns the size written.

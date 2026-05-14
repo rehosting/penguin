@@ -1,6 +1,7 @@
 from typing import Union
 from penguin import plugins
 from wrappers.ptregs_wrap import PtRegsWrapper
+from dwarffi import Ptr
 from .base import FilePtr, CharPtr, LoffTPtr, SizeT
 import os
 import inspect
@@ -25,7 +26,7 @@ class ReadBufWrapper:
 
         super().__init__(**kwargs)
 
-    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
         """
         Reads data once, respecting offset and size.
         Returns 0 if offset is beyond the data.
@@ -38,8 +39,8 @@ class ReadBufWrapper:
             data_bytes = self._data.encode("utf-8")
         data_len = len(data_bytes)
 
-        # We pass size=8 to support legacy setups where loff is passed as a raw integer
-        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
+        # Use deref to maintain type context (e.g. loff_t)
+        offset = yield from plugins.kffi.deref(offset_ptr)
 
         # Check for cycling
         cycle = getattr(self, "_cycle", False)
@@ -51,7 +52,7 @@ class ReadBufWrapper:
         if not cycle:
             chunk = min(size_val, data_len - offset)
             yield from plugins.mem.write(user_buf, data_bytes[offset:offset + chunk])
-            yield from plugins.mem.write(loff, offset + chunk, size=8)
+            yield from plugins.mem.write(offset_ptr, offset + chunk)
             ptregs.retval = chunk
         else:
             # Cycle: repeat buffer forever, write the requested size in one go
@@ -68,7 +69,7 @@ class ReadBufWrapper:
                 chunk_data = data_bytes[pos:] + data_bytes * (full_repeats - 1) + data_bytes[:end_pos]
             chunk_data = chunk_data[:size_val]  # Ensure exact size
             yield from plugins.mem.write(user_buf, chunk_data)
-            yield from plugins.mem.write(loff, offset + size_val, size=8)
+            yield from plugins.mem.write(offset_ptr, offset + size_val)
             ptregs.retval = size_val
 
 
