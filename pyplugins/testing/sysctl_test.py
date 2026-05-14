@@ -82,7 +82,7 @@ class UsageCounterSysctl(SysctlFile):
         assert isinstance(lenp, Ptr), "lenp must be a Ptr"
         assert isinstance(ppos_ptr, Ptr), "ppos_ptr must be a Ptr"
         assert isinstance(write, (int, BoundTypeInstance)), "write must be int or BoundTypeInstance"
-        
+
         if int(write):
             ptregs.retval = -22  # -EINVAL
             return -22
