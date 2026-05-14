@@ -1,8 +1,7 @@
 from wrappers.ptregs_wrap import PtRegsWrapper
 from typing import Union, Annotated
 from penguin import getColoredLogger, plugins
-from dwarffi import Ptr
-from dwarffi.instances import BoundTypeInstance
+from dwarffi import Ptr, BoundTypeInstance
 import inspect
 
 # --- DWARFFI Kernel Pointer Aliases ---
@@ -355,13 +354,13 @@ class SysctlFile(BaseFile):
         self.INITIAL_VALUE = kwargs.get(
             "INITIAL_VALUE", getattr(self, "INITIAL_VALUE", b""))
 
-    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
         """No-op generator."""
         if False:
             yield
         return 0
 
-    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
         """No-op generator."""
         if False:
             yield

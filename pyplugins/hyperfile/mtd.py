@@ -91,15 +91,14 @@ class MTD(Plugin):
     def _mtd_read(self, ptregs, mtd_id, offset, length, buf_ptr):
         """Called by Guest Kernel to read data from Host file."""
         mtd_id_val = int(mtd_id)
-        offset_val = int(offset)
-        length_val = int(length)
 
         # 1. Check for OOP MtdDevice
         dev = self._mtd_objects.get(mtd_id_val)
         if dev:
             try:
                 ptregs.retval = 0
-                res = dev.read(ptregs, offset_val, length_val, buf_ptr)
+                # Pass raw arguments to maintain type context (BoundTypeInstance/Ptr)
+                res = dev.read(ptregs, offset, length, buf_ptr)
                 if inspect.isgenerator(res):
                     ret = yield from res
                 else:
@@ -115,6 +114,8 @@ class MTD(Plugin):
             return -19  # -ENODEV
 
         try:
+            offset_val = int(offset)
+            length_val = int(length)
             f.seek(offset_val)
             data = f.read(length_val)
             read_len = len(data)
@@ -135,14 +136,13 @@ class MTD(Plugin):
 
     def _mtd_write(self, ptregs, mtd_id, offset, length, buf_ptr):
         mtd_id_val = int(mtd_id)
-        offset_val = int(offset)
-        length_val = int(length)
 
         dev = self._mtd_objects.get(mtd_id_val)
         if dev:
             try:
                 ptregs.retval = 0
-                res = dev.write(ptregs, offset_val, length_val, buf_ptr)
+                # Pass raw arguments to maintain type context
+                res = dev.write(ptregs, offset, length, buf_ptr)
                 if inspect.isgenerator(res):
                     ret = yield from res
                 else:
@@ -157,6 +157,8 @@ class MTD(Plugin):
             return -19
 
         try:
+            offset_val = int(offset)
+            length_val = int(length)
             data = yield from plugins.mem.read_bytes(buf_ptr, length_val)
             f.seek(offset_val)
             f.write(data)
@@ -168,14 +170,13 @@ class MTD(Plugin):
     def _mtd_erase(self, ptregs, mtd_id, offset, length):
         """Called by Guest Kernel to erase a block."""
         mtd_id_val = int(mtd_id)
-        offset_val = int(offset)
-        length_val = int(length)
 
         dev = self._mtd_objects.get(mtd_id_val)
         if dev:
             try:
                 ptregs.retval = 0
-                res = dev.erase(ptregs, offset_val, length_val)
+                # Pass raw arguments to maintain type context
+                res = dev.erase(ptregs, offset, length)
                 if inspect.isgenerator(res):
                     ret = yield from res
                 else:
@@ -190,6 +191,8 @@ class MTD(Plugin):
             return -19
 
         try:
+            offset_val = int(offset)
+            length_val = int(length)
             # Simulate erase by writing 0xFFs to the file
             f.seek(offset_val)
             f.write(b'\xff' * length_val)
