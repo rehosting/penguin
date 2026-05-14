@@ -22,6 +22,13 @@ ARG RIPGREP_VERSION="14.1.1"
 ARG APT_MIRROR="ubuntu"
 
 FROM ${REGISTRY}/rust:1.86 AS rust_builder
+
+# INTERCEPT SETCAP: Prevent postinst scripts from setting capabilities
+RUN dpkg-divert --local --rename --add /sbin/setcap && \
+    ln -sf /bin/true /sbin/setcap && \
+    dpkg-divert --local --rename --add /usr/sbin/setcap && \
+    ln -sf /bin/true /usr/sbin/setcap
+
 RUN git clone --depth 1 -q https://github.com/rust-vmm/vhost-device/ /root/vhost-device
 ARG VHOST_DEVICE_VERSION
 ENV PATH="/root/.cargo/bin:$PATH"
@@ -46,6 +53,13 @@ RUN cd /root/vhost-device/ && \
 # Create a mirrored base image to DRY up the apt-get mirror logic
 FROM $BASE_IMAGE AS base_mirrored
 ARG APT_MIRROR
+
+# INTERCEPT SETCAP GLOBALLY: Prevent any downstream package from setting capabilities
+RUN dpkg-divert --local --rename --add /sbin/setcap && \
+    ln -sf /bin/true /sbin/setcap && \
+    dpkg-divert --local --rename --add /usr/sbin/setcap && \
+    ln -sf /bin/true /usr/sbin/setcap
+
 RUN if [ "$APT_MIRROR" = "MIT" ]; then \
       sed -i 's/archive.ubuntu.com/mirrors.mit.edu/g' /etc/apt/sources.list && \
       sed -i 's/security.ubuntu.com/mirrors.mit.edu/g' /etc/apt/sources.list; \
