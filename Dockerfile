@@ -90,7 +90,7 @@ RUN wget -O /tmp/pandare.deb \
     https://github.com/panda-re/qemu/releases/download/${PANDA_VERSION}/pandare_22.04.deb && \
     wget -O /tmp/pandare-plugins.deb \
     https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare-plugins_22.04.deb
-    # RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
+# RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
 
 ARG RIPGREP_VERSION
 RUN wget -O /tmp/ripgrep.deb \
@@ -301,7 +301,8 @@ RUN if [ ! -z "${OVERRIDE_VERSION}" ]; then \
 FROM base_mirrored AS fw2tar_dep_builder
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y -q git android-sdk-libsparse-utils arj automake build-essential bzip2 cabextract clang cpio cramfsswap curl default-jdk e2fsprogs fakeroot gcc git gzip lhasa libarchive-dev libfontconfig1-dev libacl1-dev libcap-dev liblzma-dev liblzo2-dev liblz4-dev libbz2-dev libssl-dev libmagic1 locales lz4 lziprecover lzop mtd-utils openssh-client p7zip p7zip-full python3 python3-pip qtbase5-dev sleuthkit squashfs-tools srecord tar unar unrar unrar-free unyaffs unzip wget xz-utils zlib1g-dev zstd
+RUN apt-get update && apt-get install -y -q git android-sdk-libsparse-utils arj automake build-essential bzip2 cabextract clang cpio cramfsswap curl default-jdk e2fsprogs fakeroot gcc git gzip lhasa libarchive-dev libfontconfig1-dev libacl1-dev libcap-dev liblzma-dev liblzo2-dev liblz4-dev libbz2-dev libssl-dev libmagic1 locales lz4 lziprecover lzop mtd-utils openssh-client p7zip p7zip-full python3 python3-pip qtbase5-dev sleuthkit squashfs-tools srecord tar unar unrar unrar-free unyaffs unzip wget xz-utils zlib1g-dev zstd && \
+    rm -rf /var/log/journal /run/log/journal
 
 ARG FW2TAR_TAG
 RUN git clone --depth=1 -b ${FW2TAR_TAG} https://github.com/rehosting/fw2tar.git /tmp/fw2tar
@@ -398,10 +399,11 @@ RUN curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /us
 # Install apt dependencies - first line for penguin - second for fw2tar
 RUN apt-get update && apt-get install -q -y \
     fakeroot graphviz graphviz-dev libarchive13 libgcc-s1 liblinear4 liblua5.3-0 libpcap0.8 libpcre3 libssh2-1 libssl3 libstdc++6 libxml2 lua-lpeg nmap python3 python3-lxml python3-venv sudo telnet vim wget zlib1g pigz clang-20 lld-20 \
-    android-sdk-libsparse-utils arj automake build-essential bzip2 cabextract cpio cramfsswap curl default-jdk e2fsprogs fakeroot gcc git gzip lhasa libarchive-dev libfontconfig1-dev libacl1-dev libcap-dev liblzma-dev liblzo2-dev liblz4-dev libbz2-dev libssl-dev libmagic1 locales lz4 lziprecover lzop mtd-utils openssh-client p7zip p7zip-full python3 python3-pip qtbase5-dev sleuthkit squashfs-tools srecord tar unar unrar unrar-free unyaffs unzip xz-utils zlib1g-dev zstd && \
+    android-sdk-libsparse-utils arj automake build-essential bzip2 cabextract cpio cramfsswap curl default-jdk e2fsprogs fakeroot gcc git gzip lhasa libarchive-dev libfontconfig1-dev libacl1-dev libcap-dev liblzma-dev liblzo2-dev liblz4-dev libbz2-dev libssl-dev libmagic1 locales lz4 lziprecover lzop mtd-utils openssh-client p7zip p7zip-full python3 python3-pip qtbase5-dev sleuthkit squashfs-tools srecord tar unar unrar unrar-free unyaffs unzip xz-utils zlib1g-dev zstd libcap2-bin && \
     apt install -yy -f /tmp/pandare.deb -f /tmp/pandare-plugins.deb \
     -f /tmp/glow.deb -f /tmp/gum.deb -f /tmp/ripgrep.deb && \
-    rm -rf /var/lib/apt/lists/* /tmp/*.deb
+    getcap -r / 2>/dev/null | awk '{print $1}' | xargs -r setcap -r || true && \
+    rm -rf /var/lib/apt/lists/* /tmp/*.deb /var/log/journal /run/log/journal
 
 # Copy newer e2fsprogs binaries with mke2fs tarball support to /opt
 # System e2fsprogs remains available for dependencies that need it
