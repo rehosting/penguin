@@ -97,9 +97,15 @@ class Sysctl(Plugin):
         return False
 
     def _register_sysctls(self, sysctls: List[Tuple[str, SysctlFile]]) -> Generator[int, None, None]:
+        # Calculate the offset of sysctl_entry in proc_inode relative to vfs_inode
+        # This is used by the driver for safe VFS-based mutation.
+        kffi = plugins.kffi
+        proc_inode_type = kffi.ffi.get_type("struct proc_inode")
+        sysctl_entry_offset = 0
+        if proc_inode_type and "sysctl_entry" in proc_inode_type.fields and "vfs_inode" in proc_inode_type.fields:
+            sysctl_entry_offset = proc_inode_type.fields["sysctl_entry"].offset - proc_inode_type.fields["vfs_inode"].offset
         for fname, sysctl_file in sysctls:
             dir_path, entry_name = self._split_sysctl_path(fname)
-            kffi = plugins.kffi
 
             # If any VFS-style or raw handler is present, we use the unified handler
             handler_ptr = 0
@@ -126,7 +132,8 @@ class Sysctl(Plugin):
                 "initial_value": getattr(sysctl_file, "INITIAL_VALUE", ""),
                 "mode": getattr(sysctl_file, "MODE", 0o644),
                 "maxlen": getattr(sysctl_file, "MAXLEN", 256),
-                "handler": handler_ptr
+                "handler": handler_ptr,
+                "sysctl_entry_offset": sysctl_entry_offset
             }
 
             req = kffi.new("struct portal_sysctl_create_req", init_data)
