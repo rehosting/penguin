@@ -119,23 +119,25 @@ class ReadFromFile:
     '''
 
     def __init__(self, *, read_filepath: str = None, filename: str = None, **kwargs):
-        self.filename = read_filepath if read_filepath is not None else filename
+        fname = read_filepath if read_filepath is not None else filename
         self.proj_dir = plugins.get_arg("proj_dir")
-        if not os.path.isabs(self.filename) and self.proj_dir:
+        
+        if fname and not os.path.isabs(fname) and self.proj_dir:
             # Paths are relative to proj_dir if not absolute
-            fpath = os.path.join(self.proj_dir, self.filename)
+            self.readfile_path = os.path.join(self.proj_dir, fname)
         else:
-            fpath = self.filename
-        self.readfile_path = fpath
+            self.readfile_path = fname
+            
         super().__init__(**kwargs)
 
-    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
         size_val = int(size)
-        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
-        fname = self.readfile_path
-        if fname is None:
+        offset = yield from plugins.kffi.deref(offset_ptr)
+        
+        if not self.readfile_path:
             ptregs.retval = 0
             return
+            
         try:
             with open(self.readfile_path, "rb") as f:
                 f.seek(offset)
@@ -144,7 +146,7 @@ class ReadFromFile:
             chunk = b""
 
         yield from plugins.mem.write(user_buf, chunk)
-        yield from plugins.mem.write(loff, offset + len(chunk), size=8)
+        yield from plugins.mem.write(offset_ptr, offset + len(chunk))
         ptregs.retval = len(chunk)
 
 

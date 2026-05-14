@@ -105,12 +105,13 @@ class WriteToFile:
 
         size_val = int(size)
         buf = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
-        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
+        offset = yield from plugins.kffi.deref(offset_ptr)
 
         with open(self.write_filepath, "wb") as f:
             f.seek(offset)
             f.write(buf)
 
+        yield from plugins.mem.write(offset_ptr, offset + size_val)
         ptregs.retval = size_val
 
 

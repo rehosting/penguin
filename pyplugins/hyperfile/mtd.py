@@ -12,6 +12,7 @@ class MTD(Plugin):
     def __init__(self):
         # Fetch configurations (accounting for global conf fallback)
         conf = self.get_arg("conf") or {}
+        self.proj_dir = self.get_arg("proj_dir")
         self.config = self.get_arg("devices") or conf.get("devices") or {}
         self.pseudofiles = self.get_arg(
             "pseudofiles") or conf.get("pseudofiles") or {}
@@ -433,6 +434,9 @@ class MTD(Plugin):
                 if not backing_path:
                     raise ValueError(
                         f"Device '{name}' (backing_file) missing 'backing_file' path")
+
+                if not os.path.isabs(backing_path) and self.proj_dir:
+                    backing_path = os.path.join(self.proj_dir, backing_path)
 
                 backing_path = os.path.abspath(
                     os.path.expanduser(backing_path))
