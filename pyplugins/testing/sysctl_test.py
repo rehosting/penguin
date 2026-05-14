@@ -2,7 +2,7 @@ from penguin import Plugin, plugins
 from wrappers.ptregs_wrap import PtRegsWrapper
 from hyperfile.models.base import SysctlFile, FilePtr, CharPtr, SizeTPtr, LoffTPtr, CtlTablePtr, CInt, SizeT
 from hyperfile.models.read import ReadConstBuf
-from dwarffi import Ptr
+from dwarffi import Ptr, BoundTypeInstance
 
 # 1. Basic Static Read/Write
 
@@ -34,7 +34,9 @@ class DynamicSysctlFile(SysctlFile):
 
     def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
         self.hit_count += 1
+        assert isinstance(user_buf, Ptr), "user_buf must be a Ptr"
         assert isinstance(offset_ptr, Ptr), "offset_ptr must be a Ptr"
+        assert isinstance(size, (int, BoundTypeInstance)), "size must be int or BoundTypeInstance"
 
         offset = yield from plugins.kffi.deref(offset_ptr)
         data = self.INITIAL_VALUE
@@ -49,7 +51,10 @@ class DynamicSysctlFile(SysctlFile):
         return len(chunk)
 
     def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
+        assert isinstance(user_buf, Ptr), "user_buf must be a Ptr"
         assert isinstance(offset_ptr, Ptr), "offset_ptr must be a Ptr"
+        assert isinstance(size, (int, BoundTypeInstance)), "size must be int or BoundTypeInstance"
+
         offset = yield from plugins.kffi.deref(offset_ptr)
 
         size_val = int(size)
@@ -72,8 +77,11 @@ class UsageCounterSysctl(SysctlFile):
         self.total_reads = 0
 
     def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: CInt, buffer: CharPtr, lenp: SizeTPtr, ppos_ptr: LoffTPtr):
+        assert isinstance(ctl, Ptr), "ctl must be a Ptr"
+        assert isinstance(buffer, Ptr), "buffer must be a Ptr"
         assert isinstance(lenp, Ptr), "lenp must be a Ptr"
         assert isinstance(ppos_ptr, Ptr), "ppos_ptr must be a Ptr"
+        assert isinstance(write, (int, BoundTypeInstance)), "write must be int or BoundTypeInstance"
         
         if int(write):
             ptregs.retval = -22  # -EINVAL
@@ -128,6 +136,8 @@ class DropCachesSysctl(SysctlFile):
     MODE = 0o644  # Make it readable for testing the intercept string
 
     def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: CInt, buffer: CharPtr, lenp: SizeTPtr, ppos_ptr: LoffTPtr):
+        assert isinstance(ctl, Ptr), "ctl must be a Ptr"
+        assert isinstance(buffer, Ptr), "buffer must be a Ptr"
         assert isinstance(lenp, Ptr), "lenp must be a Ptr"
         assert isinstance(ppos_ptr, Ptr), "ppos_ptr must be a Ptr"
 
@@ -158,6 +168,8 @@ class KernelHostnameSysctl(SysctlFile):
     MODE = 0o644
 
     def proc_handler(self, ptregs: PtRegsWrapper, ctl: CtlTablePtr, write: CInt, buffer: CharPtr, lenp: SizeTPtr, ppos_ptr: LoffTPtr):
+        assert isinstance(ctl, Ptr), "ctl must be a Ptr"
+        assert isinstance(buffer, Ptr), "buffer must be a Ptr"
         assert isinstance(lenp, Ptr), "lenp must be a Ptr"
         assert isinstance(ppos_ptr, Ptr), "ppos_ptr must be a Ptr"
 

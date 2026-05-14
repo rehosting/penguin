@@ -7,6 +7,9 @@ from apis.syscalls import ValueFilter
 syscalls = plugins.syscalls
 
 
+from dwarffi import Ptr, BoundTypeInstance
+
+
 class EmulatedCounter(AnonFile):
     """
     A generic anonymous file descriptor test.
@@ -18,7 +21,12 @@ class EmulatedCounter(AnonFile):
         self.outdir = outdir
         super().__init__(**kwargs)
 
-    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
+        assert isinstance(file, Ptr), "file must be a Ptr"
+        assert isinstance(user_buf, Ptr), "user_buf must be a Ptr"
+        assert isinstance(offset_ptr, Ptr), "offset_ptr must be a Ptr"
+        assert isinstance(size, (int, BoundTypeInstance)), "size must be int or BoundTypeInstance"
+
         size_val = int(size)
         raw = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
 
@@ -30,9 +38,14 @@ class EmulatedCounter(AnonFile):
 
         ptregs.retval = size_val
 
-    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
+        assert isinstance(file, Ptr), "file must be a Ptr"
+        assert isinstance(user_buf, Ptr), "user_buf must be a Ptr"
+        assert isinstance(offset_ptr, Ptr), "offset_ptr must be a Ptr"
+        assert isinstance(size, (int, BoundTypeInstance)), "size must be int or BoundTypeInstance"
+
         size_val = int(size)
-        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
+        offset = yield from plugins.kffi.deref(offset_ptr)
 
         data = f"{self.counter}\n".encode('utf-8')
 
@@ -43,7 +56,7 @@ class EmulatedCounter(AnonFile):
 
         chunk = min(size_val, len(data) - offset)
         yield from plugins.mem.write(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write(loff, offset + chunk, size=8)
+        yield from plugins.mem.write(offset_ptr, offset + chunk)
         ptregs.retval = chunk
 
         # Verify success condition
@@ -66,6 +79,10 @@ class MockSocket(SocketFile):
         super().__init__(**kwargs)
 
     def sendmsg(self, ptregs: PtRegsWrapper, sock: SocketPtr, msg: MsgHdrPtr, total_len: SizeT):
+        assert isinstance(sock, Ptr), "sock must be a Ptr"
+        assert isinstance(msg, Ptr), "msg must be a Ptr"
+        assert isinstance(total_len, (int, BoundTypeInstance)), "total_len must be int or BoundTypeInstance"
+
         # We simply log the size. The verifier will check anonfs_test.txt for this exact string.
         with open(join(self.outdir, "anonfs_test.txt"), "a") as f:
             f.write(f"MOCK_SOCKET_RECEIVED:{int(total_len)}\n")

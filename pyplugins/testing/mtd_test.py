@@ -2,6 +2,7 @@ import os
 from penguin import Plugin, plugins
 from wrappers.ptregs_wrap import PtRegsWrapper
 from hyperfile.models.base import MtdDevice, CharPtr, SizeT, LoffT
+from dwarffi import Ptr, BoundTypeInstance
 
 
 class DynamicMtdDevice(MtdDevice):
@@ -29,6 +30,9 @@ class DynamicMtdDevice(MtdDevice):
                 f.write(message + "\n")
 
     def read(self, ptregs: PtRegsWrapper, offset: LoffT, length: SizeT, buf_ptr: CharPtr):
+        assert isinstance(buf_ptr, Ptr), "buf_ptr must be a Ptr"
+        assert isinstance(offset, (int, BoundTypeInstance)), "offset must be int or BoundTypeInstance"
+        assert isinstance(length, (int, BoundTypeInstance)), "length must be int or BoundTypeInstance"
         off = int(offset)
         sz = int(length)
 
@@ -48,6 +52,9 @@ class DynamicMtdDevice(MtdDevice):
         return 0
 
     def write(self, ptregs: PtRegsWrapper, offset: LoffT, length: SizeT, buf_ptr: CharPtr):
+        assert isinstance(buf_ptr, Ptr), "buf_ptr must be a Ptr"
+        assert isinstance(offset, (int, BoundTypeInstance)), "offset must be int or BoundTypeInstance"
+        assert isinstance(length, (int, BoundTypeInstance)), "length must be int or BoundTypeInstance"
         off = int(offset)
         sz = int(length)
 
@@ -71,6 +78,8 @@ class DynamicMtdDevice(MtdDevice):
         return 0
 
     def erase(self, ptregs: PtRegsWrapper, offset: LoffT, length: SizeT):
+        assert isinstance(offset, (int, BoundTypeInstance)), "offset must be int or BoundTypeInstance"
+        assert isinstance(length, (int, BoundTypeInstance)), "length must be int or BoundTypeInstance"
         off = int(offset)
         sz = int(length)
 
