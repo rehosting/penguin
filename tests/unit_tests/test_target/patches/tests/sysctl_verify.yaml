@@ -1,0 +1,37 @@
+plugins:
+  sysctl_verify: {}
+  verifier:
+    conditions:
+      sysctl_verify:
+        type: file_contains
+        file: console.log
+        string: "/tests/sysctl_verify.sh PASS"
+
+static_files:
+  /tests/sysctl_verify.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+      bb="/igloo/utils/busybox"
+
+      echo "Running sysctl length verification tests..."
+
+      # Test 1: Exact length read
+      output=$($bb cat /proc/sys/kernel/sysctl_len_verify)
+      count=$(echo -n "$output" | $bb wc -c)
+      if [ "$count" -ne 17 ]; then
+        echo "Error: Read length mismatch (expected 17, got $count)"
+        exit 1
+      fi
+      if [ "$output" != "verification_data" ]; then
+        echo "Error: Content mismatch (got $output)"
+        exit 1
+      fi
+
+      # Test 2: Write verification
+      echo -n "test_write" | $bb dd of=/proc/sys/kernel/sysctl_len_verify
+      
+      echo "/tests/sysctl_verify.sh PASS"
+      exit 0
+    mode: 73
