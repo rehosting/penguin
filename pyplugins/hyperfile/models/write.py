@@ -1,6 +1,5 @@
 from wrappers.ptregs_wrap import PtRegsWrapper
 from penguin import plugins
-from dwarffi import Ptr
 import inspect
 from os.path import isabs, join as pjoin
 from .base import FilePtr, CharPtr, LoffTPtr, SizeT

@@ -3,11 +3,9 @@ from os.path import join
 from wrappers.ptregs_wrap import PtRegsWrapper
 from hyperfile.models.base import AnonFile, SocketFile, FilePtr, CharPtr, SizeT, LoffTPtr, SocketPtr, MsgHdrPtr
 from apis.syscalls import ValueFilter
+from dwarffi import Ptr, BoundTypeInstance
 
 syscalls = plugins.syscalls
-
-
-from dwarffi import Ptr, BoundTypeInstance
 
 
 class EmulatedCounter(AnonFile):

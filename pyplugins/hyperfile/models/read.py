@@ -1,7 +1,6 @@
 from typing import Union
 from penguin import plugins
 from wrappers.ptregs_wrap import PtRegsWrapper
-from dwarffi import Ptr
 from .base import FilePtr, CharPtr, LoffTPtr, SizeT
 import os
 import inspect
@@ -121,23 +120,23 @@ class ReadFromFile:
     def __init__(self, *, read_filepath: str = None, filename: str = None, **kwargs):
         fname = read_filepath if read_filepath is not None else filename
         self.proj_dir = plugins.get_arg("proj_dir")
-        
+
         if fname and not os.path.isabs(fname) and self.proj_dir:
             # Paths are relative to proj_dir if not absolute
             self.readfile_path = os.path.join(self.proj_dir, fname)
         else:
             self.readfile_path = fname
-            
+
         super().__init__(**kwargs)
 
     def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
         size_val = int(size)
         offset = yield from plugins.kffi.deref(offset_ptr)
-        
+
         if not self.readfile_path:
             ptregs.retval = 0
             return
-            
+
         try:
             with open(self.readfile_path, "rb") as f:
                 f.seek(offset)
