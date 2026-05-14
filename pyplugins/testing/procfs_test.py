@@ -4,6 +4,7 @@ from hyperfile.models.base import ProcFile, FilePtr, InodePtr, CharPtr, LoffTPtr
 from hyperfile.models.read import ReadConstBuf
 from hyperfile.models.write import WriteDiscard
 from hyperfile.models.ioctl import IoctlZero
+from dwarffi import Ptr
 
 
 class SimpleProcfsFile(ReadConstBuf, WriteDiscard, IoctlZero, ProcFile):
@@ -15,6 +16,8 @@ class SimpleProcfsFile(ReadConstBuf, WriteDiscard, IoctlZero, ProcFile):
         super().__init__(**kwargs)
 
     def open(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr):
+        assert isinstance(inode, Ptr), "inode must be a Ptr"
+        assert isinstance(file, Ptr), "file must be a Ptr"
         procname = yield from plugins.osi.get_proc_name()
         self.logger.info(f"SimpleProcfsFile.open called in {procname}")
         ptregs.retval = 0
@@ -37,12 +40,16 @@ class DynamicProcfsFile(ProcFile):
         self.value = 0
         super().__init__(**kwargs)
 
-    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
+        assert isinstance(file, Ptr), "file must be a Ptr"
+        assert isinstance(user_buf, Ptr), "user_buf must be a Ptr"
+        assert isinstance(offset_ptr, Ptr), "offset_ptr must be a Ptr"
+
         size_val = int(size)
         data = f"{self.value}\n".encode("utf-8")
 
-        # Use fmt=int, size=8 to read the 64-bit loff_t offset
-        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
+        # Use deref to read the 64-bit loff_t offset
+        offset = yield from plugins.kffi.deref(offset_ptr)
 
         if size_val <= 0 or offset >= len(data):
             ptregs.retval = 0
@@ -50,10 +57,14 @@ class DynamicProcfsFile(ProcFile):
 
         chunk = min(size_val, len(data) - offset)
         yield from plugins.mem.write(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write(loff, offset + chunk, size=8)
+        yield from plugins.mem.write(offset_ptr, offset + chunk)
         ptregs.retval = chunk
 
-    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
+        assert isinstance(file, Ptr), "file must be a Ptr"
+        assert isinstance(user_buf, Ptr), "user_buf must be a Ptr"
+        assert isinstance(offset_ptr, Ptr), "offset_ptr must be a Ptr"
+
         size_val = int(size)
         # Explicitly request raw bytes to bypass CharPtr's automatic string conversion
         raw = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
@@ -77,10 +88,10 @@ class WriteOnlyProcFile(ProcFile):
     PATH = "write_only_proc"
     MODE = 0o222  # Write-only permissions
 
-    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
         ptregs.retval = -9  # EBADF
 
-    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
         ptregs.retval = int(size)
 
 
@@ -102,6 +113,7 @@ class IoctlCustomProcFile(ReadConstBuf, ProcFile):
         super().__init__(**kwargs)
 
     def ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
+        assert isinstance(file, Ptr), "file must be a Ptr"
         if int(cmd) == 0xDEADBEEF:
             ptregs.retval = 42
         else:
@@ -121,9 +133,12 @@ class SeekableRWProcFile(ProcFile):
         self.data = bytearray(b"Initial Data" + b"\x00" * 4084)
         super().__init__(**kwargs)
 
-    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
+        assert isinstance(file, Ptr), "file must be a Ptr"
+        assert isinstance(offset_ptr, Ptr), "offset_ptr must be a Ptr"
+
         size_val = int(size)
-        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
+        offset = yield from plugins.kffi.deref(offset_ptr)
 
         if offset >= len(self.data) or size_val <= 0:
             ptregs.retval = 0
@@ -131,13 +146,16 @@ class SeekableRWProcFile(ProcFile):
 
         chunk = min(size_val, len(self.data) - offset)
         yield from plugins.mem.write(user_buf, bytes(self.data[offset:offset+chunk]))
-        yield from plugins.mem.write(loff, offset + chunk, size=8)
+        yield from plugins.mem.write(offset_ptr, offset + chunk)
         self.logger.debug(f"Read from seekable_rw at offset {offset}")
         ptregs.retval = chunk
 
-    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+    def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
+        assert isinstance(file, Ptr), "file must be a Ptr"
+        assert isinstance(offset_ptr, Ptr), "offset_ptr must be a Ptr"
+
         size_val = int(size)
-        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
+        offset = yield from plugins.kffi.deref(offset_ptr)
 
         if offset >= len(self.data) or size_val <= 0:
             ptregs.retval = -28  # ENOSPC
@@ -151,10 +169,11 @@ class SeekableRWProcFile(ProcFile):
             f"Writing to seekable_rw at offset {offset} with data: {raw[:chunk]}")
         self.data[offset:offset+chunk] = raw
 
-        yield from plugins.mem.write_long(loff, offset + chunk)
+        yield from plugins.mem.write(offset_ptr, offset + chunk)
         ptregs.set_retval(chunk)
 
     def lseek(self, ptregs: PtRegsWrapper, file: FilePtr, offset: LoffT, whence: CInt):
+        assert isinstance(file, Ptr), "file must be a Ptr"
         offset_val = int(offset)
         whence_val = int(whence)
 
@@ -182,6 +201,8 @@ class ReleaseTrackingProcFile(ProcFile):
         super().__init__(**kwargs)
 
     def open(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr):
+        assert isinstance(inode, Ptr), "inode must be a Ptr"
+        assert isinstance(file, Ptr), "file must be a Ptr"
         self.active_opens += 1
         self.total_opens += 1
         self.logger.info(
@@ -189,24 +210,29 @@ class ReleaseTrackingProcFile(ProcFile):
         ptregs.retval = 0
 
     def release(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr):
+        assert isinstance(inode, Ptr), "inode must be a Ptr"
+        assert isinstance(file, Ptr), "file must be a Ptr"
         self.active_opens -= 1
         self.total_releases += 1
         self.logger.info(
             f"release_tracker released. Active: {self.active_opens}")
         ptregs.retval = 0
 
-    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
+        assert isinstance(file, Ptr), "file must be a Ptr"
+        assert isinstance(offset_ptr, Ptr), "offset_ptr must be a Ptr"
+
         size_val = int(size)
         data = f"active:{self.active_opens},opens:{self.total_opens},releases:{self.total_releases}\n".encode(
             "utf-8")
-        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
+        offset = yield from plugins.kffi.deref(offset_ptr)
 
         if size_val <= 0 or offset >= len(data):
             ptregs.retval = 0
             return
         chunk = min(size_val, len(data) - offset)
         yield from plugins.mem.write(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write(loff, offset + chunk, size=8)
+        yield from plugins.mem.write(offset_ptr, offset + chunk)
         ptregs.retval = chunk
 
 
@@ -215,16 +241,21 @@ class PollableProcFile(ProcFile):
     MODE = 0o444
 
     def poll(self, ptregs: PtRegsWrapper, file: FilePtr, poll_table: PollTablePtr):
+        assert isinstance(file, Ptr), "file must be a Ptr"
+        assert isinstance(poll_table, Ptr), "poll_table must be a Ptr"
         self.logger.info("pollable_proc polled!")
         # 1 = POLLIN (There is data to read)
         # 64 = POLLRDNORM (Normal data may be read without blocking)
         # Standard mask for readable file: POLLIN | POLLRDNORM (0x41)
         ptregs.retval = 0x41
 
-    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
+        assert isinstance(file, Ptr), "file must be a Ptr"
+        assert isinstance(offset_ptr, Ptr), "offset_ptr must be a Ptr"
+
         size_val = int(size)
         data = b"Data is ready!\n"
-        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
+        offset = yield from plugins.kffi.deref(offset_ptr)
 
         if size_val <= 0 or offset >= len(data):
             ptregs.retval = 0
@@ -232,7 +263,7 @@ class PollableProcFile(ProcFile):
 
         chunk = min(size_val, len(data) - offset)
         yield from plugins.mem.write(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write(loff, offset + chunk, size=8)
+        yield from plugins.mem.write(offset_ptr, offset + chunk)
         ptregs.retval = chunk
 
 # --- NEW MMAP ENFORCEMENT TEST DEVICES ---

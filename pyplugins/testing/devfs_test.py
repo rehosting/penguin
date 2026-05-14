@@ -12,11 +12,10 @@ class BaseTestDevFile(DevFile):
             if name == "file" and getattr(self, "IS_BLOCK", False):
                 continue
 
-            # Allow raw int 0 checks, or check the inner .address if it's a Ptr,
-            # or dynamically cast a BoundTypeInstance primitive to an int
-            addr_val = ptr.address if isinstance(ptr, Ptr) else int(ptr)
+            # Ensure arguments are dwarffi Ptr objects for VFS operations
+            assert isinstance(ptr, Ptr), f"{name} must be a Ptr, got {type(ptr)}"
 
-            if addr_val == 0:
+            if ptr.address == 0:
                 self.logger.error(f"Invalid NULL pointer received for {name}!")
                 ptregs.retval = -22  # -EINVAL
                 return False
@@ -46,7 +45,7 @@ class DynamicDevFile(BaseTestDevFile):
             return
 
         size_val = int(size)
-        offset = yield from plugins.mem.read(loff_ptr, fmt=int, size=8)
+        offset = yield from plugins.kffi.deref(loff_ptr)
         data = f"{self.value}\n".encode("utf-8")
 
         if size_val <= 0 or offset >= len(data):
@@ -55,7 +54,7 @@ class DynamicDevFile(BaseTestDevFile):
 
         chunk = min(size_val, len(data) - offset)
         yield from plugins.mem.write(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write(loff_ptr, offset + chunk, size=8)
+        yield from plugins.mem.write(loff_ptr, offset + chunk)
         ptregs.retval = chunk
 
     def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff_ptr: LoffTPtr):
@@ -91,7 +90,7 @@ class Lseek64DevFile(BaseTestDevFile):
             return
 
         size_val = int(size)
-        offset = yield from plugins.mem.read(loff_ptr, fmt=int, size=8)
+        offset = yield from plugins.kffi.deref(loff_ptr)
         data = f"{self.last_seek}\n".encode("utf-8")
 
         if size_val <= 0 or offset >= len(data):
@@ -100,7 +99,7 @@ class Lseek64DevFile(BaseTestDevFile):
 
         chunk = min(size_val, len(data) - offset)
         yield from plugins.mem.write(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write(loff_ptr, offset + chunk, size=8)
+        yield from plugins.mem.write(loff_ptr, offset + chunk)
         ptregs.retval = chunk
 
 
@@ -127,7 +126,7 @@ class TrackingDevFile(BaseTestDevFile):
             return
 
         size_val = int(size)
-        offset = yield from plugins.mem.read(loff_ptr, fmt=int, size=8)
+        offset = yield from plugins.kffi.deref(loff_ptr)
         data = f"o:{self.opens} r:{self.releases}\n".encode("utf-8")
 
         if size_val <= 0 or offset >= len(data):
@@ -136,7 +135,7 @@ class TrackingDevFile(BaseTestDevFile):
 
         chunk = min(size_val, len(data) - offset)
         yield from plugins.mem.write(user_buf, data[offset:offset + chunk])
-        yield from plugins.mem.write(loff_ptr, offset + chunk, size=8)
+        yield from plugins.mem.write(loff_ptr, offset + chunk)
         ptregs.retval = chunk
 
 
@@ -144,6 +143,8 @@ class AdvancedOpsDevFile(BaseTestDevFile):
     PATH = "advanced"
 
     def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
+        if not self._verify_args(ptregs, file=file, user_buf=user_buf, offset_ptr=offset_ptr):
+            return
         ptregs.retval = int(size)
 
     def fsync(self, ptregs: PtRegsWrapper, file: FilePtr, start: CInt, end: CInt, datasync: CInt):
@@ -152,7 +153,7 @@ class AdvancedOpsDevFile(BaseTestDevFile):
         ptregs.retval = 0
 
     def poll(self, ptregs: PtRegsWrapper, file: FilePtr, poll_table: PollTablePtr):
-        if self._verify_args(ptregs, file=file):
+        if self._verify_args(ptregs, file=file, poll_table=poll_table):
             ptregs.retval = 0x41
 
     def lock(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, file_lock: FileLockPtr):
@@ -216,14 +217,14 @@ class VirtualBlockDevice(BaseTestDevFile):
             return
 
         size_val = int(size)
-        offset = yield from plugins.mem.read(loff_ptr, fmt=int, size=8)
+        offset = yield from plugins.kffi.deref(loff_ptr)
         if offset >= self.SIZE or size_val <= 0:
             ptregs.retval = 0
             return
 
         chunk = min(size_val, self.SIZE - offset)
         yield from plugins.mem.write(user_buf, bytes(self.disk_data[offset:offset+chunk]))
-        yield from plugins.mem.write(loff_ptr, offset + chunk, size=8)
+        yield from plugins.mem.write(loff_ptr, offset + chunk)
         ptregs.retval = chunk
 
     def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff_ptr: LoffTPtr):
@@ -231,7 +232,7 @@ class VirtualBlockDevice(BaseTestDevFile):
             return
 
         size_val = int(size)
-        offset = yield from plugins.mem.read(loff_ptr, fmt=int, size=8)
+        offset = yield from plugins.kffi.deref(loff_ptr)
         if offset >= self.SIZE or size_val <= 0:
             ptregs.retval = -28  # ENOSPC
             return
@@ -241,7 +242,7 @@ class VirtualBlockDevice(BaseTestDevFile):
         raw = yield from plugins.mem.read(user_buf, chunk, fmt="bytes")
         self.disk_data[offset:offset+chunk] = raw
 
-        yield from plugins.mem.write(loff_ptr, offset + chunk, size=8)
+        yield from plugins.mem.write(loff_ptr, offset + chunk)
         ptregs.retval = chunk
 
 
