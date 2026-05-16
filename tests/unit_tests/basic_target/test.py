@@ -86,16 +86,27 @@ def penguin_run(config, image):
 
 def assert_lib_inject_dropin_result(project_dir, arch):
     cache_dir = project_dir / "qcows" / "cache"
-    matches = sorted(cache_dir.glob(f"lib_inject_{arch}_*.so"))
+    matches = sorted(cache_dir.glob("lib_inject_*.so"))
     if not matches:
         raise AssertionError(
-            f"no cached lib_inject build found for {arch} under {cache_dir}"
+            f"no cached lib_inject build found under {cache_dir}"
         )
-    marker = b"libinject-dropin-marker-from-header"
-    if not any(marker in path.read_bytes() for path in matches):
+    marker_bytes = b"libinject-dropin-marker-from-header"
+    if not any(marker_bytes in path.read_bytes() for path in matches):
         raise AssertionError(
-            f"lib_inject.d marker {marker!r} missing from cached lib_inject .so files: "
+            f"lib_inject.d marker {marker_bytes!r} missing from cached lib_inject .so files: "
             f"{[p.name for p in matches]}"
+        )
+
+    runtime_marker = project_dir / "results" / "latest" / "shared" / "lib_inject_dropin_ran"
+    if not runtime_marker.exists():
+        raise AssertionError(
+            f"lib_inject.d constructor marker not written in guest: {runtime_marker}"
+        )
+    contents = runtime_marker.read_text()
+    if "libinject-dropin-marker-from-header" not in contents:
+        raise AssertionError(
+            f"lib_inject.d constructor marker had unexpected contents: {contents!r}"
         )
 
 
