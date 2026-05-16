@@ -20,19 +20,16 @@ TEST_DIR = Path(__file__).resolve().parent
 proj_dir = Path(__file__).resolve().parent
 
 
-def penguin_run(config, image, container_name=None):
+def penguin_run(config, image):
     try:
-        cmd = [
-            os.path.dirname(os.path.dirname(SCRIPT_PATH)) + "/penguin",
-            "--image",
-            image,
-        ]
-        if container_name:
-            cmd += ["--name", container_name]
-        cmd += ["run", config]
-        
         subprocess.run(
-            cmd,
+            [
+                os.path.dirname(os.path.dirname(SCRIPT_PATH)) + "/penguin",
+                "--image",
+                image,
+                "run",
+                config,
+            ],
             check=True,
             # stdout=open(proj_dir / Path("test_log.txt"), "w"),
             # stderr=subprocess.STDOUT,
@@ -55,26 +52,14 @@ def create_tar_gz_with_binaries(dest_tar_gz, files_dict):
         tmpdir_path = Path(tmpdir)
         for fname, content in files_dict.items():
             fpath = tmpdir_path / fname
-            fpath.parent.mkdir(parents=True, exist_ok=True)
             with open(fpath, "wb") as f:
                 f.write(content)
-            os.chmod(fpath, 0o755)
         with tarfile.open(dest_tar_gz, "w:gz") as tar:
-            # First add all parent directories
-            dirs_added = set()
-            for fname in sorted(files_dict.keys()):
-                p = Path(fname).parent
-                parts = []
-                for part in p.parts:
-                    parts.append(part)
-                    dpath = "/".join(parts)
-                    if dpath != "." and dpath not in dirs_added:
-                        tar.add(tmpdir_path / dpath, arcname=dpath, recursive=False)
-                        dirs_added.add(dpath)
+            for fname in files_dict:
                 tar.add(tmpdir_path / fname, arcname=fname)
 
 
-def run_test(kernel, arch, image, test_file=None, docs_only=False, container_name=None):
+def run_test(kernel, arch, image, test_file=None, docs_only=False):
     # Create tar.gz with several binary files at the root
     files_dict = {
         "helloworld": b"helloworld\0",
@@ -90,37 +75,6 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False, container_nam
             "cat", f"/igloo_static/utils.bin/test_executable.{arch}"
         ], stdout=subprocess.PIPE, check=True)
     files_dict["test_executable"] = result.stdout
-    
-    # Add mmap_test binary
-    script_dir = Path(__file__).resolve().parent
-    mmap_test_src = script_dir.parent / "mmap_test" / "fs" / "mmap_test.c"
-    
-    if mmap_test_src.exists():
-        logger.info(f"Compiling mmap_test for {arch}")
-        compiler = "x86_64-linux-musl-gcc"
-        if arch == "armel":
-            compiler = "arm-linux-musleabi-gcc"
-        elif arch == "aarch64":
-            compiler = "aarch64-linux-musl-gcc"
-        elif arch == "mipsel":
-            compiler = "mipsel-linux-musl-gcc"
-            
-        try:
-            subprocess.run([
-                "docker", "run", "--rm", 
-                "-v", f"{mmap_test_src.parent}:/src",
-                "rehosting/embedded-toolchains:latest",
-                compiler, "/src/mmap_test.c", "-o", f"/src/mmap_test.{arch}", "-static"
-            ], check=True)
-            
-            mmap_test_bin = mmap_test_src.parent / f"mmap_test.{arch}"
-            with open(mmap_test_bin, "rb") as f:
-                files_dict["tests/mmap_test"] = f.read()
-        except Exception as e:
-            logger.warning(f"Failed to compile mmap_test: {e}")
-    else:
-        logger.warning(f"mmap_test source not found at {mmap_test_src}")
-            
     create_tar_gz_with_binaries(f"{TEST_DIR}/empty_fs.tar.gz", files_dict)
     base_config = str(Path(TEST_DIR, "base_config.yaml"))
     new_config = str(Path(TEST_DIR, "config.yaml"))
@@ -146,7 +100,7 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False, container_nam
         yaml.dump(base_config, file, sort_keys=False)
 
     logger.info("Created new config file at " + new_config)
-    penguin_run(new_config, image, container_name)
+    penguin_run(new_config, image)
     logger.info("Test completed")
 
 
@@ -165,9 +119,8 @@ NONDEFAULT_KERNEL_ARCHES = {
 @click.option("--kernel", "-k", multiple=True, default=DEFAULT_KERNELS)
 @click.option("--arch", "-a", multiple=True, default=DEFAULT_ARCHES)
 @click.option("--image", "-i", default="rehosting/penguin:latest")
-@click.option("--name", "-n", default=None, help="Unique name for the penguin container.")
 @click.option("--docs-only", is_flag=True, help="Only build the docs and leave. Useful for CI.")
-def test(kernel, arch, image, name, docs_only):
+def test(kernel, arch, image, docs_only):
     if docs_only:
         logger.info("Docs only mode enabled, will only build docs and exit")
         kernel = ['4.10',]
@@ -196,7 +149,7 @@ def test(kernel, arch, image, name, docs_only):
                 continue
 
             logger.info(f"Running tests for kernel {k} on arch {a}")
-            run_test(k, a, image, None, docs_only, name)
+            run_test(k, a, image, None, docs_only)
 
 
 if __name__ == "__main__":
