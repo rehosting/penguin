@@ -20,18 +20,17 @@ TEST_DIR = Path(__file__).resolve().parent
 proj_dir = Path(__file__).resolve().parent
 
 
-def penguin_run(config, image, name=None):
-    wrapper_dir = os.path.dirname(os.path.dirname(SCRIPT_PATH))
-    cmd = [wrapper_dir + "/penguin"]
-    if name:
-        cmd.extend(["--name", name])
-    cmd.extend([
-        "--image",
-        image,
-        "run",
-        config,
-    ])
+def penguin_run(config, image, container_name=None):
     try:
+        cmd = [
+            os.path.dirname(os.path.dirname(SCRIPT_PATH)) + "/penguin",
+            "--image",
+            image,
+        ]
+        if container_name:
+            cmd += ["--name", container_name]
+        cmd += ["run", config]
+        
         subprocess.run(
             cmd,
             check=True,
@@ -56,10 +55,22 @@ def create_tar_gz_with_binaries(dest_tar_gz, files_dict):
         tmpdir_path = Path(tmpdir)
         for fname, content in files_dict.items():
             fpath = tmpdir_path / fname
+            fpath.parent.mkdir(parents=True, exist_ok=True)
             with open(fpath, "wb") as f:
                 f.write(content)
+            os.chmod(fpath, 0o755)
         with tarfile.open(dest_tar_gz, "w:gz") as tar:
-            for fname in files_dict:
+            # First add all parent directories
+            dirs_added = set()
+            for fname in sorted(files_dict.keys()):
+                p = Path(fname).parent
+                parts = []
+                for part in p.parts:
+                    parts.append(part)
+                    dpath = "/".join(parts)
+                    if dpath != "." and dpath not in dirs_added:
+                        tar.add(tmpdir_path / dpath, arcname=dpath, recursive=False)
+                        dirs_added.add(dpath)
                 tar.add(tmpdir_path / fname, arcname=fname)
 
 
@@ -82,6 +93,37 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mod
     stale_index = Path(f"{TEST_DIR}/empty_fs.tar.gz.index.sqlite")
     if stale_index.exists():
         stale_index.unlink()
+
+    # Add mmap_test binary
+    script_dir = Path(__file__).resolve().parent
+    mmap_test_src = script_dir.parent / "mmap_test" / "fs" / "mmap_test.c"
+
+    if mmap_test_src.exists():
+        logger.info(f"Compiling mmap_test for {arch}")
+        compiler = "x86_64-linux-musl-gcc"
+        if arch == "armel":
+            compiler = "arm-linux-musleabi-gcc"
+        elif arch == "aarch64":
+            compiler = "aarch64-linux-musl-gcc"
+        elif arch == "mipsel":
+            compiler = "mipsel-linux-musl-gcc"
+            
+        try:
+            subprocess.run([
+                "docker", "run", "--rm", 
+                "-v", f"{mmap_test_src.parent}:/src",
+                "rehosting/embedded-toolchains:latest",
+                compiler, "/src/mmap_test.c", "-o", f"/src/mmap_test.{arch}", "-static"
+            ], check=True)
+            
+            mmap_test_bin = mmap_test_src.parent / f"mmap_test.{arch}"
+            with open(mmap_test_bin, "rb") as f:
+                files_dict["tests/mmap_test"] = f.read()
+        except Exception as e:
+            logger.warning(f"Failed to compile mmap_test: {e}")
+    else:
+        logger.warning(f"mmap_test source not found at {mmap_test_src}")
+
     create_tar_gz_with_binaries(f"{TEST_DIR}/empty_fs.tar.gz", files_dict)
     base_config = str(Path(TEST_DIR, "base_config.yaml"))
     new_config = str(Path(TEST_DIR, "config.yaml"))
@@ -163,7 +205,7 @@ def test(kernel, arch, image, name, test_file, docs_only, mode):
                 continue
 
             logger.info(f"Running tests for kernel {k} on arch {a} (mode={mode})")
-            run_test(k, a, image, None, docs_only, execution_mode=mode, name=name or "test_target")
+            run_test(k, a, image, test_file, docs_only, execution_mode=mode, name=name or "test_target")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,8 @@
+plugins:
+  native_mmap: {}
+  verifier:
+    conditions:
+      native_mmap:
+        type: file_contains
+        file: console.log
+        string: "/tests/mmap_test PASS"
