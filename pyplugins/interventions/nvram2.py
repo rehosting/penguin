@@ -45,7 +45,20 @@ log = "nvram.csv"
 # access: 0 = miss get, 1 = hit get, 2 = set, 3 = clear
 
 
-def add_lib_inject_for_abi(config, abi, cache_dir):
+def _lib_inject_dropin_files(proj_dir):
+    """Return (sorted .c paths, sorted .h paths) under proj_dir/lib_inject.d/."""
+    if not proj_dir:
+        return [], []
+    d = Path(proj_dir) / "lib_inject.d"
+    if not d.is_dir():
+        return [], []
+    visible = [p for p in d.iterdir() if p.is_file() and not p.name.startswith(".")]
+    c_files = sorted(p for p in visible if p.suffix == ".c")
+    h_files = sorted(p for p in visible if p.suffix == ".h")
+    return c_files, h_files
+
+
+def add_lib_inject_for_abi(config, abi, cache_dir, proj_dir=None):
     """Compile lib_inject for the ABI and put it in /igloo, using cache_dir for caching"""
 
     arch = config["core"]["arch"]
@@ -59,6 +72,11 @@ def add_lib_inject_for_abi(config, abi, cache_dir):
 
     cache_dir = Path(cache_dir)
     os.makedirs(cache_dir, exist_ok=True)
+
+    dropin_c, dropin_h = _lib_inject_dropin_files(proj_dir)
+    dropin_include = []
+    if dropin_c or dropin_h:
+        dropin_include = ["-I", str(Path(proj_dir) / "lib_inject.d")]
 
     hash_options = "-Wl,--hash-style=both" if "mips" not in arch else ""
 
@@ -76,8 +94,14 @@ def add_lib_inject_for_abi(config, abi, cache_dir):
             "-isystem",
             headers_dir,
             f"-DCONFIG_{libnvram_arch_name.upper()}=1",
+        ]
+        + dropin_include
+        + [
             "/igloo_static/libnvram/nvram.c",
             "/igloo_static/guest-utils/ltrace/inject_ltrace.c",
+        ]
+        + [str(p) for p in dropin_c]
+        + [
             "--language",
             "c",
             "-",
@@ -103,9 +127,17 @@ def add_lib_inject_for_abi(config, abi, cache_dir):
                     source_files_content.append(f.read())
             except Exception:
                 pass  # Ignore files that can't be read
+    dropin_signature = []
+    for p in dropin_c + dropin_h:
+        try:
+            dropin_signature.append((p.name, p.read_bytes()))
+        except Exception:
+            pass
 
-    hash_input = str((arch, abi, aliases, lib_inject.get("extra", ""), args)).encode()
+    hash_input = str((arch, abi, aliases, lib_inject.get("extra", ""), args, [n for n, _ in dropin_signature])).encode()
     for content in source_files_content:
+        hash_input += content
+    for _, content in dropin_signature:
         hash_input += content
     cache_key = hashlib.sha256(hash_input).hexdigest()
     cache_path = cache_dir / f"lib_inject_{arch}_{abi}_{cache_key}.so"
@@ -134,13 +166,13 @@ def add_lib_inject_for_abi(config, abi, cache_dir):
     )
 
 
-def add_lib_inject_all_abis(conf, cache_dir):
+def add_lib_inject_all_abis(conf, cache_dir, proj_dir=None):
     """Add lib_inject for all supported ABIs to /igloo"""
 
     arch = conf["core"]["arch"]
     arch_info = ARCH_ABI_INFO[arch]
     for abi in arch_info["abis"].keys():
-        add_lib_inject_for_abi(conf, abi, cache_dir)
+        add_lib_inject_for_abi(conf, abi, cache_dir, proj_dir=proj_dir)
 
     # This isn't covered by the automatic symlink-adding code,
     # so do it manually here.
@@ -152,7 +184,7 @@ def add_lib_inject_all_abis(conf, cache_dir):
     )
 
 
-def prep_config(conf, cache_dir):
+def prep_config(conf, cache_dir, proj_dir=None):
     config_files = conf["static_files"] if "static_files" in conf else {}
     config_nvram = conf["nvram"] if "nvram" in conf else {}
 
@@ -176,7 +208,7 @@ def prep_config(conf, cache_dir):
             "mode": 0o644,
         }
 
-    add_lib_inject_all_abis(conf, cache_dir)
+    add_lib_inject_all_abis(conf, cache_dir, proj_dir=proj_dir)
 
 
 class Nvram2(Plugin):
@@ -217,7 +249,7 @@ class Nvram2(Plugin):
         self.logger.info(f"logging nvram accesses: {self.logging_enabled}")
         cache_dir = Path(proj_dir).resolve() / "qcows" / "cache" if proj_dir else Path(os.path.dirname(os.path.abspath(__file__))).resolve() / "qcows" / "cache"
         os.makedirs(cache_dir, exist_ok=True)
-        prep_config(config, cache_dir)
+        prep_config(config, cache_dir, proj_dir=proj_dir)
         # Even at debug level, logging every nvram get/clear can be very verbose.
         # As such, we only debug log nvram sets
 
