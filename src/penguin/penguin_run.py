@@ -245,7 +245,12 @@ def run_config(
     append += (
         " clocksource=jiffies nohz_full nohz=off no_timer_check"  # Improve determinism?
     )
-    append += " idle=poll acpi=off nosoftlockup "  # Improve determinism?
+    # acpi=off blocks x86 secondary-CPU enumeration via MADT; only safe on
+    # single-CPU old kernels where PANDA needs it for determinism.
+    if pkversion < (6, 13) and conf["core"].get("smp", 1) <= 1:
+        append += " idle=poll acpi=off nosoftlockup "
+    else:
+        append += " idle=poll nosoftlockup "
     if vpn_enabled:
         append += f" CID={vpn_args['CID']} "
 
