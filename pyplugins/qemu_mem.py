@@ -41,19 +41,6 @@ class QemuMemoryManager:
             "qemu_mem_allocator"
         )
 
-        # Fallback callback (one-shot per registration)
-        @self.ffi.callback("void(struct CPUState *, struct TranslationBlock *)")
-        def _fallback_cb(cpu, tb):
-            if self.pending_allocations:
-                self._do_pending_allocations()
-
-        self._fallback_cb_anchor = _fallback_cb
-        self.panda.register_callback(
-            self.panda.callback.before_block_exec,
-            _fallback_cb,
-            "qemu_mem_fallback_allocator"
-        )
-
         self._initialized = True
 
     def _ensure_minimal_cdefs(self):
