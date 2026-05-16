@@ -41,11 +41,10 @@ class SigillBypass(Plugin):
         Initialize the plugin and register for signal events.
         """
         # Register for signal delivery events from the SignalMonitor plugin
-        plugins.subscribe(self, "signal_deliver", self.on_signal)
+        plugins.subscribe(plugins.signal_monitor, "signal_deliver", self.on_signal)
         
         # Register a hook for SIGILL in the guest driver
-        # Yielding from this coroutine ensures the hook is registered before continuing
-        yield from plugins.signal_monitor.register_hook(sig=4) # SIGILL is usually 4
+        plugins.signal_monitor.register_hook(sig=4) # SIGILL is usually 4
 
     def _get_capstone(self, cpu):
         """
