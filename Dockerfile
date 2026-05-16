@@ -199,16 +199,9 @@ WORKDIR /source
 RUN wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h
 RUN make all
 
-# Stage per-arch *minimum* musl sysroots so the runtime image can cross-compile
-# small C drop-ins with the existing clang-20 (no full toolchain needed).
-# Per arch we copy: crt*.o + Scrt1.o, libc.{a,so}, ld-musl-*, musl stub libs
-# (libm/libpthread/libdl/librt/libresolv/libutil/libcrypt/libxnet/libssp_nonshared),
-# libgcc.a + libgcc_eh.a + libgcc_s.so* (linker script + .so.1), and the GCC
-# crtbegin/crtend variants. include/ is wired up by symlink in the final stage
-# pointing at /igloo_static/musl-headers/<musl_arch>/ to avoid ~22M/arch dupes.
-# Total: ~127 MB across 11 arches. loongarch64 SKIPPED — its toolchain is a
-# glibc cross with a different sysroot layout (target/usr/lib64), so it would
-# need a separate code path; revisit when a drop-in actually targets it.
+# Stage per-arch link-time sysroot skeletons for project init.d/*.c drop-ins.
+# Runtime libc support comes from /igloo/dylibs, which is already shipped in
+# each rehosting, so only startup objects need to be copied from toolchains.
 RUN set -eux; mkdir -p /sysroots; \
     stage() { \
         local penguin_arch="$1" triple_dir="$2" triple="$3"; \
@@ -216,16 +209,12 @@ RUN set -eux; mkdir -p /sysroots; \
         local gccbase="/opt/cross/${triple_dir}/lib/gcc/${triple}"; \
         local dst="/sysroots/${penguin_arch}/lib"; \
         mkdir -p "$dst"; \
-        for f in crt1.o crti.o crtn.o Scrt1.o rcrt1.o gcrt1.o \
-                 libc.a libc.so \
-                 libm.a libpthread.a libdl.a librt.a libresolv.a libutil.a libcrypt.a libxnet.a \
-                 libssp_nonshared.a libgcc_s.so libgcc_s.so.1; do \
+        for f in crt1.o crti.o crtn.o Scrt1.o rcrt1.o; do \
             [ -e "$src/lib/$f" ] && cp -P "$src/lib/$f" "$dst/" || true; \
         done; \
-        for f in "$src/lib"/ld-musl-*; do [ -e "$f" ] && cp -P "$f" "$dst/" || true; done; \
         if [ -d "$gccbase" ]; then \
             local gccver="$(ls "$gccbase" | head -1)"; \
-            for f in libgcc.a libgcc_eh.a crtbegin.o crtbeginS.o crtbeginT.o crtend.o crtendS.o; do \
+            for f in crtbegin.o crtbeginS.o crtbeginT.o crtend.o crtendS.o; do \
                 [ -e "$gccbase/$gccver/$f" ] && cp -P "$gccbase/$gccver/$f" "$dst/" || true; \
             done; \
         fi; \
@@ -501,19 +490,30 @@ COPY --from=downloader /tmp/ltrace /igloo_static/ltrace
 
 # Copy source and binaries from host
 COPY --from=cross_builder /source/out /igloo_static/
-# Minimum per-arch musl sysroots for compiling per-project drop-in C files
-# with the existing clang-20 (no big toolchain needed). Each arch's include/
-# is symlinked into /igloo_static/musl-headers/<musl_arch>/include to avoid
-# duplicating ~22 MB of headers per arch (saves ~240 MB total).
+# Tiny per-arch musl sysroots for compiling per-project init.d/*.c files.
+# Headers and dynamic libc/libgcc are symlinked to existing /igloo_static
+# assets, keeping this layer under 1 MB instead of copying libc.a/libgcc.a.
 COPY --from=cross_builder /sysroots /igloo_static/sysroots
 RUN set -eux; \
-    for pair in armel=arm aarch64=aarch64 powerpc=powerpc powerpc64=powerpc64 \
-                powerpc64le=powerpc64 riscv64=riscv64 mipsel=mips mipseb=mips \
-                mips64el=mips64 mips64eb=mips64 intel64=x86_64; do \
-        arch="${pair%=*}"; musl_arch="${pair#*=}"; \
+    stage() { \
+        arch="$1"; musl_arch="$2"; dylib_arch="$3"; \
         ln -sfn /igloo_static/musl-headers/$musl_arch/include /igloo_static/sysroots/$arch/include; \
         ln -sfn ../include /igloo_static/sysroots/$arch/usr/include; \
-    done
+        ln -sfn /igloo_static/dylibs/$dylib_arch/libc.so /igloo_static/sysroots/$arch/lib/libc.so; \
+        ln -sfn /igloo_static/dylibs/$dylib_arch/libgcc_s.so.1 /igloo_static/sysroots/$arch/lib/libgcc_s.so.1; \
+        ln -sfn libgcc_s.so.1 /igloo_static/sysroots/$arch/lib/libgcc_s.so; \
+    }; \
+    stage armel       arm       armel; \
+    stage aarch64     aarch64   arm64; \
+    stage powerpc     powerpc   ppc; \
+    stage powerpc64   powerpc64 ppc64; \
+    stage powerpc64le powerpc64 ppc64el; \
+    stage riscv64     riscv64   riscv64; \
+    stage mipsel      mips      mipsel; \
+    stage mipseb      mips      mipseb; \
+    stage mips64el    mips64    mips64el; \
+    stage mips64eb    mips64    mips64eb; \
+    stage intel64     x86_64    x86_64
 COPY guest-utils /igloo_static/guest-utils
 COPY --from=rust_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
 

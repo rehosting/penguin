@@ -3,6 +3,7 @@ import logging
 import os
 from pathlib import Path
 import click
+import shutil
 import subprocess
 import yaml
 
@@ -20,6 +21,14 @@ proj_dir = Path(__file__).resolve().parent
 
 FS_DIR = Path(proj_dir, "fs")
 FS_DIR.mkdir(exist_ok=True)
+
+DROPIN_C_TEST_ARCHES = {
+    'armel', 'aarch64',
+    'mipsel', 'mipseb', 'mips64el', 'mips64eb',
+    'riscv64',
+    'x86_64',
+    'powerpc', 'powerpc64',
+}
 
 
 def run_cmd(cmd, **kwargs):
@@ -75,19 +84,54 @@ def penguin_run(config, image):
         raise e
 
 
+def assert_dropin_c_result(project_dir):
+    marker = project_dir / "results" / "latest" / "shared" / "dropin_c_ran"
+    if not marker.exists():
+        raise AssertionError(f"C drop-in marker file not found: {marker}")
+    contents = marker.read_text()
+    expected = "dropin-c-ran-from-header"
+    if expected not in contents:
+        raise AssertionError(
+            f"C drop-in marker had unexpected contents: {contents!r}"
+        )
+
+    core_config_path = project_dir / "results" / "latest" / "core_config.yaml"
+    with open(core_config_path, "r") as file:
+        core_config = yaml.safe_load(file)
+
+    static_files = core_config["static_files"]
+    if "/igloo/init.d/dropin_c" not in static_files:
+        raise AssertionError("compiled C drop-in missing from core_config.yaml")
+    if "/igloo/init.d/dropin_c.c" in static_files:
+        raise AssertionError("C source should not be installed as an init.d file")
+    if "/igloo/init.d/dropin_c_util.h" in static_files:
+        raise AssertionError("C header should not be installed as an init.d file")
+
+    host_path = static_files["/igloo/init.d/dropin_c"]["host_path"]
+    if ".dropin_build" not in host_path or not host_path.endswith("/dropin_c"):
+        raise AssertionError(f"C drop-in did not point at compiled cache: {host_path}")
+
+
 def run_test(kernel, arch, image):
     id = subprocess.check_output(
         f"docker create {image}", shell=True).decode().strip()
     run_cmd(
         f"docker cp -L {id}:/igloo_static/utils.bin/busybox.{arch} {FS_DIR}/busybox", shell=True)
     run_cmd(f"docker rm -v {id}", shell=True)
+    (FS_DIR / "bin").mkdir(exist_ok=True)
     run_cmd(f"tar -czvf {TEST_DIR}/empty_fs.tar.gz -C {FS_DIR} .", shell=True)
 
     # init
     penguin_init(f"{TEST_DIR}/empty_fs.tar.gz", image)
 
-    base_config = str(Path(proj_dir, "projects/empty_fs/config.yaml"))
-    config = str(Path(proj_dir, "projects/empty_fs/config.yaml"))
+    project_path = Path(proj_dir, "projects/empty_fs")
+    if arch in DROPIN_C_TEST_ARCHES:
+        shutil.copytree(TEST_DIR / "init.d", project_path / "init.d", dirs_exist_ok=True)
+    else:
+        logger.info(f"Skipping C drop-in test fixture for unsupported arch {arch}")
+
+    base_config = str(project_path / "config.yaml")
+    config = str(project_path / "config.yaml")
     run_cmd(
         f"cp {proj_dir}/patch.yaml {proj_dir}/projects/empty_fs/patch.yaml", shell=True)
 
@@ -101,6 +145,9 @@ def run_test(kernel, arch, image):
         yaml.dump(bconfig, file, sort_keys=False)
 
     penguin_run(config, image)
+
+    if arch in DROPIN_C_TEST_ARCHES:
+        assert_dropin_c_result(project_path)
 
     logger.info("Test completed")
 

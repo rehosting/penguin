@@ -429,6 +429,8 @@ class BasePatch(PatchGenerator):
             self.dylib_dir = "x86_64"
         elif arch_identified == "loongarch64":
             self.dylib_dir = "loongarch"
+        elif self.arch_name == "powerpc64le":
+            self.dylib_dir = "ppc64el"
         elif "powerpc" in self.arch_name:
             self.dylib_dir = self.arch_name.replace("powerpc", "ppc")  # dylibs are built with short names
         else:
