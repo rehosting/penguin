@@ -278,6 +278,20 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
                 "mode": 0o755,
             }
 
+    startup_script = config["core"].get("startup_script")
+    if startup_script:
+        guest_path = "/igloo/init.d/zz_startup_script"
+        if guest_path in config["static_files"]:
+            logger.warning(
+                f"core.startup_script is overriding existing static_files entry "
+                f"{guest_path} (previously set by a patch, base config, or drop-in)"
+            )
+        config["static_files"][guest_path] = {
+            "type": "inline_file",
+            "contents": "#!/igloo/utils/sh\n" + startup_script,
+            "mode": 0o755,
+        }
+
     plugins_dir = os.path.join(proj_dir, "plugins.d")
     if os.path.isdir(plugins_dir):
         if not isinstance(config.get("plugins"), dict):

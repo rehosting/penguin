@@ -420,6 +420,23 @@ false
 true
 ```
 
+### `core.startup_script` Inline guest startup script
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Shell script body dropped into /igloo/init.d to run during guest boot. Installed under a name that sorts after other init.d entries so it runs last. A '#!/igloo/utils/sh' shebang is prepended automatically.
+
+```yaml
+'ip link set eth0 up
+
+  udhcpc -i eth0
+
+  '
+```
+
 ## `patches` Patches
 
 |||

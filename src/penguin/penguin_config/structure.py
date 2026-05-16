@@ -301,6 +301,19 @@ class Core(PartialModelMixin, BaseModel):
             examples=[False, True],
         ),
     ]
+    startup_script: Annotated[
+        Optional[str],
+        Field(
+            None,
+            title="Inline guest startup script",
+            description=" ".join((
+                "Shell script body dropped into /igloo/init.d to run during guest boot.",
+                "Installed under a name that sorts after other init.d entries so it runs last.",
+                "A '#!/igloo/utils/sh' shebang is prepended automatically.",
+            )),
+            examples=["ip link set eth0 up\nudhcpc -i eth0\n"],
+        ),
+    ]
 
 
 EnvVal = _newtype(
