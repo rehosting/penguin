@@ -55,7 +55,13 @@ The following filenames are expected in the `local_packages` directory:
 * libnvram-latest.tar.gz
 * pandare_22.04.deb
 * penguin_plugins.tar.gz
+* penguin-qemu.tar.gz
 * vpn.tar.gz
+
+For QEMU development, build `emulator/kvm-qemu/penguin-qemu.tar.gz` and copy it
+to `penguin/local_packages/`. The archive installs `libqemu-system-*.so`,
+`libqemu-kvm-*.so`, and matching CFFI declarations under
+`/usr/local/include/penguin-qemu-cffi/`.
 
 For example, the following workflow shows how to test modifications to the Penguin
 Linux kernel.

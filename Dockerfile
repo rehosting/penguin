@@ -18,6 +18,7 @@ ARG VHOST_DEVICE_VERSION="vhost-device-vsock-v0.2.0"
 ARG FW2TAR_TAG="v2.0.6"
 ARG PANDA_VERSION="pandav0.0.49"
 ARG PANDANG_VERSION="0.0.38"
+ARG QEMU_VERSION=""
 ARG RIPGREP_VERSION="14.1.1"
 ARG APT_MIRROR="ubuntu"
 
@@ -85,12 +86,20 @@ COPY ./get_release.sh /get_release.sh
 # Get panda .deb
 ARG PANDA_VERSION
 ARG PANDANG_VERSION
+ARG QEMU_VERSION
 # RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
 RUN wget -O /tmp/pandare.deb \
     https://github.com/panda-re/qemu/releases/download/${PANDA_VERSION}/pandare_22.04.deb && \
     wget -O /tmp/pandare-plugins.deb \
     https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare-plugins_22.04.deb
     # RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
+
+RUN if [ -n "${QEMU_VERSION}" ]; then \
+        /get_release.sh rehosting qemu ${QEMU_VERSION} penguin-qemu.tar.gz > /tmp/penguin-qemu.tar.gz; \
+    else \
+        mkdir -p /tmp/empty-qemu-package && \
+        tar czf /tmp/penguin-qemu.tar.gz -C /tmp/empty-qemu-package .; \
+    fi
 
 ARG RIPGREP_VERSION
 RUN wget -O /tmp/ripgrep.deb \
@@ -369,6 +378,7 @@ COPY --from=downloader /tmp/pandare-plugins.deb /tmp/
 COPY --from=downloader /tmp/glow.deb /tmp/
 COPY --from=downloader /tmp/gum.deb /tmp/
 COPY --from=downloader /tmp/ripgrep.deb /tmp/
+COPY --from=downloader /tmp/penguin-qemu.tar.gz /tmp/
 
 # We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
 # we'll fail because we get a distutils distribution of pycparser 2.19 that we can't
@@ -428,6 +438,9 @@ RUN pip install --no-cache /wheels/*
 RUN if [ "$KEEP_WHEELS" != "true" ]; then rm -rf /wheels; fi
 
 RUN poetry config virtualenvs.create false
+
+RUN tar xzf /tmp/penguin-qemu.tar.gz -C /usr/local && \
+    rm -f /tmp/penguin-qemu.tar.gz
 
 # VPN, libnvram, kernels, console
 COPY --from=downloader /igloo_static/ /igloo_static/
@@ -582,6 +595,19 @@ RUN used_pkgs="" ; \
         if [ -f /tmp/local_packages/igloo_driver.tar.gz ]; then \
             tar xzf /tmp/local_packages/igloo_driver.tar.gz -C /igloo_static; \
             used_pkgs="${used_pkgs},igloo_driver"; \
+        fi; \
+        if [ -f /tmp/local_packages/penguin-qemu.tar.gz ]; then \
+            tar xzf /tmp/local_packages/penguin-qemu.tar.gz -C /usr/local; \
+            used_pkgs="${used_pkgs},penguin-qemu"; \
+        fi; \
+        if ls /tmp/local_packages/libqemu-*.so >/dev/null 2>&1; then \
+            cp /tmp/local_packages/libqemu-*.so /usr/local/lib/; \
+            used_pkgs="${used_pkgs},qemu-libs"; \
+        fi; \
+        if ls /tmp/local_packages/qemu_cffi_*.h >/dev/null 2>&1 || ls /tmp/local_packages/qemu_cffi_*_manifest.json >/dev/null 2>&1; then \
+            mkdir -p /usr/local/include/penguin-qemu-cffi; \
+            cp /tmp/local_packages/qemu_cffi_*.h /tmp/local_packages/qemu_cffi_*_manifest.json /usr/local/include/penguin-qemu-cffi/ 2>/dev/null || true; \
+            used_pkgs="${used_pkgs},qemu-cffi"; \
         fi; \
         if [ -n "$used_pkgs" ]; then \
             used_pkgs=$(echo "$used_pkgs" | sed 's/^,//'); \

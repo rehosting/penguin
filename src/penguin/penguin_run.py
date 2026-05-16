@@ -10,6 +10,7 @@ from pathlib import Path
 from time import sleep
 
 from pandare2 import Panda
+from .kvm_qemu import KVMQemu
 
 from penguin import getColoredLogger, plugins
 
@@ -388,11 +389,16 @@ def run_config(
 
     # ############ Reduce determinism ##############
 
+    execution_mode = conf["core"].get("execution_mode", "panda")
+
     # Fixed clock time.
     args = args + ["-rtc", "base=2023-01-01T00:00:00"]
 
     # Add vsock args
     args += vsock_args
+
+    if execution_mode == "kvm":
+        args += ["-accel", "kvm"]
 
     # Add args from config
     args += shlex.split(conf["core"].get("extra_qemu_args", ""))
@@ -419,32 +425,40 @@ def run_config(
     # Disable audio (allegedly speeds up emulation by avoiding running another thread)
     os.environ["QEMU_AUDIO_DRV"] = "none"
 
-    # Setup PANDA. Do not let it print
+    # Setup PANDA or KVM. Do not let it print
     parent_outdir = os.path.dirname(out_dir)
     stdout_path = os.path.join(parent_outdir, "qemu_stdout.txt")
     stderr_path = os.path.join(parent_outdir, "qemu_stderr.txt")
 
     with print_to_log(stdout_path, stderr_path):
-        logger.debug(f"Preparing PANDA args: {args}")
-        logger.debug(f"Architecture: {q_config['arch']} Mem: {conf['core']['mem']}")
-        panda = Panda(q_config["arch"], mem=conf["core"]["mem"], extra_args=args,
-                      load_plugin_interface=False)
-
-        if "64" in archend:
-            panda.set_os_name("linux-64-generic")
+        if execution_mode in {"qemu", "kvm"}:
+            qemu_mode = "kvm" if execution_mode == "kvm" else "system"
+            qemu_lib_arch = q_config["arch"] if qemu_mode == "kvm" else archend
+            logger.info("Using %s execution mode for %s", execution_mode, qemu_lib_arch)
+            panda = KVMQemu.from_installation(qemu_mode, qemu_lib_arch)
+            args = ["-L", "/usr/local/share/panda/"] + args
+            panda.panda_args = [f"qemu-system-{q_config['arch']}", "-m", conf["core"]["mem"]] + args
         else:
-            panda.set_os_name("linux-32-generic")
+            logger.debug(f"Preparing PANDA args: {args}")
+            logger.debug(f"Architecture: {q_config['arch']} Mem: {conf['core']['mem']}")
+            panda = Panda(q_config["arch"], mem=conf["core"]["mem"], extra_args=args,
+                          load_plugin_interface=False)
 
-        panda.load_plugin("osi", args={"disable-autoload": True})
-        panda.load_plugin(
-            "osi_linux",
-            args={
-                "kconf_file": os.path.join(os.path.dirname(conf["core"]["kernel"]), "osi.config"),
-                "pagewalk": False,
-                "kconf_group": q_config["kconf_group"],
-                "hypercall": True,
-            },
-        )
+            if "64" in archend:
+                panda.set_os_name("linux-64-generic")
+            else:
+                panda.set_os_name("linux-32-generic")
+
+            panda.load_plugin("osi", args={"disable-autoload": True})
+            panda.load_plugin(
+                "osi_linux",
+                args={
+                    "kconf_file": os.path.join(os.path.dirname(conf["core"]["kernel"]), "osi.config"),
+                    "pagewalk": False,
+                    "kconf_group": q_config["kconf_group"],
+                    "hypercall": True,
+                },
+            )
 
     # Plugins names are given out of order (by nature of yaml and sorting),
     # but plugins may have dependencies. We sort by dependencies
