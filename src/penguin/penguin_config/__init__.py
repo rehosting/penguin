@@ -245,6 +245,61 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
             contents="RUST_LOG=info /igloo/utils/guesthopper --shell /igloo/utils/sh &",
             mode=0o755,
         )
+
+    # Project drop-ins are applied after patches so the user's per-project
+    # files always win over inherited base configs and patch layers.
+    for dropin_dir in ("init.d", "source.d"):
+        host_dir = os.path.join(proj_dir, dropin_dir)
+        if not os.path.isdir(host_dir):
+            continue
+        for filename in sorted(os.listdir(host_dir)):
+            if filename.startswith("."):
+                continue
+            host_path = os.path.join(host_dir, filename)
+            if not os.path.isfile(host_path):
+                continue
+            guest_path = f"/igloo/{dropin_dir}/{filename}"
+            if guest_path in config["static_files"]:
+                logger.warning(
+                    f"drop-in {host_path} is overriding existing static_files entry "
+                    f"{guest_path} (previously set by a patch or base config)"
+                )
+            config["static_files"][guest_path] = {
+                "type": "host_file",
+                "host_path": host_path,
+                "mode": 0o755,
+            }
+
+    plugins_dir = os.path.join(proj_dir, "plugins.d")
+    if os.path.isdir(plugins_dir):
+        if not isinstance(config.get("plugins"), dict):
+            config["plugins"] = {}
+        for filename in sorted(os.listdir(plugins_dir)):
+            if not filename.endswith(".py"):
+                continue
+            host_path = os.path.join(plugins_dir, filename)
+            if not os.path.isfile(host_path):
+                continue
+            plugin_name = filename[:-3]
+            sidecar = os.path.join(plugins_dir, f"{plugin_name}.yaml")
+            args: Dict[str, Any] = {}
+            if os.path.isfile(sidecar):
+                with open(sidecar, "r") as f:
+                    loaded = yaml.load(f, Loader=CoreLoader)
+                if isinstance(loaded, dict):
+                    args = loaded
+                else:
+                    logger.debug(
+                        f"plugins.d sidecar {sidecar} is not a dict (got {type(loaded).__name__}); "
+                        f"using empty args for plugin {plugin_name}"
+                    )
+            if plugin_name in config["plugins"]:
+                logger.warning(
+                    f"drop-in plugin {host_path} is overriding existing plugins entry "
+                    f"'{plugin_name}' (previously set by a patch or base config)"
+                )
+            config["plugins"][plugin_name] = args
+
     # Use pre-resolved kernel if provided, otherwise resolve it
     if resolved_kernel:
         config["core"]["kernel"] = resolved_kernel
