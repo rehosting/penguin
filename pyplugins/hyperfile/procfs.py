@@ -182,15 +182,26 @@ class Proc(Plugin):
 
             fops = yield from self._make_fops_struct(proc)
             kffi = plugins.kffi
+            
+            mmap_phys_addr = 0
+            if hasattr(proc, "qemu_mmap_read") or hasattr(proc, "qemu_mmap_write"):
+                import qemu_mem
+                mmap_phys_addr = qemu_mem.manager.allocate_region(
+                    fname,
+                    getattr(proc, "SIZE", 0x1000),
+                    getattr(proc, "qemu_mmap_read", lambda addr, size: 0),
+                    getattr(proc, "qemu_mmap_write", lambda addr, data, size: None)
+                )
 
             init_data = {
                 "path": file_name.encode("latin-1", errors="ignore"),
                 "fops": fops,
                 "size": getattr(proc, "SIZE", 0),
+                "mmap_phys_addr": mmap_phys_addr,
                 "mode": getattr(proc, "MODE", 0o444),
                 "parent_id": parent_id,
                 "replace": 1,
-                "support_mmap": 1 if getattr(proc, "SUPPORT_MMAP", False) else 0
+                "support_mmap": 1 if (getattr(proc, "SUPPORT_MMAP", False) or mmap_phys_addr) else 0
             }
 
             req = kffi.new("struct portal_procfs_create_req", init_data)

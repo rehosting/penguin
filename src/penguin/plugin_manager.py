@@ -453,6 +453,10 @@ class IGLOOPluginManager:
         self.args = args
         self.logger = getColoredLogger("penguin.plugin_manger")
 
+        # Initialize QEMU Memory Manager
+        import qemu_mem
+        qemu_mem.manager = qemu_mem.QemuMemoryManager(panda)
+
         self.plugin_cbs: Dict[Plugin, Dict[str, List[Callable]]] = {}
         self.registered_cbs: Dict[Tuple[Plugin, str], Callable] = {}
         self.aliases: Dict[str, str] = {}

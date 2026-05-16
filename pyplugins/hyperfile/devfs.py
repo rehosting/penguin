@@ -174,6 +174,16 @@ class Devfs(Plugin):
 
             ops = yield from self._make_ops_struct(devfs_file)
             kffi = plugins.kffi
+            
+            mmap_phys_addr = 0
+            if hasattr(devfs_file, "qemu_mmap_read") or hasattr(devfs_file, "qemu_mmap_write"):
+                import qemu_mem
+                mmap_phys_addr = qemu_mem.manager.allocate_region(
+                    fname,
+                    getattr(devfs_file, "SIZE", 0x1000),
+                    getattr(devfs_file, "qemu_mmap_read", lambda addr, size: 0),
+                    getattr(devfs_file, "qemu_mmap_write", lambda addr, data, size: None)
+                )
 
             init_data = {
                 "name": file_name.encode("latin-1", errors="ignore"),
@@ -181,11 +191,12 @@ class Devfs(Plugin):
                 "minor": minor,
                 "ops": ops,
                 "replace": 1,
+                "mmap_phys_addr": mmap_phys_addr,
                 # Dwarffi safely ignores keys that don't exist on the target struct,
                 # entirely replacing the need for 'hasattr(req, "parent_id")' checks!
                 "parent_id": parent_id,
                 "size": getattr(devfs_file, "SIZE", 0),
-                "support_mmap": 1 if getattr(devfs_file, "SUPPORT_MMAP", False) else 0,
+                "support_mmap": 1 if (getattr(devfs_file, "SUPPORT_MMAP", False) or mmap_phys_addr) else 0,
                 "is_block": 1 if getattr(devfs_file, "IS_BLOCK", False) else 0,
                 "logical_block_size": getattr(devfs_file, "LOGICAL_BLOCK_SIZE", 512)
             }

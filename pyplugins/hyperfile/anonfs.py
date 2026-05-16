@@ -90,10 +90,21 @@ class AnonFS(Plugin):
 
         fops = yield from self._make_fops_struct(vfs_file)
         kffi = plugins.kffi
+        
+        mmap_phys_addr = 0
+        if hasattr(vfs_file, "qemu_mmap_read") or hasattr(vfs_file, "qemu_mmap_write"):
+            import qemu_mem
+            mmap_phys_addr = qemu_mem.manager.allocate_region(
+                name,
+                getattr(vfs_file, "SIZE", 0x1000),
+                getattr(vfs_file, "qemu_mmap_read", lambda addr, size: 0),
+                getattr(vfs_file, "qemu_mmap_write", lambda addr, data, size: None)
+            )
 
         init_data = {
             "name": name.encode("latin-1", errors="ignore"),
             "hf_id": hf_id,
+            "mmap_phys_addr": mmap_phys_addr,
             "ops": fops
         }
 
