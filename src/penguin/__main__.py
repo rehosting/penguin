@@ -293,6 +293,13 @@ def _do_package(project_dir, output_path):
     if os.path.exists(static_dir):
         _add_file("static")
 
+    # Bundle drop-in directories wholesale so .c/.h sources and disabled
+    # plugins travel with the project even when nothing references them
+    # directly via static_files.
+    for dropin in ("init.d", "source.d", "plugins.d"):
+        if os.path.exists(os.path.join(project_dir_abs, dropin)):
+            _add_file(dropin)
+
     # Add explicit file references from the VALIDATED config
     core = config.get("core", {})
     _add_file(core.get("fs"))
