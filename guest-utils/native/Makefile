@@ -92,5 +92,9 @@ out/%/test_executable: test_executable.c
 	@mkdir -p $(dir $@)
 	$(CC_$*) $(filter-out -s,$(CFLAGS_$*)) $< -o $@
 
+out/%/mmap_test: mmap_test.c
+	@mkdir -p $(dir $@)
+	$(CC_$*) $(filter-out -s,$(CFLAGS_$*)) $< -o $@
+
 clean:
 	rm -rf out/ hypercall.h
