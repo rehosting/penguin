@@ -22,7 +22,7 @@ Usage
             event.regs.set_pc(event.regs.get_pc() + 4) # Advance PC (assuming 4-byte instruction)
 
     # Register a hook for all signals
-    yield from plugins.signal_monitor.register_hook()
+    plugins.signal_monitor.register_hook()
 """
 
 from penguin import plugins, Plugin
@@ -30,7 +30,7 @@ from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import HYPER_OP as hop
 from hyper.portal import PortalCmd
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
-from typing import Optional, Generator, Any
+from typing import Optional
 
 class SignalEvent:
     """
@@ -66,9 +66,41 @@ class SignalMonitor(Plugin):
 
     def __init__(self):
         super().__init__()
+        self._pending_commands = []
+        plugins.portal.register_interrupt_handler(
+            "signal_monitor", self._signal_interrupt_handler)
         # Register the hypercall handler for signal delivery events
         self.panda.hypercall(iconsts.IGLOO_HYP_SIGNAL_DELIVER)(self._on_signal_deliver)
         plugins.register(self, "signal_deliver")
+
+    def _signal_interrupt_handler(self):
+        """
+        Process queued signal hook register/unregister commands.
+        """
+        if not self._pending_commands:
+            return False
+
+        pending_commands = self._pending_commands[:]
+        self._pending_commands = []
+
+        while pending_commands:
+            command = pending_commands.pop(0)
+            op = command[0]
+
+            if op == "register":
+                _, init_data = command
+                handle = yield from self._register_hook(init_data)
+                if handle:
+                    self.logger.debug(f"Registered signal hook {handle:#x}")
+                else:
+                    self.logger.debug("Signal hook registration completed")
+            elif op == "unregister":
+                _, handle = command
+                yield from self._unregister_hook(handle)
+            else:
+                self.logger.error(f"Unknown signal monitor command: {op}")
+
+        return False
 
     def _on_signal_deliver(self, cpu):
         """
@@ -79,20 +111,36 @@ class SignalMonitor(Plugin):
         
         try:
             # Map the guest memory to a Python object using KFFI
-            se_raw = plugins.kffi.new("struct signal_event", ptr)
+            se_raw = plugins.kffi.read_type_panda(cpu, ptr, "signal_event")
+            if not se_raw:
+                self.logger.error(f"Failed to read signal_event at {ptr:#x}")
+                self.panda.arch.set_retval(cpu, 0)
+                return
+
+            original_event = bytes(se_raw)
             event = SignalEvent(se_raw)
             
             # Wrap regs in pt_regs_wrapper for architecture-agnostic access
-            if se_raw.regs:
-                regs_obj = plugins.kffi.new("struct pt_regs", se_raw.regs)
-                event.regs = get_pt_regs_wrapper(self.panda, regs_obj)
+            regs_addr = getattr(se_raw.regs, "address", se_raw.regs)
+            regs_obj = None
+            original_regs = None
+            if regs_addr:
+                regs_obj = plugins.kffi.read_type_panda(cpu, regs_addr, "pt_regs")
+                if regs_obj:
+                    original_regs = bytes(regs_obj)
+                    event.regs = get_pt_regs_wrapper(self.panda, regs_obj)
             
             # Notify subscribers
             plugins.publish(self, "signal_deliver", cpu, event)
             
-            # Note: changes to event._se are live if backed by guest memory.
-            # Changes to event.regs (the wrapper) modify the regs_obj, 
-            # which should also be backed by guest memory.
+            new_event = bytes(se_raw)
+            if new_event != original_event:
+                plugins.mem.write_bytes_panda(cpu, ptr, new_event)
+
+            if regs_obj and original_regs is not None:
+                new_regs = bytes(regs_obj)
+                if new_regs != original_regs:
+                    plugins.mem.write_bytes_panda(cpu, regs_addr, new_regs)
             
         except Exception as e:
             self.logger.error(f"Error handling signal delivery hypercall: {e}")
@@ -101,7 +149,7 @@ class SignalMonitor(Plugin):
         self.panda.arch.set_retval(cpu, 0)
 
     def register_hook(self, sig: int = 0, pid: Optional[int] = None, 
-                      procname: Optional[str] = None) -> Generator[Any, None, Optional[int]]:
+                      procname: Optional[str] = None) -> bool:
         """
         Register a signal hook in the guest driver.
 
@@ -116,8 +164,8 @@ class SignalMonitor(Plugin):
 
         Returns
         -------
-        Optional[int]
-            Handle to the registered hook, or None on failure.
+        bool
+            True if the hook registration was queued.
         """
         init_data = {
             "enabled": True,
@@ -127,6 +175,14 @@ class SignalMonitor(Plugin):
             "comm_filter_enabled": procname is not None,
             "comm_filter": procname or ""
         }
+
+        self._pending_commands.append(("register", init_data))
+        return plugins.portal.queue_interrupt("signal_monitor")
+
+    def _register_hook(self, init_data):
+        """
+        Register a signal hook in the guest driver via the portal.
+        """
         
         # Create the hook structure
         sh = plugins.kffi.new("struct signal_hook", init_data)
@@ -139,7 +195,7 @@ class SignalMonitor(Plugin):
             return None
         return result
 
-    def unregister_hook(self, handle: int) -> Generator[Any, None, bool]:
+    def unregister_hook(self, handle: int) -> bool:
         """
         Unregister a signal hook.
 
@@ -151,7 +207,14 @@ class SignalMonitor(Plugin):
         Returns
         -------
         bool
-            True if successful.
+            True if the unregister command was queued.
+        """
+        self._pending_commands.append(("unregister", handle))
+        return plugins.portal.queue_interrupt("signal_monitor")
+
+    def _unregister_hook(self, handle: int):
+        """
+        Unregister a signal hook via the portal.
         """
         result = yield PortalCmd(hop.HYPER_OP_UNREGISTER_SIGNAL_HOOK, addr=handle)
         return result != 0

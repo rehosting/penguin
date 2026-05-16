@@ -5,11 +5,11 @@ plugins:
     conditions:
       signal_interception+pass:
         type: file_contains
-        file: console.log
-        string: "/tests/signal_interception.sh PASS"
+        file: signal_interception_test.txt
+        string: "Advanced PC to"
       signal_interception+dropped:
         type: file_contains
-        file: console.log
+        file: signal_interception_test.txt
         string: "Signal dropped."
 
 static_files:

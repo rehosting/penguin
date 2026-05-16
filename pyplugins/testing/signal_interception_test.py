@@ -1,41 +1,50 @@
-from penguin import plugins
+from os.path import join
 
-# This is a ScriptingPlugin. The code runs at module load time.
+from penguin import Plugin
 
-def on_signal_deliver(cpu, event):
+
+class SignalInterceptionTest(Plugin):
     """
-    Callback triggered when a signal is delivered in the guest.
+    Test plugin that drops SIGILL and advances past the x86 UD2 instruction.
     """
-    logger = plugins.logger # Get the logger passed to the script
-    if event.sig != 4: # Only handle SIGILL
-        return
 
-    logger.info(f"Intercepted SIGILL for process '{event.comm}' (PID {event.pid}) at PC 0x{event.pc:x}")
+    def __init__(self):
+        super().__init__()
+        self.outfile = join(self.args.outdir, "signal_interception_test.txt")
 
-    # Tell the guest driver to drop the signal
-    logger.info("Signal dropped.")
-    event.drop = True
+        self.logger.info("Queueing SIGILL hook via signal_interception_test plugin...")
+        self.plugins.subscribe(self.plugins.signal_monitor, "signal_deliver", self.on_signal_deliver)
+        if self.plugins.signal_monitor.register_hook(sig=4):
+            self.report("SIGILL hook registration queued.")
+            self.logger.info("SIGILL hook registration queued and subscribed successfully.")
+        else:
+            self.report("Failed to queue SIGILL hook registration.")
+            self.logger.error("Failed to queue SIGILL hook registration.")
 
-    # Attempt to advance the program counter to skip the faulting instruction.
-    if event.regs:
-        try:
-            new_pc = event.regs.get_pc() + 2 # A 'ud2' is 2 bytes on x86
-            event.regs.set_pc(new_pc)
-            logger.info(f"Advanced PC to 0x{new_pc:x} to bypass instruction.")
-        except Exception as e:
-            logger.error(f"Failed to advance PC during signal bypass: {e}")
+    def report(self, line):
+        with open(self.outfile, "a") as f:
+            f.write(f"{line}\n")
 
-def register_sigill_hook():
-    """
-    Coroutine to register the hook.
-    """
-    logger = plugins.logger
-    logger.info("Registering SIGILL hook via signal_interception_test script...")
-    # Register a hook specifically for SIGILL (signal 4)
-    yield from plugins.signal_monitor.register_hook(sig=4)
-    plugins.subscribe(plugins.signal_monitor, "signal_deliver", on_signal_deliver)
-    logger.info("SIGILL hook registered and subscribed successfully.")
+    def on_signal_deliver(self, cpu, event):
+        """
+        Callback triggered when a signal is delivered in the guest.
+        """
+        if event.sig != 4:
+            return
 
-# Since this is a ScriptingPlugin, we are in a synchronous context.
-# We need to schedule our async registration function to be run by PANDA's event loop.
-plugins.panda.queue_async(register_sigill_hook())
+        self.logger.info(
+            f"Intercepted SIGILL for process '{event.comm}' (PID {event.pid}) at PC 0x{event.pc:x}")
+
+        self.logger.info("Signal dropped.")
+        self.report("Signal dropped.")
+        event.drop = True
+
+        if event.regs:
+            try:
+                new_pc = event.regs.get_pc() + 2
+                event.regs.set_pc(new_pc)
+                self.logger.info(f"Advanced PC to 0x{new_pc:x} to bypass instruction.")
+                self.report(f"Advanced PC to 0x{new_pc:x}.")
+            except Exception as e:
+                self.logger.error(f"Failed to advance PC during signal bypass: {e}")
+                self.report(f"Failed to advance PC: {e}")
