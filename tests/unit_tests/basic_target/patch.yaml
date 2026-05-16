@@ -21,5 +21,9 @@ static_files:
       set -e
       /busybox mkdir -p /igloo/shared/tests/ran.sh/
       /busybox ls -la > /igloo/shared/tests/ran.sh/stdout 2> /igloo/shared/tests/ran.sh/stderr
+      # Force lib_inject.so to load so the lib_inject.d/ constructor fires.
+      # basic_target has no rootfs libc.so, so the lib_inject.core patch does
+      # not auto-set LD_PRELOAD — we trigger it here against a dynamic binary.
+      LD_PRELOAD=/igloo/dylibs/lib_inject.so /igloo/utils/test_nvram get __unused_libinject_loader__ >/dev/null 2>&1 || /busybox true
       /busybox echo "ran" > /igloo/shared/ran
       return 1
