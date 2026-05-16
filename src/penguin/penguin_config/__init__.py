@@ -23,6 +23,7 @@ from pydantic.config import ConfigDict
 import penguin
 try:
     from penguin.common import patch_config
+    from penguin.dropin_compile import compile_init_c_dropin
     from penguin.utils import construct_empty_fs
     from penguin.utils import get_kernel
 except ImportError:
@@ -258,7 +259,14 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
             host_path = os.path.join(host_dir, filename)
             if not os.path.isfile(host_path):
                 continue
-            guest_path = f"/igloo/{dropin_dir}/{filename}"
+            if dropin_dir == "init.d" and filename.endswith(".h"):
+                continue
+            if dropin_dir == "init.d" and filename.endswith(".c"):
+                static_host_path = compile_init_c_dropin(proj_dir, host_dir, host_path, config)
+                guest_path = f"/igloo/{dropin_dir}/{Path(filename).stem}"
+            else:
+                static_host_path = host_path
+                guest_path = f"/igloo/{dropin_dir}/{filename}"
             if guest_path in config["static_files"]:
                 logger.warning(
                     f"drop-in {host_path} is overriding existing static_files entry "
@@ -266,7 +274,7 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
                 )
             config["static_files"][guest_path] = {
                 "type": "host_file",
-                "host_path": host_path,
+                "host_path": static_host_path,
                 "mode": 0o755,
             }
 
