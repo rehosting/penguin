@@ -1,0 +1,69 @@
+plugins:
+  signal_monitor: {}
+  signal_interception_test: {}
+  verifier:
+    conditions:
+      signal_interception+pass:
+        type: file_contains
+        file: console.log
+        string: "/tests/signal_interception.sh PASS"
+      signal_interception+dropped:
+        type: file_contains
+        file: console.log
+        string: "Signal dropped."
+
+static_files:
+  /tests/signal_interception.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/micropython
+      import sys
+      import uctypes
+      import ffi
+
+      print("Starting signal interception test...")
+
+      try:
+          # This test triggers a SIGILL by executing an illegal instruction.
+          # The signal_interception_test plugin should catch this, drop the signal,
+          # and advance the PC, allowing this script to continue.
+
+          # Open the current process to access libc functions like mmap
+          libc = ffi.open(None)
+          
+          # mmap a page with RWX permissions to hold our shellcode
+          mmap = libc.func("p", "mmap", "pLiiiq")
+          PROT_READ = 1
+          PROT_WRITE = 2
+          PROT_EXEC = 4
+          MAP_PRIVATE = 2
+          MAP_ANONYMOUS = 0x20
+          
+          mem = mmap(0, 4096, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
+          if mem == -1:
+              raise OSError("mmap failed to allocate executable memory")
+
+          # The illegal instruction opcode for x86_64 is 'ud2' (0x0f 0x0b).
+          # We add a 'ret' (0xc3) instruction so the function returns cleanly.
+          illegal_instruction_shellcode = b'\x0f\x0b\xc3'
+          
+          # Copy shellcode into the executable memory page
+          mem_view = uctypes.bytearray_at(mem, len(illegal_instruction_shellcode))
+          mem_view[:] = illegal_instruction_shellcode
+
+          # Create a python callable from the raw memory address.
+          # ffi.func(return_type, address, arg_types)
+          cfunc = ffi.func('v', mem, '') # 'v' for void return, '' for no args
+
+          print("Attempting to trigger SIGILL by executing shellcode...")
+          cfunc()
+
+          # If we reach here, the illegal instruction was successfully bypassed!
+          print("Successfully bypassed SIGILL!")
+          print("/tests/signal_interception.sh PASS")
+          sys.exit(0)
+
+      except Exception as e:
+          print(f"Error during signal interception test: {e}")
+          sys.exit(1)
+    mode: 73
