@@ -334,6 +334,8 @@ def gen_search_locations(plugin_name: str, proj_dir: str,
         join(proj_dir, plugin_name + ".py"),
         join(proj_dir, "plugins", plugin_name),
         join(proj_dir, "plugins", plugin_name + ".py"),
+        join(proj_dir, "plugins.d", plugin_name),
+        join(proj_dir, "plugins.d", plugin_name + ".py"),
     ]
     return search_locations
 
