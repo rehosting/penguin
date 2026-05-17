@@ -257,12 +257,12 @@ class Core(PartialModelMixin, BaseModel):
         ),
     ]
     execution_mode: Annotated[
-        Literal["panda", "qemu", "kvm"],
+        Literal["qemu", "kvm"],
         Field(
-            "panda",
+            "qemu",
             title="Execution Mode",
-            description="The execution backend to use for the guest (panda for PANDA, qemu for upstream-QEMU TCG, kvm for hardware acceleration)",
-            examples=["panda", "qemu", "kvm"],
+            description="The execution backend to use for the guest (qemu for TCG, kvm for hardware acceleration)",
+            examples=["qemu", "kvm"],
         ),
     ]
     extra_qemu_args: Annotated[
