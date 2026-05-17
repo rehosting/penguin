@@ -10,6 +10,7 @@ import cffi
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../src")))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
+from penguin import plugins  # noqa: E402
 from pyplugins.compat.qemu_compat import KVMArch, KVMQemu, MINIMAL_CDEF  # noqa: E402
 
 
@@ -73,21 +74,30 @@ class TestKVMQemu(unittest.TestCase):
         mock_dlopen.return_value = self._fake_lib()
         qemu = KVMQemu(str(self.lib_path), "x86_64", header_path=str(self.header_path))
         hypercall = FakeHypercallPlugin()
-        qemu.bind_hypercall_plugin(hypercall)
 
-        @qemu.hypercall(0x1337)
-        def my_handler(cpu):
-            return None
+        with patch.object(plugins, "get_plugin_by_name", return_value=hypercall):
+            @qemu.hypercall(0x1337)
+            def my_handler(cpu):
+                return None
 
         self.assertIn(0x1337, hypercall.handlers)
         self.assertEqual(hypercall.handlers[0x1337][0], my_handler)
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_legacy_hypercall_binding(self, mock_dlopen):
+        mock_dlopen.return_value = self._fake_lib()
+        qemu = KVMQemu(str(self.lib_path), "x86_64", header_path=str(self.header_path))
+        hypercall = FakeHypercallPlugin()
+        qemu.bind_hypercall_plugin(hypercall)
+
+        self.assertIs(qemu.hypercall_plugin, hypercall)
+        self.assertIs(qemu.hypercall_handlers, hypercall.handlers)
 
     @patch.object(cffi.FFI, "dlopen")
     def test_dispatch_hypercall(self, mock_dlopen):
         mock_dlopen.return_value = self._fake_lib()
         qemu = KVMQemu(str(self.lib_path), "x86_64", header_path=str(self.header_path))
         hypercall = FakeHypercallPlugin()
-        qemu.bind_hypercall_plugin(hypercall)
 
         handler_called = False
 
@@ -95,10 +105,12 @@ class TestKVMQemu(unittest.TestCase):
             nonlocal handler_called
             handler_called = True
 
-        qemu.hypercall(0x1337)(my_handler)
+        with patch.object(plugins, "get_plugin_by_name", return_value=hypercall):
+            qemu.hypercall(0x1337)(my_handler)
 
-        ret_ptr = qemu.ffi.new("uint64_t *", 0)
-        res = qemu._dispatch_hypercall(qemu.ffi.NULL, 0x1337, 1, 2, 3, 4, 5, 6, ret_ptr)
+            ret_ptr = qemu.ffi.new("uint64_t *", 0)
+            res = qemu._dispatch_hypercall(
+                qemu.ffi.NULL, 0x1337, 1, 2, 3, 4, 5, 6, ret_ptr)
 
         self.assertTrue(handler_called)
         self.assertEqual(res, 0)
@@ -111,10 +123,11 @@ class TestKVMQemu(unittest.TestCase):
         mock_dlopen.return_value = self._fake_lib()
         qemu = KVMQemu(str(self.lib_path), "x86_64", header_path=str(self.header_path))
         hypercall = FakeHypercallPlugin()
-        qemu.bind_hypercall_plugin(hypercall)
 
-        ret_ptr = qemu.ffi.new("uint64_t *", 0)
-        res = qemu._dispatch_hypercall(qemu.ffi.NULL, 0x4, 1, 2, 3, 4, 5, 6, ret_ptr)
+        with patch.object(plugins, "get_plugin_by_name", return_value=hypercall):
+            ret_ptr = qemu.ffi.new("uint64_t *", 0)
+            res = qemu._dispatch_hypercall(
+                qemu.ffi.NULL, 0x4, 1, 2, 3, 4, 5, 6, ret_ptr)
 
         self.assertEqual(res, 1)
         self.assertEqual(ret_ptr[0], 0)
