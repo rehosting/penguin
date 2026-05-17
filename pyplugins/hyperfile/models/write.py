@@ -1,6 +1,7 @@
 from wrappers.ptregs_wrap import PtRegsWrapper
 from penguin import plugins
 import inspect
+import os
 from os.path import isabs, join as pjoin
 from .base import FilePtr, CharPtr, LoffTPtr, SizeT
 
@@ -117,7 +118,8 @@ class WriteToFile:
         buf = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
         offset = yield from plugins.kffi.deref(offset_ptr)
 
-        with open(self.write_filepath, "wb") as f:
+        mode = "r+b" if os.path.exists(self.write_filepath) else "w+b"
+        with open(self.write_filepath, mode) as f:
             f.seek(offset)
             f.write(buf)
 

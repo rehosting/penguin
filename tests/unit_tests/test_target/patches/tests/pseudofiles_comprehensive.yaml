@@ -8,7 +8,7 @@ plugins:
       pseudofiles_to_file:
         type: file_contains
         file: yaml_write_test.txt
-        string: "to_file_content"
+        string: "to_FIX_content"
 
 pseudofiles:
   /proc/yaml_const:
@@ -23,6 +23,9 @@ pseudofiles:
   /dev/yaml_zero:
     read:
       model: zero
+  /dev/yaml_one:
+    read:
+      model: one
   /proc/sys/kernel/yaml_sysctl:
     read:
       model: const_buf
@@ -54,6 +57,13 @@ pseudofiles:
     ioctl:
       model: return_const
       val: 77
+  /dev/yaml_ioctl_zero:
+    ioctl:
+      model: zero
+  /dev/yaml_ioctl_default_zero:
+    ioctl:
+      '*':
+        model: return_const
 
 static_files:
   /tests/test_ioctl.py:
@@ -90,6 +100,22 @@ static_files:
       res = ioctl(fd, 1234, 0)
       if res != 77:
           print("Error: whole ioctl got", res)
+          raise SystemExit(1)
+      fd = c_open("/dev/yaml_ioctl_zero", 0)
+      if fd < 0:
+          print("Error: failed to open zero-device")
+          raise SystemExit(1)
+      res = ioctl(fd, 1234, 0)
+      if res != 0:
+          print("Error: zero ioctl got", res)
+          raise SystemExit(1)
+      fd = c_open("/dev/yaml_ioctl_default_zero", 0)
+      if fd < 0:
+          print("Error: failed to open default-zero-device")
+          raise SystemExit(1)
+      res = ioctl(fd, 1234, 0)
+      if res != 0:
+          print("Error: default zero ioctl got", res)
           raise SystemExit(1)
       print("ioctl tests pass")
 
@@ -131,12 +157,19 @@ static_files:
         exit 1
       fi
 
+      one_val=$($bb dd if=/dev/yaml_one bs=10 count=1 2>/dev/null)
+      if [ "$one_val" != "1" ]; then
+        echo "Error: one fail"
+        exit 1
+      fi
+
       if ! $bb grep -q "host_read_content" /proc/yaml_file; then
         echo "Error: from_file fail"
         exit 1
       fi
 
-      echo "to_file_content" > /dev/yaml_to_file
+      $bb printf "to_ABC_content" > /dev/yaml_to_file
+      $bb printf "to_FIX" > /dev/yaml_to_file
 
       /igloo/utils/micropython /tests/test_ioctl.py
 
