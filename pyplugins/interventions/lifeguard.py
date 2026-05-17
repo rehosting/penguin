@@ -2,15 +2,17 @@
 Lifeguard: Signal Blocking Plugin
 =================================
 
-This module provides a plugin for the Penguin framework to block specified Linux signals
-by replacing them with a harmless SIGCONT. It is useful for preventing certain signals
-from terminating or interrupting processes during analysis or emulation.
+This module provides a plugin for the Penguin framework to block specified Linux
+signals during analysis or emulation. Signals sent through kill(2) are blocked
+before the kernel sends them. Lifeguard also consumes the signal_monitor API for
+configured signals so non-kill(2) delivery paths can be observed and dropped when
+the driver hook is effective.
 
 Features
 --------
 
 - Block user-specified signals (e.g., SIGKILL, SIGTERM) for target processes.
-- Log all signal delivery attempts to a CSV file.
+- Log signal delivery and syscall interception events to a CSV file.
 - Optionally enable verbose logging for debugging.
 
 Usage
@@ -24,7 +26,19 @@ To use this plugin, specify the signals to block in the configuration:
         "blocked_signals": [9, 15]  # Block SIGKILL and SIGTERM
     }
 
-The plugin will log all signal attempts to lifeguard.csv in the specified output directory.
+The plugin will log blocked signal events to lifeguard.csv in the specified output
+directory.
+
+Limitations
+-----------
+
+Delivery-time drops are not equivalent to preventing a signal from being sent.
+For process-preserving behavior, Lifeguard still suppresses kill(2) before the
+kernel applies signal semantics. SIGKILL and SIGSTOP cannot be caught or ignored
+by Linux processes, so Lifeguard only suppresses kill(2)-generated instances of
+those signals. Synchronous fault signals such as SIGILL or SIGSEGV may need
+guest state repair when dropped; otherwise execution can return to the same
+faulting instruction.
 """
 
 from penguin import plugins, Plugin
@@ -71,10 +85,29 @@ signals = {
 for i, v in list(signals.items()):
     signals[v] = i
 
+SYSCALL_ONLY_SIGNALS = {
+    signals["SIGKILL"],
+    signals["SIGSTOP"],
+}
+
+STATE_REPAIR_SIGNALS = {
+    signals["SIGILL"],
+    signals["SIGTRAP"],
+    signals["SIGBUS"],
+    signals["SIGFPE"],
+    signals["SIGSEGV"],
+    signals["SIGSYS"],
+}
+
 
 class Lifeguard(Plugin):
     """
-    Plugin to block specified signals by replacing them with SIGCONT.
+    Plugin to block specified signals.
+
+    kill(2)-generated signals are suppressed before send time. For configured
+    signals other than SIGKILL and SIGSTOP, Lifeguard also subscribes to
+    signal_monitor so delivery paths outside kill(2) can be observed and dropped
+    when the driver hook can do so safely.
 
     **Attributes**
     - `outdir` (`str`): Output directory for logs.
@@ -83,6 +116,8 @@ class Lifeguard(Plugin):
 
     outdir: str
     blocked_signals: list[int]
+    delivery_blocked_signals: set[int]
+    syscall_blocked_signals: set[int]
 
     def __init__(self) -> None:
         """
@@ -103,11 +138,62 @@ class Lifeguard(Plugin):
         if "blocked_signals" in conf:
             self.blocked_signals = [int(x) for x in conf["blocked_signals"]]
 
+        self.syscall_blocked_signals = set(self.blocked_signals)
+        self.delivery_blocked_signals = {
+            sig for sig in self.blocked_signals if sig not in SYSCALL_ONLY_SIGNALS
+        }
+        state_repair_signals = self.delivery_blocked_signals & STATE_REPAIR_SIGNALS
+
         with open(f"{self.outdir}/{LIFELOG}", "w") as f:
-            f.write("signal,target_process,blocked\n")
+            f.write("signal,target_process,blocked,mechanism\n")
 
         if len(self.blocked_signals) > 0:
             self.logger.info(f"Blocking signals: {self.blocked_signals}")
+
+        if self.delivery_blocked_signals:
+            self.plugins.subscribe(
+                self.plugins.signal_monitor,
+                "signal_deliver",
+                self.on_signal_deliver,
+            )
+            for sig in sorted(self.delivery_blocked_signals):
+                self.plugins.signal_monitor.register_hook(sig=sig)
+            self.logger.info(
+                f"Using signal_monitor delivery hooks for non-kill paths: "
+                f"{sorted(self.delivery_blocked_signals)}"
+            )
+
+        if state_repair_signals:
+            self.logger.warning(
+                f"Signals {sorted(state_repair_signals)} often require guest "
+                "state repair when dropped; Lifeguard only drops delivery. "
+                "Use a signal_monitor consumer such as sigill_bypass when the "
+                "faulting state must be advanced or emulated."
+            )
+
+        if self.syscall_blocked_signals:
+            self.logger.info(
+                f"Using kill(2) syscall interception for signals: "
+                f"{sorted(self.syscall_blocked_signals)}"
+            )
+
+    def log_signal(self, sig: int, pid: int, blocked: bool, mechanism: str) -> None:
+        with open(f"{self.outdir}/{LIFELOG}", "a") as f:
+            f.write(f"{sig},{pid},{1 if blocked else 0},{mechanism}\n")
+
+    def on_signal_deliver(self, cpu, event) -> None:
+        """
+        Block configured signals after the kernel has selected a delivery target.
+        """
+        if event.sig not in self.delivery_blocked_signals:
+            return
+
+        self.logger.debug(
+            f"Blocking delivered {signals.get(event.sig, '[?]')}({event.sig}) "
+            f"for {event.comm}({event.pid})"
+        )
+        self.log_signal(event.sig, event.pid, True, "delivery")
+        event.drop = True
 
     @plugins.syscalls.syscall(
         name_or_pattern="sys_kill",
@@ -128,9 +214,8 @@ class Lifeguard(Plugin):
         - `None`
         """
         (pid, sig) = args[0:2]
-        save = sig in self.blocked_signals
-        with open(f"{self.outdir}/{LIFELOG}", "a") as f:
-            f.write(f"{sig},{pid},{1 if save else 0}\n")
+        save = sig in self.syscall_blocked_signals
+        self.log_signal(sig, pid, save, "syscall")
 
         proc = yield from plugins.osi.get_proc()
         if proc:
@@ -145,6 +230,7 @@ class Lifeguard(Plugin):
         self.logger.debug(f"{pname}({ppid}) kill({kpname}({pid}), {expl}({sig})) {'blocked' if save else ''}")
 
         if save:
-            # Old approach was to change to SIGCONT, but some architectures (e.g., mips64eb/powerpc64) have syscall contexts that cause that to break
+            # Blocking before send time is the reliable way to preserve a target
+            # process for kill(2)-generated signals.
             syscall.skip_syscall = True
             syscall.retval = 0
