@@ -1,0 +1,86 @@
+plugins:
+  verifier:
+    conditions:
+      compat_dev_collision+console:
+        type: file_contains
+        file: console.log
+        string: "/tests/compat_dev_collision.sh PASS"
+      compat_dev_collision+stdout:
+        type: file_contains
+        file: shared/tests/compat_dev_collision.sh/stdout
+        strings:
+          - "COMPAT_DEV_COLLISION:/dev/compat_collision_file:exists=yes"
+          - "COMPAT_DEV_COLLISION:/dev/compat_collision_link:exists=yes"
+          - "COMPAT_DEV_COLLISION:/dev/compat_collision_node:exists=yes"
+
+pseudofiles:
+  /dev/compat_collision_file:
+    read:
+      model: const_buf
+      val: "model-file"
+  /dev/compat_collision_link:
+    read:
+      model: const_buf
+      val: "model-link"
+  /dev/compat_collision_node:
+    read:
+      model: const_buf
+      val: "model-node"
+
+static_files:
+  /dev/compat_collision_file:
+    type: inline_file
+    contents: "firmware-file"
+    mode: 438
+  /dev/compat_collision_link:
+    type: symlink
+    target: /tmp/original-target
+  /dev/compat_collision_node:
+    type: dev
+    devtype: char
+    major: 1
+    minor: 3
+    mode: 438
+  /tests/compat_dev_collision.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eu
+
+      BB=/igloo/utils/busybox
+
+      report() {
+        echo "COMPAT_DEV_COLLISION:$1:$2=$3"
+      }
+
+      probe() {
+        path="$1"
+        if [ -e "$path" ]; then
+          report "$path" exists yes
+        else
+          report "$path" exists no
+          echo "Missing expected dev collision path: $path"
+          exit 1
+        fi
+
+        stat_out="$($BB stat -c '%F|%a|%s|%t|%T' "$path" 2>/dev/null || echo stat_failed)"
+        report "$path" stat "$stat_out"
+
+        link_out="$($BB readlink "$path" 2>/dev/null || true)"
+        if [ -n "$link_out" ]; then
+          report "$path" readlink "$link_out"
+        else
+          report "$path" readlink none
+        fi
+
+        read_out="$($BB head -c 32 "$path" 2>/dev/null || true)"
+        report "$path" read "$read_out"
+      }
+
+      probe /dev/compat_collision_file
+      probe /dev/compat_collision_link
+      probe /dev/compat_collision_node
+
+      echo "/tests/compat_dev_collision.sh PASS"
+      exit 0
+    mode: 73

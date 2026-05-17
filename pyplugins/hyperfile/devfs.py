@@ -193,6 +193,7 @@ class Devfs(Plugin):
                 # entirely replacing the need for 'hasattr(req, "parent_id")' checks!
                 "parent_id": parent_id,
                 "size": getattr(devfs_file, "SIZE", 0),
+                "mode": getattr(devfs_file, "MODE", 0o666),
                 "support_mmap": 1 if getattr(devfs_file, "SUPPORT_MMAP", False) else 0,
                 "is_block": 1 if getattr(devfs_file, "IS_BLOCK", False) else 0,
                 "logical_block_size": getattr(devfs_file, "LOGICAL_BLOCK_SIZE", 512)

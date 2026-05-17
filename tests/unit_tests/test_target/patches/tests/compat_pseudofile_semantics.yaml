@@ -1,0 +1,81 @@
+plugins:
+  verifier:
+    conditions:
+      compat_pseudofile_semantics+console:
+        type: file_contains
+        file: console.log
+        string: "/tests/compat_pseudofile_semantics.sh PASS"
+      compat_pseudofile_semantics+stdout:
+        type: file_contains
+        file: shared/tests/compat_pseudofile_semantics.sh/stdout
+        strings:
+          - "COMPAT_PSEUDO:/proc/compat_default:exists=yes"
+          - "COMPAT_PSEUDO:/dev/compat_default:exists=yes"
+          - "COMPAT_PSEUDO:/sys/compat/compat_default:exists=yes"
+
+pseudofiles:
+  /proc/compat_default: {}
+  /proc/compat_const:
+    read:
+      model: const_buf
+      val: "abc"
+  /dev/compat_default: {}
+  /dev/compat_const:
+    read:
+      model: const_buf
+      val: "abc"
+  /sys/compat/compat_default: {}
+  /sys/compat/compat_const:
+    read:
+      model: const_buf
+      val: "abc"
+
+static_files:
+  /tests/compat_pseudofile_semantics.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eu
+
+      BB=/igloo/utils/busybox
+
+      report() {
+        echo "COMPAT_PSEUDO:$1:$2=$3"
+      }
+
+      probe() {
+        path="$1"
+        if [ -e "$path" ]; then
+          report "$path" exists yes
+        else
+          report "$path" exists no
+          echo "Missing expected pseudofile: $path"
+          exit 1
+        fi
+
+        stat_out="$($BB stat -c '%F|%a|%s|%t|%T' "$path" 2>/dev/null || echo stat_failed)"
+        report "$path" stat "$stat_out"
+
+        read_out="$($BB cat "$path" 2>/dev/null || true)"
+        report "$path" read "$read_out"
+
+        second_byte="$($BB dd if="$path" bs=1 count=1 skip=1 2>/dev/null || true)"
+        report "$path" read_skip_1 "$second_byte"
+
+        if echo "write-test" > "$path" 2>/dev/null; then
+          report "$path" write succeeds
+        else
+          report "$path" write fails
+        fi
+      }
+
+      probe /proc/compat_default
+      probe /proc/compat_const
+      probe /dev/compat_default
+      probe /dev/compat_const
+      probe /sys/compat/compat_default
+      probe /sys/compat/compat_const
+
+      echo "/tests/compat_pseudofile_semantics.sh PASS"
+      exit 0
+    mode: 73
