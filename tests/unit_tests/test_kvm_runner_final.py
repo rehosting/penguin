@@ -5,6 +5,7 @@ import sys
 
 # Add penguin src to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../src")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../pyplugins")))
 
 # Pre-mock gen_image.make_image and redirect functions
 mock_make_image = MagicMock()
@@ -15,7 +16,7 @@ from penguin.penguin_run import run_config  # noqa: E402
 
 
 class TestKVMRunnerSelection(unittest.TestCase):
-    @patch("penguin.penguin_run.KVMQemu")
+    @patch("compat.qemu_compat.KVMQemu")
     @patch("penguin.penguin_run.load_config")
     @patch("penguin.penguin_run.load_q_config")
     @patch("penguin.penguin_run.get_penguin_kernel_version")
@@ -62,7 +63,7 @@ class TestKVMRunnerSelection(unittest.TestCase):
 
         mock_kvmqemu.from_installation.assert_called_once_with("kvm", "x86_64")
 
-    @patch("penguin.penguin_run.KVMQemu")
+    @patch("compat.qemu_compat.KVMQemu")
     @patch("penguin.penguin_run.load_config")
     @patch("penguin.penguin_run.load_q_config")
     @patch("penguin.penguin_run.get_penguin_kernel_version")
