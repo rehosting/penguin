@@ -173,6 +173,8 @@ class Portal(Plugin):
         self.region_header_fmt = f"{self.endian_format}IIQQ"
         self.region_header_size = kffi.sizeof("region_header")
         self.region_header_struct = struct.Struct(self.region_header_fmt)
+        # The driver registers this during init; keep the early interrupt path valid.
+        self.regions_size = 4096 - self.region_header_size
         self.mask = 0xFFFFFFFFFFFFFFFF if self.panda.bits == 64 else 0xFFFFFFFF
         self.portal_interrupt = None
         # Generic interrupts mechanism
