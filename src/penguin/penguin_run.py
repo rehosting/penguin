@@ -8,13 +8,6 @@ import socket
 from contextlib import contextmanager, closing
 from pathlib import Path
 from time import sleep
-
-_repo_root = Path(__file__).resolve().parents[2]
-if str(_repo_root) not in sys.path:
-    sys.path.append(str(_repo_root))
-
-from pyplugins.qemu_compat import KVMQemu  # noqa: E402
-
 from penguin import getColoredLogger, plugins
 
 from .common import yaml
@@ -444,6 +437,8 @@ def run_config(
     parent_outdir = os.path.dirname(out_dir)
     stdout_path = os.path.join(parent_outdir, "qemu_stdout.txt")
     stderr_path = os.path.join(parent_outdir, "qemu_stderr.txt")
+    
+    from compat.qemu_compat import KVMQemu
 
     with print_to_log(stdout_path, stderr_path):
         qemu_mode = "kvm" if execution_mode == "kvm" else "system"
