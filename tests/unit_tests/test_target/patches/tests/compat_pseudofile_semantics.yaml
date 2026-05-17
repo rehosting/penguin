@@ -12,6 +12,7 @@ plugins:
           - "COMPAT_PSEUDO:/proc/compat_default:exists=yes"
           - "COMPAT_PSEUDO:/dev/compat_default:exists=yes"
           - "COMPAT_PSEUDO:/sys/compat/compat_default:exists=yes"
+          - "COMPAT_PSEUDO:/proc/compat_const_nul:hex=61626300"
 
 pseudofiles:
   /proc/compat_default: {}
@@ -19,6 +20,11 @@ pseudofiles:
     read:
       model: const_buf
       val: "abc"
+  /proc/compat_const_nul:
+    read:
+      model: const_buf
+      val: "abc"
+      null_terminate: true
   /dev/compat_default: {}
   /dev/compat_const:
     read:
@@ -71,6 +77,12 @@ static_files:
 
       probe /proc/compat_default
       probe /proc/compat_const
+      nul_hex="$($BB head -c 4 /proc/compat_const_nul 2>/dev/null | $BB od -An -tx1 | $BB tr -d ' \n')"
+      report /proc/compat_const_nul hex "$nul_hex"
+      if [ "$nul_hex" != "61626300" ]; then
+        echo "Expected NUL-terminated const_buf hex 61626300, got $nul_hex"
+        exit 1
+      fi
       probe /dev/compat_default
       probe /dev/compat_const
       probe /sys/compat/compat_default

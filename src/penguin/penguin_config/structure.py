@@ -400,6 +400,16 @@ Read = _union(
                     str,
                     Field(title="Pseudofile contents"),
                 ),
+                (
+                    "null_terminate",
+                    bool,
+                    Field(False, title="Append a NUL byte to the configured contents"),
+                ),
+                (
+                    "nul_terminate",
+                    bool,
+                    Field(False, title="Alias for null_terminate"),
+                ),
             ),
         ),
         dict(
