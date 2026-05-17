@@ -93,7 +93,7 @@ class AnonFS(Plugin):
         
         mmap_phys_addr = 0
         if hasattr(vfs_file, "qemu_mmap_read") or hasattr(vfs_file, "qemu_mmap_write"):
-            import qemu_mem
+            from hyperfile import qemu_mem
             mmap_phys_addr = qemu_mem.manager.allocate_region(
                 name,
                 getattr(vfs_file, "SIZE", 0x1000),

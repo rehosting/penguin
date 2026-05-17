@@ -17,7 +17,6 @@ from .plugin_manager import ArgsBox
 from .utils import hash_image_inputs, get_penguin_kernel_version
 from .q_config import load_q_config, ROOTFS
 
-
 @contextmanager
 def print_to_log(out, err):
     original_stdout = sys.stdout  # Save the original stdout

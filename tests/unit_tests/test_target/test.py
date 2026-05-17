@@ -94,35 +94,14 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mod
     if stale_index.exists():
         stale_index.unlink()
 
-    # Add mmap_test binary
-    script_dir = Path(__file__).resolve().parent
-    mmap_test_src = script_dir.parent / "mmap_test" / "fs" / "mmap_test.c"
-
-    if mmap_test_src.exists():
-        logger.info(f"Compiling mmap_test for {arch}")
-        compiler = "x86_64-linux-musl-gcc"
-        if arch == "armel":
-            compiler = "arm-linux-musleabi-gcc"
-        elif arch == "aarch64":
-            compiler = "aarch64-linux-musl-gcc"
-        elif arch == "mipsel":
-            compiler = "mipsel-linux-musl-gcc"
-            
-        try:
-            subprocess.run([
-                "docker", "run", "--rm", 
-                "-v", f"{mmap_test_src.parent}:/src",
-                "rehosting/embedded-toolchains:latest",
-                compiler, "/src/mmap_test.c", "-o", f"/src/mmap_test.{arch}", "-static"
-            ], check=True)
-            
-            mmap_test_bin = mmap_test_src.parent / f"mmap_test.{arch}"
-            with open(mmap_test_bin, "rb") as f:
-                files_dict["tests/mmap_test"] = f.read()
-        except Exception as e:
-            logger.warning(f"Failed to compile mmap_test: {e}")
-    else:
-        logger.warning(f"mmap_test source not found at {mmap_test_src}")
+    try:
+        mmap_result = subprocess.run([
+            "docker", "run", "--rm", image,
+            "cat", f"/igloo_static/utils.bin/mmap_test.{arch}"
+        ], stdout=subprocess.PIPE, check=True)
+        files_dict["tests/mmap_test"] = mmap_result.stdout
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Failed to load mmap_test from image: {e}")
 
     create_tar_gz_with_binaries(f"{TEST_DIR}/empty_fs.tar.gz", files_dict)
     base_config = str(Path(TEST_DIR, "base_config.yaml"))

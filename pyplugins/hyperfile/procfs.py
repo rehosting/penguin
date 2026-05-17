@@ -183,7 +183,7 @@ class Proc(Plugin):
             
             mmap_phys_addr = 0
             if hasattr(proc, "qemu_mmap_read") or hasattr(proc, "qemu_mmap_write"):
-                import qemu_mem
+                from hyperfile import qemu_mem
                 mmap_phys_addr = qemu_mem.manager.allocate_region(
                     fname,
                     getattr(proc, "SIZE", 0x1000),

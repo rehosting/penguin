@@ -84,6 +84,7 @@ RUN apt-get update && \
     mkdir -p /igloo_static
 
 COPY ./get_release.sh /get_release.sh
+COPY ./local_package[s] /tmp/local_packages
 
 # 1) Get external resources
 # Download ZAP into /zap
@@ -117,8 +118,12 @@ RUN wget -qO /tmp/gum.deb https://github.com/charmbracelet/gum/releases/download
 # 3) Get penguin resources
 # Download kernels from CI. Populate /igloo_static/kernels
 ARG LINUX_VERSION
-RUN /get_release.sh rehosting linux_builder ${LINUX_VERSION} kernels-latest.tar.gz | \
-    tar xzf - -C /igloo_static
+RUN if [ -f /tmp/local_packages/kernels-latest.tar.gz ]; then \
+        tar xzf /tmp/local_packages/kernels-latest.tar.gz -C /igloo_static; \
+    else \
+        /get_release.sh rehosting linux_builder ${LINUX_VERSION} kernels-latest.tar.gz | \
+        tar xzf - -C /igloo_static; \
+    fi
 
 # Populate /igloo_static/utils.bin/utils/busybox.*
 ARG BUSYBOX_VERSION

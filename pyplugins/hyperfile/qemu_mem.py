@@ -29,17 +29,26 @@ class QemuMemoryManager:
         self.regions = {}  # name -> state
         self.pending_allocations = []  # list of names to allocate
 
-        # Register the after_machine_init callback to perform allocations
-        @self.ffi.callback("void(struct CPUState *)")
-        def _after_machine_init_cb(cpu):
-            self._do_pending_allocations()
+        # QEMU compatibility exposes a callback after guest init. At that point
+        # system memory exists and queued MemoryRegions can be attached.
+        if hasattr(self.panda, "set_after_guest_init_callback"):
+            def _after_machine_init_cb(machine, opaque):
+                self._do_pending_allocations()
+                return 0
 
-        self._machine_init_cb_anchor = _after_machine_init_cb
-        self.panda.register_callback(
-            self.panda.callback.after_machine_init,
-            _after_machine_init_cb,
-            "qemu_mem_allocator"
-        )
+            self.panda.set_after_guest_init_callback(_after_machine_init_cb)
+            self._machine_init_cb_anchor = _after_machine_init_cb
+        else:
+            @self.ffi.callback("void(struct CPUState *)")
+            def _after_machine_init_cb(cpu):
+                self._do_pending_allocations()
+
+            self._machine_init_cb_anchor = _after_machine_init_cb
+            self.panda.register_callback(
+                self.panda.callback.after_machine_init,
+                _after_machine_init_cb,
+                "qemu_mem_allocator"
+            )
 
         self._initialized = True
 
@@ -52,7 +61,7 @@ class QemuMemoryManager:
         for t in needed:
             try:
                 self.ffi.typeof(t)
-            except self.ffi.error:
+            except Exception:
                 missing.append(t)
 
         if not missing:

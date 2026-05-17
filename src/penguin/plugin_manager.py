@@ -455,7 +455,7 @@ class IGLOOPluginManager:
         self.logger = getColoredLogger("penguin.plugin_manger")
 
         # Initialize QEMU Memory Manager
-        import qemu_mem
+        from hyperfile import qemu_mem
         qemu_mem.manager = qemu_mem.QemuMemoryManager(panda)
 
         self.plugin_cbs: Dict[Plugin, Dict[str, List[Callable]]] = {}

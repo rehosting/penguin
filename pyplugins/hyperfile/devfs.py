@@ -185,7 +185,7 @@ class Devfs(Plugin):
             
             mmap_phys_addr = 0
             if hasattr(devfs_file, "qemu_mmap_read") or hasattr(devfs_file, "qemu_mmap_write"):
-                import qemu_mem
+                from hyperfile import qemu_mem
                 mmap_phys_addr = qemu_mem.manager.allocate_region(
                     fname,
                     getattr(devfs_file, "SIZE", 0x1000),
