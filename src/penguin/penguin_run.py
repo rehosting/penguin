@@ -437,7 +437,8 @@ def run_config(
     parent_outdir = os.path.dirname(out_dir)
     stdout_path = os.path.join(parent_outdir, "qemu_stdout.txt")
     stderr_path = os.path.join(parent_outdir, "qemu_stderr.txt")
-    
+
+    sys.path.append("/pyplugins")
     from compat.qemu_compat import KVMQemu
 
     with print_to_log(stdout_path, stderr_path):
@@ -476,11 +477,9 @@ def run_config(
     }
     args.update(vpn_args)
 
-    sys.path.append("/pyplugins")
-
     plugins.initialize(panda, args)
     if execution_mode in {"qemu", "kvm"}:
-        from pyplugins.hypercall import Hypercall
+        from apis.hypercall import Hypercall
         plugins.load(Hypercall, args)
     plugins.load_plugins(conf_plugins)
 
