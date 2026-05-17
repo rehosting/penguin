@@ -10,6 +10,7 @@ from hyperfile.models.read import (
     ReadExternalLegacy,
     ReadExternalVFS,
     ReadFromFile,
+    ReadOne,
     ReadZero,
 )
 from hyperfile.models.write import WriteDefault, WriteExternalVFS, WriteExternalLegacy, WriteToFile
@@ -35,6 +36,7 @@ class Pseudofiles(Plugin):
     # --------------------------------------
     read_models = {
         "zero": ReadZero,
+        "one": ReadOne,
         "empty": ReadEmpty,
         "const_buf": ReadConstBuf,
         "const_map": ReadConstMap,
