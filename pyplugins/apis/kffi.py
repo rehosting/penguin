@@ -100,7 +100,8 @@ class KFFI(Plugin):
         from hyper.consts import igloo_hypercall_constants as iconsts
         self.portal = plugins.portal
         self._on_tramp_hit_hypercall = self.portal.wrap(self._on_tramp_hit_hypercall)
-        self.panda.hypercall(iconsts.IGLOO_HYP_TRAMP_HIT)(self._on_tramp_hit_hypercall)
+        plugins.hypercall.hypercall(iconsts.IGLOO_HYP_TRAMP_HIT)(
+            self._on_tramp_hit_hypercall)
 
         # Register with portal's interrupt handler system
         self.portal.register_interrupt_handler(

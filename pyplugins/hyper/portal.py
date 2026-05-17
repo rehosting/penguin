@@ -178,12 +178,12 @@ class Portal(Plugin):
         # Generic interrupts mechanism
         self._interrupt_handlers = {}  # plugin_name -> handler_function
         self._pending_interrupts = set()  # Set of plugin names with pending work
-        self.panda.hypercall(iconsts.IGLOO_HYPER_REGISTER_MEM_REGION)(
+        plugins.hypercall.hypercall(iconsts.IGLOO_HYPER_REGISTER_MEM_REGION)(
             self._register_cpu_memregion)
-        self.panda.hypercall(iconsts.IGLOO_HYPER_ENABLE_PORTAL_INTERRUPT)(
+        plugins.hypercall.hypercall(iconsts.IGLOO_HYPER_ENABLE_PORTAL_INTERRUPT)(
             self._register_portal_interrupt)
         # Don't wrap _portal_interrupt - it's not a generator function
-        self.panda.hypercall(iconsts.IGLOO_HYPER_PORTAL_INTERRUPT)(
+        plugins.hypercall.hypercall(iconsts.IGLOO_HYPER_PORTAL_INTERRUPT)(
             self.wrap(self._portal_interrupt))
 
     def _register_portal_interrupt(self, cpu: Any) -> None:

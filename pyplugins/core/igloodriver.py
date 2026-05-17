@@ -15,7 +15,8 @@ class IGLOODriver(Plugin):
     def __init__(self) -> None:
         self.ensure_init = lambda *args: None
         from hyper.consts import igloo_hypercall_constants as iconsts
-        self.panda.hypercall(iconsts.IGLOO_MODULE_BASE)(self.hyp_report_igloo_module_baseaddr)
+        plugins.hypercall.hypercall(iconsts.IGLOO_MODULE_BASE)(
+            self.hyp_report_igloo_module_baseaddr)
 
     def hyp_report_igloo_module_baseaddr(self, cpu):
         igloo_test_function = self.panda.arch.get_arg(cpu, 1, convention="syscall")

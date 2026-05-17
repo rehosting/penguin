@@ -178,7 +178,7 @@ class HyperFile(Plugin):
 
         # On hypercall we dispatch to the appropriate handler: read, write,
         # ioctl
-        @panda.hypercall(iconsts.IGLOO_HYPERFS_MAGIC)
+        @plugins.hypercall.hypercall(iconsts.IGLOO_HYPERFS_MAGIC)
         def before_hypercall(cpu):
             # We pass args in the arch-syscall ABI specified in pypanda's arch.py
             # arm: x8/r7 r0, r1, r2
