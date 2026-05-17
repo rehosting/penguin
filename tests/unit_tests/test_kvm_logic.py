@@ -10,7 +10,7 @@ import cffi
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../src")))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from pyplugins.qemu_compat import KVMArch, KVMQemu, MINIMAL_CDEF  # noqa: E402
+from pyplugins.compat.qemu_compat import KVMArch, KVMQemu, MINIMAL_CDEF  # noqa: E402
 
 
 class FakeHypercallPlugin:
