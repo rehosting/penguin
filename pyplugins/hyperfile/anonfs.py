@@ -90,11 +90,13 @@ class AnonFS(Plugin):
 
         fops = yield from self._make_fops_struct(vfs_file)
         kffi = plugins.kffi
+        mmap_phys_addr = self._mmap_phys_addr(vfs_file)
 
         init_data = {
             "name": name.encode("latin-1", errors="ignore"),
             "hf_id": hf_id,
-            "ops": fops
+            "ops": fops,
+            "mmap_phys_addr": mmap_phys_addr
         }
 
         req = kffi.new("struct portal_anonfs_create_req", init_data)
@@ -110,6 +112,20 @@ class AnonFS(Plugin):
 
         self.logger.debug(f"Injected anon file '{name}' at FD {fd}")
         return fd
+
+    def _mmap_phys_addr(self, vfs_file: VFSFile) -> int:
+        supports_default_mmap = any(
+            (
+                getattr(vfs_file, "SUPPORT_MMAP", False),
+                getattr(vfs_file, "SIZE", 0),
+            )
+        ) and not vfs_file._is_overridden("mmap")
+        if not supports_default_mmap:
+            return 0
+        qemu_mem = getattr(plugins, "qemu_mem", None)
+        if qemu_mem is None:
+            return 0
+        return qemu_mem.allocate_file(vfs_file)
 
     def register_socket(self, sock_file: SocketFile) -> Generator[int, None, int]:
         """

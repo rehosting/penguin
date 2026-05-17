@@ -1,0 +1,88 @@
+plugins:
+  qemu_mem:
+    mmap_base: 0x90000000
+    mmap_size: 16M
+  native_mmap: {}
+  verifier:
+    conditions:
+      native_mmap_dev:
+        type: file_contains
+        file: shared/tests/mmap_test/stdout
+        string: "native mmap dev PASS"
+      native_mmap_proc:
+        type: file_contains
+        file: shared/tests/mmap_test/stdout
+        string: "native mmap proc PASS"
+      native_mmap_anon:
+        type: file_contains
+        file: shared/tests/mmap_test/stdout
+        string: "native mmap anon PASS"
+      native_mmap_mtd:
+        type: file_contains
+        file: shared/tests/mmap_test/stdout
+        string: "native mmap mtd PASS"
+      native_mmap_done:
+        type: file_contains
+        file: shared/tests/mmap_test/stdout
+        string: "/tests/mmap_test PASS"
+
+static_files:
+  /tests/mmap_test:
+    type: inline_file
+    mode: 73
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+      /igloo/utils/busybox cat > /tmp/mmap_native.py <<'PY'
+      import uos, uctypes, ffilib
+
+      libc = ffilib.libc()
+      mmap = libc.func("p", "mmap", "pLiiiq")
+      munmap = libc.func("i", "munmap", "pL")
+
+      PROT_READ = 1
+      PROT_WRITE = 2
+      MAP_SHARED = 1
+
+      def check_mmap(path, expected, replacement, marker):
+          with open(path, "r+b") as f:
+              addr = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, f.fileno(), 0)
+              if addr == -1:
+                  raise OSError(uos.errno())
+              assert uctypes.bytes_at(addr, len(expected)) == expected
+              buf = uctypes.bytearray_at(addr, len(replacement))
+              buf[:] = replacement
+              munmap(addr, 4096)
+          with open(path, "rb") as f:
+              assert f.read(len(replacement)) == replacement
+          print(marker)
+
+      check_mmap(
+          "/dev/mmap_native",
+          b"dev native mmap\n",
+          b"dev mmap changed\n",
+          "native mmap dev PASS",
+      )
+      check_mmap(
+          "/proc/mmap_native",
+          b"proc native mmap\n",
+          b"proc mmap change\n",
+          "native mmap proc PASS",
+      )
+      check_mmap(
+          "/tmp/mmap_native_anon",
+          b"anon native mmap\n",
+          b"anon mmap change\n",
+          "native mmap anon PASS",
+      )
+      PY
+
+      /igloo/utils/busybox mdev -s
+      /igloo/utils/micropython /tmp/mmap_native.py
+      /igloo/utils/busybox mdev -s || true
+      MTD=$(/igloo/utils/busybox grep '"mmap_native_mtd"' /proc/mtd | /igloo/utils/busybox cut -d: -f1)
+      /igloo/utils/busybox cat /dev/${MTD} | /igloo/utils/busybox strings | /igloo/utils/busybox grep "mtd native mmap"
+      /igloo/utils/busybox echo "mtd changed" > /dev/${MTD}
+      /igloo/utils/busybox cat /dev/${MTD} | /igloo/utils/busybox strings | /igloo/utils/busybox grep "mtd changed"
+      /igloo/utils/busybox echo "native mmap mtd PASS"
+      /igloo/utils/busybox echo "/tests/mmap_test PASS"
