@@ -236,7 +236,7 @@ penguin_run() {
     # If pydev mode we need to also map ./pkg to /pkg
     if $pydev; then
         maps+=("$(pwd)/src:/pkg")
-        maps+=("$(pwd)/pyplugins:/pandata")
+        maps+=("$(pwd)/pyplugins:/pyplugins")
     fi
 
     # Sort mappings by path length
