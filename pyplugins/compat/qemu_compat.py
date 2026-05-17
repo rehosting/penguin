@@ -367,8 +367,7 @@ class QemuCompat:
 
         self._callback = None
         self._after_guest_init_callback = None
-        self._hypercall_plugin = None
-        self.hypercall_handlers = {}
+        self._bound_hypercall_plugin = None
         self.arch = QemuArch(self)
         self._current_nr = 0
         self._current_args = [0, 0, 0, 0, 0, 0]
@@ -379,6 +378,10 @@ class QemuCompat:
         self._current_cpu = self.ffi.NULL
 
         self.set_hypercall_callback(self._dispatch_hypercall)
+
+    @property
+    def direct_syscall_event_writeback(self) -> bool:
+        return True
 
     @classmethod
     def from_installation(cls, mode: str, arch: str):
@@ -424,9 +427,27 @@ class QemuCompat:
     def get_cpu(self):
         return self._current_cpu
 
+    @property
+    def hypercall_plugin(self):
+        if self._bound_hypercall_plugin is not None:
+            return self._bound_hypercall_plugin
+
+        try:
+            from penguin import plugins
+        except ImportError:
+            return None
+
+        return plugins.hypercall
+
+    @property
+    def hypercall_handlers(self):
+        plugin = self.hypercall_plugin
+        if plugin is None:
+            return {}
+        return plugin.handlers
+
     def bind_hypercall_plugin(self, plugin):
-        self._hypercall_plugin = plugin
-        self.hypercall_handlers = plugin.handlers
+        self._bound_hypercall_plugin = plugin
 
     def _lib_symbol(self, name: str):
         try:
@@ -465,8 +486,9 @@ class QemuCompat:
         self._current_retval = 0
 
         try:
-            if self._hypercall_plugin is not None:
-                return self._hypercall_plugin.dispatch(cs, nr, ret_ptr)
+            plugin = self.hypercall_plugin
+            if plugin is not None:
+                return plugin.dispatch(cs, nr, ret_ptr)
         finally:
             self._current_ret_ptr = self.ffi.NULL
 
@@ -474,13 +496,14 @@ class QemuCompat:
 
     def hypercall(self, nr):
         def decorator(func):
-            if self._hypercall_plugin is None:
+            plugin = self.hypercall_plugin
+            if plugin is None:
                 raise RuntimeError(
                     "panda.hypercall() is available only after the Penguin "
                     "'hypercall' pyplugin is loaded. Ensure hypercall is loaded "
                     "before plugins that register hypercall handlers."
                 )
-            self._hypercall_plugin.register(nr, func)
+            plugin.register(nr, func)
             return func
         return decorator
 
