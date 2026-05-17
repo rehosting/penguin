@@ -100,6 +100,21 @@ def assert_lib_inject_dropin_result(project_dir, arch):
 
     runtime_marker = project_dir / "results" / "latest" / "shared" / "lib_inject_dropin_ran"
     if not runtime_marker.exists():
+        latest = project_dir / "results" / "latest"
+        shared = latest / "shared"
+        console = latest / "console.log"
+        logger.error(f"--- shared/ listing ({shared}) ---")
+        if shared.is_dir():
+            for entry in sorted(shared.iterdir()):
+                logger.error(f"  {entry.name}")
+        else:
+            logger.error("  (missing)")
+        logger.error("--- console.log tail ---")
+        if console.exists():
+            for line in console.read_text(errors="replace").splitlines()[-80:]:
+                logger.error(line)
+        else:
+            logger.error("(no console.log)")
         raise AssertionError(
             f"lib_inject.d constructor marker not written in guest: {runtime_marker}"
         )
