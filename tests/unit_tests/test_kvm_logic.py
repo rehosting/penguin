@@ -9,7 +9,23 @@ import cffi
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../src")))
 
-from penguin.kvm_qemu import KVMArch, KVMQemu, MINIMAL_CDEF  # noqa: E402
+from penguin.qemu_compat import KVMArch, KVMQemu, MINIMAL_CDEF  # noqa: E402
+
+
+class FakeHypercallPlugin:
+    def __init__(self):
+        self.handlers = {}
+
+    def register(self, nr, func):
+        self.handlers.setdefault(nr, []).append(func)
+
+    def dispatch(self, cpu, nr, ret_ptr):
+        if nr not in self.handlers:
+            return 1
+        for handler in self.handlers.get(nr, []):
+            handler(cpu)
+        ret_ptr[0] = 0
+        return 0
 
 
 class TestKVMQemu(unittest.TestCase):
@@ -44,21 +60,33 @@ class TestKVMQemu(unittest.TestCase):
         self.assertTrue(mock_lib.set_kvm_penguin_hypercall_callback.called)
 
     @patch.object(cffi.FFI, "dlopen")
+    def test_intel64_uses_x86_64_conventions(self, mock_dlopen):
+        mock_dlopen.return_value = self._fake_lib()
+        qemu = KVMQemu(str(self.lib_path), "intel64", mode="system", header_path=str(self.header_path))
+
+        self.assertEqual(qemu.arch_name, "x86_64")
+        self.assertEqual(qemu.arch.get_arg(None, 1), 0)
+
+    @patch.object(cffi.FFI, "dlopen")
     def test_hypercall_registration(self, mock_dlopen):
         mock_dlopen.return_value = self._fake_lib()
         qemu = KVMQemu(str(self.lib_path), "x86_64", header_path=str(self.header_path))
+        hypercall = FakeHypercallPlugin()
+        qemu.bind_hypercall_plugin(hypercall)
 
         @qemu.hypercall(0x1337)
         def my_handler(cpu):
             return None
 
-        self.assertIn(0x1337, qemu.hypercall_handlers)
-        self.assertEqual(qemu.hypercall_handlers[0x1337][0], my_handler)
+        self.assertIn(0x1337, hypercall.handlers)
+        self.assertEqual(hypercall.handlers[0x1337][0], my_handler)
 
     @patch.object(cffi.FFI, "dlopen")
     def test_dispatch_hypercall(self, mock_dlopen):
         mock_dlopen.return_value = self._fake_lib()
         qemu = KVMQemu(str(self.lib_path), "x86_64", header_path=str(self.header_path))
+        hypercall = FakeHypercallPlugin()
+        qemu.bind_hypercall_plugin(hypercall)
 
         handler_called = False
 
@@ -76,6 +104,19 @@ class TestKVMQemu(unittest.TestCase):
         self.assertEqual(ret_ptr[0], 0)
         self.assertEqual(qemu._current_nr, 0x1337)
         self.assertEqual(qemu._current_args, [1, 2, 3, 4, 5, 6])
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_unregistered_hypercall_falls_through(self, mock_dlopen):
+        mock_dlopen.return_value = self._fake_lib()
+        qemu = KVMQemu(str(self.lib_path), "x86_64", header_path=str(self.header_path))
+        hypercall = FakeHypercallPlugin()
+        qemu.bind_hypercall_plugin(hypercall)
+
+        ret_ptr = qemu.ffi.new("uint64_t *", 0)
+        res = qemu._dispatch_hypercall(qemu.ffi.NULL, 0x4, 1, 2, 3, 4, 5, 6, ret_ptr)
+
+        self.assertEqual(res, 1)
+        self.assertEqual(ret_ptr[0], 0)
 
     @patch.object(cffi.FFI, "dlopen")
     def test_arch_get_arg(self, mock_dlopen):
