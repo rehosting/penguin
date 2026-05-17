@@ -183,6 +183,21 @@ def add_lib_inject_all_abis(conf, cache_dir, proj_dir=None):
         target=f"/igloo/lib_inject_{arch_info['default_abi']}.so",
     )
 
+    # Binaries in /igloo/utils (e.g. test_nvram) are compiled with the dynamic
+    # linker path /igloo/dylibs/ld-musl-<penguin-arch>.so.1.  The actual loader
+    # file mounted under /igloo/dylibs/ uses the musl arch name, which differs
+    # for several arches (armel→arm, mipseb→mips, mips64eb→mips64).  Add a
+    # symlink so LD_PRELOAD works with these binaries in minimal rootfs envs.
+    default_abi = arch_info["default_abi"]
+    musl_arch = arch_info["abis"][default_abi]["musl_arch_name"]
+    canonical_loader = f"ld-musl-{arch}.so.1"
+    musl_loader = f"ld-musl-{musl_arch}.so.1"
+    if canonical_loader != musl_loader:
+        conf["static_files"][f"/igloo/dylibs/{canonical_loader}"] = dict(
+            type="symlink",
+            target=musl_loader,
+        )
+
 
 def prep_config(conf, cache_dir, proj_dir=None):
     config_files = conf["static_files"] if "static_files" in conf else {}

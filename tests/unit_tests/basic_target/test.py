@@ -84,13 +84,11 @@ def penguin_run(config, image):
         raise e
 
 
-def assert_lib_inject_dropin_result(project_dir, arch):
+def assert_lib_inject_dropin_result(project_dir):
     cache_dir = project_dir / "qcows" / "cache"
     matches = sorted(cache_dir.glob("lib_inject_*.so"))
     if not matches:
-        raise AssertionError(
-            f"no cached lib_inject build found under {cache_dir}"
-        )
+        raise AssertionError(f"no cached lib_inject build found under {cache_dir}")
     marker_bytes = b"libinject-dropin-marker-from-header"
     if not any(marker_bytes in path.read_bytes() for path in matches):
         raise AssertionError(
@@ -191,7 +189,7 @@ def run_test(kernel, arch, image):
     if arch in DROPIN_C_TEST_ARCHES:
         assert_dropin_c_result(project_path)
 
-    assert_lib_inject_dropin_result(project_path, arch)
+    assert_lib_inject_dropin_result(project_path)
 
     logger.info("Test completed")
 
