@@ -9,12 +9,12 @@ It is responsible for:
 - Managing plugin lifecycles and dependencies.
 - Providing a singleton ``plugins`` object for global plugin access.
 - Registering, subscribing, and publishing plugin events.
-- Supporting both legacy PyPlugin and new Plugin interfaces.
+- Supporting Penguin Plugin interfaces.
 - Providing utility functions for plugin name resolution and file discovery.
 
 Arguments
 ---------
-- ``panda`` (``Panda``): The Panda emulation object.
+- ``panda``: The active emulator compatibility object.
 - ``args`` (``dict``): Dictionary of arguments and configuration for plugins.
 
 Plugin Interface
@@ -36,7 +36,6 @@ Penguin emulation environment, enabling modular analysis, automation, and extens
 
 from os.path import join, isfile, basename, splitext, isdir
 from penguin import getColoredLogger
-from pandare2 import PyPlugin, Panda
 import shutil
 from typing import List, Dict, Union, Callable, Tuple, Optional, Any, Type, TypeVar, Iterator
 import glob
@@ -144,7 +143,7 @@ class Plugin:
     Base class for all IGLOO plugins.
 
     Plugins should inherit from this class to be managed by the plugin manager.
-    Provides argument access, logging, and Panda instance access.
+    Provides argument access, logging, and emulator compatibility object access.
     """
 
     def __preinit__(self, plugins: 'IGLOOPluginManager', args: Dict[str, Any]) -> None:
@@ -442,12 +441,12 @@ class IGLOOPluginManager:
             cls.instance = super(IGLOOPluginManager, cls).__new__(cls)
         return cls.instance
 
-    def initialize(self, panda: Panda, args: Dict[str, Any]) -> None:
+    def initialize(self, panda: Any, args: Dict[str, Any]) -> None:
         """
-        Initialize the plugin manager with a Panda instance and arguments.
+        Initialize the plugin manager with an emulator compatibility object and arguments.
 
-        :param panda: The Panda instance.
-        :type panda: Panda
+        :param panda: Emulator compatibility object exposed to plugins as self.panda.
+        :type panda: Any
         :param args: Dictionary of arguments.
         :type args: Dict[str, Any]
         """
@@ -494,14 +493,10 @@ class IGLOOPluginManager:
 
         for pluginclass in pluginclasses:
             # If Plugin is in scope it should not be treated as a plugin
-            if pluginclass is PyPlugin or pluginclass is Plugin:
+            if pluginclass is Plugin:
                 continue
             elif isinstance(pluginclass, Plugin) or issubclass(pluginclass, Plugin):
                 pass
-            elif isinstance(pluginclass, PyPlugin) or issubclass(pluginclass, PyPlugin):
-                self.logger.warning(
-                    f"Loading a PyPlugin subclass {pluginclass}. This is deprecated, please Plugin instead (from penguin import Plugin)"
-                )
             else:
                 continue
 
@@ -711,8 +706,7 @@ class IGLOOPluginManager:
         for name, cls in inspect.getmembers(
                 module, lambda x: inspect.isclass(x)):
             if not issubclass(cls, Plugin) or cls == Plugin:
-                if not issubclass(cls, PyPlugin) or cls == PyPlugin:
-                    continue
+                continue
             plugin_classes.append((name, cls))
 
         if not plugin_classes:
@@ -741,22 +735,21 @@ class IGLOOPluginManager:
                 self._plugin_name_map[class_name.lower()] = self.plugins[name]
         return names
 
-    def unload(self, pluginclass: Union[Type[Plugin], Type[PyPlugin], str]) -> None:
+    def unload(self, pluginclass: Union[Type[Plugin], str]) -> None:
         """
         Unload a plugin by class or name.
 
         :param pluginclass: Plugin class or name.
-        :type pluginclass: Union[Type[Plugin], Type[PyPlugin], str]
+        :type pluginclass: Union[Type[Plugin], str]
 
         :raises ValueError: If the argument is not a loaded plugin.
         """
         if isinstance(pluginclass, str) and pluginclass in self.plugins:
             pluginclass = self.plugins[pluginclass]
 
-        if not issubclass(type(pluginclass), PyPlugin) and not issubclass(
-                type(pluginclass), Plugin):
+        if not issubclass(type(pluginclass), Plugin):
             raise ValueError(
-                f"Unload expects a name of a loaded pyplugin or a PyPlugin instance. Got {pluginclass} with plugin list: {self.plugins}")
+                f"Unload expects a name of a loaded pyplugin or a Plugin instance. Got {pluginclass} with plugin list: {self.plugins}")
 
         # Call uninit method if it's present
         if callable(getattr(pluginclass, "uninit", None)):
