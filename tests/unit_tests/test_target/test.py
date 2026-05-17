@@ -86,7 +86,10 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False):
     with open(base_config, "r") as file:
         base_config = yaml.safe_load(file)
 
-    if arch != "x86_64":
+    if arch != "x86_64" or str(kernel) != "4.10":
+        # The SIGILL bypass fixture uses x86_64 UD2 shellcode and currently
+        # depends on the signal delivery hook location available in the 4.10
+        # x86_64 test kernel.
         base_config["patches"] = [
             p for p in base_config["patches"] if "signal_interception.yaml" not in p
         ]
