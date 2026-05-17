@@ -1,8 +1,18 @@
 import inspect
 from penguin import plugins, Plugin
 from hyperfile.models.base import DevFile, ProcFile, SysFile, SysfsBridge, SysctlFile
-from hyperfile.models.read import ReadZero, ReadExternalVFS, ReadExternalLegacy, ReadConstBuf, ReadEmpty, ReadFromFile
-from hyperfile.models.write import WriteDiscard, WriteExternalVFS, WriteExternalLegacy, WriteToFile
+from hyperfile.models.read import (
+    ReadConstBuf,
+    ReadConstMap,
+    ReadConstMapFile,
+    ReadDefault,
+    ReadEmpty,
+    ReadExternalLegacy,
+    ReadExternalVFS,
+    ReadFromFile,
+    ReadZero,
+)
+from hyperfile.models.write import WriteDefault, WriteExternalVFS, WriteExternalLegacy, WriteToFile
 from hyperfile.models.ioctl import (
     IoctlDispatcher,
     IoctlReturnConst,
@@ -27,15 +37,17 @@ class Pseudofiles(Plugin):
         "zero": ReadZero,
         "empty": ReadEmpty,
         "const_buf": ReadConstBuf,
+        "const_map": ReadConstMap,
+        "const_map_file": ReadConstMapFile,
         "from_file": ReadFromFile,
         "return_const": ReadConstBuf,  # Legacy compatibility
-        # "default": ReadDefault # If you implement a default error mixin
+        "default": ReadDefault,
     }
 
     write_models = {
-        "discard": WriteDiscard,
+        "discard": WriteDefault,
         "to_file": WriteToFile,
-        # "default": WriteUnhandledMixin
+        "default": WriteDefault,
     }
 
     ioctl_models = {
@@ -61,8 +73,7 @@ class Pseudofiles(Plugin):
         # 2. Handle Filenames (collision prone)
         if "filename" in raw_config:
             if domain == "read":
-                # For const_map_file or from_file
-                new_kwargs["read_filepath"] = raw_config["filename"]
+                new_kwargs["filename"] = raw_config["filename"]
             elif domain == "write":
                 new_kwargs["write_filepath"] = raw_config["filename"]
 
@@ -189,9 +200,9 @@ class Pseudofiles(Plugin):
         # 1. Handle Standard Models
         if model_name != "from_plugin":
             if domain == "read":
-                return self.read_models.get(model_name, ReadZero)
+                return self.read_models.get(model_name, ReadDefault)
             elif domain == "write":
-                return self.write_models.get(model_name, WriteDiscard)
+                return self.write_models.get(model_name, WriteDefault)
             elif domain == "ioctl":
                 return self.ioctl_models.get(model_name, IoctlZero)
 
