@@ -77,10 +77,21 @@ class ReadConstBuf(ReadBufWrapper):
     The Translator: Takes 'buffer' or 'const_buf'
     '''
 
-    def __init__(self, *, const_buf: str = None, buffer: str = None, **kwargs):
+    def __init__(self, *, const_buf: str = None, buffer: str = None,
+                 null_terminate: bool = False, nul_terminate: bool = None,
+                 **kwargs):
         self.cycle = False
         # Support both argument names
         buf = const_buf if const_buf is not None else buffer
+        if nul_terminate:
+            null_terminate = True
+        if null_terminate:
+            if buf is None:
+                buf = b"\x00"
+            elif isinstance(buf, bytes):
+                buf = buf + b"\x00"
+            else:
+                buf = str(buf) + "\x00"
         super().__init__(buffer=buf, **kwargs)
 
 
