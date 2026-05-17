@@ -185,18 +185,32 @@ def add_lib_inject_all_abis(conf, cache_dir, proj_dir=None):
 
     # Binaries in /igloo/utils (e.g. test_nvram) are compiled with the dynamic
     # linker path /igloo/dylibs/ld-musl-<penguin-arch>.so.1.  The actual loader
-    # file mounted under /igloo/dylibs/ uses the musl arch name, which differs
+    # file mounted under /igloo/dylibs/ uses the musl loader name, which differs
     # for several arches (armel→arm, mipseb→mips, mips64eb→mips64).  Add a
     # symlink so LD_PRELOAD works with these binaries in minimal rootfs envs.
-    default_abi = arch_info["default_abi"]
-    musl_arch = arch_info["abis"][default_abi]["musl_arch_name"]
+    #
+    # We detect the actual loader name by globbing the dylibs directory rather
+    # than deriving it from musl_arch_name, because musl_arch_name reflects the
+    # headers directory (shared between endianness variants) not the loader
+    # filename (which encodes endianness: ld-musl-mipsel.so.1 ≠ ld-musl-mips.so.1).
+    _dylib_dir_overrides = {
+        "aarch64": "arm64",
+        "intel64": "x86_64",
+        "loongarch64": "loongarch",
+        "powerpc": "ppc",
+        "powerpc64": "ppc64",
+        "powerpc64le": "ppc64el",
+    }
+    dylib_dir = _dylib_dir_overrides.get(arch, arch)
     canonical_loader = f"ld-musl-{arch}.so.1"
-    musl_loader = f"ld-musl-{musl_arch}.so.1"
-    if canonical_loader != musl_loader:
-        conf["static_files"][f"/igloo/dylibs/{canonical_loader}"] = dict(
-            type="symlink",
-            target=musl_loader,
-        )
+    actual_loaders = glob.glob(f"/igloo_static/dylibs/{dylib_dir}/ld-musl-*.so.1")
+    if actual_loaders:
+        actual_loader = os.path.basename(sorted(actual_loaders)[0])
+        if canonical_loader != actual_loader:
+            conf["static_files"][f"/igloo/dylibs/{canonical_loader}"] = dict(
+                type="symlink",
+                target=actual_loader,
+            )
 
 
 def prep_config(conf, cache_dir, proj_dir=None):
