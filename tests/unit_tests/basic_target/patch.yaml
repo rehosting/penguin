@@ -24,6 +24,9 @@ static_files:
       # Force lib_inject.so to load so the lib_inject.d/ constructor fires.
       # basic_target has no rootfs libc.so, so the lib_inject.core patch does
       # not auto-set LD_PRELOAD — we trigger it here against a dynamic binary.
-      LD_PRELOAD=/igloo/dylibs/lib_inject.so /igloo/utils/test_nvram get __unused_libinject_loader__ >/dev/null 2>&1 || /busybox true
+      /busybox echo "[lib_inject.d test] invoking test_nvram with LD_PRELOAD"
+      LD_PRELOAD=/igloo/dylibs/lib_inject.so /igloo/utils/test_nvram get __unused_libinject_loader__ && rc=0 || rc=$?
+      /busybox echo "[lib_inject.d test] test_nvram exit=$rc"
+      /busybox ls -la /igloo/shared/lib_inject_dropin_ran 2>&1 || /busybox echo "[lib_inject.d test] marker file missing"
       /busybox echo "ran" > /igloo/shared/ran
       return 1
