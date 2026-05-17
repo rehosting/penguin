@@ -78,6 +78,7 @@ int main(int argc, char **argv) {
             if (chunk_offset + chunk_size > alloc_size)
                 chunk_size = alloc_size - chunk_offset;
             if (chunk_size > MAX_MALLOC_SIZE) chunk_size = MAX_MALLOC_SIZE;
+            memset(buffer, 0, chunk_size);
             log_fmt("Requesting chunk %d: offset=%zu, size=%zu", chunk_idx, chunk_offset, chunk_size);
             log_fmt("portal_callN: MAGIC_GET, path='%s', offset=%zu, size=%zu, buffer=%p", path, chunk_offset, chunk_size, buffer);
             int ret = portal_call4(MAGIC_GET, (uint64_t)path, chunk_offset, chunk_size, (uint64_t)buffer);
