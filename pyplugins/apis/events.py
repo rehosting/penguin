@@ -120,7 +120,7 @@ class Events(Plugin):
 
         The handler parses arguments from the CPU context and publishes the event.
         """
-        @self.panda.hypercall(magic)
+        @plugins.hypercall.hypercall(magic)
         def generic_hypercall(cpu):
             # argument parsing
             args = [cpu]

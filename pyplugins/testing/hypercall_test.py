@@ -2,7 +2,7 @@
 This plugin verifies that hypercalls are being made correctly.
 """
 
-from penguin import Plugin
+from penguin import Plugin, plugins
 from os.path import join
 
 HYPERCALL_MAGIC = 0xcafebabe
@@ -16,8 +16,8 @@ HYPERCALL_ARG4 = 0x1337c0def2f2f2f2
 class HypercallTest(Plugin):
     def __init__(self):
         self.outdir = self.get_arg("outdir")
-        self.panda.hypercall(HYPERCALL_MAGIC)(self.hypercall_test)
-        self.panda.hypercall(HYPERCALL_MAGIC_32B)(self.hypercall_test_32b)
+        plugins.hypercall.hypercall(HYPERCALL_MAGIC)(self.hypercall_test)
+        plugins.hypercall.hypercall(HYPERCALL_MAGIC_32B)(self.hypercall_test_32b)
         self.reported = False
         self.reported_32b = False
 

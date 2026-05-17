@@ -493,13 +493,13 @@ class Syscalls(Plugin):
             "syscalls", self._syscall_interrupt_handler)
 
         # Register handlers for syscall setup and events
-        self.panda.hypercall(bconsts.IGLOO_HYP_SETUP_SYSCALL)(
+        plugins.hypercall.hypercall(bconsts.IGLOO_HYP_SETUP_SYSCALL)(
             self._setup_syscall_handler)
 
         # Register syscall enter/return hypercalls
-        self.panda.hypercall(iconsts.IGLOO_HYP_SYSCALL_ENTER)(
+        plugins.hypercall.hypercall(iconsts.IGLOO_HYP_SYSCALL_ENTER)(
             self._syscall_enter_event)
-        self.panda.hypercall(iconsts.IGLOO_HYP_SYSCALL_RETURN)(
+        plugins.hypercall.hypercall(iconsts.IGLOO_HYP_SYSCALL_RETURN)(
             self._syscall_return_event)
 
         # Add a queue for pending hook registrations
@@ -839,7 +839,10 @@ class Syscalls(Plugin):
         if not read_only:
             new = bytes(sce)
             if original != new:
-                yield from plugins.mem.write_bytes(arg, new)
+                if getattr(self.panda, "direct_syscall_event_writeback", False):
+                    plugins.mem.write_bytes_panda(cpu, arg, new)
+                else:
+                    yield from plugins.mem.write_bytes(arg, new)
 
         return result
 

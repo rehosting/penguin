@@ -75,7 +75,8 @@ class SignalMonitor(Plugin):
         plugins.portal.register_interrupt_handler(
             "signal_monitor", self._signal_interrupt_handler)
         # Register the hypercall handler for signal delivery events
-        self.panda.hypercall(iconsts.IGLOO_HYP_SIGNAL_DELIVER)(self._on_signal_deliver)
+        plugins.hypercall.hypercall(iconsts.IGLOO_HYP_SIGNAL_DELIVER)(
+            self._on_signal_deliver)
         plugins.register(self, "signal_deliver")
 
     def _signal_interrupt_handler(self):

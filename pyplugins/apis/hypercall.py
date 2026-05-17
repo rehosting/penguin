@@ -24,12 +24,19 @@ class Hypercall(Plugin):
 
     def __init__(self) -> None:
         self.handlers: DefaultDict[int, List[Callable]] = defaultdict(list)
-        self.panda.bind_hypercall_plugin(self)
 
     def register(self, nr: int, func: Callable) -> Callable:
         for alias in _hypercall_aliases(nr):
             self.handlers[alias].append(func)
         return func
+
+    def hypercall(self, nr: int) -> Callable[[Callable], Callable]:
+        def decorator(func: Callable) -> Callable:
+            return self.register(nr, func)
+        return decorator
+
+    def __call__(self, nr: int) -> Callable[[Callable], Callable]:
+        return self.hypercall(nr)
 
     def _handle_portal_cmd(self, cmd: Any) -> Any:
         from hyper.consts import HYPER_OP as hop

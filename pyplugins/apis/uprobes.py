@@ -47,9 +47,9 @@ class Uprobes(Plugin):
         self.portal = plugins.portal
         self.portal.register_interrupt_handler(
             "uprobes", self._uprobe_interrupt_handler)
-        self.panda.hypercall(iconsts.IGLOO_HYP_UPROBE_ENTER)(
+        plugins.hypercall.hypercall(iconsts.IGLOO_HYP_UPROBE_ENTER)(
             self._uprobe_enter_handler)
-        self.panda.hypercall(iconsts.IGLOO_HYP_UPROBE_RETURN)(
+        plugins.hypercall.hypercall(iconsts.IGLOO_HYP_UPROBE_RETURN)(
             self._uprobe_return_handler)
         self._uprobe_event = self.plugins.portal.wrap(self._uprobe_event)
 
