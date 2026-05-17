@@ -176,6 +176,9 @@ class Pseudofiles(Plugin):
             val = details.get("val", 0)
             return IoctlReturnConst(val)
 
+        elif model == "zero":
+            return IoctlReturnConst(0)
+
         elif model == "from_plugin":
             plugin_name = details.get("plugin")
             func_name = details.get("function", "ioctl")
@@ -189,6 +192,24 @@ class Pseudofiles(Plugin):
 
         # Fallback
         return IoctlReturnConst(0)
+
+    def _normalize_ioctl_conf(self, ioctl_conf):
+        """
+        Accept both legacy whole-operation ioctl models:
+            ioctl:
+              model: from_plugin
+              plugin: foo
+        and command-map models:
+            ioctl:
+              "*":
+                model: return_const
+                val: 0
+        """
+        if not ioctl_conf:
+            return {}
+        if "model" in ioctl_conf:
+            return {"*": ioctl_conf}
+        return ioctl_conf
 
     def _resolve_mixin(self, domain, conf):
         """
@@ -217,7 +238,7 @@ class Pseudofiles(Plugin):
     def _create_dynamic_class(self, filename, details, BaseClass):
         read_conf = details.get("read", {})
         write_conf = details.get("write", {})
-        ioctl_conf = details.get("ioctl", {})
+        ioctl_conf = self._normalize_ioctl_conf(details.get("ioctl", {}))
 
         # Resolve Classes
         R_Mixin = self._resolve_mixin("read", read_conf)

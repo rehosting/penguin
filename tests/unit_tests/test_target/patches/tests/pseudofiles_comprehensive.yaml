@@ -50,6 +50,10 @@ pseudofiles:
       '*':
         model: return_const
         val: 99
+  /dev/yaml_ioctl_whole:
+    ioctl:
+      model: return_const
+      val: 77
 
 static_files:
   /tests/test_ioctl.py:
@@ -78,6 +82,14 @@ static_files:
       res = ioctl(fd, 12, 0)
       if res != 99:
           print("Error: ioctl 12 got", res)
+          raise SystemExit(1)
+      fd = c_open("/dev/yaml_ioctl_whole", 0)
+      if fd < 0:
+          print("Error: failed to open whole-device")
+          raise SystemExit(1)
+      res = ioctl(fd, 1234, 0)
+      if res != 77:
+          print("Error: whole ioctl got", res)
           raise SystemExit(1)
       print("ioctl tests pass")
 
