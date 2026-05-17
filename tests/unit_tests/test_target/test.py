@@ -60,18 +60,8 @@ def create_tar_gz_with_binaries(dest_tar_gz, files_dict):
                 f.write(content)
             os.chmod(fpath, 0o755)
         with tarfile.open(dest_tar_gz, "w:gz") as tar:
-            # First add all parent directories
-            dirs_added = set()
-            for fname in sorted(files_dict.keys()):
-                p = Path(fname).parent
-                parts = []
-                for part in p.parts:
-                    parts.append(part)
-                    dpath = "/".join(parts)
-                    if dpath != "." and dpath not in dirs_added:
-                        tar.add(tmpdir_path / dpath, arcname=dpath, recursive=False)
-                        dirs_added.add(dpath)
-                tar.add(tmpdir_path / fname, arcname=fname)
+            for entry in sorted(tmpdir_path.iterdir()):
+                tar.add(entry, arcname=entry.name, recursive=True)
 
 
 def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mode="qemu", name="test_target"):
@@ -94,14 +84,11 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mod
     if stale_index.exists():
         stale_index.unlink()
 
-    try:
-        mmap_result = subprocess.run([
-            "docker", "run", "--rm", image,
-            "cat", f"/igloo_static/utils.bin/mmap_test.{arch}"
-        ], stdout=subprocess.PIPE, check=True)
-        files_dict["tests/mmap_test"] = mmap_result.stdout
-    except subprocess.CalledProcessError as e:
-        logger.warning(f"Failed to load mmap_test from image: {e}")
+    mmap_result = subprocess.run([
+        "docker", "run", "--rm", image,
+        "cat", f"/igloo_static/utils.bin/mmap_test.{arch}"
+    ], stdout=subprocess.PIPE, check=True)
+    files_dict["tests/mmap_test"] = mmap_result.stdout
 
     create_tar_gz_with_binaries(f"{TEST_DIR}/empty_fs.tar.gz", files_dict)
     base_config = str(Path(TEST_DIR, "base_config.yaml"))
