@@ -805,7 +805,20 @@ Value of the U-Boot environment variable
 |__Type__|list of integer|
 |__Default__|`[]`|
 
-Signals numbers to block within the guest. Supported values are 6 (SIGABRT), 9 (SIGKILL), 15 (SIGTERM), and 17 (SIGCHLD).
+Signal numbers to block within the guest. Lifeguard suppresses configured
+signals sent through `kill(2)` before the kernel sends them. It also consumes
+`signal_monitor` for configured signals other than `SIGKILL` (9) and `SIGSTOP`
+(19), allowing non-`kill(2)` delivery paths to be observed and dropped when the
+driver hook is effective. Delivery-time drops are not equivalent to preventing a
+signal from being sent; for process-preserving behavior, `kill(2)` interception
+is still the reliable path. `SIGKILL` and `SIGSTOP` cannot be caught or ignored
+by Linux processes, so Lifeguard only suppresses `kill(2)`-generated instances
+of those signals. The syscall fallback does not cover alternate signal-send
+paths such as `tgkill`, `tkill`, `rt_sigqueueinfo`, or kernel-generated fatal
+signals. Dropping synchronous fault signals such as `SIGILL`, `SIGSEGV`,
+`SIGBUS`, `SIGFPE`, `SIGTRAP`, or `SIGSYS` may immediately re-enter the same
+faulting instruction unless another `signal_monitor` consumer repairs guest
+state, for example by advancing the PC or emulating an instruction.
 
 ## `lib_inject` Injected library configuration
 
@@ -1006,5 +1019,3 @@ MAC Address for external network interface
 |__Default__|`null`|
 
 Whether to capture traffic over the external net in a pcap file. The file will be called 'ext.pcap' in the output directory. Capture disabled if unset.
-
-

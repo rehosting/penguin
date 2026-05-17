@@ -48,7 +48,32 @@ Track network interfaces referenced in executed commands. Results are
 reported in `iface.log`.
 
 ## Lifeguard
-Track and block signals sent between processes. Results stored in `lifeguard.csv`
+Track and block signals sent between processes. Results are stored in
+`lifeguard.csv`.
+
+Lifeguard suppresses configured signals sent through `kill(2)` by skipping the
+syscall before the kernel sends the signal. It also consumes `signal_monitor` for
+configured signals other than `SIGKILL` and `SIGSTOP`, allowing non-`kill(2)`
+delivery paths to be observed and dropped when the driver hook is effective.
+
+Delivery-time drops are not equivalent to preventing a signal from being sent.
+For example, `SIGTERM` delivery can be observed through `signal_monitor`, but the
+process-preserving path is still to block `kill(2)` before the kernel applies
+signal semantics. `SIGKILL` and `SIGSTOP` cannot be caught or ignored by Linux
+processes, so Lifeguard treats them as syscall-only and only suppresses
+`kill(2)`-generated instances of those signals.
+
+The syscall path only covers `kill(2)`. Signals sent by other kernel paths or
+syscalls, such as `tgkill`, `tkill`, `rt_sigqueueinfo`, or kernel-generated
+fatal signals, may be visible through delivery monitoring when the driver hooks
+them, but the syscall fallback will not prevent them before send time.
+
+Some signals also require guest state repair when dropped. For example, blindly
+dropping synchronous fault signals such as `SIGILL`, `SIGSEGV`, `SIGBUS`,
+`SIGFPE`, `SIGTRAP`, or `SIGSYS` can immediately re-enter the same faulting
+instruction. Use a purpose-built `signal_monitor` consumer, such as
+`sigill_bypass.py`, when the handler needs to advance the PC, emulate an
+instruction, or otherwise repair guest state.
 
 ## Mounts
 Track which file systems are mounted (or attempted to be mounted) at which paths.

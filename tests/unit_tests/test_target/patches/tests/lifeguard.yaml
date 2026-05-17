@@ -1,4 +1,5 @@
 plugins:
+  signal_monitor: {}
   verifier:
     conditions:
       lifeguard:
@@ -13,6 +14,10 @@ plugins:
         type: file_contains
         file: lifeguard.csv
         string: ",1"
+      lifeguard_csv_syscall:
+        type: file_contains
+        file: lifeguard.csv
+        string: ",syscall"
 
 blocked_signals:
 - 15
