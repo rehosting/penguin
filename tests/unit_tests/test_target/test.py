@@ -63,7 +63,7 @@ def create_tar_gz_with_binaries(dest_tar_gz, files_dict):
                 tar.add(tmpdir_path / fname, arcname=fname)
 
 
-def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mode="qemu"):
+def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mode="qemu", name="test_target"):
     # Create tar.gz with several binary files at the root
     files_dict = {
         "helloworld": b"helloworld\0",
@@ -131,7 +131,7 @@ NONDEFAULT_KERNEL_ARCHES = {
 @click.option("--test-file", "-t", default=None, help="Run specific test file from patches/tests/ - no prefix needed (e.g., bash.yaml)")
 @click.option("--docs-only", is_flag=True, help="Only build the docs and leave. Useful for CI.")
 @click.option("--mode", "-m", default="qemu", type=click.Choice(["qemu", "kvm"]))
-def test(kernel, arch, image, docs_only, mode):
+def test(kernel, arch, image, name, test_file, docs_only, mode):
     if docs_only:
         logger.info("Docs only mode enabled, will only build docs and exit")
         kernel = ['4.10',]
@@ -163,7 +163,7 @@ def test(kernel, arch, image, docs_only, mode):
                 continue
 
             logger.info(f"Running tests for kernel {k} on arch {a} (mode={mode})")
-            run_test(k, a, image, None, docs_only, execution_mode=mode)
+            run_test(k, a, image, None, docs_only, execution_mode=mode, name=name or "test_target")
 
 
 if __name__ == "__main__":
