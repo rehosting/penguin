@@ -22,7 +22,7 @@ in the Penguin configuration to automatically bypass SIGILL signals.
 
 from penguin import plugins, Plugin
 import capstone
-from typing import Optional
+
 
 class SigillBypass(Plugin):
     """
@@ -42,9 +42,9 @@ class SigillBypass(Plugin):
         """
         # Register for signal delivery events from the SignalMonitor plugin
         plugins.subscribe(plugins.signal_monitor, "signal_deliver", self.on_signal)
-        
+
         # Register a hook for SIGILL in the guest driver
-        plugins.signal_monitor.register_hook(sig=4) # SIGILL is usually 4
+        plugins.signal_monitor.register_hook(sig=4)  # SIGILL is usually 4
 
     def _get_capstone(self, cpu):
         """
@@ -60,14 +60,14 @@ class SigillBypass(Plugin):
             self.md = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM)
         elif "mips" in self.arch_name:
             self.md = capstone.Cs(capstone.CS_ARCH_MIPS, capstone.CS_MODE_MIPS32)
-        
+
         return self.md
 
     def on_signal(self, cpu, event):
         """
         Callback triggered when a signal is delivered in the guest.
         """
-        if event.sig != 4: # Only handle SIGILL
+        if event.sig != 4:  # Only handle SIGILL
             return
 
         self.logger.info(f"Intercepted SIGILL for process '{event.comm}' (PID {event.pid}) at PC 0x{event.pc:x}")
@@ -82,13 +82,13 @@ class SigillBypass(Plugin):
             # Read enough bytes for the longest possible instruction
             code = plugins.mem.read_bytes_panda(cpu, event.pc, 15)
             insns = list(md.disasm(code, event.pc))
-            
+
             if insns:
                 insn = insns[0]
                 self.logger.info(f"Faulting instruction: {insn.mnemonic} {insn.op_str} (length {insn.size})")
 
                 # Example of "implementing" an instruction from the hypervisor
-                if insn.mnemonic == "ud2": # x86 undefined instruction
+                if insn.mnemonic == "ud2":  # x86 undefined instruction
                     self.logger.info("Found UD2! Emulating it as a success-reporting instruction.")
                     # We could modify registers here to simulate the instruction's effect
                     # e.g., event.regs.rax = 0x1337
@@ -97,12 +97,12 @@ class SigillBypass(Plugin):
                 new_pc = event.pc + insn.size
                 self.logger.info(f"Bypassing: Advancing PC from 0x{event.pc:x} to 0x{new_pc:x}")
                 event.regs.set_pc(new_pc)
-                
+
                 # Silence the signal: Tell the guest driver to drop the signal
                 event.drop = True
                 self.logger.info("Signal dropped.")
             else:
                 self.logger.warning(f"Could not disassemble instruction at 0x{event.pc:x}")
-        
+
         except Exception as e:
             self.logger.error(f"Error during SIGILL bypass: {e}")
