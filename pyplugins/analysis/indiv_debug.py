@@ -83,10 +83,12 @@ class IndivDebug(Plugin):
         # Checking this field of /proc/PID/stat seems to be a reliable way to do this.
         # When the process is paused, it is "T" and changes to "t" when a ptrace debugger attaches.
         guest_cmd(f"""
-            while [ "$(/igloo/utils/busybox cut -d ' ' -f 3 /proc/{str(pid)}/stat)" != "t" ]; do
+            while [ -d /proc/{str(pid)} ] && [ "$(/igloo/utils/busybox cut -d ' ' -f 3 /proc/{str(pid)}/stat 2>/dev/null)" != "t" ]; do
                 /igloo/utils/busybox sleep 0.1
             done
-            /igloo/utils/busybox kill -SIGCONT {str(pid)}
+            if [ -d /proc/{str(pid)} ]; then
+                /igloo/utils/busybox kill -SIGCONT {str(pid)}
+            fi
         """)
 
         return True
