@@ -19,6 +19,9 @@ patches:
   - ./patches/tests/env_cmp.yaml
   - ./patches/tests/env_unset.yaml
   - ./patches/tests/hostfile.yaml
+  - ./patches/tests/compat_proc_special.yaml
+  - ./patches/tests/compat_pseudofile_semantics.yaml
+  - ./patches/tests/compat_dev_collision.yaml
   - ./patches/tests/hypercall.yaml
   - ./patches/tests/portalcall.yaml
   - ./patches/tests/net_missing.yaml

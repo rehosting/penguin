@@ -20,16 +20,20 @@ TEST_DIR = Path(__file__).resolve().parent
 proj_dir = Path(__file__).resolve().parent
 
 
-def penguin_run(config, image):
+def penguin_run(config, image, name=None):
+    wrapper_dir = os.path.dirname(os.path.dirname(SCRIPT_PATH))
+    cmd = [wrapper_dir + "/penguin"]
+    if name:
+        cmd.extend(["--name", name])
+    cmd.extend([
+        "--image",
+        image,
+        "run",
+        config,
+    ])
     try:
         subprocess.run(
-            [
-                os.path.dirname(os.path.dirname(SCRIPT_PATH)) + "/penguin",
-                "--image",
-                image,
-                "run",
-                config,
-            ],
+            cmd,
             check=True,
             # stdout=open(proj_dir / Path("test_log.txt"), "w"),
             # stderr=subprocess.STDOUT,
@@ -59,7 +63,7 @@ def create_tar_gz_with_binaries(dest_tar_gz, files_dict):
                 tar.add(tmpdir_path / fname, arcname=fname)
 
 
-def run_test(kernel, arch, image, test_file=None, docs_only=False):
+def run_test(kernel, arch, image, test_file=None, docs_only=False, name=None):
     # Create tar.gz with several binary files at the root
     files_dict = {
         "helloworld": b"helloworld\0",
@@ -100,7 +104,7 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False):
         yaml.dump(base_config, file, sort_keys=False)
 
     logger.info("Created new config file at " + new_config)
-    penguin_run(new_config, image)
+    penguin_run(new_config, image, name)
     logger.info("Test completed")
 
 
@@ -119,13 +123,18 @@ NONDEFAULT_KERNEL_ARCHES = {
 @click.option("--kernel", "-k", multiple=True, default=DEFAULT_KERNELS)
 @click.option("--arch", "-a", multiple=True, default=DEFAULT_ARCHES)
 @click.option("--image", "-i", default="rehosting/penguin:latest")
+@click.option("--name", "-n", default=None, help="Container name to pass to the Penguin wrapper.")
+@click.option("--test-file", "-t", default=None, help="Run specific test file from patches/tests/ - no prefix needed (e.g., bash.yaml)")
 @click.option("--docs-only", is_flag=True, help="Only build the docs and leave. Useful for CI.")
-def test(kernel, arch, image, docs_only):
+def test(kernel, arch, image, name, test_file, docs_only):
     if docs_only:
         logger.info("Docs only mode enabled, will only build docs and exit")
         kernel = ['4.10',]
         arch = ['armel',]
-    logger.info(f"Running all tests for {kernel} on {arch}")
+    if test_file:
+        logger.info(f"Running specific test: {test_file} for {kernel} on {arch}")
+    else:
+        logger.info(f"Running all tests for {kernel} on {arch}")
 
     # Allow DEFAULT_ARCHES plus any arches referenced in NONDEFAULT_KERNEL_ARCHES
     allowed_arches = set(DEFAULT_ARCHES)
@@ -149,7 +158,7 @@ def test(kernel, arch, image, docs_only):
                 continue
 
             logger.info(f"Running tests for kernel {k} on arch {a}")
-            run_test(k, a, image, None, docs_only)
+            run_test(k, a, image, test_file, docs_only, name)
 
 
 if __name__ == "__main__":

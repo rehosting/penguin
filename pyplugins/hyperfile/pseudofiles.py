@@ -253,9 +253,6 @@ class Pseudofiles(Plugin):
 
         return type(safe_name, tuple(bases), {})(**all_kwargs)
 
-    def _force_removal(self, filename):
-        self.config["static_files"][filename] = {"type": "delete"}
-
     def _populate_hf_config(self):
         if not self.config or "pseudofiles" not in self.config:
             return
@@ -278,7 +275,6 @@ class Pseudofiles(Plugin):
             elif filename.startswith("/dev/"):
                 BaseClass = DevFile
                 registrar = plugins.devfs.register_devfs
-                self._force_removal(filename)
             elif filename.startswith("/sys/"):
                 # Sysfs uses show/store, so read/write mixins might need
                 # the SysfsAdapterMixin we discussed earlier, or SysFile needs

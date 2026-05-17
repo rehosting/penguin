@@ -1,0 +1,85 @@
+plugins:
+  verifier:
+    conditions:
+      compat_proc_special+console:
+        type: file_contains
+        file: console.log
+        string: "/tests/compat_proc_special.sh PASS"
+      compat_proc_special+stdout:
+        type: file_contains
+        file: shared/tests/compat_proc_special.sh/stdout
+        strings:
+          - "COMPAT_PROC_SPECIAL:self_stat=readable"
+          - "COMPAT_PROC_SPECIAL:pid_stat=readable"
+          - "COMPAT_PROC_SPECIAL:reserved_self=present:reserved-self"
+          - "COMPAT_PROC_SPECIAL:reserved_pid=present:reserved-pid"
+
+pseudofiles:
+  /proc/self/igloo_self_compat:
+    read:
+      model: const_buf
+      val: "reserved-self"
+  /proc/1/igloo_pid_compat:
+    read:
+      model: const_buf
+      val: "reserved-pid"
+
+static_files:
+  /tests/compat_proc_special.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eu
+
+      BB=/igloo/utils/busybox
+
+      report() {
+        echo "COMPAT_PROC_SPECIAL:$1=$2"
+      }
+
+      require_readable() {
+        label="$1"
+        path="$2"
+        if $BB head -c 1 "$path" >/dev/null 2>&1; then
+          report "$label" "readable"
+        else
+          echo "Expected readable proc path failed: $path"
+          report "$label" "unreadable"
+          exit 1
+        fi
+      }
+
+      require_readable self_stat /proc/self/stat
+      require_readable pid_stat /proc/$$/stat
+      require_readable self_status /proc/self/status
+      require_readable pid_status /proc/$$/status
+
+      exe="$($BB readlink /proc/self/exe 2>/dev/null || true)"
+      report self_exe "$exe"
+      if [ "$exe" != "/igloo/utils/busybox" ]; then
+        echo "Unexpected /proc/self/exe target: $exe"
+        exit 1
+      fi
+
+      fd0="$($BB readlink /proc/self/fd/0 2>/dev/null || true)"
+      report self_fd0 "$fd0"
+
+      if [ -e /proc/self/igloo_self_compat ]; then
+        val="$($BB cat /proc/self/igloo_self_compat 2>/dev/null || true)"
+        report reserved_self "present:$val"
+      else
+        report reserved_self "absent"
+        exit 1
+      fi
+
+      if [ -e /proc/1/igloo_pid_compat ]; then
+        val="$($BB cat /proc/1/igloo_pid_compat 2>/dev/null || true)"
+        report reserved_pid "present:$val"
+      else
+        report reserved_pid "absent"
+        exit 1
+      fi
+
+      echo "/tests/compat_proc_special.sh PASS"
+      exit 0
+    mode: 73
