@@ -107,13 +107,6 @@ class Proc(Plugin):
             self._proc_dirs[""] = 0
             return 0
 
-        # ONLY check the first directory component (root-level /proc/ entries)
-        first_dir = parts[0]
-        if first_dir.isdigit() or first_dir == "self":
-            self.logger.error(
-                f"Cannot create reserved procfs directory: '/proc/{first_dir}'")
-            raise RuntimeError(f"Reserved procfs path component: {first_dir}")
-
         parent_id = 0
         cur_path = ""
         for part in parts:
@@ -164,16 +157,6 @@ class Proc(Plugin):
         Register proc files with the kernel via portal.
         """
         for fname, proc in procs:
-            # Split the path to isolate the very first directory or file
-            parts = [p for p in fname.strip("/").split("/") if p]
-
-            # Only block if the root-most proc element is 'self' or a digit
-            if parts and (parts[0] == "self" or parts[0].isdigit()):
-                self.logger.error(
-                    f"Cannot register special procfs path '/proc/{fname.strip('/')}': not supported."
-                )
-                continue
-
             parent_dir, file_name = self._split_proc_path(fname)
 
             # Gracefully handle failures to create directories
