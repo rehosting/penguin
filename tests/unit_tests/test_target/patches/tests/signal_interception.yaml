@@ -44,8 +44,8 @@ static_files:
               raise OSError("mmap failed to allocate executable memory")
 
           # The illegal instruction opcode for x86_64 is 'ud2' (0x0f 0x0b).
-          # We add a 'ret' (0xc3) instruction so the function returns cleanly.
-          illegal_instruction_shellcode = b'\x0f\x0b\xc3'
+          # After the hook advances past it, return 0 via xor eax,eax; ret.
+          illegal_instruction_shellcode = b'\x0f\x0b\x31\xc0\xc3'
           
           # Copy shellcode into the executable memory page
           mem_view = uctypes.bytearray_at(mem, len(illegal_instruction_shellcode))
@@ -53,7 +53,7 @@ static_files:
 
           # Create a python callable from the raw memory address.
           # ffi.func(return_type, address, arg_types)
-          cfunc = ffi.func('v', mem, '') # 'v' for void return, '' for no args
+          cfunc = ffi.func('i', mem, '') # 'i' for int return, '' for no args
 
           print("Attempting to trigger SIGILL by executing shellcode...")
           cfunc()

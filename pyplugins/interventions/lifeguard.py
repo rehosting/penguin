@@ -3,10 +3,10 @@ Lifeguard: Signal Blocking Plugin
 =================================
 
 This module provides a plugin for the Penguin framework to block specified Linux
-signals during analysis or emulation. Signals sent through kill(2) are blocked
-before the kernel sends them. Lifeguard also consumes the signal_monitor API for
-configured signals so non-kill(2) delivery paths can be observed and dropped when
-the driver hook is effective.
+signals during analysis or emulation. Signals sent through supported
+signal-send syscalls are blocked before the kernel sends them. Lifeguard also
+consumes the signal_monitor API for configured signals so delivery paths can be
+observed and dropped when the driver hook is effective.
 
 Features
 --------
@@ -33,12 +33,12 @@ Limitations
 -----------
 
 Delivery-time drops are not equivalent to preventing a signal from being sent.
-For process-preserving behavior, Lifeguard still suppresses kill(2) before the
-kernel applies signal semantics. SIGKILL and SIGSTOP cannot be caught or ignored
-by Linux processes, so Lifeguard only suppresses kill(2)-generated instances of
-those signals. Synchronous fault signals such as SIGILL or SIGSEGV may need
-guest state repair when dropped; otherwise execution can return to the same
-faulting instruction.
+For process-preserving behavior, Lifeguard still suppresses signal-send syscalls
+before the kernel applies signal semantics. SIGKILL and SIGSTOP cannot be caught
+or ignored by Linux processes, so Lifeguard only suppresses instances generated
+by supported signal-send syscalls. Synchronous fault signals such as SIGILL or
+SIGSEGV may need guest state repair when dropped; otherwise execution can return
+to the same faulting instruction.
 """
 
 from penguin import plugins, Plugin
@@ -99,15 +99,54 @@ STATE_REPAIR_SIGNALS = {
     signals["SIGSYS"],
 }
 
+SIGNAL_SYSCALL_SPECS = {
+    "kill": {
+        "signal": ("sig",),
+        "target": ("pid",),
+        "fallback_signal_index": 1,
+        "fallback_target_index": 0,
+    },
+    "tkill": {
+        "signal": ("sig",),
+        "target": ("pid", "tid"),
+        "fallback_signal_index": 1,
+        "fallback_target_index": 0,
+    },
+    "tgkill": {
+        "signal": ("sig",),
+        "target": ("tid",),
+        "fallback_signal_index": 2,
+        "fallback_target_index": 1,
+    },
+    "rt_sigqueueinfo": {
+        "signal": ("sig",),
+        "target": ("pid",),
+        "fallback_signal_index": 1,
+        "fallback_target_index": 0,
+    },
+    "rt_tgsigqueueinfo": {
+        "signal": ("sig",),
+        "target": ("tid",),
+        "fallback_signal_index": 2,
+        "fallback_target_index": 1,
+    },
+    "pidfd_send_signal": {
+        "signal": ("sig",),
+        "target": ("pidfd",),
+        "fallback_signal_index": 1,
+        "fallback_target_index": 0,
+    },
+}
+
 
 class Lifeguard(Plugin):
     """
     Plugin to block specified signals.
 
-    kill(2)-generated signals are suppressed before send time. For configured
-    signals other than SIGKILL and SIGSTOP, Lifeguard also subscribes to
-    signal_monitor so delivery paths outside kill(2) can be observed and dropped
-    when the driver hook can do so safely.
+    Supported signal-send syscalls are suppressed before send time. For
+    configured signals other than SIGKILL and SIGSTOP, Lifeguard also subscribes
+    to signal_monitor so delivery paths outside those syscalls can be observed
+    and dropped when the driver hook can do so safely.
 
     **Attributes**
     - `outdir` (`str`): Output directory for logs.
@@ -173,9 +212,59 @@ class Lifeguard(Plugin):
 
         if self.syscall_blocked_signals:
             self.logger.info(
-                f"Using kill(2) syscall interception for signals: "
+                f"Using signal-send syscall interception for signals: "
                 f"{sorted(self.syscall_blocked_signals)}"
             )
+            for syscall_name in SIGNAL_SYSCALL_SPECS:
+                self.plugins.syscalls.syscall(
+                    name_or_pattern=f"sys_{syscall_name}",
+                    on_enter=True,
+                    on_return=False,
+                )(self.on_signal_send_syscall_enter)
+
+    def _cstr(self, value) -> str:
+        if isinstance(value, str):
+            return value
+        if value is None:
+            return ""
+        try:
+            if value == self.plugins.kffi.ffi.NULL:
+                return ""
+            return self.plugins.kffi.ffi.string(value).decode()
+        except Exception:
+            return str(value)
+
+    def _normalize_syscall_name(self, proto, syscall) -> str:
+        name = self._cstr(getattr(proto, "name", "")) or self._cstr(
+            getattr(syscall, "name", "")
+        )
+        name = self.plugins.syscalls._clean_syscall_name(name)
+        if name not in SIGNAL_SYSCALL_SPECS and "_" in name:
+            suffix = name.split("_", 1)[1]
+            if suffix in SIGNAL_SYSCALL_SPECS:
+                return suffix
+        return name
+
+    def _find_signal_syscall_args(self, proto, syscall, args):
+        syscall_name = self._normalize_syscall_name(proto, syscall)
+        spec = SIGNAL_SYSCALL_SPECS.get(syscall_name)
+        if not spec:
+            return None
+
+        sig = proto.arg_value(
+            args,
+            *spec["signal"],
+            fallback_index=spec["fallback_signal_index"],
+        )
+        target = proto.arg_value(
+            args,
+            *spec["target"],
+            fallback_index=spec["fallback_target_index"],
+        )
+
+        if sig is None:
+            return None
+        return syscall_name, target, sig
 
     def log_signal(self, sig: int, pid: int, blocked: bool, mechanism: str) -> None:
         with open(f"{self.outdir}/{LIFELOG}", "a") as f:
@@ -195,14 +284,9 @@ class Lifeguard(Plugin):
         self.log_signal(event.sig, event.pid, True, "delivery")
         event.drop = True
 
-    @plugins.syscalls.syscall(
-        name_or_pattern="sys_kill",
-        on_enter=True,
-        on_return=False,
-    )
-    def on_sys_kill_enter(self, pt_regs, proto, syscall, *args):
+    def on_signal_send_syscall_enter(self, pt_regs, proto, syscall, *args):
         """
-        **Handler for the kill syscall. Blocks signals if configured.**
+        **Handler for signal-send syscalls. Blocks signals if configured.**
 
         **Args**
         - `pt_regs` (`object`): The CPU registers at syscall entry.
@@ -213,9 +297,22 @@ class Lifeguard(Plugin):
         **Returns**
         - `None`
         """
-        (pid, sig) = args[0:2]
+        signal_args = self._find_signal_syscall_args(proto, syscall, args)
+        if signal_args is None:
+            self.logger.debug(
+                f"Could not resolve signal arguments for "
+                f"{self._cstr(getattr(proto, 'name', 'unknown'))}"
+            )
+            return
+
+        syscall_name, target, sig = signal_args
         save = sig in self.syscall_blocked_signals
-        self.log_signal(sig, pid, save, "syscall")
+        self.log_signal(
+            sig,
+            target if target is not None else 0,
+            save,
+            f"syscall:{syscall_name}",
+        )
 
         proc = yield from plugins.osi.get_proc()
         if proc:
@@ -223,14 +320,19 @@ class Lifeguard(Plugin):
         else:
             ppid = "[?]"
         pname = yield from plugins.osi.get_proc_name()
-        kpname = yield from plugins.osi.get_proc_name(pid)
-        if not kpname:
-            kpname = "[?]"
+        target_name = None
+        if target:
+            target_name = yield from plugins.osi.get_proc_name(target)
+        if not target_name:
+            target_name = "[?]"
         expl = signals.get(sig, "[?]")
-        self.logger.debug(f"{pname}({ppid}) kill({kpname}({pid}), {expl}({sig})) {'blocked' if save else ''}")
+        self.logger.debug(
+            f"{pname}({ppid}) {syscall_name}({target_name}({target}), "
+            f"{expl}({sig})) {'blocked' if save else ''}"
+        )
 
         if save:
             # Blocking before send time is the reliable way to preserve a target
-            # process for kill(2)-generated signals.
+            # process for syscall-generated signals.
             syscall.skip_syscall = True
             syscall.retval = 0
