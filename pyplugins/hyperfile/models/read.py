@@ -115,6 +115,15 @@ class ReadZero(ReadBufWrapper):
         super().__init__(buffer="0", **kwargs)
 
 
+class ReadOne(ReadBufWrapper):
+    '''
+    The Preset: Hardcodes the data.
+    '''
+
+    def __init__(self, **kwargs):
+        super().__init__(buffer="1", **kwargs)
+
+
 class ReadDefault:
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

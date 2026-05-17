@@ -385,6 +385,12 @@ Read = _union(
             fields=(),
         ),
         dict(
+            discrim_val="one",
+            title="Read a one",
+            description=None,
+            fields=(),
+        ),
+        dict(
             discrim_val="empty",
             title="Read empty file",
             description=None,
@@ -505,7 +511,13 @@ IoctlCommand = _union(
             discrim_val="return_const",
             title="Return a constant",
             description=None,
-            fields=(("val", int, Field(title="Constant to return")),),
+            fields=(("val", int, Field(0, title="Constant to return")),),
+        ),
+        dict(
+            discrim_val="zero",
+            title="Return zero",
+            description=None,
+            fields=(),
         ),
         dict(
             discrim_val="from_plugin",
