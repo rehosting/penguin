@@ -358,7 +358,7 @@ BlockedSignalsField = Field(
 
 ConstMapVal = _newtype(
     class_name="ConstMapVal",
-    type_=Union[str, tuple[int], tuple[str]],
+    type_=Union[str, list[int], list[str]],
     title="Data to place in the file at an offset",
     description="When this is a list of integers, it treated as a byte array. When this is a list of strings, the strings are separated by null bytes.",
 )
@@ -506,12 +506,6 @@ IoctlCommand = _union(
             title="Return a constant",
             description=None,
             fields=(("val", int, Field(title="Constant to return")),),
-        ),
-        dict(
-            discrim_val="symex",
-            title="Symbolic execution",
-            description=None,
-            fields=(),
         ),
         dict(
             discrim_val="from_plugin",

@@ -13,6 +13,9 @@ plugins:
           - "COMPAT_PSEUDO:/dev/compat_default:exists=yes"
           - "COMPAT_PSEUDO:/sys/compat/compat_default:exists=yes"
           - "COMPAT_PSEUDO:/proc/compat_const_nul:hex=61626300"
+          - "COMPAT_PSEUDO:/proc/compat_map:hex=412e2e420043"
+          - "COMPAT_PSEUDO:/proc/compat_default:read_status=fails"
+          - "COMPAT_PSEUDO:/dev/compat_default:read_status=fails"
 
 pseudofiles:
   /proc/compat_default: {}
@@ -25,6 +28,16 @@ pseudofiles:
       model: const_buf
       val: "abc"
       null_terminate: true
+  /proc/compat_map:
+    read:
+      model: const_map
+      pad: "."
+      size: 6
+      vals:
+        0: "A"
+        3:
+          - "B"
+          - "C"
   /dev/compat_default: {}
   /dev/compat_const:
     read:
@@ -62,7 +75,12 @@ static_files:
         stat_out="$($BB stat -c '%F|%a|%s|%t|%T' "$path" 2>/dev/null || echo stat_failed)"
         report "$path" stat "$stat_out"
 
-        read_out="$($BB cat "$path" 2>/dev/null || true)"
+        if read_out="$($BB cat "$path" 2>/dev/null)"; then
+          report "$path" read_status succeeds
+        else
+          read_out=""
+          report "$path" read_status fails
+        fi
         report "$path" read "$read_out"
 
         second_byte="$($BB dd if="$path" bs=1 count=1 skip=1 2>/dev/null || true)"
@@ -81,6 +99,12 @@ static_files:
       report /proc/compat_const_nul hex "$nul_hex"
       if [ "$nul_hex" != "61626300" ]; then
         echo "Expected NUL-terminated const_buf hex 61626300, got $nul_hex"
+        exit 1
+      fi
+      map_hex="$($BB head -c 6 /proc/compat_map 2>/dev/null | $BB od -An -tx1 | $BB tr -d ' \n')"
+      report /proc/compat_map hex "$map_hex"
+      if [ "$map_hex" != "412e2e420043" ]; then
+        echo "Expected const_map hex 412e2e420043, got $map_hex"
         exit 1
       fi
       probe /dev/compat_default

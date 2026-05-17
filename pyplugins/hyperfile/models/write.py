@@ -59,15 +59,26 @@ class WriteRecord:
 
     def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr) -> None:
         """
-        Records all written data into self.written_data.
+        Records written data into self.written_data at the current file offset.
         Always returns the size written.
         """
         size_val = int(size)
         buf = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
-        self.written_data += buf
 
-        # Use deref to maintain type context
         offset = yield from plugins.kffi.deref(offset_ptr)
+        previous = self.written_data[:offset]
+        if len(previous) < offset:
+            previous += b"\x00" * (offset - len(previous))
+
+        self.written_data = (
+            previous
+            + buf
+            + (
+                self.written_data[offset + size_val:]
+                if len(self.written_data) > offset + size_val
+                else b""
+            )
+        )
         yield from plugins.mem.write(offset_ptr, offset + size_val)
 
         ptregs.retval = size_val

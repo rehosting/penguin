@@ -189,7 +189,7 @@ class ReadConstMap(ReadBufWrapper):
             # Accept str, bytes, list[int], or list[str]
             if isinstance(val, str):
                 val = val.encode()
-            elif isinstance(val, list):
+            elif isinstance(val, (list, tuple)):
                 if not len(val):
                     continue
                 first_val = val[0]
@@ -218,8 +218,15 @@ class ReadConstMapFile(ReadConstMap):
     Like ReadConstMap, but persists the buffer to a file and reads from it.
     '''
 
-    def __init__(self, *, filename, vals=None, pad: Union[str, int, bytes] = b"\x00", size: int = 0x10000, **kwargs):
-        self.filename = filename
+    def __init__(self, *, filename=None, read_filepath=None, vals=None,
+                 pad: Union[str, int, bytes] = b"\x00", size: int = 0x10000,
+                 **kwargs):
+        fname = filename if filename is not None else read_filepath
+        self.proj_dir = plugins.get_arg("proj_dir")
+        if fname and not os.path.isabs(fname) and self.proj_dir:
+            self.filename = os.path.join(self.proj_dir, fname)
+        else:
+            self.filename = fname
         self.vals = vals or {}
         # Normalize pad to bytes
         if isinstance(pad, str):
@@ -230,26 +237,21 @@ class ReadConstMapFile(ReadConstMap):
             self.pad = pad
         self.size = size
         # Create file if it doesn't exist
-        if not os.path.isabs(self.filename):
-            # Assume cwd or caller will resolve relative path
-            fpath = self.filename
-        else:
-            fpath = self.filename
-        if not os.path.isfile(fpath):
+        if not os.path.isfile(self.filename):
             data = self._render_file()
-            with open(fpath, "wb") as f:
+            with open(self.filename, "wb") as f:
                 f.write(data)
         super().__init__(vals=vals, pad=pad, size=size, **kwargs)
 
     def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
         size_val = int(size)
-        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
+        offset = yield from plugins.kffi.deref(loff)
         # Read from file
         with open(self.filename, "rb") as f:
             f.seek(offset)
             chunk = f.read(size_val)
         yield from plugins.mem.write(user_buf, chunk)
-        yield from plugins.mem.write(loff, offset + len(chunk), size=8)
+        yield from plugins.mem.write(loff, offset + len(chunk))
         ptregs.retval = len(chunk)
 
 
