@@ -3,8 +3,11 @@ Signal Monitor Plugin (signal_monitor.py)
 =========================================
 
 This module provides the Signal Monitor plugin for the Penguin framework.
-It allows monitoring and interception of signals sent to processes in the guest OS.
-Plugins can register for signal events and optionally drop signals or modify the process state.
+It allows monitoring and interception of signal deliveries in the guest OS.
+Plugins can register for signal events and optionally drop catchable deliveries
+or modify process state. Default-fatal signals without a userspace handler may
+begin process exit before the delivery hook is reached; block signal-send
+syscalls when the target process must be preserved.
 
 Usage
 -----
