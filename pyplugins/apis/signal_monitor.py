@@ -32,6 +32,7 @@ from hyper.portal import PortalCmd
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
 from typing import Optional
 
+
 class SignalEvent:
     """
     Wrapper for struct signal_event from the guest driver.
@@ -56,6 +57,7 @@ class SignalEvent:
 
     def __bytes__(self) -> bytes:
         return bytes(self._se)
+
 
 class SignalMonitor(Plugin):
     """
@@ -108,7 +110,7 @@ class SignalMonitor(Plugin):
         """
         # arg1 is pointer to struct signal_event in guest memory
         ptr = self.panda.arch.get_arg(cpu, 1, convention="syscall")
-        
+
         try:
             # Map the guest memory to a Python object using KFFI
             se_raw = plugins.kffi.read_type_panda(cpu, ptr, "signal_event")
@@ -119,7 +121,7 @@ class SignalMonitor(Plugin):
 
             original_event = bytes(se_raw)
             event = SignalEvent(se_raw)
-            
+
             # Wrap regs in pt_regs_wrapper for architecture-agnostic access
             regs_addr = getattr(se_raw.regs, "address", se_raw.regs)
             regs_obj = None
@@ -129,10 +131,10 @@ class SignalMonitor(Plugin):
                 if regs_obj:
                     original_regs = bytes(regs_obj)
                     event.regs = get_pt_regs_wrapper(self.panda, regs_obj)
-            
+
             # Notify subscribers
             plugins.publish(self, "signal_deliver", cpu, event)
-            
+
             new_event = bytes(se_raw)
             if new_event != original_event:
                 plugins.mem.write_bytes_panda(cpu, ptr, new_event)
@@ -141,14 +143,14 @@ class SignalMonitor(Plugin):
                 new_regs = bytes(regs_obj)
                 if new_regs != original_regs:
                     plugins.mem.write_bytes_panda(cpu, regs_addr, new_regs)
-            
+
         except Exception as e:
             self.logger.error(f"Error handling signal delivery hypercall: {e}")
 
         # Return 0 to the guest
         self.panda.arch.set_retval(cpu, 0)
 
-    def register_hook(self, sig: int = 0, pid: Optional[int] = None, 
+    def register_hook(self, sig: int = 0, pid: Optional[int] = None,
                       procname: Optional[str] = None) -> bool:
         """
         Register a signal hook in the guest driver.
@@ -183,11 +185,11 @@ class SignalMonitor(Plugin):
         """
         Register a signal hook in the guest driver via the portal.
         """
-        
+
         # Create the hook structure
         sh = plugins.kffi.new("struct signal_hook", init_data)
         as_bytes = bytes(sh)
-        
+
         # Send to guest via portal
         result = yield PortalCmd(hop.HYPER_OP_REGISTER_SIGNAL_HOOK, size=len(as_bytes), data=as_bytes)
         if result == 0:
