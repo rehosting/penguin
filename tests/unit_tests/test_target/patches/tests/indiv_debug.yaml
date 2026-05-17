@@ -1,9 +1,9 @@
 plugins:
   verifier:
     conditions:
-      indiv_debug+console:
+      indiv_debug+stdout:
         type: file_contains 
-        file: console.log
+        file: shared/tests/indiv_debug.sh/stdout
         string: "/tests/indiv_debug.sh PASS"
       indiv_debug+gdbserver:
         type: file_contains 
@@ -29,4 +29,5 @@ static_files:
 
       /trace_me &
 
+      echo "/tests/indiv_debug.sh PASS"
       exit 0
