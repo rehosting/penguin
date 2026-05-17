@@ -76,7 +76,6 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False):
         ], stdout=subprocess.PIPE, check=True)
     files_dict["test_executable"] = result.stdout
     create_tar_gz_with_binaries(f"{TEST_DIR}/empty_fs.tar.gz", files_dict)
-    Path(TEST_DIR, "empty_fs.tar.gz.index.sqlite").unlink(missing_ok=True)
     base_config = str(Path(TEST_DIR, "base_config.yaml"))
     new_config = str(Path(TEST_DIR, "config.yaml"))
     os.makedirs(str(Path(TEST_DIR, "base")), exist_ok=True)
@@ -86,12 +85,6 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False):
 
     base_config["patches"].append(f"patches/arches/{arch}.yaml")
     base_config["core"]["kernel"] = str(kernel)
-
-    if test_file is None and arch != "x86_64":
-        base_config["patches"] = [
-            p for p in base_config["patches"]
-            if not p.endswith("patches/tests/signal_interception.yaml")
-        ]
 
     if docs_only:
         base_config["plugins"]["doc_generator"] = {}
