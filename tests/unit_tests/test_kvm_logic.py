@@ -8,8 +8,9 @@ from unittest.mock import MagicMock, patch
 import cffi
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../src")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from penguin.qemu_compat import KVMArch, KVMQemu, MINIMAL_CDEF  # noqa: E402
+from pyplugins.qemu_compat import KVMArch, KVMQemu, MINIMAL_CDEF  # noqa: E402
 
 
 class FakeHypercallPlugin:

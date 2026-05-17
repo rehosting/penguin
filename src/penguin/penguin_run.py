@@ -9,7 +9,11 @@ from contextlib import contextmanager, closing
 from pathlib import Path
 from time import sleep
 
-from .kvm_qemu import KVMQemu
+_repo_root = Path(__file__).resolve().parents[2]
+if str(_repo_root) not in sys.path:
+    sys.path.append(str(_repo_root))
+
+from pyplugins.qemu_compat import KVMQemu  # noqa: E402
 
 from penguin import getColoredLogger, plugins
 
@@ -19,10 +23,6 @@ from penguin.penguin_config import load_config
 from .plugin_manager import ArgsBox
 from .utils import hash_image_inputs, get_penguin_kernel_version
 from .q_config import load_q_config, ROOTFS
-
-_repo_root = Path(__file__).resolve().parents[2]
-if str(_repo_root) not in sys.path:
-    sys.path.append(str(_repo_root))
 
 
 @contextmanager
