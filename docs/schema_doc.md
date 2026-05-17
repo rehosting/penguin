@@ -326,6 +326,23 @@ false
 true
 ```
 
+### `core.execution_mode` Execution Mode
+
+|||
+|-|-|
+|__Type__|`"qemu"` or `"kvm"`|
+|__Default__|`qemu`|
+
+The execution backend to use for the guest (qemu for TCG, kvm for hardware acceleration)
+
+```yaml
+qemu
+```
+
+```yaml
+kvm
+```
+
 ### `core.extra_qemu_args` Extra QEMU arguments
 
 |||
