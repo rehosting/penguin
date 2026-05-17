@@ -524,7 +524,7 @@ Star = Literal["*"]
 
 Ioctls = _newtype(
     class_name="Ioctls",
-    type_=Dict[Union[int, Star], IoctlCommand],
+    type_=Union[IoctlCommand, Dict[Union[int, Star], IoctlCommand]],
     title="ioctl",
     description="How to handle ioctl() calls",
     default=dict(),

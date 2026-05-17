@@ -211,8 +211,9 @@ class WriteExternalLegacy:
         size_val = int(size)
         # Legacy writes often expected the buffer to be pre-read for them
         buf = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
+        offset = yield from plugins.kffi.deref(loff)
 
-        res = self._func(self, getattr(self, "full_path", "unknown"), user_buf, size_val, loff, buf, self._legacy_kwargs)
+        res = self._func(self, getattr(self, "full_path", "unknown"), user_buf, size_val, offset, buf, self._legacy_kwargs)
 
         if inspect.isgenerator(res):
             result = yield from res
@@ -221,3 +222,5 @@ class WriteExternalLegacy:
 
         # Legacy plugins usually return the bytes written or an error code
         ptregs.retval = result if result is not None else size_val
+        if ptregs.retval > 0:
+            yield from plugins.mem.write(loff, offset + ptregs.retval)
