@@ -394,6 +394,57 @@ class SyscallPrototype:
         """
         return f"<SyscallPrototype name='{self.name}' nargs={self.nargs}>"
 
+    def arg_index(self, *names: str, fallback_index: Optional[int] = None) -> Optional[int]:
+        """
+        Resolve a syscall argument index from the prototype's argument names.
+
+        Parameters
+        ----------
+        names : str
+            Argument names to check, in priority order.
+        fallback_index : int, optional
+            Positional fallback to use when none of the names are present.
+
+        Returns
+        -------
+        int or None
+            The resolved argument index.
+        """
+        for name in names:
+            if name in self.names:
+                return self.names.index(name)
+        return fallback_index
+
+    def arg_value(
+            self,
+            values: tuple,
+            *names: str,
+            fallback_index: Optional[int] = None,
+            default: Any = None) -> Any:
+        """
+        Resolve a syscall argument value from named prototype metadata.
+
+        Parameters
+        ----------
+        values : tuple
+            Runtime syscall argument values.
+        names : str
+            Argument names to check, in priority order.
+        fallback_index : int, optional
+            Positional fallback to use when none of the names are present.
+        default : Any
+            Value returned when no argument can be resolved.
+
+        Returns
+        -------
+        Any
+            The resolved argument value.
+        """
+        idx = self.arg_index(*names, fallback_index=fallback_index)
+        if idx is None or idx >= len(values):
+            return default
+        return values[idx]
+
 
 class Syscalls(Plugin):
     """

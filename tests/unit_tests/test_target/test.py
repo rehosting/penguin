@@ -75,6 +75,9 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False):
             "cat", f"/igloo_static/utils.bin/test_executable.{arch}"
         ], stdout=subprocess.PIPE, check=True)
     files_dict["test_executable"] = result.stdout
+    stale_index = Path(f"{TEST_DIR}/empty_fs.tar.gz.index.sqlite")
+    if stale_index.exists():
+        stale_index.unlink()
     create_tar_gz_with_binaries(f"{TEST_DIR}/empty_fs.tar.gz", files_dict)
     base_config = str(Path(TEST_DIR, "base_config.yaml"))
     new_config = str(Path(TEST_DIR, "config.yaml"))
@@ -82,6 +85,11 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False):
 
     with open(base_config, "r") as file:
         base_config = yaml.safe_load(file)
+
+    if arch != "x86_64":
+        base_config["patches"] = [
+            p for p in base_config["patches"] if "signal_interception.yaml" not in p
+        ]
 
     base_config["patches"].append(f"patches/arches/{arch}.yaml")
     base_config["core"]["kernel"] = str(kernel)
