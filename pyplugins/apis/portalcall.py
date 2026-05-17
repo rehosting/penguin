@@ -53,6 +53,14 @@ class PortalCall(Plugin):
         plugins.syscalls.syscall("on_sys_sendto_enter", arg_filters=[PORTAL_MAGIC, None, None, None, None])(self._portalcall_syscall_handler)
 
     def _portalcall_syscall_handler(self, regs, proto, syscall, magic, user_magic, argc, args, dest_addr, addrlen):
+        result = yield from self._dispatch_portalcall(user_magic, argc, args)
+        syscall.skip_syscall = True
+        if isinstance(result, int):
+            syscall.retval = result
+        else:
+            syscall.retval = 0  # Default to 0 if result is not an int
+
+    def _dispatch_portalcall(self, user_magic, argc, args):
         handler = self._portalcall_registry.get(user_magic & 0xffffffff)
         if handler is None:
             self.logger.error(
@@ -68,11 +76,7 @@ class PortalCall(Plugin):
         result = fn_to_call(*argv)
         if isinstance(result, Iterator):
             result = yield from result
-        syscall.skip_syscall = True
-        if isinstance(result, int):
-            syscall.retval = result
-        else:
-            syscall.retval = 0  # Default to 0 if result is not an int
+        return result
 
     def portalcall(self, user_magic: int):
         """Decorator to register a portalcall handler for a given user_magic value."""
