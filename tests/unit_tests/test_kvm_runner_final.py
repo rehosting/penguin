@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 import os
 import sys
+from types import SimpleNamespace
 
 # Add penguin src to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../src")))
@@ -31,7 +32,12 @@ class TestKVMRunnerSelection(unittest.TestCase):
     @patch("penguin.penguin_run.redirect_stdout_stderr")
     @patch("penguin.penguin_run.find_free_port")
     @patch("penguin.penguin_run.os.open")
-    def test_selects_kvm(self, mock_open, mock_find_port, mock_redirect, mock_log, mock_rmtree,
+    @patch("penguin.penguin_run.plugins.load_plugins")
+    @patch("penguin.penguin_run.plugins.load")
+    @patch("penguin.penguin_run.plugins.initialize")
+    @patch("penguin.penguin_run.plugins.unload_all")
+    def test_selects_kvm(self, mock_unload_all, mock_initialize, mock_plugins_load, mock_load_plugins,
+                         mock_open, mock_find_port, mock_redirect, mock_log, mock_rmtree,
                          mock_copy, mock_mkdir, mock_getsize, mock_isfile,
                          mock_isdir, mock_hash, mock_version, mock_qconfig,
                          mock_load_config, mock_kvmqemu):
@@ -59,7 +65,10 @@ class TestKVMRunnerSelection(unittest.TestCase):
         qemu.panda_args = ["-append", "root=/dev/vda"]
         mock_kvmqemu.from_installation.return_value = qemu
 
-        run_config("/fake/proj", "/fake/config.yaml", "/fake/out")
+        fake_hypercall = SimpleNamespace(Hypercall=type("FakeHypercall", (), {}))
+        fake_apis = SimpleNamespace(hypercall=fake_hypercall)
+        with patch.dict(sys.modules, {"apis": fake_apis, "apis.hypercall": fake_hypercall}):
+            run_config("/fake/proj", "/fake/config.yaml", "/fake/out")
 
         mock_kvmqemu.from_installation.assert_called_once_with("kvm", "x86_64")
 
@@ -78,7 +87,12 @@ class TestKVMRunnerSelection(unittest.TestCase):
     @patch("penguin.penguin_run.redirect_stdout_stderr")
     @patch("penguin.penguin_run.find_free_port")
     @patch("penguin.penguin_run.os.open")
-    def test_rejects_panda(self, mock_open, mock_find_port, mock_redirect, mock_log, mock_rmtree,
+    @patch("penguin.penguin_run.plugins.load_plugins")
+    @patch("penguin.penguin_run.plugins.load")
+    @patch("penguin.penguin_run.plugins.initialize")
+    @patch("penguin.penguin_run.plugins.unload_all")
+    def test_rejects_panda(self, mock_unload_all, mock_initialize, mock_plugins_load, mock_load_plugins,
+                           mock_open, mock_find_port, mock_redirect, mock_log, mock_rmtree,
                            mock_copy, mock_mkdir, mock_getsize, mock_isfile,
                            mock_isdir, mock_hash, mock_version, mock_qconfig,
                            mock_load_config, mock_kvmqemu):
