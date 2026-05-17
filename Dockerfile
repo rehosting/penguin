@@ -16,9 +16,7 @@ ARG LTRACE_PROTOTYPES_HASH="9db3bdee7cf3e11c87d8cc7673d4d25b"
 ARG MUSL_VERSION="1.2.5"
 ARG VHOST_DEVICE_VERSION="vhost-device-vsock-v0.2.0"
 ARG FW2TAR_TAG="v2.0.6"
-ARG PANDA_VERSION="pandav0.0.49"
-ARG PANDANG_VERSION="0.0.38"
-ARG QEMU_VERSION=""
+ARG QEMU_VERSION="0.0.1"
 ARG RIPGREP_VERSION="14.1.1"
 ARG APT_MIRROR="ubuntu"
 
@@ -96,17 +94,8 @@ COPY ./get_release.sh /get_release.sh
 #	mv /zap/ZAP*/* /zap && \
 #	rm -R /zap/ZAP*
 
-# 2) Get PANDA resources
-# Get panda .deb
-ARG PANDA_VERSION
-ARG PANDANG_VERSION
+# 2) Get QEMU resources
 ARG QEMU_VERSION
-# RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
-RUN wget -O /tmp/pandare.deb \
-    https://github.com/panda-re/qemu/releases/download/${PANDA_VERSION}/pandare_22.04.deb && \
-    wget -O /tmp/pandare-plugins.deb \
-    https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare-plugins_22.04.deb
-# RUN wget -O /tmp/pandare.deb https://github.com/panda-re/panda/releases/download/v${PANDA_VERSION}/pandare_$(. /etc/os-release ; echo $VERSION_ID).deb
 
 RUN if [ -n "${QEMU_VERSION}" ]; then \
         /get_release.sh rehosting qemu ${QEMU_VERSION} penguin-qemu.tar.gz > /tmp/penguin-qemu.tar.gz; \
@@ -205,7 +194,6 @@ COPY ./src/resources/ltrace_nvram.conf /tmp/ltrace/lib_inject.so.conf
 FROM ${REGISTRY}/rehosting/embedded-toolchains:latest AS cross_builder
 COPY ./guest-utils/native/ /source
 WORKDIR /source
-RUN wget -q https://raw.githubusercontent.com/panda-re/libhc/main/hypercall.h
 RUN make all
 
 # Stage per-arch link-time sysroot skeletons for project init.d/*.c drop-ins.
@@ -284,13 +272,10 @@ RUN if [ -f /tmp/local_packages/nmap.tar.gz ]; then \
 
 ### Python Builder: Build all wheel files necessary###
 FROM base_mirrored AS python_builder
-ARG PANDANG_VERSION
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y python3-pip git wget liblzo2-dev
-RUN wget -O /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl \
-    https://github.com/panda-re/panda-ng/releases/download/v${PANDANG_VERSION}/pandare2-${PANDANG_VERSION}-py3-none-any.whl
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip wheel --no-cache-dir --wheel-dir /app/wheels \
       angr \
@@ -298,7 +283,6 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       coloredlogs \
       git+https://github.com/AndrewFasano/angr-targets.git@af_fixes \
       html5lib \
-      /tmp/pandare2-${PANDANG_VERSION}-py3-none-any.whl \
       ipdb \
       ipython \
       python-Levenshtein \
@@ -423,8 +407,6 @@ ENV HOME=/root
 # Add rootshell helper command
 RUN echo "#!/bin/sh\ntelnet localhost 4321" > /usr/local/bin/rootshell && chmod +x /usr/local/bin/rootshell
 
-COPY --from=downloader /tmp/pandare.deb /tmp/
-COPY --from=downloader /tmp/pandare-plugins.deb /tmp/
 COPY --from=downloader /tmp/glow.deb /tmp/
 COPY --from=downloader /tmp/gum.deb /tmp/
 COPY --from=downloader /tmp/ripgrep.deb /tmp/
@@ -457,12 +439,14 @@ RUN curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /us
 
 # Install apt dependencies - first line for penguin - second for fw2tar
 RUN apt-get update && apt-get install -q -y \
-    fakeroot graphviz graphviz-dev libarchive13 libgcc-s1 liblinear4 liblua5.3-0 libpcap0.8 libpcre3 libssh2-1 libssl3 libstdc++6 libxml2 lua-lpeg nmap python3 python3-lxml python3-venv sudo telnet vim wget zlib1g pigz clang-20 lld-20 \
+    fakeroot graphviz graphviz-dev libarchive13 libfdt1 libgcc-s1 liblinear4 liblua5.3-0 libnuma1 libpcap0.8 libpcre3 libpmem1 libslirp0 libssh2-1 libssl3 libstdc++6 libxml2 lua-lpeg nmap python3 python3-lxml python3-venv sudo telnet vim wget zlib1g pigz clang-20 lld-20 \
     android-sdk-libsparse-utils arj automake build-essential bzip2 cabextract cpio cramfsswap curl default-jdk e2fsprogs fakeroot gcc git gzip lhasa libarchive-dev libfontconfig1-dev libacl1-dev libcap-dev liblzma-dev liblzo2-dev liblz4-dev libbz2-dev libssl-dev libmagic1 locales lz4 lziprecover lzop mtd-utils openssh-client p7zip p7zip-full python3 python3-pip qtbase5-dev sleuthkit squashfs-tools srecord tar unar unrar unrar-free unyaffs unzip xz-utils zlib1g-dev zstd libcap2-bin && \
-    apt install -yy -f /tmp/pandare.deb -f /tmp/pandare-plugins.deb \
-    -f /tmp/glow.deb -f /tmp/gum.deb -f /tmp/ripgrep.deb && \
+    apt install -yy -f /tmp/glow.deb -f /tmp/gum.deb -f /tmp/ripgrep.deb && \
     getcap -r / 2>/dev/null | awk '{print $1}' | xargs -r setcap -r || true && \
     rm -rf /var/lib/apt/lists/* /tmp/*.deb /var/log/journal /run/log/journal
+
+# Copy newer e2fsprogs binaries with mke2fs tarball support to /opt
+# System e2fsprogs remains available for depen
 
 # Copy newer e2fsprogs binaries with mke2fs tarball support to /opt
 # System e2fsprogs remains available for dependencies that need it
@@ -586,8 +570,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Now copy in our module and install it
 # penguin is editable so we can mount local copy for dev
-COPY --from=version_generator /app/version.txt /pkg/penguin/version.txt
 COPY ./src /pkg
+COPY --from=version_generator /app/version.txt /pkg/penguin/version.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -e /pkg
 
@@ -622,14 +606,6 @@ RUN used_pkgs="" ; \
             tar xvf /tmp/local_packages/kernels-latest.tar.gz -C /igloo_static/; \
             used_pkgs="${used_pkgs},kernels"; \
         fi; \
-        if [ -f /tmp/local_packages/pandare_22.04.deb ]; then \
-            dpkg -i /tmp/local_packages/pandare_22.04.deb; \
-            used_pkgs="${used_pkgs},pandare-deb"; \
-        fi; \
-        if [ -f /tmp/local_packages/pandare-plugins_22.04.deb ]; then \
-            dpkg -i /tmp/local_packages/pandare-plugins_22.04.deb; \
-            used_pkgs="${used_pkgs},pandare-plugins"; \
-        fi; \
         if [ -f /tmp/local_packages/vpn.tar.gz ]; then \
             tar xzf /tmp/local_packages/vpn.tar.gz -C /igloo_static; \
             used_pkgs="${used_pkgs},vpn"; \
@@ -649,18 +625,6 @@ RUN used_pkgs="" ; \
             rm -rf /igloo_static/libnvram; \
             tar xzf /tmp/local_packages/libnvram-latest.tar.gz -C /igloo_static; \
             used_pkgs="${used_pkgs},libnvram"; \
-        fi; \
-        if [ -f /tmp/local_packages/plugins.tar.gz ]; then \
-            tar xvf /tmp/local_packages/plugins.tar.gz -C /usr/local/lib/panda/panda/; \
-            used_pkgs="${used_pkgs},plugins"; \
-        fi; \
-        if [ -f /tmp/local_packages/pandare2-*.whl ]; then \
-            pip install /tmp/local_packages/pandare2-*.whl; \
-            used_pkgs="${used_pkgs},pandare2-whl"; \
-        fi; \
-        if [ -f /tmp/local_packages/pandare2.tar.gz ]; then \
-            tar xvf /tmp/local_packages/pandare2.tar.gz -C /usr/local/lib/python3.10/dist-packages/; \
-            used_pkgs="${used_pkgs},pandare2"; \
         fi; \
         if [ -f /tmp/local_packages/guesthopper.tar.gz ]; then \
             rm -rf /igloo_static/guesthopper; \
