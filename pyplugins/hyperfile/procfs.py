@@ -5,6 +5,9 @@ from typing import List, Dict, Generator, Optional, Tuple
 from hyperfile.models.base import ProcFile
 
 
+PROCFS_PID_PARENT_ID = -1
+
+
 class Proc(Plugin):
     def __init__(self):
         self.outdir = self.get_arg("outdir")
@@ -106,6 +109,9 @@ class Proc(Plugin):
         if not parts:
             self._proc_dirs[""] = 0
             return 0
+        if len(parts) == 1 and (parts[0] == "self" or parts[0].isdigit()):
+            self._proc_dirs[parts[0]] = PROCFS_PID_PARENT_ID
+            return PROCFS_PID_PARENT_ID
 
         parent_id = 0
         cur_path = ""
