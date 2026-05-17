@@ -307,6 +307,13 @@ penguin_run() {
 
      # Build Docker command
     docker_cmd=("docker" "run" "--rm")
+    if [ -e /dev/kvm ]; then
+        docker_cmd+=("--device=/dev/kvm")
+        kvm_gid="$(stat -c '%g' /dev/kvm 2>/dev/null || stat -f '%g' /dev/kvm 2>/dev/null || true)"
+        if [ -n "$kvm_gid" ]; then
+            docker_cmd+=("--group-add" "$kvm_gid")
+        fi
+    fi
 
     # If we have a name set, ensure it's available. We only really care about this for run/guest_cmd/shell (and maybe explore) action
     if [[ ${#cmd[@]} -gt 1 && ( "${cmd[0]}" == "run" || "${cmd[0]}" == "guest_cmd" || "${cmd[0]}" == "guest-cmd" || "${cmd[0]}" == "shell" ) ]]; then
