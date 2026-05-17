@@ -538,6 +538,12 @@ How to handle reads from the file
 |Field|Type|Default|Title|
 |-|-|-|-|
 |`model`|`"zero"`||Read modelling method (read a zero)|
+##### `pseudofiles.<string>.read.<model=one>` Read a one
+
+
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"one"`||Read modelling method (read a one)|
 ##### `pseudofiles.<string>.read.<model=empty>` Read empty file
 
 
@@ -551,6 +557,8 @@ How to handle reads from the file
 |-|-|-|-|
 |`model`|`"const_buf"`||Read modelling method (read a constant buffer)|
 |`val`|string||Pseudofile contents|
+|`null_terminate`|boolean|`false`|Append a NUL byte to the configured contents|
+|`nul_terminate`|boolean|`false`|Alias for null_terminate|
 ##### `pseudofiles.<string>.read.<model=const_map>` Read a constant map
 
 
@@ -690,11 +698,11 @@ How to handle writes to the file
 |Field|Type|Default|Title|
 |-|-|-|-|
 |`model`|`"default"`||Write modelling method (default)|
-#### `pseudofiles.<string>.ioctl` ioctl
+#### `pseudofiles.<string>.ioctl` Ioctl
 
 |||
 |-|-|
-|__Default__|`{}`|
+|__Default__|`null`|
 
 How to handle ioctl() calls
 
@@ -718,27 +726,20 @@ model: from_plugin
 plugin: my_plugin
 ```
 
-##### `pseudofiles.<string>.ioctl.<integer or "*">` Ioctl
-
-|||
-|-|-|
-|__Default__|`null`|
-
-
-###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=return_const>` Return a constant
+##### `pseudofiles.<string>.ioctl.<model=return_const>` Return a constant
 
 
 |Field|Type|Default|Title|
 |-|-|-|-|
 |`model`|`"return_const"`||ioctl modelling method (return a constant)|
-|`val`|integer||Constant to return|
-###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=symex>` Symbolic execution
+|`val`|integer|`0`|Constant to return|
+##### `pseudofiles.<string>.ioctl.<model=zero>` Return zero
 
 
 |Field|Type|Default|Title|
 |-|-|-|-|
-|`model`|`"symex"`||ioctl modelling method (symbolic execution)|
-###### `pseudofiles.<string>.ioctl.<integer or "*">.<model=from_plugin>` ioctl from a custom PyPlugin
+|`model`|`"zero"`||ioctl modelling method (return zero)|
+##### `pseudofiles.<string>.ioctl.<model=from_plugin>` ioctl from a custom PyPlugin
 
 
 |Field|Type|Default|Title|
