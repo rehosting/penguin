@@ -15,7 +15,6 @@ from penguin.penguin_run import run_config  # noqa: E402
 
 
 class TestKVMRunnerSelection(unittest.TestCase):
-    @patch("penguin.penguin_run.Panda")
     @patch("penguin.penguin_run.KVMQemu")
     @patch("penguin.penguin_run.load_config")
     @patch("penguin.penguin_run.load_q_config")
@@ -34,7 +33,7 @@ class TestKVMRunnerSelection(unittest.TestCase):
     def test_selects_kvm(self, mock_open, mock_find_port, mock_redirect, mock_log, mock_rmtree,
                          mock_copy, mock_mkdir, mock_getsize, mock_isfile,
                          mock_isdir, mock_hash, mock_version, mock_qconfig,
-                         mock_load_config, mock_kvmqemu, mock_panda):
+                         mock_load_config, mock_kvmqemu):
         # Setup mocks to reach the selection logic
         mock_load_config.return_value = {
             "core": {"execution_mode": "kvm", "arch": "x86_64", "mem": "128M", "kernel": "/fake/kernel", "fs": "fake/fs", "smp": 1},
@@ -62,9 +61,7 @@ class TestKVMRunnerSelection(unittest.TestCase):
         run_config("/fake/proj", "/fake/config.yaml", "/fake/out")
 
         mock_kvmqemu.from_installation.assert_called_once_with("kvm", "x86_64")
-        self.assertFalse(mock_panda.called)
 
-    @patch("penguin.penguin_run.Panda")
     @patch("penguin.penguin_run.KVMQemu")
     @patch("penguin.penguin_run.load_config")
     @patch("penguin.penguin_run.load_q_config")
@@ -80,10 +77,10 @@ class TestKVMRunnerSelection(unittest.TestCase):
     @patch("penguin.penguin_run.redirect_stdout_stderr")
     @patch("penguin.penguin_run.find_free_port")
     @patch("penguin.penguin_run.os.open")
-    def test_selects_panda(self, mock_open, mock_find_port, mock_redirect, mock_log, mock_rmtree,
+    def test_rejects_panda(self, mock_open, mock_find_port, mock_redirect, mock_log, mock_rmtree,
                            mock_copy, mock_mkdir, mock_getsize, mock_isfile,
                            mock_isdir, mock_hash, mock_version, mock_qconfig,
-                           mock_load_config, mock_kvmqemu, mock_panda):
+                           mock_load_config, mock_kvmqemu):
         mock_load_config.return_value = {
             "core": {"execution_mode": "panda", "arch": "x86_64", "mem": "128M", "kernel": "/fake/kernel", "fs": "fake/fs", "smp": 1},
             "env": {"igloo_init": "/sbin/init"},
@@ -102,11 +99,9 @@ class TestKVMRunnerSelection(unittest.TestCase):
         mock_version.return_value = (4, 10)
         mock_find_port.return_value = 4321
 
-        mock_panda.return_value.panda_args = ["-append", "root=/dev/vda"]
+        with self.assertRaisesRegex(RuntimeError, "PANDA execution mode is no longer supported"):
+            run_config("/fake/proj", "/fake/config.yaml", "/fake/out")
 
-        run_config("/fake/proj", "/fake/config.yaml", "/fake/out")
-
-        self.assertTrue(mock_panda.called)
         self.assertFalse(mock_kvmqemu.from_installation.called)
 
 

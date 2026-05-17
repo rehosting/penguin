@@ -62,7 +62,7 @@ def penguin_init(fs, image):
         raise e
 
 
-def penguin_run(config, image, execution_mode="panda"):
+def penguin_run(config, image, execution_mode="qemu"):
     logger.info(f"penguin run (mode={execution_mode})")
     try:
         env = os.environ.copy()
@@ -164,7 +164,7 @@ def assert_dropin_c_result(project_dir):
         raise AssertionError(f"C drop-in did not point at compiled cache: {host_path}")
 
 
-def run_test(kernel, arch, image, execution_mode="panda"):
+def run_test(kernel, arch, image, execution_mode="qemu"):
     id = subprocess.check_output(
         f"docker create {image}", shell=True).decode().strip()
     run_cmd(
@@ -227,7 +227,7 @@ NONDEFAULT_KERNEL_ARCHES = {
 @click.option("--kernel", "-k", multiple=True, default=DEFAULT_KERNELS)
 @click.option("--arch", "-a", multiple=True, default=DEFAULT_ARCHES)
 @click.option("--image", "-i", default="rehosting/penguin:latest")
-@click.option("--mode", "-m", default="panda", type=click.Choice(["panda", "qemu", "kvm"]))
+@click.option("--mode", "-m", default="qemu", type=click.Choice(["qemu", "kvm"]))
 def test(kernel, arch, image, mode):
     logger.info(f"Running tests for {kernel} on {arch} (mode={mode})")
 

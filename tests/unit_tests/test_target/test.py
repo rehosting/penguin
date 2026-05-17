@@ -63,7 +63,7 @@ def create_tar_gz_with_binaries(dest_tar_gz, files_dict):
                 tar.add(tmpdir_path / fname, arcname=fname)
 
 
-def run_test(kernel, arch, image, test_file=None, docs_only=False, name=None):
+def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mode="qemu"):
     # Create tar.gz with several binary files at the root
     files_dict = {
         "helloworld": b"helloworld\0",
@@ -92,6 +92,7 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False, name=None):
 
     base_config["patches"].append(f"patches/arches/{arch}.yaml")
     base_config["core"]["kernel"] = str(kernel)
+    base_config["core"]["execution_mode"] = execution_mode
 
     if docs_only:
         base_config["plugins"]["doc_generator"] = {}
@@ -129,7 +130,8 @@ NONDEFAULT_KERNEL_ARCHES = {
 @click.option("--name", "-n", default=None, help="Container name to pass to the Penguin wrapper.")
 @click.option("--test-file", "-t", default=None, help="Run specific test file from patches/tests/ - no prefix needed (e.g., bash.yaml)")
 @click.option("--docs-only", is_flag=True, help="Only build the docs and leave. Useful for CI.")
-def test(kernel, arch, image, name, test_file, docs_only):
+@click.option("--mode", "-m", default="qemu", type=click.Choice(["qemu", "kvm"]))
+def test(kernel, arch, image, docs_only, mode):
     if docs_only:
         logger.info("Docs only mode enabled, will only build docs and exit")
         kernel = ['4.10',]
@@ -160,8 +162,8 @@ def test(kernel, arch, image, name, test_file, docs_only):
                     f"Skipping kernel {k} for arch {a} (requires kernels: {sorted(restricted_kernels)})")
                 continue
 
-            logger.info(f"Running tests for kernel {k} on arch {a}")
-            run_test(k, a, image, test_file, docs_only, name)
+            logger.info(f"Running tests for kernel {k} on arch {a} (mode={mode})")
+            run_test(k, a, image, None, docs_only, execution_mode=mode)
 
 
 if __name__ == "__main__":
