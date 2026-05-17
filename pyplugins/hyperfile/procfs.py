@@ -180,6 +180,13 @@ class Proc(Plugin):
 
             fops = yield from self._make_fops_struct(proc)
             kffi = plugins.kffi
+            mmap_phys_addr = self._mmap_phys_addr(proc)
+            support_mmap = any(
+                (
+                    getattr(proc, "SUPPORT_MMAP", False),
+                    mmap_phys_addr,
+                )
+            )
 
             init_data = {
                 "path": file_name.encode("latin-1", errors="ignore"),
@@ -188,7 +195,8 @@ class Proc(Plugin):
                 "mode": getattr(proc, "MODE", 0o444),
                 "parent_id": parent_id,
                 "replace": 1,
-                "support_mmap": 1 if getattr(proc, "SUPPORT_MMAP", False) else 0
+                "support_mmap": 1 if support_mmap else 0,
+                "mmap_phys_addr": mmap_phys_addr
             }
 
             req = kffi.new("struct portal_procfs_create_req", init_data)
@@ -205,6 +213,20 @@ class Proc(Plugin):
                 self.logger.error(f"Failed to register proc '{fname}' (kernel returned 0)")
                 continue
             self.logger.debug(f"Registered proc '{fname}' with kernel")
+
+    def _mmap_phys_addr(self, proc: ProcFile) -> int:
+        supports_default_mmap = any(
+            (
+                getattr(proc, "SUPPORT_MMAP", False),
+                getattr(proc, "SIZE", 0),
+            )
+        ) and not proc._is_overridden("mmap")
+        if not supports_default_mmap:
+            return 0
+        qemu_mem = getattr(plugins, "qemu_mem", None)
+        if qemu_mem is None:
+            return 0
+        return qemu_mem.allocate_file(proc)
 
     def _proc_interrupt_handler(self) -> Generator[bool, None, bool]:
         """

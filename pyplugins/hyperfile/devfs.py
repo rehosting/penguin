@@ -182,6 +182,13 @@ class Devfs(Plugin):
 
             ops = yield from self._make_ops_struct(devfs_file)
             kffi = plugins.kffi
+            mmap_phys_addr = self._mmap_phys_addr(devfs_file)
+            support_mmap = any(
+                (
+                    getattr(devfs_file, "SUPPORT_MMAP", False),
+                    mmap_phys_addr,
+                )
+            )
 
             init_data = {
                 "name": file_name.encode("latin-1", errors="ignore"),
@@ -194,7 +201,8 @@ class Devfs(Plugin):
                 "parent_id": parent_id,
                 "size": getattr(devfs_file, "SIZE", 0),
                 "mode": getattr(devfs_file, "MODE", 0o666),
-                "support_mmap": 1 if getattr(devfs_file, "SUPPORT_MMAP", False) else 0,
+                "support_mmap": 1 if support_mmap else 0,
+                "mmap_phys_addr": mmap_phys_addr,
                 "is_block": 1 if getattr(devfs_file, "IS_BLOCK", False) else 0,
                 "logical_block_size": getattr(devfs_file, "LOGICAL_BLOCK_SIZE", 512)
             }
@@ -215,6 +223,20 @@ class Devfs(Plugin):
                 continue
 
             self.logger.debug(f"Registered devfs device '{fname}' with kernel")
+
+    def _mmap_phys_addr(self, devfs_file: DevFile) -> int:
+        supports_default_mmap = any(
+            (
+                getattr(devfs_file, "SUPPORT_MMAP", False),
+                getattr(devfs_file, "SIZE", 0),
+            )
+        ) and not devfs_file._is_overridden("mmap")
+        if not supports_default_mmap:
+            return 0
+        qemu_mem = getattr(plugins, "qemu_mem", None)
+        if qemu_mem is None:
+            return 0
+        return qemu_mem.allocate_file(devfs_file)
 
     def _hyperdevfs_interrupt_handler(self) -> Generator[bool, None, bool]:
         if not self._pending_devfs:

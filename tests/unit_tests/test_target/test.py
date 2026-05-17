@@ -163,7 +163,15 @@ def test(kernel, arch, image, name, test_file, docs_only, mode):
                 continue
 
             logger.info(f"Running tests for kernel {k} on arch {a} (mode={mode})")
-            run_test(k, a, image, None, docs_only, execution_mode=mode, name=name or "test_target")
+            run_test(
+                k,
+                a,
+                image,
+                test_file,
+                docs_only,
+                execution_mode=mode,
+                name=name or "test_target",
+            )
 
 
 if __name__ == "__main__":
