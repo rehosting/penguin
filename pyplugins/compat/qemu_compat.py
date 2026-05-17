@@ -559,6 +559,16 @@ class QemuCompat:
             return int.from_bytes(data, self.endianness, signed=True)
         if fmt == "uint":
             return int.from_bytes(data, self.endianness, signed=False)
+        if fmt == "ptrlist":
+            ptr_size = self.bits // 8
+            if size % ptr_size:
+                raise ValueError(
+                    f"ptrlist read size {size} is not aligned to {ptr_size}-byte pointers"
+                )
+            return [
+                int.from_bytes(data[offset:offset + ptr_size], self.endianness, signed=False)
+                for offset in range(0, size, ptr_size)
+            ]
         raise ValueError(f"Unsupported virtual_memory_read fmt={fmt!r}")
 
     def virtual_memory_write(self, cpu, addr, data):
