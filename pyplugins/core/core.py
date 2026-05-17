@@ -240,8 +240,8 @@ class Core(Plugin):
         open(os.path.join(self.outdir, ".ran"), "w").close()
 
         # Unload all plugins explicitly before ending analysis
-        # to ensure our unint methods are called
-        self.panda.unload_plugins()
+        # to ensure our uninit methods are called
+        plugins.unload_all()
         time.sleep(1)
 
         self.panda.end_analysis()
