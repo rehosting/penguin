@@ -320,7 +320,7 @@ class ReadExternalLegacy:
 
     def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
         size_val = int(size)
-        offset = yield from plugins.mem.read(loff, fmt=int, size=8)
+        offset = yield from plugins.kffi.deref(loff)
 
         # Call the legacy function
         # Note: We pass 'self' as the first arg because legacy plugins expected the file instance
@@ -350,6 +350,6 @@ class ReadExternalLegacy:
             if isinstance(write_data, str):
                 write_data = write_data.encode("utf-8")
             yield from plugins.mem.write(user_buf, write_data)
-            yield from plugins.mem.write(loff, offset + len(write_data), size=8)
+            yield from plugins.mem.write(loff, offset + len(write_data))
 
         ptregs.retval = retval
