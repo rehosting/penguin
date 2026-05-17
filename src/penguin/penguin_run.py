@@ -9,7 +9,6 @@ from contextlib import contextmanager, closing
 from pathlib import Path
 from time import sleep
 
-from pandare2 import Panda
 from .kvm_qemu import KVMQemu
 
 from penguin import getColoredLogger, plugins
@@ -20,6 +19,10 @@ from penguin.penguin_config import load_config
 from .plugin_manager import ArgsBox
 from .utils import hash_image_inputs, get_penguin_kernel_version
 from .q_config import load_q_config, ROOTFS
+
+_repo_root = Path(__file__).resolve().parents[2]
+if str(_repo_root) not in sys.path:
+    sys.path.append(str(_repo_root))
 
 
 @contextmanager
@@ -225,6 +228,7 @@ def run_config(
         mem_path = path / "mem_path"
 
         vpn_args = {"socket_path": socket_path, "uds_path": uds_path, "CID": CID}
+        conf["env"]["CID"] = CID
 
         vsock_args = [
             "-object",
@@ -246,6 +250,7 @@ def run_config(
     append += (
         " clocksource=jiffies nohz_full nohz=off no_timer_check"  # Improve determinism?
     )
+
     # acpi=off blocks x86 secondary-CPU enumeration via MADT; only safe on
     # single-CPU old kernels where PANDA needs it for determinism.
     if pkversion < (6, 13) and conf["core"].get("smp", 1) <= 1:
@@ -305,7 +310,7 @@ def run_config(
         *drive_args,
     ]
     if q_config["arch"] == "loongarch64":
-        args += ["-bios", "/usr/local/share/panda/edk2-loongarch64-code.fd"]
+        args += ["-bios", "/usr/local/share/qemu/edk2-loongarch64-code.fd"]
 
     args += ["-no-reboot"]
 
@@ -394,7 +399,12 @@ def run_config(
 
     # ############ Reduce determinism ##############
 
-    execution_mode = conf["core"].get("execution_mode", "panda")
+    execution_mode = conf["core"].get("execution_mode", "qemu")
+    if execution_mode == "panda":
+        raise RuntimeError(
+            "PANDA execution mode is no longer supported by this branch. "
+            "Use core.execution_mode: qemu or kvm."
+        )
 
     # Fixed clock time.
     args = args + ["-rtc", "base=2023-01-01T00:00:00"]
@@ -436,34 +446,12 @@ def run_config(
     stderr_path = os.path.join(parent_outdir, "qemu_stderr.txt")
 
     with print_to_log(stdout_path, stderr_path):
-        if execution_mode in {"qemu", "kvm"}:
-            qemu_mode = "kvm" if execution_mode == "kvm" else "system"
-            qemu_lib_arch = q_config["arch"] if qemu_mode == "kvm" else archend
-            logger.info("Using %s execution mode for %s", execution_mode, qemu_lib_arch)
-            panda = KVMQemu.from_installation(qemu_mode, qemu_lib_arch)
-            args = ["-L", "/usr/local/share/panda/"] + args
-            panda.panda_args = [f"qemu-system-{q_config['arch']}", "-m", conf["core"]["mem"]] + args
-        else:
-            logger.debug(f"Preparing PANDA args: {args}")
-            logger.debug(f"Architecture: {q_config['arch']} Mem: {conf['core']['mem']}")
-            panda = Panda(q_config["arch"], mem=conf["core"]["mem"], extra_args=args,
-                          load_plugin_interface=False)
-
-            if "64" in archend:
-                panda.set_os_name("linux-64-generic")
-            else:
-                panda.set_os_name("linux-32-generic")
-
-            panda.load_plugin("osi", args={"disable-autoload": True})
-            panda.load_plugin(
-                "osi_linux",
-                args={
-                    "kconf_file": os.path.join(os.path.dirname(conf["core"]["kernel"]), "osi.config"),
-                    "pagewalk": False,
-                    "kconf_group": q_config["kconf_group"],
-                    "hypercall": True,
-                },
-            )
+        qemu_mode = "kvm" if execution_mode == "kvm" else "system"
+        qemu_lib_arch = q_config["arch"] if qemu_mode == "kvm" else archend
+        logger.info("Using %s execution mode for %s", execution_mode, qemu_lib_arch)
+        panda = KVMQemu.from_installation(qemu_mode, qemu_lib_arch)
+        args = ["-L", "/usr/local/share/qemu/"] + args
+        panda.panda_args = [f"qemu-system-{q_config['arch']}", "-m", conf["core"]["mem"]] + args
 
     # Plugins names are given out of order (by nature of yaml and sorting),
     # but plugins may have dependencies. We sort by dependencies
@@ -496,6 +484,9 @@ def run_config(
     sys.path.append("/pyplugins")
 
     plugins.initialize(panda, args)
+    if execution_mode in {"qemu", "kvm"}:
+        from pyplugins.hypercall import Hypercall
+        plugins.load(Hypercall, args)
     plugins.load_plugins(conf_plugins)
 
     # XXX HACK: normally panda args are set at the constructor. But we want to load
@@ -507,8 +498,16 @@ def run_config(
     # Find the argument after '-append' in the list and re-render it based on updated env
     append_idx = panda.panda_args.index("-append") + 1
 
+    priority_env = ("igloo_init", "CID", "PROJ_NAME", "SHARED_DIR", "ROOT_SHELL", "WWW", "STRACE")
+    env_items = []
+    seen_env = set()
+    for key in priority_env:
+        if key in conf["env"]:
+            env_items.append((key, conf["env"][key]))
+            seen_env.add(key)
+    env_items.extend((key, value) for key, value in conf["env"].items() if key not in seen_env)
     config_args = [
-        f"{k}" + (f"={v}" if v is not None else "") for k, v in conf["env"].items()
+        f"{k}" + (f"={v}" if v is not None else "") for k, v in env_items
     ]
 
     # We had some args originally (e.g., rootfs), not from our config, so
@@ -516,13 +515,15 @@ def run_config(
     # XXX: This is a bit hacky. We want users to be able to clobber args by prioritizing config
     # args first, but we need to know the start of the string too. So let's say a user can't change
     # the root=/dev/vda argument and put that first. Then config args. Then the rest of the args
+    append_parts = panda.panda_args[append_idx].split()
     root_str = f"root={ROOTFS}"
-    panda.panda_args[append_idx] = (
-        root_str
-        + " "
-        + " ".join(config_args)
-        + panda.panda_args[append_idx].replace(root_str, "")
-    )
+    critical_args = [root_str, "init=/igloo/boot/preinit", "panic=1"]
+    critical_args.extend(part for part in append_parts if part.startswith("console="))
+    if "rw" in append_parts:
+        critical_args.append("rw")
+    critical_seen = set(critical_args)
+    rest_args = [part for part in append_parts if part not in critical_seen]
+    panda.panda_args[append_idx] = " ".join(critical_args + config_args + rest_args)
 
     @panda.cb_pre_shutdown
     def pre_shutdown():
