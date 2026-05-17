@@ -225,6 +225,7 @@ class LiveImage(Plugin):
             elif action_type == "delete":
                 paths_to_delete.append(file_path)
             elif action_type == "symlink":
+                record_parent_dirs(file_path)
                 post_tar_commands.append(
                     f"ln -sf {shlex.quote(action['target'])} {shlex.quote(file_path)}")
             elif action_type == "shim":
