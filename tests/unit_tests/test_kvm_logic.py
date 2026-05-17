@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -30,6 +31,20 @@ class FakeHypercallPlugin:
         return 0
 
 
+@contextmanager
+def fake_plugins_hypercall(hypercall):
+    sentinel = object()
+    original = plugins.__dict__.get("hypercall", sentinel)
+    plugins.__dict__["hypercall"] = hypercall
+    try:
+        yield
+    finally:
+        if original is sentinel:
+            del plugins.__dict__["hypercall"]
+        else:
+            plugins.__dict__["hypercall"] = original
+
+
 class TestKVMQemu(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -46,6 +61,21 @@ class TestKVMQemu(unittest.TestCase):
         lib.set_kvm_penguin_hypercall_callback = MagicMock()
         lib.set_penguin_guest_hypercall_callback = MagicMock()
         lib.set_kvm_penguin_after_guest_init_callback = MagicMock()
+        return lib
+
+    def _fake_memory_lib(self, memory: bytes):
+        lib = self._fake_lib()
+
+        def read_memory(cpu, addr, buf, length, is_write):
+            if is_write:
+                return -1
+            data = memory[addr:addr + length]
+            if len(data) != length:
+                return -1
+            cffi.FFI().memmove(buf, data, length)
+            return 0
+
+        lib.cpu_memory_rw_debug = read_memory
         return lib
 
     @patch.object(cffi.FFI, "dlopen")
@@ -75,7 +105,7 @@ class TestKVMQemu(unittest.TestCase):
         qemu = KVMQemu(str(self.lib_path), "x86_64", header_path=str(self.header_path))
         hypercall = FakeHypercallPlugin()
 
-        with patch.object(plugins, "get_plugin_by_name", return_value=hypercall):
+        with fake_plugins_hypercall(hypercall):
             @qemu.hypercall(0x1337)
             def my_handler(cpu):
                 return None
@@ -105,7 +135,7 @@ class TestKVMQemu(unittest.TestCase):
             nonlocal handler_called
             handler_called = True
 
-        with patch.object(plugins, "get_plugin_by_name", return_value=hypercall):
+        with fake_plugins_hypercall(hypercall):
             qemu.hypercall(0x1337)(my_handler)
 
             ret_ptr = qemu.ffi.new("uint64_t *", 0)
@@ -124,7 +154,7 @@ class TestKVMQemu(unittest.TestCase):
         qemu = KVMQemu(str(self.lib_path), "x86_64", header_path=str(self.header_path))
         hypercall = FakeHypercallPlugin()
 
-        with patch.object(plugins, "get_plugin_by_name", return_value=hypercall):
+        with fake_plugins_hypercall(hypercall):
             ret_ptr = qemu.ffi.new("uint64_t *", 0)
             res = qemu._dispatch_hypercall(
                 qemu.ffi.NULL, 0x4, 1, 2, 3, 4, 5, 6, ret_ptr)
@@ -145,6 +175,22 @@ class TestKVMQemu(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             qemu.arch.get_arg(None, 7)
+
+    @patch.object(cffi.FFI, "dlopen")
+    def test_virtual_memory_read_ptrlist(self, mock_dlopen):
+        ptrs = [0x1122334455667788, 0x8877665544332211, 0]
+        memory = b"".join(ptr.to_bytes(8, "little") for ptr in ptrs)
+        mock_dlopen.return_value = self._fake_memory_lib(memory)
+
+        qemu = KVMQemu(str(self.lib_path), "x86_64", header_path=str(self.header_path))
+
+        self.assertEqual(
+            qemu.virtual_memory_read(qemu.ffi.NULL, 0, len(memory), fmt="ptrlist"),
+            ptrs,
+        )
+
+        with self.assertRaises(ValueError):
+            qemu.virtual_memory_read(qemu.ffi.NULL, 0, 1, fmt="ptrlist")
 
 
 if __name__ == "__main__":
