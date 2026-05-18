@@ -46,7 +46,8 @@ static_files:
       # Trigger the read callback and verify the python layer returns EXACTLY the data
       # We use 'dd' to read exactly the bytes we expect and nothing more, 
       # or just check 'wc -c' of the whole output.
-      actual_count=$(/igloo/utils/busybox cat /proc/sys/vm/drop_caches | /igloo/utils/busybox wc -c)
+      /igloo/utils/busybox cat /proc/sys/vm/drop_caches > /tmp/drop_caches.out
+      actual_count=$(/igloo/utils/busybox wc -c < /tmp/drop_caches.out)
       if [ "$actual_count" -ne 24 ]; then
         echo "Error: vm/drop_caches returned $actual_count bytes, expected 24"
         exit 1

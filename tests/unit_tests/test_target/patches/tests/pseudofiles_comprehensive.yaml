@@ -151,7 +151,8 @@ static_files:
 
       echo "test" > /dev/yaml_discard
 
-      zero_bytes=$($bb dd if=/dev/yaml_zero bs=10 count=1 2>/dev/null | $bb wc -c)
+      $bb dd if=/dev/yaml_zero of=/tmp/yaml_zero.out bs=10 count=1 2>/dev/null
+      zero_bytes=$($bb wc -c < /tmp/yaml_zero.out)
       if [ "$zero_bytes" != "1" ]; then
         echo "Error: zero fail (expected 1, got $zero_bytes)"
         exit 1
