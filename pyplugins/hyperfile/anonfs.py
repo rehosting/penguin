@@ -123,9 +123,9 @@ class AnonFS(Plugin):
         ) and not vfs_file._is_overridden("mmap")
         if not supports_default_mmap:
             return 0
-        qemu_mem = getattr(plugins, "qemu_mem", None)
-        if qemu_mem is None:
+        if "qemu_mem" not in plugins:
             return 0
+        qemu_mem = plugins.get_plugin_by_name("qemu_mem")
         return qemu_mem.allocate_file(vfs_file)
 
     def register_socket(self, sock_file: SocketFile) -> Generator[int, None, int]:
