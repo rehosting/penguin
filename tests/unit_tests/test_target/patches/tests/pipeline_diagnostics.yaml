@@ -1,0 +1,196 @@
+plugins:
+  verifier:
+    conditions:
+      pipeline_diagnostics:
+        type: file_contains
+        file: shared/tests/pipeline_diagnostics.sh/stdout
+        string: "/tests/pipeline_diagnostics.sh PASS"
+
+pseudofiles:
+  /proc/pipeline_diag_proc:
+    read:
+      model: const_buf
+      val: "proc_diag\n"
+  /proc/sys/kernel/pipeline_diag_sysctl:
+    read:
+      model: const_buf
+      val: "sysctl_diag\n"
+  /sys/kernel/pipeline_diag_sysfs:
+    read:
+      model: const_buf
+      val: "sysfs_diag\n"
+  /dev/pipeline_diag_dev:
+    read:
+      model: const_buf
+      val: "dev_diag\n"
+  /dev/pipeline_diag_zero:
+    read:
+      model: zero
+
+static_files:
+  /tests/pipeline_diagnostics.sh:
+    type: inline_file
+    mode: 73
+    contents: |
+      #!/igloo/utils/sh
+      set -u
+
+      bb=/igloo/utils/busybox
+      failures=0
+
+      log() {
+        echo "PIPELINE_DIAG $*"
+      }
+
+      expect_count() {
+        label="$1"
+        actual="$2"
+        expected="$3"
+
+        if [ "$actual" = "$expected" ]; then
+          log "$label count=$actual expected=$expected PASS"
+        else
+          log "$label count=$actual expected=$expected FAIL"
+          failures=$((failures + 1))
+        fi
+      }
+
+      direct_cat_count() {
+        label="$1"
+        path="$2"
+        expected="$3"
+
+        out="/tmp/${label}.direct.out"
+        err="/tmp/${label}.direct.err"
+        count_file="/tmp/${label}.direct.count"
+
+        $bb rm -f "$out" "$err" "$count_file"
+        $bb cat "$path" > "$out" 2> "$err"
+        cat_status=$?
+        $bb wc -c < "$out" > "$count_file" 2>> "$err"
+        wc_status=$?
+        count=$($bb cat "$count_file" 2>/dev/null)
+        err_text=$($bb tr '\n' '|' < "$err" 2>/dev/null)
+
+        log "$label direct_cat cat_status=$cat_status wc_status=$wc_status stderr=$err_text"
+        expect_count "$label direct_cat" "$count" "$expected"
+      }
+
+      fifo_cat_count() {
+        label="$1"
+        path="$2"
+        expected="$3"
+
+        fifo="/tmp/${label}.fifo"
+        prod_err="/tmp/${label}.cat.err"
+        cons_err="/tmp/${label}.wc.err"
+        count_file="/tmp/${label}.fifo.count"
+
+        $bb rm -f "$fifo" "$prod_err" "$cons_err" "$count_file"
+        $bb mkfifo "$fifo"
+
+        $bb wc -c < "$fifo" > "$count_file" 2> "$cons_err" &
+        cons_pid=$!
+        $bb cat "$path" > "$fifo" 2> "$prod_err" &
+        prod_pid=$!
+
+        wait "$prod_pid"
+        prod_status=$?
+        wait "$cons_pid"
+        cons_status=$?
+
+        count=$($bb cat "$count_file" 2>/dev/null)
+        prod_err_text=$($bb tr '\n' '|' < "$prod_err" 2>/dev/null)
+        cons_err_text=$($bb tr '\n' '|' < "$cons_err" 2>/dev/null)
+
+        log "$label fifo_cat cat_status=$prod_status wc_status=$cons_status cat_stderr=$prod_err_text wc_stderr=$cons_err_text"
+        expect_count "$label fifo_cat" "$count" "$expected"
+        $bb rm -f "$fifo"
+      }
+
+      direct_dd_count() {
+        label="$1"
+        path="$2"
+        expected="$3"
+
+        out="/tmp/${label}.direct_dd.out"
+        err="/tmp/${label}.direct_dd.err"
+        count_file="/tmp/${label}.direct_dd.count"
+
+        $bb rm -f "$out" "$err" "$count_file"
+        $bb dd "if=$path" "of=$out" "bs=10" "count=1" 2> "$err"
+        dd_status=$?
+        $bb wc -c < "$out" > "$count_file" 2>> "$err"
+        wc_status=$?
+        count=$($bb cat "$count_file" 2>/dev/null)
+        err_text=$($bb tr '\n' '|' < "$err" 2>/dev/null)
+
+        log "$label direct_dd dd_status=$dd_status wc_status=$wc_status stderr=$err_text"
+        expect_count "$label direct_dd" "$count" "$expected"
+      }
+
+      fifo_dd_count() {
+        label="$1"
+        path="$2"
+        expected="$3"
+
+        fifo="/tmp/${label}.dd.fifo"
+        prod_err="/tmp/${label}.dd.err"
+        cons_err="/tmp/${label}.dd_wc.err"
+        count_file="/tmp/${label}.dd.count"
+
+        $bb rm -f "$fifo" "$prod_err" "$cons_err" "$count_file"
+        $bb mkfifo "$fifo"
+
+        $bb wc -c < "$fifo" > "$count_file" 2> "$cons_err" &
+        cons_pid=$!
+        $bb dd "if=$path" "of=$fifo" "bs=10" "count=1" 2> "$prod_err" &
+        prod_pid=$!
+
+        wait "$prod_pid"
+        prod_status=$?
+        wait "$cons_pid"
+        cons_status=$?
+
+        count=$($bb cat "$count_file" 2>/dev/null)
+        prod_err_text=$($bb tr '\n' '|' < "$prod_err" 2>/dev/null)
+        cons_err_text=$($bb tr '\n' '|' < "$cons_err" 2>/dev/null)
+
+        log "$label fifo_dd dd_status=$prod_status wc_status=$cons_status dd_stderr=$prod_err_text wc_stderr=$cons_err_text"
+        expect_count "$label fifo_dd" "$count" "$expected"
+        $bb rm -f "$fifo"
+      }
+
+      log "start arch=$($bb uname -m)"
+
+      direct_cat_count real_file /tests/pipeline_real.txt 10
+      fifo_cat_count real_file /tests/pipeline_real.txt 10
+
+      direct_cat_count proc_const /proc/pipeline_diag_proc 10
+      fifo_cat_count proc_const /proc/pipeline_diag_proc 10
+
+      direct_cat_count sysctl_const /proc/sys/kernel/pipeline_diag_sysctl 12
+      fifo_cat_count sysctl_const /proc/sys/kernel/pipeline_diag_sysctl 12
+
+      direct_cat_count sysfs_const /sys/kernel/pipeline_diag_sysfs 11
+      fifo_cat_count sysfs_const /sys/kernel/pipeline_diag_sysfs 11
+
+      direct_cat_count dev_const /dev/pipeline_diag_dev 9
+      fifo_cat_count dev_const /dev/pipeline_diag_dev 9
+
+      direct_dd_count dev_zero /dev/pipeline_diag_zero 1
+      fifo_dd_count dev_zero /dev/pipeline_diag_zero 1
+
+      if [ "$failures" -ne 0 ]; then
+        log "failures=$failures"
+        exit 1
+      fi
+
+      echo "/tests/pipeline_diagnostics.sh PASS"
+      exit 0
+
+  /tests/pipeline_real.txt:
+    type: inline_file
+    mode: 73
+    contents: |
+      real_diag
