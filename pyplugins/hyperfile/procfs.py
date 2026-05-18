@@ -218,9 +218,9 @@ class Proc(Plugin):
     def _mmap_phys_addr(self, proc: ProcFile) -> int:
         if not self._supports_default_mmap(proc):
             return 0
-        qemu_mem = getattr(plugins, "qemu_mem", None)
-        if qemu_mem is None:
+        if "qemu_mem" not in plugins:
             return 0
+        qemu_mem = plugins.get_plugin_by_name("qemu_mem")
         return qemu_mem.allocate_file(proc)
 
     def _supports_default_mmap(self, proc: ProcFile) -> bool:

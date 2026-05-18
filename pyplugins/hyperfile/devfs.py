@@ -228,9 +228,9 @@ class Devfs(Plugin):
     def _mmap_phys_addr(self, devfs_file: DevFile) -> int:
         if not self._supports_default_mmap(devfs_file):
             return 0
-        qemu_mem = getattr(plugins, "qemu_mem", None)
-        if qemu_mem is None:
+        if "qemu_mem" not in plugins:
             return 0
+        qemu_mem = plugins.get_plugin_by_name("qemu_mem")
         return qemu_mem.allocate_file(devfs_file)
 
     def _supports_default_mmap(self, devfs_file: DevFile) -> bool:
