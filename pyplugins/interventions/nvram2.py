@@ -317,7 +317,7 @@ class Nvram2(Plugin):
         -------
         None
         """
-        self.on_nvram_get(regs, key, True)
+        return self.on_nvram_get(regs, key, True)
 
     @plugins.subscribe(plugins.Events, "igloo_nvram_get_miss")
     def on_nvram_get_miss(self, regs, key: str) -> None:
@@ -335,7 +335,7 @@ class Nvram2(Plugin):
         -------
         None
         """
-        self.on_nvram_get(regs, key, False)
+        return self.on_nvram_get(regs, key, False)
 
     def on_nvram_get(self, regs, key: str, hit: bool) -> None:
         """
@@ -355,12 +355,14 @@ class Nvram2(Plugin):
         None
         """
         if "/" not in key:
-            return
+            return 0
         key = key.split("/")[-1]  # It's the full /igloo/libnvram_tmpfs/keyname path
 
         status = "hit" if hit else "miss"
         self.log_write(f"{key},{status},\n")
-        self.panda.arch.set_arg(regs, 1, 0)
+        if regs is not None:
+            self.panda.arch.set_arg(regs, 1, 0)
+        return 0
         # self.logger.debug(f"nvram get {key} {status}")
 
     @plugins.subscribe(plugins.Events, "igloo_nvram_set")
@@ -382,11 +384,13 @@ class Nvram2(Plugin):
         None
         """
         if "/" not in key:
-            return
+            return 0
         key = key.split("/")[-1]  # It's the full /igloo/libnvram_tmpfs/keyname path
         self.log_write(f"{key},set,{newval}\n")
-        self.panda.arch.set_arg(regs, 1, 0)
+        if regs is not None:
+            self.panda.arch.set_arg(regs, 1, 0)
         self.logger.debug(f"nvram set {key} {newval}")
+        return 0
 
     @plugins.subscribe(plugins.Events, "igloo_nvram_clear")
     def on_nvram_clear(self, regs, key: str) -> None:
@@ -405,10 +409,12 @@ class Nvram2(Plugin):
         None
         """
         if "/" not in key:
-            return
+            return 0
         key = key.split("/")[-1]  # It's the full /igloo/libnvram_tmpfs/keyname path
         self.log_write(f"{key},clear,\n")
-        self.panda.arch.set_arg(regs, 1, 0)
+        if regs is not None:
+            self.panda.arch.set_arg(regs, 1, 0)
+        return 0
         # self.logger.debug(f"nvram clear {key}")
         # self.logger.debug(f"nvram clear {key}")
 
@@ -428,4 +434,6 @@ class Nvram2(Plugin):
         """
         rval = (1 if self.logging_enabled else 0)
         self.logger.debug(f"nvram logging enabled query, returning {rval}")
-        self.panda.arch.set_retval(regs, rval)
+        if regs is not None:
+            self.panda.arch.set_retval(regs, rval)
+        return rval
