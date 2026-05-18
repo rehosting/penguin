@@ -96,8 +96,9 @@ class AnonFS(Plugin):
             "name": name.encode("latin-1", errors="ignore"),
             "hf_id": hf_id,
             "ops": fops,
-            "mmap_phys_addr": mmap_phys_addr
         }
+        if mmap_phys_addr:
+            init_data["mmap_phys_addr"] = mmap_phys_addr
 
         req = kffi.new("struct portal_anonfs_create_req", init_data)
         req_bytes = bytes(req)
