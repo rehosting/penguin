@@ -33,6 +33,8 @@ Classes
 
 from penguin import plugins, Plugin
 from penguin.plugin_manager import resolve_bound_method_from_class
+from hyper.consts import HYPER_OP as hop
+from hyper.portal import PortalCmd
 from typing import Callable, Dict, Iterator
 
 PORTAL_MAGIC = 0xc1d1e1f1
@@ -47,10 +49,20 @@ class PortalCall(Plugin):
 
     def __init__(self) -> None:
         self._portalcall_registry: Dict[int, Callable] = {}
+        self._pending_fastpath_magics = []
+        self._synced_fastpath_magics = set()
+        self._fastpath_supported = (
+            hasattr(hop, "HYPER_OP_REGISTER_PORTALCALL_MAGIC") and
+            hasattr(hop, "HYPER_OP_SET_PORTALCALL_FASTPATH")
+        )
+        if self._fastpath_supported:
+            plugins.portal.register_interrupt_handler(
+                "portalcall", self._portalcall_interrupt_handler)
 
         # 64-bit systems can sign-extend the magic number
         if self.panda.bits == 64:
             plugins.syscalls.syscall("on_sys_sendto_enter", arg_filters=[PORTAL_MAGIC_64, None, None, None, None])(self._portalcall_syscall_handler)
+        self._seen_missing_magics = set()
         plugins.syscalls.syscall("on_sys_sendto_enter", arg_filters=[PORTAL_MAGIC, None, None, None, None])(self._portalcall_syscall_handler)
 
     def _portalcall_syscall_handler(self, regs, proto, syscall, magic, user_magic, argc, args, dest_addr, addrlen):
@@ -67,10 +79,13 @@ class PortalCall(Plugin):
         return int(magic) & PORTAL_MAGIC_MASK == PORTAL_MAGIC
 
     def _dispatch_portalcall(self, user_magic, argc, args):
-        handler = self._portalcall_registry.get(user_magic & 0xffffffff)
+        user_magic = user_magic & 0xffffffff
+        handler = self._portalcall_registry.get(user_magic)
         if handler is None:
-            self.logger.debug(
-                f"No handler registered for user_magic {user_magic:#x}")
+            if user_magic not in self._seen_missing_magics:
+                self.logger.debug(
+                    f"No handler registered for user_magic {user_magic:#x}")
+                self._seen_missing_magics.add(user_magic)
             return
         fn_to_call = resolve_bound_method_from_class(handler)
         if handler != fn_to_call:
@@ -87,6 +102,35 @@ class PortalCall(Plugin):
     def portalcall(self, user_magic: int):
         """Decorator to register a portalcall handler for a given user_magic value."""
         def decorator(func):
+            user_magic_key = user_magic & 0xffffffff
             self._portalcall_registry[user_magic] = func
+            self._portalcall_registry[user_magic_key] = func
+            self._queue_fastpath_magic(user_magic_key)
             return func
         return decorator
+
+    def _queue_fastpath_magic(self, user_magic: int) -> None:
+        if not self._fastpath_supported:
+            return
+        if user_magic in self._synced_fastpath_magics:
+            return
+        if user_magic not in self._pending_fastpath_magics:
+            self._pending_fastpath_magics.append(user_magic)
+        plugins.portal.queue_interrupt("portalcall")
+
+    def _portalcall_interrupt_handler(self):
+        if not self._pending_fastpath_magics:
+            return False
+
+        pending = self._pending_fastpath_magics[:]
+        self._pending_fastpath_magics = []
+
+        yield PortalCmd(hop.HYPER_OP_SET_PORTALCALL_FASTPATH, addr=0)
+        for user_magic in pending:
+            if user_magic in self._synced_fastpath_magics:
+                continue
+            yield PortalCmd(
+                hop.HYPER_OP_REGISTER_PORTALCALL_MAGIC,
+                addr=user_magic)
+            self._synced_fastpath_magics.add(user_magic)
+        yield PortalCmd(hop.HYPER_OP_SET_PORTALCALL_FASTPATH, addr=1)
