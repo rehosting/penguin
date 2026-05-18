@@ -69,7 +69,7 @@ class PortalCall(Plugin):
     def _dispatch_portalcall(self, user_magic, argc, args):
         handler = self._portalcall_registry.get(user_magic & 0xffffffff)
         if handler is None:
-            self.logger.error(
+            self.logger.debug(
                 f"No handler registered for user_magic {user_magic:#x}")
             return
         fn_to_call = resolve_bound_method_from_class(handler)
