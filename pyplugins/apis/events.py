@@ -51,7 +51,9 @@ Example
 """
 
 from penguin import plugins, Plugin
+from penguin.plugin_manager import resolve_bound_method_from_class
 from hyper.consts import igloo_hypercall_constants as iconsts
+from typing import Iterator
 
 
 EVENTS = {
@@ -103,6 +105,7 @@ class Events(Plugin):
         """
         # MAGIC -> [fn1, fn2, fn3,...]
         self.callbacks = {}
+        self._portalcall_handlers = set()
 
         for event_num, (name, args) in EVENTS.items():
             plugins.register(self, name, register_notify=self.register_notify)
@@ -148,6 +151,44 @@ class Events(Plugin):
                     raise ValueError(f"Unknown argument type {arg}")
             plugins.publish(self, self.callbacks[magic], *args)
 
+    def _setup_portalcall_handler(self, magic, arg_types):
+        if magic in self._portalcall_handlers:
+            return
+        self._portalcall_handlers.add(magic)
+
+        @plugins.portalcall.portalcall(magic)
+        def generic_portalcall(*raw_args):
+            args = [None]
+            for i, arg in enumerate(arg_types):
+                argval = raw_args[i] if i < len(raw_args) else 0
+                if arg is int:
+                    args.append(argval)
+                elif arg is str:
+                    try:
+                        args.append((yield from plugins.mem.read_str(argval)))
+                    except ValueError:
+                        self.logger.debug(
+                            f"arg read fail: {magic} {argval:x} {i} {arg}"
+                        )
+                        return 1
+                elif arg is bool:
+                    args.append(argval != 0)
+                elif arg is None:
+                    pass
+                else:
+                    raise ValueError(f"Unknown argument type {arg}")
+
+            result = 0
+            for cb in plugins.plugin_cbs[self][self.callbacks[magic]]:
+                if not hasattr(cb, '__self__') and hasattr(cb, '__qualname__') and '.' in cb.__qualname__:
+                    cb = resolve_bound_method_from_class(cb)
+                cb_result = cb(*args)
+                if isinstance(cb_result, Iterator):
+                    cb_result = yield from cb_result
+                if isinstance(cb_result, int):
+                    result = cb_result
+            return result
+
     def register_notify(self, name, callback):
         """
         Register a callback for an event.
@@ -166,6 +207,7 @@ class Events(Plugin):
             if ename == name:
                 if self.callbacks.get(magic, None) is None:
                     self._setup_hypercall_handler(magic, arg_types)
+                    self._setup_portalcall_handler(magic, arg_types)
                     self.callbacks[magic] = []
                 self.callbacks[magic] = name
                 return
