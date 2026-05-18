@@ -244,6 +244,16 @@ def run_config(
         " clocksource=jiffies nohz_full nohz=off no_timer_check"  # Improve determinism?
     )
 
+    if pkversion < (6, 13):
+        append += (
+            " systemd.unified_cgroup_hierarchy=0"
+            " systemd.legacy_systemd_cgroup_controller=1"
+            " IGLOO_CGROUP_MODE=v1"
+            " IGLOO_IPTABLES_BACKEND=legacy"
+        )
+    else:
+        append += " IGLOO_CGROUP_MODE=v2 IGLOO_IPTABLES_BACKEND=nft"
+
     # acpi=off blocks x86 secondary-CPU enumeration via MADT; only safe on
     # single-CPU old kernels where PANDA needs it for determinism.
     if pkversion < (6, 13) and conf["core"].get("smp", 1) <= 1:
@@ -492,7 +502,17 @@ def run_config(
     # Find the argument after '-append' in the list and re-render it based on updated env
     append_idx = panda.panda_args.index("-append") + 1
 
-    priority_env = ("igloo_init", "CID", "PROJ_NAME", "SHARED_DIR", "ROOT_SHELL", "WWW", "STRACE")
+    priority_env = (
+        "igloo_init",
+        "CID",
+        "PROJ_NAME",
+        "SHARED_DIR",
+        "ROOT_SHELL",
+        "WWW",
+        "STRACE",
+        "IGLOO_CGROUP_MODE",
+        "IGLOO_IPTABLES_BACKEND",
+    )
     env_items = []
     seen_env = set()
     for key in priority_env:
