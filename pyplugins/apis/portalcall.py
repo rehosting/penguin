@@ -37,6 +37,7 @@ from typing import Callable, Dict, Iterator
 
 PORTAL_MAGIC = 0xc1d1e1f1
 PORTAL_MAGIC_64 = 0xffffffffc1d1e1f1
+PORTAL_MAGIC_MASK = 0xffffffff
 
 
 class PortalCall(Plugin):
@@ -53,12 +54,17 @@ class PortalCall(Plugin):
         plugins.syscalls.syscall("on_sys_sendto_enter", arg_filters=[PORTAL_MAGIC, None, None, None, None])(self._portalcall_syscall_handler)
 
     def _portalcall_syscall_handler(self, regs, proto, syscall, magic, user_magic, argc, args, dest_addr, addrlen):
+        if not self._is_portal_magic(magic):
+            return
         result = yield from self._dispatch_portalcall(user_magic, argc, args)
         syscall.skip_syscall = True
         if isinstance(result, int):
             syscall.retval = result
         else:
             syscall.retval = 0  # Default to 0 if result is not an int
+
+    def _is_portal_magic(self, magic: int) -> bool:
+        return int(magic) & PORTAL_MAGIC_MASK == PORTAL_MAGIC
 
     def _dispatch_portalcall(self, user_magic, argc, args):
         handler = self._portalcall_registry.get(user_magic & 0xffffffff)
