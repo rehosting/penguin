@@ -1,5 +1,6 @@
 import os
 import shlex
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -481,6 +482,26 @@ class QemuCompat:
         except AttributeError:
             return None
 
+    @contextmanager
+    def bql_held(self, callsite: bytes = b"pyplugins/qemu_compat.py"):
+        """Acquire the BQL on entry if the current thread doesn't already hold it.
+
+        Safe to call from any thread. KVM vCPU threads, the remotectrl asyncio
+        thread, and other non-main-loop threads can use this to invoke QEMU
+        APIs that assert(bql_locked()) — e.g. memory_region_transaction_commit,
+        cpu_memory_rw_debug, plugin/listener registration.
+        """
+        bql_locked = self._lib_symbol("bql_locked")
+        if bql_locked is None or bql_locked():
+            yield
+            return
+        self.lib.bql_lock_impl(callsite, 0)
+        try:
+            yield
+        finally:
+            if bql_locked():
+                self.lib.bql_unlock()
+
     def set_hypercall_callback(self, cb: Callable):
         if self.mode == "kvm":
             ctype = (
@@ -511,10 +532,14 @@ class QemuCompat:
         self._current_ret_ptr = ret_ptr
         self._current_retval = 0
 
+        # KVM vCPU threads drop BQL across KVM_RUN and most exit handlers don't
+        # reacquire it, but our pyplugin handlers call BQL-protected APIs
+        # (cpu_memory_rw_debug, memory_region_*, etc). Re-acquire here.
         try:
-            plugin = self.hypercall_plugin
-            if plugin is not None:
-                return plugin.dispatch(cs, nr, ret_ptr)
+            with self.bql_held(b"pyplugins/qemu_compat.py:_dispatch_hypercall"):
+                plugin = self.hypercall_plugin
+                if plugin is not None:
+                    return plugin.dispatch(cs, nr, ret_ptr)
         finally:
             self._current_ret_ptr = self.ffi.NULL
 
