@@ -292,9 +292,10 @@ class QemuArch:
 
 
 class KVMLibPandaMock:
-    def __init__(self, lib, ffi):
+    def __init__(self, lib, ffi, qemu=None):
         self.lib = lib
         self.ffi = ffi
+        self.qemu = qemu
 
     def _to_ptr(self, buf, length):
         if buf == self.ffi.NULL:
@@ -311,15 +312,17 @@ class KVMLibPandaMock:
     def __getattr__(self, name):
         if name == "panda_virtual_memory_read_external":
             def wrapper(cpu, addr, buf, length):
-                return self.lib.cpu_memory_rw_debug(
-                    cpu, addr, self._to_ptr(buf, length), length, False
-                )
+                ptr = self._to_ptr(buf, length)
+                if self.qemu is not None:
+                    return self.qemu._cpu_memory_rw_debug(cpu, addr, ptr, length, False)
+                return self.lib.cpu_memory_rw_debug(cpu, addr, ptr, length, False)
             return wrapper
         if name == "panda_virtual_memory_write_external":
             def wrapper(cpu, addr, buf, length):
-                return self.lib.cpu_memory_rw_debug(
-                    cpu, addr, self._to_ptr(buf, length), length, True
-                )
+                ptr = self._to_ptr(buf, length)
+                if self.qemu is not None:
+                    return self.qemu._cpu_memory_rw_debug(cpu, addr, ptr, length, True)
+                return self.lib.cpu_memory_rw_debug(cpu, addr, ptr, length, True)
             return wrapper
 
         try:
@@ -389,7 +392,7 @@ class QemuCompat:
 
         flags = getattr(os, "RTLD_GLOBAL", 0) | getattr(os, "RTLD_NOW", 0)
         self.lib = self.ffi.dlopen(str(self.lib_path), flags=flags)
-        self.libpanda = KVMLibPandaMock(self.lib, self.ffi)
+        self.libpanda = KVMLibPandaMock(self.lib, self.ffi, self)
 
         self._callback = None
         self._after_guest_init_callback = None
@@ -558,6 +561,32 @@ class QemuCompat:
         self._pre_shutdown_cb = f
         return f
 
+    def _guest_addr(self, addr):
+        mask = (1 << self.bits) - 1
+        return self.ffi.cast("vaddr", int(addr) & mask)
+
+    def _call_with_bql(self, fn):
+        bql_locked = self._lib_symbol("bql_locked")
+        bql_lock = self._lib_symbol("bql_lock_impl")
+        bql_unlock = self._lib_symbol("bql_unlock")
+        locked_here = False
+
+        if bql_locked and bql_lock and bql_unlock and not bql_locked():
+            bql_lock(b"pyplugins/qemu_compat.py", 0)
+            locked_here = True
+        try:
+            return fn()
+        finally:
+            if locked_here:
+                bql_unlock()
+
+    def _cpu_memory_rw_debug(self, cpu, addr, ptr, length, is_write):
+        vaddr = self._guest_addr(addr)
+        size = self.ffi.cast("size_t", int(length))
+        return self._call_with_bql(
+            lambda: self.lib.cpu_memory_rw_debug(cpu, vaddr, ptr, size, bool(is_write))
+        )
+
     def _set_current_retval(self, value):
         value = self.to_unsigned_guest(value)
         self._current_retval = value
@@ -613,7 +642,7 @@ class QemuCompat:
 
     def run(self):
         logger.info("QEMU starting main loop from %s", self.lib_path)
-        logger.info("QEMU argv: %s", shlex.join(self.panda_args))
+        logger.debug("QEMU argv: %s", shlex.join(self.panda_args))
 
         argv_storage = [
             self.ffi.new("char[]", arg.encode("utf-8"))
