@@ -1,5 +1,6 @@
 import os
 import shlex
+import threading
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -398,15 +399,61 @@ class QemuCompat:
         self._after_guest_init_callback = None
         self._bound_hypercall_plugin = None
         self.arch = QemuArch(self)
-        self._current_nr = 0
-        self._current_args = [0, 0, 0, 0, 0, 0]
-        self._current_ret_ptr = self.ffi.NULL
-        self._current_retval = 0
+        self._thread_state = threading.local()
         self._pre_shutdown_cb = None
         self.panda_args = []
-        self._current_cpu = self.ffi.NULL
 
         self.set_hypercall_callback(self._dispatch_hypercall)
+
+    def _callback_state(self):
+        state = self._thread_state
+        if not hasattr(state, "nr"):
+            state.nr = 0
+            state.args = [0, 0, 0, 0, 0, 0]
+            state.ret_ptr = self.ffi.NULL
+            state.retval = 0
+            state.cpu = self.ffi.NULL
+        return state
+
+    @property
+    def _current_nr(self):
+        return self._callback_state().nr
+
+    @_current_nr.setter
+    def _current_nr(self, value):
+        self._callback_state().nr = value
+
+    @property
+    def _current_args(self):
+        return self._callback_state().args
+
+    @_current_args.setter
+    def _current_args(self, value):
+        self._callback_state().args = value
+
+    @property
+    def _current_ret_ptr(self):
+        return self._callback_state().ret_ptr
+
+    @_current_ret_ptr.setter
+    def _current_ret_ptr(self, value):
+        self._callback_state().ret_ptr = value
+
+    @property
+    def _current_retval(self):
+        return self._callback_state().retval
+
+    @_current_retval.setter
+    def _current_retval(self, value):
+        self._callback_state().retval = value
+
+    @property
+    def _current_cpu(self):
+        return self._callback_state().cpu
+
+    @_current_cpu.setter
+    def _current_cpu(self, value):
+        self._callback_state().cpu = value
 
     @property
     def direct_syscall_event_writeback(self) -> bool:
