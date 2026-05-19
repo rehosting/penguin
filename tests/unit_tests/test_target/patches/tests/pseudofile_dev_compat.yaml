@@ -1,0 +1,107 @@
+plugins:
+  verifier:
+    conditions:
+      pseudofile_dev_compat_seek:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_dev_compat_seek.py PASS"
+      pseudofile_dev_compat_poll:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_dev_compat_poll.py PASS"
+      pseudofile_dev_compat_unknown_seek:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_dev_compat_unknown_seek.py PASS"
+
+pseudofiles:
+  /dev/compat_seekable_const:
+    read:
+      model: const_buf
+      val: "hello world!"
+  /dev/compat_seekable_explicit:
+    size: 4
+    read:
+      model: empty
+  /dev/compat_unknown_seek:
+    read:
+      model: from_file
+      filename: "./does_not_exist.txt"
+
+static_files:
+  /tests/pseudofile_dev_compat_seek.py:
+    type: inline_file
+    mode: 0o755
+    contents: |
+      #!/igloo/utils/micropython
+      import os
+
+      with open("/dev/compat_seekable_const", "rb") as f:
+          assert f.read(5) == b"hello"
+          assert f.seek(0, 0) == 0
+          assert f.read(5) == b"hello"
+
+          assert f.seek(6, 0) == 6
+          assert f.read(5) == b"world"
+
+          assert f.seek(-6, 1) == 6
+          assert f.read(5) == b"world"
+
+          assert f.seek(-1, 2) == 11
+          assert f.read(1) == b"!"
+
+          try:
+              f.seek(13, 0)
+              raise AssertionError("seek past end should fail")
+          except OSError as e:
+              assert e.args[0] == 22
+
+          try:
+              f.seek(-1, 0)
+              raise AssertionError("negative seek should fail")
+          except OSError as e:
+              assert e.args[0] == 22
+
+      with open("/dev/compat_seekable_explicit", "rb") as f:
+          assert f.seek(4, 0) == 4
+          assert f.seek(-2, 1) == 2
+          assert f.seek(0, 2) == 4
+
+      print("/tests/pseudofile_dev_compat_seek.py PASS")
+
+  /tests/pseudofile_dev_compat_poll.py:
+    type: inline_file
+    mode: 0o755
+    contents: |
+      #!/igloo/utils/micropython
+      import select
+
+      pollin = getattr(select, "POLLIN", 0x001)
+      pollout = getattr(select, "POLLOUT", 0x004)
+
+      with open("/dev/compat_unknown_seek", "rb") as f:
+          poll_obj = select.poll()
+          poll_obj.register(f, pollin | pollout)
+          events = poll_obj.poll(100)
+
+          assert len(events) == 1, "expected one poll result"
+          obj, event_mask = events[0]
+          assert obj == f or obj == f.fileno(), "unexpected poll object"
+          assert event_mask & pollin, "missing POLLIN readiness"
+          assert event_mask & pollout, "missing POLLOUT readiness"
+
+      print("/tests/pseudofile_dev_compat_poll.py PASS")
+
+  /tests/pseudofile_dev_compat_unknown_seek.py:
+    type: inline_file
+    mode: 0o755
+    contents: |
+      #!/igloo/utils/micropython
+      with open("/dev/compat_unknown_seek", "rb") as f:
+          try:
+              f.seek(0, 0)
+              raise AssertionError("unknown-size pseudofile should not gain seek fallback")
+          except OSError as e:
+              assert e.args[0] in (22, 29), e.args
+
+      print("/tests/pseudofile_dev_compat_unknown_seek.py PASS")

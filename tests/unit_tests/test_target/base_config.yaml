@@ -35,6 +35,7 @@ patches:
   - ./patches/tests/procfs_test.yaml
   - ./patches/tests/pseudofile_devfs.yaml
   - ./patches/tests/pseudofile_ioctl.yaml
+  - ./patches/tests/pseudofile_dev_compat.yaml
   - ./patches/tests/pseudofile_missing.yaml
   - ./patches/tests/pseudofile_mmap_shared.yaml
   - ./patches/tests/pseudofile_readdir.yaml
