@@ -199,11 +199,16 @@ class RemoteCtrl(Plugin):
             cmd_type = cmd.get('type')
             handler = self.handlers.get(cmd_type)
 
-            if handler:
-                result = handler(cmd)
-                return {"status": "success", **(result if isinstance(result, dict) else {})}
-            else:
+            if not handler:
                 return {"status": "error", "message": f"Unknown command: {cmd_type}"}
+
+            # Handlers run on the asyncio thread, but loading pyplugins,
+            # registering callbacks, or reading guest memory require the BQL.
+            # Hold it across the whole dispatch so any cascading PANDA/QEMU
+            # API hits assert(bql_locked()) cleanly.
+            with self.panda.bql_held(b"pyplugins/remotectrl.py:_process_message"):
+                result = handler(cmd)
+            return {"status": "success", **(result if isinstance(result, dict) else {})}
         except Exception as e:
             self.logger.error(traceback.format_exc())
             return {"status": "error", "message": str(e)}
