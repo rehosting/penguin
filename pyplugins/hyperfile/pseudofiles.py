@@ -1,4 +1,5 @@
 import inspect
+import os
 from penguin import plugins, Plugin
 from hyperfile.models.base import DevFile, ProcFile, SysFile, SysfsBridge, SysctlFile
 from hyperfile.models.read import (
@@ -23,6 +24,45 @@ from hyperfile.models.ioctl import (
     IoctlPluginVFS,
     IoctlPluginLegacy,
 )
+
+
+class _LegacyDevPollCompat:
+    """Convenience poll fallback for legacy dictionary-backed /dev pseudofiles."""
+
+    # POLLIN | POLLRDNORM | POLLOUT | POLLWRNORM
+    _POLL_READY_MASK = 0x145
+
+    def poll(self, ptregs, file, poll_table_struct):
+        ptregs.retval = self._POLL_READY_MASK
+
+
+class _LegacyDevSeekCompat(_LegacyDevPollCompat):
+    """Seek fallback for legacy dictionary-backed /dev pseudofiles with known size."""
+
+    def lseek(self, ptregs, file, offset, whence):
+        offset_val = int(offset)
+        whence_val = int(whence)
+        size = int(getattr(self, "SIZE", 0))
+
+        cur = yield from plugins.kffi.read_field(file, "struct file", "f_pos")
+        cur_val = int(cur)
+
+        if whence_val == 0:  # SEEK_SET
+            new_offset = offset_val
+        elif whence_val == 1:  # SEEK_CUR
+            new_offset = cur_val + offset_val
+        elif whence_val == 2:  # SEEK_END
+            new_offset = size + offset_val
+        else:
+            ptregs.retval = -22
+            return
+
+        if new_offset < 0 or new_offset > size:
+            ptregs.retval = -22
+            return
+
+        yield from plugins.kffi.write_field(file, "struct file", "f_pos", new_offset)
+        ptregs.retval = new_offset
 
 
 class Pseudofiles(Plugin):
@@ -237,6 +277,60 @@ class Pseudofiles(Plugin):
 
         return self._detect_plugin_style(plugin_name, func_name, domain)
 
+    def _resolve_known_size(self, filename, details, read_conf):
+        if "size" in details and details["size"] is not None:
+            try:
+                return int(details["size"])
+            except (TypeError, ValueError):
+                return None
+
+        model_name = read_conf.get("model", "default")
+
+        if model_name in ("const_buf", "return_const"):
+            val = read_conf.get("val", b"")
+            if isinstance(val, bytes):
+                return len(val)
+            return len(str(val).encode("utf-8"))
+
+        if model_name == "empty":
+            return 0
+
+        if model_name == "zero":
+            return 1
+
+        if model_name in ("const_map", "const_map_file"):
+            size = read_conf.get("size")
+            try:
+                return int(size)
+            except (TypeError, ValueError):
+                return None
+
+        if model_name == "from_file":
+            host_path = read_conf.get("filename")
+            if not host_path:
+                return None
+
+            proj_dir = plugins.get_arg("proj_dir")
+            if not os.path.isabs(host_path) and proj_dir:
+                host_path = os.path.join(proj_dir, host_path)
+
+            if os.path.exists(host_path):
+                return os.path.getsize(host_path)
+            return None
+
+        return None
+
+    def _get_compat_bases(self, filename, details):
+        if not filename.startswith("/dev/"):
+            return []
+
+        read_conf = details.get("read", {})
+        known_size = self._resolve_known_size(filename, details, read_conf)
+        if known_size is not None:
+            details.setdefault("size", known_size)
+            return [_LegacyDevSeekCompat]
+        return [_LegacyDevPollCompat]
+
     def _create_dynamic_class(self, filename, details, BaseClass):
         read_conf = details.get("read", {})
         write_conf = details.get("write", {})
@@ -262,7 +356,8 @@ class Pseudofiles(Plugin):
 
         # Assemble
         safe_name = f"Gen_{filename.replace('/', '_')}"
-        bases = [R_Mixin, W_Mixin, IoctlDispatcher]
+        bases = list(self._get_compat_bases(filename, details))
+        bases.extend([R_Mixin, W_Mixin, IoctlDispatcher])
 
         if BaseClass is SysFile:
             bases.append(SysfsBridge)
