@@ -44,7 +44,7 @@ static_files:
           assert f.seek(6, 0) == 6
           assert f.read(5) == b"world"
 
-          assert f.seek(-6, 1) == 6
+          assert f.seek(-5, 1) == 6
           assert f.read(5) == b"world"
 
           assert f.seek(-1, 2) == 11
