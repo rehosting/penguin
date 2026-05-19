@@ -314,6 +314,11 @@ penguin_run() {
             docker_cmd+=("--group-add" "$kvm_gid")
         fi
     fi
+    # Kernel-backed vhost-vsock-pci (used in snapshottable mode) needs the
+    # vhost-vsock char device exposed to the container.
+    if [ -e /dev/vhost-vsock ]; then
+        docker_cmd+=("--device=/dev/vhost-vsock")
+    fi
 
     # If we have a name set, ensure it's available. We only really care about this for run/guest_cmd/shell (and maybe explore) action
     if [[ ${#cmd[@]} -gt 1 && ( "${cmd[0]}" == "run" || "${cmd[0]}" == "guest_cmd" || "${cmd[0]}" == "guest-cmd" || "${cmd[0]}" == "shell" ) ]]; then

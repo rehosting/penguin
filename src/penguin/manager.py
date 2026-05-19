@@ -218,6 +218,8 @@ class PandaRunner:
         show_output: bool = False,
         verbose: bool = False,
         resolved_kernel: str | None = None,
+        snapshottable: bool = False,
+        restore_from: str | None = None,
     ) -> None:
         """
         Run the penguin emulation experiment in a subprocess.
@@ -305,6 +307,12 @@ class PandaRunner:
         if resolved_kernel:
             cmd.append("--resolved-kernel")
             cmd.append(resolved_kernel)
+
+        if snapshottable:
+            cmd.append("--snapshottable")
+        if restore_from:
+            cmd.append("--restore-from")
+            cmd.append(restore_from)
 
         start = time.time()
         try:

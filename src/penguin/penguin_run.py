@@ -72,6 +72,8 @@ def run_config(
     show_output=False,
     verbose=False,
     resolved_kernel=None,
+    snapshottable=False,
+    restore_from=None,
 ):
     """
     conf_yaml a path to our config within proj_dir
@@ -113,6 +115,13 @@ def run_config(
 
     pkversion = get_penguin_kernel_version(conf)
 
+    # CLI overrides for snapshot/restore mode
+    if snapshottable:
+        conf["core"]["snapshottable"] = True
+    if restore_from:
+        conf["core"]["restore_from"] = restore_from
+        conf["core"]["snapshottable"] = True
+
     if timeout is not None and conf.get("plugins", {}).get("core", None) is not None:
         # An arugument setting a timeout overrides the config's timeout
         conf["plugins"]["core"]["timeout"] = timeout
@@ -152,6 +161,10 @@ def run_config(
     if isinstance(conf_plugins, list):
         logger.info("Warning, expected dict of plugins, got list")
         conf_plugins = {plugin: {} for plugin in conf_plugins}
+
+    # Auto-load the snapshot plugin when snapshottable mode (or restore) is on.
+    if conf["core"].get("snapshottable") or conf["core"].get("restore_from"):
+        conf_plugins.setdefault("snapshot", {"enabled": True})
 
     if not os.path.isfile(conf["core"]["kernel"]):
         raise ValueError(f"Kernel file invalid: {conf['core']['kernel']}")
@@ -209,31 +222,45 @@ def run_config(
     # We have to set up vsock args for qemu CLI arguments if we're using the vpn. We
     # special case this here and add the arguments to the plugin later
     vpn_enabled = conf_plugins.get("vpn", {"enabled": False}).get("enabled", True)
+    snapshottable = conf["core"].get("snapshottable", False) or conf["core"].get("restore_from") is not None
     vsock_args = []
     vpn_args = {}
+    vpn_tmpdir = None
+    socket_path = None
 
     if vpn_enabled:
-        vpn_tmpdir = tempfile.TemporaryDirectory()
-        path = Path(vpn_tmpdir.name)
-        CID = 4  # We can use a constant CID with vhost-user-vsock
-        socket_path = path / "socket"
-        uds_path = path / "vsocket"
-        mem_path = path / "mem_path"
-
-        vpn_args = {"socket_path": socket_path, "uds_path": uds_path, "CID": CID}
+        CID = 4  # We can use a constant CID with vhost-(user-)vsock
         conf["env"]["CID"] = CID
 
-        vsock_args = [
-            "-object",
-            f'memory-backend-file,id=mem0,mem-path={mem_path},size={conf["core"]["mem"]},share=on',
-            "-chardev",
-            f"socket,id=char0,path={socket_path}",
-            "-device",
-            "vhost-user-vsock-pci,chardev=char0",
-        ]
+        if snapshottable:
+            # Kernel-backed vhost-vsock-pci is migratable (savevm/loadvm
+            # friendly); vhost-user-vsock-pci is hard-coded unmigratable in
+            # QEMU. Trade-off: needs /dev/vhost-vsock on the host.
+            vpn_args = {"socket_path": None, "uds_path": None, "CID": CID}
+            vsock_args = [
+                "-device",
+                f"vhost-vsock-pci,id=vhostvsock0,guest-cid={CID}",
+            ]
+        else:
+            vpn_tmpdir = tempfile.TemporaryDirectory()
+            path = Path(vpn_tmpdir.name)
+            socket_path = path / "socket"
+            uds_path = path / "vsocket"
+            mem_path = path / "mem_path"
 
-        if "mips" not in q_config["arch"]:   # and "ppc" not in q_config["arch"]:
-            vsock_args.extend(["-numa", "node,memdev=mem0",])
+            vpn_args = {"socket_path": socket_path, "uds_path": uds_path, "CID": CID}
+
+            vsock_args = [
+                "-object",
+                f'memory-backend-file,id=mem0,mem-path={mem_path},size={conf["core"]["mem"]},share=on',
+                "-chardev",
+                f"socket,id=char0,path={socket_path}",
+                "-device",
+                "vhost-user-vsock-pci,chardev=char0",
+            ]
+
+            if "mips" not in q_config["arch"]:   # and "ppc" not in q_config["arch"]:
+                vsock_args.extend(["-numa", "node,memdev=mem0",])
 
     append = f"root={ROOTFS} init=/igloo/boot/preinit console=ttyS0 rw panic=1"  # Required
     if "kernel_quiet" in conf["core"] and conf["core"]["kernel_quiet"]:
@@ -272,11 +299,13 @@ def run_config(
     if telnet_port is None:
         raise OSError("No available port found in the specified range")
 
-    # If core config specifes immutable: False we'll run without snapshot
+    # If core config specifes immutable: False we'll run without snapshot.
+    # savevm requires a writable image, so snapshottable forces immutable off.
     no_snapshot_drive = f"file={config_image},id=hd0"
     snapshot_drive = no_snapshot_drive + ",cache=unsafe,snapshot=on"
-    drive = snapshot_drive if conf["core"].get("immutable", True) else no_snapshot_drive
-    if vpn_enabled and ("mips" in q_config["arch"]):  # and "ppc" not in q_config["arch"]):
+    use_writable_drive = snapshottable or not conf["core"].get("immutable", True)
+    drive = no_snapshot_drive if use_writable_drive else snapshot_drive
+    if vpn_enabled and (not snapshottable) and ("mips" in q_config["arch"]):  # and "ppc" not in q_config["arch"]):
         machine_args = q_config["qemu_machine"]+",memory-backend=mem0"
     else:
         machine_args = q_config["qemu_machine"]
@@ -367,11 +396,14 @@ def run_config(
         # if we do not set show_output it breaks our logging
     else:
         logger.info(f"Logging console output to {out_dir}/console.log")
+        if snapshottable:
+            mon_arg = ["-monitor", f"unix:{out_dir}/monitor.sock,server,nowait"]
+        else:
+            mon_arg = ["-monitor", "null"]
         console_out = [
             "-serial",
             f"file:{out_dir}/console.log",
-            "-monitor",
-            "null",
+            *mon_arg,
             "-display", "none",
         ]  # ttyS0: guest console output
 
@@ -546,7 +578,7 @@ def run_config(
         """
         plugins.unload_all()
 
-    while vpn_enabled and not os.path.exists(socket_path):
+    while vpn_enabled and socket_path is not None and not os.path.exists(socket_path):
         logger.info(f"Waiting for socket {socket_path} to be created")
         sleep(0.1)
 
@@ -562,7 +594,7 @@ def run_config(
         finally:
             # think about this and maybe join on the thread
             plugins.unload_all()
-            if vpn_enabled:
+            if vpn_enabled and vpn_tmpdir is not None:
                 shutil.rmtree(vpn_tmpdir.name, ignore_errors=True)
 
     if show_output:
@@ -615,6 +647,13 @@ def main():
         if idx + 1 < len(sys.argv):
             resolved_kernel = sys.argv[idx + 1]
 
+    snapshottable = "--snapshottable" in sys.argv
+    restore_from = None
+    if "--restore-from" in sys.argv:
+        idx = sys.argv.index("--restore-from")
+        if idx + 1 < len(sys.argv):
+            restore_from = sys.argv[idx + 1]
+
     logger.debug("penguin_run start:")
     logger.debug(f"proj_dir={proj_dir}")
     logger.debug(f"config={config}")
@@ -625,7 +664,9 @@ def main():
     logger.debug(f"resolved_kernel={resolved_kernel}")
 
     run_config(
-        proj_dir, config, out_dir, logger, init, timeout, show_output, verbose=verbose, resolved_kernel=resolved_kernel
+        proj_dir, config, out_dir, logger, init, timeout, show_output,
+        verbose=verbose, resolved_kernel=resolved_kernel,
+        snapshottable=snapshottable, restore_from=restore_from,
     )
 
 

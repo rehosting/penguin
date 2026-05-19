@@ -213,6 +213,32 @@ class Core(PartialModelMixin, BaseModel):
             examples=[False, True],
         ),
     ]
+    snapshottable: Annotated[
+        bool,
+        Field(
+            False,
+            title="Enable savevm/loadvm-compatible run",
+            description=(
+                "Use the kernel-backed vhost-vsock-pci device (instead of "
+                "the unmigratable vhost-user-vsock-pci) and force a writable "
+                "qcow, so the VM can be snapshotted via panda_snap. Requires "
+                "/dev/vhost-vsock on the host."
+            ),
+            examples=[False, True],
+        ),
+    ]
+    restore_from: Annotated[
+        Optional[str],
+        Field(
+            None,
+            title="Snapshot tag to restore on boot",
+            description=(
+                "If set, the snapshot pyplugin will call panda_revert with "
+                "this tag once the VM is up. Implies snapshottable."
+            ),
+            examples=["auto-1", None],
+        ),
+    ]
     network: Annotated[
         bool,
         Field(

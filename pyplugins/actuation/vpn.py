@@ -57,7 +57,7 @@ import threading
 from contextlib import closing
 from os import environ as env
 from os import geteuid
-from os.path import join
+from os.path import exists, join
 
 from penguin import Plugin, plugins
 from penguin.defaults import static_dir
@@ -186,8 +186,51 @@ class VPN(Plugin):
         with open(join(self.outdir, BRIDGE_FILE), "w") as f:
             f.write("procname,ipvn,domain,guest_ip,guest_port,host_port\n")
 
+        # Restore-mode: replay the saved bind map into the host VPN event
+        # file *before* the guest unfreezes, so host ports are already bound
+        # when restored guest sockets resume.
+        restore_from = self.get_arg("conf")["core"].get("restore_from")
+        if restore_from:
+            self._replay_bridges(self.get_arg("proj_dir"), restore_from)
+
         # Whenever NetBinds detects a bind, we'll set up bridges
         plugins.subscribe(plugins.NetBinds, "on_bind", self.on_bind)
+
+    def _replay_bridges(self, proj_dir: str, snapshot_name: str) -> None:
+        """Rebind every (proto, host_port, guest_ip, guest_port) from a saved bridges.csv."""
+        import csv
+        snap_csv = join(proj_dir, "snapshots", snapshot_name, "bridges.csv")
+        if not exists(snap_csv):
+            self.logger.warning(
+                f"restore_from set but {snap_csv} missing; no bridges to replay"
+            )
+            return
+        replayed = 0
+        with open(snap_csv) as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                sock_type = row["domain"]
+                guest_ip = row["guest_ip"]
+                guest_port = int(row["guest_port"])
+                host_port = int(row["host_port"])
+                ipvn = 4 if row["ipvn"] == "ipv4" else 6
+                procname = row["procname"]
+                # Mark as already-active so on_bind doesn't double-bridge if
+                # the guest re-emits the same bind after restore.
+                self.active_listeners.add((sock_type, guest_ip, guest_port))
+                self.mapped_ports.add(host_port)
+                with open(self.event_file.name, "a") as ef:
+                    ef.write(
+                        f"{sock_type},{guest_ip}:{guest_port},"
+                        f"0.0.0.0:{host_port},{guest_ip}:0\n"
+                    )
+                with open(join(self.outdir, BRIDGE_FILE), "a") as bf:
+                    bf.write(
+                        f"{procname},ipv{ipvn},{sock_type},{guest_ip},"
+                        f"{guest_port},{host_port}\n"
+                    )
+                replayed += 1
+        self.logger.info(f"replayed {replayed} bridges from {snap_csv}")
 
     def launch_host_vpn(self, CID: int, socket_path: str, uds_path: str, log: bool = False, pcap: bool = False) -> None:
         '''
@@ -195,24 +238,27 @@ class VPN(Plugin):
 
         Args:
             CID (int): Context ID for vsock.
-            socket_path (str): Path to the vsock socket.
-            uds_path (str): Path to the Unix domain socket for QEMU.
+            socket_path (str): Path to the vsock socket. None for kernel-backed vsock.
+            uds_path (str): Path to the Unix domain socket for QEMU. None for kernel-backed vsock.
             log (bool, optional): Enable logging of VPN traffic.
             pcap (bool, optional): Enable PCAP capture of VPN traffic.
         '''
-        # Launch a process that listens on the file socket and forwards to the uds
-        # which QEMU connects to.
-        self.host_vsock_bridge = subprocess.Popen(
-            [
-                "vhost-device-vsock",
-                "--guest-cid",
-                str(CID),
-                "--socket",
-                socket_path,
-                "--uds-path",
-                uds_path,
-            ]
-        )
+        # vhost-device-vsock only exists to bridge a UNIX socket to QEMU's
+        # vhost-user-vsock-pci. With kernel-backed vhost-vsock-pci, QEMU
+        # talks to /dev/vhost-vsock directly and the host VPN dials AF_VSOCK
+        # against the guest CID.
+        if uds_path is not None:
+            self.host_vsock_bridge = subprocess.Popen(
+                [
+                    "vhost-device-vsock",
+                    "--guest-cid",
+                    str(CID),
+                    "--socket",
+                    socket_path,
+                    "--uds-path",
+                    uds_path,
+                ]
+            )
 
         # Launch VPN on host as panda starts. Init in the guest will launch the VPN in the guest
         self.event_file = tempfile.NamedTemporaryFile(prefix=f"/tmp/vpn_events_{CID}_")
@@ -223,9 +269,9 @@ class VPN(Plugin):
             self.event_file.name,
             "-c",
             str(CID),
-            "-u",
-            uds_path,
         ]
+        if uds_path is not None:
+            host_vpn_cmd.extend(["-u", str(uds_path)])
         if log:
             host_vpn_cmd.extend(["-o", self.outdir])
         if pcap:

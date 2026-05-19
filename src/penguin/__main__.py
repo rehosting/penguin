@@ -49,7 +49,8 @@ def _validate_project(proj_dir, config_path):
     return config
 
 
-def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=False):
+def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=False,
+                    snapshottable=False, restore_from=None):
     config = _validate_project(proj_dir, config_path)
 
     # You already have a config, let's just run it. This is what happens
@@ -87,6 +88,8 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
             show_output=True,
             verbose=verbose,
             resolved_kernel=config["core"]["kernel"],
+            snapshottable=snapshottable,
+            restore_from=restore_from,
         )
     except RuntimeError:
         logger.error("No post-run analysis since there was no .run file")
@@ -577,9 +580,10 @@ def init(ctx, rootfs, output, force, output_base):
 @click.option("--force", is_flag=True, default=False, help="Forcefully delete output directory if it exists.")
 @click.option("--timeout", type=int, default=None, help="Number of seconds that run/iteration should last. Default is None (must manually kill)")
 @click.option("-a", "--auto", is_flag=True, help="Run in auto mode (don't start telnet shell).")
+@click.option("--snapshottable", is_flag=True, default=False, help="Use the migratable kernel-backed vsock and writable qcow so this run can be snapshotted.")
 @verbose_option
 @click.pass_context
-def run(ctx, project_dir, config, output, force, timeout, auto):
+def run(ctx, project_dir, config, output, force, timeout, auto, snapshottable):
     """
     Run from a config.
 
@@ -657,7 +661,112 @@ def run(ctx, project_dir, config, output, force, timeout, auto):
             "Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments"
         )
 
-    run_from_config(project_dir, config, output, timeout=timeout, verbose=ctx.obj['VERBOSE'])
+    run_from_config(project_dir, config, output, timeout=timeout, verbose=ctx.obj['VERBOSE'],
+                    snapshottable=snapshottable)
+
+
+def _find_latest_results(project_dir: str) -> str | None:
+    latest = os.path.join(project_dir, "results", "latest")
+    if os.path.islink(latest) or os.path.isdir(latest):
+        return os.path.realpath(latest)
+    return None
+
+
+def _send_snapshot_request(sock_path: str, payload: dict, timeout: float = 60.0) -> dict:
+    import json
+    import socket as _socket
+    s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    s.connect(sock_path)
+    s.sendall(json.dumps(payload).encode("utf-8") + b"\n")
+    buf = b""
+    while not buf.endswith(b"\n"):
+        chunk = s.recv(4096)
+        if not chunk:
+            break
+        buf += chunk
+    s.close()
+    return json.loads(buf.decode("utf-8")) if buf else {}
+
+
+@cli.command()
+@click.argument("project_dir", type=str)
+@click.option("--name", type=str, default=None, help="Snapshot tag. Defaults to auto-<timestamp>.")
+@click.option("--results", type=str, default=None, help="Results dir of the running emulation. Defaults to results/latest.")
+@verbose_option
+@click.pass_context
+def snapshot(ctx, project_dir, name, results):
+    """Snapshot a running emulation. The emulation must have been started with --snapshottable."""
+    _startup_checks(ctx.obj['VERBOSE'])
+    project_dir = os.path.abspath(project_dir)
+    results_dir = results or _find_latest_results(project_dir)
+    if results_dir is None:
+        raise click.ClickException(f"No running results dir found under {project_dir}/results")
+    sock_path = os.path.join(results_dir, "snapshot.sock")
+    if not os.path.exists(sock_path):
+        raise click.ClickException(
+            f"snapshot control socket not found at {sock_path}. "
+            "Was the emulation started with --snapshottable?"
+        )
+    import time as _time
+    payload = {"op": "snap", "name": name or f"auto-{int(_time.time())}"}
+    reply = _send_snapshot_request(sock_path, payload)
+    if not reply.get("ok"):
+        raise click.ClickException(f"snapshot failed: {reply}")
+    logger.info(f"snapshot saved: {payload['name']}")
+
+
+@cli.command()
+@click.argument("project_dir", type=str)
+@click.argument("snapshot_name", type=str)
+@click.option("--config", type=str, help="Path to a config file. Defaults to <project_dir>/config.yaml.")
+@click.option("--output", type=str, default=None, help="Output directory.")
+@click.option("--force", is_flag=True, default=False, help="Forcefully delete output directory if it exists.")
+@click.option("--timeout", type=int, default=None)
+@verbose_option
+@click.pass_context
+def restore(ctx, project_dir, snapshot_name, config, output, force, timeout):
+    """Boot a fresh emulation and immediately load SNAPSHOT_NAME via savevm."""
+    _startup_checks(ctx.obj['VERBOSE'])
+
+    if not os.path.isabs(project_dir):
+        project_dir = os.path.join(os.getcwd(), project_dir)
+
+    snap_dir = os.path.join(project_dir, "snapshots", snapshot_name)
+    if not os.path.isdir(snap_dir):
+        raise click.ClickException(f"snapshot directory not found: {snap_dir}")
+
+    if force and output and os.path.isdir(output):
+        shutil.rmtree(output, ignore_errors=True)
+
+    if not config and os.path.exists(os.path.join(project_dir, "config.yaml")):
+        config = os.path.join(project_dir, "config.yaml")
+    if config is None:
+        raise click.ClickException("Could not find config.yaml under project_dir")
+
+    if output is None:
+        results_base = os.path.join(project_dir, "results")
+        os.makedirs(results_base, exist_ok=True)
+        existing = []
+        for d in os.listdir(results_base):
+            if os.path.isdir(os.path.join(results_base, d)):
+                try:
+                    existing.append(int(d))
+                except ValueError:
+                    pass
+        idx = max(existing) + 1 if existing else 0
+        output = os.path.join(results_base, str(idx))
+        latest = os.path.join(results_base, "latest")
+        if os.path.islink(latest):
+            os.unlink(latest)
+        os.symlink(f"./{idx}", latest)
+
+    logger.info(f"Restoring {snapshot_name} from {snap_dir} into {output}")
+    run_from_config(
+        project_dir, config, output,
+        timeout=timeout, verbose=ctx.obj['VERBOSE'],
+        snapshottable=True, restore_from=snapshot_name,
+    )
 
 
 @cli.command()
