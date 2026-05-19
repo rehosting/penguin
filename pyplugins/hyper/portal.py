@@ -177,8 +177,10 @@ class Portal(Plugin):
         self.regions_size = 4096 - self.region_header_size
         self.mask = 0xFFFFFFFFFFFFFFFF if self.panda.bits == 64 else 0xFFFFFFFF
         self.portal_interrupt = None
+        self._portal_interrupt_counter = 0
         # Generic interrupts mechanism
         self._interrupt_handlers = {}  # plugin_name -> handler_function
+        self._always_interrupt_handlers = {}
         self._pending_interrupts = set()  # Set of plugin names with pending work
         plugins.hypercall.hypercall(iconsts.IGLOO_HYPER_REGISTER_MEM_REGION)(
             self._register_cpu_memregion)
@@ -214,7 +216,6 @@ class Portal(Plugin):
         # Process one item from each plugin that has pending interrupts
         interrupts = self._pending_interrupts.copy()
         self._pending_interrupts.clear()
-        self._portal_clear_interrupt()
         for plugin_name in list(interrupts):
             if plugin_name in self._interrupt_handlers:
                 handler_fn = self._interrupt_handlers[plugin_name]
@@ -222,9 +223,13 @@ class Portal(Plugin):
                 # Call handler function without any arguments
                 # Plugin is responsible for tracking its own pending work
                 yield from handler_fn()
+        for plugin_name, handler_fn in list(self._always_interrupt_handlers.items()):
+            self.logger.debug(f"Processing always interrupt for {plugin_name}")
+            yield from handler_fn()
 
     def register_interrupt_handler(
-            self, plugin_name: str, handler_fn: Callable[[], Iterator]) -> None:
+            self, plugin_name: str, handler_fn: Callable[[], Iterator],
+            always: bool = False) -> None:
         """
         Register a plugin to handle portal interrupts.
 
@@ -239,6 +244,8 @@ class Portal(Plugin):
         self.logger.debug(f"Registering interrupt handler for {plugin_name}")
         # The handler function should be a wrapped generator
         self._interrupt_handlers[plugin_name] = handler_fn
+        if always:
+            self._always_interrupt_handlers[plugin_name] = handler_fn
         if plugin_name in self._pending_interrupts:
             self.logger.debug(
                 f"Plugin {plugin_name} already had pending interrupts")
@@ -258,12 +265,8 @@ class Portal(Plugin):
                 f"No interrupt handler registered for {plugin_name}")
             return False
 
-        # Add plugin to pending set
-        if plugin_name not in self._pending_interrupts:
-            # Trigger an interrupt to process the item
-            self._portal_set_interrupt()
-
         self._pending_interrupts.add(plugin_name)
+        self._portal_set_interrupt()
         return True
 
     def _cleanup_all_interrupts(self) -> None:
@@ -273,6 +276,7 @@ class Portal(Plugin):
         **Returns:** None
         """
         self._interrupt_handlers = {}
+        self._always_interrupt_handlers = {}
         self._pending_interrupts = set()
 
     def _portal_set_interrupt_value(self, value: int) -> None:
@@ -285,7 +289,7 @@ class Portal(Plugin):
         **Returns:** None
         """
         if self.portal_interrupt:
-            buf = struct.pack(f"{self.endian_format}Q", value)
+            buf = struct.pack(f"{self.endian_format}I", value & 0xFFFFFFFF)
             try:
                 plugins.mem.write_bytes_panda(
                     self._get_cpu(), self.portal_interrupt, buf)
@@ -300,7 +304,10 @@ class Portal(Plugin):
 
         **Returns:** None
         """
-        self._portal_set_interrupt_value(1)
+        self._portal_interrupt_counter = (self._portal_interrupt_counter + 1) & 0xFFFFFFFF
+        if self._portal_interrupt_counter == 0:
+            self._portal_interrupt_counter = 1
+        self._portal_set_interrupt_value(self._portal_interrupt_counter)
 
     def _portal_clear_interrupt(self) -> None:
         """
@@ -308,7 +315,9 @@ class Portal(Plugin):
 
         **Returns:** None
         """
-        self._portal_set_interrupt_value(0)
+        # The guest uses a monotonic doorbell counter; clearing would lose races
+        # with new work queued during a drain.
+        pass
 
     '''
     Our memregion is the first available memregion OR the one that is owned by us
