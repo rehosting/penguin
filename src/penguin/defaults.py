@@ -54,6 +54,7 @@ default_plugins: dict[str, dict] = {
     },
     "lifeguard": {
     },
+    "core_pattern_guard": {},
     "interfaces": {
     },
     "send_hypercall": {

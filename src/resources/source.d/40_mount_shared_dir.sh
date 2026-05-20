@@ -11,8 +11,13 @@ if [ ! -z "${SHARED_DIR}" ]; then
   /igloo/utils/busybox mkdir -p /igloo/shared/core_dumps
   /igloo/utils/busybox chmod -R 1777 /igloo/shared/core_dumps
   # Make sure the underlying file is overwritten and not a hyperfs pseudofile at that path.
-  # One might want to make `/proc/sys/kernel/core_pattern` a pseudofile to prevent the guest from overwriting it.
-  /igloo/utils/busybox echo '/igloo/shared/core_dumps/core_%e.%p' > /proc/sys/kernel/core_pattern
+  CORE_PATTERN='/igloo/shared/core_dumps/core_%e.%p'
+  /igloo/utils/busybox echo "$CORE_PATTERN" > /proc/sys/kernel/core_pattern
+  # Lock it in: the kernel's core_pattern[] global is now populated via the real
+  # handler; this hypercall asks penguin's core_pattern_guard plugin to install a
+  # sysctl pseudofile that eats subsequent writes, so the guest can't redirect
+  # core dumps elsewhere.
+  /igloo/utils/send_hypercall core_pattern_lock "$CORE_PATTERN" >/dev/null 2>&1 || true
   # 2 all processes dump core when possible. The core dump is owned by the current user and no security is applied. This is intended for system debugging situations only. Ptrace is unchecked. This is insecure as it allows regular users to examine the memory contents of privileged processes.
   # https://sysctl-explorer.net/fs/suid_dumpable/
   /igloo/utils/busybox echo 2 > /proc/sys/fs/suid_dumpable
