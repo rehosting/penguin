@@ -26,6 +26,7 @@ from .patch_search import patch_search
 from .patch_minimizer import minimize as patch_minimize
 from .plugin_manager import find_local_plugins
 from .compose import run_compose
+from .utils_cli import utils as _utils_group
 
 logger = getColoredLogger("penguin")
 
@@ -1046,7 +1047,6 @@ def compose(ctx, compose_file, output, force, timeout):
     run_compose(compose_file, output, timeout=timeout, force=force, verbose=ctx.obj['VERBOSE'])
 
 
-from .utils_cli import utils as _utils_group
 cli.add_command(_utils_group)
 
 
