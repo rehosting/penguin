@@ -1046,5 +1046,9 @@ def compose(ctx, compose_file, output, force, timeout):
     run_compose(compose_file, output, timeout=timeout, force=force, verbose=ctx.obj['VERBOSE'])
 
 
+from .utils_cli import utils as _utils_group
+cli.add_command(_utils_group)
+
+
 if __name__ == "__main__":
     cli()

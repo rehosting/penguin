@@ -57,6 +57,13 @@ class ComposeConfig:
     output_base_dir: str | None = None
 
 
+@dataclass(frozen=True)
+class RuntimeEndpointSpec:
+    telnet_port_base: int
+    telnet_port_count: int
+    vsock_cid: int
+
+
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
@@ -261,7 +268,92 @@ def _prepare_device_run(
     return derived_path
 
 
+DEFAULT_TELNET_PORT_BASE = 20000
+DEFAULT_TELNET_PORT_BLOCK_SIZE = 100
+DEFAULT_VSOCK_CID_BASE = 16
+
+
+def _env_int(name: str, default: int, min_value: int = 0) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError as e:
+        raise ValueError(f"{name} must be an integer, got {raw!r}") from e
+    if value < min_value:
+        raise ValueError(f"{name} must be >= {min_value}, got {value}")
+    return value
+
+
+def _runtime_endpoint_spec(idx: int) -> RuntimeEndpointSpec:
+    """Return the reserved host-facing endpoint block for one compose device."""
+    telnet_base = _env_int(
+        "PENGUIN_COMPOSE_TELNET_BASE",
+        DEFAULT_TELNET_PORT_BASE,
+        min_value=1,
+    )
+    telnet_block = _env_int(
+        "PENGUIN_COMPOSE_TELNET_BLOCK_SIZE",
+        DEFAULT_TELNET_PORT_BLOCK_SIZE,
+        min_value=1,
+    )
+    vsock_base = _env_int(
+        "PENGUIN_COMPOSE_VSOCK_CID_BASE",
+        DEFAULT_VSOCK_CID_BASE,
+        min_value=3,
+    )
+    port = telnet_base + idx * telnet_block
+    if port > 65535:
+        raise ValueError(
+            "compose telnet port allocation exceeded 65535; lower "
+            "PENGUIN_COMPOSE_TELNET_BASE or PENGUIN_COMPOSE_TELNET_BLOCK_SIZE"
+        )
+    return RuntimeEndpointSpec(
+        telnet_port_base=port,
+        telnet_port_count=min(telnet_block, 65536 - port),
+        vsock_cid=vsock_base + idx,
+    )
+
+
+def _write_instance_yaml(
+    device: DeviceConfig,
+    networks: dict[str, NetworkSpec],
+    device_out_dir: str,
+    endpoints: RuntimeEndpointSpec,
+    runtime_metadata_path: str,
+) -> None:
+    """Record per-device runtime metadata so `penguin utils list` can show it."""
+    nets = []
+    for att in device.networks:
+        net = networks[att.network_name]
+        nets.append({
+            "name": att.network_name,
+            "iface": att.iface,
+            "ip": att.ip,
+            "mac": att.mac,
+            "mcast": f"{MCAST_GROUP}:{net.port}",
+        })
+    data = {
+        "name": device.name,
+        "project": device.proj_dir,
+        "output": os.path.join(device_out_dir, "output"),
+        "telnet_port": endpoints.telnet_port_base,
+        "telnet_port_range": [
+            endpoints.telnet_port_base,
+            endpoints.telnet_port_base + endpoints.telnet_port_count - 1,
+        ],
+        "vsock_cid": endpoints.vsock_cid,
+        "runtime_metadata": runtime_metadata_path,
+        "networks": nets,
+        "compose_pid": os.getpid(),
+    }
+    with open(os.path.join(device_out_dir, "instance.yaml"), "w") as f:
+        yaml.dump(data, f, default_flow_style=False)
+
+
 def _run_device(
+    idx: int,
     device: DeviceConfig,
     networks: dict[str, NetworkSpec],
     compose_path: str,
@@ -294,6 +386,12 @@ def _run_device(
                 "Set env.igloo_init in your project config."
             )
 
+    endpoints = _runtime_endpoint_spec(idx)
+    runtime_metadata_path = os.path.join(device_out_dir, "runtime.yaml")
+    _write_instance_yaml(
+        device, networks, device_out_dir, endpoints, runtime_metadata_path
+    )
+
     try:
         PandaRunner().run(
             derived_config_path,
@@ -304,6 +402,12 @@ def _run_device(
             show_output=False,  # each device writes to its own console.log
             verbose=verbose,
             resolved_kernel=config["core"]["kernel"],
+            extra_env={
+                "PENGUIN_TELNET_PORT_BASE": endpoints.telnet_port_base,
+                "PENGUIN_TELNET_PORT_RANGE": endpoints.telnet_port_count,
+                "PENGUIN_VSOCK_CID": endpoints.vsock_cid,
+                "PENGUIN_RUNTIME_METADATA": runtime_metadata_path,
+            },
         )
     except RuntimeError as e:
         logger.error(f"Device '{device.name}' run failed: {e}")
@@ -375,6 +479,7 @@ def run_compose(
         futures = {
             executor.submit(
                 _run_device,
+                idx,
                 device,
                 cfg.networks,
                 compose_path,
@@ -382,7 +487,7 @@ def run_compose(
                 timeout,
                 verbose,
             ): name
-            for name, device in cfg.devices.items()
+            for idx, (name, device) in enumerate(cfg.devices.items())
         }
         for future in as_completed(futures):
             name = futures[future]

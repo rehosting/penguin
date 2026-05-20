@@ -386,6 +386,56 @@ penguin_run() {
         exit $?
     fi
 
+    # Compose utilities are most useful in the already-running compose container:
+    # that is the only namespace where /proc and localhost telnet ports describe
+    # the live guests. If exactly one container is active for cwd, exec into it.
+    if [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "utils" ]]; then
+        local target_path="$(realpath "$(pwd)")"
+        local matches
+        matches=$(docker ps --filter "label=penguin.root=$target_path" --filter "status=running" --format "{{.ID}}|{{.Names}}|{{.CreatedAt}}")
+
+        local match_count=0
+        if [ -n "$matches" ]; then
+            match_count=$(echo "$matches" | wc -l)
+        fi
+
+        if [[ $match_count -eq 1 ]]; then
+            container_name=$(echo "$matches" | cut -d'|' -f2)
+            local -a exec_cmd=("${cmd[@]}")
+            for ((i=1; i<${#exec_cmd[@]}; i++)); do
+                if [[ -e "${exec_cmd[$i]}" ]]; then
+                    local real_arg_path="$(realpath "${exec_cmd[$i]}" 2>/dev/null)"
+                    if [[ "$real_arg_path" == "$target_path"* ]]; then
+                        local rel_path="${real_arg_path#$target_path}"
+                        rel_path="${rel_path#/}"
+                        if [ -z "$rel_path" ]; then
+                            exec_cmd[$i]="/workspace"
+                        else
+                            exec_cmd[$i]="/workspace/$rel_path"
+                        fi
+                    fi
+                fi
+            done
+            docker_cmd=("docker" "exec")
+            if [ -t 0 ]; then
+                docker_cmd+=("-it")
+            fi
+            docker_cmd+=("-w" "/workspace" "${container_name}" "penguin")
+            docker_cmd+=("${exec_cmd[@]}")
+            "${docker_cmd[@]}"
+            exit $?
+        elif [[ $match_count -gt 1 ]]; then
+            echo "${BOLD}Multiple active containers found for this directory:${RESET}"
+            printf "${BOLD}%-12s %-25s %-30s${RESET}\n" "ID" "NAME" "STARTED"
+            echo "$matches" | while IFS='|' read -r id name start; do
+                 printf "%-12s %-25s %-30s\n" "${id:0:12}" "$name" "${start%%.*}"
+            done
+            echo ""
+            echo "Please select one using: ${BOLD}penguin --name <NAME> utils ${cmd[*]:1}${RESET}"
+            exit 1
+        fi
+    fi
+
     # Similarly if we are running a shell in the container, start it if it's not already running, otherwise exec into that container
     if [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "shell" ]]; then
         if [[ -n "$container_name" ]] && docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
@@ -538,13 +588,19 @@ penguin_run() {
         fi
     done
 
-    # NEW: Default to current directory if running 'shell' with no path args
-    if [[ ${#cmd[@]} -gt 0 && -z "$host_workspace_dir" && "${cmd[0]}" == "shell" ]]; then
+    # Default to current directory if running a workspace-scoped command with no path args.
+    if [[ ${#cmd[@]} -gt 0 && -z "$host_workspace_dir" && ( "${cmd[0]}" == "shell" || "${cmd[0]}" == "utils" ) ]]; then
         host_workspace_dir=$(pwd)
-        # We append "." to the arguments passed to the container.
-        # Since we effectively map cwd -> /workspace and set -w /workspace,
-        # "." correctly resolves to the project directory inside the container.
-        new_cmd+=(".")
+        if [[ "${cmd[0]}" == "shell" ]]; then
+            # We append "." to the arguments passed to the container.
+            # Since we effectively map cwd -> /workspace and set -w /workspace,
+            # "." correctly resolves to the project directory inside the container.
+            new_cmd+=(".")
+        fi
+    fi
+
+    if [[ -n "$host_workspace_dir" && -z "$project_dir" && "${cmd[0]}" == "utils" ]]; then
+        project_dir="/workspace"
     fi
 
     if [ -n "$project_dir" ]; then
@@ -570,8 +626,8 @@ penguin_run() {
         docker_cmd+=("-l" "penguin.root=$host_workspace_dir")
     fi
 
-    # NEW: Force working directory to /workspace if running shell
-    if [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "shell" ]]; then
+    # Force workspace-scoped commands to start in the mapped workspace.
+    if [[ ${#cmd[@]} -gt 0 && ( "${cmd[0]}" == "shell" || "${cmd[0]}" == "utils" ) ]]; then
         docker_cmd+=("-w" "/workspace")
     fi
 
