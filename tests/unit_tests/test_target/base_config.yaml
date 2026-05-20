@@ -14,6 +14,7 @@ env:
 patches:
   - ./patches/tests/bash.yaml
   - ./patches/tests/core_dumps.yaml
+  - ./patches/tests/core_pattern_guard.yaml
   - ./patches/tests/devfs_passthrough.yaml
   - ./patches/tests/devfs_test.yaml
   - ./patches/tests/env_cmp.yaml
