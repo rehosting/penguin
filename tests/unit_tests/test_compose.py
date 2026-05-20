@@ -4,8 +4,12 @@ Unit tests for penguin.compose — pure logic only, no QEMU required.
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from penguin.compose import (
+    DEFAULT_TELNET_PORT_BASE,
+    DEFAULT_TELNET_PORT_BLOCK_SIZE,
+    DEFAULT_VSOCK_CID_BASE,
     MCAST_BASE_PORT,
     MCAST_GROUP,
     ComposeConfig,
@@ -15,6 +19,7 @@ from penguin.compose import (
     _build_compose_patch,
     _deep_merge,
     _generate_mac,
+    _runtime_endpoint_spec,
     load_compose,
 )
 
@@ -107,6 +112,33 @@ class TestDeepMerge(unittest.TestCase):
         base = {"a": [1, 2, 3]}
         result = _deep_merge(base, {"a": [4, 5]})
         self.assertEqual(result["a"], [4, 5])
+
+
+class TestRuntimeEndpointSpec(unittest.TestCase):
+    def test_default_endpoint_blocks_are_unique(self):
+        with patch.dict(os.environ, {}, clear=True):
+            first = _runtime_endpoint_spec(0)
+            second = _runtime_endpoint_spec(1)
+        self.assertEqual(first.telnet_port_base, DEFAULT_TELNET_PORT_BASE)
+        self.assertEqual(first.telnet_port_count, DEFAULT_TELNET_PORT_BLOCK_SIZE)
+        self.assertEqual(first.vsock_cid, DEFAULT_VSOCK_CID_BASE)
+        self.assertEqual(
+            second.telnet_port_base,
+            DEFAULT_TELNET_PORT_BASE + DEFAULT_TELNET_PORT_BLOCK_SIZE,
+        )
+        self.assertEqual(second.vsock_cid, DEFAULT_VSOCK_CID_BASE + 1)
+
+    def test_endpoint_blocks_honor_env_overrides(self):
+        env = {
+            "PENGUIN_COMPOSE_TELNET_BASE": "30000",
+            "PENGUIN_COMPOSE_TELNET_BLOCK_SIZE": "10",
+            "PENGUIN_COMPOSE_VSOCK_CID_BASE": "40",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            spec = _runtime_endpoint_spec(2)
+        self.assertEqual(spec.telnet_port_base, 30020)
+        self.assertEqual(spec.telnet_port_count, 10)
+        self.assertEqual(spec.vsock_cid, 42)
 
 
 class TestBuildComposePatch(unittest.TestCase):

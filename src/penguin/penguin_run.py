@@ -18,6 +18,42 @@ from .utils import hash_image_inputs, get_penguin_kernel_version
 from .q_config import load_q_config, ROOTFS
 
 
+def _env_int(name: str, default: int, min_value: int = 0) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError as e:
+        raise ValueError(f"{name} must be an integer, got {raw!r}") from e
+    if value < min_value:
+        raise ValueError(f"{name} must be >= {min_value}, got {value}")
+    return value
+
+
+def _runtime_path(value) -> str | None:
+    return str(value) if value is not None else None
+
+
+def _write_runtime_metadata(out_dir: str, metadata: dict) -> None:
+    paths = []
+    requested = os.environ.get("PENGUIN_RUNTIME_METADATA")
+    if requested:
+        paths.append(requested)
+    paths.append(os.path.join(out_dir, "runtime.yaml"))
+
+    seen = set()
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(path, "w") as f:
+            yaml.dump(metadata, f, default_flow_style=False)
+
+
 @contextmanager
 def print_to_log(out, err):
     original_stdout = sys.stdout  # Save the original stdout
@@ -215,7 +251,7 @@ def run_config(
     if vpn_enabled:
         vpn_tmpdir = tempfile.TemporaryDirectory()
         path = Path(vpn_tmpdir.name)
-        CID = 4  # We can use a constant CID with vhost-user-vsock
+        CID = _env_int("PENGUIN_VSOCK_CID", 4, min_value=3)
         socket_path = path / "socket"
         uds_path = path / "vsocket"
         mem_path = path / "mem_path"
@@ -328,6 +364,24 @@ def run_config(
     graphics = conf["core"].get("graphics", False)
     show_output_bool = conf["core"].get("show_output", False)
     root_shell_enabled = conf["core"].get("root_shell", False)
+
+    _write_runtime_metadata(out_dir, {
+        "pid": os.getpid(),
+        "project": proj_dir,
+        "config": conf_yaml,
+        "output": out_dir,
+        "container_ip": os.environ.get("CONTAINER_IP"),
+        "container_name": os.environ.get("CONTAINER_NAME"),
+        "root_shell": root_shell_enabled,
+        "guest_cmd": conf["core"].get("guest_cmd", False),
+        "telnet_port": telnet_port,
+        "telnet_port_base": os.environ.get("PENGUIN_TELNET_PORT_BASE"),
+        "telnet_port_range": os.environ.get("PENGUIN_TELNET_PORT_RANGE"),
+        "vpn_enabled": vpn_enabled,
+        "vsock_cid": vpn_args.get("CID"),
+        "vsock_socket_path": _runtime_path(vpn_args.get("socket_path")),
+        "vsock_uds_path": _runtime_path(vpn_args.get("uds_path")),
+    })
 
     if graphics and show_output_bool:
         logger.warning("Graphics and show_output are mutually exclusive. Using graphics")
@@ -572,23 +626,39 @@ def run_config(
             _run()
 
 
+def _port_is_free(port: int) -> bool:
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+        try:
+            sock.bind(("0.0.0.0", port))
+            return True
+        except OSError:
+            return False
+
+
+def _random_free_port() -> int:
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+        sock.bind(("0.0.0.0", 0))
+        return sock.getsockname()[1]
+
+
 def find_free_port():
-    telnet_port = 23
-    while telnet_port < 65535:
-        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
-            try:
-                sock.bind(("127.0.0.1", telnet_port))
-                break
-            except OSError:
-                telnet_port += 1000
+    base = _env_int("PENGUIN_TELNET_PORT_BASE", 23, min_value=1)
+    range_size = os.environ.get("PENGUIN_TELNET_PORT_RANGE")
 
-    if telnet_port > 65535:
-        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-            s.bind(("localhost", 0))
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            telnet_port = s.getsockname()[1]
+    if range_size is not None:
+        count = _env_int("PENGUIN_TELNET_PORT_RANGE", 1, min_value=1)
+        for port in range(base, min(65535, base + count - 1) + 1):
+            if _port_is_free(port):
+                return port
+        return _random_free_port()
 
-    return telnet_port
+    telnet_port = base
+    while telnet_port <= 65535:
+        if _port_is_free(telnet_port):
+            return telnet_port
+        telnet_port += 1000
+
+    return _random_free_port()
 
 
 def main():

@@ -206,7 +206,12 @@ class PandaRunner:
                     os.killpg(os.getpgid(p.pid), signal.SIGKILL)
                 except Exception as e:
                     self.logger.error(f"Failed to send SIGKILL to process group: {e}")
-        signal.signal(signal.SIGINT, handler)
+        try:
+            signal.signal(signal.SIGINT, handler)
+        except ValueError:
+            # compose runs each device in a worker thread; SIGINT forwarding is only
+            # installable from the main thread, so Ctrl+C escalation is skipped there.
+            pass
 
     def run(
         self,
@@ -218,6 +223,7 @@ class PandaRunner:
         show_output: bool = False,
         verbose: bool = False,
         resolved_kernel: str | None = None,
+        extra_env: dict | None = None,
     ) -> None:
         """
         Run the penguin emulation experiment in a subprocess.
@@ -307,9 +313,13 @@ class PandaRunner:
             cmd.append(resolved_kernel)
 
         start = time.time()
+        popen_env = None
+        if extra_env:
+            popen_env = os.environ.copy()
+            popen_env.update({k: str(v) for k, v in extra_env.items()})
         try:
             # Without stdout argument, the output will be printed to the console - great
-            p = subprocess.Popen(cmd, preexec_fn=os.setsid)
+            p = subprocess.Popen(cmd, preexec_fn=os.setsid, env=popen_env)
             self.catch_and_forward_sigint(p)
             p.wait(timeout=timeout_s + 10 if timeout_s else None)
         except subprocess.TimeoutExpired:

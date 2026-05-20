@@ -43,7 +43,7 @@ devices:
         mac: "52:54:00:aa:01:01"    # optional: auto-generated if absent
     config_overrides:               # optional: merged as a final patch layer
       core:
-        timeout: 120
+        guest_cmd_timeout: 120
 
   client:
     project: ./projects/client_fw
@@ -61,8 +61,7 @@ device is assigned the specified MAC so the firmware can identify it. Ensure
 your firmware names the interface as expected (normally `eth0`, `eth1`, etc.).
 
 **`ip`** — if set, writes `ip link set <iface> up; ip addr add <ip> dev <iface>`
-into `core.startup_script`, which runs as `/igloo/init.d/zz_startup_script`
-late in the boot sequence (after firmware init scripts).
+to the compose-generated `/igloo/init.d/zz_compose_net` startup script.
 
 **`config_overrides`** — merged as the final patch layer on top of the project's
 own `config.yaml` and any `patch_*.yaml` files.
@@ -88,12 +87,67 @@ compose_results/
   router/
     derived_config.yaml      # config actually used (with compose patch applied)
     patch_compose_net.yaml   # auto-generated network patch
+    instance.yaml            # planned metadata: name, endpoint block, networks
+    runtime.yaml             # actual runner metadata: shell port, vsock CID, sockets
     output/                  # PandaRunner output (console.log, health_final.yaml, ...)
     score.txt
   client/
     ...
   compose_summary.yaml       # aggregated scores across all devices
 ```
+
+## Inspecting a running compose session
+
+`penguin utils list` walks `compose_results/` and reports each device's
+connection info: PID, root-shell port, vsock CID, mcast endpoint, output
+directory, and status (`running`, `ok`, or `failed`):
+
+```sh
+./penguin utils list
+# or, if compose_results/ lives somewhere unusual:
+./penguin utils list --dir /path/to/compose_results
+```
+
+When run from the host, the wrapper execs the command into the active container
+for the current workspace when exactly one is running. That lets `list` see
+live QEMU processes as well as the result files. If no compose container is
+running, it starts a short-lived utility container and reports what is available
+from `compose_results/`.
+
+For devices whose firmware exposes a guest root shell, the command also prints
+ready-to-paste `telnet <container-ip> <port>` commands. Compose reserves a
+bounded root-shell port block per device, using these defaults:
+
+```sh
+PENGUIN_COMPOSE_TELNET_BASE=20000
+PENGUIN_COMPOSE_TELNET_BLOCK_SIZE=100
+```
+
+So device `idx` searches `base + idx*block_size` through the end of that block.
+The runner records the actual selected port in `runtime.yaml`, and `list`
+prefers live `/proc` data while the guest is running.
+
+Compose also assigns a unique vsock CID per device so multiple guests can use
+`plugins.vpn.enabled: true` or `core.guest_cmd: true` in the same container:
+
+```sh
+PENGUIN_COMPOSE_VSOCK_CID_BASE=16
+```
+
+For devices with `core.guest_cmd: true`, `penguin utils list` prints a
+`penguin utils guest-cmd ...` command, and the command can be run directly:
+
+```sh
+./penguin utils guest-cmd router -- 'ip addr'
+```
+
+## Known limitations (multi-device in one container)
+
+All compose devices run as parallel QEMU subprocesses inside a single Docker
+container. Host-facing firmware services exposed by the VPN plugin still share
+that container namespace, so two devices that both expose the same guest service
+may race for the same host port. The VPN plugin will usually pick a free
+alternate port, but explicit fixed maps must still be unique.
 
 ## Layout convention
 
@@ -127,9 +181,10 @@ all relative `project:` paths resolve correctly.
 3. Generates or uses explicit MAC addresses per device/network pair
 4. For each device, writes a `patch_compose_net.yaml` with the socket netdev args
 5. Writes a `derived_config.yaml` that extends the project config with that patch
-6. Fans out via `ThreadPoolExecutor` — all devices start in parallel
-7. Each device calls `PandaRunner().run(derived_config, proj_dir, out_dir, ...)`
-8. Collects results into `compose_summary.yaml`
+6. Assigns each device a root-shell port block and vsock CID
+7. Fans out via `ThreadPoolExecutor` — all devices start in parallel
+8. Each device calls `PandaRunner().run(derived_config, proj_dir, out_dir, ...)`
+9. Collects results into `compose_summary.yaml`
 
 ## Future: TAP backend
 
