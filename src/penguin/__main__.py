@@ -25,6 +25,7 @@ from .graph_search import graph_search
 from .patch_search import patch_search
 from .patch_minimizer import minimize as patch_minimize
 from .plugin_manager import find_local_plugins
+from .compose import run_compose
 
 logger = getColoredLogger("penguin")
 
@@ -1022,6 +1023,27 @@ def export(ctx, project_dir, out):
 def import_cmd(ctx, archive, output, force):
     """Alias for unpack"""
     ctx.invoke(unpack, archive=archive, output=output, force=force)
+
+
+@cli.command()
+@click.argument("compose_file", type=click.Path(exists=True))
+@click.option("--output", type=str, default=None, help="Output directory. Defaults to compose_results/ next to compose.yaml.")
+@click.option("--force", is_flag=True, default=False, help="Delete existing output directory before running.")
+@click.option("--timeout", type=int, default=None, help="Per-device timeout in seconds.")
+@verbose_option
+@click.pass_context
+def compose(ctx, compose_file, output, force, timeout):
+    """
+    Bring up a network of rehosted firmware systems.
+
+    COMPOSE_FILE is the path to a compose.yaml describing the multi-device
+    topology. All devices are started in parallel and connected via QEMU
+    socket/mcast virtual L2 networks.
+
+    See docs/compose.md for the compose.yaml format.
+    """
+    _startup_checks(ctx.obj['VERBOSE'])
+    run_compose(compose_file, output, timeout=timeout, force=force, verbose=ctx.obj['VERBOSE'])
 
 
 if __name__ == "__main__":
