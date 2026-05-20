@@ -134,8 +134,8 @@ NONDEFAULT_KERNEL_ARCHES = {
 def test(kernel, arch, image, name, test_file, docs_only, mode):
     if docs_only:
         logger.info("Docs only mode enabled, will only build docs and exit")
-        kernel = ['4.10',]
-        arch = ['armel',]
+        kernel = ['4.10']
+        arch = ['armel']
     if test_file:
         logger.info(f"Running specific test: {test_file} for {kernel} on {arch}")
     else:
