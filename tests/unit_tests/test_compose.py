@@ -9,7 +9,7 @@ import unittest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../src")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from penguin.compose import (
+from penguin.compose import (  # noqa: E402
     MCAST_BASE_PORT,
     MCAST_GROUP,
     ComposeConfig,
@@ -315,7 +315,7 @@ devices:
 
     def test_relative_project_path(self):
         """project: path is relative to compose.yaml location."""
-        content = f"""\
+        content = """\
 version: 1
 networks:
   lan:
