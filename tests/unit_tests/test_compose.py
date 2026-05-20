@@ -2,14 +2,10 @@
 Unit tests for penguin.compose — pure logic only, no QEMU required.
 """
 import os
-import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../src")))
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-
-from penguin.compose import (  # noqa: E402
+from penguin.compose import (
     MCAST_BASE_PORT,
     MCAST_GROUP,
     ComposeConfig,
