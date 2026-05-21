@@ -19,14 +19,24 @@ compose project:
 ```sh
 ./penguin compose init ./projects/fw1 ./projects/fw2
 ./penguin compose init ./projects/fw1 ./projects/fw2 ./projects/fw3
+./penguin compose init --name three_node ./projects/fw1 ./projects/fw2 ./projects/fw3
 ```
 
 The scaffolded directory is placed alongside the device projects' parent —
 if the device projects live in `./projects/`, compose writes the new
-project under `./compose_projects/<YYYY-MM-DD_HHMMSS>/`. Each device is
-attached to a single `lan` network (`192.168.1.0/24`) on `eth0`, with IPs
-assigned in argument order: the first project gets `192.168.1.1`, the
-second `192.168.1.2`, and so on.
+project under `./compose_projects/<name>/`. The default `<name>` is the
+device basenames joined with `_` (so `fw1` + `fw2` → `fw1_fw2`); pass
+`--name` to override. Names must match `[A-Za-z0-9._-]+` and be at most
+64 characters. If the default join would exceed the cap (many devices or
+long basenames), `init` refuses and asks for an explicit `--name`.
+
+Each device is attached to a single `lan` network (`192.168.1.0/24`) on
+`eth0`, with IPs assigned in argument order: the first project gets
+`192.168.1.1`, the second `192.168.1.2`, and so on.
+
+If the target directory already exists, `compose init` refuses rather than
+overwriting. To re-run an existing setup, pass it to `compose run`; to
+scaffold a separate copy with the same device set, use `--name`.
 
 After `init`, inspect or edit the generated `compose.yaml` if you need
 different IPs, interfaces, networks, or config overrides.
@@ -236,6 +246,7 @@ network configuration.
   parallel QEMU subprocesses inside one Penguin container. Plugins that
   expose host-facing ports (e.g. the VPN plugin) share that namespace, so
   fixed host-port mappings must not collide across devices.
-- **Scaffolded directories are timestamped, not idempotent.** `compose init`
-  and the scaffold-and-run shortcut always create a new directory. Use
-  `compose run` against the scaffolded directory to re-run a setup.
+- **Scaffolded directories refuse to overwrite.** `compose init` and the
+  scaffold-and-run shortcut both fail if the target `compose_projects/<name>/`
+  already exists. Use `compose run` against it to re-run, delete it to start
+  fresh, or pass `--name` to scaffold a separate copy.

@@ -9,10 +9,10 @@ that provides a true L2 broadcast domain with no host privileges required.
 import hashlib
 import logging
 import os
+import re
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import datetime
 
 import yaml
 
@@ -158,7 +158,24 @@ def load_compose(compose_path: str) -> ComposeConfig:
 # Scaffolding — auto-generate a compose.yaml from a list of project dirs
 # ---------------------------------------------------------------------------
 
-def scaffold_compose(device_projects: list[str]) -> str:
+_VALID_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+MAX_COMPOSE_NAME_LEN = 64
+
+
+def _validate_compose_name(name: str) -> None:
+    if not name or name in (".", "..") or not _VALID_NAME_RE.match(name):
+        raise ValueError(
+            f"Invalid compose project name {name!r}: must match [A-Za-z0-9._-]+ "
+            "and not be '.' or '..'"
+        )
+    if len(name) > MAX_COMPOSE_NAME_LEN:
+        raise ValueError(
+            f"Compose project name {name!r} is {len(name)} chars; "
+            f"limit is {MAX_COMPOSE_NAME_LEN}."
+        )
+
+
+def scaffold_compose(device_projects: list[str], name: str | None = None) -> str:
     """
     Generate a fresh compose.yaml from a list of project directories.
 
@@ -167,9 +184,10 @@ def scaffold_compose(device_projects: list[str]) -> str:
     ``192.168.1.0/24`` and assigns each device a sequential IP starting at
     ``192.168.1.1/24``.
 
-    The scaffold directory is ``<parent-of-first-proj-parent>/compose_projects/<timestamp>/``
-    and is refused if it already exists. Returns the absolute path to the
-    new ``compose.yaml``.
+    The scaffold directory is ``<parent-of-first-proj-parent>/compose_projects/<name>/``.
+    If ``name`` is omitted it defaults to the device basenames joined with ``_``
+    (e.g. projects ``foo`` + ``bar`` → ``foo_bar``). Refuses if the directory
+    already exists. Returns the absolute path to the new ``compose.yaml``.
     """
     if not device_projects:
         raise ValueError("scaffold_compose requires at least one project directory")
@@ -182,27 +200,36 @@ def scaffold_compose(device_projects: list[str]) -> str:
             raise ValueError(f"Project directory not found: {raw}")
         if not os.path.isfile(os.path.join(proj, "config.yaml")):
             raise ValueError(f"Project directory missing config.yaml: {raw}")
-        name = os.path.basename(proj)
-        if name in seen_names:
+        dev_name = os.path.basename(proj)
+        if dev_name in seen_names:
             raise ValueError(
-                f"Duplicate device basename '{name}': {seen_names[name]} and {proj}"
+                f"Duplicate device basename '{dev_name}': {seen_names[dev_name]} and {proj}"
             )
-        seen_names[name] = proj
+        seen_names[dev_name] = proj
         resolved.append(proj)
+
+    if name is None:
+        default_name = "_".join(os.path.basename(p) for p in resolved)
+        if len(default_name) > MAX_COMPOSE_NAME_LEN:
+            raise ValueError(
+                f"Default compose project name {default_name!r} is {len(default_name)} "
+                f"chars; limit is {MAX_COMPOSE_NAME_LEN}. Pass --name <short> to override."
+            )
+        name = default_name
+    _validate_compose_name(name)
 
     # Scaffold base is the parent of the first project's parent dir.
     # e.g. first_proj = ./projects/fw1  ->  scaffold base = ./
     first_proj = resolved[0]
     scaffold_base = os.path.realpath(os.path.dirname(os.path.dirname(first_proj)))
 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    scaffold_dir = os.path.join(scaffold_base, "compose_projects", timestamp)
+    scaffold_dir = os.path.join(scaffold_base, "compose_projects", name)
 
     if os.path.exists(scaffold_dir):
         raise RuntimeError(
             f"Scaffold directory already exists: {scaffold_dir}. "
-            "Pass that directory (or its compose.yaml) to `penguin compose` "
-            "to re-run the existing scaffold."
+            "Pass that directory to `penguin compose run` to re-run it, "
+            "delete it, or use --name to scaffold a separate copy."
         )
 
     os.makedirs(scaffold_dir)
