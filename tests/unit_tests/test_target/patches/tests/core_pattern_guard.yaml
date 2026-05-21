@@ -1,0 +1,36 @@
+plugins:
+  core_pattern_guard: {}
+  verifier:
+    conditions:
+      core_pattern_guard:
+        type: file_contains
+        file: console.log
+        string: "/tests/core_pattern_guard.sh PASS"
+
+static_files:
+  /tests/core_pattern_guard.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+      bb=/igloo/utils/busybox
+
+      expected='/igloo/shared/core_dumps/core_%e.%p'
+
+      initial=$($bb cat /proc/sys/kernel/core_pattern)
+      if [ "$initial" != "$expected" ]; then
+        echo "Error: initial core_pattern is '$initial', expected '$expected'"
+        exit 1
+      fi
+
+      # Guest attempts to redirect core dumps -- the guard must eat the write.
+      $bb echo '/tmp/pwned_%e.%p' > /proc/sys/kernel/core_pattern
+
+      after=$($bb cat /proc/sys/kernel/core_pattern)
+      if [ "$after" != "$expected" ]; then
+        echo "Error: core_pattern was overwritten to '$after'"
+        exit 1
+      fi
+
+      exit 0
+    mode: 73
