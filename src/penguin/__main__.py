@@ -461,6 +461,19 @@ def verbose_option(f):
         return value
     return click.option("-v", "--verbose", is_flag=True, help="Set log level to debug", expose_value=False, callback=callback)(f)
 
+
+class ComposeGroup(click.Group):
+    """Click group that preserves `penguin compose <target...>` shortcuts."""
+
+    def resolve_command(self, ctx, args):
+        try:
+            return super().resolve_command(ctx, args)
+        except click.UsageError:
+            if args:
+                cmd = self.get_command(ctx, "_shortcut")
+                return "_shortcut", cmd, args
+            raise
+
 # --- Click Commands ---
 
 
@@ -1167,65 +1180,158 @@ def import_cmd(ctx, archive, output, force):
     ctx.invoke(unpack, archive=archive, output=output, force=force)
 
 
-@cli.command()
+def _looks_like_compose_project_dir(path: str) -> bool:
+    return os.path.isdir(path) and os.path.isfile(os.path.join(path, "compose.yaml"))
+
+
+def _looks_like_compose_device_project_dir(path: str) -> bool:
+    return (
+        os.path.isdir(path)
+        and os.path.isfile(os.path.join(path, "config.yaml"))
+        and not os.path.isfile(os.path.join(path, "compose.yaml"))
+    )
+
+
+def _compose_file_from_target(target: str) -> str:
+    if os.path.isfile(target):
+        return target
+    if _looks_like_compose_project_dir(target):
+        return os.path.join(target, "compose.yaml")
+    if _looks_like_compose_device_project_dir(target):
+        raise click.ClickException(
+            f"'{target}' is a single-device project, not a compose project. "
+            "Use `penguin run` for one project, or `penguin compose init` "
+            "with two-or-more project directories."
+        )
+    raise click.ClickException(
+        f"Cannot interpret '{target}' as a compose target. Expected a "
+        "compose.yaml file or a directory containing compose.yaml."
+    )
+
+
+def _scaffold_compose_from_project_dirs(project_dirs: tuple[str, ...] | list[str]) -> str:
+    if len(project_dirs) < 2:
+        raise click.ClickException(
+            "Compose init requires two-or-more project directories, each "
+            "containing config.yaml and no compose.yaml."
+        )
+    bad = [p for p in project_dirs if not _looks_like_compose_device_project_dir(p)]
+    if bad:
+        joined = ", ".join(repr(p) for p in bad)
+        raise click.ClickException(
+            "Compose init expects only project directories containing config.yaml "
+            f"and no compose.yaml. Cannot use: {joined}"
+        )
+    return scaffold_compose(list(project_dirs))
+
+
+def _run_compose_target(ctx, target: str, output: str | None, force: bool, timeout: int | None) -> None:
+    compose_file = _compose_file_from_target(target)
+    run_compose(
+        compose_file,
+        output,
+        timeout=timeout,
+        force=force,
+        verbose=ctx.obj['VERBOSE'],
+    )
+
+
+def _run_compose_shortcut(ctx, targets, output, force, timeout) -> None:
+    project_dirs = [t for t in targets if _looks_like_compose_device_project_dir(t)]
+
+    if len(project_dirs) == len(targets) and len(targets) >= 2:
+        compose_file = scaffold_compose(list(targets))
+        run_compose(
+            compose_file,
+            output,
+            timeout=timeout,
+            force=force,
+            verbose=ctx.obj['VERBOSE'],
+        )
+    elif len(targets) == 1:
+        _run_compose_target(ctx, targets[0], output, force, timeout)
+    else:
+        raise click.ClickException(
+            "Cannot interpret compose arguments. Expected one of: "
+            "(a) `penguin compose run <compose.yaml-or-dir>`, "
+            "(b) `penguin compose init <project-dir> <project-dir> [...]`, "
+            "or (c) the shortcut `penguin compose <project-dir> <project-dir> [...]`."
+        )
+
+
+@cli.group(
+    cls=ComposeGroup,
+    invoke_without_command=True,
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
+@verbose_option
+@click.pass_context
+def compose(ctx):
+    """
+    Manage multi-device firmware rehosting.
+
+    Common workflow:
+
+    \b
+    * `penguin compose init ./projects/a ./projects/b`
+    * inspect or edit the generated compose.yaml
+    * `penguin compose run ./compose_projects/<timestamp>`
+
+    For quick experiments, `penguin compose ./projects/a ./projects/b`
+    remains a scaffold-and-run shortcut.
+    """
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+        ctx.exit()
+
+
+@compose.command("init")
+@click.argument("project_dirs", nargs=-1, required=True, type=click.Path(exists=True, file_okay=False))
+@verbose_option
+@click.pass_context
+def compose_init(ctx, project_dirs):
+    """
+    Create a compose project from two or more device projects.
+
+    PROJECT_DIRS must each contain a config.yaml. The generated compose
+    project is written under compose_projects/<timestamp>/ alongside the
+    projects' parent directory.
+    """
+    _startup_checks(ctx.obj['VERBOSE'])
+    compose_file = _scaffold_compose_from_project_dirs(project_dirs)
+    click.echo(compose_file)
+
+
+@compose.command("run")
+@click.argument("target", type=click.Path(exists=True))
+@click.option("--output", type=str, default=None, help="Exact output directory. Defaults to results/<N> next to compose.yaml with latest symlink.")
+@click.option("--force", is_flag=True, default=False, help="Delete existing explicit output directory before running.")
+@click.option("--timeout", type=int, default=None, help="Per-device timeout in seconds.")
+@verbose_option
+@click.pass_context
+def compose_run(ctx, target, output, force, timeout):
+    """
+    Run an existing compose project.
+
+    TARGET is a compose.yaml file or a directory containing compose.yaml.
+    """
+    _startup_checks(ctx.obj['VERBOSE'])
+    _run_compose_target(ctx, target, output, force, timeout)
+
+
+@compose.command("_shortcut", hidden=True, context_settings={"ignore_unknown_options": True})
 @click.argument("targets", nargs=-1, required=True, type=click.Path(exists=True))
 @click.option("--output", type=str, default=None, help="Exact output directory. Defaults to results/<N> next to compose.yaml with latest symlink.")
 @click.option("--force", is_flag=True, default=False, help="Delete existing explicit output directory before running.")
 @click.option("--timeout", type=int, default=None, help="Per-device timeout in seconds.")
 @verbose_option
 @click.pass_context
-def compose(ctx, targets, output, force, timeout):
+def compose_shortcut(ctx, targets, output, force, timeout):
     """
-    Bring up a network of rehosted firmware systems.
-
-    TARGETS is one of:
-
-    \b
-    * a path to an existing compose.yaml (regular file), or
-    * a directory containing a compose.yaml, or
-    * two or more project directories (each containing a config.yaml) — a
-      fresh compose.yaml is scaffolded under
-      ``<parent>/compose_projects/<timestamp>/`` and then run.
-
-    All devices are started in parallel and connected via QEMU
-    socket/mcast virtual L2 networks. See docs/compose.md for the
-    compose.yaml format.
+    Compatibility path for `penguin compose <target...>`.
     """
     _startup_checks(ctx.obj['VERBOSE'])
-
-    def _looks_like_project_dir(p: str) -> bool:
-        return (
-            os.path.isdir(p)
-            and os.path.isfile(os.path.join(p, "config.yaml"))
-            and not os.path.isfile(os.path.join(p, "compose.yaml"))
-        )
-
-    project_dirs = [t for t in targets if _looks_like_project_dir(t)]
-
-    if len(project_dirs) == len(targets) and len(targets) >= 1:
-        # Form 2: scaffold from project dirs
-        compose_file = scaffold_compose(list(targets))
-    elif len(targets) == 1:
-        t = targets[0]
-        if os.path.isfile(t):
-            compose_file = t
-        elif os.path.isdir(t) and os.path.isfile(os.path.join(t, "compose.yaml")):
-            compose_file = os.path.join(t, "compose.yaml")
-        else:
-            raise click.ClickException(
-                f"Cannot interpret '{t}' as a compose target. Expected one of: "
-                "(a) a compose.yaml file, (b) a directory containing compose.yaml, "
-                "or (c) one-or-more project directories each containing config.yaml."
-            )
-    else:
-        raise click.ClickException(
-            "Cannot interpret compose arguments. Expected one of: "
-            "(a) a single compose.yaml file, (b) a single directory containing "
-            "compose.yaml, or (c) two-or-more project directories each containing "
-            "config.yaml (no compose.yaml). Got a mixed or ambiguous set."
-        )
-
-    run_compose(compose_file, output, timeout=timeout, force=force, verbose=ctx.obj['VERBOSE'])
+    _run_compose_shortcut(ctx, targets, output, force, timeout)
 
 
 cli.add_command(_utils_group)

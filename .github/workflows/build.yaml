@@ -288,5 +288,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: compose-artifacts
-          path: ${{ github.workspace }}/tests/unit_tests/compose/compose_results/latest/
-
+          path: ${{ github.workspace }}/tests/unit_tests/compose/compose_projects/

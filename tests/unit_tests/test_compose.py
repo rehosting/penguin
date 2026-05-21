@@ -25,7 +25,7 @@ from penguin.compose import (
     run_compose,
     scaffold_compose,
 )
-from penguin.utils_cli import _resolve_compose_dir
+from penguin.utils_cli import _resolve_compose_dir, list_instances
 
 
 MINIMAL_COMPOSE = """\
@@ -456,6 +456,122 @@ output:
             os.path.realpath(os.path.join(base, "1")),
         )
 
+    def test_utils_resolve_project_root_uses_results_latest(self):
+        self._write_compose()
+        self._run_compose()
+        self._run_compose()
+
+        with patch("penguin.utils_cli.os.getcwd", return_value=self.tmpdir):
+            self.assertEqual(
+                _resolve_compose_dir(None),
+                os.path.realpath(os.path.join(self.tmpdir, "results", "1")),
+            )
+
+
+class TestComposeCli(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.router_dir = _make_project_dir(self.tmpdir, "router")
+        self.client_dir = _make_project_dir(self.tmpdir, "client")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_single_project_dir_is_rejected(self):
+        from click.testing import CliRunner
+        from penguin.__main__ import cli
+
+        with patch("penguin.__main__._startup_checks"), \
+                patch("penguin.__main__.scaffold_compose") as scaffold, \
+                patch("penguin.__main__.run_compose") as run:
+            result = CliRunner().invoke(cli, ["compose", self.router_dir])
+
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("single-device project", result.output)
+        self.assertIn("penguin run", result.output)
+        scaffold.assert_not_called()
+        run.assert_not_called()
+
+    def test_compose_init_scaffolds_without_running(self):
+        from click.testing import CliRunner
+        from penguin.__main__ import cli
+
+        compose_path = os.path.join(self.tmpdir, "compose.yaml")
+        with patch("penguin.__main__._startup_checks"), \
+                patch("penguin.__main__.scaffold_compose", return_value=compose_path) as scaffold, \
+                patch("penguin.__main__.run_compose") as run:
+            result = CliRunner().invoke(
+                cli, ["compose", "init", self.router_dir, self.client_dir]
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn(compose_path, result.output)
+        scaffold.assert_called_once_with([self.router_dir, self.client_dir])
+        run.assert_not_called()
+
+    def test_compose_init_requires_two_projects(self):
+        from click.testing import CliRunner
+        from penguin.__main__ import cli
+
+        with patch("penguin.__main__._startup_checks"), \
+                patch("penguin.__main__.scaffold_compose") as scaffold, \
+                patch("penguin.__main__.run_compose") as run:
+            result = CliRunner().invoke(
+                cli, ["compose", "init", self.router_dir]
+            )
+
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("two-or-more project directories", result.output)
+        scaffold.assert_not_called()
+        run.assert_not_called()
+
+    def test_compose_run_uses_existing_compose_project(self):
+        from click.testing import CliRunner
+        from penguin.__main__ import cli
+
+        compose_project = os.path.join(self.tmpdir, "compose_project")
+        os.makedirs(compose_project)
+        compose_path = os.path.join(compose_project, "compose.yaml")
+        with open(compose_path, "w") as f:
+            f.write("version: 1\n")
+
+        output = os.path.join(self.tmpdir, "out")
+        with patch("penguin.__main__._startup_checks"), \
+                patch("penguin.__main__.scaffold_compose") as scaffold, \
+                patch("penguin.__main__.run_compose") as run:
+            result = CliRunner().invoke(
+                cli,
+                [
+                    "compose", "run", compose_project,
+                    "--timeout", "10", "--output", output, "--force",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        scaffold.assert_not_called()
+        run.assert_called_once_with(
+            compose_path, output, timeout=10, force=True, verbose=False
+        )
+
+    def test_shortcut_scaffolds_and_runs_project_dirs(self):
+        from click.testing import CliRunner
+        from penguin.__main__ import cli
+
+        compose_path = os.path.join(self.tmpdir, "compose.yaml")
+        with patch("penguin.__main__._startup_checks"), \
+                patch("penguin.__main__.scaffold_compose", return_value=compose_path) as scaffold, \
+                patch("penguin.__main__.run_compose") as run:
+            result = CliRunner().invoke(
+                cli, ["compose", self.router_dir, self.client_dir, "--timeout", "10"]
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        scaffold.assert_called_once_with([self.router_dir, self.client_dir])
+        run.assert_called_once_with(
+            compose_path, None, timeout=10, force=False, verbose=False
+        )
+
 
 class TestScaffoldCompose(unittest.TestCase):
     def setUp(self):
@@ -586,6 +702,45 @@ class TestFlattenedDeviceLayout(unittest.TestCase):
         self.assertFalse(os.path.exists(
             os.path.join(device_out_dir, "derived_config.yaml")
         ))
+
+    def test_utils_list_instances_reads_flattened_meta_dir(self):
+        import yaml as _yaml
+
+        run_dir = os.path.join(self.tmpdir, "results", "0")
+        device_meta_dir = os.path.join(run_dir, ".compose", "router")
+        device_out_dir = os.path.join(run_dir, "router")
+        os.makedirs(device_meta_dir)
+        os.makedirs(device_out_dir)
+        with open(os.path.join(run_dir, "compose.yaml"), "w") as f:
+            f.write("version: 1\n")
+        with open(os.path.join(run_dir, "compose_summary.yaml"), "w") as f:
+            f.write("devices: {}\n")
+        with open(os.path.join(device_out_dir, ".ran"), "w") as f:
+            f.write("")
+        with open(os.path.join(device_meta_dir, "derived_config.yaml"), "w") as f:
+            _yaml.safe_dump({"core": {"extra_qemu_args": ""}}, f)
+        with open(os.path.join(device_meta_dir, "instance.yaml"), "w") as f:
+            _yaml.safe_dump({
+                "name": "router",
+                "output": "/stale/container/path/router",
+                "telnet_port": 20000,
+                "vsock_cid": 16,
+                "networks": [{
+                    "name": "lan",
+                    "iface": "eth0",
+                    "ip": "192.168.1.1/24",
+                    "mcast": "230.0.0.1:11000",
+                }],
+            }, f)
+
+        with patch("penguin.utils_cli._scan_qemu_processes", return_value=[]):
+            devices = list_instances(run_dir)
+
+        self.assertEqual(len(devices), 1)
+        self.assertEqual(devices[0]["name"], "router")
+        self.assertEqual(devices[0]["status"], "ok")
+        self.assertEqual(devices[0]["output"], device_out_dir)
+        self.assertEqual(devices[0]["telnet_port"], 20000)
 
 
 if __name__ == "__main__":
