@@ -1169,8 +1169,8 @@ def import_cmd(ctx, archive, output, force):
 
 @cli.command()
 @click.argument("compose_file", type=click.Path(exists=True))
-@click.option("--output", type=str, default=None, help="Output directory. Defaults to compose_results/ next to compose.yaml.")
-@click.option("--force", is_flag=True, default=False, help="Delete existing output directory before running.")
+@click.option("--output", type=str, default=None, help="Exact output directory. Defaults to compose_results/<N> next to compose.yaml with latest symlink.")
+@click.option("--force", is_flag=True, default=False, help="Delete existing explicit output directory before running.")
 @click.option("--timeout", type=int, default=None, help="Per-device timeout in seconds.")
 @verbose_option
 @click.pass_context

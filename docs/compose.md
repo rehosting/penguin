@@ -72,33 +72,43 @@ own `config.yaml` and any `patch_*.yaml` files.
 # Run all devices in parallel
 ./penguin compose compose.yaml
 
-# Specify output directory and timeout
+# Specify an exact output directory and timeout
 ./penguin compose compose.yaml --output ./my_results --timeout 120
 
-# Force-overwrite existing results
-./penguin compose compose.yaml --force
+# Force-overwrite an explicit output directory
+./penguin compose compose.yaml --output ./my_results --force
 ```
 
 ## Results structure
 
+By default, compose results follow the same numbered-run convention as
+`penguin run`: each run is written under `compose_results/<N>`, and
+`compose_results/latest` points to the most recent numbered run. A custom
+`output.base_dir` in `compose.yaml` changes the base directory but keeps the
+same numbered layout. Passing `--output` uses that exact path instead.
+
 ```
 compose_results/
-  compose.yaml               # copy of input for reproducibility
-  router/
-    derived_config.yaml      # config actually used (with compose patch applied)
-    patch_compose_net.yaml   # auto-generated network patch
-    instance.yaml            # planned metadata: name, endpoint block, networks
-    runtime.yaml             # actual runner metadata: shell port, vsock CID, sockets
-    output/                  # PandaRunner output (console.log, health_final.yaml, ...)
-    score.txt
-  client/
+  latest -> ./1
+  0/
+    compose.yaml             # copy of input for reproducibility
+    router/
+      derived_config.yaml    # config actually used (with compose patch applied)
+      patch_compose_net.yaml # auto-generated network patch
+      instance.yaml          # planned metadata: name, endpoint block, networks
+      runtime.yaml           # actual runner metadata: shell port, vsock CID, sockets
+      output/                # PandaRunner output (console.log, health_final.yaml, ...)
+      score.txt
+    client/
+      ...
+    compose_summary.yaml     # aggregated scores across all devices
+  1/
     ...
-  compose_summary.yaml       # aggregated scores across all devices
 ```
 
 ## Inspecting a running compose session
 
-`penguin utils list` walks `compose_results/` and reports each device's
+`penguin utils list` resolves `compose_results/latest` and reports each device's
 connection info: PID, root-shell port, vsock CID, mcast endpoint, output
 directory, and status (`running`, `ok`, or `failed`):
 
@@ -106,13 +116,15 @@ directory, and status (`running`, `ok`, or `failed`):
 ./penguin utils list
 # or, if compose_results/ lives somewhere unusual:
 ./penguin utils list --dir /path/to/compose_results
+# or inspect a specific numbered run:
+./penguin utils list --dir /path/to/compose_results/0
 ```
 
 When run from the host, the wrapper execs the command into the active container
 for the current workspace when exactly one is running. That lets `list` see
 live QEMU processes as well as the result files. If no compose container is
 running, it starts a short-lived utility container and reports what is available
-from `compose_results/`.
+from `compose_results/latest`.
 
 For devices whose firmware exposes a guest root shell, the command also prints
 ready-to-paste `telnet <container-ip> <port>` commands. Compose reserves a

@@ -273,6 +273,46 @@ DEFAULT_TELNET_PORT_BLOCK_SIZE = 100
 DEFAULT_VSOCK_CID_BASE = 16
 
 
+def _next_numbered_output_dir(base_dir: str) -> str:
+    """
+    Allocate base_dir/<N> and update base_dir/latest -> ./<N>.
+
+    This mirrors `penguin run`'s default results layout: user-provided
+    --output paths are exact destinations, while default/configured compose
+    output bases get monotonically increasing numeric children.
+    """
+    if os.path.exists(base_dir) and not os.path.isdir(base_dir):
+        raise RuntimeError(f"Output base exists and is not a directory: {base_dir}")
+
+    os.makedirs(base_dir, exist_ok=True)
+
+    def getint(name: str) -> int:
+        try:
+            return int(name)
+        except ValueError:
+            return -1
+
+    existing = [
+        getint(name)
+        for name in os.listdir(base_dir)
+        if os.path.isdir(os.path.join(base_dir, name))
+    ]
+    idx = max(existing) + 1 if existing else 0
+    output_dir = os.path.join(base_dir, str(idx))
+    os.makedirs(output_dir)
+
+    latest_dir = os.path.join(base_dir, "latest")
+    if os.path.lexists(latest_dir):
+        if not os.path.islink(latest_dir):
+            raise RuntimeError(
+                f"Cannot update latest symlink because path exists and is not a symlink: {latest_dir}"
+            )
+        os.unlink(latest_dir)
+    os.symlink(f"./{idx}", latest_dir)
+
+    return output_dir
+
+
 def _env_int(name: str, default: int, min_value: int = 0) -> int:
     raw = os.environ.get(name)
     if raw is None:
@@ -448,22 +488,23 @@ def run_compose(
     # Resolve output directory
     if output_dir is None:
         if cfg.output_base_dir:
-            output_dir = os.path.realpath(
+            output_base_dir = os.path.realpath(
                 os.path.join(os.path.dirname(compose_path), cfg.output_base_dir)
             )
         else:
-            output_dir = os.path.join(os.path.dirname(compose_path), "compose_results")
+            output_base_dir = os.path.join(os.path.dirname(compose_path), "compose_results")
+        output_dir = _next_numbered_output_dir(output_base_dir)
+    else:
+        if os.path.exists(output_dir):
+            if force:
+                shutil.rmtree(output_dir)
+            else:
+                raise RuntimeError(
+                    f"Output directory already exists: {output_dir}. "
+                    "Use --force to overwrite."
+                )
+        os.makedirs(output_dir)
 
-    if os.path.exists(output_dir):
-        if force:
-            shutil.rmtree(output_dir)
-        else:
-            raise RuntimeError(
-                f"Output directory already exists: {output_dir}. "
-                "Use --force to overwrite."
-            )
-
-    os.makedirs(output_dir)
     shutil.copy(compose_path, os.path.join(output_dir, "compose.yaml"))
 
     logger.info(f"Compose: starting {len(cfg.devices)} device(s)")
