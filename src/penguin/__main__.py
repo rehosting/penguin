@@ -25,7 +25,7 @@ from .graph_search import graph_search
 from .patch_search import patch_search
 from .patch_minimizer import minimize as patch_minimize
 from .plugin_manager import find_local_plugins
-from .compose import run_compose
+from .compose import run_compose, scaffold_compose
 from .utils_cli import utils as _utils_group
 
 logger = getColoredLogger("penguin")
@@ -1168,23 +1168,63 @@ def import_cmd(ctx, archive, output, force):
 
 
 @cli.command()
-@click.argument("compose_file", type=click.Path(exists=True))
-@click.option("--output", type=str, default=None, help="Exact output directory. Defaults to compose_results/<N> next to compose.yaml with latest symlink.")
+@click.argument("targets", nargs=-1, required=True, type=click.Path(exists=True))
+@click.option("--output", type=str, default=None, help="Exact output directory. Defaults to results/<N> next to compose.yaml with latest symlink.")
 @click.option("--force", is_flag=True, default=False, help="Delete existing explicit output directory before running.")
 @click.option("--timeout", type=int, default=None, help="Per-device timeout in seconds.")
 @verbose_option
 @click.pass_context
-def compose(ctx, compose_file, output, force, timeout):
+def compose(ctx, targets, output, force, timeout):
     """
     Bring up a network of rehosted firmware systems.
 
-    COMPOSE_FILE is the path to a compose.yaml describing the multi-device
-    topology. All devices are started in parallel and connected via QEMU
-    socket/mcast virtual L2 networks.
+    TARGETS is one of:
 
-    See docs/compose.md for the compose.yaml format.
+    \b
+    * a path to an existing compose.yaml (regular file), or
+    * a directory containing a compose.yaml, or
+    * two or more project directories (each containing a config.yaml) — a
+      fresh compose.yaml is scaffolded under
+      ``<parent>/compose_projects/<timestamp>/`` and then run.
+
+    All devices are started in parallel and connected via QEMU
+    socket/mcast virtual L2 networks. See docs/compose.md for the
+    compose.yaml format.
     """
     _startup_checks(ctx.obj['VERBOSE'])
+
+    def _looks_like_project_dir(p: str) -> bool:
+        return (
+            os.path.isdir(p)
+            and os.path.isfile(os.path.join(p, "config.yaml"))
+            and not os.path.isfile(os.path.join(p, "compose.yaml"))
+        )
+
+    project_dirs = [t for t in targets if _looks_like_project_dir(t)]
+
+    if len(project_dirs) == len(targets) and len(targets) >= 1:
+        # Form 2: scaffold from project dirs
+        compose_file = scaffold_compose(list(targets))
+    elif len(targets) == 1:
+        t = targets[0]
+        if os.path.isfile(t):
+            compose_file = t
+        elif os.path.isdir(t) and os.path.isfile(os.path.join(t, "compose.yaml")):
+            compose_file = os.path.join(t, "compose.yaml")
+        else:
+            raise click.ClickException(
+                f"Cannot interpret '{t}' as a compose target. Expected one of: "
+                "(a) a compose.yaml file, (b) a directory containing compose.yaml, "
+                "or (c) one-or-more project directories each containing config.yaml."
+            )
+    else:
+        raise click.ClickException(
+            "Cannot interpret compose arguments. Expected one of: "
+            "(a) a single compose.yaml file, (b) a single directory containing "
+            "compose.yaml, or (c) two-or-more project directories each containing "
+            "config.yaml (no compose.yaml). Got a mixed or ambiguous set."
+        )
+
     run_compose(compose_file, output, timeout=timeout, force=force, verbose=ctx.obj['VERBOSE'])
 
 
