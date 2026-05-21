@@ -1,207 +1,226 @@
-# `penguin compose` — Multi-System Firmware Rehosting
+# `penguin compose` — Multi-Device Firmware Rehosting
 
-`penguin compose compose.yaml` brings up a network of rehosted firmware systems
-that communicate at L2 — think docker-compose but for emulated firmware devices.
+`penguin compose` runs multiple firmware guests in parallel and wires them
+together over a shared L2 broadcast domain. Each device runs as its own
+PANDA-QEMU guest with its own project config; the only thing compose adds is
+the virtual network glue.
 
-## Networking backend: QEMU socket/mcast
+The networking backend is QEMU's `socket,mcast=...` netdev. No tap devices,
+no Linux bridge, no `CAP_NET_ADMIN` — everything works inside an ordinary
+unprivileged container.
 
-Each compose network is a UDP multicast group. QEMU wraps raw Ethernet frames in
-UDP, so ARP, DHCP, and NDP all work. Multiple QEMU instances that join the same
-`mcast=<group>:<port>` share a full L2 broadcast domain.
+## Invocation
 
-No tap devices, no Linux bridge, no `CAP_NET_ADMIN` — works inside an ordinary
-unprivileged Docker container. No new Python dependencies either; the args are
-injected via the existing `core.extra_qemu_args` config field.
+### Form 1: run an existing compose project
 
-QEMU args injected per NIC:
+Pass a directory containing a `compose.yaml`, or the YAML file directly:
+
+```sh
+./penguin compose ./compose_projects/my_setup
+./penguin compose ./compose_projects/my_setup/compose.yaml
 ```
--netdev socket,id=compose.0,mcast=230.0.0.1:11000
--device virtio-net-pci,netdev=compose.0,mac=52:54:00:aa:01:01
+
+Results land in `<compose-dir>/results/<N>/`, with `results/latest` updated
+to point at the most recent numbered run.
+
+### Form 2: scaffold and run from device projects
+
+Pass two or more device project directories. Compose generates a fresh
+compose project, then runs it:
+
+```sh
+./penguin compose ./projects/fw1 ./projects/fw2
+./penguin compose ./projects/fw1 ./projects/fw2 ./projects/fw3
 ```
 
-Port = `11000 + network_index`. MAC is deterministically derived from
-`(compose_file_path, device_name, network_name)` so it is stable across re-runs.
+The scaffolded directory is placed alongside the device projects' parent —
+if the device projects live in `./projects/`, compose writes the new
+project under `./compose_projects/<YYYY-MM-DD_HHMMSS>/`. Each device is
+attached to a single `lan` network (`192.168.1.0/24`) on `eth0`, with IPs
+assigned in argument order: the first project gets `192.168.1.1`, the
+second `192.168.1.2`, and so on.
 
-## compose.yaml format
+Re-running the same arguments produces a different timestamp, so the second
+invocation creates a new scaffolded directory rather than overwriting the
+first. To re-run an already-scaffolded setup (and keep its IP assignments
+and numbered results history), pass that directory to Form 1.
 
-Place `compose.yaml` alongside your project directories (e.g., next to `projects/`).
+## YAML schema
 
 ```yaml
 version: 1
 
 networks:
   lan:
-    subnet: 192.168.1.0/24    # optional — used only for startup_script IP config
+    subnet: 192.168.1.0/24       # optional; informational only
 
 devices:
-  router:
-    project: ./projects/router_fw   # path to penguin project dir (required)
+  server:
+    project: ./projects/fw1      # path to a penguin project (required)
     networks:
       lan:
-        iface: eth0                 # guest interface name
-        ip: 192.168.1.1/24          # optional: static IP via startup_script
-        mac: "52:54:00:aa:01:01"    # optional: auto-generated if absent
-    config_overrides:               # optional: merged as a final patch layer
+        iface: eth0              # guest interface name (required)
+        ip: 192.168.1.1/24       # optional: static IP via startup script
+        mac: "52:54:00:aa:01:01" # optional: auto-generated if omitted
+    config_overrides:            # optional: merged as a final patch layer
       core:
         guest_cmd_timeout: 120
 
   client:
-    project: ./projects/client_fw
+    project: ./projects/fw2
     networks:
       lan:
         iface: eth0
-        ip: 192.168.1.100/24
+        ip: 192.168.1.2/24
 
 output:
-  base_dir: ./compose_results       # optional; default ./compose_results
+  base_dir: ./results            # optional; default ./results next to compose.yaml
 ```
 
-**`iface`** — the guest Linux interface name. The compose-generated virtio-net
-device is assigned the specified MAC so the firmware can identify it. Ensure
-your firmware names the interface as expected (normally `eth0`, `eth1`, etc.).
+Field notes:
 
-**`ip`** — if set, writes `ip link set <iface> up; ip addr add <ip> dev <iface>`
-to the compose-generated `/igloo/init.d/zz_compose_net` startup script.
+- **`project`** — path to a device project directory containing `config.yaml`,
+  resolved relative to `compose.yaml`.
+- **`iface`** — the Linux interface name the guest is expected to use for
+  this attachment. The compose-generated NIC's MAC is set so the firmware
+  can pin the interface; verify your firmware actually names it as
+  declared (typically `eth0` for a single attachment).
+- **`ip`** — if set, compose writes `ip link set <iface> up; ip addr add
+  <ip> dev <iface>` into `/igloo/init.d/zz_compose_net` so traffic flows
+  at boot.
+- **`mac`** — if omitted, a stable locally-administered MAC is derived
+  from `(compose path, device name, network name)`.
+- **`config_overrides`** — merged as the final patch layer on top of the
+  device project's own `config.yaml` and any `patch_*.yaml` files.
+- **`output.base_dir`** — base directory for numbered runs, resolved
+  relative to `compose.yaml`.
 
-**`config_overrides`** — merged as the final patch layer on top of the project's
-own `config.yaml` and any `patch_*.yaml` files.
+The authoritative schema lives in `src/penguin/compose.py` (`load_compose`,
+`DeviceConfig`, `NetworkSpec`, `DeviceNetAttachment`).
 
-## Usage
-
-```sh
-# Run all devices in parallel
-./penguin compose compose.yaml
-
-# Specify an exact output directory and timeout
-./penguin compose compose.yaml --output ./my_results --timeout 120
-
-# Force-overwrite an explicit output directory
-./penguin compose compose.yaml --output ./my_results --force
-```
-
-## Results structure
-
-By default, compose results follow the same numbered-run convention as
-`penguin run`: each run is written under `compose_results/<N>`, and
-`compose_results/latest` points to the most recent numbered run. A custom
-`output.base_dir` in `compose.yaml` changes the base directory but keeps the
-same numbered layout. Passing `--output` uses that exact path instead.
+## Output layout
 
 ```
-compose_results/
-  latest -> ./1
-  0/
-    compose.yaml             # copy of input for reproducibility
-    router/
-      derived_config.yaml    # config actually used (with compose patch applied)
-      patch_compose_net.yaml # auto-generated network patch
-      instance.yaml          # planned metadata: name, endpoint block, networks
-      runtime.yaml           # actual runner metadata: shell port, vsock CID, sockets
-      output/                # PandaRunner output (console.log, health_final.yaml, ...)
-      score.txt
-    client/
-      ...
-    compose_summary.yaml     # aggregated scores across all devices
-  1/
-    ...
+<compose-project>/
+  compose.yaml
+  results/
+    latest -> ./0
+    0/
+      compose.yaml                  # copy of the input for reproducibility
+      compose_summary.yaml          # per-device scores and errors
+      server/                       # runner's output dir for this device
+        console.log
+        netbinds.csv
+        ...
+      client/
+        console.log
+        ...
+      .compose/
+        server/
+          derived_config.yaml       # device config + injected compose patch
+          patch_compose_net.yaml    # auto-generated net patch
+          instance.yaml             # planned metadata (endpoints, networks)
+          runtime.yaml              # actual runtime metadata from the runner
+          qemu_stdout.txt
+          qemu_stderr.txt
+        client/
+          ...
 ```
+
+Per-device analysis output (`console.log`, `netbinds.csv`, `health_final.yaml`,
+etc.) sits directly under `<device_name>/`, exactly as a single-device
+`penguin run` would write it. Compose-specific bookkeeping (derived
+configs, generated patches, QEMU stdio, runtime metadata) is tucked under
+`.compose/<device_name>/` so it doesn't clutter the analysis tree.
+
+`compose_summary.yaml` aggregates each device's score dict and any
+top-level error from its run.
 
 ## Inspecting a running compose session
 
-`penguin utils list` resolves `compose_results/latest` and reports each device's
-connection info: PID, root-shell port, vsock CID, mcast endpoint, output
-directory, and status (`running`, `ok`, or `failed`):
-
-```sh
-./penguin utils list
-# or, if compose_results/ lives somewhere unusual:
-./penguin utils list --dir /path/to/compose_results
-# or inspect a specific numbered run:
-./penguin utils list --dir /path/to/compose_results/0
-```
-
-When run from the host, the wrapper execs the command into the active container
-for the current workspace when exactly one is running. That lets `list` see
-live QEMU processes as well as the result files. If no compose container is
-running, it starts a short-lived utility container and reports what is available
-from `compose_results/latest`.
-
-For devices whose firmware exposes a guest root shell, the command also prints
-ready-to-paste `telnet <container-ip> <port>` commands. Compose reserves a
-bounded root-shell port block per device, using these defaults:
-
-```sh
-PENGUIN_COMPOSE_TELNET_BASE=20000
-PENGUIN_COMPOSE_TELNET_BLOCK_SIZE=100
-```
-
-So device `idx` searches `base + idx*block_size` through the end of that block.
-The runner records the actual selected port in `runtime.yaml`, and `list`
-prefers live `/proc` data while the guest is running.
-
-Compose also assigns a unique vsock CID per device so multiple guests can use
-`plugins.vpn.enabled: true` or `core.guest_cmd: true` in the same container:
-
-```sh
-PENGUIN_COMPOSE_VSOCK_CID_BASE=16
-```
-
-For devices with `core.guest_cmd: true`, `penguin utils list` prints a
-`penguin utils guest-cmd ...` command, and the command can be run directly:
-
-```sh
-./penguin utils guest-cmd router -- 'ip addr'
-```
-
-## Known limitations (multi-device in one container)
-
-All compose devices run as parallel QEMU subprocesses inside a single Docker
-container. Host-facing firmware services exposed by the VPN plugin still share
-that container namespace, so two devices that both expose the same guest service
-may race for the same host port. The VPN plugin will usually pick a free
-alternate port, but explicit fixed maps must still be unique.
-
-## Layout convention
-
-All project directories must share a common parent with `compose.yaml`:
+`penguin utils list` prints a table of the devices in a compose run. With
+no `--dir`, it searches the current directory for a `results/latest` (or
+numbered run) layout.
 
 ```
-workspace/
-  compose.yaml
-  projects/
-    router_fw/
-      config.yaml
-      base/
-        fs.tar.gz
-    client_fw/
-      config.yaml
-      base/
-        fs.tar.gz
+$ penguin utils list
+DEVICE    STATUS   PID    SHELL  CID  NETWORKS         OUTPUT
+device_a  running  12345  20000  16   lan(192.168.1.2) results/latest/device_a
+device_b  running  12346  20100  17   lan(192.168.1.3) results/latest/device_b
 ```
 
-Run from `workspace/`: `./penguin compose compose.yaml`
+Columns are: device name, runner status, runner PID, per-device telnet port
+on the docker container, vsock CID for `guest_cmd`, attached networks with
+the assigned guest IP, and the device's output directory. When devices are
+running, the command also prints ready-to-paste telnet and
+`penguin utils guest-cmd` lines.
 
-The wrapper mounts the `compose.yaml` parent directory into the container, so
-all relative `project:` paths resolve correctly.
+If `core.core_shell` is enabled, each device exposes a root shell on its
+telnet port. From the docker host:
 
-## Internals
+```
+telnet 192.168.0.2 20000
+```
 
-`penguin compose` is implemented in `src/penguin/compose.py`. It:
+or, from inside the penguin container:
 
-1. Parses and validates `compose.yaml`
-2. Assigns a unique UDP multicast port per network (`11000 + index`)
-3. Generates or uses explicit MAC addresses per device/network pair
-4. For each device, writes a `patch_compose_net.yaml` with the socket netdev args
-5. Writes a `derived_config.yaml` that extends the project config with that patch
-6. Assigns each device a root-shell port block and vsock CID
-7. Fans out via `ThreadPoolExecutor` — all devices start in parallel
-8. Each device calls `PandaRunner().run(derived_config, proj_dir, out_dir, ...)`
-9. Collects results into `compose_summary.yaml`
+```
+docker exec -it <container-name> telnet localhost 20000
+```
 
-## Future: TAP backend
+Endpoint allocation is controlled by three env vars (read at compose-start
+time):
 
-For higher throughput or firmware that probes link carrier state, a `backend: tap`
-option can be added. This requires `CAP_NET_ADMIN` (the wrapper would add
-`--cap-add=NET_ADMIN` for that case) and creates Linux tap devices bridged via
-`ip link type bridge`. The socket/mcast backend covers the common research case
-without privilege.
+| Var                                | Default | Effect                              |
+|------------------------------------|---------|-------------------------------------|
+| `PENGUIN_COMPOSE_TELNET_BASE`      | `20000` | Telnet port for the first device.   |
+| `PENGUIN_COMPOSE_TELNET_BLOCK_SIZE`| `100`   | Port stride between devices.        |
+| `PENGUIN_COMPOSE_VSOCK_CID_BASE`   | `16`    | vsock CID for the first device.     |
+
+Bump these when running multiple compose sessions on the same host (so
+their port/CID blocks don't collide) or when the default block runs into
+the 65535 cap with very large device counts.
+
+The source-of-truth files behind `penguin utils list` are
+`.compose/<device>/instance.yaml` (planned endpoints + networks, written
+before the runner starts) and `.compose/<device>/runtime.yaml` (actual
+PID, status, and endpoints from the runner). If a session crashes, those
+two files plus `qemu_stdout.txt` / `qemu_stderr.txt` next to them are the
+right place to start.
+
+## How it works
+
+Each entry under `networks:` is assigned a UDP multicast port, and every
+device attached to that network gets matching QEMU args injected via
+`core.extra_qemu_args`:
+
+```
+-netdev socket,id=compose.0,mcast=230.0.0.1:<port>
+-device virtio-net-pci,netdev=compose.0,mac=<mac>
+```
+
+All QEMU processes that join the same `mcast=<group>:<port>` share one L2
+broadcast domain — ARP, DHCP, and link-local discovery all work because
+QEMU just wraps raw Ethernet frames in UDP. The kernel inside each guest
+enumerates the injected NIC normally (typically as `eth0` for a single
+attachment), and the compose-generated `/igloo/init.d/zz_compose_net`
+script brings it up and assigns the static IP. The multicast plumbing is
+internal to the QEMU processes; the host does not need any privileges or
+network configuration.
+
+## Caveats
+
+- **No boot ordering.** All devices start in parallel. If a client probes
+  a server's port before the server has bound it, the probe will fail —
+  application-level retry is on you.
+- **L2 only.** Compose provides a shared broadcast domain and (optionally)
+  static IPs. There is no DHCP server, no default gateway, no NAT, and no
+  routing between compose networks. Devices that need DHCP must serve it
+  themselves from one of the guests.
+- **Single container, shared host ports.** All compose devices run as
+  parallel QEMU subprocesses inside one Penguin container. Plugins that
+  expose host-facing ports (e.g. the VPN plugin) share that namespace, so
+  fixed host-port mappings must not collide across devices.
+- **Scaffolded directories are timestamped, not idempotent.** Form 2
+  always creates a new directory. Use Form 1 against the scaffolded
+  directory to re-run a setup.

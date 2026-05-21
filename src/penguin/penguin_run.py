@@ -497,10 +497,14 @@ def run_config(
     # Disable audio (allegedly speeds up emulation by avoiding running another thread)
     os.environ["QEMU_AUDIO_DRV"] = "none"
 
-    # Setup PANDA or KVM. Do not let it print
-    parent_outdir = os.path.dirname(out_dir)
-    stdout_path = os.path.join(parent_outdir, "qemu_stdout.txt")
-    stderr_path = os.path.join(parent_outdir, "qemu_stderr.txt")
+    # Setup PANDA or KVM. Do not let it print.
+    # qemu stdout/stderr default to out_dir's parent. Compose runs override
+    # this via PENGUIN_QEMU_LOG_DIR so logs land in the per-device meta dir
+    # rather than alongside other devices' out_dirs.
+    log_dir = os.environ.get("PENGUIN_QEMU_LOG_DIR") or os.path.dirname(out_dir)
+    os.makedirs(log_dir, exist_ok=True)
+    stdout_path = os.path.join(log_dir, "qemu_stdout.txt")
+    stderr_path = os.path.join(log_dir, "qemu_stderr.txt")
 
     sys.path.append("/pyplugins")
     from compat.qemu_compat import KVMQemu

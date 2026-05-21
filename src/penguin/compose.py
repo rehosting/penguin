@@ -12,6 +12,7 @@ import os
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from datetime import datetime
 
 import yaml
 
@@ -154,6 +155,92 @@ def load_compose(compose_path: str) -> ComposeConfig:
 
 
 # ---------------------------------------------------------------------------
+# Scaffolding — auto-generate a compose.yaml from a list of project dirs
+# ---------------------------------------------------------------------------
+
+def scaffold_compose(device_projects: list[str]) -> str:
+    """
+    Generate a fresh compose.yaml from a list of project directories.
+
+    Each entry of ``device_projects`` must be a path to a directory containing
+    a ``config.yaml``. The scaffold creates a single ``lan`` network on
+    ``192.168.1.0/24`` and assigns each device a sequential IP starting at
+    ``192.168.1.1/24``.
+
+    The scaffold directory is ``<parent-of-first-proj-parent>/compose_projects/<timestamp>/``
+    and is refused if it already exists. Returns the absolute path to the
+    new ``compose.yaml``.
+    """
+    if not device_projects:
+        raise ValueError("scaffold_compose requires at least one project directory")
+
+    resolved: list[str] = []
+    seen_names: dict[str, str] = {}
+    for raw in device_projects:
+        proj = os.path.realpath(raw)
+        if not os.path.isdir(proj):
+            raise ValueError(f"Project directory not found: {raw}")
+        if not os.path.isfile(os.path.join(proj, "config.yaml")):
+            raise ValueError(f"Project directory missing config.yaml: {raw}")
+        name = os.path.basename(proj)
+        if name in seen_names:
+            raise ValueError(
+                f"Duplicate device basename '{name}': {seen_names[name]} and {proj}"
+            )
+        seen_names[name] = proj
+        resolved.append(proj)
+
+    # Scaffold base is the parent of the first project's parent dir.
+    # e.g. first_proj = ./projects/fw1  ->  scaffold base = ./
+    first_proj = resolved[0]
+    scaffold_base = os.path.realpath(os.path.dirname(os.path.dirname(first_proj)))
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    scaffold_dir = os.path.join(scaffold_base, "compose_projects", timestamp)
+
+    if os.path.exists(scaffold_dir):
+        raise RuntimeError(
+            f"Scaffold directory already exists: {scaffold_dir}. "
+            "Pass that directory (or its compose.yaml) to `penguin compose` "
+            "to re-run the existing scaffold."
+        )
+
+    os.makedirs(scaffold_dir)
+
+    compose_data: dict = {
+        "version": 1,
+        "networks": {
+            "lan": {"subnet": "192.168.1.0/24"},
+        },
+        "devices": {},
+    }
+    for idx, proj in enumerate(resolved):
+        name = os.path.basename(proj)
+        compose_data["devices"][name] = {
+            "project": os.path.relpath(proj, scaffold_dir),
+            "networks": {
+                "lan": {
+                    "iface": "eth0",
+                    "ip": f"192.168.1.{idx + 1}/24",
+                },
+            },
+        }
+
+    compose_path = os.path.join(scaffold_dir, "compose.yaml")
+    with open(compose_path, "w") as f:
+        yaml.dump(compose_data, f, default_flow_style=False, sort_keys=False)
+
+    logger.info(f"Scaffolded compose.yaml at {compose_path}")
+    for idx, proj in enumerate(resolved):
+        name = os.path.basename(proj)
+        logger.info(
+            f"  device '{name}': project={proj} ip=192.168.1.{idx + 1}/24"
+        )
+
+    return compose_path
+
+
+# ---------------------------------------------------------------------------
 # Patch generation — pure logic, no penguin deps
 # ---------------------------------------------------------------------------
 
@@ -233,7 +320,7 @@ def _prepare_device_run(
     device: DeviceConfig,
     networks: dict[str, NetworkSpec],
     compose_path: str,
-    device_out_dir: str,
+    device_meta_dir: str,
 ) -> str:
     """
     Write the compose patch and a derived config for this device.
@@ -241,12 +328,15 @@ def _prepare_device_run(
     patch appended to its patches list (using an absolute path so load_config
     can find it regardless of proj_dir).
     Returns the path to the derived config.
+
+    All bookkeeping artifacts (patch, derived_config) are written to
+    device_meta_dir, which lives under `<run>/.compose/<device_name>/`.
     """
-    os.makedirs(device_out_dir, exist_ok=True)
+    os.makedirs(device_meta_dir, exist_ok=True)
 
     # Write the compose networking patch
     patch = _build_compose_patch(device, networks, compose_path)
-    patch_path = os.path.join(device_out_dir, "patch_compose_net.yaml")
+    patch_path = os.path.join(device_meta_dir, "patch_compose_net.yaml")
     with open(patch_path, "w") as f:
         yaml.dump(patch, f, default_flow_style=False)
 
@@ -261,7 +351,7 @@ def _prepare_device_run(
     patches_list.append(patch_path)
     original["patches"] = patches_list
 
-    derived_path = os.path.join(device_out_dir, "derived_config.yaml")
+    derived_path = os.path.join(device_meta_dir, "derived_config.yaml")
     with open(derived_path, "w") as f:
         yaml.dump(original, f, default_flow_style=False)
 
@@ -360,6 +450,7 @@ def _write_instance_yaml(
     device: DeviceConfig,
     networks: dict[str, NetworkSpec],
     device_out_dir: str,
+    device_meta_dir: str,
     endpoints: RuntimeEndpointSpec,
     runtime_metadata_path: str,
 ) -> None:
@@ -377,7 +468,7 @@ def _write_instance_yaml(
     data = {
         "name": device.name,
         "project": device.proj_dir,
-        "output": os.path.join(device_out_dir, "output"),
+        "output": device_out_dir,
         "telnet_port": endpoints.telnet_port_base,
         "telnet_port_range": [
             endpoints.telnet_port_base,
@@ -388,7 +479,7 @@ def _write_instance_yaml(
         "networks": nets,
         "compose_pid": os.getpid(),
     }
-    with open(os.path.join(device_out_dir, "instance.yaml"), "w") as f:
+    with open(os.path.join(device_meta_dir, "instance.yaml"), "w") as f:
         yaml.dump(data, f, default_flow_style=False)
 
 
@@ -398,20 +489,27 @@ def _run_device(
     networks: dict[str, NetworkSpec],
     compose_path: str,
     device_out_dir: str,
+    device_meta_dir: str,
     timeout: int | None,
     verbose: bool,
 ) -> dict:
-    """Prepare, run, and score a single device. Returns score dict."""
+    """Prepare, run, and score a single device. Returns score dict.
+
+    device_out_dir is PandaRunner's out_dir for this device (the flat
+    `<run>/<device_name>/` directory). device_meta_dir is the bookkeeping
+    sibling at `<run>/.compose/<device_name>/` where derived config, patches,
+    runtime.yaml, instance.yaml, qemu_stdout/err live.
+    """
     from penguin.penguin_config import load_config
     from .manager import PandaRunner, calculate_score
     from .common import get_inits_from_proj
 
-    derived_config_path = _prepare_device_run(
-        device, networks, compose_path, device_out_dir
-    )
+    os.makedirs(device_meta_dir, exist_ok=True)
+    os.makedirs(device_out_dir, exist_ok=True)
 
-    out_dir = os.path.join(device_out_dir, "output")
-    os.makedirs(out_dir, exist_ok=True)
+    derived_config_path = _prepare_device_run(
+        device, networks, compose_path, device_meta_dir
+    )
 
     config = load_config(device.proj_dir, derived_config_path, verbose=verbose)
 
@@ -427,16 +525,17 @@ def _run_device(
             )
 
     endpoints = _runtime_endpoint_spec(idx)
-    runtime_metadata_path = os.path.join(device_out_dir, "runtime.yaml")
+    runtime_metadata_path = os.path.join(device_meta_dir, "runtime.yaml")
     _write_instance_yaml(
-        device, networks, device_out_dir, endpoints, runtime_metadata_path
+        device, networks, device_out_dir, device_meta_dir,
+        endpoints, runtime_metadata_path,
     )
 
     try:
         PandaRunner().run(
             derived_config_path,
             device.proj_dir,
-            out_dir,
+            device_out_dir,
             init=specified_init,
             timeout=timeout,
             show_output=False,  # each device writes to its own console.log
@@ -447,6 +546,7 @@ def _run_device(
                 "PENGUIN_TELNET_PORT_RANGE": endpoints.telnet_port_count,
                 "PENGUIN_VSOCK_CID": endpoints.vsock_cid,
                 "PENGUIN_RUNTIME_METADATA": runtime_metadata_path,
+                "PENGUIN_QEMU_LOG_DIR": device_meta_dir,
             },
         )
     except RuntimeError as e:
@@ -454,7 +554,7 @@ def _run_device(
         return {}
 
     try:
-        return calculate_score(out_dir)
+        return calculate_score(device_out_dir)
     except Exception as e:
         logger.warning(f"Device '{device.name}' score calculation failed: {e}")
         return {}
@@ -492,7 +592,7 @@ def run_compose(
                 os.path.join(os.path.dirname(compose_path), cfg.output_base_dir)
             )
         else:
-            output_base_dir = os.path.join(os.path.dirname(compose_path), "compose_results")
+            output_base_dir = os.path.join(os.path.dirname(compose_path), "results")
         output_dir = _next_numbered_output_dir(output_base_dir)
     else:
         if os.path.exists(output_dir):
@@ -516,6 +616,9 @@ def run_compose(
     results: dict[str, dict] = {}
     errors: dict[str, str] = {}
 
+    meta_base_dir = os.path.join(output_dir, ".compose")
+    os.makedirs(meta_base_dir, exist_ok=True)
+
     with ThreadPoolExecutor(max_workers=len(cfg.devices)) as executor:
         futures = {
             executor.submit(
@@ -525,6 +628,7 @@ def run_compose(
                 cfg.networks,
                 compose_path,
                 os.path.join(output_dir, name),
+                os.path.join(meta_base_dir, name),
                 timeout,
                 verbose,
             ): name

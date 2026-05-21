@@ -193,6 +193,53 @@ penguin_run() {
         cmd+=("/host_projects")
     fi
 
+    # Handle special case for "compose" Form 2: when args are device-project
+    # dirs, scaffold_compose writes to <grandparent>/compose_projects/<timestamp>/
+    # so we need the grandparent mounted too -- otherwise the scaffold target
+    # lands at container "/" and is lost on exit. Pre-rewrite the args to the
+    # grandparent's container path so dirname-walks resolve to a mounted dir.
+    if [[ ${#cmd[@]} -gt 1 && "${cmd[0]}" == "compose" ]]; then
+        local compose_form2=true
+        local compose_grandparent=""
+        for ((i=1; i<${#cmd[@]}; i++)); do
+            local _arg="${cmd[$i]}"
+            # Skip flags and flag values
+            if [[ "$_arg" =~ ^-- ]]; then continue; fi
+            if [[ $i -gt 1 && "${cmd[$((i-1))]}" =~ ^--(timeout|output)$ ]]; then continue; fi
+            # Form 2 requires each positional arg to be a dir with config.yaml
+            # and no compose.yaml (else it's Form 1 / mixed / error -- let the
+            # in-container CLI handle dispatch). Any non-conforming arg drops
+            # us out of Form 2 mode.
+            if [[ -d "$_arg" && -f "$_arg/config.yaml" && ! -f "$_arg/compose.yaml" ]]; then
+                local _gp=$(dirname $(dirname $(realpath "$_arg")))
+                if [[ -z "$compose_grandparent" ]]; then
+                    compose_grandparent="$_gp"
+                elif [[ "$compose_grandparent" != "$_gp" ]]; then
+                    # Mixed grandparents -- can't satisfy all with one mount.
+                    # Bail to the generic per-arg-parent mapping below.
+                    compose_form2=false
+                    break
+                fi
+            else
+                compose_form2=false
+                break
+            fi
+        done
+        if $compose_form2 && [[ -n "$compose_grandparent" ]]; then
+            local _guest_root="/host_$(basename "$compose_grandparent")"
+            maps+=("$compose_grandparent:$_guest_root")
+            for ((i=1; i<${#cmd[@]}; i++)); do
+                local _arg="${cmd[$i]}"
+                if [[ "$_arg" =~ ^-- ]]; then continue; fi
+                if [[ $i -gt 1 && "${cmd[$((i-1))]}" =~ ^--(timeout|output)$ ]]; then continue; fi
+                if [[ -d "$_arg" && -f "$_arg/config.yaml" ]]; then
+                    local _arg_real=$(realpath "$_arg")
+                    cmd[$i]="${_arg_real//$compose_grandparent/$_guest_root}"
+                fi
+            done
+        fi
+    fi
+
     if [[ ${#cmd[@]} -gt 1 && ("${cmd[0]}" == "reproduce" || "${cmd[0]}" == "repro" )]]; then
         if [[ ${#cmd[@]} -lt 2 ]]; then
             echo "Reproduce command requires a specific image to be passed as the first argument. Please set --image to the image you want to use."

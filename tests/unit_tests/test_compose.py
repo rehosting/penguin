@@ -19,9 +19,11 @@ from penguin.compose import (
     _build_compose_patch,
     _deep_merge,
     _generate_mac,
+    _prepare_device_run,
     _runtime_endpoint_spec,
     load_compose,
     run_compose,
+    scaffold_compose,
 )
 from penguin.utils_cli import _resolve_compose_dir
 
@@ -395,7 +397,7 @@ class TestComposeOutputDirs(unittest.TestCase):
         self._write_compose()
 
         self._run_compose()
-        base = os.path.join(self.tmpdir, "compose_results")
+        base = os.path.join(self.tmpdir, "results")
         self.assertTrue(os.path.isdir(os.path.join(base, "0")))
         self.assertTrue(os.path.isfile(os.path.join(base, "0", "compose_summary.yaml")))
         self.assertTrue(os.path.islink(os.path.join(base, "latest")))
@@ -447,12 +449,143 @@ output:
         self._run_compose()
         self._run_compose()
 
-        base = os.path.join(self.tmpdir, "compose_results")
+        base = os.path.join(self.tmpdir, "results")
 
         self.assertEqual(
             _resolve_compose_dir(base),
             os.path.realpath(os.path.join(base, "1")),
         )
+
+
+class TestScaffoldCompose(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        # Layout: tmpdir/projects/<name>/ — scaffold base = tmpdir
+        self.projects_dir = os.path.join(self.tmpdir, "projects")
+        os.makedirs(self.projects_dir)
+        self.router_dir = _make_project_dir(self.projects_dir, "router")
+        self.client_dir = _make_project_dir(self.projects_dir, "client")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_happy_path(self):
+        compose_path = scaffold_compose([self.router_dir, self.client_dir])
+        self.assertTrue(os.path.isabs(compose_path))
+        self.assertTrue(os.path.isfile(compose_path))
+
+        scaffold_dir = os.path.dirname(compose_path)
+        # Scaffold dir under tmpdir/compose_projects/<timestamp>/
+        self.assertEqual(
+            os.path.dirname(scaffold_dir),
+            os.path.join(self.tmpdir, "compose_projects"),
+        )
+
+        import yaml as _yaml
+        with open(compose_path) as f:
+            data = _yaml.safe_load(f)
+
+        self.assertEqual(data["version"], 1)
+        self.assertIn("lan", data["networks"])
+        self.assertEqual(data["networks"]["lan"]["subnet"], "192.168.1.0/24")
+        self.assertEqual(set(data["devices"].keys()), {"router", "client"})
+
+        router = data["devices"]["router"]
+        client = data["devices"]["client"]
+        self.assertEqual(router["networks"]["lan"]["ip"], "192.168.1.1/24")
+        self.assertEqual(router["networks"]["lan"]["iface"], "eth0")
+        self.assertEqual(client["networks"]["lan"]["ip"], "192.168.1.2/24")
+        self.assertEqual(client["networks"]["lan"]["iface"], "eth0")
+
+        # Project paths should be relative
+        self.assertFalse(os.path.isabs(router["project"]))
+        self.assertFalse(os.path.isabs(client["project"]))
+        # And resolve back to the real project dirs
+        self.assertEqual(
+            os.path.realpath(os.path.join(scaffold_dir, router["project"])),
+            self.router_dir,
+        )
+        self.assertEqual(
+            os.path.realpath(os.path.join(scaffold_dir, client["project"])),
+            self.client_dir,
+        )
+
+    def test_refuses_existing_scaffold_dir(self):
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        os.makedirs(os.path.join(self.tmpdir, "compose_projects", timestamp))
+        with patch("penguin.compose.datetime") as mock_dt:
+            mock_dt.now.return_value.strftime.return_value = timestamp
+            with self.assertRaises(RuntimeError):
+                scaffold_compose([self.router_dir, self.client_dir])
+
+    def test_duplicate_basenames_error(self):
+        # Two different project paths with the same basename "router"
+        other = os.path.join(self.tmpdir, "elsewhere")
+        os.makedirs(other)
+        dup = _make_project_dir(other, "router")
+        with self.assertRaises(ValueError):
+            scaffold_compose([self.router_dir, dup])
+
+    def test_missing_config_yaml_errors(self):
+        bare = os.path.join(self.tmpdir, "bare_proj")
+        os.makedirs(bare)
+        with self.assertRaises(ValueError):
+            scaffold_compose([self.router_dir, bare])
+
+
+class TestFlattenedDeviceLayout(unittest.TestCase):
+    """Compose bookkeeping must land under .compose/<device>/, not <device>/."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.proj_dir = _make_project_dir(self.tmpdir, "router")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_prepare_device_run_writes_into_meta_dir(self):
+        device = DeviceConfig(
+            name="router",
+            proj_dir=self.proj_dir,
+            config_path=os.path.join(self.proj_dir, "config.yaml"),
+            networks=[DeviceNetAttachment(
+                network_name="lan",
+                iface="eth0",
+                ip="192.168.1.1/24",
+                mac="52:54:00:aa:01:01",
+            )],
+        )
+        networks = {"lan": NetworkSpec(name="lan", port=MCAST_BASE_PORT)}
+
+        run_dir = os.path.join(self.tmpdir, "run0")
+        device_meta_dir = os.path.join(run_dir, ".compose", "router")
+        device_out_dir = os.path.join(run_dir, "router")
+        os.makedirs(device_out_dir)
+
+        derived = _prepare_device_run(
+            device, networks, "/compose.yaml", device_meta_dir,
+        )
+
+        # Bookkeeping must be in .compose/router/, not in router/
+        self.assertTrue(os.path.isfile(
+            os.path.join(device_meta_dir, "patch_compose_net.yaml")
+        ))
+        self.assertTrue(os.path.isfile(
+            os.path.join(device_meta_dir, "derived_config.yaml")
+        ))
+        self.assertEqual(
+            derived, os.path.join(device_meta_dir, "derived_config.yaml"),
+        )
+        # Device out dir stays clean of compose metadata
+        self.assertFalse(os.path.exists(
+            os.path.join(device_out_dir, "patch_compose_net.yaml")
+        ))
+        self.assertFalse(os.path.exists(
+            os.path.join(device_out_dir, "derived_config.yaml")
+        ))
 
 
 if __name__ == "__main__":

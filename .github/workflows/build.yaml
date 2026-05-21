@@ -224,3 +224,69 @@ jobs:
           name: ${{ matrix.arch }}-artifacts
           path: ${{ steps.artifact.outputs.artifact_path }}
 
+  run_compose:
+    # Compose's mcast plumbing is arch-independent, so this runs once outside
+    # the per-arch matrix instead of multiplying CI cost by 10.
+    needs: [changes, build_container]
+    runs-on: rehosting-arc
+    if: ${{ !github.event.pull_request.draft }}
+    steps:
+      - name: Set up Python
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10.12"
+      - name: Install dependencies
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        run: pip install click pyyaml
+      - name: Checkout code
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Trust Harbor's self-signed certificate
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        run: |
+          echo "Fetching certificate from ${{ env.REGISTRY }}"
+          openssl s_client -showcerts -connect ${{ env.REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
+          sudo update-ca-certificates
+
+      - name: Set up Docker Buildx
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:master
+            network=host
+          buildkitd-config-inline: |
+            [registry."${{ env.REGISTRY }}"]
+              insecure = true
+              http = true
+
+      - name: Log in to Rehosting Arc Registry
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.USER }}
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
+
+      - name: Pull image via Buildx and Load to Daemon
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        run: |
+          echo "FROM ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }}" | \
+          docker buildx build -t rehosting/penguin:latest --load -
+
+      - name: Compose test (armel)
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        run: timeout 8m python3 $GITHUB_WORKSPACE/tests/unit_tests/compose/test.py --arch armel
+
+      - name: Compose debug info
+        if: ${{ needs.changes.outputs.run_tests == 'true' && failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-artifacts
+          path: ${{ github.workspace }}/tests/unit_tests/compose/compose_results/latest/
+
