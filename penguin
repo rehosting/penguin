@@ -193,24 +193,32 @@ penguin_run() {
         cmd+=("/host_projects")
     fi
 
-    # Handle special case for "compose" Form 2: when args are device-project
-    # dirs, scaffold_compose writes to <grandparent>/compose_projects/<timestamp>/
-    # so we need the grandparent mounted too -- otherwise the scaffold target
-    # lands at container "/" and is lost on exit. Pre-rewrite the args to the
-    # grandparent's container path so dirname-walks resolve to a mounted dir.
+    # Handle "compose init" and the legacy "compose <project> <project>"
+    # shortcut. When args are device-project dirs, scaffold_compose writes to
+    # <grandparent>/compose_projects/<timestamp>/, so we need the grandparent
+    # mounted too. Pre-rewrite project args to that container path so
+    # dirname-walks resolve to a mounted dir.
     if [[ ${#cmd[@]} -gt 1 && "${cmd[0]}" == "compose" ]]; then
         local compose_form2=true
         local compose_grandparent=""
-        for ((i=1; i<${#cmd[@]}; i++)); do
+        local compose_project_count=0
+        local compose_arg_start=1
+        if [[ ${#cmd[@]} -gt 2 && "${cmd[1]}" == "init" ]]; then
+            compose_arg_start=2
+        elif [[ "${cmd[1]}" == "run" ]]; then
+            compose_form2=false
+        fi
+        for ((i=compose_arg_start; i<${#cmd[@]}; i++)); do
             local _arg="${cmd[$i]}"
             # Skip flags and flag values
             if [[ "$_arg" =~ ^-- ]]; then continue; fi
             if [[ $i -gt 1 && "${cmd[$((i-1))]}" =~ ^--(timeout|output)$ ]]; then continue; fi
-            # Form 2 requires each positional arg to be a dir with config.yaml
-            # and no compose.yaml (else it's Form 1 / mixed / error -- let the
-            # in-container CLI handle dispatch). Any non-conforming arg drops
-            # us out of Form 2 mode.
+            # Compose init requires each positional arg to be a dir with
+            # config.yaml and no compose.yaml. Any non-conforming arg drops us
+            # out of this special-case mode and lets the in-container CLI
+            # handle dispatch/errors.
             if [[ -d "$_arg" && -f "$_arg/config.yaml" && ! -f "$_arg/compose.yaml" ]]; then
+                compose_project_count=$((compose_project_count + 1))
                 local _gp=$(dirname $(dirname $(realpath "$_arg")))
                 if [[ -z "$compose_grandparent" ]]; then
                     compose_grandparent="$_gp"
@@ -225,10 +233,10 @@ penguin_run() {
                 break
             fi
         done
-        if $compose_form2 && [[ -n "$compose_grandparent" ]]; then
+        if $compose_form2 && [[ -n "$compose_grandparent" && $compose_project_count -ge 2 ]]; then
             local _guest_root="/host_$(basename "$compose_grandparent")"
             maps+=("$compose_grandparent:$_guest_root")
-            for ((i=1; i<${#cmd[@]}; i++)); do
+            for ((i=compose_arg_start; i<${#cmd[@]}; i++)); do
                 local _arg="${cmd[$i]}"
                 if [[ "$_arg" =~ ^-- ]]; then continue; fi
                 if [[ $i -gt 1 && "${cmd[$((i-1))]}" =~ ^--(timeout|output)$ ]]; then continue; fi
@@ -237,6 +245,36 @@ penguin_run() {
                     cmd[$i]="${_arg_real//$compose_grandparent/$_guest_root}"
                 fi
             done
+        fi
+
+        # Running a scaffolded compose project needs the scaffold base mounted,
+        # not just compose_projects/<timestamp>/, because generated project:
+        # paths point back to ../../projects/<device>.
+        local compose_run_target_index=""
+        if [[ ${#cmd[@]} -gt 2 && "${cmd[1]}" == "run" ]]; then
+            for ((i=2; i<${#cmd[@]}; i++)); do
+                local _arg="${cmd[$i]}"
+                if [[ "$_arg" =~ ^-- ]]; then continue; fi
+                if [[ $i -gt 2 && "${cmd[$((i-1))]}" =~ ^--(timeout|output)$ ]]; then continue; fi
+                compose_run_target_index="$i"
+                break
+            done
+        elif [[ ${#cmd[@]} -eq 2 && "${cmd[1]}" != "init" ]]; then
+            compose_run_target_index=1
+        fi
+        if [[ -n "$compose_run_target_index" && -e "${cmd[$compose_run_target_index]}" ]]; then
+            local _target_real=$(realpath "${cmd[$compose_run_target_index]}")
+            local _compose_dir="$_target_real"
+            if [[ -f "$_compose_dir" ]]; then
+                _compose_dir=$(dirname "$_compose_dir")
+            fi
+            local _compose_parent=$(dirname "$_compose_dir")
+            if [[ -f "$_compose_dir/compose.yaml" && "$(basename "$_compose_parent")" == "compose_projects" ]]; then
+                local _base=$(dirname "$_compose_parent")
+                local _guest_root="/host_$(basename "$_base")"
+                maps+=("$_base:$_guest_root")
+                cmd[$compose_run_target_index]="${_target_real//$_base/$_guest_root}"
+            fi
         fi
     fi
 

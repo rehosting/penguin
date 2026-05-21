@@ -11,26 +11,14 @@ unprivileged container.
 
 ## Invocation
 
-### Form 1: run an existing compose project
-
-Pass a directory containing a `compose.yaml`, or the YAML file directly:
-
-```sh
-./penguin compose ./compose_projects/my_setup
-./penguin compose ./compose_projects/my_setup/compose.yaml
-```
-
-Results land in `<compose-dir>/results/<N>/`, with `results/latest` updated
-to point at the most recent numbered run.
-
-### Form 2: scaffold and run from device projects
+### 1. Create a compose project
 
 Pass two or more device project directories. Compose generates a fresh
-compose project, then runs it:
+compose project:
 
 ```sh
-./penguin compose ./projects/fw1 ./projects/fw2
-./penguin compose ./projects/fw1 ./projects/fw2 ./projects/fw3
+./penguin compose init ./projects/fw1 ./projects/fw2
+./penguin compose init ./projects/fw1 ./projects/fw2 ./projects/fw3
 ```
 
 The scaffolded directory is placed alongside the device projects' parent —
@@ -40,10 +28,37 @@ attached to a single `lan` network (`192.168.1.0/24`) on `eth0`, with IPs
 assigned in argument order: the first project gets `192.168.1.1`, the
 second `192.168.1.2`, and so on.
 
-Re-running the same arguments produces a different timestamp, so the second
-invocation creates a new scaffolded directory rather than overwriting the
-first. To re-run an already-scaffolded setup (and keep its IP assignments
-and numbered results history), pass that directory to Form 1.
+After `init`, inspect or edit the generated `compose.yaml` if you need
+different IPs, interfaces, networks, or config overrides.
+
+### 2. Run a compose project
+
+Pass a directory containing a `compose.yaml`, or the YAML file directly:
+
+```sh
+./penguin compose run ./compose_projects/my_setup
+./penguin compose run ./compose_projects/my_setup/compose.yaml
+```
+
+Results land in `<compose-dir>/results/<N>/`, with `results/latest` updated
+to point at the most recent numbered run.
+
+### Shortcut: scaffold and run
+
+For quick smoke runs, pass two or more device project directories directly
+to `compose`. This is equivalent to `compose init` followed immediately by
+`compose run`:
+
+```sh
+./penguin compose ./projects/fw1 ./projects/fw2
+./penguin compose ./projects/fw1 ./projects/fw2 ./projects/fw3
+```
+
+Re-running the shortcut with the same arguments produces a different
+timestamp, so the second invocation creates a new scaffolded directory
+rather than overwriting the first. To re-run an already-scaffolded setup
+(and keep its IP assignments and numbered results history), use
+`penguin compose run` against that directory.
 
 ## YAML schema
 
@@ -221,6 +236,6 @@ network configuration.
   parallel QEMU subprocesses inside one Penguin container. Plugins that
   expose host-facing ports (e.g. the VPN plugin) share that namespace, so
   fixed host-port mappings must not collide across devices.
-- **Scaffolded directories are timestamped, not idempotent.** Form 2
-  always creates a new directory. Use Form 1 against the scaffolded
-  directory to re-run a setup.
+- **Scaffolded directories are timestamped, not idempotent.** `compose init`
+  and the scaffold-and-run shortcut always create a new directory. Use
+  `compose run` against the scaffolded directory to re-run a setup.

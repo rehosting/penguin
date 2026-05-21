@@ -1,7 +1,7 @@
 """
 Implementation of `penguin utils <subcommand>`.
 
-The compose commands inspect compose_results metadata and, when run inside the
+The compose commands inspect compose results metadata and, when run inside the
 active compose container, /proc. They are intentionally filesystem based so the
 same command still gives useful connection details after a compose run exits.
 """
@@ -39,7 +39,20 @@ def _container_ip() -> str | None:
 
 
 def _is_compose_run_dir(path: str) -> bool:
-    return os.path.isdir(path) and os.path.isfile(os.path.join(path, "compose.yaml"))
+    if not os.path.isdir(path) or not os.path.isfile(os.path.join(path, "compose.yaml")):
+        return False
+    if os.path.isfile(os.path.join(path, "compose_summary.yaml")):
+        return True
+    if os.path.isdir(os.path.join(path, ".compose")):
+        return True
+    try:
+        entries = os.listdir(path)
+    except OSError:
+        return False
+    return any(
+        os.path.isfile(os.path.join(path, entry, "derived_config.yaml"))
+        for entry in entries
+    )
 
 
 def _highest_numbered_run_dir(path: str) -> str | None:
@@ -63,6 +76,26 @@ def _resolve_compose_run_dir_candidate(path: str) -> str | None:
     if not os.path.isdir(path):
         return None
 
+    for child in ("results", "compose_results"):
+        child_path = os.path.join(path, child)
+        resolved = _resolve_compose_results_base(child_path)
+        if resolved:
+            return resolved
+
+    resolved = _resolve_compose_results_base(path)
+    if resolved:
+        return resolved
+
+    if _is_compose_run_dir(path):
+        return os.path.realpath(path)
+
+    return None
+
+
+def _resolve_compose_results_base(path: str) -> str | None:
+    if not os.path.isdir(path):
+        return None
+
     latest = os.path.join(path, "latest")
     if _is_compose_run_dir(latest):
         return os.path.realpath(latest)
@@ -71,24 +104,18 @@ def _resolve_compose_run_dir_candidate(path: str) -> str | None:
     if numbered:
         return os.path.realpath(numbered)
 
-    if _is_compose_run_dir(path):
-        return os.path.realpath(path)
-
     return None
 
 
 def _find_compose_results(start: str) -> str | None:
     """Search cwd, the mapped workspace, and obvious parents for a compose run."""
     candidates = [
-        os.path.join(start, "compose_results"),
-        os.path.join(start, "../compose_results"),
+        start,
+        os.path.join(start, ".."),
     ]
     project_dir = os.environ.get("PENGUIN_PROJECT_DIR")
     if project_dir:
-        candidates.extend([
-            os.path.join(project_dir, "compose_results"),
-        ])
-    candidates.append(start)
+        candidates.append(project_dir)
 
     for candidate in candidates:
         path = os.path.realpath(candidate)
@@ -200,19 +227,43 @@ def _device_status(output_dir: str, live_procs: list[dict]) -> tuple[str, int | 
     return "failed", None, []
 
 
-def list_instances(compose_dir: str) -> list[dict]:
-    """Inventory devices under a compose_results directory."""
-    live = _scan_qemu_processes()
-    devices = []
+def _compose_device_dirs(compose_dir: str) -> list[tuple[str, str]]:
+    """Return (metadata dir, output dir) pairs for old and current layouts."""
+    meta_root = os.path.join(compose_dir, ".compose")
+    if os.path.isdir(meta_root):
+        pairs = []
+        for entry in sorted(os.listdir(meta_root)):
+            meta_dir = os.path.join(meta_root, entry)
+            if not os.path.isdir(meta_dir):
+                continue
+            if not (
+                os.path.isfile(os.path.join(meta_dir, "derived_config.yaml"))
+                or os.path.isfile(os.path.join(meta_dir, "instance.yaml"))
+            ):
+                continue
+            pairs.append((meta_dir, os.path.join(compose_dir, entry)))
+        return pairs
+
+    pairs = []
     for entry in sorted(os.listdir(compose_dir)):
         device_dir = os.path.join(compose_dir, entry)
         if not os.path.isdir(device_dir):
             continue
         if not os.path.isfile(os.path.join(device_dir, "derived_config.yaml")):
             continue
+        pairs.append((device_dir, os.path.join(device_dir, "output")))
+    return pairs
 
-        info = _merge_runtime(_load_instance(device_dir), device_dir)
-        output_dir = info.get("output") or os.path.join(device_dir, "output")
+
+def list_instances(compose_dir: str) -> list[dict]:
+    """Inventory devices under a compose results run directory."""
+    live = _scan_qemu_processes()
+    devices = []
+    for meta_dir, fallback_output_dir in _compose_device_dirs(compose_dir):
+        info = _merge_runtime(_load_instance(meta_dir), meta_dir)
+        output_dir = info.get("output") or fallback_output_dir
+        if not os.path.exists(output_dir) and os.path.exists(fallback_output_dir):
+            output_dir = fallback_output_dir
         status, pid, procs = _device_status(output_dir, live)
 
         qemu = next((p for p in procs if p["kind"] == "qemu"), None)
@@ -235,7 +286,7 @@ def _resolve_compose_dir(compose_dir: str | None) -> str:
         return os.path.realpath(compose_dir)
     found = _find_compose_results(os.getcwd())
     if found is None:
-        raise click.ClickException("No compose_results run found under cwd. Pass --dir.")
+        raise click.ClickException("No compose results run found under cwd. Pass --dir.")
     return found
 
 
@@ -275,7 +326,7 @@ def utils():
 @click.option(
     "--dir", "compose_dir", type=click.Path(),
     default=None,
-    help="Path to compose_results/, a numbered run, or latest (default: search cwd).",
+    help="Path to results/, compose_results/, a numbered run, or latest (default: search cwd).",
 )
 def list_cmd(compose_dir):
     """List compose devices with PID, shell port, vsock CID, networks, and status."""
@@ -335,7 +386,7 @@ def list_cmd(compose_dir):
 @click.option(
     "--dir", "compose_dir", type=click.Path(),
     default=None,
-    help="Path to compose_results/, a numbered run, or latest (default: search cwd).",
+    help="Path to results/, compose_results/, a numbered run, or latest (default: search cwd).",
 )
 @click.argument("device_name")
 @click.argument("command", nargs=-1, type=click.UNPROCESSED)
