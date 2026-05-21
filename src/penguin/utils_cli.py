@@ -38,8 +38,47 @@ def _container_ip() -> str | None:
         return None
 
 
+def _is_compose_run_dir(path: str) -> bool:
+    return os.path.isdir(path) and os.path.isfile(os.path.join(path, "compose.yaml"))
+
+
+def _highest_numbered_run_dir(path: str) -> str | None:
+    runs = []
+    for name in os.listdir(path):
+        run_dir = os.path.join(path, name)
+        if not os.path.isdir(run_dir):
+            continue
+        try:
+            idx = int(name)
+        except ValueError:
+            continue
+        if _is_compose_run_dir(run_dir):
+            runs.append((idx, run_dir))
+    if not runs:
+        return None
+    return max(runs)[1]
+
+
+def _resolve_compose_run_dir_candidate(path: str) -> str | None:
+    if not os.path.isdir(path):
+        return None
+
+    latest = os.path.join(path, "latest")
+    if _is_compose_run_dir(latest):
+        return os.path.realpath(latest)
+
+    numbered = _highest_numbered_run_dir(path)
+    if numbered:
+        return os.path.realpath(numbered)
+
+    if _is_compose_run_dir(path):
+        return os.path.realpath(path)
+
+    return None
+
+
 def _find_compose_results(start: str) -> str | None:
-    """Search cwd, the mapped workspace, and obvious parents for compose_results."""
+    """Search cwd, the mapped workspace, and obvious parents for a compose run."""
     candidates = [
         os.path.join(start, "compose_results"),
         os.path.join(start, "../compose_results"),
@@ -53,10 +92,9 @@ def _find_compose_results(start: str) -> str | None:
 
     for candidate in candidates:
         path = os.path.realpath(candidate)
-        if not os.path.isdir(path) or not os.path.isfile(os.path.join(path, "compose.yaml")):
-            continue
-        if os.path.basename(path) == "compose_results" or os.path.isfile(os.path.join(path, "compose_summary.yaml")):
-            return path
+        resolved = _resolve_compose_run_dir_candidate(path)
+        if resolved:
+            return resolved
     return None
 
 
@@ -191,10 +229,13 @@ def list_instances(compose_dir: str) -> list[dict]:
 
 def _resolve_compose_dir(compose_dir: str | None) -> str:
     if compose_dir is not None:
+        resolved = _resolve_compose_run_dir_candidate(os.path.realpath(compose_dir))
+        if resolved:
+            return resolved
         return os.path.realpath(compose_dir)
     found = _find_compose_results(os.getcwd())
     if found is None:
-        raise click.ClickException("No compose_results/ found under cwd. Pass --dir.")
+        raise click.ClickException("No compose_results run found under cwd. Pass --dir.")
     return found
 
 
@@ -234,7 +275,7 @@ def utils():
 @click.option(
     "--dir", "compose_dir", type=click.Path(),
     default=None,
-    help="Path to compose_results/ (default: search cwd).",
+    help="Path to compose_results/, a numbered run, or latest (default: search cwd).",
 )
 def list_cmd(compose_dir):
     """List compose devices with PID, shell port, vsock CID, networks, and status."""
@@ -294,7 +335,7 @@ def list_cmd(compose_dir):
 @click.option(
     "--dir", "compose_dir", type=click.Path(),
     default=None,
-    help="Path to compose_results/ (default: search cwd).",
+    help="Path to compose_results/, a numbered run, or latest (default: search cwd).",
 )
 @click.argument("device_name")
 @click.argument("command", nargs=-1, type=click.UNPROCESSED)

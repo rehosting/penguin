@@ -21,7 +21,9 @@ from penguin.compose import (
     _generate_mac,
     _runtime_endpoint_spec,
     load_compose,
+    run_compose,
 )
+from penguin.utils_cli import _resolve_compose_dir
 
 
 MINIMAL_COMPOSE = """\
@@ -357,6 +359,100 @@ devices:
         self._write_compose(content)
         cfg = load_compose(self.compose_path)
         self.assertEqual(cfg.devices["router"].proj_dir, self.router_dir)
+
+
+class TestComposeOutputDirs(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.router_dir = _make_project_dir(self.tmpdir, "router")
+        self.client_dir = _make_project_dir(self.tmpdir, "client")
+        self.compose_path = os.path.join(self.tmpdir, "compose.yaml")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _write_compose(self, extra=""):
+        with open(self.compose_path, "w") as f:
+            f.write(MINIMAL_COMPOSE.format(
+                router_dir=self.router_dir,
+                client_dir=self.client_dir,
+            ))
+            if extra:
+                f.write(extra)
+
+    def _run_compose(self, output=None, force=False):
+        with patch("penguin.compose._run_device", return_value={"nopanic": 1}):
+            run_compose(
+                self.compose_path,
+                output,
+                timeout=1,
+                force=force,
+                verbose=False,
+            )
+
+    def test_default_output_rotates_and_updates_latest(self):
+        self._write_compose()
+
+        self._run_compose()
+        base = os.path.join(self.tmpdir, "compose_results")
+        self.assertTrue(os.path.isdir(os.path.join(base, "0")))
+        self.assertTrue(os.path.isfile(os.path.join(base, "0", "compose_summary.yaml")))
+        self.assertTrue(os.path.islink(os.path.join(base, "latest")))
+        self.assertEqual(os.readlink(os.path.join(base, "latest")), "./0")
+
+        self._run_compose()
+        self.assertTrue(os.path.isdir(os.path.join(base, "1")))
+        self.assertTrue(os.path.isfile(os.path.join(base, "1", "compose_summary.yaml")))
+        self.assertEqual(os.readlink(os.path.join(base, "latest")), "./1")
+
+    def test_configured_output_base_rotates(self):
+        self._write_compose("""\
+
+output:
+  base_dir: ./custom_compose_results
+""")
+
+        self._run_compose()
+        base = os.path.join(self.tmpdir, "custom_compose_results")
+        self.assertTrue(os.path.isdir(os.path.join(base, "0")))
+        self.assertEqual(os.readlink(os.path.join(base, "latest")), "./0")
+
+    def test_explicit_output_is_exact_path(self):
+        self._write_compose()
+        output = os.path.join(self.tmpdir, "my_results")
+
+        self._run_compose(output=output)
+
+        self.assertTrue(os.path.isfile(os.path.join(output, "compose_summary.yaml")))
+        self.assertFalse(os.path.exists(os.path.join(output, "0")))
+
+    def test_explicit_output_requires_force_when_existing(self):
+        self._write_compose()
+        output = os.path.join(self.tmpdir, "my_results")
+        os.makedirs(output)
+        marker = os.path.join(output, "marker")
+        with open(marker, "w") as f:
+            f.write("old")
+
+        with self.assertRaises(RuntimeError):
+            self._run_compose(output=output)
+
+        self._run_compose(output=output, force=True)
+        self.assertTrue(os.path.isfile(os.path.join(output, "compose_summary.yaml")))
+        self.assertFalse(os.path.exists(marker))
+
+    def test_utils_resolve_base_dir_uses_latest(self):
+        self._write_compose()
+        self._run_compose()
+        self._run_compose()
+
+        base = os.path.join(self.tmpdir, "compose_results")
+
+        self.assertEqual(
+            _resolve_compose_dir(base),
+            os.path.realpath(os.path.join(base, "1")),
+        )
 
 
 if __name__ == "__main__":
