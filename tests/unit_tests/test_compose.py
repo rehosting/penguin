@@ -507,7 +507,9 @@ class TestComposeCli(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn(compose_path, result.output)
-        scaffold.assert_called_once_with([self.router_dir, self.client_dir])
+        scaffold.assert_called_once_with(
+            [self.router_dir, self.client_dir], name=None
+        )
         run.assert_not_called()
 
     def test_compose_init_requires_two_projects(self):
@@ -592,10 +594,10 @@ class TestScaffoldCompose(unittest.TestCase):
         self.assertTrue(os.path.isfile(compose_path))
 
         scaffold_dir = os.path.dirname(compose_path)
-        # Scaffold dir under tmpdir/compose_projects/<timestamp>/
+        # Default name is the device basenames joined with '_'.
         self.assertEqual(
-            os.path.dirname(scaffold_dir),
-            os.path.join(self.tmpdir, "compose_projects"),
+            scaffold_dir,
+            os.path.join(self.tmpdir, "compose_projects", "router_client"),
         )
 
         import yaml as _yaml
@@ -627,14 +629,52 @@ class TestScaffoldCompose(unittest.TestCase):
             self.client_dir,
         )
 
+    def test_custom_name(self):
+        compose_path = scaffold_compose(
+            [self.router_dir, self.client_dir], name="my_setup"
+        )
+        self.assertEqual(
+            os.path.dirname(compose_path),
+            os.path.join(self.tmpdir, "compose_projects", "my_setup"),
+        )
+
+    def test_rejects_invalid_name(self):
+        for bad in ("", ".", "..", "../etc", "has space", "with/slash", "back\\slash"):
+            with self.assertRaises(ValueError, msg=f"should reject {bad!r}"):
+                scaffold_compose([self.router_dir, self.client_dir], name=bad)
+
+    def test_rejects_too_long_name(self):
+        from penguin.compose import MAX_COMPOSE_NAME_LEN
+        # exactly at the limit succeeds; one over fails.
+        ok_name = "a" * MAX_COMPOSE_NAME_LEN
+        compose_path = scaffold_compose(
+            [self.router_dir, self.client_dir], name=ok_name
+        )
+        self.assertEqual(os.path.basename(os.path.dirname(compose_path)), ok_name)
+
+        too_long = "a" * (MAX_COMPOSE_NAME_LEN + 1)
+        with self.assertRaises(ValueError) as cm:
+            scaffold_compose([self.router_dir, self.client_dir], name=too_long)
+        self.assertIn(str(MAX_COMPOSE_NAME_LEN), str(cm.exception))
+
+    def test_rejects_too_long_default_name(self):
+        from penguin.compose import MAX_COMPOSE_NAME_LEN
+        # Build enough projects that the joined default name exceeds the cap.
+        # Each basename is "longproj_NN" plus underscore separators.
+        many = []
+        for i in range(20):
+            many.append(_make_project_dir(self.projects_dir, f"longproj_{i:02d}"))
+        with self.assertRaises(ValueError) as cm:
+            scaffold_compose(many)
+        msg = str(cm.exception)
+        # Hint that --name is the way out, and surface the cap.
+        self.assertIn("--name", msg)
+        self.assertIn(str(MAX_COMPOSE_NAME_LEN), msg)
+
     def test_refuses_existing_scaffold_dir(self):
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-        os.makedirs(os.path.join(self.tmpdir, "compose_projects", timestamp))
-        with patch("penguin.compose.datetime") as mock_dt:
-            mock_dt.now.return_value.strftime.return_value = timestamp
-            with self.assertRaises(RuntimeError):
-                scaffold_compose([self.router_dir, self.client_dir])
+        os.makedirs(os.path.join(self.tmpdir, "compose_projects", "router_client"))
+        with self.assertRaises(RuntimeError):
+            scaffold_compose([self.router_dir, self.client_dir])
 
     def test_duplicate_basenames_error(self):
         # Two different project paths with the same basename "router"

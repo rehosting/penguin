@@ -212,7 +212,7 @@ penguin_run() {
             local _arg="${cmd[$i]}"
             # Skip flags and flag values
             if [[ "$_arg" =~ ^-- ]]; then continue; fi
-            if [[ $i -gt 1 && "${cmd[$((i-1))]}" =~ ^--(timeout|output)$ ]]; then continue; fi
+            if [[ $i -gt 1 && "${cmd[$((i-1))]}" =~ ^--(timeout|output|name)$ ]]; then continue; fi
             # Compose init requires each positional arg to be a dir with
             # config.yaml and no compose.yaml. Any non-conforming arg drops us
             # out of this special-case mode and lets the in-container CLI
@@ -239,7 +239,7 @@ penguin_run() {
             for ((i=compose_arg_start; i<${#cmd[@]}; i++)); do
                 local _arg="${cmd[$i]}"
                 if [[ "$_arg" =~ ^-- ]]; then continue; fi
-                if [[ $i -gt 1 && "${cmd[$((i-1))]}" =~ ^--(timeout|output)$ ]]; then continue; fi
+                if [[ $i -gt 1 && "${cmd[$((i-1))]}" =~ ^--(timeout|output|name)$ ]]; then continue; fi
                 if [[ -d "$_arg" && -f "$_arg/config.yaml" ]]; then
                     local _arg_real=$(realpath "$_arg")
                     cmd[$i]="${_arg_real//$compose_grandparent/$_guest_root}"

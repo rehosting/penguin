@@ -1209,7 +1209,10 @@ def _compose_file_from_target(target: str) -> str:
     )
 
 
-def _scaffold_compose_from_project_dirs(project_dirs: tuple[str, ...] | list[str]) -> str:
+def _scaffold_compose_from_project_dirs(
+    project_dirs: tuple[str, ...] | list[str],
+    name: str | None = None,
+) -> str:
     if len(project_dirs) < 2:
         raise click.ClickException(
             "Compose init requires two-or-more project directories, each "
@@ -1222,7 +1225,10 @@ def _scaffold_compose_from_project_dirs(project_dirs: tuple[str, ...] | list[str
             "Compose init expects only project directories containing config.yaml "
             f"and no compose.yaml. Cannot use: {joined}"
         )
-    return scaffold_compose(list(project_dirs))
+    try:
+        return scaffold_compose(list(project_dirs), name=name)
+    except (ValueError, RuntimeError) as e:
+        raise click.ClickException(str(e))
 
 
 def _run_compose_target(ctx, target: str, output: str | None, force: bool, timeout: int | None) -> None:
@@ -1240,7 +1246,10 @@ def _run_compose_shortcut(ctx, targets, output, force, timeout) -> None:
     project_dirs = [t for t in targets if _looks_like_compose_device_project_dir(t)]
 
     if len(project_dirs) == len(targets) and len(targets) >= 2:
-        compose_file = scaffold_compose(list(targets))
+        try:
+            compose_file = scaffold_compose(list(targets))
+        except (ValueError, RuntimeError) as e:
+            raise click.ClickException(str(e))
         run_compose(
             compose_file,
             output,
@@ -1287,18 +1296,22 @@ def compose(ctx):
 
 @compose.command("init")
 @click.argument("project_dirs", nargs=-1, required=True, type=click.Path(exists=True, file_okay=False))
+@click.option("--name", "name", type=str, default=None,
+              help="Name of the scaffolded compose project directory. "
+                   "Defaults to the device basenames joined with '_' "
+                   "(e.g. projects 'foo' + 'bar' → 'foo_bar').")
 @verbose_option
 @click.pass_context
-def compose_init(ctx, project_dirs):
+def compose_init(ctx, project_dirs, name):
     """
     Create a compose project from two or more device projects.
 
     PROJECT_DIRS must each contain a config.yaml. The generated compose
-    project is written under compose_projects/<timestamp>/ alongside the
+    project is written under compose_projects/<name>/ alongside the
     projects' parent directory.
     """
     _startup_checks(ctx.obj['VERBOSE'])
-    compose_file = _scaffold_compose_from_project_dirs(project_dirs)
+    compose_file = _scaffold_compose_from_project_dirs(project_dirs, name=name)
     click.echo(compose_file)
 
 
