@@ -10,6 +10,7 @@ def _summarize_compiler_stderr(stderr):
     matches = [line for line in text.splitlines() if patterns.search(line)]
     return "\n".join(matches[:20]) if matches else "\n".join(text.splitlines()[-20:])
 
+
 # Information about each ABI
 #   - `target_triple`: The target triple for the architecture
 #   - `libnvram_arch_name`: The architecture name used in libnvram
