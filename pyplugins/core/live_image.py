@@ -86,7 +86,7 @@ class LiveImage(Plugin):
 
     def _plan_actions(self) -> Iterator[Tuple[str, Dict]]:
         """
-        Sorts 'static_files' actions into a logical execution order without validation.
+        Sorts 'static_files' actions into a logical execution order.
         """
         actions = self.get_arg("conf").get("static_files", {}).items()
 
@@ -96,8 +96,9 @@ class LiveImage(Plugin):
         partitions = {key: [] for key in action_order}
         for path, action in actions:
             action_type = action.get("type")
-            if action_type in partitions:
-                partitions[action_type].append((path, action))
+            if action_type not in partitions:
+                raise ValueError(f"Unknown static_files action type {action_type!r} for {path}")
+            partitions[action_type].append((path, action))
 
         for action_type in action_order:
             reverse_sort = action_type == "delete"
@@ -179,14 +180,19 @@ class LiveImage(Plugin):
                         self.logger.debug(
                             f"Found {len(glob_matches)} files for host_file source glob: {source_path_pattern}")
                         if not glob_matches:
-                            self.logger.warning(
-                                f"No files matched for host_file source glob: {source_path_pattern}")
-                        for host_src in glob_matches:
-                            if host_src.is_file():
-                                staged_file_path = dest_dir_path / host_src.name
-                                shutil.copy(host_src, staged_file_path)
-                                if 'mode' in action:
-                                    record_mode(str(Path(dest_dir) / host_src.name if dest_dir.is_absolute() else (dest_dir / host_src.name)), action['mode'])
+                            raise FileNotFoundError(
+                                f"No files matched for host_file source glob: {source_path_pattern} "
+                                f"(static_files entry: {file_path} -> {action})")
+                        regular_matches = [host_src for host_src in glob_matches if host_src.is_file()]
+                        if not regular_matches:
+                            raise FileNotFoundError(
+                                f"No regular files matched for host_file source glob: {source_path_pattern} "
+                                f"(static_files entry: {file_path} -> {action})")
+                        for host_src in regular_matches:
+                            staged_file_path = dest_dir_path / host_src.name
+                            shutil.copy(host_src, staged_file_path)
+                            if 'mode' in action:
+                                record_mode(str(Path(dest_dir) / host_src.name if dest_dir.is_absolute() else (dest_dir / host_src.name)), action['mode'])
                     # Only expand globs in the source, never in the destination
                     elif '*' in source_path_pattern.name or '?' in source_path_pattern.name:
                         self.logger.debug(
@@ -196,16 +202,21 @@ class LiveImage(Plugin):
                         self.logger.debug(
                             f"Found {len(glob_matches)} files for host_file source glob: {source_path_pattern}")
                         if not glob_matches:
-                            self.logger.warning(
-                                f"No files matched for host_file source glob: {source_path_pattern}")
-                        for host_src in glob_matches:
-                            if host_src.is_file():
-                                staged_file_path = staged_path / host_src.name
-                                staged_file_path.parent.mkdir(
-                                    parents=True, exist_ok=True)
-                                shutil.copy(host_src, staged_file_path)
-                                if 'mode' in action:
-                                    record_mode(str(Path(file_path) / host_src.name), action['mode'])
+                            raise FileNotFoundError(
+                                f"No files matched for host_file source glob: {source_path_pattern} "
+                                f"(static_files entry: {file_path} -> {action})")
+                        regular_matches = [host_src for host_src in glob_matches if host_src.is_file()]
+                        if not regular_matches:
+                            raise FileNotFoundError(
+                                f"No regular files matched for host_file source glob: {source_path_pattern} "
+                                f"(static_files entry: {file_path} -> {action})")
+                        for host_src in regular_matches:
+                            staged_file_path = staged_path / host_src.name
+                            staged_file_path.parent.mkdir(
+                                parents=True, exist_ok=True)
+                            shutil.copy(host_src, staged_file_path)
+                            if 'mode' in action:
+                                record_mode(str(Path(file_path) / host_src.name), action['mode'])
                     else:  # Handle single file
                         host_src = source_path_pattern
                         if not host_src.exists():
@@ -213,6 +224,10 @@ class LiveImage(Plugin):
                                 f"Host file not found: {host_src} (static_files entry: {file_path} -> {action})")
                             raise FileNotFoundError(
                                 f"Host file not found: {host_src} (static_files entry: {file_path} -> {action})")
+                        if not host_src.is_file():
+                            raise FileNotFoundError(
+                                f"Host file is not a regular file: {host_src} "
+                                f"(static_files entry: {file_path} -> {action})")
                         staged_path.parent.mkdir(
                             parents=True, exist_ok=True)
                         shutil.copy(host_src, staged_path)
@@ -242,11 +257,23 @@ class LiveImage(Plugin):
                     shim_orig_counts[orig_path] = count
                 shim_orig_names.add(orig_path)
                 post_tar_commands.append(
+                    "sh -c "
+                    + shlex.quote(
+                        f"test -e {shlex.quote(file_path)} || "
+                        f"{{ echo {shlex.quote('ERROR: static_files shim source missing: ' + file_path)} >&2; exit 1; }}"
+                    ))
+                post_tar_commands.append(
                     f"mv {shlex.quote(file_path)} {shlex.quote(orig_path)}")
                 # Symlink to the target specified in configuration
                 post_tar_commands.append(
                     f"ln -sf {shlex.quote(action['target'])} {shlex.quote(file_path)}")
             elif action_type == "move":
+                post_tar_commands.append(
+                    "sh -c "
+                    + shlex.quote(
+                        f"test -e {shlex.quote(action['from'])} || "
+                        f"{{ echo {shlex.quote('ERROR: static_files move source missing: ' + action['from'])} >&2; exit 1; }}"
+                    ))
                 post_tar_commands.append(
                     f"cp {shlex.quote(action['from'])} {shlex.quote(file_path)}")
                 if action.get('mode') is not None:
@@ -338,6 +365,16 @@ class LiveImage(Plugin):
             line_num = len(script_lines) + 1
             script_lines.append(f"run_or_report {line_num} {cmd}")
 
+        def add_require_exists(path: str, action_type: str):
+            msg = f"ERROR: static_files {action_type} source missing: {path}"
+            add_run_or_report(
+                "sh -c "
+                + shlex.quote(
+                    f"test -e {shlex.quote(path)} || "
+                    f"{{ echo {shlex.quote(msg)} >&2; exit 1; }}"
+                )
+            )
+
         if paths_to_delete:
             add_run_or_report(f"rm -rf {' '.join([shlex.quote(p) for p in paths_to_delete])}")
         # Use hyp_file_op to get the tarball and extract
@@ -354,6 +391,7 @@ class LiveImage(Plugin):
 
             for i, (file_path, _) in enumerate(self.patch_queue):
                 shared_file_name = f"patch_{i}"
+                add_require_exists(file_path, "binary_patch")
                 patch_staging_cmds.append(
                     f"/igloo/boot/hyp_file_op put {shlex.quote(file_path)} {shlex.quote(os.path.basename(shared_file_name))}")
             script_lines.append("\n# Staging all files for patching")

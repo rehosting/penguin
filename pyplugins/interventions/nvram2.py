@@ -38,6 +38,7 @@ import subprocess
 import os
 import hashlib
 import glob
+import re
 from pathlib import Path
 
 log = "nvram.csv"
@@ -58,7 +59,21 @@ def _lib_inject_dropin_files(proj_dir):
     return c_files, h_files
 
 
-def add_lib_inject_for_abi(config, abi, cache_dir, proj_dir=None):
+def _append_build_log(build_log_path, message):
+    if not build_log_path:
+        return
+    with open(build_log_path, "a") as f:
+        f.write(message.rstrip() + "\n")
+
+
+def _summarize_compiler_stderr(stderr):
+    text = stderr.decode(errors="replace") if isinstance(stderr, bytes) else str(stderr)
+    patterns = re.compile(r"(error:|fatal error:|undefined reference|ld\.lld: error|clang-\d+: error)", re.IGNORECASE)
+    matches = [line for line in text.splitlines() if patterns.search(line)]
+    return "\n".join(matches[:20]) if matches else "\n".join(text.splitlines()[-20:])
+
+
+def add_lib_inject_for_abi(config, abi, cache_dir, proj_dir=None, build_log_path=None):
     """Compile lib_inject for the ABI and put it in /igloo, using cache_dir for caching"""
 
     arch = config["core"]["arch"]
@@ -120,11 +135,18 @@ def add_lib_inject_for_abi(config, abi, cache_dir, proj_dir=None):
     )
     # Create a hash of all relevant inputs for caching
     source_files_content = []
-    for pattern in ["/igloo_static/libnvram/*.c", "/igloo_static/libnvram/*.h"]:
+    source_patterns = [
+        "/igloo_static/libnvram/*.c",
+        "/igloo_static/libnvram/*.h",
+        "/igloo_static/guest-utils/ltrace/inject_ltrace.c",
+    ]
+    source_file_names = []
+    for pattern in source_patterns:
         for file_path in glob.glob(pattern):
             try:
                 with open(file_path, 'rb') as f:
                     source_files_content.append(f.read())
+                source_file_names.append(file_path)
             except Exception:
                 pass  # Ignore files that can't be read
     dropin_signature = []
@@ -141,23 +163,40 @@ def add_lib_inject_for_abi(config, abi, cache_dir, proj_dir=None):
         hash_input += content
     cache_key = hashlib.sha256(hash_input).hexdigest()
     cache_path = cache_dir / f"lib_inject_{arch}_{abi}_{cache_key}.so"
+    _append_build_log(
+        build_log_path,
+        f"[{arch}/{abi}] cache_key={cache_key} cache_path={cache_path}",
+    )
+    _append_build_log(
+        build_log_path,
+        f"[{arch}/{abi}] hashed_sources={','.join(sorted(source_file_names))}",
+    )
 
     if cache_path.exists():
         so_data = cache_path.read_bytes()
+        _append_build_log(build_log_path, f"[{arch}/{abi}] cache hit size={len(so_data)}")
     else:
+        _append_build_log(build_log_path, f"[{arch}/{abi}] compiling: {' '.join(args)}")
         p = subprocess.run(
             args,
             input=lib_inject.get("extra", "").encode(),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        _append_build_log(
+            build_log_path,
+            f"[{arch}/{abi}] returncode={p.returncode} stdout_bytes={len(p.stdout)} stderr_bytes={len(p.stderr)}",
+        )
+        if p.stderr:
+            _append_build_log(build_log_path, f"[{arch}/{abi}] stderr:\n{p.stderr.decode(errors='replace')}")
         if p.returncode != 0:
             print("FATAL: Failed to build lib_inject. Did your config specify an invalid alias target in libinject.aliases? Did you create a new function in libinject.extra with a syntax error?")
-            print("Compiler stderr output:")
-            print(p.stderr.decode(errors="replace"))
+            print("Compiler stderr summary:")
+            print(_summarize_compiler_stderr(p.stderr))
             raise Exception("Failed to build lib_inject")
         so_data = p.stdout
         cache_path.write_bytes(so_data)
+        _append_build_log(build_log_path, f"[{arch}/{abi}] wrote cache")
 
     config["static_files"][f"/igloo/lib_inject_{abi}.so"] = dict(
         type="inline_file",
@@ -166,13 +205,13 @@ def add_lib_inject_for_abi(config, abi, cache_dir, proj_dir=None):
     )
 
 
-def add_lib_inject_all_abis(conf, cache_dir, proj_dir=None):
+def add_lib_inject_all_abis(conf, cache_dir, proj_dir=None, build_log_path=None):
     """Add lib_inject for all supported ABIs to /igloo"""
 
     arch = conf["core"]["arch"]
     arch_info = ARCH_ABI_INFO[arch]
     for abi in arch_info["abis"].keys():
-        add_lib_inject_for_abi(conf, abi, cache_dir, proj_dir=proj_dir)
+        add_lib_inject_for_abi(conf, abi, cache_dir, proj_dir=proj_dir, build_log_path=build_log_path)
 
     # This isn't covered by the automatic symlink-adding code,
     # so do it manually here.
@@ -181,6 +220,11 @@ def add_lib_inject_all_abis(conf, cache_dir, proj_dir=None):
     conf["static_files"]["/igloo/dylibs/lib_inject.so"] = dict(
         type="symlink",
         target=f"/igloo/lib_inject_{arch_info['default_abi']}.so",
+    )
+    conf["static_files"]["/etc/ld.so.preload"] = dict(
+        type="inline_file",
+        contents="/igloo/dylibs/lib_inject.so\n",
+        mode=0o644,
     )
 
     # Binaries in /igloo/utils (e.g. test_nvram) are compiled with the dynamic
@@ -213,7 +257,7 @@ def add_lib_inject_all_abis(conf, cache_dir, proj_dir=None):
             )
 
 
-def prep_config(conf, cache_dir, proj_dir=None):
+def prep_config(conf, cache_dir, proj_dir=None, build_log_path=None):
     config_files = conf["static_files"] if "static_files" in conf else {}
     config_nvram = conf["nvram"] if "nvram" in conf else {}
 
@@ -237,7 +281,8 @@ def prep_config(conf, cache_dir, proj_dir=None):
             "mode": 0o644,
         }
 
-    add_lib_inject_all_abis(conf, cache_dir, proj_dir=proj_dir)
+    _append_build_log(build_log_path, "lib_inject build log start")
+    add_lib_inject_all_abis(conf, cache_dir, proj_dir=proj_dir, build_log_path=build_log_path)
 
 
 class Nvram2(Plugin):
@@ -278,7 +323,8 @@ class Nvram2(Plugin):
         self.logger.info(f"logging nvram accesses: {self.logging_enabled}")
         cache_dir = Path(proj_dir).resolve() / "qcows" / "cache" if proj_dir else Path(os.path.dirname(os.path.abspath(__file__))).resolve() / "qcows" / "cache"
         os.makedirs(cache_dir, exist_ok=True)
-        prep_config(config, cache_dir, proj_dir=proj_dir)
+        build_log_path = os.path.join(self.outdir, "lib_inject_build.log")
+        prep_config(config, cache_dir, proj_dir=proj_dir, build_log_path=build_log_path)
         # Even at debug level, logging every nvram get/clear can be very verbose.
         # As such, we only debug log nvram sets
 

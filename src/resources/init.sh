@@ -9,14 +9,15 @@ done
 if [ -d /igloo/init.d ]; then
   for f in /igloo/init.d/*; do
     if [ -x $f ]; then
-      echo "[IGLOO INIT] Running $f"
+      echo "[IGLOO] user init dispatched $f"
       $f
     fi
   done
 fi
 
 if [ ! -z "${igloo_init}" ]; then
-  echo '[IGLOO INIT] Running specified init binary';
+  /igloo/utils/send_hypercall readiness igloo_init "${igloo_init}" >/dev/null 2>&1 || true
+  echo "[IGLOO] user init dispatched ${igloo_init}";
   exec "${igloo_init}"
 fi
 echo "[IGLOO INIT] Fatal: no igloo_init specified in env. Abort"

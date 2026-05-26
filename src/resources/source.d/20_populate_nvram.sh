@@ -9,8 +9,10 @@ for p in /run /tmp /igloo/libnvram_tmpfs; do
   fi
 done
 
-/igloo/utils/busybox mkdir -p /dev/pts
-/igloo/utils/busybox mount -t devpts devpts /dev/pts
+if ! /igloo/utils/busybox mountpoint -q /dev/pts 2>/dev/null; then
+  /igloo/utils/busybox mkdir -p /dev/pts
+  /igloo/utils/busybox mount -t devpts devpts /dev/pts
+fi
 
 # Populate tmpfs with hardcoded libnvram values
 /igloo/utils/busybox cp /igloo/libnvram/* /igloo/libnvram_tmpfs/ || true
