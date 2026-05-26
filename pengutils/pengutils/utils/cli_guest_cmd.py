@@ -25,7 +25,7 @@ import socket as sock
 import sys
 import json
 from pathlib import Path
-from rich import print
+from builtins import print
 
 
 def _resolve_vsocket(socket_path):
@@ -52,6 +52,12 @@ def _resolve_vsocket(socket_path):
     return str(unix_socket), None
 
 
+def _prepare_command(cmd_str):
+    if "PATH=" not in cmd_str:
+        cmd_str = f"export PATH=/igloo/utils:$PATH; {cmd_str}"
+    return cmd_str
+
+
 def _send_command(unix_socket, port, cmd_str):
     """Helper to send command over socket and parse JSON result."""
     s = None
@@ -66,7 +72,7 @@ def _send_command(unix_socket, port, cmd_str):
         if f"OK {port}" not in response:
             return 1, "", f"OK not received from vsock unix socket (Got: {response})"
         # Send Command
-        s.sendall(cmd_str.encode('utf-8'))
+        s.sendall(_prepare_command(cmd_str).encode('utf-8'))
         # Read Response
         output = b""
         while True:

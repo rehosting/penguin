@@ -536,7 +536,19 @@ class BasePatch(PatchGenerator):
                     "major": igloo_serial_major,
                     "minor": igloo_serial_minor,
                     "mode": 0o666,
-                }
+                },
+                "/dev/pts": {
+                    "type": "dir",
+                    "mode": 0o755,
+                },
+                "/dev/shm": {
+                    "type": "dir",
+                    "mode": 0o1777,
+                },
+                "/dev/fd": {
+                    "type": "symlink",
+                    "target": "/proc/self/fd",
+                },
             },
             "plugins": default_plugins,
         }

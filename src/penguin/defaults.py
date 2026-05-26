@@ -59,6 +59,7 @@ default_plugins: dict[str, dict] = {
     },
     "send_hypercall": {
     },
+    "readiness": {},
     "indiv_debug": {},
 }
 

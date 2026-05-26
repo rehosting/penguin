@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 
 import subprocess
+import re
+
+
+def _summarize_compiler_stderr(stderr):
+    text = stderr.decode(errors="replace") if isinstance(stderr, bytes) else str(stderr)
+    patterns = re.compile(r"(error:|fatal error:|undefined reference|ld\.lld: error|clang-\d+: error)", re.IGNORECASE)
+    matches = [line for line in text.splitlines() if patterns.search(line)]
+    return "\n".join(matches[:20]) if matches else "\n".join(text.splitlines()[-20:])
 
 # Information about each ABI
 #   - `target_triple`: The target triple for the architecture
@@ -247,9 +255,12 @@ def add_lib_inject_for_abi(config, abi):
         args,
         input=lib_inject.get("extra", "").encode(),
         stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
     if p.returncode != 0:
         print("FATAL: Failed to build lib_inject. Did your config specify an invalid alias target in libinject.aliases? Did you create a new function in libinject.extra with a syntax error?")
+        print("Compiler stderr summary:")
+        print(_summarize_compiler_stderr(p.stderr))
         raise Exception("Failed to build lib_inject")
 
     config["static_files"][f"/igloo/lib_inject_{abi}.so"] = dict(
@@ -274,6 +285,11 @@ def add_lib_inject_all_abis(conf):
     conf["static_files"]["/igloo/dylibs/lib_inject.so"] = dict(
         type="symlink",
         target=f"/igloo/lib_inject_{arch_info['default_abi']}.so",
+    )
+    conf["static_files"]["/etc/ld.so.preload"] = dict(
+        type="inline_file",
+        contents="/igloo/dylibs/lib_inject.so\n",
+        mode=0o644,
     )
 
 
