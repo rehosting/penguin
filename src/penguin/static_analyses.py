@@ -644,7 +644,9 @@ class PseudofileFinder(StaticAnalysis):
         "fs/nfsfs/servers",
         "fs/nfsfs/volumes",
 
-        # Sys is special, loaded dynamically
+        # Sys is special, loaded dynamically. Do not model /proc/sys itself as
+        # a procfs file; sysctl entries below it are handled separately.
+        "sys",
 
 
         # sysvipc, driver (empty), scsi, tty, sys (big), irq (numbers), bus, fs
