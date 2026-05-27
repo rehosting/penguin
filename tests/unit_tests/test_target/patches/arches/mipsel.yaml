@@ -1,6 +1,10 @@
 core:
   arch: mipsel
 
+plugins:
+  qemu_mem:
+    mmap_base: 0x1f100000
+
 static_files:
   /igloo/utils/*:
     host_path: /igloo_static/mipsel/*
