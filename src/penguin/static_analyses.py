@@ -554,7 +554,7 @@ class PseudofileFinder(StaticAnalysis):
         "ttyp8", "ttyp9", "ttypa", "ttypb", "ttypc", "ttypd", "ttype",
         "ttypf", "tun", "urandom", "vcs", "vcs1", "vcsa", "vcsa1", "vda",
         "vga_arbiter", "vsock", "zero",
-        "root", "pts",  # Added in init
+        "fd", "root", "pts", "shm",  # Added in init
         "ttyAMA0", "ttyAMA1",  # ARM
         "stdin", "stdout", "stderr",  # Symlinks to /proc/self/fd/X
     ]
@@ -696,7 +696,10 @@ class PseudofileFinder(StaticAnalysis):
         :return: Filtered list of file paths.
         """
         # Find all files matching the pattern
-        found_files = list(FileSystemHelper.find_regex(pattern, extract_dir).keys())
+        found_files = sorted({
+            f.rstrip("/")
+            for f in FileSystemHelper.find_regex(pattern, extract_dir).keys()
+        })
 
         # Apply ignore filters: these are paths we'll ignore entirely
         # filtered_files = [
