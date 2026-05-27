@@ -2,6 +2,7 @@
 import logging
 import os
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 import click
 import subprocess
@@ -42,6 +43,36 @@ def penguin_run(config, image, name=None):
         logger.error("Penguin run failed, showing last 50 lines from log:")
         subprocess.run(["tail", "-n", "50", proj_dir / Path("test_log.txt")])
         sys.exit(1)
+
+
+def assert_penguin_run_succeeded():
+    latest = TEST_DIR / "results" / "latest"
+    ran_file = latest / ".ran"
+    verifier_xml = latest / "verifier.xml"
+
+    if not ran_file.exists():
+        raise AssertionError(
+            f"Penguin run did not complete successfully; missing {ran_file}"
+        )
+    if not verifier_xml.exists():
+        raise AssertionError(
+            f"Penguin verifier output is missing; missing {verifier_xml}"
+        )
+
+    root = ET.parse(verifier_xml).getroot()
+    failed = []
+    for testcase in root.iter("testcase"):
+        if testcase.find("failure") is not None or testcase.find("error") is not None:
+            failed.append(testcase.get("name", "<unnamed>"))
+
+    failures = sum(int(suite.get("failures", 0)) for suite in root.iter("testsuite"))
+    errors = sum(int(suite.get("errors", 0)) for suite in root.iter("testsuite"))
+    if failures or errors:
+        failed_msg = ", ".join(failed) if failed else "unknown verifier testcase"
+        raise AssertionError(
+            f"Penguin verifier failed with {failures} failures and {errors} errors: "
+            f"{failed_msg}"
+        )
 
 
 def create_tar_gz_with_binaries(dest_tar_gz, files_dict):
@@ -109,6 +140,7 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mod
 
     logger.info("Created new config file at " + new_config)
     penguin_run(new_config, image, name)
+    assert_penguin_run_succeeded()
     logger.info("Test completed")
 
 

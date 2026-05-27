@@ -1,6 +1,5 @@
 plugins:
   qemu_mem:
-    mmap_base: 0x90000000
     mmap_size: 16M
   native_mmap: {}
   verifier:

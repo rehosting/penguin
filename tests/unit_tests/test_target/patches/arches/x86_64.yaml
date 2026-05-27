@@ -1,6 +1,10 @@
 core:
   arch: intel64
 
+plugins:
+  qemu_mem:
+    mmap_base: 0x90000000
+
 static_files:
   /igloo/utils/*:
     host_path: /igloo_static/x86_64/*

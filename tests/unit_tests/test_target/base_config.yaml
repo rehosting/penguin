@@ -39,6 +39,7 @@ patches:
   - ./patches/tests/pseudofile_dev_compat.yaml
   - ./patches/tests/pseudofile_missing.yaml
   - ./patches/tests/pseudofile_mmap_shared.yaml
+  - ./patches/tests/native_mmap.yaml
   - ./patches/tests/pseudofile_readdir.yaml
   - ./patches/tests/pseudofile_sysfs.yaml
   - ./patches/tests/shared_dir.yaml
