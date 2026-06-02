@@ -650,7 +650,8 @@ RUN used_pkgs="" ; \
         fi; \
         if [ -n "$used_pkgs" ]; then \
             used_pkgs=$(echo "$used_pkgs" | sed 's/^,//'); \
-            echo "$(cat /pkg/penguin/version.txt)+localpackages=${used_pkgs}" > /pkg/penguin/version.txt; \
+            used_pkgs_version=$(echo "$used_pkgs" | tr ',' '.' | sed 's/[^A-Za-z0-9.]/./g; s/\.\{1,\}/./g; s/^\.//; s/\.$//'); \
+            echo "$(cat /pkg/penguin/version.txt)+localpackages.${used_pkgs_version}" > /pkg/penguin/version.txt; \
         fi; \
     fi
 RUN mkdir /igloo_static/utils.source && \

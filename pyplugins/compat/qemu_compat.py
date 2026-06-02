@@ -58,6 +58,10 @@ int cpu_memory_rw_debug(CPUState *cpu, vaddr addr, void *ptr, size_t len,
                         bool is_write);
 void set_penguin_guest_hypercall_callback(penguin_guest_hypercall_cb_t cb,
                                           void *opaque);
+void penguin_register_guest_hypercall(uint64_t nr);
+void penguin_unregister_guest_hypercall(uint64_t nr);
+void penguin_clear_guest_hypercalls(void);
+bool penguin_guest_hypercall_registered(uint64_t nr);
 void set_kvm_penguin_hypercall_callback(kvm_penguin_hypercall_cb_t cb);
 void set_kvm_penguin_after_guest_init_callback(
     kvm_penguin_after_guest_init_cb_t cb, void *opaque);
@@ -333,6 +337,12 @@ class KVMLibPandaMock:
 
 
 class QemuCompat:
+    _active_instances = []
+
+    @classmethod
+    def active_instances(cls):
+        return tuple(cls._active_instances)
+
     """
     CFFI wrapper for Penguin's QEMU shared-library builds.
 
@@ -369,6 +379,10 @@ class QemuCompat:
             "bool bql_locked(void);",
             "void replay_mutex_lock(void);",
             "bool replay_mutex_locked(void);",
+            "void penguin_register_guest_hypercall(uint64_t nr);",
+            "void penguin_unregister_guest_hypercall(uint64_t nr);",
+            "void penguin_clear_guest_hypercalls(void);",
+            "bool penguin_guest_hypercall_registered(uint64_t nr);",
         ):
             if declaration not in cdef_source:
                 cdef_source += f"\n{declaration}\n"
@@ -403,7 +417,11 @@ class QemuCompat:
         self._pre_shutdown_cb = None
         self.panda_args = []
 
+        self._active_instances.append(self)
         self.set_hypercall_callback(self._dispatch_hypercall)
+        plugin = self.hypercall_plugin
+        if plugin is not None:
+            self.bind_hypercall_plugin(plugin)
 
     def _callback_state(self):
         state = self._thread_state
@@ -513,7 +531,14 @@ class QemuCompat:
         except ImportError:
             return None
 
-        return plugins.hypercall
+        plugin = plugins.__dict__.get("hypercall")
+        if plugin is not None:
+            return plugin
+
+        try:
+            return plugins.hypercall
+        except Exception:
+            return None
 
     @property
     def hypercall_handlers(self):
@@ -524,12 +549,22 @@ class QemuCompat:
 
     def bind_hypercall_plugin(self, plugin):
         self._bound_hypercall_plugin = plugin
+        bind_qemu_compat = getattr(plugin, "bind_qemu_compat", None)
+        if bind_qemu_compat is not None:
+            bind_qemu_compat(self)
 
     def _lib_symbol(self, name: str):
         try:
             return getattr(self.lib, name)
         except AttributeError:
             return None
+
+    def register_guest_hypercall(self, nr: int) -> bool:
+        register = self._lib_symbol("penguin_register_guest_hypercall")
+        if register is None:
+            return False
+        register(int(nr) & 0xFFFFFFFFFFFFFFFF)
+        return True
 
     def set_hypercall_callback(self, cb: Callable):
         if self.mode == "kvm":
