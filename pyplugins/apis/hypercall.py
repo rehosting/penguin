@@ -24,10 +24,36 @@ class Hypercall(Plugin):
 
     def __init__(self) -> None:
         self.handlers: DefaultDict[int, List[Callable]] = defaultdict(list)
+        self.qemu_compats = []
+        self._bind_active_qemu_compats()
+
+    def _bind_active_qemu_compats(self) -> None:
+        try:
+            from compat.qemu_compat import QemuCompat
+        except Exception:
+            try:
+                from pyplugins.compat.qemu_compat import QemuCompat
+            except Exception:
+                return
+
+        for qemu_compat in QemuCompat.active_instances():
+            self.bind_qemu_compat(qemu_compat)
+
+    def bind_qemu_compat(self, qemu_compat) -> None:
+        if qemu_compat not in self.qemu_compats:
+            self.qemu_compats.append(qemu_compat)
+        for nr in self.handlers:
+            self._register_qemu_hypercall(nr, qemu_compat)
+
+    def _register_qemu_hypercall(self, nr: int, qemu_compat=None) -> None:
+        qemu_compats = [qemu_compat] if qemu_compat is not None else self.qemu_compats
+        for qemu in qemu_compats:
+            qemu.register_guest_hypercall(nr)
 
     def register(self, nr: int, func: Callable) -> Callable:
         for alias in _hypercall_aliases(nr):
             self.handlers[alias].append(func)
+            self._register_qemu_hypercall(alias)
         return func
 
     def hypercall(self, nr: int) -> Callable[[Callable], Callable]:

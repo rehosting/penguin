@@ -1,4 +1,5 @@
 import os
+import importlib.util
 import sys
 import tempfile
 import unittest
@@ -13,6 +14,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")
 
 from penguin import plugins  # noqa: E402
 from pyplugins.compat.qemu_compat import KVMArch, KVMQemu, MINIMAL_CDEF  # noqa: E402
+
+_hypercall_spec = importlib.util.spec_from_file_location(
+    "penguin_test_hypercall",
+    Path(__file__).resolve().parents[2] / "pyplugins" / "apis" / "hypercall.py",
+)
+_hypercall_module = importlib.util.module_from_spec(_hypercall_spec)
+_hypercall_spec.loader.exec_module(_hypercall_module)
+Hypercall = _hypercall_module.Hypercall
 
 
 class FakeHypercallPlugin:
@@ -31,6 +40,15 @@ class FakeHypercallPlugin:
         return 0
 
 
+class FakeQemuCompat:
+    def __init__(self):
+        self.registered_hypercalls = []
+
+    def register_guest_hypercall(self, nr):
+        self.registered_hypercalls.append(nr)
+        return True
+
+
 @contextmanager
 def fake_plugins_hypercall(hypercall):
     sentinel = object()
@@ -43,6 +61,27 @@ def fake_plugins_hypercall(hypercall):
             del plugins.__dict__["hypercall"]
         else:
             plugins.__dict__["hypercall"] = original
+
+
+class TestHypercallRegistry(unittest.TestCase):
+    def test_binding_registers_existing_hypercall_aliases(self):
+        hypercall = Hypercall()
+        hypercall.register(0xFFFFFFFF, lambda cpu: None)
+
+        qemu = FakeQemuCompat()
+        hypercall.bind_qemu_compat(qemu)
+
+        self.assertIn(0xFFFFFFFF, qemu.registered_hypercalls)
+        self.assertIn(-1, qemu.registered_hypercalls)
+
+    def test_registering_after_bind_updates_qemu_filter(self):
+        hypercall = Hypercall()
+        qemu = FakeQemuCompat()
+        hypercall.bind_qemu_compat(qemu)
+
+        hypercall.register(0x1337, lambda cpu: None)
+
+        self.assertIn(0x1337, qemu.registered_hypercalls)
 
 
 class TestKVMQemu(unittest.TestCase):
