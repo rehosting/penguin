@@ -1,0 +1,38 @@
+plugins:
+  nvram2:
+    persist: true
+    logging: false
+  verifier:
+    conditions:
+      nvram_persist_ran:
+        type: file_contains
+        file: console.log
+        string: "/tests/nvram_persist.sh PASS"
+nvram:
+  persist_test: "from_config"
+lib_inject:
+  aliases:
+    nvram_get: libinject_nvram_get
+    nvram_set: libinject_nvram_set
+
+static_files:
+  /tests/nvram_persist.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      export LD_PRELOAD="/igloo/dylibs/lib_inject.so"
+
+      LD_MUSL=$(/igloo/utils/busybox ls /igloo/dylibs/ld-musl-*.so.1 | /igloo/utils/busybox head -1)
+      test_nvram="$LD_MUSL --preload $LD_PRELOAD /igloo/utils/test_nvram"
+
+      nvram_get() { $test_nvram get "$1"; }
+      nvram_set() { $test_nvram set "$1" "$2"; }
+
+      val=$(nvram_get persist_test)
+      if [ "$val" = "persisted_value" ]; then
+          nvram_set verify_ok "yes"
+      else
+          nvram_set persist_test "persisted_value"
+      fi
+      exit 0
+    mode: 73

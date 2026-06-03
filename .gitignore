@@ -9,6 +9,7 @@ fws/
 results/
 projects/
 tests/unit_tests/test_target/config.yaml
+tests/unit_tests/test_target/nvram_state.yaml
 penguin.sif
 fw
 db/events.*

@@ -39,9 +39,16 @@ import os
 import hashlib
 import glob
 import re
+import yaml
 from pathlib import Path
 
 log = "nvram.csv"
+
+# Must match the NVRAM_LOG_* defines in libnvram/nvram.c.
+NVRAM_LOG_GET = 1
+NVRAM_LOG_SET = 2
+
+persisted_file = "nvram_state.yaml"
 
 # access: 0 = miss get, 1 = hit get, 2 = set, 3 = clear
 
@@ -320,7 +327,24 @@ class Nvram2(Plugin):
         config = self.get_arg("conf")
         proj_dir = self.get_arg("proj_dir")
         self.logging_enabled = self.get_arg_bool("logging", default=True)
+        self.persist = self.get_arg_bool("persist", default=False)
         self.logger.info(f"logging nvram accesses: {self.logging_enabled}")
+
+        self.log_mask = 0
+        if self.logging_enabled:
+            self.log_mask |= NVRAM_LOG_GET | NVRAM_LOG_SET
+        if self.persist:
+            self.log_mask |= NVRAM_LOG_SET
+
+        self.persist_path = os.path.join(proj_dir, persisted_file) if proj_dir else None
+        self.state = self._load_persisted()
+        if self.persist and self.state:
+            config_nvram = config["nvram"] if "nvram" in config else {}
+            overridden = [k for k in self.state if k in config_nvram]
+            if overridden:
+                self.logger.info(f"persisted nvram overrides config.yaml keys: {overridden}")
+            config["nvram"] = {**config_nvram, **self.state}
+
         cache_dir = Path(proj_dir).resolve() / "qcows" / "cache" if proj_dir else Path(os.path.dirname(os.path.abspath(__file__))).resolve() / "qcows" / "cache"
         os.makedirs(cache_dir, exist_ok=True)
         build_log_path = os.path.join(self.outdir, "lib_inject_build.log")
@@ -329,6 +353,31 @@ class Nvram2(Plugin):
         # As such, we only debug log nvram sets
 
         self.log_write("key,operation,value\n")
+
+    def _load_persisted(self) -> dict:
+        if not (self.persist and self.persist_path):
+            return {}
+        if not os.path.exists(self.persist_path):
+            self.logger.info(f"no persisted nvram at {self.persist_path} (first run?)")
+            return {}
+        try:
+            with open(self.persist_path) as f:
+                nvram = (yaml.safe_load(f) or {}).get("nvram", {})
+            self.logger.info(f"loaded {len(nvram)} persisted nvram values from {self.persist_path}")
+            return dict(nvram)
+        except Exception as e:
+            self.logger.warning(f"failed to load persisted nvram from {self.persist_path}: {e}")
+            return {}
+
+    def uninit(self) -> None:
+        if not (self.persist and self.persist_path):
+            return
+        try:
+            with open(self.persist_path, "w") as f:
+                yaml.safe_dump({"nvram": self.state}, f, sort_keys=True)
+            self.logger.info(f"saved {len(self.state)} nvram values to {self.persist_path}")
+        except Exception as e:
+            self.logger.warning(f"failed to save persisted nvram to {self.persist_path}: {e}")
 
     def log_write(self, entry: str) -> None:
         """
@@ -433,6 +482,7 @@ class Nvram2(Plugin):
             return 0
         key = key.split("/")[-1]  # It's the full /igloo/libnvram_tmpfs/keyname path
         self.log_write(f"{key},set,{newval}\n")
+        self.state[key] = newval
         if regs is not None:
             self.panda.arch.set_arg(regs, 1, 0)
         self.logger.debug(f"nvram set {key} {newval}")
@@ -458,6 +508,7 @@ class Nvram2(Plugin):
             return 0
         key = key.split("/")[-1]  # It's the full /igloo/libnvram_tmpfs/keyname path
         self.log_write(f"{key},clear,\n")
+        self.state.pop(key, None)
         if regs is not None:
             self.panda.arch.set_arg(regs, 1, 0)
         return 0
@@ -467,7 +518,7 @@ class Nvram2(Plugin):
     @plugins.subscribe(plugins.Events, "igloo_nvram_logging_enabled")
     def on_nvram_logging_enabled(self, regs,) -> None:
         """
-        Handles and logs an NVRAM clear operation. Sets return value register to 1 if logging is enabled, 0 otherwise.
+        Returns the NVRAM_LOG_* bitmask telling the guest which nvram ops to report.
 
         Parameters
         ----------
@@ -478,7 +529,7 @@ class Nvram2(Plugin):
         -------
         None
         """
-        rval = (1 if self.logging_enabled else 0)
+        rval = self.log_mask
         self.logger.debug(f"nvram logging enabled query, returning {rval}")
         if regs is not None:
             self.panda.arch.set_retval(regs, rval)
