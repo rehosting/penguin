@@ -1,6 +1,10 @@
 core:
   arch: riscv64
 
+plugins:
+  qemu_mem:
+    mmap_base: 0x100000000
+
 static_files:
   /igloo/utils/*:
     host_path: /igloo_static/riscv64/*
