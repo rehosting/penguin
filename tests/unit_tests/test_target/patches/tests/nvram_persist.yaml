@@ -4,7 +4,7 @@ plugins:
     logging: false
   verifier:
     conditions:
-      nvram_persist_ran:
+      nvram_persist_pass:
         type: file_contains
         file: console.log
         string: "/tests/nvram_persist.sh PASS"
@@ -24,15 +24,10 @@ static_files:
 
       LD_MUSL=$(/igloo/utils/busybox ls /igloo/dylibs/ld-musl-*.so.1 | /igloo/utils/busybox head -1)
       test_nvram="$LD_MUSL --preload $LD_PRELOAD /igloo/utils/test_nvram"
-
       nvram_get() { $test_nvram get "$1"; }
-      nvram_set() { $test_nvram set "$1" "$2"; }
 
+      # Preset nvram_state.yaml must load and win over config.yaml's value.
       val=$(nvram_get persist_test)
-      if [ "$val" = "persisted_value" ]; then
-          nvram_set verify_ok "yes"
-      else
-          nvram_set persist_test "persisted_value"
-      fi
+      [ "$val" = "persisted_value" ] || { echo "ERROR: persist_test='$val'" >&2; exit 1; }
       exit 0
     mode: 73

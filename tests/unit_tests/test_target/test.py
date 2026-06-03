@@ -5,6 +5,7 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 import click
+import shutil
 import subprocess
 import yaml
 
@@ -139,6 +140,18 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mod
         yaml.dump(base_config, file, sort_keys=False)
 
     logger.info("Created new config file at " + new_config)
+
+    # Start from a clean nvram_state.yaml; a test may ship a preset
+    # (patches/tests/<test>.state.yaml) to exercise the persistence reload path.
+    state_dest = Path(TEST_DIR, "nvram_state.yaml")
+    if state_dest.exists():
+        state_dest.unlink()
+    if test_file:
+        state_preset = Path(TEST_DIR, "patches", "tests", f"{Path(test_file).stem}.state.yaml")
+        if state_preset.exists():
+            shutil.copyfile(state_preset, state_dest)
+            logger.info(f"Placed preset nvram_state.yaml from {state_preset.name}")
+
     penguin_run(new_config, image, name)
     assert_penguin_run_succeeded()
     logger.info("Test completed")
