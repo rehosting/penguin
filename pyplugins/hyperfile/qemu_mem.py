@@ -46,6 +46,16 @@ def _align_up(value: int, alignment: int = PAGE_SIZE) -> int:
     return (value + alignment - 1) & ~(alignment - 1)
 
 
+def _guest_byteorder(plugin) -> str:
+    conf = getattr(getattr(plugin, "plugins", None), "args", {}).get("conf", {})
+    arch = str(conf.get("core", {}).get("arch", "")).lower()
+    if arch.endswith("eb") or arch.startswith(("powerpc", "ppc")):
+        return "big"
+    if arch:
+        return "little"
+    return getattr(plugin.panda, "endianness", "little")
+
+
 class QemuMem(Plugin):
     """
     Native QEMU MMIO aperture used as a backing store for guest mmap() users.
@@ -72,9 +82,16 @@ class QemuMem(Plugin):
 
         self.base = _parse_int(self.get_arg("mmap_base"), DEFAULT_MMAP_BASE)
         self.size = _parse_int(self.get_arg("mmap_size"), DEFAULT_MMAP_SIZE)
+        self.alignment = _parse_int(self.get_arg("mmap_alignment"), PAGE_SIZE)
+        self.byteorder = _guest_byteorder(self)
         if self.base % PAGE_SIZE:
             raise ValueError(
                 f"qemu_mem mmap_base must be page aligned: 0x{self.base:x}"
+            )
+        if self.alignment <= 0 or self.alignment % PAGE_SIZE:
+            raise ValueError(
+                "qemu_mem mmap_alignment must be a positive page-aligned size: "
+                f"{self.alignment}"
             )
         if self.size <= 0 or self.size % PAGE_SIZE:
             raise ValueError(
@@ -102,8 +119,8 @@ class QemuMem(Plugin):
         write_cb=None,
         initial=None,
     ) -> int:
-        size = _align_up(max(int(size), 1))
-        offset = _align_up(self._used)
+        size = _align_up(max(int(size), 1), self.alignment)
+        offset = _align_up(self._used, self.alignment)
         end = offset + size
         if end > self.size:
             raise RuntimeError(
@@ -222,7 +239,7 @@ class QemuMem(Plugin):
             )
             return int.from_bytes(
                 data.ljust(int(size), b"\x00")[:int(size)],
-                "little",
+                self.byteorder,
             )
         except Exception as exc:
             self.logger.error(
@@ -236,7 +253,7 @@ class QemuMem(Plugin):
         try:
             alloc, file_offset = self._allocation_for_offset(int(addr))
             write_len = min(int(size), alloc.size - file_offset)
-            payload = int(data).to_bytes(int(size), "little")[:write_len]
+            payload = int(data).to_bytes(int(size), self.byteorder)[:write_len]
             alloc.storage[file_offset:file_offset + write_len] = payload
             if alloc.write_cb:
                 alloc.write_cb(file_offset, payload)

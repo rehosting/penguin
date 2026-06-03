@@ -48,12 +48,22 @@ static_files:
               addr = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, f.fileno(), 0)
               if addr == -1:
                   raise OSError(uos.errno())
-              assert uctypes.bytes_at(addr, len(expected)) == expected
+              observed = uctypes.bytes_at(addr, len(expected))
+              assert observed == expected, (
+                  path,
+                  expected,
+                  observed,
+              )
               buf = uctypes.bytearray_at(addr, len(replacement))
               buf[:] = replacement
               munmap(addr, 4096)
           with open(path, "rb") as f:
-              assert f.read(len(replacement)) == replacement
+              observed = f.read(len(replacement))
+              assert observed == replacement, (
+                  path,
+                  replacement,
+                  observed,
+              )
           print(marker)
 
       check_mmap(
