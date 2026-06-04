@@ -1,0 +1,2 @@
+nvram:
+  persist_test: persisted_value
