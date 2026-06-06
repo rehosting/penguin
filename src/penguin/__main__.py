@@ -31,6 +31,37 @@ from .utils_cli import utils as _utils_group
 logger = getColoredLogger("penguin")
 
 
+def _resolve_project_and_config(project_dir, config):
+    """
+    Normalize a (project_dir, config) pair the way `run` and `validate` expect.
+
+    Accepts a project directory or, for backwards compatibility, a path to a
+    config file inside one. Returns (project_dir, config) with both resolved to
+    existing absolute paths, raising ValueError if no config can be found.
+    """
+    if not os.path.isabs(project_dir):
+        project_dir = os.path.join(os.getcwd(), project_dir)
+
+    if os.path.isfile(project_dir) or project_dir.endswith("/config.yaml"):
+        config = project_dir
+        project_dir = os.path.dirname(config)
+
+    if not config and os.path.isdir(project_dir) and os.path.exists(
+        os.path.join(project_dir, "config.yaml")
+    ):
+        config = os.path.join(project_dir, "config.yaml")
+
+    if config is None:
+        raise ValueError(
+            f"Could not find config and none was provided. Auto-checked {project_dir} for config.yaml"
+        )
+
+    if not Path(config).exists():
+        raise ValueError(f"Config file does not exist: {config}")
+
+    return project_dir, config
+
+
 def _validate_project(proj_dir, config_path):
     if not os.path.isdir(proj_dir):
         raise RuntimeError(f"Project directory not found: {proj_dir}")
@@ -589,28 +620,10 @@ def run(ctx, project_dir, config, output, force, timeout, auto):
     """
     _startup_checks(ctx.obj['VERBOSE'])
 
-    if not os.path.isabs(project_dir):
-        current_dir = os.getcwd()
-        project_dir = os.path.join(current_dir, project_dir)
-
-    if os.path.isfile(project_dir) or project_dir.endswith("/config.yaml"):
-        config = project_dir
-        project_dir = os.path.dirname(config)
+    project_dir, config = _resolve_project_and_config(project_dir, config)
 
     if force and output and os.path.isdir(output):
         shutil.rmtree(output, ignore_errors=True)
-
-    if not config and os.path.isdir(project_dir) and os.path.exists(
-        os.path.join(project_dir, "config.yaml")
-    ):
-        config = os.path.join(project_dir, "config.yaml")
-
-    if config is None:
-        raise ValueError(f"Could not find config and none was provided. Auto-checked {project_dir} for config.yaml")
-
-    config_path = Path(config)
-    if not config_path.exists():
-        raise ValueError(f"Config file does not exist: {config}")
 
     if not os.path.isdir(os.path.join(project_dir, "base")):
         raise ValueError(
@@ -663,6 +676,34 @@ def run(ctx, project_dir, config, output, force, timeout, auto):
 
 
 @cli.command()
+@click.argument("project_dir", type=str)
+@click.option("--config", type=str, default=None, help="Path to a config file. Defaults to <project_dir>/config.yaml.")
+@verbose_option
+@click.pass_context
+def validate(ctx, project_dir, config):
+    """
+    Validate a config without running it.
+
+    Loads the config, applies patches and drop-ins, and runs full schema
+    validation. On failure, prints a located, actionable report (which file,
+    which option, what was wrong, allowed values) and exits non-zero.
+    """
+    _startup_checks(ctx.obj['VERBOSE'])
+
+    project_dir, config = _resolve_project_and_config(project_dir, config)
+
+    # load_config routes schema errors through the friendly formatter and
+    # exits non-zero itself; a clean return means the config validated.
+    cfg = load_config(project_dir, config, validate=True, verbose=ctx.obj['VERBOSE'])
+
+    click.secho("Config OK", fg="green", bold=True)
+    click.echo(f"  arch:   {cfg['core'].get('arch')}")
+    click.echo(f"  kernel: {cfg['core'].get('kernel')}")
+    plugin_names = sorted((cfg.get("plugins") or {}).keys())
+    click.echo(f"  plugins: {', '.join(plugin_names) if plugin_names else '(none)'}")
+
+
+@cli.command()
 @verbose_option
 @click.pass_context
 def shell(ctx):
@@ -703,17 +744,94 @@ def docs(ctx, filename):
     else:
         with open(full_path, "r") as f:
             lines = len(f.readlines())
+        _render_markdown_file(full_path, num_lines=lines)
 
-        try:
-            rows, _ = os.get_terminal_size()
-        except OSError:
-            rows = None
 
-        glow_args = ["glow", full_path]
-        if rows and lines > rows:
-            subprocess.run(glow_args + ["--pager"])
-        else:
-            subprocess.run(glow_args)
+def _render_markdown_file(path, num_lines=None):
+    """Render a markdown file to the terminal via glow, with a pager for long files."""
+    if not shutil.which("glow"):
+        with open(path, "r") as f:
+            click.echo(f.read())
+        return
+    if num_lines is None:
+        with open(path, "r") as f:
+            num_lines = len(f.readlines())
+    try:
+        rows, _ = os.get_terminal_size()
+    except OSError:
+        rows = None
+    glow_args = ["glow", path]
+    if rows and num_lines > rows:
+        subprocess.run(glow_args + ["--pager"])
+    else:
+        subprocess.run(glow_args)
+
+
+def _render_markdown(text):
+    """Render a markdown string to the terminal (reuses the glow file renderer)."""
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as f:
+        f.write(text)
+        tmp = f.name
+    try:
+        _render_markdown_file(tmp, num_lines=text.count("\n") + 1)
+    finally:
+        os.unlink(tmp)
+
+
+@cli.command()
+@click.argument("section", type=str, required=False)
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit the raw JSON schema instead of rendered docs.")
+@verbose_option
+@click.pass_context
+def schema(ctx, section, as_json):
+    """
+    Show the config schema.
+
+    With no SECTION, lists the top-level config sections. With a dotted SECTION
+    (e.g. `core`, `pseudofiles.read`, `pseudofiles.read.const_buf`), renders that
+    part of the schema.
+    """
+    _startup_checks(ctx.obj['VERBOSE'])
+    from penguin.penguin_config import gen_docs
+    from penguin.penguin_config.gen_docs import DocsField
+
+    if not section:
+        if as_json:
+            click.echo(yaml.dump(structure_json_schema(), indent=2))
+            return
+        lines = ["# Config sections", ""]
+        for name, title in gen_docs.list_sections():
+            lines.append(f"- `{name}` — {title}")
+        lines.append("")
+        lines.append("Run `penguin schema <section>` to see details, e.g. `penguin schema core`.")
+        _render_markdown("\n".join(lines))
+        return
+
+    resolved = gen_docs.resolve_section(section)
+    if resolved is not None:
+        if as_json:
+            try:
+                click.echo(yaml.dump(resolved.model_json_schema(), indent=2))
+            except AttributeError:
+                click.echo(f"(section '{section}' is a primitive type with no sub-schema)")
+            return
+        md = gen_docs.gen_docs(
+            path=section.split("."),
+            docs_field=DocsField.from_type(resolved),
+        )
+        _render_markdown(md)
+        return
+
+    logger.error(
+        f"Unknown schema section '{section}'. "
+        f"Run `penguin schema` to list available sections."
+    )
+    sys.exit(1)
+
+
+def structure_json_schema():
+    from penguin.penguin_config import structure
+    return structure.Main.model_json_schema()
 
 
 @cli.command()

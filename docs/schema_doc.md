@@ -463,6 +463,20 @@ Shell script body dropped into /igloo/init.d to run during guest boot. Installed
 
 List of paths to patch files
 
+## `vars` Template variables
+
+|||
+|-|-|
+|__Type__|mapping from string to any or null|
+|__Default__|`null`|
+
+User-defined variables usable elsewhere via Jinja2 templating, e.g. `{{ myvar }}`. Alongside these, `{{ arch }}`, `{{ core.<field> }}`, and `{{ kernel_version }}` are available. This section is consumed at load time and does not appear in the realized config.
+
+```yaml
+libdir: /lib/{{ arch }}
+webroot: /www
+```
+
 ## `env` Environment
 
 |||
@@ -916,7 +930,7 @@ Add a file with contents specified inline in this config
 |Field|Type|Default|Title|
 |-|-|-|-|
 |`type`|`"inline_file"`||Type of file action (add inline file)|
-|`mode`|integer||Permissions of file|
+|`mode`|integer|`420`|Permissions of file|
 |`contents`|string||Contents of file|
 #### `static_files.<string>.<type=host_file>` Copy host file
 
@@ -925,7 +939,7 @@ Copy a file from the host into the guest
 |Field|Type|Default|Title|
 |-|-|-|-|
 |`type`|`"host_file"`||Type of file action (copy host file)|
-|`mode`|integer||Permissions of file|
+|`mode`|integer|`493`|Permissions of file|
 |`host_path`|string||Host path|
 #### `static_files.<string>.<type=dir>` Add directory
 
@@ -933,7 +947,7 @@ Copy a file from the host into the guest
 |Field|Type|Default|Title|
 |-|-|-|-|
 |`type`|`"dir"`||Type of file action (add directory)|
-|`mode`|integer||Permissions of directory|
+|`mode`|integer|`493`|Permissions of directory|
 #### `static_files.<string>.<type=symlink>` Add symbolic link
 
 
@@ -950,7 +964,7 @@ Copy a file from the host into the guest
 |`devtype`|`"char"` or `"block"`||Type of device file|
 |`major`|integer||Major device number|
 |`minor`|integer||Minor device number|
-|`mode`|integer||Permissions of device file|
+|`mode`|integer|`438`|Permissions of device file|
 #### `static_files.<string>.<type=delete>` Delete file
 
 
