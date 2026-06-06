@@ -40,7 +40,8 @@ from pengutils.events import Base
 # Import the Base Event class for inheritance checks (aliased to avoid conflict with threading.Event)
 from pengutils.events import Event as BaseEvent
 from threading import Lock, Thread, Event
-from penguin import Plugin
+from penguin import Plugin, PluginArgs
+from pydantic import Field
 import time
 
 
@@ -49,6 +50,11 @@ class DB(Plugin):
     Optimized Database-backed event logger.
     Uses SQLAlchemy Core for bulk inserts and minimizes locking contention.
     """
+
+    class Args(PluginArgs):
+        bufsize: int = Field(
+            default=100000, description="Number of events to buffer in memory before flushing to the SQLite database."
+        )
 
     def __init__(self) -> None:
         """

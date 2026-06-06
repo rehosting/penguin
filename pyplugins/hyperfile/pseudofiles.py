@@ -1,6 +1,7 @@
 import inspect
 import os
-from penguin import plugins, Plugin
+from pydantic import Field
+from penguin import plugins, Plugin, PluginArgs
 from hyperfile.models.base import DevFile, ProcFile, SysFile, SysfsBridge, SysctlFile
 from hyperfile.models.read import (
     ReadConstBuf,
@@ -66,6 +67,12 @@ class _LegacyDevSeekCompat(_LegacyDevPollCompat):
 
 
 class Pseudofiles(Plugin):
+    class Args(PluginArgs):
+        disable_tracking: bool = Field(
+            default=False,
+            description="If true, do not initialize the pseudofile_tracker plugin alongside pseudofiles.",
+        )
+
     def __init__(self):
         self.config = self.get_arg("conf")
         if not self.get_arg_bool("disable_tracking"):

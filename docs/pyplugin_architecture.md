@@ -47,6 +47,58 @@ class PluginA(Plugin):
         self.argumentA = self.get_arg("argumentA")
 ```
 
+## Declaring arguments with an `Args` schema (recommended)
+
+A plugin can declare the arguments it accepts by nesting an `Args` class that
+inherits from `PluginArgs` (a Pydantic model). This is **optional and fully
+backwards compatible** — plugins without an `Args` class keep working exactly as
+before (any arg accepted, `get_arg` returns `None` when unset). Declaring `Args`
+adds three things:
+
+1. **Validation** — args are checked at config-load time. Unknown keys, wrong
+   types, etc. produce a clear, located error before the run starts.
+2. **Defaults** — declared defaults are applied automatically, so `get_arg`
+   returns the default instead of `None` when an arg is omitted.
+3. **Schema & docs** — `penguin schema <plugin>` renders the declared arguments,
+   and the plugin becomes eligible for the first-class top-level syntax (below).
+
+```python
+from typing import List
+from pydantic import Field
+from penguin import Plugin, PluginArgs
+
+class Kmods(Plugin):
+    class Args(PluginArgs):
+        allowlist: List[str] = Field(default=[], description="Modules allowed to load")
+        denylist:  List[str] = Field(default=[], description="Modules to block")
+        quiet:     bool      = Field(default=False, description="Only log errors")
+
+    def __init__(self):
+        # get_arg now returns declared defaults when an arg is omitted
+        self.allowlist = self.get_arg("allowlist")
+        self.quiet = self.get_arg_bool("quiet")
+```
+
+## First-class plugin syntax
+
+A plugin that declares an `Args` schema can be configured at the **top level** of
+the config, not just under `plugins:`. These two forms are equivalent:
+
+```yaml
+plugins:
+  kmods:
+    allowlist: [wireguard]
+```
+
+```yaml
+kmods:
+  allowlist: [wireguard]
+```
+
+The top-level form is only honored for plugins that declare `Args`; any other
+unknown top-level key is still rejected as a typo. Configuring the same plugin
+both at the top level and under `plugins:` is an error.
+
 ## Meta-variable templating
 
 Config and patch files support Jinja2 templating so values that depend on the

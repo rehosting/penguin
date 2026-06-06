@@ -21,7 +21,8 @@ Classes
 """
 
 from typing import Any, Optional
-from penguin import plugins, Plugin
+from pydantic import Field
+from penguin import plugins, Plugin, PluginArgs
 
 RETRY: int = 0xDEADBEEF
 NO_CHANGE: int = 0xABCDABCD
@@ -45,6 +46,26 @@ class KernelVersion(Plugin):
     v = KernelVersion(5, 10, 0, "-rc1")
     ```
     """
+
+    class Args(PluginArgs):
+        sysname: Optional[str] = Field(
+            default=None, description="uname sysname field (OS name); leave unset to keep the kernel default."
+        )
+        nodename: Optional[str] = Field(
+            default=None, description="uname nodename field (hostname); leave unset to keep the kernel default."
+        )
+        release: Optional[str] = Field(
+            default=None, description="uname release field (kernel release string); leave unset to keep the kernel default."
+        )
+        kversion: Optional[str] = Field(
+            default=None, description="uname version field (kernel version string); leave unset to keep the kernel default."
+        )
+        machine: Optional[str] = Field(
+            default=None, description="uname machine field (hardware/architecture name); leave unset to keep the kernel default."
+        )
+        domainname: Optional[str] = Field(
+            default=None, description="uname domainname field (NIS/domain name); leave unset to keep the kernel default."
+        )
 
     outdir: Optional[str]
     sysname: Optional[str]

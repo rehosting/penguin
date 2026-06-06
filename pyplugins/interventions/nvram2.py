@@ -32,8 +32,9 @@ If logging is enabled, NVRAM operations are logged to `nvram.csv` in the specifi
 
 """
 
-from penguin import Plugin, plugins
+from penguin import Plugin, plugins, PluginArgs
 from penguin.abi_info import ARCH_ABI_INFO
+from pydantic import Field
 import subprocess
 import os
 import hashlib
@@ -309,6 +310,14 @@ class Nvram2(Plugin):
     - Subscribes to NVRAM get (hit/miss), set, and clear events.
     - Logs each operation to a CSV file.
     """
+
+    class Args(PluginArgs):
+        logging: bool = Field(
+            default=True, description="Enable logging of NVRAM get/set operations to nvram.csv."
+        )
+        persist: bool = Field(
+            default=False, description="Persist NVRAM set values across runs via nvram_state.yaml."
+        )
 
     def __init__(self):
         """

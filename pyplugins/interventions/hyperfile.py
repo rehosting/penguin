@@ -53,8 +53,9 @@ Functions
 """
 
 import struct
-from typing import Any, Dict, Tuple
-from penguin import Plugin, plugins
+from typing import Any, Dict, Optional, Tuple
+from pydantic import Field
+from penguin import Plugin, plugins, PluginArgs
 from hyper.consts import igloo_hypercall_constants as iconsts
 from hyper.consts import hyperfs_ops as hops
 from hyper.consts import hyperfs_file_ops as fops
@@ -130,6 +131,20 @@ class HyperFile(Plugin):
     - `results` (`Dict`): Stores results of file operations for logging.
     - `default_model` (`Dict`): Default model for unhandled file operations.
     """
+
+    class Args(PluginArgs):
+        log_file: Optional[str] = Field(
+            default=None,
+            description="Path to write the YAML log of hyperfile operation results; disabled when unset.",
+        )
+        logger: Optional[Any] = Field(
+            default=None,
+            description="Logger instance to use for this plugin; defaults to the plugin's own logger when unset.",
+        )
+        models: Optional[Dict] = Field(
+            default=None,
+            description="File models for virtual devices, keyed by path. If unset, the plugin loads but stays inactive.",
+        )
 
     def __init__(self) -> None:
         """

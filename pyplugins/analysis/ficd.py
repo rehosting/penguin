@@ -1,6 +1,7 @@
 import time
 from os import path
-from penguin import Plugin, plugins
+from penguin import Plugin, plugins, PluginArgs
+from pydantic import Field
 import Levenshtein as lv
 
 
@@ -12,6 +13,11 @@ class FICD(Plugin):
     "To this end, FICD considers that a firmware image reached Ifin in if no previously unseen (i.e., unique) tasks are launched within tf seconds. We refer to tf as the time frame parameter"
     "In our re-hosting experiments we use three (Py)PANDA plugins (coverage, syscalls_logger, and SyscallToKmodTracer) along with the FICD plugin, which results in the optimal tf = 220sec and tf = 300sec"
     """
+
+    class Args(PluginArgs):
+        stop_on_if: bool = Field(
+            default=False, description="If true, end analysis when the FICD Ifin (firmware initialization finished) point is reached."
+        )
 
     def __init__(self):
         self.time_frame = 300  # set up as arg at some point

@@ -357,6 +357,40 @@ def resolve_section(dotted):
     return type_
 
 
+def gen_plugin_args_docs(name, args_model):
+    """
+    Render a plugin's declared ``Args`` model as a markdown section.
+
+    ``args_model`` is a ``PluginArgs`` subclass; we render one row per field with
+    its type, default, required-ness, and description.
+    """
+    out = [f"# Plugin `{name}` arguments", ""]
+    fields = args_model.model_fields
+    if not fields:
+        out.append("This plugin declares an `Args` schema with no fields.")
+        return "\n".join(out) + "\n"
+    out.append("|Argument|Type|Default|Required|Description|")
+    out.append("|-|-|-|-|-|")
+    for fname, info in fields.items():
+        try:
+            type_name = gen_docs_type_name(info.annotation)
+        except ValueError:
+            type_name = getattr(info.annotation, "__name__", str(info.annotation))
+        required = info.is_required()
+        default = "" if required else "`" + gen_docs_yaml_dump(info.default) + "`"
+        desc = info.description or ""
+        out.append(f"|`{fname}`|{type_name}|{default}|{'yes' if required else ''}|{desc}|")
+    out.append("")
+    out.append("Use either form:")
+    out.append("```yaml")
+    out.append(f"plugins:\n  {name}:\n    # args...")
+    out.append("```")
+    out.append("```yaml")
+    out.append(f"{name}:\n  # args...   (first-class top-level form)")
+    out.append("```")
+    return "\n".join(out) + "\n"
+
+
 def list_sections():
     """Return [(name, title)] for the top-level config sections."""
     out = []

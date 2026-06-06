@@ -2,7 +2,9 @@
 Use this plugin for testing the results of a system run.
 """
 
-from penguin import Plugin
+from typing import Dict, Optional
+from penguin import Plugin, PluginArgs
+from pydantic import Field
 from os.path import join, exists
 import yaml
 from junit_xml import TestSuite, TestCase
@@ -21,6 +23,18 @@ FAILED = f"{RED}failed{END}"
 
 
 class Verifier(Plugin):
+    """
+    Verifies the results of a system run against a set of named test conditions.
+    """
+
+    class Args(PluginArgs):
+        conditions: Optional[Dict[str, dict]] = Field(
+            default=None, description="Mapping of test-case name to its test definition (each must have a 'type')."
+        )
+        continuous_eval: bool = Field(
+            default=False, description="If true, re-evaluate test conditions periodically and end analysis once all pass."
+        )
+
     def __init__(self):
         self.outdir = self.get_arg("outdir")
         self.conditions = self.get_arg("conditions")

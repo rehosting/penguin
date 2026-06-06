@@ -38,7 +38,9 @@ import os
 import signal
 import threading
 import time
-from penguin import Plugin, yaml, plugins, common
+from typing import Optional
+from pydantic import Field
+from penguin import Plugin, yaml, plugins, common, PluginArgs
 from penguin.defaults import vnc_password
 
 
@@ -49,6 +51,11 @@ class Core(Plugin):
     Performs sanity checks, manages configuration, handles shutdown signals,
     and enforces optional timeouts for the emulation environment.
     """
+
+    class Args(PluginArgs):
+        timeout: Optional[int] = Field(
+            default=None, description="Timeout in seconds after which the emulation is automatically shut down. No timeout when unset."
+        )
 
     def __init__(self) -> None:
         """

@@ -2,13 +2,23 @@ import os
 import re
 import io
 import inspect
-from penguin import Plugin, plugins
+from typing import Dict
+from pydantic import Field
+from penguin import Plugin, plugins, PluginArgs
 from hyper.portal import PortalCmd
 from hyper.consts import HYPER_OP as hop
 from hyperfile.models.base import MtdDevice
 
 
 class MTD(Plugin):
+    class Args(PluginArgs):
+        devices: Dict = Field(
+            default={}, description="MTD device definitions keyed by name (geometry, model, backing file, etc.)."
+        )
+        pseudofiles: Dict = Field(
+            default={}, description="Legacy pseudofiles block; /dev/mtdX entries are migrated into native MTD devices."
+        )
+
     def __init__(self):
         # Fetch configurations (accounting for global conf fallback)
         conf = self.get_arg("conf") or {}

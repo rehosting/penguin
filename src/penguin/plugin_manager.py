@@ -34,6 +34,7 @@ The plugin manager provides a flexible, extensible, and event-driven system for 
 Penguin emulation environment, enabling modular analysis, automation, and extension of the emulation workflow.
 """
 
+import os
 from os.path import join, isfile, basename, splitext, isdir
 from penguin import getColoredLogger
 import shutil
@@ -44,6 +45,8 @@ import importlib
 import inspect
 import datetime
 import functools
+
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 # Forward reference for type annotations
 T = TypeVar('T', bound='Plugin')
@@ -138,6 +141,27 @@ class ArgsBox:
         return f"ArgsBox({self.args!r})"
 
 
+class PluginArgs(BaseModel):
+    """
+    Base class for declaring a plugin's accepted arguments.
+
+    Declare a nested ``Args`` class inheriting from ``PluginArgs`` on a plugin to
+    opt into argument validation, defaults, schema/docs generation, and the
+    first-class top-level config syntax (``pluginname: {...}``). Plugins that do
+    not declare ``Args`` keep the legacy behavior: any args are accepted and no
+    defaults are applied.
+
+    Example::
+
+        class Kmods(Plugin):
+            class Args(PluginArgs):
+                allowlist: list[str] = []
+                quiet: bool = Field(False, description="Reduce logging verbosity")
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class Plugin:
     """
     Base class for all IGLOO plugins.
@@ -145,6 +169,15 @@ class Plugin:
     Plugins should inherit from this class to be managed by the plugin manager.
     Provides argument access, logging, and emulator compatibility object access.
     """
+
+    # Opt-in argument schema. None means "legacy" (accept any args, no defaults).
+    Args: Optional[Type[PluginArgs]] = None
+
+    @classmethod
+    def declares_args(cls) -> bool:
+        """True if this class declares its own ``Args`` schema (not inherited)."""
+        a = cls.__dict__.get("Args")
+        return isinstance(a, type) and issubclass(a, PluginArgs)
 
     def __preinit__(self, plugins: 'IGLOOPluginManager', args: Dict[str, Any]) -> None:
         """
@@ -157,7 +190,19 @@ class Plugin:
         """
         self.plugins = plugins
         self.panda = plugins.panda
-        self.args = ArgsBox(args)
+        cls = type(self)
+        if cls.declares_args():
+            args_model = cls.__dict__["Args"]
+            # Only feed declared fields to the (extra="forbid") model; global
+            # args like outdir/conf/proj_dir must not reach it.
+            declared = {k: v for k, v in args.items() if k in args_model.model_fields}
+            validated = args_model(**declared)
+            merged = dict(args)
+            merged.update(validated.model_dump())  # fill in declared defaults
+            self.args = ArgsBox(merged)
+            self._args_model = validated
+        else:
+            self.args = ArgsBox(args)
         logname = camel_to_snake(self.name)
         self.logger = getColoredLogger(f"plugins.{logname}")
 
@@ -417,6 +462,98 @@ def find_local_plugins(plugin_names: List[str], proj_dir: str) -> List[str]:
                 break  # Found the local plugin, move to next plugin_name
 
     return local_paths
+
+
+class _IntrospectionStub:
+    """
+    A recursive no-op stand-in for the plugin manager, used only while importing
+    a plugin module for introspection. Class- and module-body code such as
+    ``@plugins.syscalls.syscall(...)`` resolves to harmless no-ops, so the module
+    imports without a live emulator/manager and we can read declared ``Args``.
+    """
+
+    def __getattr__(self, _):
+        return self
+
+    def __call__(self, *a, **k):
+        # Behave as a decorator factory and a decorator: @x(...) and @x.
+        if len(a) == 1 and not k and callable(a[0]):
+            return a[0]
+        return self
+
+    def __getitem__(self, _):
+        return self
+
+
+@functools.lru_cache(maxsize=None)
+def _import_plugin_classes(path: str) -> Tuple[Tuple[str, type], ...]:
+    """
+    Import a plugin module and return its ``Plugin`` subclasses WITHOUT
+    instantiating them. Used for argument-schema/docs introspection.
+
+    Imports the module under a distinct name (so it never clashes with the
+    runtime ``load_all`` import) and neutralizes the ``plugins`` singleton with a
+    no-op stub for the duration of the import, so plugins that wire callbacks in
+    their class/module body still import cleanly. Cached by real path. Raises on
+    import failure; callers decide how to handle that.
+    """
+    import penguin  # lazy to avoid an import cycle
+
+    realpath = os.path.realpath(path)
+    spec = importlib.util.spec_from_file_location("plugin_introspect", realpath)
+    if spec is None:
+        raise ValueError(f"Unable to load {path}")
+    module = importlib.util.module_from_spec(spec)
+    stub = _IntrospectionStub()
+    module.__dict__.update({
+        "plugins": stub,
+        "logger": getColoredLogger("plugins.introspect"),
+        "panda": None,
+        "args": ArgsBox({}),
+    })
+    saved = getattr(penguin, "plugins", None)
+    penguin.plugins = stub  # so `from penguin import plugins` binds the stub
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        penguin.plugins = saved
+    out = []
+    for name, cls in inspect.getmembers(module, inspect.isclass):
+        if issubclass(cls, Plugin) and cls is not Plugin and cls is not ScriptingPlugin:
+            out.append((name, cls))
+    return tuple(out)
+
+
+def get_plugin_class(name: str, proj_dir: str, plugin_path: str) -> Optional[type]:
+    """
+    Resolve a plugin name to its ``Plugin`` subclass without instantiating it,
+    or None if it cannot be discovered/imported. Best effort and side-effect
+    tolerant: any failure returns None so callers never regress config load.
+    """
+    try:
+        path, _ = find_plugin_by_name(name, proj_dir, plugin_path)
+    except ValueError:
+        return None
+    try:
+        classes = _import_plugin_classes(path)
+    except Exception:
+        return None
+    # Prefer a class whose name matches the requested plugin; else the first.
+    for cname, cls in classes:
+        if cname.lower() == name.lower() or camel_to_snake(cname) == name.lower():
+            return cls
+    return classes[0][1] if classes else None
+
+
+def get_plugin_args_model(name: str, proj_dir: str, plugin_path: str) -> Optional[Type[PluginArgs]]:
+    """
+    Return the declared ``Args`` model for plugin ``name``, or None if the plugin
+    can't be found, can't be imported, or doesn't declare an ``Args`` schema.
+    """
+    cls = get_plugin_class(name, proj_dir, plugin_path)
+    if cls is not None and cls.declares_args():
+        return cls.__dict__["Args"]
+    return None
 
 
 class IGLOOPluginManager:

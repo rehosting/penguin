@@ -1,15 +1,19 @@
 """
-Unit tests for the Penguin config layer (penguin.penguin_config).
+Unit tests for the Penguin config layer (penguin.penguin_config and the plugin
+argument machinery in penguin.plugin_manager).
 
-These cover the schema reshape infrastructure:
+These cover the schema reshape work:
   * static_files mode defaults
   * friendly Pydantic validation error rendering
   * `penguin schema` section resolution / docs generation
+  * plugin `Args` declaration, defaults, and validation
+  * first-class top-level plugin syntax
   * Jinja2 meta-variable templating
 
 Everything here runs without a rootfs, kernel, or container.
 """
 
+import os
 import tarfile
 import tempfile
 import textwrap
@@ -17,11 +21,12 @@ from pathlib import Path
 
 import pytest
 
-import penguin.penguin_config as pc
 from penguin.penguin_config import structure
 from penguin.penguin_config import gen_docs, templating
 from penguin.penguin_config.errors import format_validation_error
-from pydantic import ValidationError
+from penguin import plugin_manager
+from penguin.plugin_manager import Plugin, PluginArgs
+from pydantic import Field, ValidationError
 
 
 # --------------------------------------------------------------------------- #
@@ -42,16 +47,67 @@ def base_config(**overrides):
     return cfg
 
 
-def _error_for(cfg):
-    try:
-        structure.Main(**cfg)
-    except ValidationError as e:
-        return e
-    raise AssertionError("expected ValidationError")
+def write_plugin(dir_path, filename, body):
+    p = Path(dir_path, filename)
+    p.write_text(textwrap.dedent(body))
+    return str(p)
+
+
+DECLARING_PLUGIN = """
+    from typing import List
+    from pydantic import Field
+    from penguin import Plugin, PluginArgs
+
+    class Widget(Plugin):
+        class Args(PluginArgs):
+            names: List[str] = Field(default=[], description="names")
+            count: int = Field(default=3, description="count")
+            quiet: bool = False
+
+        def __init__(self):
+            pass
+"""
+
+LEGACY_PLUGIN = """
+    from penguin import Plugin
+
+    class Gadget(Plugin):
+        def __init__(self):
+            pass
+"""
+
+# A plugin that wires callbacks in its class body, exercising the introspection
+# stub that neutralizes the manager during import.
+CLASSBODY_PLUGIN = """
+    from penguin import plugins, Plugin, PluginArgs
+    from pydantic import Field
+
+    class Sproket(Plugin):
+        class Args(PluginArgs):
+            flag: bool = Field(default=False)
+
+        @plugins.syscalls.syscall("on_sys_open_enter")
+        def on_open(self, *a, **k):
+            pass
+
+        def __init__(self):
+            pass
+"""
+
+
+@pytest.fixture
+def plugin_dir():
+    with tempfile.TemporaryDirectory() as d:
+        write_plugin(d, "widget.py", DECLARING_PLUGIN)
+        write_plugin(d, "gadget.py", LEGACY_PLUGIN)
+        write_plugin(d, "sproket.py", CLASSBODY_PLUGIN)
+        plugin_manager._import_plugin_classes.cache_clear()
+        yield d
+        plugin_manager._import_plugin_classes.cache_clear()
 
 
 # --------------------------------------------------------------------------- #
-# static_files mode defaults
+# PR1: static_files mode defaults
 # --------------------------------------------------------------------------- #
 def test_inline_file_mode_defaults_to_644():
     cfg = base_config(static_files={"/x": dict(type="inline_file", contents="hi")})
@@ -84,8 +140,16 @@ def test_explicit_mode_is_preserved():
 
 
 # --------------------------------------------------------------------------- #
-# friendly validation errors
+# PR1: friendly validation errors
 # --------------------------------------------------------------------------- #
+def _error_for(cfg):
+    try:
+        structure.Main(**cfg)
+    except ValidationError as e:
+        return e
+    raise AssertionError("expected ValidationError")
+
+
 def test_friendly_error_bad_literal_lists_allowed_values():
     cfg = base_config(core=dict(version=2, arch="sparc"))
     msg = format_validation_error(_error_for(cfg))
@@ -124,7 +188,7 @@ def test_friendly_error_records_source_file_from_origin_map():
 
 
 # --------------------------------------------------------------------------- #
-# schema section resolution + docs generation
+# PR2: schema section resolution + docs generation
 # --------------------------------------------------------------------------- #
 def test_list_sections_contains_known_sections():
     names = [n for n, _ in gen_docs.list_sections()]
@@ -139,6 +203,7 @@ def test_resolve_section_core():
 def test_resolve_section_into_union_variant():
     variant = gen_docs.resolve_section("pseudofiles.read.const_buf")
     assert variant is not None
+    # the const_buf variant declares a `val` field
     assert "val" in variant.model_fields
 
 
@@ -154,7 +219,148 @@ def test_gen_docs_runs_without_error():
 
 
 # --------------------------------------------------------------------------- #
-# Jinja2 templating
+# PR3: plugin Args declaration + defaults + validation
+# --------------------------------------------------------------------------- #
+class _DeclaringPlugin(Plugin):
+    class Args(PluginArgs):
+        names: list = []
+        count: int = 3
+        quiet: bool = Field(False)
+
+    def __init__(self):
+        pass
+
+
+class _LegacyPlugin(Plugin):
+    def __init__(self):
+        pass
+
+
+class _FakeMgr:
+    panda = None
+
+
+def test_declares_args():
+    assert _DeclaringPlugin.declares_args() is True
+    assert _LegacyPlugin.declares_args() is False
+    # the base sentinel is not "declaring"
+    assert Plugin.declares_args() is False
+
+
+def test_preinit_fills_declared_defaults():
+    p = _DeclaringPlugin.__new__(_DeclaringPlugin)
+    p.__preinit__(_FakeMgr(), {"outdir": "/o", "names": ["a"]})
+    assert p.get_arg("names") == ["a"]
+    assert p.get_arg("count") == 3          # default filled
+    assert p.get_arg_bool("quiet") is False  # default filled
+    assert p.get_arg("outdir") == "/o"       # global arg preserved
+
+
+def test_preinit_legacy_passthrough_no_defaults():
+    p = _LegacyPlugin.__new__(_LegacyPlugin)
+    p.__preinit__(_FakeMgr(), {"outdir": "/o", "whatever": 1})
+    assert p.get_arg("whatever") == 1
+    assert p.get_arg("count") is None  # no schema -> no default
+
+
+def test_preinit_rejects_bad_type():
+    p = _DeclaringPlugin.__new__(_DeclaringPlugin)
+    with pytest.raises(ValidationError):
+        p.__preinit__(_FakeMgr(), {"count": "not-an-int"})
+
+
+def test_args_model_forbids_extra():
+    with pytest.raises(ValidationError):
+        _DeclaringPlugin.Args(bogus=1)
+
+
+# --------------------------------------------------------------------------- #
+# PR3: discovery / introspection against on-disk plugins
+# --------------------------------------------------------------------------- #
+def test_get_plugin_args_model_for_declaring_plugin(plugin_dir):
+    model = plugin_manager.get_plugin_args_model("widget", "/tmp", plugin_dir)
+    assert model is not None
+    assert set(model.model_fields) == {"names", "count", "quiet"}
+
+
+def test_get_plugin_args_model_none_for_legacy(plugin_dir):
+    # discoverable but no Args schema
+    assert plugin_manager.get_plugin_class("gadget", "/tmp", plugin_dir) is not None
+    assert plugin_manager.get_plugin_args_model("gadget", "/tmp", plugin_dir) is None
+
+
+def test_get_plugin_args_model_none_for_missing(plugin_dir):
+    assert plugin_manager.get_plugin_args_model("nope", "/tmp", plugin_dir) is None
+
+
+def test_introspection_handles_classbody_callbacks(plugin_dir):
+    # Sproket wires a syscall callback in its class body; introspection must
+    # still import it cleanly (manager neutralized by the stub).
+    model = plugin_manager.get_plugin_args_model("sproket", "/tmp", plugin_dir)
+    assert model is not None
+    assert set(model.model_fields) == {"flag"}
+
+
+# --------------------------------------------------------------------------- #
+# PR3: first-class promotion + plugin arg validation (via load_config internals)
+# --------------------------------------------------------------------------- #
+import penguin.penguin_config as pc
+
+
+def test_promote_first_class_plugin(plugin_dir):
+    raw = base_config()
+    raw["widget"] = {"names": ["x"]}
+    pc._promote_first_class_plugins(raw, "/tmp", plugin_dir)
+    assert "widget" not in raw
+    assert raw["plugins"]["widget"] == {"names": ["x"]}
+
+
+def test_unknown_top_level_key_is_left_for_schema(plugin_dir):
+    raw = base_config()
+    raw["totally_unknown"] = {"x": 1}
+    pc._promote_first_class_plugins(raw, "/tmp", plugin_dir)
+    # left in place so extra="forbid" catches it downstream
+    assert "totally_unknown" in raw
+
+
+def test_first_class_conflict_raises(plugin_dir):
+    raw = base_config(plugins={"widget": {"count": 1}})
+    raw["widget"] = {"count": 2}
+    with pytest.raises(ValueError):
+        pc._promote_first_class_plugins(raw, "/tmp", plugin_dir)
+
+
+def test_validate_plugin_args_good(plugin_dir):
+    cfg = base_config(plugins={"widget": {"names": ["a"], "count": 5}})
+    # should not raise / exit
+    pc._validate_plugin_args(cfg, "/tmp", plugin_dir)
+
+
+def test_validate_plugin_args_bad_type_exits(plugin_dir):
+    cfg = base_config(plugins={"widget": {"count": "nope"}})
+    with pytest.raises(SystemExit):
+        pc._validate_plugin_args(cfg, "/tmp", plugin_dir)
+
+
+def test_validate_plugin_args_unknown_key_exits(plugin_dir):
+    cfg = base_config(plugins={"widget": {"namez": ["a"]}})
+    with pytest.raises(SystemExit):
+        pc._validate_plugin_args(cfg, "/tmp", plugin_dir)
+
+
+def test_validate_plugin_args_skips_disabled(plugin_dir):
+    cfg = base_config(plugins={"widget": {"enabled": False, "count": "bad-but-disabled"}})
+    pc._validate_plugin_args(cfg, "/tmp", plugin_dir)  # disabled -> skipped
+
+
+def test_gen_plugin_args_docs(plugin_dir):
+    model = plugin_manager.get_plugin_args_model("widget", "/tmp", plugin_dir)
+    md = gen_docs.gen_plugin_args_docs("widget", model)
+    assert "`names`" in md and "`count`" in md and "`quiet`" in md
+
+
+# --------------------------------------------------------------------------- #
+# PR4: Jinja2 templating
 # --------------------------------------------------------------------------- #
 def test_substitute_arch_and_core_fields():
     raw = {"core": {"arch": "mipsel", "mem": "1G"}, "x": "a={{ arch }} m={{ core.mem }}"}
@@ -181,6 +387,7 @@ def test_substitute_renders_dict_keys():
 def test_kernel_version_two_pass():
     raw = {"core": {"arch": "mipsel"}, "p": "/k/{{ kernel_version }}/x"}
     rendered, _ = templating.render_config(raw)
+    # first pass leaves a sentinel, not the literal text
     assert "{{ kernel_version }}" not in rendered["p"]
     final = templating.resolve_kernel_version(rendered, "6.13")
     assert final["p"] == "/k/6.13/x"
@@ -205,18 +412,24 @@ def test_legacy_at_placeholders_untouched():
 
 
 # --------------------------------------------------------------------------- #
-# end-to-end through load_config (no kernel/container needed)
+# PR1+PR3+PR4 end-to-end through load_config (no kernel/container needed)
 # --------------------------------------------------------------------------- #
-def test_load_config_templating_and_defaults():
+def _make_project(tmp, config_text, plugin_dir):
+    proj = Path(tmp, "proj")
+    (proj / "base").mkdir(parents=True)
+    with tarfile.open(proj / "base" / "fs.tar.gz", "w") as tf:
+        pass
+    (proj / "config.yaml").write_text(textwrap.dedent(config_text).replace("@PP@", plugin_dir))
+    return proj
+
+
+def test_load_config_end_to_end(plugin_dir):
     with tempfile.TemporaryDirectory() as tmp:
-        proj = Path(tmp, "proj")
-        (proj / "base").mkdir(parents=True)
-        with tarfile.open(proj / "base" / "fs.tar.gz", "w"):
-            pass
-        (proj / "config.yaml").write_text(textwrap.dedent("""
+        proj = _make_project(tmp, """
             core:
               arch: mipsel
               version: 2
+              plugin_path: @PP@
             vars:
               webroot: /www
             env: {}
@@ -228,7 +441,9 @@ def test_load_config_templating_and_defaults():
                 type: inline_file
                 contents: "arch={{ arch }} kver={{ kernel_version }}"
             plugins: {}
-        """))
+            widget:
+              names: [a, b]
+        """, plugin_dir)
 
         cfg = pc.load_config(
             str(proj), str(proj / "config.yaml"),
@@ -236,10 +451,13 @@ def test_load_config_templating_and_defaults():
             resolved_kernel="/igloo_static/kernels/6.13/zImage.mipsel",
         )
 
+    # first-class widget folded into plugins, with declared default filled
+    assert cfg["plugins"]["widget"]["names"] == ["a", "b"]
+    # templated key + value, including kernel_version second pass
     sf = cfg["static_files"]["/www/index.html"]
-    assert sf["contents"] == "arch=mipsel kver=6.13"  # templated key + value + 2nd pass
-    assert sf["mode"] == 0o644                          # default applied
-    assert "vars" not in cfg                            # metadata stripped
+    assert sf["contents"] == "arch=mipsel kver=6.13"
+    assert sf["mode"] == 0o644            # default applied
+    assert "vars" not in cfg             # metadata stripped
 
 
 if __name__ == "__main__":

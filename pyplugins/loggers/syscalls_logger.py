@@ -37,9 +37,11 @@ Arguments
 """
 
 import re
+from typing import List, Optional
 from os.path import join
 from pengutils.events import Syscall
-from penguin import plugins, Plugin
+from penguin import plugins, Plugin, PluginArgs
+from pydantic import Field
 import functools
 
 ERRNO_REGEX = re.compile(
@@ -57,6 +59,11 @@ class PyPandaSysLog(Plugin):
 
     Hooks into system call return and execve/execveat entry events and records them as `Syscall` events.
     """
+
+    class Args(PluginArgs):
+        procs: Optional[List[str]] = Field(
+            default=None, description="Process names to filter syscall logging to. If unset, all processes are logged."
+        )
 
     def __init__(self, panda) -> None:
         """

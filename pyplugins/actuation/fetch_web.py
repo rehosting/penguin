@@ -39,7 +39,9 @@ import queue
 from collections import Counter
 import math
 import time
-from penguin import plugins, Plugin
+from typing import Optional
+from pydantic import Field
+from penguin import plugins, Plugin, PluginArgs
 
 
 def calculate_entropy(buffer: bytes) -> float:
@@ -58,6 +60,17 @@ def calculate_entropy(buffer: bytes) -> float:
 
 
 class FetchWeb(Plugin):
+    class Args(PluginArgs):
+        fetch_delay: Optional[int] = Field(
+            default=None, description="Seconds to wait before fetching a newly bound web service. Defaults to 20 when unset."
+        )
+        shutdown_after_www: bool = Field(
+            default=False, description="If true, shut down emulation after a successful web fetch."
+        )
+        shutdown_on_failure: bool = Field(
+            default=False, description="If true, shut down emulation if no responsive servers are found."
+        )
+
     def __init__(self) -> None:
         """
         Initialize the FetchWeb plugin, subscribe to VPN on_bind events, and set up state.
