@@ -10,9 +10,14 @@ Core configuration options for this rehosting
 
 |||
 |-|-|
-|__Type__|`"armel"` or `"aarch64"` or `"mipsel"` or `"mipseb"` or `"mips64el"` or `"mips64eb"` or `"powerpc"` or `"powerpc64"` or `"powerpc64le"` or `"riscv64"` or `"loongarch64"` or `"intel64"` or null|
+|__Type__|`"armel"` or `"arm"` or `"armle"` or `"aarch64"` or `"arm64"` or `"mipsel"` or `"mipseb"` or `"mipsbe"` or `"mips64el"` or `"mips64eb"` or `"mips64be"` or `"powerpc"` or `"ppc"` or `"powerpc64"` or `"ppc64"` or `"powerpc64le"` or `"ppc64le"` or `"powerpc64el"` or `"ppc64el"` or `"riscv64"` or `"riscv"` or `"rv64"` or `"loongarch64"` or `"loongarch"` or `"la64"` or `"x86_64"` or `"intel64"` or `"amd64"` or `"x86-64"` or `"x64"` or null|
 |__Default__|`null`|
 
+Canonical name or an accepted alias (normalized at load, e.g. intel64 -> x86_64).
+
+```yaml
+x86_64
+```
 
 ```yaml
 armel
@@ -35,11 +40,7 @@ mips64el
 ```
 
 ```yaml
-mips64eb
-```
-
-```yaml
-intel64
+powerpc64le
 ```
 
 ### `core.kernel` Path to kernel image

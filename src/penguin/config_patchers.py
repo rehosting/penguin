@@ -23,6 +23,7 @@ from pathlib import Path
 
 from penguin import getColoredLogger
 from .arch import arch_filter, arch_end, get_dylib_subdir
+from . import arch_registry
 from .defaults import (
     default_init_script,
     default_lib_aliases,
@@ -420,30 +421,18 @@ class BasePatch(PatchGenerator):
             # For architectures like mips with endianness, construct the name
             self.arch_name = arch + endian
 
+        # Normalize the identified arch to its canonical config name so generated
+        # configs use one spelling (e.g. x86_64, not intel64).
+        self.arch_name = arch_registry.normalize_arch(self.arch_name)
+
         mock_config = {"core": {"arch": self.arch_name}}
         self.arch_dir = get_arch_subdir(mock_config)
         self.dylib_dir = get_dylib_subdir(self.arch_name)
 
     def generate(self, patches: dict) -> dict:
-        # Add serial device in pseudofiles
-        # This is because arm uses ttyAMA (major 204) and mips uses ttyS (major 4).
-        # XXX: For mips we use major 4, minor 65. For arm we use major 204, minor 65.
-        # For powerpc: major 229, minor 1 (hvc1)
-        if 'mips' in self.arch_name or self.arch_name == "intel64":
-            igloo_serial_major = 4
-            igloo_serial_minor = 65
-        elif self.arch_name in ['armel', 'aarch64']:
-            igloo_serial_major = 204
-            igloo_serial_minor = 65
-        elif "powerpc" in self.arch_name:
-            igloo_serial_major = 229
-            igloo_serial_minor = 1
-        elif self.arch_name == "loongarch64":
-            igloo_serial_major = 4
-            igloo_serial_minor = 65
-        else:
-            igloo_serial_major = 204
-            igloo_serial_minor = 65
+        # Serial device major/minor varies by arch (arm uses ttyAMA major 204,
+        # mips uses ttyS major 4, powerpc uses hvc1 major 229) — see arch_registry.
+        igloo_serial_major, igloo_serial_minor = arch_registry.spec(self.arch_name).serial
 
         result = {
             "core": {

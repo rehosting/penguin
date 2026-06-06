@@ -422,8 +422,9 @@ def test_legacy_at_placeholders_untouched():
     ("loongarch64", "loongarch64", "loongarch"),
 ])
 def test_arch_derived_context_vars(arch, arch_dir, dylib_dir):
+    from penguin.arch_registry import normalize_arch
     ctx = templating.build_context({"core": {"arch": arch}})
-    assert ctx["arch"] == arch
+    assert ctx["arch"] == normalize_arch(arch)  # {{ arch }} is canonicalized
     assert ctx["arch_dir"] == arch_dir
     assert ctx["dylib_dir"] == dylib_dir
 
@@ -556,6 +557,143 @@ def test_legacy_plugins_core_timeout_migrates():
 def test_explicit_core_timeout_wins_over_legacy():
     cfg = _load_timeout_cfg("  core:\n                timeout: 77", core_extra="  timeout: 5")
     assert cfg["core"]["timeout"] == 5
+
+
+# --------------------------------------------------------------------------- #
+# arch registry: aliases, normalization, consolidation, canonical flip
+# --------------------------------------------------------------------------- #
+from penguin import arch_registry
+
+
+@pytest.mark.parametrize("alias,canonical", [
+    ("x86_64", "x86_64"), ("intel64", "x86_64"), ("amd64", "x86_64"),
+    ("x86-64", "x86_64"), ("x64", "x86_64"),
+    ("aarch64", "aarch64"), ("arm64", "aarch64"),
+    ("armel", "armel"), ("arm", "armel"),
+    ("powerpc64le", "powerpc64le"), ("ppc64le", "powerpc64le"),
+    ("powerpc64el", "powerpc64le"), ("ppc64el", "powerpc64le"),
+    ("powerpc64", "powerpc64"), ("ppc64", "powerpc64"),
+    ("powerpc", "powerpc"), ("ppc", "powerpc"),
+    ("mipseb", "mipseb"), ("mipsel", "mipsel"),
+    ("riscv64", "riscv64"), ("rv64", "riscv64"),
+    ("loongarch64", "loongarch64"), ("loongarch", "loongarch64"),
+])
+def test_normalize_arch(alias, canonical):
+    assert arch_registry.normalize_arch(alias) == canonical
+    assert arch_registry.normalize_arch(alias.upper()) == canonical  # case-insensitive
+
+
+def test_normalize_arch_unknown_raises():
+    with pytest.raises(KeyError):
+        arch_registry.normalize_arch("sparc")
+    assert arch_registry.is_known("intel64") and not arch_registry.is_known("sparc")
+
+
+def test_schema_literal_matches_registry():
+    import typing
+    ann = structure.Core.model_fields["arch"].annotation
+    lit = next(a for a in typing.get_args(ann) if typing.get_origin(a) is typing.Literal)
+    assert set(typing.get_args(lit)) == set(arch_registry.all_names())
+
+
+# Parity vs the OLD hardcoded mappings — guards against regressions in the flip.
+def _old_arch_subdir(a):
+    if a == "intel64":
+        return "x86_64"
+    if a in ("powerpc64el", "powerpc64le"):
+        return "powerpc64"
+    return a
+
+
+def _old_dylib(a):
+    if a == "aarch64":
+        return "arm64"
+    if a == "intel64":
+        return "x86_64"
+    if a == "loongarch64":
+        return "loongarch"
+    if a == "powerpc64le":
+        return "ppc64el"
+    if "powerpc" in a:
+        return a.replace("powerpc", "ppc")
+    return _old_arch_subdir(a)
+
+
+@pytest.mark.parametrize("arch", [
+    "armel", "aarch64", "mipsel", "mipseb", "mips64el", "mips64eb",
+    "powerpc", "powerpc64", "powerpc64le", "riscv64", "loongarch64", "intel64",
+])
+def test_subdir_dylib_parity_with_old(arch):
+    # intel64 (legacy config name) and x86_64 (new canonical) must agree.
+    assert arch_registry.arch_subdir(arch) == _old_arch_subdir(arch)
+    assert arch_registry.dylib_subdir(arch) == _old_dylib(arch)
+    assert arch_registry.arch_subdir(arch) == arch_registry.arch_subdir(arch_registry.normalize_arch(arch))
+
+
+def test_x86_subdirs():
+    assert arch_registry.arch_subdir("intel64") == "x86_64" == arch_registry.arch_subdir("x86_64")
+    assert arch_registry.dylib_subdir("intel64") == "x86_64" == arch_registry.dylib_subdir("x86_64")
+    assert arch_registry.kmod_subdir("aarch64") == "arm64"
+
+
+def test_q_config_powerpc64le_and_fresh_dict():
+    from penguin.q_config import load_q_config
+    q = load_q_config({"core": {"arch": "powerpc64le"}})
+    assert q["arch"] == "ppc64" and q["qemu_machine"] == "pseries"
+    assert load_q_config({"core": {"arch": "ppc64el"}})["arch"] == "ppc64"  # alias
+    # returns a fresh dict each call (old code mutated a shared module dict)
+    a = load_q_config({"core": {"arch": "mipsel"}}); a["arch"] = "ZZ"
+    assert load_q_config({"core": {"arch": "mipsel"}})["arch"] == "mipsel"
+
+
+def test_abi_info_rekeyed_and_normalizes():
+    from penguin.abi_info import arch_abi_info, ARCH_ABI_INFO
+    assert "x86_64" in ARCH_ABI_INFO and "intel64" not in ARCH_ABI_INFO
+    assert arch_abi_info("intel64") is arch_abi_info("x86_64")
+
+
+def test_dropin_dylib_dir_consolidated():
+    from penguin.dropin_compile import _dylib_dir
+    assert _dylib_dir("intel64") == "x86_64" == _dylib_dir("x86_64")
+    assert _dylib_dir("aarch64") == "arm64"
+
+
+def test_load_config_arch_alias_normalized():
+    """arch: intel64 and arch: x86_64 produce identical realized configs."""
+    def realize(arch):
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = Path(tmp, "proj")
+            (proj / "base").mkdir(parents=True)
+            with tarfile.open(proj / "base" / "fs.tar.gz", "w"):
+                pass
+            (proj / "config.yaml").write_text(textwrap.dedent(f"""
+                core:
+                  arch: {arch}
+                  version: 2
+                env: {{}}
+                pseudofiles: {{}}
+                nvram: {{}}
+                lib_inject: {{}}
+                static_files: {{}}
+                plugins: {{}}
+            """))
+            return pc.load_config(
+                str(proj), str(proj / "config.yaml"), validate=True,
+                resolved_kernel="/igloo_static/kernels/6.13/zImage.x86_64",
+            )
+    a = realize("x86_64")
+    b = realize("intel64")
+    assert a["core"]["arch"] == "x86_64" and b["core"]["arch"] == "x86_64"
+    assert a == b
+
+
+def test_templating_arch_alias_canonical_and_derived():
+    raw = {"core": {"arch": "intel64"}, "x": "{{ arch }} {{ arch_dir }} {{ dylib_dir }}"}
+    out, _ = templating.render_config(raw)
+    assert out["x"] == "x86_64 x86_64 x86_64"
+    raw2 = {"core": {"arch": "arm64"}, "x": "{{ arch }} {{ dylib_dir }}"}
+    out2, _ = templating.render_config(raw2)
+    assert out2["x"] == "aarch64 arm64"
 
 
 if __name__ == "__main__":

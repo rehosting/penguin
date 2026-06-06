@@ -32,8 +32,8 @@ If logging is enabled, NVRAM operations are logged to `nvram.csv` in the specifi
 
 """
 
-from penguin import Plugin, plugins, PluginArgs
-from penguin.abi_info import ARCH_ABI_INFO
+from penguin import Plugin, plugins, PluginArgs, arch_registry
+from penguin.abi_info import arch_abi_info
 from pydantic import Field
 import subprocess
 import os
@@ -86,7 +86,7 @@ def add_lib_inject_for_abi(config, abi, cache_dir, proj_dir=None, build_log_path
 
     arch = config["core"]["arch"]
     lib_inject = config.get("lib_inject", dict())
-    arch_info = ARCH_ABI_INFO[arch]
+    arch_info = arch_abi_info(arch)
     abi_info = arch_info["abis"][abi]
     headers_dir = f"/igloo_static/musl-headers/{abi_info['musl_arch_name']}/include"
     libnvram_arch_name = abi_info.get(
@@ -217,7 +217,7 @@ def add_lib_inject_all_abis(conf, cache_dir, proj_dir=None, build_log_path=None)
     """Add lib_inject for all supported ABIs to /igloo"""
 
     arch = conf["core"]["arch"]
-    arch_info = ARCH_ABI_INFO[arch]
+    arch_info = arch_abi_info(arch)
     for abi in arch_info["abis"].keys():
         add_lib_inject_for_abi(conf, abi, cache_dir, proj_dir=proj_dir, build_log_path=build_log_path)
 
@@ -245,15 +245,7 @@ def add_lib_inject_all_abis(conf, cache_dir, proj_dir=None, build_log_path=None)
     # than deriving it from musl_arch_name, because musl_arch_name reflects the
     # headers directory (shared between endianness variants) not the loader
     # filename (which encodes endianness: ld-musl-mipsel.so.1 ≠ ld-musl-mips.so.1).
-    _dylib_dir_overrides = {
-        "aarch64": "arm64",
-        "intel64": "x86_64",
-        "loongarch64": "loongarch",
-        "powerpc": "ppc",
-        "powerpc64": "ppc64",
-        "powerpc64le": "ppc64el",
-    }
-    dylib_dir = _dylib_dir_overrides.get(arch, arch)
+    dylib_dir = arch_registry.dylib_subdir(arch)
     canonical_loader = f"ld-musl-{arch}.so.1"
     actual_loaders = glob.glob(f"/igloo_static/dylibs/{dylib_dir}/ld-musl-*.so.1")
     if actual_loaders:

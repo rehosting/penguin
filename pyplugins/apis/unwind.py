@@ -55,7 +55,7 @@ PPC_MAP = {"sp_reg": 1, "ra_reg": 65, "fp_reg": 31}
 RISCV_MAP = {"sp_reg": 2, "ra_reg": 1, "fp_reg": 8}
 
 CONFIGS = {
-    "intel64":      ArchInfo("x86_64", 8, "little", X86_64_MAP, CS_ARCH_X86, CS_MODE_64, 5),
+    "x86_64":       ArchInfo("x86_64", 8, "little", X86_64_MAP, CS_ARCH_X86, CS_MODE_64, 5),
     "armel":        ArchInfo("arm",    4, "little", ARM_MAP,    CS_ARCH_ARM, CS_MODE_ARM, 4),
     "aarch64":      ArchInfo("arm64",  8, "little", ARM64_MAP,  CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN, 4),
     "mipsel":       ArchInfo("mips",   4, "little", MIPS_MAP,   CS_ARCH_MIPS, CS_MODE_MIPS32 + CS_MODE_LITTLE_ENDIAN, 8),
@@ -100,9 +100,14 @@ class StackUnwinder(Plugin):
         if self._arch_info:
             return self._arch_info
         conf = self.get_arg("conf")
-        arch_str = conf.get("core", {}).get("arch") if conf else "intel64"
+        arch_str = conf.get("core", {}).get("arch") if conf else "x86_64"
+        try:
+            from penguin.arch_registry import normalize_arch
+            arch_str = normalize_arch(arch_str)
+        except Exception:
+            pass
         if arch_str not in CONFIGS:
-            arch_str = "intel64"
+            arch_str = "x86_64"
         info = CONFIGS[arch_str]
         self._init_capstone(info)
         return info

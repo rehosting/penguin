@@ -52,7 +52,7 @@ from wrappers.generic import Wrapper
 from wrappers.ptregs_wrap import get_pt_regs_wrapper
 
 from penguin import Plugin, getColoredLogger, plugins
-from penguin.abi_info import ARCH_ABI_INFO
+from penguin.abi_info import arch_abi_info
 
 
 class KFFI(Plugin):
@@ -72,6 +72,8 @@ class KFFI(Plugin):
         self.outdir = self.get_arg("outdir")
         conf = self.get_arg("conf")
         kernel = conf["core"]["kernel"]
+        # cosi files are named by the config arch, except x86_64 and arm64.
+        # (arch is already canonical post-load; the intel64 case is a safety net.)
         arch = conf["core"]["arch"]
         if arch == "intel64":
             arch = "x86_64"
@@ -120,7 +122,7 @@ class KFFI(Plugin):
         proj_dir = self.get_arg("proj_dir")
 
         arch = conf["core"]["arch"]
-        arch_info = ARCH_ABI_INFO[arch]
+        arch_info = arch_abi_info(arch)
         abi = arch_info.get("default_abi", list(arch_info.get("abis", {}).keys())[0])
         abi_info = arch_info["abis"][abi]
 

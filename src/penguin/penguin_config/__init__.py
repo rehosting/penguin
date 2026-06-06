@@ -341,6 +341,15 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
     # `vars` is load-time metadata only; drop it so it never reaches the run.
     config.pop("vars", None)
 
+    # Normalize the architecture to its canonical name (e.g. intel64 -> x86_64,
+    # arm64 -> aarch64) so all downstream consumers and the realized config use a
+    # single spelling. arch may have been set by a patch, so do this on the merged
+    # value. Unknown values are left as-is for schema validation to report.
+    from penguin import arch_registry
+    _arch = config.get("core", {}).get("arch")
+    if _arch is not None and arch_registry.is_known(_arch):
+        config["core"]["arch"] = arch_registry.normalize_arch(_arch)
+
     # Backwards compat: `timeout` used to be a core-plugin arg (plugins.core.timeout).
     # It is now the top-level core.timeout option. Migrate an old-style value so
     # existing configs keep working, preferring an explicit core.timeout.
@@ -355,9 +364,18 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
             config["core"]["timeout"] = legacy_timeout
 
     if config["core"].get("guest_cmd", False) is True:
+        guesthopper_name = arch_registry.spec(config["core"]["arch"]).canonical
+        guesthopper_dir = "/igloo_static/guesthopper"
+        try:
+            from penguin.utils import resolve_arch_asset
+            guesthopper_name = resolve_arch_asset(
+                config["core"]["arch"], guesthopper_dir, prefix="guesthopper."
+            )
+        except Exception:
+            pass
         config["static_files"]["/igloo/utils/guesthopper"] = dict(
             type="host_file",
-            host_path="/igloo_static/guesthopper/guesthopper."+config["core"]["arch"],
+            host_path=f"{guesthopper_dir}/guesthopper.{guesthopper_name}",
             mode=0o755,
         )
         config["static_files"]["/igloo/init.d/guesthopper"] = dict(

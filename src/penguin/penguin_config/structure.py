@@ -100,11 +100,29 @@ class Core(PartialModelMixin, BaseModel):
     model_config = ConfigDict(title="Core configuration options", extra="forbid")
 
     arch: Annotated[
-        Optional[Literal["armel", "aarch64", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc", "powerpc64", "powerpc64le", "riscv64", "loongarch64", "intel64"]],
+        # Canonical config arch names plus accepted aliases. Aliases are
+        # normalized to their canonical name at config-load time. This list MUST
+        # equal penguin.arch_registry.all_names() — enforced by a unit test
+        # (structure.py can't import penguin at schema-definition time).
+        Optional[Literal[
+            "armel", "arm", "armle",
+            "aarch64", "arm64",
+            "mipsel",
+            "mipseb", "mipsbe",
+            "mips64el",
+            "mips64eb", "mips64be",
+            "powerpc", "ppc",
+            "powerpc64", "ppc64",
+            "powerpc64le", "ppc64le", "powerpc64el", "ppc64el",
+            "riscv64", "riscv", "rv64",
+            "loongarch64", "loongarch", "la64",
+            "x86_64", "intel64", "amd64", "x86-64", "x64",
+        ]],
         Field(
             None,
             title="Architecture of guest",
-            examples=["armel", "aarch64", "mipsel", "mipseb", "mips64el", "mips64eb", "intel64"],
+            description="Canonical name or an accepted alias (normalized at load, e.g. intel64 -> x86_64).",
+            examples=["x86_64", "armel", "aarch64", "mipsel", "mipseb", "mips64el", "powerpc64le"],
         ),
     ]
     kernel: Annotated[

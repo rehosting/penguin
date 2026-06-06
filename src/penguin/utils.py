@@ -15,6 +15,7 @@ import importlib
 import os
 import subprocess
 import penguin
+from penguin import arch_registry
 from threading import Lock
 from typing import List, Tuple, Any, Optional, Dict
 
@@ -245,13 +246,7 @@ def get_arch_subdir(config: Dict[str, Any]) -> str:
     :return: Architecture subdirectory string.
     :rtype: str
     """
-    arch = config["core"]["arch"]
-    if arch == "intel64":
-        return "x86_64"
-    elif arch in ["powerpc64el", "powerpc64le"]:
-        return "powerpc64"
-    else:
-        return arch
+    return arch_registry.arch_subdir(config["core"]["arch"])
 
 
 def get_arch_dir(config: Dict[str, Any]) -> str:
@@ -276,10 +271,31 @@ def get_driver_kmod_path(config: Dict[str, Any]) -> str:
     :rtype: str
     """
     kernel_path = os.path.dirname(config["core"]["kernel"])
-    arch_dir = get_arch_subdir(config)
-    if arch_dir == "aarch64":
-        arch_dir = "arm64"
+    arch_dir = arch_registry.kmod_subdir(config["core"]["arch"])
     return f"{kernel_path}/igloo.ko.{arch_dir}"
+
+
+def resolve_arch_asset(arch: str, base_dir: str, prefix: str = "", suffix: str = "") -> str:
+    """
+    Resolve the on-disk name of an asset that is named by the *config* arch
+    (e.g. ``guesthopper.<arch>``, ``sysroots/<arch>``), preferring the canonical
+    name and falling back to the first alias whose file/dir actually exists.
+
+    This lets the canonical name flip to ``x86_64`` while still working against
+    assets/build artifacts that are still named with an alias (``intel64``)
+    until the producing build/sibling repo catches up.
+
+    :param arch: A config arch name or alias.
+    :param base_dir: Directory the asset lives in.
+    :param prefix: Filename prefix before the arch token (e.g. "guesthopper.").
+    :param suffix: Filename suffix after the arch token.
+    :return: The arch token (canonical or alias) to use; canonical if none exist.
+    """
+    s = arch_registry.spec(arch)
+    for candidate in (s.canonical, *s.aliases):
+        if os.path.exists(os.path.join(base_dir, f"{prefix}{candidate}{suffix}")):
+            return candidate
+    return s.canonical
 
 
 def hash_image_inputs(proj_dir: str, conf: Dict[str, Any]) -> str:
