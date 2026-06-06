@@ -103,8 +103,13 @@ both at the top level and under `plugins:` is an error.
 
 Config and patch files support Jinja2 templating so values that depend on the
 architecture (or other settings) don't have to be hardcoded in multiple places.
-Available variables: `{{ arch }}`, `{{ core.<field> }}` (e.g. `{{ core.mem }}`),
+Available variables: `{{ arch }}`, the arch-derived static-layout subdirs
+`{{ arch_dir }}` and `{{ dylib_dir }}`, `{{ core.<field> }}` (e.g. `{{ core.mem }}`),
 `{{ kernel_version }}`, and anything you define in a top-level `vars:` section.
+
+Penguin's own auto-generated base patch uses this: instead of baking the arch
+subdir into host paths, it emits `{{ arch_dir }}` / `{{ dylib_dir }}` so changing
+`core.arch` reconfigures those paths automatically.
 
 ```yaml
 core:

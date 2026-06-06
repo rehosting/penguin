@@ -69,11 +69,36 @@ def substitute(obj, ctx, env=None, where="config"):
     return obj
 
 
+def _arch_derived_vars(arch):
+    """
+    Compute arch-derived template variables for a given config arch name.
+
+    Returns a dict with ``arch_dir`` (generic static subdir) and ``dylib_dir``
+    (prebuilt-dylib subdir). Imports are lazy and failures are swallowed so the
+    templating module stays usable in self-contained contexts (e.g. schema
+    generation) where penguin.utils/arch aren't importable; in that case these
+    variables are simply absent and a template referencing them errors clearly.
+    """
+    out = {}
+    try:
+        from penguin.utils import get_arch_subdir
+        out["arch_dir"] = get_arch_subdir({"core": {"arch": arch}})
+    except Exception:
+        pass
+    try:
+        from penguin.arch import get_dylib_subdir
+        out["dylib_dir"] = get_dylib_subdir(arch)
+    except Exception:
+        pass
+    return out
+
+
 def build_context(raw_config, extra=None, env=None, where="vars"):
     """
     Build the Jinja context for a config/patch dict.
 
-    Exposes ``arch``, ``core`` (so ``{{ core.mem }}`` works), the late-bound
+    Exposes ``arch``, the arch-derived ``arch_dir`` / ``dylib_dir`` static-layout
+    subdirs, ``core`` (so ``{{ core.mem }}`` works), the late-bound
     ``kernel_version`` sentinel, anything in ``extra`` (e.g. the main config's
     context when rendering a patch), and the file's own ``vars:`` (which may
     themselves reference earlier vars / arch).
@@ -85,8 +110,10 @@ def build_context(raw_config, extra=None, env=None, where="vars"):
     core = raw_config.get("core") if isinstance(raw_config, dict) else None
     if isinstance(core, dict):
         ctx["core"] = dict(core)
-        if core.get("arch"):
-            ctx["arch"] = core["arch"]
+        arch = core.get("arch")
+        if arch:
+            ctx["arch"] = arch
+            ctx.update(_arch_derived_vars(arch))
     user_vars = raw_config.get("vars") if isinstance(raw_config, dict) else None
     if isinstance(user_vars, dict):
         for k, v in user_vars.items():

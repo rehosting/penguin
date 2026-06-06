@@ -410,6 +410,57 @@ def test_legacy_at_placeholders_untouched():
 
 
 # --------------------------------------------------------------------------- #
+# arch-derived template variables (used by auto-generated patches)
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("arch,arch_dir,dylib_dir", [
+    ("armel", "armel", "armel"),
+    ("aarch64", "aarch64", "arm64"),
+    ("intel64", "x86_64", "x86_64"),
+    ("powerpc64le", "powerpc64", "ppc64el"),
+    ("powerpc", "powerpc", "ppc"),
+    ("mipsel", "mipsel", "mipsel"),
+    ("loongarch64", "loongarch64", "loongarch"),
+])
+def test_arch_derived_context_vars(arch, arch_dir, dylib_dir):
+    ctx = templating.build_context({"core": {"arch": arch}})
+    assert ctx["arch"] == arch
+    assert ctx["arch_dir"] == arch_dir
+    assert ctx["dylib_dir"] == dylib_dir
+
+
+def test_get_dylib_subdir_matches_context():
+    from penguin.arch import get_dylib_subdir
+    assert get_dylib_subdir("aarch64") == "arm64"
+    assert get_dylib_subdir("powerpc64le") == "ppc64el"
+    assert get_dylib_subdir("mipsel") == "mipsel"
+
+
+def test_arch_dir_template_resolves_in_patch():
+    # Mirrors the generated base patch: defines core.arch and uses the derived
+    # subdir variables in host_paths.
+    patch = {
+        "core": {"arch": "aarch64"},
+        "static_files": {
+            "/igloo/dylibs/*": {"type": "host_file", "host_path": "/s/dylibs/{{ dylib_dir }}/*"},
+            "/igloo/utils/*": {"type": "host_file", "host_path": "/s/{{ arch_dir }}/*"},
+        },
+    }
+    out = templating.substitute(patch, templating.build_context(patch))
+    assert out["static_files"]["/igloo/dylibs/*"]["host_path"] == "/s/dylibs/arm64/*"
+    assert out["static_files"]["/igloo/utils/*"]["host_path"] == "/s/aarch64/*"
+
+
+def test_generated_base_patch_emits_arch_templates():
+    # The BasePatch generator should emit Jinja placeholders (not baked subdirs)
+    # for the arch-specific host_paths, so load-time templating resolves them.
+    import inspect
+    from penguin import config_patchers
+    src = inspect.getsource(config_patchers.BasePatch.generate)
+    assert "{{ dylib_dir }}" in src
+    assert "{{ arch_dir }}" in src
+
+
+# --------------------------------------------------------------------------- #
 # PR1+PR3+PR4 end-to-end through load_config (no kernel/container needed)
 # --------------------------------------------------------------------------- #
 def _make_project(tmp, config_text, plugin_dir):
