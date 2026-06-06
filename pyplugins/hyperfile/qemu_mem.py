@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
-from penguin import Plugin
+from pydantic import Field
+from penguin import Plugin, PluginArgs
 
 
 PAGE_SIZE = 4096
@@ -60,6 +61,20 @@ class QemuMem(Plugin):
     """
     Native QEMU MMIO aperture used as a backing store for guest mmap() users.
     """
+
+    class Args(PluginArgs):
+        mmap_alignment: Optional[Union[int, str]] = Field(
+            default=None,
+            description="Alignment for mmap allocations within the aperture; page-aligned. Accepts int or size string (e.g. '4K'). Defaults to page size (4096).",
+        )
+        mmap_base: Optional[Union[int, str]] = Field(
+            default=None,
+            description="Base guest physical address of the mmap aperture; must be page aligned. Accepts int or size string. Defaults to 0xfe000000.",
+        )
+        mmap_size: Optional[Union[int, str]] = Field(
+            default=None,
+            description="Total size of the mmap aperture; positive and page aligned. Accepts int or size string (e.g. '64M'). Defaults to 16 MiB.",
+        )
 
     def __init__(self):
         if not hasattr(self.panda, "set_after_guest_init_callback"):

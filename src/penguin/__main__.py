@@ -780,16 +780,18 @@ def _render_markdown(text):
 
 @cli.command()
 @click.argument("section", type=str, required=False)
+@click.option("--project_dir", type=str, default=None, help="Project dir used to discover local plugins for `schema <plugin>`.")
 @click.option("--json", "as_json", is_flag=True, default=False, help="Emit the raw JSON schema instead of rendered docs.")
 @verbose_option
 @click.pass_context
-def schema(ctx, section, as_json):
+def schema(ctx, section, project_dir, as_json):
     """
     Show the config schema.
 
     With no SECTION, lists the top-level config sections. With a dotted SECTION
     (e.g. `core`, `pseudofiles.read`, `pseudofiles.read.const_buf`), renders that
-    part of the schema.
+    part of the schema. If SECTION names a plugin that declares an `Args` schema,
+    its arguments are rendered instead.
     """
     _startup_checks(ctx.obj['VERBOSE'])
     from penguin.penguin_config import gen_docs
@@ -804,6 +806,7 @@ def schema(ctx, section, as_json):
             lines.append(f"- `{name}` — {title}")
         lines.append("")
         lines.append("Run `penguin schema <section>` to see details, e.g. `penguin schema core`.")
+        lines.append("Run `penguin schema <plugin>` to see a plugin's arguments.")
         _render_markdown("\n".join(lines))
         return
 
@@ -822,8 +825,28 @@ def schema(ctx, section, as_json):
         _render_markdown(md)
         return
 
+    # Not a config section: maybe it's a plugin name.
+    from penguin.plugin_manager import get_plugin_args_model, get_plugin_class
+    from penguin.penguin_config import structure as _structure
+
+    proj = project_dir or os.getcwd()
+    plugin_path = _structure.Core.model_fields["plugin_path"].default
+    args_model = get_plugin_args_model(section, proj, plugin_path)
+    if args_model is not None:
+        if as_json:
+            click.echo(yaml.dump(args_model.model_json_schema(), indent=2))
+            return
+        _render_markdown(gen_docs.gen_plugin_args_docs(section, args_model))
+        return
+
+    cls = get_plugin_class(section, proj, plugin_path)
+    if cls is not None:
+        doc = cls.__doc__ or "(no docstring)"
+        _render_markdown(f"# Plugin `{section}`\n\nThis plugin does not declare an `Args` schema.\n\n{doc}")
+        return
+
     logger.error(
-        f"Unknown schema section '{section}'. "
+        f"Unknown schema section or plugin '{section}'. "
         f"Run `penguin schema` to list available sections."
     )
     sys.exit(1)

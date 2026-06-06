@@ -39,13 +39,19 @@ import struct
 import time
 from os.path import join
 
-from penguin import plugins, Plugin
+from pydantic import Field
+from penguin import plugins, Plugin, PluginArgs
 
 BINDS_FILE = "netbinds.csv"
 SUMMARY_BINDS_FILE = "netbinds_summary.csv"
 
 
 class NetBinds(Plugin):
+    class Args(PluginArgs):
+        shutdown_on_www: bool = Field(
+            default=False, description="If true, shut down emulation when a bind occurs on port 80."
+        )
+
     def __init__(self) -> None:
         """
         Initialize the NetBinds plugin, set up event subscriptions, and prepare log files.

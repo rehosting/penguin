@@ -26,8 +26,10 @@ import logging
 import posixpath
 import re
 from os.path import join as pjoin
+from typing import Optional, Union, List
 
-from penguin import Plugin, plugins, yaml
+from pydantic import Field
+from penguin import Plugin, plugins, yaml, PluginArgs
 from apis.syscalls import ValueFilter
 
 outfile_missing = "pseudofiles_failures.yaml"
@@ -95,6 +97,12 @@ class PseudofileTracker(Plugin):
     """
     Passively tracks missing file access and outputs telemetry logs.
     """
+
+    class Args(PluginArgs):
+        logging: Optional[Union[str, List[str]]] = Field(
+            default=None,
+            description="Which telemetry to log: 'all', 'missing', and/or 'modeled'. Defaults to 'all' when unset.",
+        )
 
     def __init__(self):
         self.outdir = self.get_arg("outdir")

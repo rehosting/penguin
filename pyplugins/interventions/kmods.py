@@ -66,8 +66,9 @@ Outputs
 """
 
 import logging
-from typing import Optional
-from penguin import plugins, Plugin
+from typing import Optional, List
+from pydantic import Field
+from penguin import plugins, Plugin, PluginArgs
 
 
 class KmodTracker(Plugin):
@@ -83,6 +84,17 @@ class KmodTracker(Plugin):
         denylist (list): List of kernel module names to explicitly block
         quiet (bool): If True, set log level to error; if False, use info level
     """
+
+    class Args(PluginArgs):
+        allowlist: List[str] = Field(
+            default=[], description="Kernel module names allowed to load (no .ko extension)."
+        )
+        denylist: List[str] = Field(
+            default=[], description="Kernel module names to explicitly block. Takes precedence over allowlist."
+        )
+        quiet: bool = Field(
+            default=False, description="If true, only errors are logged."
+        )
 
     def __init__(self):
         """Initialize the KmodTracker plugin and load configuration."""

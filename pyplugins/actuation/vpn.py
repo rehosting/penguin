@@ -59,7 +59,9 @@ from os import environ as env
 from os import geteuid
 from os.path import join
 
-from penguin import Plugin, plugins
+from typing import Dict, Optional
+from pydantic import Field
+from penguin import Plugin, plugins, PluginArgs
 from penguin.defaults import static_dir
 
 running_vpns = []
@@ -97,6 +99,21 @@ BRIDGE_FILE = "vpn_bridges.csv"
 
 
 class VPN(Plugin):
+    class Args(PluginArgs):
+        IGLOO_VPN_PORT_MAPS: Optional[str] = Field(
+            default=None,
+            description="Comma-separated guest->host port mapping rules in the form <proto>:<host_port>:<guest_ip>:<guest_port>. Falls back to the IGLOO_VPN_PORT_MAPS environment variable when unset.",
+        )
+        log: bool = Field(
+            default=False, description="If true, enable logging of VPN traffic to the output directory."
+        )
+        pcap: bool = Field(
+            default=False, description="If true, enable PCAP capture of VPN traffic."
+        )
+        spoof: Optional[Dict] = Field(
+            default=None, description="Source IP spoofing configuration keyed by <proto>:<guest_ip>:<guest_port> with 'source' and 'dev' entries."
+        )
+
     def __init__(self, panda) -> None:
         """
         Initialize the VPN plugin, set up vsock bridge, VPN process, and port mappings.

@@ -3,7 +3,7 @@ import logging
 import coloredlogs
 
 from .common import getColoredLogger, yaml
-from .plugin_manager import plugins, Plugin
+from .plugin_manager import plugins, Plugin, PluginArgs
 
 from os.path import join, dirname
 

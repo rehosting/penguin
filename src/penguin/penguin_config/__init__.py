@@ -191,6 +191,75 @@ def _validate_config(config, is_dump=False, path=None, origin_map=None):
     _validate_config_options(config)
 
 
+def _default_plugin_path(raw):
+    """Resolve the plugin search path from a raw config dict."""
+    core = raw.get("core") if isinstance(raw, dict) else None
+    if isinstance(core, dict) and core.get("plugin_path"):
+        return core["plugin_path"]
+    return structure.Core.model_fields["plugin_path"].default
+
+
+def _reserved_sections():
+    """Top-level config keys that are NOT plugins (reserved schema sections)."""
+    return set(structure.Main.model_fields.keys())
+
+
+def _promote_first_class_plugins(raw, proj_dir, plugin_path):
+    """
+    Move first-class top-level plugin entries (``pluginname: {...}``) into
+    ``raw["plugins"][pluginname]`` in place.
+
+    Only keys that resolve to a plugin declaring an ``Args`` schema are promoted;
+    any other unknown top-level key is left alone so the schema's extra="forbid"
+    still catches typos. Raises ValueError on a top-level/``plugins:`` conflict.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    from penguin.plugin_manager import get_plugin_args_model
+
+    reserved = _reserved_sections()
+    for key in [k for k in raw.keys() if k not in reserved]:
+        if get_plugin_args_model(key, proj_dir, plugin_path) is None:
+            continue  # not a declaring plugin -> leave for extra="forbid"
+        plugins = raw.setdefault("plugins", {})
+        if not isinstance(plugins, dict):
+            continue
+        if key in plugins:
+            raise ValueError(
+                f"plugin '{key}' is configured both at the top level and under "
+                f"'plugins:'; use only one"
+            )
+        plugins[key] = raw.pop(key)
+    return raw
+
+
+def _validate_plugin_args(config, proj_dir, plugin_path):
+    """Validate each enabled plugin's args against its declared ``Args`` model."""
+    from penguin.plugin_manager import get_plugin_args_model
+
+    reserved = {"enabled", "depends_on", "description", "version"}
+    had_error = False
+    for name, pargs in (config.get("plugins") or {}).items():
+        if isinstance(pargs, dict) and pargs.get("enabled", True) is False:
+            continue
+        model = get_plugin_args_model(name, proj_dir, plugin_path)
+        if model is None:
+            continue  # legacy / non-declaring plugin -> no validation (BC)
+        candidate = {k: v for k, v in (pargs or {}).items() if k not in reserved}
+        try:
+            model(**candidate)
+        except ValidationError as e:
+            had_error = True
+            logger.error(
+                "\n" + format_validation_error(
+                    e, root_model=model,
+                    header=f"Invalid arguments for plugin '{name}':",
+                )
+            )
+    if had_error:
+        sys.exit(1)
+
+
 def load_unpatched_config(path):
     '''
     Load a configuration without applying any patches. No validation.
@@ -214,6 +283,10 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
         logger.error(str(e))
         sys.exit(1)
 
+    # Resolve plugin search path once and use it for first-class promotion of
+    # both the main config and every patch layer.
+    plugin_path = _default_plugin_path(config)
+    config = _promote_first_class_plugins(config, proj_dir, plugin_path)
     config = structure.Patch(**config)
 
     # 1. Initialize the empty map to track our provenance
@@ -249,6 +322,7 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
                 except templating.TemplateError as e:
                     logger.error(str(e))
                     sys.exit(1)
+                patch_data = _promote_first_class_plugins(patch_data, proj_dir, plugin_path)
                 patch_data = structure.Patch(**patch_data)
 
                 # 2. Pass the origin map and the patch name down into the merger
@@ -369,6 +443,7 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
     # when loading a patch we don't need a completely valid config
     if validate:
         _validate_config(config, path=path, origin_map=origin_map)
+        _validate_plugin_args(config, proj_dir, _default_plugin_path(config))
         _validate_config_version(config, path)
         # Not required in schema as to allow for patches, but these really are required
         if config["core"].get("arch", None) is None:

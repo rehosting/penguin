@@ -30,7 +30,9 @@ All mount attempts are logged to `mounts.csv` in the specified output directory.
 """
 
 from os.path import join as pjoin
-from penguin import plugins, Plugin
+from typing import List
+from pydantic import Field
+from penguin import plugins, Plugin, PluginArgs
 
 mount_log = "mounts.csv"
 
@@ -58,6 +60,17 @@ class MountTracker(Plugin):
     - Subscribes to exec events to detect `/bin/mount` invocations.
     - Hooks the mount syscall return to log and optionally fake mount results.
     """
+
+    class Args(PluginArgs):
+        fake_mounts: List[str] = Field(
+            default=[], description="Mount targets to fake as successful."
+        )
+        all_succeed: bool = Field(
+            default=False, description="If true, fake all mount attempts as successful."
+        )
+        verbose: bool = Field(
+            default=False, description="Enable debug logging."
+        )
 
     def __init__(self):
         """
