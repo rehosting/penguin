@@ -47,6 +47,28 @@ class PluginA(Plugin):
         self.argumentA = self.get_arg("argumentA")
 ```
 
+## Meta-variable templating
+
+Config and patch files support Jinja2 templating so values that depend on the
+architecture (or other settings) don't have to be hardcoded in multiple places.
+Available variables: `{{ arch }}`, `{{ core.<field> }}` (e.g. `{{ core.mem }}`),
+`{{ kernel_version }}`, and anything you define in a top-level `vars:` section.
+
+```yaml
+core:
+  arch: mipsel
+vars:
+  webroot: /www
+static_files:
+  "{{ webroot }}/index.html":
+    type: inline_file
+    contents: "running on {{ arch }} (kernel {{ kernel_version }})"
+```
+
+`vars:` is consumed at load time and does not appear in the realized config.
+Files containing no `{{ }}`/`{% %}` are left untouched. `{{ kernel_version }}`
+is resolved after the kernel path is selected.
+
 ## Plugin File Locations and Discovery
 
 Plugins can be placed in several locations, and the plugin manager will search for them using common naming conventions. When you reference a plugin by name, the manager will look for files matching the plugin name (in CamelCase, snake_case, or lowercase) in the following locations:

@@ -286,6 +286,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       ipdb \
       ipython \
       python-Levenshtein \
+      jinja2 \
       lief  \
       lxml \
       lz4 \

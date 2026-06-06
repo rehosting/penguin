@@ -17,10 +17,12 @@ try:
 except ImportError:
     from yamlcore import CoreLoader, CoreDumper
     import yaml
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field, RootModel, ValidationError
 from pydantic.config import ConfigDict
 
 import penguin
+from .errors import format_validation_error
+from . import templating
 try:
     from penguin.common import patch_config
     from penguin.dropin_compile import compile_init_c_dropin
@@ -49,9 +51,15 @@ def _jsonify_dict(d):
     }
 
 
-def _validate_config_schema(config, is_dump):
+def _validate_config_schema(config, is_dump, path=None, origin_map=None):
     """Validate config with Pydantic"""
-    validated_model = structure.Main(**config)
+    try:
+        validated_model = structure.Main(**config)
+    except ValidationError as e:
+        logger.error(
+            "\n" + format_validation_error(e, config_path=path, origin_map=origin_map)
+        )
+        sys.exit(1)
 
     if is_dump:
         validated_model.model_dump(exclude_none=True)
@@ -178,8 +186,8 @@ def _validate_config_version(config, path):
         sys.exit(1)
 
 
-def _validate_config(config, is_dump=False):
-    _validate_config_schema(config, is_dump)
+def _validate_config(config, is_dump=False, path=None, origin_map=None):
+    _validate_config_schema(config, is_dump, path=path, origin_map=origin_map)
     _validate_config_options(config)
 
 
@@ -196,6 +204,16 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
     """Load penguin config from path"""
     with open(path, "r") as f:
         config = yaml.load(f, Loader=CoreLoader)
+
+    # Render Jinja2 meta-variables ({{ arch }}, {{ core.* }}, user vars:, and the
+    # late-bound {{ kernel_version }}) per-file, before merging. main_ctx is
+    # reused so patches resolve against the main config's core/arch/vars.
+    try:
+        config, main_ctx = templating.render_config(config, where=os.path.basename(path))
+    except templating.TemplateError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
     config = structure.Patch(**config)
 
     # 1. Initialize the empty map to track our provenance
@@ -208,11 +226,13 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
         if patches_dir.exists():
             patch_files += list(patches_dir.glob("*.yaml"))
         if patch_files:
-            if config.patches.root is None:
+            if config.patches is None:
+                config.patches = structure.Patches(root=[])
+            elif config.patches.root is None:
                 config.patches.root = []
             for patch_file in patch_files:
                 config.patches.root.append(str(patch_file))
-    if config.patches.root is not None:
+    if config.patches is not None and config.patches.root is not None:
         patch_list = config.patches.root
         for patch in patch_list:
             # patches are loaded relative to the main config file
@@ -220,6 +240,15 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
             if patch_relocated.exists():
                 with open(patch_relocated, "r") as f:
                     patch_data = yaml.load(f, Loader=CoreLoader)
+                try:
+                    patch_data = templating.substitute(
+                        patch_data,
+                        templating.build_context(patch_data, extra=main_ctx),
+                        where=os.path.basename(str(patch_relocated)),
+                    )
+                except templating.TemplateError as e:
+                    logger.error(str(e))
+                    sys.exit(1)
                 patch_data = structure.Patch(**patch_data)
 
                 # 2. Pass the origin map and the patch name down into the merger
@@ -235,6 +264,8 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
                 logger.error(f"patch file {patch} not found, ignoring")
 
     config = config.model_dump()
+    # `vars` is load-time metadata only; drop it so it never reaches the run.
+    config.pop("vars", None)
     if config["core"].get("guest_cmd", False) is True:
         config["static_files"]["/igloo/utils/guesthopper"] = dict(
             type="host_file",
@@ -328,9 +359,16 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
     else:
         config["core"]["kernel"] = get_kernel(config, proj_dir)
 
+    # Second templating pass: now that the kernel is resolved, fill in any
+    # {{ kernel_version }} references that were deferred in the first pass.
+    # Kernel paths look like /igloo_static/kernels/<VERSION>/<file>.
+    resolved_kpath = config["core"].get("kernel") or ""
+    kernel_version = os.path.basename(os.path.dirname(resolved_kpath)) if resolved_kpath else ""
+    config = templating.resolve_kernel_version(config, kernel_version)
+
     # when loading a patch we don't need a completely valid config
     if validate:
-        _validate_config(config)
+        _validate_config(config, path=path, origin_map=origin_map)
         _validate_config_version(config, path)
         # Not required in schema as to allow for patches, but these really are required
         if config["core"].get("arch", None) is None:

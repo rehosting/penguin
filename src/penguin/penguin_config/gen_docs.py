@@ -59,6 +59,10 @@ def gen_docs_type_name(t):
         return " or ".join([gen_docs_literal_arg(a) for a in args])
     elif og in (list, tuple):
         return "list of " + gen_docs_type_name(args[0])
+    elif og is dict:
+        return f"mapping from {gen_docs_type_name(args[0])} to {gen_docs_type_name(args[1])}"
+    elif t is Any:
+        return "any"
     elif t is int:
         return "integer"
     elif t is str:
@@ -296,6 +300,69 @@ def gen_docs(path=[], docs_field=DocsField.from_type(structure.Main)):
         # There is no more recursion to do for this field, so just generate docs for it.
         out += gen_docs_field(path, docs_field)
 
+    return out
+
+
+def _advance_section(type_, seg):
+    """
+    Move one user-facing step into the schema by `seg`, transparently skipping
+    non-consuming wrappers (Optional, RootModel newtypes, and dict values).
+
+    Returns the resolved sub-type, or None if `seg` doesn't resolve.
+    """
+    while True:
+        # Collapse Optional[... T ...] to T
+        while (
+            typing.get_origin(type_) is Union
+            and len(typing.get_args(type_)) == 2
+            and typing.get_args(type_)[1] is NoneType
+        ):
+            type_ = typing.get_args(type_)[0]
+
+        if hasattr(type_, "model_fields") and "root" in type_.model_fields:
+            info = type_.model_fields["root"]
+            ann = info.annotation
+            if info.discriminator and typing.get_origin(ann) is Union:
+                # Tagged union: `seg` should name a discriminator value.
+                for variant in typing.get_args(ann):
+                    disc = variant.model_fields.get(info.discriminator)
+                    vals = typing.get_args(disc.annotation) if disc else ()
+                    if vals and vals[0] == seg:
+                        return variant
+                return None
+            type_ = ann  # newtype: unwrap and retry the same segment
+            continue
+
+        if hasattr(type_, "model_fields"):
+            field = type_.model_fields.get(seg)
+            return field.annotation if field is not None else None
+
+        if typing.get_origin(type_) is dict:
+            type_ = typing.get_args(type_)[1]  # descend into the value type
+            continue
+
+        return None
+
+
+def resolve_section(dotted):
+    """
+    Resolve a dotted config-section path (e.g. "core", "pseudofiles.read",
+    "pseudofiles.read.const_buf") to the type at that location, or None.
+    """
+    type_ = structure.Main
+    for seg in [s for s in dotted.split(".") if s]:
+        type_ = _advance_section(type_, seg)
+        if type_ is None:
+            return None
+    return type_
+
+
+def list_sections():
+    """Return [(name, title)] for the top-level config sections."""
+    out = []
+    for name, info in structure.Main.model_fields.items():
+        df = DocsField.from_field(info)
+        out.append((name, df.title or name))
     return out
 
 

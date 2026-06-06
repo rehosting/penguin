@@ -1,4 +1,4 @@
-from typing import Annotated, Dict, List, Literal, Optional, Union, ClassVar
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union, ClassVar
 from pydantic import BaseModel, Field, RootModel
 from pydantic.config import ConfigDict
 from pydantic_partial import PartialModelMixin, create_partial_model
@@ -701,7 +701,7 @@ StaticFileAction = _union(
             title="Add inline file",
             description="Add a file with contents specified inline in this config",
             fields=(
-                ("mode", int, Field(title="Permissions of file")),
+                ("mode", int, Field(0o644, title="Permissions of file")),
                 ("contents", str, Field(title="Contents of file")),
             ),
         ),
@@ -710,7 +710,7 @@ StaticFileAction = _union(
             title="Copy host file",
             description="Copy a file from the host into the guest",
             fields=(
-                ("mode", int, Field(title="Permissions of file")),
+                ("mode", int, Field(0o755, title="Permissions of file")),
                 ("host_path", str, Field(title="Host path")),
             ),
         ),
@@ -718,7 +718,7 @@ StaticFileAction = _union(
             discrim_val="dir",
             title="Add directory",
             description=None,
-            fields=(("mode", int, Field(title="Permissions of directory")),),
+            fields=(("mode", int, Field(0o755, title="Permissions of directory")),),
         ),
         dict(
             discrim_val="symlink",
@@ -741,7 +741,7 @@ StaticFileAction = _union(
                 (
                     "mode",
                     int,
-                    Field(title="Permissions of device file"),
+                    Field(0o666, title="Permissions of device file"),
                 ),
             ),
         ),
@@ -905,6 +905,20 @@ class Main(PartialModelMixin, BaseModel):
 
     core: Core
     patches: Optional[Patches] = None
+    vars: Annotated[
+        Optional[dict[str, Any]],
+        Field(
+            None,
+            title="Template variables",
+            description=" ".join((
+                "User-defined variables usable elsewhere via Jinja2 templating,",
+                "e.g. `{{ myvar }}`. Alongside these, `{{ arch }}`, `{{ core.<field> }}`,",
+                "and `{{ kernel_version }}` are available. This section is consumed at",
+                "load time and does not appear in the realized config.",
+            )),
+            examples=[dict(webroot="/www", libdir="/lib/{{ arch }}")],
+        ),
+    ] = None
     env: Env
     pseudofiles: Pseudofiles
     nvram: NVRAM
