@@ -340,6 +340,20 @@ def load_config(proj_dir, path, validate=True, resolved_kernel=None, verbose=Fal
     config = config.model_dump()
     # `vars` is load-time metadata only; drop it so it never reaches the run.
     config.pop("vars", None)
+
+    # Backwards compat: `timeout` used to be a core-plugin arg (plugins.core.timeout).
+    # It is now the top-level core.timeout option. Migrate an old-style value so
+    # existing configs keep working, preferring an explicit core.timeout.
+    _legacy_core = (config.get("plugins") or {}).get("core")
+    if isinstance(_legacy_core, dict) and "timeout" in _legacy_core:
+        legacy_timeout = _legacy_core.pop("timeout")
+        if config["core"].get("timeout") is None:
+            logger.warning(
+                "plugins.core.timeout is deprecated; use core.timeout instead. "
+                "Migrating the value for this run."
+            )
+            config["core"]["timeout"] = legacy_timeout
+
     if config["core"].get("guest_cmd", False) is True:
         config["static_files"]["/igloo/utils/guesthopper"] = dict(
             type="host_file",

@@ -301,6 +301,15 @@ class Core(PartialModelMixin, BaseModel):
             examples=[1, 2, 4],
         ),
     ]
+    timeout: Annotated[
+        Optional[int],
+        Field(
+            None,
+            title="Run timeout (seconds)",
+            description="If set, automatically shut the guest down after this many seconds. Overridden by the --timeout CLI flag. No timeout when unset.",
+            examples=[60, 300],
+        ),
+    ]
     graphics: Annotated[
         bool,
         Field(

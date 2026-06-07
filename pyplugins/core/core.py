@@ -38,9 +38,7 @@ import os
 import signal
 import threading
 import time
-from typing import Optional
-from pydantic import Field
-from penguin import Plugin, yaml, plugins, common, PluginArgs
+from penguin import Plugin, yaml, plugins, common
 from penguin.defaults import vnc_password
 
 
@@ -50,12 +48,10 @@ class Core(Plugin):
 
     Performs sanity checks, manages configuration, handles shutdown signals,
     and enforces optional timeouts for the emulation environment.
-    """
 
-    class Args(PluginArgs):
-        timeout: Optional[int] = Field(
-            default=None, description="Timeout in seconds after which the emulation is automatically shut down. No timeout when unset."
-        )
+    The shutdown timeout is read from the top-level ``core.timeout`` config
+    option (overridable by the ``--timeout`` CLI flag); it is not a plugin arg.
+    """
 
     def __init__(self) -> None:
         """
@@ -183,9 +179,10 @@ class Core(Plugin):
         # XXX bb_limit / unique_bbs break our pypanda based analyses
         # because end_analysis is never called
 
-        if self.get_arg("timeout") is not None:
+        core_timeout = conf["core"].get("timeout")
+        if core_timeout is not None:
             # If a timeout is provided, enforce it
-            timeout = int(self.get_arg("timeout"))
+            timeout = int(core_timeout)
 
             # Not supported in ng.
             # Simple plugin that just counts the number of blocks executed

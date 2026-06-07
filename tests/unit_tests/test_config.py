@@ -460,5 +460,54 @@ def test_load_config_end_to_end(plugin_dir):
     assert "vars" not in cfg             # metadata stripped
 
 
+# --------------------------------------------------------------------------- #
+# core.timeout: now a top-level core option (was the core plugin's arg)
+# --------------------------------------------------------------------------- #
+def _load_timeout_cfg(plugins_block, core_extra=""):
+    with tempfile.TemporaryDirectory() as tmp:
+        proj = Path(tmp, "proj")
+        (proj / "base").mkdir(parents=True)
+        with tarfile.open(proj / "base" / "fs.tar.gz", "w"):
+            pass
+        (proj / "config.yaml").write_text(textwrap.dedent(f"""
+            core:
+              arch: armel
+              version: 2
+            {core_extra}
+            env: {{}}
+            pseudofiles: {{}}
+            nvram: {{}}
+            lib_inject: {{}}
+            static_files: {{}}
+            plugins:
+            {plugins_block}
+        """))
+        return pc.load_config(
+            str(proj), str(proj / "config.yaml"), validate=True,
+            resolved_kernel="/igloo_static/kernels/6.13/zImage.armel",
+        )
+
+
+def test_core_timeout_is_a_core_option():
+    cfg = structure.Main(**base_config(core=dict(version=2, arch="armel", timeout=90))).model_dump()
+    assert cfg["core"]["timeout"] == 90
+
+
+def test_core_plugin_no_longer_declares_args():
+    core_src = Path(os.path.dirname(__file__), "../../pyplugins/core/core.py").read_text()
+    assert "class Args(" not in core_src
+
+
+def test_legacy_plugins_core_timeout_migrates():
+    cfg = _load_timeout_cfg("  core:\n                timeout: 77")
+    assert cfg["core"]["timeout"] == 77
+    assert "timeout" not in (cfg["plugins"].get("core") or {})
+
+
+def test_explicit_core_timeout_wins_over_legacy():
+    cfg = _load_timeout_cfg("  core:\n                timeout: 77", core_extra="  timeout: 5")
+    assert cfg["core"]["timeout"] == 5
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
