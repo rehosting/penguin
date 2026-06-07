@@ -149,9 +149,9 @@ def run_config(
 
     pkversion = get_penguin_kernel_version(conf)
 
-    if timeout is not None and conf.get("plugins", {}).get("core", None) is not None:
-        # An arugument setting a timeout overrides the config's timeout
-        conf["plugins"]["core"]["timeout"] = timeout
+    if timeout is not None:
+        # A --timeout argument overrides the config's core.timeout
+        conf["core"]["timeout"] = timeout
 
     if "igloo_init" not in conf["env"]:
         if init:

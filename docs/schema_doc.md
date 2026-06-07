@@ -420,6 +420,23 @@ Number of CPUs to emulate in the guest (Warning: This can break things)
 4
 ```
 
+### `core.timeout` Run timeout (seconds)
+
+|||
+|-|-|
+|__Type__|integer or null|
+|__Default__|`null`|
+
+If set, automatically shut the guest down after this many seconds. Overridden by the --timeout CLI flag. No timeout when unset.
+
+```yaml
+60
+```
+
+```yaml
+300
+```
+
 ### `core.graphics` Enable graphics
 
 |||
