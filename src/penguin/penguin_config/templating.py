@@ -17,7 +17,10 @@ Configs that contain no ``{{ }}``/``{% %}`` are returned untouched.
 import jinja2
 
 # First-pass placeholder for the late-bound kernel_version variable.
-KERNEL_VERSION_SENTINEL = "\x00IGLOO_KERNEL_VERSION\x00"
+# Printable but improbable: a literal control character here breaks the Sphinx
+# LaTeX/PDF docs build (autodoc renders this value and pdflatex rejects control
+# chars), while this token is still effectively un-typeable in real configs.
+KERNEL_VERSION_SENTINEL = "__IGLOO_KERNEL_VERSION_SENTINEL_b3f0c1__"
 
 
 class TemplateError(Exception):
