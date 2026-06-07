@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 import penguin.penguin_config as pc
+from penguin import arch_registry
 from penguin.penguin_config import structure
 from penguin.penguin_config import gen_docs, templating
 from penguin.penguin_config.errors import format_validation_error
@@ -562,7 +563,6 @@ def test_explicit_core_timeout_wins_over_legacy():
 # --------------------------------------------------------------------------- #
 # arch registry: aliases, normalization, consolidation, canonical flip
 # --------------------------------------------------------------------------- #
-from penguin import arch_registry
 
 
 @pytest.mark.parametrize("alias,canonical", [
@@ -642,7 +642,8 @@ def test_q_config_powerpc64le_and_fresh_dict():
     assert q["arch"] == "ppc64" and q["qemu_machine"] == "pseries"
     assert load_q_config({"core": {"arch": "ppc64el"}})["arch"] == "ppc64"  # alias
     # returns a fresh dict each call (old code mutated a shared module dict)
-    a = load_q_config({"core": {"arch": "mipsel"}}); a["arch"] = "ZZ"
+    a = load_q_config({"core": {"arch": "mipsel"}})
+    a["arch"] = "ZZ"
     assert load_q_config({"core": {"arch": "mipsel"}})["arch"] == "mipsel"
 
 
