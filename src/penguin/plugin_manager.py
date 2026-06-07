@@ -46,7 +46,7 @@ import inspect
 import datetime
 import functools
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict
 
 # Forward reference for type annotations
 T = TypeVar('T', bound='Plugin')

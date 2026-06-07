@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+import penguin.penguin_config as pc
 from penguin.penguin_config import structure
 from penguin.penguin_config import gen_docs, templating
 from penguin.penguin_config.errors import format_validation_error
@@ -304,9 +305,6 @@ def test_introspection_handles_classbody_callbacks(plugin_dir):
 # --------------------------------------------------------------------------- #
 # PR3: first-class promotion + plugin arg validation (via load_config internals)
 # --------------------------------------------------------------------------- #
-import penguin.penguin_config as pc
-
-
 def test_promote_first_class_plugin(plugin_dir):
     raw = base_config()
     raw["widget"] = {"names": ["x"]}
@@ -417,7 +415,7 @@ def test_legacy_at_placeholders_untouched():
 def _make_project(tmp, config_text, plugin_dir):
     proj = Path(tmp, "proj")
     (proj / "base").mkdir(parents=True)
-    with tarfile.open(proj / "base" / "fs.tar.gz", "w") as tf:
+    with tarfile.open(proj / "base" / "fs.tar.gz", "w"):
         pass
     (proj / "config.yaml").write_text(textwrap.dedent(config_text).replace("@PP@", plugin_dir))
     return proj
