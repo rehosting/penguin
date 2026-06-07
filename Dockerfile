@@ -9,6 +9,7 @@ ARG LIBNVRAM_VERSION="0.0.26"
 ARG CONSOLE_VERSION="1.0.7"
 ARG GUESTHOPPER_VERSION="1.0.21"
 ARG HYPERFS_VERSION="0.0.44"
+ARG PENGUIN_TOOLS_VERSION="0.0.1"
 ARG GLOW_VERSION="1.5.1"
 ARG GUM_VERSION="0.14.5"
 ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
@@ -174,6 +175,15 @@ RUN /get_release.sh rehosting guesthopper ${GUESTHOPPER_VERSION} guesthopper.tar
 ARG IGLOO_DRIVER_VERSION
 RUN /get_release.sh rehosting igloo_driver ${IGLOO_DRIVER_VERSION} igloo_driver.tar.gz | \
     tar xzf - -C /igloo_static
+
+# Download penguin-tools: per-arch guest debugging tools (gdbserver, strace,
+# ltrace, python) cross-compiled to musl, plus their dylibs. The tarball is
+# rooted at igloo_static/, so extract at / to populate /igloo_static/<arch>/
+# and merge /igloo_static/dylibs/<arch>/. The per-arch symlink pass later in
+# this build exposes each binary as /igloo_static/utils.bin/<tool>.<arch>.
+ARG PENGUIN_TOOLS_VERSION
+RUN /get_release.sh rehosting penguin-tools ${PENGUIN_TOOLS_VERSION} penguin-tools.tar.gz | \
+    tar xzf - -C /
 
 # Download prototype files for ltrace.
 #
@@ -635,6 +645,10 @@ RUN used_pkgs="" ; \
         if [ -f /tmp/local_packages/igloo_driver.tar.gz ]; then \
             tar xzf /tmp/local_packages/igloo_driver.tar.gz -C /igloo_static; \
             used_pkgs="${used_pkgs},igloo_driver"; \
+        fi; \
+        if [ -f /tmp/local_packages/penguin-tools.tar.gz ]; then \
+            tar xzf /tmp/local_packages/penguin-tools.tar.gz -C /; \
+            used_pkgs="${used_pkgs},penguin-tools"; \
         fi; \
         if [ -f /tmp/local_packages/penguin-qemu.tar.gz ]; then \
             tar xzf /tmp/local_packages/penguin-qemu.tar.gz -C /usr/local; \
