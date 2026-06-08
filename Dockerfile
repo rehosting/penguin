@@ -181,9 +181,18 @@ RUN /get_release.sh rehosting igloo_driver ${IGLOO_DRIVER_VERSION} igloo_driver.
 # rooted at igloo_static/, so extract at / to populate /igloo_static/<arch>/
 # and merge /igloo_static/dylibs/<arch>/. The per-arch symlink pass later in
 # this build exposes each binary as /igloo_static/utils.bin/<tool>.<arch>.
+#
+# --skip-old-files: penguin-tools and hyperfs both ship dylibs/<arch> for some
+# arch names (armel, mipsel, x86_64, ...). hyperfs's libc.so/libgcc_s.so.1 are
+# the ones the per-arch sysroots link init.d/*.c drop-ins against and must stay
+# consistent with the cross-toolchain crt objects, so we must NOT overwrite
+# them. Skipping pre-existing files keeps hyperfs's system dylibs while still
+# layering in penguin-tools' tools and its extra libs (libstdc++, libpython,
+# the ld-musl interpreter alias). When hyperfs is removed, penguin-tools becomes
+# the sole provider and these names no longer pre-exist.
 ARG PENGUIN_TOOLS_VERSION
 RUN /get_release.sh rehosting penguin-tools ${PENGUIN_TOOLS_VERSION} penguin-tools.tar.gz | \
-    tar xzf - -C /
+    tar xzf - --skip-old-files -C /
 
 # Download prototype files for ltrace.
 #
@@ -647,7 +656,7 @@ RUN used_pkgs="" ; \
             used_pkgs="${used_pkgs},igloo_driver"; \
         fi; \
         if [ -f /tmp/local_packages/penguin-tools.tar.gz ]; then \
-            tar xzf /tmp/local_packages/penguin-tools.tar.gz -C /; \
+            tar xzf /tmp/local_packages/penguin-tools.tar.gz --skip-old-files -C /; \
             used_pkgs="${used_pkgs},penguin-tools"; \
         fi; \
         if [ -f /tmp/local_packages/penguin-qemu.tar.gz ]; then \
