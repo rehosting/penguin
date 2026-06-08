@@ -17,8 +17,6 @@ SHUTDOWN_CAUSE_HOST_QMP_QUIT = 2
 
 MINIMAL_CDEF = """
 typedef _Bool bool;
-typedef int64_t target_long;
-typedef uint64_t target_ulong;
 typedef uint64_t vaddr;
 typedef struct CPUState CPUState;
 typedef struct MachineState MachineState;
@@ -371,9 +369,16 @@ class QemuCompat:
         )
         self.ffi = cffi.FFI()
         cdef_source = self.header_path.read_text() if self.header_path else MINIMAL_CDEF
+        # target_long/target_ulong must match the *guest* word size so that
+        # ffi.cast("target_long", x) sign-extends correctly (e.g. a 32-bit
+        # guest's 0xFFFFFFFF fd argument casts to -1). PANDA sized these per
+        # guest arch; hard-coding int64_t silently broke negative-value /
+        # `== -1` checks on 32-bit targets (see rv130 libc_addr regression).
+        target_long_t = "int64_t" if self.bits == 64 else "int32_t"
+        target_ulong_t = "uint64_t" if self.bits == 64 else "uint32_t"
         for declaration in (
-            "typedef int64_t target_long;",
-            "typedef uint64_t target_ulong;",
+            f"typedef {target_long_t} target_long;",
+            f"typedef {target_ulong_t} target_ulong;",
             "int main(int argc, char **argv);",
             "void bql_lock_impl(const char *file, int line);",
             "bool bql_locked(void);",
