@@ -46,6 +46,28 @@ def penguin_run(config, image, name=None):
         sys.exit(1)
 
 
+def assert_docs_built():
+    """Validate a --docs-only run.
+
+    The doc_generator plugin builds the docs and then calls ``os._exit(0)``,
+    so a docs build intentionally never boots the guest and never produces a
+    ``.ran`` file or verifier output. Assert the documentation artifacts were
+    produced instead (this also still catches a broken docs/PDF build).
+    """
+    latest = TEST_DIR / "results" / "latest"
+    html_index = latest / "sphinx" / "html" / "index.html"
+    pdfs = list((latest / "sphinx" / "latex").glob("*.pdf"))
+
+    if not html_index.exists():
+        raise AssertionError(
+            f"Docs build did not produce HTML output; missing {html_index}"
+        )
+    if not pdfs:
+        raise AssertionError(
+            f"Docs build did not produce a PDF in {latest / 'sphinx' / 'latex'}"
+        )
+
+
 def assert_penguin_run_succeeded():
     latest = TEST_DIR / "results" / "latest"
     ran_file = latest / ".ran"
@@ -153,7 +175,12 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mod
             logger.info(f"Placed preset nvram_state.yaml from {state_preset.name}")
 
     penguin_run(new_config, image, name)
-    assert_penguin_run_succeeded()
+    if docs_only:
+        # A docs-only run builds documentation and exits without emulating,
+        # so assert the docs artifacts rather than a successful penguin run.
+        assert_docs_built()
+    else:
+        assert_penguin_run_succeeded()
     logger.info("Test completed")
 
 
