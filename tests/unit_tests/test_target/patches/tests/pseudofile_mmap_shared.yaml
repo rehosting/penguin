@@ -47,13 +47,32 @@ static_files:
     type: inline_file
     contents: |
       #!/igloo/utils/python3
-      import os, mmap
-      assert os.stat("/proc/aaaa/pf").st_size == 22
+      # Raw libc mmap via ctypes: CPython's mmap module refuses a length larger
+      # than the file size, but these pseudofiles are page-backed in the kernel
+      # and the test deliberately maps a full page (matching the original ffi).
+      import os, ctypes
+      _libc = ctypes.CDLL("/igloo/dylibs/libc.so", use_errno=True)
+      _libc.mmap.restype = ctypes.c_void_p
+      _libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
+                             ctypes.c_int, ctypes.c_int, ctypes.c_long]
+      _libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+      MAP_FAILED = ctypes.c_void_p(-1).value
+      PROT_READ, PROT_WRITE, MAP_SHARED, MAP_PRIVATE = 1, 2, 1, 2
 
-      with open("/proc/aaaa/pf", "rb") as f:
-          mm = mmap.mmap(f.fileno(), 0x1000, mmap.MAP_SHARED, mmap.PROT_READ)
-          assert bytes(mm[:22]) == b"Hello from pseudofile!"
-          mm.close()
+      def mmap_fd(fd, length, prot, flags):
+          addr = _libc.mmap(None, length, prot, flags, fd, 0)
+          if not addr or addr == MAP_FAILED:
+              raise OSError(ctypes.get_errno(), "mmap failed")
+          return addr
+
+      assert os.stat("/proc/aaaa/pf").st_size == 22
+      fd = os.open("/proc/aaaa/pf", os.O_RDONLY)
+      try:
+          addr = mmap_fd(fd, 0x1000, PROT_READ, MAP_SHARED)
+          assert ctypes.string_at(addr, 22) == b"Hello from pseudofile!"
+          _libc.munmap(addr, 0x1000)
+      finally:
+          os.close(fd)
       print("tests pass")
     mode: 73
 
@@ -62,13 +81,28 @@ static_files:
     type: inline_file
     contents: |
       #!/igloo/utils/python3
-      import os, mmap
+      import os, ctypes
+      _libc = ctypes.CDLL("/igloo/dylibs/libc.so", use_errno=True)
+      _libc.mmap.restype = ctypes.c_void_p
+      _libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
+                             ctypes.c_int, ctypes.c_int, ctypes.c_long]
+      _libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+      MAP_FAILED = ctypes.c_void_p(-1).value
+      PROT_READ, PROT_WRITE, MAP_SHARED, MAP_PRIVATE = 1, 2, 1, 2
 
-      with open("/proc/aaaa/pf", "rb") as f:
-          mm = mmap.mmap(f.fileno(), 0x1000, mmap.MAP_PRIVATE,
-                         mmap.PROT_READ | mmap.PROT_WRITE)
-          assert bytes(mm[:22]) == b"Hello from pseudofile!"
-          mm.close()
+      def mmap_fd(fd, length, prot, flags):
+          addr = _libc.mmap(None, length, prot, flags, fd, 0)
+          if not addr or addr == MAP_FAILED:
+              raise OSError(ctypes.get_errno(), "mmap failed")
+          return addr
+
+      fd = os.open("/proc/aaaa/pf", os.O_RDONLY)
+      try:
+          addr = mmap_fd(fd, 0x1000, PROT_READ | PROT_WRITE, MAP_PRIVATE)
+          assert ctypes.string_at(addr, 22) == b"Hello from pseudofile!"
+          _libc.munmap(addr, 0x1000)
+      finally:
+          os.close(fd)
       print("tests pass")
     mode: 73
 
@@ -118,19 +152,25 @@ static_files:
     contents: |
       #!/igloo/utils/python3
       import os
-      
-      with open("/proc/seekable_rw", "r+b") as f:
+
+      # Raw fd + os.read/os.lseek: a buffered file object would read ahead a
+      # whole buffer on the first read and satisfy later reads/seeks from that
+      # buffer, never re-issuing read()/lseek() against the pseudofile.
+      fd = os.open("/proc/seekable_rw", os.O_RDWR)
+      try:
           # Verify initial state
-          assert f.read(12) == b"Initial Data"
-          
+          assert os.read(fd, 12) == b"Initial Data"
+
           # Explicitly seek back to absolute 0 (SEEK_SET)
-          f.seek(0)
-          assert f.read(7) == b"Initial"
-          
+          os.lseek(fd, 0, os.SEEK_SET)
+          assert os.read(fd, 7) == b"Initial"
+
           # Explicitly seek to offset 8
-          f.seek(8)
-          assert f.read(4) == b"Data"
-          
+          os.lseek(fd, 8, os.SEEK_SET)
+          assert os.read(fd, 4) == b"Data"
+      finally:
+          os.close(fd)
+
       print("tests pass")
     mode: 73
 
@@ -139,29 +179,45 @@ static_files:
     type: inline_file
     contents: |
       #!/igloo/utils/python3
-      import os, mmap
+      import os, ctypes
+      _libc = ctypes.CDLL("/igloo/dylibs/libc.so", use_errno=True)
+      _libc.mmap.restype = ctypes.c_void_p
+      _libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
+                             ctypes.c_int, ctypes.c_int, ctypes.c_long]
+      _libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+      MAP_FAILED = ctypes.c_void_p(-1).value
+      PROT_READ, PROT_WRITE, MAP_SHARED = 1, 2, 1
 
-      with open("/proc/seekable_rw", "r+b") as f:
-          # Map 4KB as Shared & Writable
-          mm = mmap.mmap(f.fileno(), 0x1000, mmap.MAP_SHARED,
-                         mmap.PROT_READ | mmap.PROT_WRITE)
+      def mmap_fd(fd, length, prot, flags):
+          addr = _libc.mmap(None, length, prot, flags, fd, 0)
+          if not addr or addr == MAP_FAILED:
+              raise OSError(ctypes.get_errno(), "mmap failed")
+          return addr
 
-          # 1. Verify memory reflects the file
-          assert bytes(mm[:12]) == b"Initial Data"
+      # Map 4KB of the pseudofile as Shared & Writable
+      fd = os.open("/proc/seekable_rw", os.O_RDWR)
+      addr = mmap_fd(fd, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED)
 
-          # 2. Write to the memory mapping directly (bypassing f.write)
-          mm[0:12] = b"ModifiedData"
+      # 1. Verify memory reflects the file
+      assert ctypes.string_at(addr, 12) == b"Initial Data"
 
-          # Unmap the memory (msync doesn't trigger the proxy flush anyway)
-          mm.close()
-          
-      # 3. EXITING the 'with' block calls f.close().
-      # This triggers Linux VFS release() -> igloo_proxy_release -> igloo_flush_shm_to_hypervisor!
-          
+      # 2. Write to the memory mapping directly (bypassing write())
+      ctypes.memmove(addr, b"ModifiedData", 12)
+
+      # Unmap the memory (msync doesn't trigger the proxy flush anyway)
+      _libc.munmap(addr, 0x1000)
+
+      # 3. Closing the fd triggers Linux VFS release() -> igloo_proxy_release ->
+      # igloo_flush_shm_to_hypervisor, committing the shared-mapping changes.
+      os.close(fd)
+
       # 4. Reopen and verify the hypervisor received the committed changes
-      with open("/proc/seekable_rw", "rb") as f:
-          assert f.read(12) == b"ModifiedData"
-          
+      fd = os.open("/proc/seekable_rw", os.O_RDONLY)
+      try:
+          assert os.read(fd, 12) == b"ModifiedData"
+      finally:
+          os.close(fd)
+
       print("tests pass")
     mode: 73
   /tests/pseudofile_release.sh:

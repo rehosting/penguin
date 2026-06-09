@@ -97,11 +97,18 @@ static_files:
     mode: 0o755
     contents: |
       #!/igloo/utils/python3
-      with open("/dev/compat_unknown_seek", "rb") as f:
-          try:
-              f.seek(0, 0)
-              raise AssertionError("unknown-size pseudofile should not gain seek fallback")
-          except OSError as e:
-              assert e.args[0] in (22, 29), e.args
+      import os
+
+      # Use a raw fd + os.lseek: CPython's buffered file object resolves a
+      # seek(0) against its own buffer without issuing the underlying lseek
+      # syscall, so the kernel never gets a chance to reject it.
+      fd = os.open("/dev/compat_unknown_seek", os.O_RDONLY)
+      try:
+          os.lseek(fd, 0, os.SEEK_SET)
+          raise AssertionError("unknown-size pseudofile should not gain seek fallback")
+      except OSError as e:
+          assert e.errno in (22, 29), e
+      finally:
+          os.close(fd)
 
       print("/tests/pseudofile_dev_compat_unknown_seek.py PASS")

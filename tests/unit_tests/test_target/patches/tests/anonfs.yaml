@@ -63,21 +63,27 @@ static_files:
       S_IFMT = 0o170000
       S_IFSOCK = 0o140000
 
+      # NOTE: use raw os.open() rather than the buffered open() builtin. CPython's
+      # io stack issues an isatty()/ioctl() on the fd when wrapping it; on the
+      # sockfs-injected /tmp/anon_sock that ioctl reaches a mock socket whose ops
+      # table has no ->ioctl handler, which oopses the guest kernel. os.open
+      # gives a bare fd and never performs that ioctl.
+
       # Test Socket (MUST report as a true socket object)
-      f_sock = open("/tmp/anon_sock", "w")
-      st_sock = os.stat("/proc/self/fd/%d" % f_sock.fileno())
-      if (st_sock[0] & S_IFMT) != S_IFSOCK:
-          print("Error: /tmp/anon_sock is NOT a socket! Mode: " + oct(st_sock[0]))
+      fd_sock = os.open("/tmp/anon_sock", os.O_WRONLY)
+      st_sock = os.stat("/proc/self/fd/%d" % fd_sock)
+      if (st_sock.st_mode & S_IFMT) != S_IFSOCK:
+          print("Error: /tmp/anon_sock is NOT a socket! Mode: " + oct(st_sock.st_mode))
           sys.exit(1)
-      f_sock.close()
+      os.close(fd_sock)
 
       # Test Counter (Should NOT be a socket, it should be an anonymous inode)
-      f_counter = open("/tmp/anon_counter", "w")
-      st_counter = os.stat("/proc/self/fd/%d" % f_counter.fileno())
-      if (st_counter[0] & S_IFMT) == S_IFSOCK:
+      fd_counter = os.open("/tmp/anon_counter", os.O_WRONLY)
+      st_counter = os.stat("/proc/self/fd/%d" % fd_counter)
+      if (st_counter.st_mode & S_IFMT) == S_IFSOCK:
           print("Error: /tmp/anon_counter is incorrectly reporting as a socket!")
           sys.exit(1)
-      f_counter.close()
+      os.close(fd_counter)
 
       print("anonfs stat tests pass")
     mode: 73
