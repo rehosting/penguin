@@ -166,9 +166,10 @@ class Sysctl(Plugin):
         if not self._pending_sysctls:
             return False
 
-        pending = self._pending_sysctls[:]
-        while pending:
-            sysctl_node = pending.pop(0)
+        # Honor the portal's per-window install budget (see portal docstring).
+        while self._pending_sysctls and plugins.portal.take_install_budget():
+            sysctl_node = self._pending_sysctls.pop(0)
             yield from self._register_sysctls([sysctl_node])
-            self._pending_sysctls.remove(sysctl_node)
+        if self._pending_sysctls:
+            plugins.portal.queue_interrupt("sysctl")
         return False
