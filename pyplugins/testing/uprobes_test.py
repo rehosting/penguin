@@ -93,8 +93,14 @@ class UprobesTest(Plugin):
                 dylibs = static_files[f]["host_path"]
                 lib_path = glob(f"{dylibs}{lib_name}")
                 if lib_path:
+                    # host_lib follows the symlink so nm reads the real ELF, but
+                    # the guest maps libc under the loader name it was matched by
+                    # (e.g. ld-musl-arm.so.1). With penguin-tools that loader is a
+                    # symlink to libc.so, so realpath()ing it would yield libc.so
+                    # and the uprobe would target a path the guest never maps
+                    # (musl's loader *is* libc, mapped under the ld-musl name).
                     host_lib = realpath(lib_path[0])
-                    guest_lib = realpath(join(f, "..", basename(host_lib)))
+                    guest_lib = realpath(join(f, "..", basename(lib_path[0])))
                     return host_lib, guest_lib
         else:
             raise Exception(f"Could not find {lib_name} path in static files")
