@@ -238,9 +238,10 @@ class Proc(Plugin):
         if not self._pending_procs:
             return False
 
-        pending = self._pending_procs[:]
-        while pending:
-            proc = pending.pop(0)
+        # Honor the portal's per-window install budget (see portal docstring).
+        while self._pending_procs and plugins.portal.take_install_budget():
+            proc = self._pending_procs.pop(0)
             yield from self._register_procs([proc])
-            self._pending_procs.remove(proc)
+        if self._pending_procs:
+            plugins.portal.queue_interrupt("procfs")
         return False

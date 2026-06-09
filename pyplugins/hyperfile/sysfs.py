@@ -169,9 +169,10 @@ class Sysfs(Plugin):
         if not self._pending_sysfs:
             return False
 
-        pending = self._pending_sysfs[:]
-        self._pending_sysfs.clear()
-        while pending:
-            sysfs = pending.pop(0)
+        # Honor the portal's per-window install budget (see portal docstring).
+        while self._pending_sysfs and plugins.portal.take_install_budget():
+            sysfs = self._pending_sysfs.pop(0)
             yield from self._register_sysfs([sysfs])
+        if self._pending_sysfs:
+            plugins.portal.queue_interrupt("sysfs")
         return False

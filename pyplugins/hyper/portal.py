@@ -51,6 +51,12 @@ kffi = plugins.kffi
 # Global singleton for a no-operation command
 _NONE_CMD = None
 
+# Max pseudofile installs (devfs/procfs/sysctl/sysfs) dispatched across all
+# plugins in a single portal interrupt window. Kept comfortably below the point
+# where the install burst corrupts guest kernel memory (empirically ~50+ at
+# once breaks MIPS targets like fwr8102; this leaves wide margin).
+PORTAL_INSTALL_BUDGET_PER_WINDOW = 32
+
 
 class PortalCmd:
     """
@@ -180,6 +186,16 @@ class Portal(Plugin):
         # Generic interrupts mechanism
         self._interrupt_handlers = {}  # plugin_name -> handler_function
         self._pending_interrupts = set()  # Set of plugin names with pending work
+
+        # Global per-interrupt-window budget for pseudofile installs. Draining
+        # every plugin's full pending list in one window floods the portal's
+        # shared-memory path during early boot (e.g. fwr8102 installs 100+
+        # /dev,/proc nodes at once), which corrupts kernel memory on some
+        # targets (MIPS do_ade). Install handlers consult take_install_budget()
+        # and re-queue their remainder so the combined installs per window stay
+        # bounded and the guest runs between batches.
+        self._install_budget_max = PORTAL_INSTALL_BUDGET_PER_WINDOW
+        self._install_budget = self._install_budget_max
         plugins.hypercall.hypercall(iconsts.IGLOO_HYPER_REGISTER_MEM_REGION)(
             self._register_cpu_memregion)
         plugins.hypercall.hypercall(iconsts.IGLOO_HYPER_ENABLE_PORTAL_INTERRUPT)(
@@ -215,6 +231,9 @@ class Portal(Plugin):
         interrupts = self._pending_interrupts.copy()
         self._pending_interrupts.clear()
         self._portal_clear_interrupt()
+        # Refill the per-window install budget. Install handlers decrement it
+        # via take_install_budget() and re-queue their remainder if it runs out.
+        self._install_budget = self._install_budget_max
         for plugin_name in list(interrupts):
             if plugin_name in self._interrupt_handlers:
                 handler_fn = self._interrupt_handlers[plugin_name]
@@ -242,6 +261,20 @@ class Portal(Plugin):
         if plugin_name in self._pending_interrupts:
             self.logger.debug(
                 f"Plugin {plugin_name} already had pending interrupts")
+
+    def take_install_budget(self) -> bool:
+        """
+        Consume one unit of the per-interrupt-window pseudofile-install budget.
+
+        Returns True if budget remained (and one unit was consumed), False if
+        the window's budget is exhausted. Install interrupt handlers should call
+        this before each install and, when it returns False, stop and re-queue
+        their interrupt so the remainder is processed in a later window.
+        """
+        if self._install_budget <= 0:
+            return False
+        self._install_budget -= 1
+        return True
 
     def queue_interrupt(self, plugin_name: str) -> bool:
         """

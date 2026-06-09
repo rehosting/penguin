@@ -245,9 +245,12 @@ class Devfs(Plugin):
         if not self._pending_devfs:
             return False
 
-        pending = self._pending_devfs[:]
-        self._pending_devfs.clear()
-        while pending:
-            devfs = pending.pop(0)
+        # Honor the portal's per-window install budget so a large batch of
+        # device installs is spread across interrupt windows instead of
+        # flooding the portal in one go (see portal.take_install_budget).
+        while self._pending_devfs and plugins.portal.take_install_budget():
+            devfs = self._pending_devfs.pop(0)
             yield from self._register_devfs([devfs])
+        if self._pending_devfs:
+            plugins.portal.queue_interrupt("devfs")
         return False
