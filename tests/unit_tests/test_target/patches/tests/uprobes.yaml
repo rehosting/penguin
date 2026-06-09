@@ -59,40 +59,33 @@ static_files:
   /tests/uprobes_test.sh:
     type: inline_file
     contents: |
-      #!/igloo/utils/micropython
-      import ffi
+      #!/igloo/utils/python3
+      import ctypes
       import sys
 
-      # libc = ffilib.libc()
-      libc = ffi.open("/igloo/dylibs/libc.so")
+      libc = ctypes.CDLL("/igloo/dylibs/libc.so", use_errno=True)
 
-      strncmp = libc.func("i", "strncmp", "pp")
-      v = strncmp("Hello from uprobe_test\n", "Hello from uprobe_test\n", len("Hello from uprobe_test\n"))
+      msg = b"Hello from uprobe_test\n"
+      libc.strncmp(msg, msg, len(msg))
 
       num_fmtargs = 11
-      printf = libc.func("i", "printf", "p"+(num_fmtargs*"i"))
-      argsfmt = "%d "* num_fmtargs
-      args = list(range(num_fmtargs))
-      printf("Hello from uprobe_test " + argsfmt, *args)
+      fmt = b"Hello from uprobe_test " + (b"%d " * num_fmtargs)
+      libc.printf(fmt, *range(num_fmtargs))
 
-      fopen = libc.func("p", "fopen", "pp")
-      fd = fopen("/proc/self/cmdline", "r")
-      print(fd)
+      libc.fopen.restype = ctypes.c_void_p
+      fp = libc.fopen(b"/proc/self/cmdline", b"r")
+      print(fp)
 
-      env = libc.func("p", "getenv", "p")
-      env = env("PROJ_NAME")
-
-      # Unregister tests
-      atoi = libc.func("i", "atoi", "s")
-      atol = libc.func("l", "atol", "s")
+      libc.getenv.restype = ctypes.c_char_p
+      libc.getenv(b"PROJ_NAME")
 
       # Trigger atoi twice. Should be unregistered after first.
-      atoi("10")
-      atoi("20")
+      libc.atoi(b"10")
+      libc.atoi(b"20")
 
       # Trigger atol twice. Should be unregistered after first.
-      atol("30")
-      atol("40")
+      libc.atol(b"30")
+      libc.atol(b"40")
 
       sys.exit(0)
 

@@ -18,22 +18,21 @@ static_files:
   /tests/devfs_mmap_custom.sh:
     type: inline_file
     contents: |
-      #!/igloo/utils/micropython
-      import uos, os, ffilib
-      
-      libc = ffilib.libc()
-      mmap = libc.func("p", "mmap", "pLiiiq")
-      
+      #!/igloo/utils/python3
+      import os, mmap
+
+      fd = os.open("/dev/mmap_custom", os.O_RDONLY)
       try:
-          fd = os.open("/dev/mmap_custom", 0)
-          # Attempt to mmap the custom device
-          addr = mmap(0, 4096, 1, 1, fd, 0)
-          if addr != -1:
-              print("FAIL: mmap should have returned -1 (-ENODEV)")
-              raise SystemExit(1)
-      except Exception:
+          # Attempt to mmap the custom device; this should fail (-ENODEV).
+          m = mmap.mmap(fd, 4096, mmap.MAP_SHARED, mmap.PROT_READ)
+          m.close()
+          print("FAIL: mmap should have failed (-ENODEV)")
+          raise SystemExit(1)
+      except OSError:
           # We expect this to fail gracefully
           pass
+      finally:
+          os.close(fd)
           
       print("/tests/devfs_mmap_custom.sh PASS")
     mode: 73

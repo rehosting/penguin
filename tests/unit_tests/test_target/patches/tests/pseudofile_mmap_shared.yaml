@@ -46,17 +46,14 @@ static_files:
   /tests/pseudofile_mmap_shared.sh:
     type: inline_file
     contents: |
-      #!/igloo/utils/micropython
-      import uos, os, uctypes, ffilib
-      assert os.stat("/proc/aaaa/pf")[6] == 22
-      libc = ffilib.libc()
-      mmap = libc.func("p", "mmap", "pLiiiq")
-      NULL = O_RDONLY = 0; PROT_READ = MAP_SHARED = 1; MAP_PRIVATE = 2
-      
+      #!/igloo/utils/python3
+      import os, mmap
+      assert os.stat("/proc/aaaa/pf").st_size == 22
+
       with open("/proc/aaaa/pf", "rb") as f:
-          addr = mmap(NULL, 0x1000, PROT_READ, MAP_SHARED, f.fileno(), 0)
-          if addr == -1: raise OSError(uos.errno())
-          assert uctypes.bytes_at(addr, 22) == b"Hello from pseudofile!"
+          mm = mmap.mmap(f.fileno(), 0x1000, mmap.MAP_SHARED, mmap.PROT_READ)
+          assert bytes(mm[:22]) == b"Hello from pseudofile!"
+          mm.close()
       print("tests pass")
     mode: 73
 
@@ -64,16 +61,14 @@ static_files:
   /tests/pseudofile_mmap_private.sh:
     type: inline_file
     contents: |
-      #!/igloo/utils/micropython
-      import uos, os, uctypes, ffilib
-      libc = ffilib.libc()
-      mmap = libc.func("p", "mmap", "pLiiiq")
-      NULL = O_RDONLY = 0; PROT_READ = 1; PROT_WRITE = 2; MAP_PRIVATE = 2
-      
+      #!/igloo/utils/python3
+      import os, mmap
+
       with open("/proc/aaaa/pf", "rb") as f:
-          addr = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE, MAP_PRIVATE, f.fileno(), 0)
-          if addr == -1: raise OSError(uos.errno())
-          assert uctypes.bytes_at(addr, 22) == b"Hello from pseudofile!"
+          mm = mmap.mmap(f.fileno(), 0x1000, mmap.MAP_PRIVATE,
+                         mmap.PROT_READ | mmap.PROT_WRITE)
+          assert bytes(mm[:22]) == b"Hello from pseudofile!"
+          mm.close()
       print("tests pass")
     mode: 73
 
@@ -81,9 +76,9 @@ static_files:
   /tests/pseudofile_permissions.sh:
     type: inline_file
     contents: |
-      #!/igloo/utils/micropython
-      import uos, os
-      
+      #!/igloo/utils/python3
+      import os
+
       try:
           with open("/proc/write_only_proc", "rb") as f:
               f.read()
@@ -105,7 +100,7 @@ static_files:
   /tests/pseudofile_lseek.sh:
     type: inline_file
     contents: |
-      #!/igloo/utils/micropython
+      #!/igloo/utils/python3
       import os
       
       with open("/proc/aaaa/pf", "rb") as f:
@@ -121,7 +116,7 @@ static_files:
   /tests/pseudofile_explicit_lseek.sh:
     type: inline_file
     contents: |
-      #!/igloo/utils/micropython
+      #!/igloo/utils/python3
       import os
       
       with open("/proc/seekable_rw", "r+b") as f:
@@ -143,31 +138,22 @@ static_files:
   /tests/pseudofile_mmap_rw.sh:
     type: inline_file
     contents: |
-      #!/igloo/utils/micropython
-      import uos, os, uctypes, ffilib
-      
-      libc = ffilib.libc()
-      mmap = libc.func("p", "mmap", "pLiiiq")
-      munmap = libc.func("i", "munmap", "pL")
-      
-      NULL = 0; PROT_READ = 1; PROT_WRITE = 2; MAP_SHARED = 1
-      
+      #!/igloo/utils/python3
+      import os, mmap
+
       with open("/proc/seekable_rw", "r+b") as f:
-          fd = f.fileno()
-          
           # Map 4KB as Shared & Writable
-          addr = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)
-          if addr == -1: raise OSError(uos.errno())
-          
+          mm = mmap.mmap(f.fileno(), 0x1000, mmap.MAP_SHARED,
+                         mmap.PROT_READ | mmap.PROT_WRITE)
+
           # 1. Verify memory reflects the file
-          assert uctypes.bytes_at(addr, 12) == b"Initial Data"
-          
+          assert bytes(mm[:12]) == b"Initial Data"
+
           # 2. Write to the memory mapping directly (bypassing f.write)
-          buf = uctypes.bytearray_at(addr, 12)
-          buf[0:12] = b"ModifiedData"
-          
+          mm[0:12] = b"ModifiedData"
+
           # Unmap the memory (msync doesn't trigger the proxy flush anyway)
-          munmap(addr, 0x1000)
+          mm.close()
           
       # 3. EXITING the 'with' block calls f.close().
       # This triggers Linux VFS release() -> igloo_proxy_release -> igloo_flush_shm_to_hypervisor!
@@ -181,7 +167,7 @@ static_files:
   /tests/pseudofile_release.sh:
     type: inline_file
     contents: |
-      #!/igloo/utils/micropython
+      #!/igloo/utils/python3
       import os
       
       # Step 1: Open and close the file to bump the counters
@@ -199,7 +185,7 @@ static_files:
   /tests/pseudofile_poll.sh:
     type: inline_file
     contents: |
-      #!/igloo/utils/micropython
+      #!/igloo/utils/python3
       import select
       
       with open("/proc/pollable_proc", "r") as f:

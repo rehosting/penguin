@@ -70,53 +70,25 @@ static_files:
     type: inline_file
     mode: 0o755
     contents: |
-      #!/igloo/utils/micropython
-      import ffilib
-      libc = ffilib.libc()
-      # Bind both native open() and ioctl() from libc
-      c_open = libc.func("i", "open", "si")
-      ioctl = libc.func("i", "ioctl", "iiP")
-      # 0 is standard for O_RDONLY
-      fd = c_open("/dev/yaml_ioctl_const", 0)
-      if fd < 0:
-          print("Error: failed to open device")
-          raise SystemExit(1)
-      res = ioctl(fd, 1234, 0)
-      if res != 42:
-          print("Error: ioctl 1234 got", res)
-          raise SystemExit(1)
-      res = ioctl(fd, 4567, 0)
-      if res != 43:
-          print("Error: ioctl 4567 got", res)
-          raise SystemExit(1)
-      res = ioctl(fd, 12, 0)
-      if res != 99:
-          print("Error: ioctl 12 got", res)
-          raise SystemExit(1)
-      fd = c_open("/dev/yaml_ioctl_whole", 0)
-      if fd < 0:
-          print("Error: failed to open whole-device")
-          raise SystemExit(1)
-      res = ioctl(fd, 1234, 0)
-      if res != 77:
-          print("Error: whole ioctl got", res)
-          raise SystemExit(1)
-      fd = c_open("/dev/yaml_ioctl_zero", 0)
-      if fd < 0:
-          print("Error: failed to open zero-device")
-          raise SystemExit(1)
-      res = ioctl(fd, 1234, 0)
-      if res != 0:
-          print("Error: zero ioctl got", res)
-          raise SystemExit(1)
-      fd = c_open("/dev/yaml_ioctl_default_zero", 0)
-      if fd < 0:
-          print("Error: failed to open default-zero-device")
-          raise SystemExit(1)
-      res = ioctl(fd, 1234, 0)
-      if res != 0:
-          print("Error: default zero ioctl got", res)
-          raise SystemExit(1)
+      #!/igloo/utils/python3
+      import os, fcntl
+
+      def check(path, op, expected):
+          fd = os.open(path, os.O_RDONLY)
+          try:
+              res = fcntl.ioctl(fd, op, 0)
+          finally:
+              os.close(fd)
+          if res != expected:
+              print("Error: ioctl", op, "on", path, "got", res)
+              raise SystemExit(1)
+
+      check("/dev/yaml_ioctl_const", 1234, 42)
+      check("/dev/yaml_ioctl_const", 4567, 43)
+      check("/dev/yaml_ioctl_const", 12, 99)
+      check("/dev/yaml_ioctl_whole", 1234, 77)
+      check("/dev/yaml_ioctl_zero", 1234, 0)
+      check("/dev/yaml_ioctl_default_zero", 1234, 0)
       print("ioctl tests pass")
 
   /tests/pseudofiles_comprehensive.sh:
@@ -172,7 +144,7 @@ static_files:
       $bb printf "to_ABC_content" > /dev/yaml_to_file
       $bb printf "to_FIX" > /dev/yaml_to_file
 
-      /igloo/utils/micropython /tests/test_ioctl.py
+      /igloo/utils/python3 /tests/test_ioctl.py
 
       echo "/tests/pseudofiles_comprehensive.sh PASS"
       exit 0

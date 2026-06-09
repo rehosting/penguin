@@ -78,8 +78,8 @@ static_files:
   /igloo/utils/netcat_udp_echo.sh:
     type: inline_file
     contents: |
-      #!/igloo/utils/micropython
-      import usocket as socket  # MicroPython
+      #!/igloo/utils/python3
+      import socket
 
       HOST = "0.0.0.0"
       PORT = 4444
