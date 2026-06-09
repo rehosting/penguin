@@ -182,7 +182,10 @@ jobs:
           
       - name: Test for ${{ matrix.arch }} all kernels
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py --arch ${{ matrix.arch }}
+        # 20m (was 10m): the test_target suite now drives full CPython per
+        # python test instead of micropython, which pushes slow-emulated arches
+        # (powerpc64, loongarch64) past the old 10m budget.
+        run: timeout 20m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py --arch ${{ matrix.arch }}
       
       - name: Test Report
         uses: dorny/test-reporter@v2.1.1
