@@ -1,0 +1,52 @@
+plugins:
+  verifier:
+    conditions:
+      penguin_tools+console:
+        type: file_contains
+        file: console.log
+        string: "/tests/penguin_tools.sh PASS"
+      penguin_tools+python:
+        type: file_contains
+        file: shared/tests/penguin_tools.sh/stdout
+        string: "python ok 4"
+
+static_files:
+  /tests/penguin_tools.sh:
+    type: inline_file
+    mode: 73
+    contents: |
+      #!/igloo/utils/sh
+      set -eu
+
+      # gdbserver, strace, and python3 ship for every arch. ltrace is omitted on
+      # a few arches (riscv64, loongarch64) where upstream has no backend, so it
+      # is checked only when present.
+      for tool in gdbserver strace python3; do
+        if [ ! -x "/igloo/utils/$tool" ]; then
+          echo "missing /igloo/utils/$tool"
+          exit 1
+        fi
+      done
+
+      /igloo/utils/gdbserver --version > /tmp/gdbserver.version 2>&1
+      /igloo/utils/strace -V > /tmp/strace.version 2>&1
+      if [ -x /igloo/utils/ltrace ]; then
+        /igloo/utils/ltrace -V > /tmp/ltrace.version 2>&1
+      fi
+
+      /igloo/utils/python3 -V > /tmp/python.version 2>&1
+
+      /igloo/utils/busybox cat > /tmp/penguin_tools_test.py <<'PY'
+      import json
+      import os
+      import sys
+
+      payload = {"argv0": sys.argv[0], "json": [1, 2, 3, 4], "pid": os.getpid()}
+      print("python ok", len(payload["json"]))
+      print(json.dumps(payload, sort_keys=True))
+      PY
+
+      /igloo/utils/python3 /tmp/penguin_tools_test.py
+
+      echo "/tests/penguin_tools.sh PASS"
+      exit 0
