@@ -494,7 +494,7 @@ RUN set -eux; \
     stage mips64el    mips64; \
     stage mips64eb    mips64; \
     stage loongarch64 loongarch64; \
-    stage intel64     x86_64
+    stage x86_64      x86_64
 COPY guest-utils /igloo_static/guest-utils
 COPY --from=rust_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
 

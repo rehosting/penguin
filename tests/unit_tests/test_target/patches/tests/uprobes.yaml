@@ -65,6 +65,14 @@ static_files:
 
       libc = ctypes.CDLL("/igloo/dylibs/libc.so", use_errno=True)
 
+      # The uprobes are registered with process_filter="uprobes_test.sh", which
+      # matches the kernel task comm. For a shebang script the kernel derives
+      # comm from the script basename, but the /igloo/utils/python3 wrapper adds
+      # a second shebang hop (python3 -> sh -> python/bin/python3), so comm ends
+      # up as "python3". Reset it to the expected name (PR_SET_NAME = 15, capped
+      # at 15 chars, which "uprobes_test.sh" fits exactly) before the probed calls.
+      libc.prctl(15, b"uprobes_test.sh", 0, 0, 0)
+
       msg = b"Hello from uprobe_test\n"
       libc.strncmp(msg, msg, len(msg))
 

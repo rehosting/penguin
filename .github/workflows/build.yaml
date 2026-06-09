@@ -202,7 +202,7 @@ jobs:
           # Capture both suites: a basic_target failure aborts before
           # test_target runs, so its results/ would otherwise never be uploaded.
           path: |
-            ${{ github.workspace }}/tests/unit_tests/basic_target/results/latest/
+            ${{ github.workspace }}/tests/unit_tests/basic_target/projects/empty_fs/results/latest/
             ${{ github.workspace }}/tests/unit_tests/test_target/results/latest/
 
   run_compose:
