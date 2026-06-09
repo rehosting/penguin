@@ -62,6 +62,20 @@ class Sysctl(Plugin):
 
         fname = sysctl_file.fs_relative_path
 
+        # Reject paths that cannot be safely registered as sysctls. These mostly
+        # come from auto-generated pseudofile models that scrape binary strings
+        # and emit bogus /proc/sys/* entries. Registering them is at best useless
+        # and at worst fatal: on older guest kernels (e.g. 4.10) asking the kernel
+        # to create a ctl_table under a filesystem-backed node such as
+        # /proc/sys/fs/binfmt_misc fails and then panics in the registration
+        # cleanup path. Skip them here rather than handing them to the guest; the
+        # igloo driver enforces the same invariant as a backstop.
+        reason = self._reject_reason(fname)
+        if reason is not None:
+            self.logger.warning(
+                f"Skipping sysctl registration for '{fname}': {reason}")
+            return
+
         # ENFORCE SINGLE REGISTRATION
         if fname in self._sysctls:
             raise ValueError(
@@ -73,6 +87,31 @@ class Sysctl(Plugin):
             plugins.portal.queue_interrupt("sysctl")
             self._pending_sysctls.append((fname, sysctl_file))
         self._sysctls[fname] = sysctl_file
+
+    # Subtrees of /proc/sys that are not sysctls at all but separate
+    # filesystems mounted there (binfmt_misc is the canonical example). The
+    # guest kernel will not let us register a ctl_table inside them, and on old
+    # kernels the failed attempt panics. Modeling them as sysctls is always wrong.
+    _NON_SYSCTL_SUBTREES = ("fs/binfmt_misc",)
+
+    def _reject_reason(self, fname: str) -> Optional[str]:
+        """
+        Return a human-readable reason if ``fname`` (a sysctl-root-relative path
+        such as ``net/ipv4/ip_forward``) must not be registered as a sysctl, or
+        None if it is acceptable.
+        """
+        rel = fname.strip("/")
+        if not rel:
+            return "empty sysctl path"
+        components = rel.split("/")
+        if any(c == "" for c in components):
+            # e.g. an embedded "//" produces an empty path component, which the
+            # kernel cannot turn into a ctl_dir.
+            return "path contains an empty component"
+        for subtree in self._NON_SYSCTL_SUBTREES:
+            if rel == subtree or rel.startswith(subtree + "/"):
+                return f"/proc/sys/{subtree} is a mounted filesystem, not a sysctl"
+        return None
 
     def _split_sysctl_path(self, path: str):
         """
