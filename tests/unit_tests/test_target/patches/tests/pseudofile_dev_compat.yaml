@@ -33,7 +33,7 @@ static_files:
     type: inline_file
     mode: 0o755
     contents: |
-      #!/igloo/utils/micropython
+      #!/igloo/utils/python3
       import os
 
       with open("/dev/compat_seekable_const", "rb") as f:
@@ -73,7 +73,7 @@ static_files:
     type: inline_file
     mode: 0o755
     contents: |
-      #!/igloo/utils/micropython
+      #!/igloo/utils/python3
       import select
 
       pollin = getattr(select, "POLLIN", 0x001)
@@ -96,7 +96,7 @@ static_files:
     type: inline_file
     mode: 0o755
     contents: |
-      #!/igloo/utils/micropython
+      #!/igloo/utils/python3
       with open("/dev/compat_unknown_seek", "rb") as f:
           try:
               f.seek(0, 0)
