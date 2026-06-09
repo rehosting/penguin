@@ -193,19 +193,17 @@ jobs:
           path: ${{ github.workspace }}/tests/unit_tests/test_target/results/[0-9]*/verifier.xml
           reporter: java-junit
 
-      - name: Get artifact path
-        id: artifact
-        if: ${{ needs.changes.outputs.run_tests == 'true' && failure() }}
-        run: |
-          artifact_path=$(realpath $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/latest/)
-          echo "artifact_path=${artifact_path}/*" >> "$GITHUB_OUTPUT" 
-      
       - name: Debug info
         if: ${{ needs.changes.outputs.run_tests == 'true' && failure() }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.arch }}-artifacts
-          path: ${{ steps.artifact.outputs.artifact_path }}
+          if-no-files-found: ignore
+          # Capture both suites: a basic_target failure aborts before
+          # test_target runs, so its results/ would otherwise never be uploaded.
+          path: |
+            ${{ github.workspace }}/tests/unit_tests/basic_target/results/latest/
+            ${{ github.workspace }}/tests/unit_tests/test_target/results/latest/
 
   run_compose:
     # Compose's mcast plumbing is arch-independent, so this runs once outside

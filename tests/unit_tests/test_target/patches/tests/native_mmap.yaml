@@ -33,28 +33,36 @@ static_files:
       #!/igloo/utils/sh
       set -eux
       /igloo/utils/busybox cat > /tmp/mmap_native.py <<'PY'
-      import mmap
+      # Raw libc mmap via ctypes: CPython's mmap module refuses a length larger
+      # than the file size, but these targets are page-backed in the kernel and
+      # the test maps a full page (matching the original ffi-based test).
+      import os, ctypes
+      _libc = ctypes.CDLL("/igloo/dylibs/libc.so", use_errno=True)
+      _libc.mmap.restype = ctypes.c_void_p
+      _libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
+                             ctypes.c_int, ctypes.c_int, ctypes.c_long]
+      _libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+      _libc.msync.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+      MAP_FAILED = ctypes.c_void_p(-1).value
+      PROT_READ, PROT_WRITE, MAP_SHARED, MS_SYNC = 1, 2, 1, 4
 
       def check_mmap(path, expected, replacement, marker):
-          with open(path, "r+b") as f:
-              mm = mmap.mmap(f.fileno(), 4096, mmap.MAP_SHARED,
-                             mmap.PROT_READ | mmap.PROT_WRITE)
-              observed = bytes(mm[:len(expected)])
-              assert observed == expected, (
-                  path,
-                  expected,
-                  observed,
-              )
-              mm[:len(replacement)] = replacement
-              mm.flush()
-              mm.close()
-          with open(path, "rb") as f:
-              observed = f.read(len(replacement))
-              assert observed == replacement, (
-                  path,
-                  replacement,
-                  observed,
-              )
+          fd = os.open(path, os.O_RDWR)
+          addr = _libc.mmap(None, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)
+          if not addr or addr == MAP_FAILED:
+              raise OSError(ctypes.get_errno(), "mmap failed for " + path)
+          observed = ctypes.string_at(addr, len(expected))
+          assert observed == expected, (path, expected, observed)
+          ctypes.memmove(addr, replacement, len(replacement))
+          _libc.msync(addr, 4096, MS_SYNC)
+          _libc.munmap(addr, 4096)
+          os.close(fd)
+          fd = os.open(path, os.O_RDONLY)
+          try:
+              observed = os.read(fd, len(replacement))
+          finally:
+              os.close(fd)
+          assert observed == replacement, (path, replacement, observed)
           print(marker)
 
       check_mmap(
