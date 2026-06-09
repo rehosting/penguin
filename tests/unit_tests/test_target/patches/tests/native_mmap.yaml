@@ -40,7 +40,7 @@ static_files:
       _libc = ctypes.CDLL("/igloo/dylibs/libc.so", use_errno=True)
       _libc.mmap.restype = ctypes.c_void_p
       _libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
-                             ctypes.c_int, ctypes.c_int, ctypes.c_long]
+                             ctypes.c_int, ctypes.c_int, ctypes.c_longlong]
       _libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
       _libc.msync.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
       MAP_FAILED = ctypes.c_void_p(-1).value
