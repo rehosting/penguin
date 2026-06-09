@@ -16,7 +16,9 @@ static_files:
     mode: 73
     contents: |
       #!/igloo/utils/sh
-      set -eu
+      # set -x so the per-test stderr capture shows exactly which command runs
+      # last before any abort (used to localize the mips64 CPython instability).
+      set -eux
 
       # gdbserver, strace, and python3 ship for every arch. ltrace is omitted on
       # a few arches (riscv64, loongarch64) where upstream has no backend, so it
@@ -27,14 +29,19 @@ static_files:
           exit 1
         fi
       done
+      echo "penguin_tools: tools present"
 
       /igloo/utils/gdbserver --version > /tmp/gdbserver.version 2>&1
+      echo "penguin_tools: gdbserver --version ok"
       /igloo/utils/strace -V > /tmp/strace.version 2>&1
+      echo "penguin_tools: strace -V ok"
       if [ -x /igloo/utils/ltrace ]; then
         /igloo/utils/ltrace -V > /tmp/ltrace.version 2>&1
+        echo "penguin_tools: ltrace -V ok"
       fi
 
       /igloo/utils/python3 -V > /tmp/python.version 2>&1
+      echo "penguin_tools: python3 -V ok"
 
       /igloo/utils/busybox cat > /tmp/penguin_tools_test.py <<'PY'
       import json
@@ -47,6 +54,7 @@ static_files:
       PY
 
       /igloo/utils/python3 /tmp/penguin_tools_test.py
+      echo "penguin_tools: python3 script ok"
 
       echo "/tests/penguin_tools.sh PASS"
       exit 0
