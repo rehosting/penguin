@@ -16,13 +16,12 @@ static_files:
     mode: 73
     contents: |
       #!/igloo/utils/sh
-      # set -x so the per-test stderr capture shows exactly which command runs
-      # last before any abort (used to localize the mips64 CPython instability).
-      set -eux
+      set -eu
 
       # gdbserver, strace, and python3 ship for every arch. ltrace is omitted on
-      # a few arches (riscv64, loongarch64) where upstream has no backend, so it
-      # is checked only when present.
+      # arches with no working backend (riscv64, loongarch64, and the mips64
+      # targets, which have no 64-bit ltrace build), so it is checked only when
+      # present.
       for tool in gdbserver strace python3; do
         if [ ! -x "/igloo/utils/$tool" ]; then
           echo "missing /igloo/utils/$tool"
