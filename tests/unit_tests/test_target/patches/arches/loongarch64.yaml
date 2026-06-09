@@ -11,6 +11,6 @@ static_files:
     mode: 493
     type: host_file
   /igloo/dylibs/*:
-    host_path: /igloo_static/dylibs/loongarch/*
+    host_path: /igloo_static/dylibs/loongarch64/*
     mode: 493
     type: host_file

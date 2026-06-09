@@ -11,6 +11,6 @@ static_files:
     mode: 493
     type: host_file
   /igloo/dylibs/*:
-    host_path: /igloo_static/dylibs/ppc64/*
+    host_path: /igloo_static/dylibs/powerpc64/*
     mode: 493
     type: host_file
