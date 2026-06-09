@@ -183,14 +183,17 @@ class LiveImage(Plugin):
                             raise FileNotFoundError(
                                 f"No files matched for host_file source glob: {source_path_pattern} "
                                 f"(static_files entry: {file_path} -> {action})")
-                        regular_matches = [host_src for host_src in glob_matches if host_src.is_file()]
-                        if not regular_matches:
+                        staged_matches = [host_src for host_src in glob_matches if host_src.is_file() or host_src.is_dir()]
+                        if not staged_matches:
                             raise FileNotFoundError(
-                                f"No regular files matched for host_file source glob: {source_path_pattern} "
+                                f"No files or directories matched for host_file source glob: {source_path_pattern} "
                                 f"(static_files entry: {file_path} -> {action})")
-                        for host_src in regular_matches:
+                        for host_src in staged_matches:
                             staged_file_path = dest_dir_path / host_src.name
-                            shutil.copy(host_src, staged_file_path)
+                            if host_src.is_dir():
+                                shutil.copytree(host_src, staged_file_path, symlinks=True, dirs_exist_ok=True)
+                            else:
+                                shutil.copy(host_src, staged_file_path)
                             if 'mode' in action:
                                 record_mode(str(Path(dest_dir) / host_src.name if dest_dir.is_absolute() else (dest_dir / host_src.name)), action['mode'])
                     # Only expand globs in the source, never in the destination
@@ -205,16 +208,19 @@ class LiveImage(Plugin):
                             raise FileNotFoundError(
                                 f"No files matched for host_file source glob: {source_path_pattern} "
                                 f"(static_files entry: {file_path} -> {action})")
-                        regular_matches = [host_src for host_src in glob_matches if host_src.is_file()]
-                        if not regular_matches:
+                        staged_matches = [host_src for host_src in glob_matches if host_src.is_file() or host_src.is_dir()]
+                        if not staged_matches:
                             raise FileNotFoundError(
-                                f"No regular files matched for host_file source glob: {source_path_pattern} "
+                                f"No files or directories matched for host_file source glob: {source_path_pattern} "
                                 f"(static_files entry: {file_path} -> {action})")
-                        for host_src in regular_matches:
+                        for host_src in staged_matches:
                             staged_file_path = staged_path / host_src.name
                             staged_file_path.parent.mkdir(
                                 parents=True, exist_ok=True)
-                            shutil.copy(host_src, staged_file_path)
+                            if host_src.is_dir():
+                                shutil.copytree(host_src, staged_file_path, symlinks=True, dirs_exist_ok=True)
+                            else:
+                                shutil.copy(host_src, staged_file_path)
                             if 'mode' in action:
                                 record_mode(str(Path(file_path) / host_src.name), action['mode'])
                     else:  # Handle single file
@@ -224,13 +230,16 @@ class LiveImage(Plugin):
                                 f"Host file not found: {host_src} (static_files entry: {file_path} -> {action})")
                             raise FileNotFoundError(
                                 f"Host file not found: {host_src} (static_files entry: {file_path} -> {action})")
-                        if not host_src.is_file():
+                        if not (host_src.is_file() or host_src.is_dir()):
                             raise FileNotFoundError(
-                                f"Host file is not a regular file: {host_src} "
+                                f"Host file is not a regular file or directory: {host_src} "
                                 f"(static_files entry: {file_path} -> {action})")
                         staged_path.parent.mkdir(
                             parents=True, exist_ok=True)
-                        shutil.copy(host_src, staged_path)
+                        if host_src.is_dir():
+                            shutil.copytree(host_src, staged_path, symlinks=True, dirs_exist_ok=True)
+                        else:
+                            shutil.copy(host_src, staged_path)
                         if 'mode' in action:
                             record_mode(file_path, action['mode'])
 

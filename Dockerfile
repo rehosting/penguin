@@ -9,7 +9,7 @@ ARG LIBNVRAM_VERSION="0.0.26"
 ARG CONSOLE_VERSION="1.0.7"
 ARG GUESTHOPPER_VERSION="1.0.21"
 ARG HYPERFS_VERSION="0.0.44"
-ARG PENGUIN_TOOLS_VERSION="0.0.3"
+ARG PENGUIN_TOOLS_VERSION="0.0.5"
 ARG GLOW_VERSION="1.5.1"
 ARG GUM_VERSION="0.14.5"
 ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
@@ -157,14 +157,10 @@ ARG VPN_VERSION
 RUN /get_release.sh rehosting vpnguin ${VPN_VERSION} vpn.tar.gz | \
     tar xzf - -C /igloo_static
 
-ARG HYPERFS_VERSION
-RUN /get_release.sh rehosting hyperfs ${HYPERFS_VERSION} hyperfs.tar.gz | \
-  tar xzf - -C / && \
-  /get_release.sh rehosting hyperfs 0.0.38 hyperfs.tar.gz | \
-  tar xzf - -C / && \
-  cp -r /result/utils/* /igloo_static/ && \
-  mv /result/dylibs /igloo_static/dylibs && \
-  rm -rf /result
+# hyperfs is retired: the hyperfs utility moved into the kernel, and the guest
+# dylibs + tools it used to provide now come from penguin-tools (downloaded
+# below). /igloo_static/dylibs and the drop-in sysroots are sourced from
+# penguin-tools' canonical per-arch trees.
 
 # Download guesthopper from CI. Populate /igloo_static/guesthopper
 ARG GUESTHOPPER_VERSION
@@ -177,22 +173,16 @@ RUN /get_release.sh rehosting igloo_driver ${IGLOO_DRIVER_VERSION} igloo_driver.
     tar xzf - -C /igloo_static
 
 # Download penguin-tools: per-arch guest debugging tools (gdbserver, strace,
-# ltrace, python) cross-compiled to musl, plus their dylibs. The tarball is
-# rooted at igloo_static/, so extract at / to populate /igloo_static/<arch>/
-# and merge /igloo_static/dylibs/<arch>/. The per-arch symlink pass later in
-# this build exposes each binary as /igloo_static/utils.bin/<tool>.<arch>.
-#
-# --skip-old-files: penguin-tools and hyperfs both ship dylibs/<arch> for some
-# arch names (armel, mipsel, x86_64, ...). hyperfs's libc.so/libgcc_s.so.1 are
-# the ones the per-arch sysroots link init.d/*.c drop-ins against and must stay
-# consistent with the cross-toolchain crt objects, so we must NOT overwrite
-# them. Skipping pre-existing files keeps hyperfs's system dylibs while still
-# layering in penguin-tools' tools and its extra libs (libstdc++, libpython,
-# the ld-musl interpreter alias). When hyperfs is removed, penguin-tools becomes
-# the sole provider and these names no longer pre-exist.
+# ltrace, python) cross-compiled to musl, plus their dylibs and a per-arch
+# drop-in sysroot (crt objects + libc.so/libgcc_s.so.1). The tarball is rooted
+# at igloo_static/, so extract at / to populate /igloo_static/<arch>/,
+# /igloo_static/dylibs/<arch>/ and /igloo_static/sysroots/<arch>/. penguin-tools
+# is now the sole provider of these (hyperfs is gone), so a plain extract with
+# no overwrite-avoidance is correct. The per-arch symlink pass later exposes
+# each binary as /igloo_static/utils.bin/<tool>.<arch>.
 ARG PENGUIN_TOOLS_VERSION
 RUN /get_release.sh rehosting penguin-tools ${PENGUIN_TOOLS_VERSION} penguin-tools.tar.gz | \
-    tar xzf - --skip-old-files -C /
+    tar xzf - -C /
 
 # Download prototype files for ltrace.
 #
@@ -215,40 +205,12 @@ COPY ./guest-utils/native/ /source
 WORKDIR /source
 RUN make all
 
-# Stage per-arch link-time sysroot skeletons for project init.d/*.c drop-ins.
-# Runtime libc support comes from /igloo/dylibs, which is already shipped in
-# each rehosting, so only startup objects need to be copied from toolchains.
-RUN set -eux; mkdir -p /sysroots; \
-    stage() { \
-        local penguin_arch="$1" triple_dir="$2" triple="$3"; \
-        local src="/opt/cross/${triple_dir}/${triple}"; \
-        local gccbase="/opt/cross/${triple_dir}/lib/gcc/${triple}"; \
-        local dst="/sysroots/${penguin_arch}/lib"; \
-        mkdir -p "$dst"; \
-        for f in crt1.o crti.o crtn.o Scrt1.o rcrt1.o; do \
-            [ -e "$src/lib/$f" ] && cp -P "$src/lib/$f" "$dst/" || true; \
-        done; \
-        if [ -d "$gccbase" ]; then \
-            local gccver="$(ls "$gccbase" | head -1)"; \
-            for f in crtbegin.o crtbeginS.o crtbeginT.o crtend.o crtendS.o; do \
-                [ -e "$gccbase/$gccver/$f" ] && cp -P "$gccbase/$gccver/$f" "$dst/" || true; \
-            done; \
-        fi; \
-        mkdir -p "/sysroots/${penguin_arch}/usr"; \
-        ln -sfn ../lib "/sysroots/${penguin_arch}/usr/lib"; \
-    }; \
-    stage armel       arm-linux-musleabi-cross     arm-linux-musleabi; \
-    stage aarch64     aarch64-linux-musl-cross     aarch64-linux-musl; \
-    stage powerpc     powerpc-linux-musl-cross     powerpc-linux-musl; \
-    stage powerpc64   powerpc64-linux-musl-cross   powerpc64-linux-musl; \
-    stage powerpc64le powerpc64le-linux-musl-cross powerpc64le-linux-musl; \
-    stage riscv64     riscv64-linux-musl-cross     riscv64-linux-musl; \
-    stage mipsel      mipsel-linux-musl            mipsel-linux-musl; \
-    stage mipseb      mipseb-linux-musl            mipseb-linux-musl; \
-    stage mips64el    mips64el-linux-musl-cross    mips64el-linux-musl; \
-    stage mips64eb    mips64-linux-musl-cross      mips64-linux-musl; \
-    stage x86_64      x86_64-linux-musl-cross      x86_64-linux-musl; \
-    du -sh /sysroots/* | sort -h; du -sh /sysroots
+# Per-arch drop-in sysroots (crt objects + libc.so/libgcc_s.so.1) now come from
+# penguin-tools (igloo_static/sysroots/<arch>), built with the same musl
+# toolchain as the dylibs so init.d/*.c drop-ins link and run consistently.
+# The penguin side only adds headers + the libgcc_s.so linker alias on top.
+# (Supersedes main's /opt/cross sysroot staging, which sourced crt objects from
+# baked toolchains; penguin-tools is now the single provider.)
 
 #### NMAP BUILDER: Build nmap ####
 FROM base_mirrored AS nmap_builder
@@ -507,30 +469,32 @@ COPY --from=downloader /tmp/ltrace /igloo_static/ltrace
 
 # Copy source and binaries from host
 COPY --from=cross_builder /source/out /igloo_static/
-# Tiny per-arch musl sysroots for compiling per-project init.d/*.c files.
-# Headers and dynamic libc/libgcc are symlinked to existing /igloo_static
-# assets, keeping this layer under 1 MB instead of copying libc.a/libgcc.a.
-COPY --from=cross_builder /sysroots /igloo_static/sysroots
+# Per-arch musl sysroots for compiling per-project init.d/*.c drop-ins. The crt
+# objects and libc.so/libgcc_s.so.1 come from penguin-tools
+# (igloo_static/sysroots/<arch>, already extracted above). Here we only layer on
+# the musl headers and the -lgcc_s linker alias; libc/libgcc come from the
+# toolchain-consistent penguin-tools dylibs the sysroot already links to.
 RUN set -eux; \
     stage() { \
-        arch="$1"; musl_arch="$2"; dylib_arch="$3"; \
+        arch="$1"; musl_arch="$2"; \
+        [ -d /igloo_static/sysroots/$arch/lib ] || return 0; \
         ln -sfn /igloo_static/musl-headers/$musl_arch/include /igloo_static/sysroots/$arch/include; \
+        mkdir -p /igloo_static/sysroots/$arch/usr; \
         ln -sfn ../include /igloo_static/sysroots/$arch/usr/include; \
-        ln -sfn /igloo_static/dylibs/$dylib_arch/libc.so /igloo_static/sysroots/$arch/lib/libc.so; \
-        ln -sfn /igloo_static/dylibs/$dylib_arch/libgcc_s.so.1 /igloo_static/sysroots/$arch/lib/libgcc_s.so.1; \
+        ln -sfn ../lib /igloo_static/sysroots/$arch/usr/lib; \
         ln -sfn libgcc_s.so.1 /igloo_static/sysroots/$arch/lib/libgcc_s.so; \
     }; \
-    stage armel       arm       armel; \
-    stage aarch64     aarch64   arm64; \
-    stage powerpc     powerpc   ppc; \
-    stage powerpc64   powerpc64 ppc64; \
-    stage powerpc64le powerpc64 ppc64el; \
-    stage riscv64     riscv64   riscv64; \
-    stage mipsel      mips      mipsel; \
-    stage mipseb      mips      mipseb; \
-    stage mips64el    mips64    mips64el; \
-    stage mips64eb    mips64    mips64eb; \
-    stage x86_64      x86_64    x86_64
+    stage armel       arm; \
+    stage aarch64     aarch64; \
+    stage powerpc64   powerpc64; \
+    stage powerpc64le powerpc64; \
+    stage riscv64     riscv64; \
+    stage mipsel      mips; \
+    stage mipseb      mips; \
+    stage mips64el    mips64; \
+    stage mips64eb    mips64; \
+    stage loongarch64 loongarch64; \
+    stage intel64     x86_64
 COPY guest-utils /igloo_static/guest-utils
 COPY --from=rust_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
 
@@ -656,7 +620,7 @@ RUN used_pkgs="" ; \
             used_pkgs="${used_pkgs},igloo_driver"; \
         fi; \
         if [ -f /tmp/local_packages/penguin-tools.tar.gz ]; then \
-            tar xzf /tmp/local_packages/penguin-tools.tar.gz --skip-old-files -C /; \
+            tar xzf /tmp/local_packages/penguin-tools.tar.gz -C /; \
             used_pkgs="${used_pkgs},penguin-tools"; \
         fi; \
         if [ -f /tmp/local_packages/penguin-qemu.tar.gz ]; then \
@@ -683,13 +647,17 @@ RUN mkdir /igloo_static/utils.source && \
         ln -s "$file" /igloo_static/utils.source/"$(basename "$file")".all; \
     done
 RUN  cd /igloo_static &&  \
-    mv loongarch/* loongarch64 && rm -rf loongarch && \
-    mv ppc64/* powerpc64 && rm -rf ppc64 && \
-    mv ppc/* powerpc && rm -rf ppc && \
-    mv arm64/* aarch64/ && rm -rf arm64 && \
+    for pair in loongarch:loongarch64 ppc64:powerpc64 ppc:powerpc arm64:aarch64; do \
+        s="${pair%%:*}"; d="${pair##*:}"; \
+        if [ -d "$s" ]; then mkdir -p "$d" && cp -a "$s"/. "$d"/ && rm -rf "$s"; fi; \
+    done && \
     ln -sf /igloo_static/armel/vpn /igloo_static/aarch64/vpn && \
     mkdir -p utils.bin && \
     for arch in "aarch64" "armel" "loongarch64" "mipsel" "mips64eb" "mips64el" "mipseb" "powerpc" "powerpcle" "powerpc64" "powerpc64le" "riscv32" "riscv64" "x86_64"; do \
+        if [ -x /igloo_static/"$arch"/python/bin/python3 ]; then \
+            printf '%s\n' '#!/igloo/utils/sh' 'exec /igloo/utils/python/bin/python3 "$@"' > /igloo_static/"$arch"/python3; \
+            chmod 0755 /igloo_static/"$arch"/python3; \
+        fi; \
         mkdir -p /igloo_static/vpn /igloo_static/console; \
         for file in /igloo_static/"$arch"/* ; do \
             if [ $(basename "$file") = *"vpn"* ]; then \

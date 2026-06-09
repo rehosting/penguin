@@ -12,6 +12,7 @@ env:
   igloo_init: /run_tests.sh
 
 patches:
+  - ./patches/tests/penguin_tools.yaml
   - ./patches/tests/bash.yaml
   - ./patches/tests/core_dumps.yaml
   - ./patches/tests/core_pattern_guard.yaml
