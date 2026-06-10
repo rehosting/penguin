@@ -91,49 +91,20 @@ static_files:
       /igloo/utils/busybox mdev -s || true
       MTD=$(/igloo/utils/busybox grep '"mmap_native_mtd"' /proc/mtd | /igloo/utils/busybox cut -d: -f1)
 
-      # --- issue831 diagnostics (ppc64 read-back segfault) -------------------
-      # Log faulting process + nip/address to the kernel console (uploaded as
-      # console.log) and isolate exactly which step faults without aborting.
+      # --- issue831: capture the fault on the EXACT original sequence --------
+      # The fault is fragile: extra warm-up reads make it disappear, so keep the
+      # original single-read/write/single-piped-read order untouched. Just arm
+      # kernel fault logging + coredumps so the failing run uploads the faulting
+      # process name + nip (console.log) and a coredump (shared/issue831_cores).
       /igloo/utils/busybox echo 1 > /proc/sys/kernel/print-fatal-signals 2>/dev/null || true
+      /igloo/utils/busybox echo 1 > /proc/sys/kernel/show_unhandled_signals 2>/dev/null || true
+      /igloo/utils/busybox mkdir -p /igloo/shared/issue831_cores 2>/dev/null || true
+      /igloo/utils/busybox echo "/igloo/shared/issue831_cores/core.%e.%p.%s" > /proc/sys/kernel/core_pattern 2>/dev/null || true
+      ulimit -c unlimited 2>/dev/null || true
       /igloo/utils/busybox echo "ISSUE831 MTD=${MTD}"
-      /igloo/utils/busybox cat /proc/mtd || true
-      set +e
 
-      # Initial read, standalone (no pipe) so we can see cat's own exit code.
-      /igloo/utils/busybox cat /dev/${MTD} > /tmp/rb1.bin 2>/tmp/rb1.err
-      /igloo/utils/busybox echo "ISSUE831 read1 rc=$? size=$(/igloo/utils/busybox wc -c < /tmp/rb1.bin)"
-      /igloo/utils/busybox hexdump -C /tmp/rb1.bin | /igloo/utils/busybox head -2
-
-      # Write, then read back (standalone) twice to check intra-run determinism.
+      /igloo/utils/busybox cat /dev/${MTD} | /igloo/utils/busybox strings | /igloo/utils/busybox grep "mtd native mmap"
       /igloo/utils/busybox echo "mtd changed" > /dev/${MTD}
-      /igloo/utils/busybox echo "ISSUE831 write rc=$?"
-
-      /igloo/utils/busybox cat /dev/${MTD} > /tmp/rb2.bin 2>/tmp/rb2.err
-      /igloo/utils/busybox echo "ISSUE831 read2 rc=$? size=$(/igloo/utils/busybox wc -c < /tmp/rb2.bin)"
-      /igloo/utils/busybox hexdump -C /tmp/rb2.bin | /igloo/utils/busybox head -2
-
-      /igloo/utils/busybox cat /dev/${MTD} > /tmp/rb3.bin 2>/tmp/rb3.err
-      /igloo/utils/busybox echo "ISSUE831 read3 rc=$? size=$(/igloo/utils/busybox wc -c < /tmp/rb3.bin)"
-
-      # Stage isolation: which part of "cat | strings | grep" faults?
-      # (a) strings/grep on a file (no pipe from the MTD cat)
-      /igloo/utils/busybox strings < /tmp/rb2.bin | /igloo/utils/busybox grep "mtd changed"
-      /igloo/utils/busybox echo "ISSUE831 strings_on_file rc=$?"
-      # (b) MTD cat piped to a plain cat (pipe from MTD read, no strings)
-      /igloo/utils/busybox cat /dev/${MTD} | /igloo/utils/busybox cat > /tmp/cc.bin
-      /igloo/utils/busybox echo "ISSUE831 cat_pipe_cat rc=$? size=$(/igloo/utils/busybox wc -c < /tmp/cc.bin)"
-      # (c) MTD cat piped to strings (no grep)
-      /igloo/utils/busybox cat /dev/${MTD} | /igloo/utils/busybox strings > /tmp/s.bin
-      /igloo/utils/busybox echo "ISSUE831 cat_pipe_strings rc=$? size=$(/igloo/utils/busybox wc -c < /tmp/s.bin)"
-      # (d) full original pipeline
       /igloo/utils/busybox cat /dev/${MTD} | /igloo/utils/busybox strings | /igloo/utils/busybox grep "mtd changed"
-      /igloo/utils/busybox echo "ISSUE831 full_pipe rc=$?"
-      set -e
-      # ----------------------------------------------------------------------
-
-      # Gate PASS on the original pipeline so ppc64 FAILS (=> artifacts upload
-      # with the diagnostics above) while working arches stay green.
-      if /igloo/utils/busybox cat /dev/${MTD} | /igloo/utils/busybox strings | /igloo/utils/busybox grep -q "mtd changed"; then
-          /igloo/utils/busybox echo "native mmap mtd PASS"
-          /igloo/utils/busybox echo "/tests/mmap_test PASS"
-      fi
+      /igloo/utils/busybox echo "native mmap mtd PASS"
+      /igloo/utils/busybox echo "/tests/mmap_test PASS"
