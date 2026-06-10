@@ -28,88 +28,33 @@ static_files:
       # start server
       /igloo/utils/busybox httpd -f -p 8000 -h / &
       sleep 1
-      # Watchdog the UDP echo server. On MIPS, micropython's getaddrinfo() (used
-      # to resolve the listen address) intermittently hangs or segfaults when
-      # another micropython process calls getaddrinfo() at the same time. If the
-      # server gets stuck before binding 4444, the host-side udp_echo check never
-      # sees the bind and fails. So: launch it, and if it has not bound 4444
-      # (0x115C in /proc/net/udp) within a few seconds, kill it and relaunch. A
-      # clean crash/exit also just falls through to a relaunch. The host retries
-      # the echo for ~10s once it sees the bind, ample for this recovery.
-      ( set +e
-        while /igloo/utils/busybox true; do
-          /igloo/utils/netcat_udp_echo.sh &
-          np=$!
-          bound=0
-          i=0
-          while [ $i -lt 4 ]; do
-            if /igloo/utils/busybox grep -qi ":115C" /proc/net/udp 2>/dev/null; then
-              bound=1
-              break
-            fi
-            /igloo/utils/busybox sleep 1
-            i=$((i + 1))
-          done
-          if [ $bound -eq 1 ]; then
-            wait $np
-          else
-            /igloo/utils/busybox kill $np 2>/dev/null
-          fi
-          /igloo/utils/busybox sleep 1
-        done ) &
-
-      # Block here until the echo server has actually bound 4444 before letting
-      # run_tests.sh advance to the next test. That next test also calls
-      # micropython getaddrinfo(), and a concurrent getaddrinfo() is exactly what
-      # makes the server hang/crash on MIPS -- so resolving the server's address
-      # while nothing else competes is what keeps it reliable. Bounded so a
-      # genuinely stuck server can't wedge the whole suite.
-      j=0
-      while [ $j -lt 20 ]; do
-        if /igloo/utils/busybox grep -qi ":115C" /proc/net/udp 2>/dev/null; then
-          break
-        fi
-        /igloo/utils/busybox sleep 1
-        j=$((j + 1))
-      done
+      /igloo/utils/netcat_udp_echo.sh &
       # echo "tests pass"
       exit 0
     mode: 73
   /igloo/utils/netcat_udp_echo.sh:
     type: inline_file
     contents: |
-      #!/igloo/utils/python3
+      #!/igloo/utils/sh
+      # The host-side vpn_test probe needs the guest to (a) bind UDP 4444 so the
+      # bind is detected and the port forwarded, and (b) echo replies back. Bind
+      # directly with AF_INET/SOCK_DGRAM (no getaddrinfo: it's a heavier code
+      # path and resolves nothing for a numeric address) and run in a restart
+      # loop -- CPython is occasionally unstable under MIPS emulation and a
+      # long-lived server can take a wild-jump SIGSEGV, so each relaunch re-binds
+      # (re-triggering bind detection) while the host retries for ~10s.
+      /igloo/utils/busybox cat > /tmp/udp_echo.py <<'PY'
       import socket
-
-      HOST = "0.0.0.0"
-      PORT = 4444
-      REPLY = b"NETCAT_UDP_ECHO_OK\n"
-
-      # Resolve to a sockaddr that MicroPython likes
-      ai = socket.getaddrinfo(HOST, PORT, 0, socket.SOCK_DGRAM)[0]
-      family, socktype, proto, _, sockaddr = ai
-
-      sock = socket.socket(family, socktype, proto)
-      sock.bind(sockaddr)
-
-      try:
-          while True:
-              try:
-                  # Tiny control messages -- a small buffer avoids needlessly
-                  # allocating 64 KiB per recv on memory-tight MIPS guests.
-                  data, addr = sock.recvfrom(2048)
-              except Exception:   # e.g., EINTR on some ports
-                  continue
-              try:
-                  sock.sendto(REPLY, addr)
-              except Exception:
-                  pass
-      except KeyboardInterrupt:
-          pass
-      finally:
-          try:
-              sock.close()
-          except Exception:
-              pass
+      s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+      s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+      s.bind(("0.0.0.0", 4444))
+      while True:
+          data, addr = s.recvfrom(65535)
+          s.sendto(b"NETCAT_UDP_ECHO_OK\n", addr)
+      PY
+      while true; do
+        /igloo/utils/python3 /tmp/udp_echo.py
+        /igloo/utils/busybox sleep 1
+      done
 
     mode: 73
