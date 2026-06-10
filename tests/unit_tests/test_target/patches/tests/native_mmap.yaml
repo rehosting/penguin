@@ -115,15 +115,25 @@ static_files:
       /igloo/utils/busybox cat /dev/${MTD} > /tmp/rb3.bin 2>/tmp/rb3.err
       /igloo/utils/busybox echo "ISSUE831 read3 rc=$? size=$(/igloo/utils/busybox wc -c < /tmp/rb3.bin)"
 
-      # Original pipeline form for reference.
+      # Stage isolation: which part of "cat | strings | grep" faults?
+      # (a) strings/grep on a file (no pipe from the MTD cat)
+      /igloo/utils/busybox strings < /tmp/rb2.bin | /igloo/utils/busybox grep "mtd changed"
+      /igloo/utils/busybox echo "ISSUE831 strings_on_file rc=$?"
+      # (b) MTD cat piped to a plain cat (pipe from MTD read, no strings)
+      /igloo/utils/busybox cat /dev/${MTD} | /igloo/utils/busybox cat > /tmp/cc.bin
+      /igloo/utils/busybox echo "ISSUE831 cat_pipe_cat rc=$? size=$(/igloo/utils/busybox wc -c < /tmp/cc.bin)"
+      # (c) MTD cat piped to strings (no grep)
+      /igloo/utils/busybox cat /dev/${MTD} | /igloo/utils/busybox strings > /tmp/s.bin
+      /igloo/utils/busybox echo "ISSUE831 cat_pipe_strings rc=$? size=$(/igloo/utils/busybox wc -c < /tmp/s.bin)"
+      # (d) full original pipeline
       /igloo/utils/busybox cat /dev/${MTD} | /igloo/utils/busybox strings | /igloo/utils/busybox grep "mtd changed"
-      /igloo/utils/busybox echo "ISSUE831 pipe rc=$?"
+      /igloo/utils/busybox echo "ISSUE831 full_pipe rc=$?"
       set -e
       # ----------------------------------------------------------------------
 
-      # Only declare PASS if the read-back actually contains the new data, so
-      # working arches stay green while ppc64 records diagnostics above.
-      if /igloo/utils/busybox grep -q "mtd changed" /tmp/rb2.bin; then
+      # Gate PASS on the original pipeline so ppc64 FAILS (=> artifacts upload
+      # with the diagnostics above) while working arches stay green.
+      if /igloo/utils/busybox cat /dev/${MTD} | /igloo/utils/busybox strings | /igloo/utils/busybox grep -q "mtd changed"; then
           /igloo/utils/busybox echo "native mmap mtd PASS"
           /igloo/utils/busybox echo "/tests/mmap_test PASS"
       fi
