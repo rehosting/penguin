@@ -1,0 +1,22 @@
+plugins:
+  mtd_only_repro: {}
+  verifier:
+    conditions:
+      mtd_only_done:
+        type: file_contains
+        file: shared/tests/mtd_only/stdout
+        string: "mtd only PASS"
+
+static_files:
+  /tests/mtd_only:
+    type: inline_file
+    mode: 73
+    contents: |
+      #!/igloo/utils/sh
+      set -eux
+      /igloo/utils/busybox mdev -s
+      MTD=$(/igloo/utils/busybox grep '"mtd_only_repro"' /proc/mtd | /igloo/utils/busybox cut -d: -f1)
+      /igloo/utils/busybox cat /dev/${MTD} | /igloo/utils/busybox strings | /igloo/utils/busybox grep "mtd only base"
+      /igloo/utils/busybox echo "mtd only changed" > /dev/${MTD}
+      /igloo/utils/busybox cat /dev/${MTD} | /igloo/utils/busybox strings | /igloo/utils/busybox grep "mtd only changed"
+      /igloo/utils/busybox echo "mtd only PASS"
