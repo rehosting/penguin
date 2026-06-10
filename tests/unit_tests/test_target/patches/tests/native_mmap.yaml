@@ -90,19 +90,6 @@ static_files:
       /igloo/utils/micropython /tmp/mmap_native.py
       /igloo/utils/busybox mdev -s || true
       MTD=$(/igloo/utils/busybox grep '"mmap_native_mtd"' /proc/mtd | /igloo/utils/busybox cut -d: -f1)
-
-      # --- issue831: capture the fault on the EXACT original sequence --------
-      # The fault is fragile: extra warm-up reads make it disappear, so keep the
-      # original single-read/write/single-piped-read order untouched. Just arm
-      # kernel fault logging + coredumps so the failing run uploads the faulting
-      # process name + nip (console.log) and a coredump (shared/issue831_cores).
-      /igloo/utils/busybox echo 1 > /proc/sys/kernel/print-fatal-signals 2>/dev/null || true
-      /igloo/utils/busybox echo 1 > /proc/sys/kernel/show_unhandled_signals 2>/dev/null || true
-      /igloo/utils/busybox mkdir -p /igloo/shared/issue831_cores 2>/dev/null || true
-      /igloo/utils/busybox echo "/igloo/shared/issue831_cores/core.%e.%p.%s" > /proc/sys/kernel/core_pattern 2>/dev/null || true
-      ulimit -c unlimited 2>/dev/null || true
-      /igloo/utils/busybox echo "ISSUE831 MTD=${MTD}"
-
       /igloo/utils/busybox cat /dev/${MTD} | /igloo/utils/busybox strings | /igloo/utils/busybox grep "mtd native mmap"
       /igloo/utils/busybox echo "mtd changed" > /dev/${MTD}
       /igloo/utils/busybox cat /dev/${MTD} | /igloo/utils/busybox strings | /igloo/utils/busybox grep "mtd changed"

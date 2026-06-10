@@ -113,7 +113,8 @@ class Mem(Plugin):
         return 4096
 
     def write_bytes(self, addr: Union[int, Ptr], data: bytes,
-                    pid: Optional[int] = None) -> Generator[Any, Any, int]:
+                    pid: Optional[int] = None,
+                    prefer_portal: bool = False) -> Generator[Any, Any, int]:
         """
         Write bytes to guest memory.
 
@@ -127,6 +128,11 @@ class Mem(Plugin):
             Data to write.
         pid : int, optional
             Process ID for context.
+        prefer_portal : bool, optional
+            Skip the PANDA virtual-memory fast path and write via the portal
+            (guest-executed) path instead. Use for writes to addresses whose
+            host-side virtual->physical translation is unreliable (e.g. ppc64
+            kernel buffers); see issue #831.
 
         Returns
         -------
@@ -142,10 +148,11 @@ class Mem(Plugin):
 
         rsize = self._get_rsize()
         cpu = None
+        use_panda = self.try_panda and not prefer_portal
 
         # Handle single chunk (Fast Path)
         if total_len <= rsize:
-            if self.try_panda:
+            if use_panda:
                 if cpu is None:
                     cpu = self._get_cpu()
                 try:
@@ -169,7 +176,7 @@ class Mem(Plugin):
             chunk_len = len(chunk_view)
 
             success = False
-            if self.try_panda:
+            if use_panda:
                 if cpu is None:
                     cpu = self._get_cpu()
                 try:

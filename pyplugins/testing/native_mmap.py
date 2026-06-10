@@ -61,9 +61,14 @@ class NativeMmapMtdDevice(MtdDevice):
             ptregs.retval = 0
             return 0
         chunk = min(size, self.SIZE - off)
-        yield from plugins.mem.write(
+        # issue #831: write the read-back data through the portal (guest-
+        # executed) path instead of the PANDA virtual-memory fast path. On
+        # ppc64 the host-side virtual->physical translation of the kernel read
+        # buffer appears unreliable and corrupts a co-running process.
+        yield from plugins.mem.write_bytes(
             buf_ptr,
             bytes(self.data[off:off + chunk]),
+            prefer_portal=True,
         )
         ptregs.retval = 0
         return 0
