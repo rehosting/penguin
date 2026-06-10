@@ -24,13 +24,6 @@ plugins:
         type: file_contains
         file: shared/tests/mmap_test/stdout
         string: "/tests/mmap_test PASS"
-      # issue831 PROBE: never-matching condition forces a verifier failure so
-      # the run uploads artifacts (incl. results/issue831_probe.txt) regardless
-      # of whether the heisenbug crash reproduces. Remove with the probe.
-      issue831_force_artifact_upload:
-        type: file_contains
-        file: shared/tests/mmap_test/stdout
-        string: "ISSUE831_NEVER_PRINTED_SENTINEL"
 
 static_files:
   /tests/mmap_test:
