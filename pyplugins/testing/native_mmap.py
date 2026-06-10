@@ -52,7 +52,22 @@ class NativeMmapMtdDevice(MtdDevice):
         self.data = bytearray(b"\xff" * self.SIZE)
         initial = b"mtd native mmap\n"
         self.data[:len(initial)] = initial
+        # issue831 probe state
+        self.outdir = None
+        self._probe_reads = 0
+        self._probe_logged = 0
         super().__init__()
+
+    def _probe_log(self, line):
+        self._probe_logged += 1
+        if not self.outdir:
+            return
+        try:
+            import os
+            with open(os.path.join(self.outdir, "issue831_probe.txt"), "a") as f:
+                f.write(line + "\n")
+        except Exception:
+            pass
 
     def read(self, ptregs, offset: LoffT, length: SizeT, buf_ptr: CharPtr):
         off = int(offset)
@@ -61,15 +76,57 @@ class NativeMmapMtdDevice(MtdDevice):
             ptregs.retval = 0
             return 0
         chunk = min(size, self.SIZE - off)
-        # issue #831: write the read-back data through the portal (guest-
-        # executed) path instead of the PANDA virtual-memory fast path. On
-        # ppc64 the host-side virtual->physical translation of the kernel read
-        # buffer appears unreliable and corrupts a co-running process.
-        yield from plugins.mem.write_bytes(
-            buf_ptr,
-            bytes(self.data[off:off + chunk]),
-            prefer_portal=True,
-        )
+        src = bytes(self.data[off:off + chunk])
+
+        # issue831: deliver via the ORIGINAL PANDA virtual-memory fast path
+        # (the suspected-faulty path) so the probe characterizes it.
+        yield from plugins.mem.write_bytes(buf_ptr, src)
+
+        # PROBE: read the same kernel VA back two ways and compare against what
+        # we intended to write.
+        #   panda_rb : PANDA cpu_memory_rw_debug read (same host translation)
+        #   portal_rb: guest-executed portal read (the guest's REAL mapping)
+        # If portal_rb != src (or != panda_rb), the PANDA write landed on a
+        # different physical page than the guest sees -> wrong-PA confirmed.
+        addr = buf_ptr.address if hasattr(buf_ptr, "address") else int(buf_ptr)
+        self._probe_reads += 1
+        idx = self._probe_reads
+        try:
+            panda_rb = yield from plugins.mem.read_bytes(buf_ptr, chunk)
+            portal_rb = yield from plugins.mem.read_bytes(
+                buf_ptr, chunk, prefer_portal=True)
+        except Exception as e:
+            self._probe_log(f"read#{idx} off={off} addr={addr:#x} chunk={chunk} EXC {e!r}")
+            ptregs.retval = 0
+            return 0
+
+        flags = []
+        if panda_rb != src:
+            flags.append("panda!=src")
+        if portal_rb != src:
+            flags.append("portal!=src")
+        if panda_rb != portal_rb:
+            flags.append("panda!=portal")
+
+        # Always log the first few reads (confirm probe active); after that log
+        # only mismatches. Cap total lines.
+        if (idx <= 8 or flags) and self._probe_logged < 300:
+            def firstdiff(a, b):
+                if a is None or b is None:
+                    return -1
+                for i in range(min(len(a), len(b))):
+                    if a[i] != b[i]:
+                        return i
+                return len(a) if len(a) != len(b) else -1
+            d_ps = firstdiff(panda_rb, src)
+            d_qs = firstdiff(portal_rb, src)
+            self._probe_log(
+                f"read#{idx} off={off} addr={addr:#x} chunk={chunk} "
+                f"flags={','.join(flags) or 'ok'} "
+                f"src[:8]={src[:8].hex()} panda[:8]={(panda_rb or b'')[:8].hex()} "
+                f"portal[:8]={(portal_rb or b'')[:8].hex()} "
+                f"diff_panda_src@{d_ps} diff_portal_src@{d_qs}"
+            )
         ptregs.retval = 0
         return 0
 
@@ -103,7 +160,9 @@ class NativeMmap(Plugin):
 
         plugins.devfs.register_devfs(NativeMmapDevFile())
         plugins.procfs.register_proc(NativeMmapProcFile())
-        plugins.mtd.register_mtd(NativeMmapMtdDevice())
+        mtd_dev = NativeMmapMtdDevice()
+        mtd_dev.outdir = self.get_arg("outdir")  # issue831 probe output dir
+        plugins.mtd.register_mtd(mtd_dev)
 
         syscalls = plugins.syscalls
         syscalls.syscall(

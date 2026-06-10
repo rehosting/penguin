@@ -210,19 +210,24 @@ class Mem(Plugin):
             raise ValueError(f"Memory write failed with err={err}")  # TODO: make a PANDA Exn class
 
     def read_bytes(self, addr: Union[int, Ptr], size: int,
-                   pid: Optional[int] = None) -> Generator[Any, Any, bytes]:
+                   pid: Optional[int] = None,
+                   prefer_portal: bool = False) -> Generator[Any, Any, bytes]:
         """
         Reads bytes from guest memory.
         Optimized with a Fast Path for single-chunk reads.
+
+        prefer_portal: skip the PANDA fast path and read via the guest-executed
+        portal path (see issue #831 / write_bytes).
         """
         if isinstance(addr, Ptr):
             addr = addr.address
 
         rsize = self._get_rsize()
+        use_panda = self.try_panda and not prefer_portal
 
         # --- FAST PATH: Single Chunk (Common Case) ---
         if size <= rsize:
-            if self.try_panda:
+            if use_panda:
                 # We can assume CPU is needed here, get it once
                 cpu = self._get_cpu()
                 try:
@@ -256,7 +261,7 @@ class Mem(Plugin):
                 chunk_size = rsize
 
             chunk = None
-            if self.try_panda:
+            if use_panda:
                 if cpu is None:
                     cpu = self._get_cpu()
                 try:
