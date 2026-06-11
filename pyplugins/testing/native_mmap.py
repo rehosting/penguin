@@ -69,7 +69,10 @@ class NativeMmapMtdDevice(MtdDevice):
         yield from plugins.mem.write_bytes(
             buf_ptr,
             bytes(self.data[off:off + chunk]),
-            prefer_portal=True,
+            # issue831 CI debug: force the ORIGINAL PANDA host-write path so the
+            # ppc64 fault reproduces and the instrumented dev_issue831 QEMU can
+            # observe it. Revert to prefer_portal=True (the fix) before merging.
+            prefer_portal=False,
         )
         ptregs.retval = 0
         return 0
