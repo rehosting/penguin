@@ -129,10 +129,11 @@ class Mem(Plugin):
         pid : int, optional
             Process ID for context.
         prefer_portal : bool, optional
-            Skip the PANDA virtual-memory fast path and write via the portal
-            (guest-executed) path instead. Use for writes to addresses whose
-            host-side virtual->physical translation is unreliable (e.g. ppc64
-            kernel buffers); see issue #831.
+            Skip the PANDA virtual-memory write fast path and write via the
+            portal (guest-executed) path instead. Use for writes the PANDA
+            host-side path handles unreliably (e.g. writes into a guest kernel
+            buffer on ppc64, which trigger a timing-sensitive fault); see
+            issue #831.
 
         Returns
         -------

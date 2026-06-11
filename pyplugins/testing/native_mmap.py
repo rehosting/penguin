@@ -61,12 +61,15 @@ class NativeMmapMtdDevice(MtdDevice):
             ptregs.retval = 0
             return 0
         chunk = min(size, self.SIZE - off)
-        # issue831 EXPERIMENT: temporarily reverted to the PANDA write fast path
-        # so this run reproduces the baseline fault alongside the isolated
-        # mtd_only test. Restore prefer_portal=True after the experiment.
+        # issue #831: deliver the read-back via the guest-executed portal path
+        # rather than the PANDA virtual-memory write fast path. On ppc64 the
+        # PANDA host-side write (cpu_memory_rw_debug) into the guest kernel
+        # read buffer triggers a timing-sensitive fault that segfaults the
+        # cat|strings|grep read-back; the portal path avoids that host write.
         yield from plugins.mem.write_bytes(
             buf_ptr,
             bytes(self.data[off:off + chunk]),
+            prefer_portal=True,
         )
         ptregs.retval = 0
         return 0
