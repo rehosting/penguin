@@ -6,6 +6,31 @@ from penguin import getColoredLogger
 logger = getColoredLogger("penguin.arch")
 
 
+def get_dylib_subdir(arch_name: str) -> str:
+    """
+    Map a config arch name (e.g. "aarch64", "powerpc64le") to the subdirectory
+    under ``<static>/dylibs`` holding that arch's prebuilt dynamic libraries.
+
+    Dylibs are built/published under short, sometimes-distinct names that differ
+    from both the config arch name and the generic arch subdir, so this mapping
+    is the single source of truth for both patch generation and config templating
+    (the ``{{ dylib_dir }}`` template variable).
+    """
+    if arch_name == "aarch64":
+        return "arm64"
+    if arch_name == "intel64":
+        return "x86_64"
+    if arch_name == "loongarch64":
+        return "loongarch"
+    if arch_name == "powerpc64le":
+        return "ppc64el"
+    if "powerpc" in arch_name:
+        return arch_name.replace("powerpc", "ppc")  # dylibs use short names
+    # Fall back to the generic arch subdir (e.g. intel64 -> x86_64, mips* as-is).
+    from .utils import get_arch_subdir
+    return get_arch_subdir({"core": {"arch": arch_name}})
+
+
 @dataclasses.dataclass
 class ArchInfo:
     arch: Optional[str] = None

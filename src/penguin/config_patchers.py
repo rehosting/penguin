@@ -22,7 +22,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from penguin import getColoredLogger
-from .arch import arch_filter, arch_end
+from .arch import arch_filter, arch_end, get_dylib_subdir
 from .defaults import (
     default_init_script,
     default_lib_aliases,
@@ -422,19 +422,7 @@ class BasePatch(PatchGenerator):
 
         mock_config = {"core": {"arch": self.arch_name}}
         self.arch_dir = get_arch_subdir(mock_config)
-
-        if arch_identified == "aarch64":
-            self.dylib_dir = "arm64"
-        elif arch_identified == "intel64":
-            self.dylib_dir = "x86_64"
-        elif arch_identified == "loongarch64":
-            self.dylib_dir = "loongarch"
-        elif self.arch_name == "powerpc64le":
-            self.dylib_dir = "ppc64el"
-        elif "powerpc" in self.arch_name:
-            self.dylib_dir = self.arch_name.replace("powerpc", "ppc")  # dylibs are built with short names
-        else:
-            self.dylib_dir = self.arch_dir
+        self.dylib_dir = get_dylib_subdir(self.arch_name)
 
     def generate(self, patches: dict) -> dict:
         # Add serial device in pseudofiles
@@ -517,11 +505,14 @@ class BasePatch(PatchGenerator):
                     "host_path": os.path.join(*[STATIC_DIR, "ltrace", "*"]),
                 },
 
-                # Dynamic libraries
+                # Dynamic libraries. The arch-specific subdir is emitted as a
+                # Jinja template ({{ dylib_dir }}) and resolved at config-load
+                # time from core.arch, so changing the arch reconfigures the path
+                # instead of it being baked in here.
                 "/igloo/dylibs/*": {
                     "type": "host_file",
                     "mode": 0o755,
-                    "host_path": os.path.join(STATIC_DIR, "dylibs", self.dylib_dir or self.arch_dir, "*"),
+                    "host_path": os.path.join(STATIC_DIR, "dylibs", "{{ dylib_dir }}", "*"),
                 },
 
                 # Startup scripts
@@ -562,8 +553,9 @@ class BasePatch(PatchGenerator):
                 "mode": 0o755,
             }
         result["static_files"]["/igloo/utils/*"] = {
+            # {{ arch_dir }} is resolved at config-load time from core.arch.
             "type": "host_file",
-            "host_path": f"{STATIC_DIR}/{self.arch_dir}/*",
+            "host_path": f"{STATIC_DIR}/{{{{ arch_dir }}}}/*",
             "mode": 0o755,
         }
 
