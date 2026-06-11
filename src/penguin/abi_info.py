@@ -162,7 +162,7 @@ ARCH_ABI_INFO = dict(
             ),
         ),
     ),
-    intel64=dict(
+    x86_64=dict(
         target_triple="x86_64-unknown-linux-musl",
         libnvram_arch_name="x86_64",
         default_abi="default",
@@ -192,3 +192,14 @@ ARCH_ABI_INFO = dict(
         ),
     )
 )
+
+
+def arch_abi_info(arch: str) -> dict:
+    """
+    Look up ABI info for a config arch name or any accepted alias.
+
+    Normalizes via the arch registry so callers may pass e.g. ``intel64`` or
+    ``x86_64`` (both resolve to the canonical ``x86_64`` entry).
+    """
+    from penguin.arch_registry import spec
+    return ARCH_ABI_INFO[spec(arch).abi_key]

@@ -228,7 +228,7 @@ RUN set -eux; mkdir -p /sysroots; \
     stage mipseb      mipseb-linux-musl            mipseb-linux-musl; \
     stage mips64el    mips64el-linux-musl-cross    mips64el-linux-musl; \
     stage mips64eb    mips64-linux-musl-cross      mips64-linux-musl; \
-    stage intel64     x86_64-linux-musl-cross      x86_64-linux-musl; \
+    stage x86_64      x86_64-linux-musl-cross      x86_64-linux-musl; \
     du -sh /sysroots/* | sort -h; du -sh /sysroots
 
 #### NMAP BUILDER: Build nmap ####
@@ -511,7 +511,7 @@ RUN set -eux; \
     stage mipseb      mips      mipseb; \
     stage mips64el    mips64    mips64el; \
     stage mips64eb    mips64    mips64eb; \
-    stage intel64     x86_64    x86_64
+    stage x86_64      x86_64    x86_64
 COPY guest-utils /igloo_static/guest-utils
 COPY --from=rust_builder /root/vhost-device/target/x86_64-unknown-linux-gnu/release/vhost-device-vsock /usr/local/bin/vhost-device-vsock
 

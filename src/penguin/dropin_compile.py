@@ -6,25 +6,17 @@ from pathlib import Path
 from typing import Any, Dict
 
 import penguin
-from penguin.abi_info import ARCH_ABI_INFO
+from penguin import arch_registry
+from penguin.abi_info import arch_abi_info
 from penguin.defaults import static_dir as STATIC_DIR
+from penguin.utils import resolve_arch_asset
 
 
 logger = penguin.getColoredLogger("dropin_compile")
 
 
-DYLIB_DIRS = {
-    "aarch64": "arm64",
-    "intel64": "x86_64",
-    "loongarch64": "loongarch",
-    "powerpc": "ppc",
-    "powerpc64": "ppc64",
-    "powerpc64le": "ppc64el",
-}
-
-
 def _default_abi_info(arch: str) -> Dict[str, Any]:
-    arch_info = ARCH_ABI_INFO[arch]
+    arch_info = arch_abi_info(arch)
     abi = arch_info["default_abi"]
     abi_info = arch_info["abis"][abi]
     return {
@@ -35,7 +27,7 @@ def _default_abi_info(arch: str) -> Dict[str, Any]:
 
 
 def _dylib_dir(arch: str) -> str:
-    return DYLIB_DIRS.get(arch, arch)
+    return arch_registry.dylib_subdir(arch)
 
 
 def _loader_name(arch: str) -> str:
@@ -67,10 +59,11 @@ def _source_signature(init_dir: Path) -> str:
 def compile_init_c_dropin(proj_dir: str, init_dir: str, source_path: str, config: Dict[str, Any]) -> str:
     """Compile an init.d/*.c drop-in and return its project-local binary path."""
     arch = config["core"]["arch"]
-    if arch not in ARCH_ABI_INFO:
+    if not arch_registry.is_known(arch):
         raise ValueError(f"cannot compile C drop-in {source_path}: unsupported architecture {arch}")
 
-    sysroot = Path(STATIC_DIR) / "sysroots" / arch
+    sysroot_name = resolve_arch_asset(arch, os.path.join(STATIC_DIR, "sysroots"))
+    sysroot = Path(STATIC_DIR) / "sysroots" / sysroot_name
     if not sysroot.is_dir():
         raise FileNotFoundError(
             f"cannot compile C drop-in {source_path}: missing {sysroot}. "

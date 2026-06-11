@@ -68,7 +68,7 @@ class LiveImage(Plugin):
         self.patch_queue = []
         self.config = self.get_arg("conf")
         core_config = self.config.get("core", {})
-        self.arch = core_config.get("arch", "intel64")
+        self.arch = core_config.get("arch", "x86_64")
         self.ensure_init = lambda *args: None
         self._init_callbacks = []
 
@@ -509,9 +509,11 @@ class LiveImage(Plugin):
             return None
 
         arch_map = {"armel": keystone.KS_ARCH_ARM, "aarch64": keystone.KS_ARCH_ARM64,
-                    "mipsel": keystone.KS_ARCH_MIPS, "mipseb": keystone.KS_ARCH_MIPS, "intel64": keystone.KS_ARCH_X86}
+                    "mipsel": keystone.KS_ARCH_MIPS, "mipseb": keystone.KS_ARCH_MIPS,
+                    "x86_64": keystone.KS_ARCH_X86, "intel64": keystone.KS_ARCH_X86}
         mode_map = {"aarch64": keystone.KS_MODE_LITTLE_ENDIAN, "mipsel": keystone.KS_MODE_MIPS32 | keystone.KS_MODE_LITTLE_ENDIAN,
-                    "mipseb": keystone.KS_MODE_MIPS32 | keystone.KS_MODE_BIG_ENDIAN, "intel64": keystone.KS_MODE_64}
+                    "mipseb": keystone.KS_MODE_MIPS32 | keystone.KS_MODE_BIG_ENDIAN,
+                    "x86_64": keystone.KS_MODE_64, "intel64": keystone.KS_MODE_64}
 
         ks_arch = arch_map.get(self.arch)
         if self.arch == "armel":

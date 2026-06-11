@@ -3,6 +3,8 @@
 import subprocess
 import re
 
+from penguin.arch_registry import normalize_arch
+
 
 def _summarize_compiler_stderr(stderr):
     text = stderr.decode(errors="replace") if isinstance(stderr, bytes) else str(stderr)
@@ -173,7 +175,7 @@ ARCH_ABI_INFO = dict(
             ),
         ),
     ),
-    intel64=dict(
+    x86_64=dict(
         target_triple="x86_64-unknown-linux-musl",
         libnvram_arch_name="x86_64",
         default_abi="default",
@@ -208,7 +210,7 @@ ARCH_ABI_INFO = dict(
 def add_lib_inject_for_abi(config, abi):
     """Compile lib_inject for the ABI and put it in /igloo"""
 
-    arch = config["core"]["arch"]
+    arch = normalize_arch(config["core"]["arch"])
 
     lib_inject = config.get("lib_inject", dict())
     arch_info = ARCH_ABI_INFO[arch]
@@ -274,7 +276,7 @@ def add_lib_inject_for_abi(config, abi):
 def add_lib_inject_all_abis(conf):
     """Add lib_inject for all supported ABIs to /igloo"""
 
-    arch = conf["core"]["arch"]
+    arch = normalize_arch(conf["core"]["arch"])
     arch_info = ARCH_ABI_INFO[arch]
     for abi in arch_info["abis"].keys():
         add_lib_inject_for_abi(conf, abi)

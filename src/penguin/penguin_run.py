@@ -16,6 +16,7 @@ from penguin.penguin_config import load_config
 from .plugin_manager import ArgsBox
 from .utils import hash_image_inputs, get_penguin_kernel_version
 from .q_config import load_q_config, ROOTFS
+from . import arch_registry
 
 
 def _env_int(name: str, default: int, min_value: int = 0) -> int:
@@ -299,10 +300,9 @@ def run_config(
     if vpn_enabled:
         append += f" CID={vpn_args['CID']} "
 
-    if archend in ["armel", "aarch64"]:
-        append = append.replace("console=ttyS0", "console=ttyAMA0")
-    elif archend in ["powerpc", "powerpc64", "powerpc64el"]:
-        append = append.replace("console=ttyS0", "console=hvc0 console=ttyS0")
+    _console = arch_registry.spec(archend).console_replacement
+    if _console is not None:
+        append = append.replace(_console[0], _console[1])
 
     telnet_port = find_free_port()
     if telnet_port is None:

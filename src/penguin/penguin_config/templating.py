@@ -112,7 +112,14 @@ def build_context(raw_config, extra=None, env=None, where="vars"):
         ctx["core"] = dict(core)
         arch = core.get("arch")
         if arch:
+            # Expose the canonical arch name so {{ arch }} is stable regardless of
+            # which accepted alias the user wrote (e.g. intel64 -> x86_64).
             ctx["arch"] = arch
+            try:
+                from penguin.arch_registry import normalize_arch
+                ctx["arch"] = normalize_arch(arch)
+            except Exception:
+                pass
             ctx.update(_arch_derived_vars(arch))
     user_vars = raw_config.get("vars") if isinstance(raw_config, dict) else None
     if isinstance(user_vars, dict):
