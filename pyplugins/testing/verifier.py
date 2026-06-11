@@ -215,7 +215,7 @@ class Verifier(Plugin):
     def check_test_cases(self):
         results = {}
         test_cases = []
-        for name in self.conditions:
+        for name in self.conditions or {}:
             test_type = self.conditions[name]["type"]
             test = getattr(self, f"test_{test_type}", None)
             if test is None:
