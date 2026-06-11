@@ -109,7 +109,15 @@ class Hypercall(Plugin):
                 if isinstance(result, int):
                     self.panda._set_current_retval(result)
             except Exception as exc:
-                self.logger.exception("Error in hypercall handler for %#x: %s", nr, exc)
+                # Fail fast (PyPANDA parity): record the error and stop the
+                # emulation rather than letting the guest continue with a
+                # half-serviced hypercall.
+                self.logger.exception("Fatal error in hypercall handler for %#x: %s", nr, exc)
+                record = getattr(self.panda, "_record_callback_exception", None)
+                if record is None:
+                    raise
+                record(exc)
+                break
 
         if ret_ptr[0] == 0:
             ret_ptr[0] = self.panda._current_retval
