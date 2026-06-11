@@ -676,6 +676,20 @@ def run(ctx, project_dir, config, output, force, timeout, auto):
 
 
 @cli.command()
+@click.option("--transport", type=str, default="stdio", help="MCP transport (default: stdio).")
+@click.pass_context
+def mcp(ctx, transport):
+    """
+    Start the MCP server for AI-led rehosting (runs in-container, speaks MCP over stdio).
+
+    Exposes Penguin's loop to an LLM agent as tools: run, config mutations (accumulated in
+    patch_90_mcp.yaml), and structured diagnostics over results/N/. See penguin.mcp.
+    """
+    from .mcp.server import serve
+    serve(transport=transport)
+
+
+@cli.command()
 @click.argument("project_dir", type=str)
 @click.option("--config", type=str, default=None, help="Path to a config file. Defaults to <project_dir>/config.yaml.")
 @verbose_option
