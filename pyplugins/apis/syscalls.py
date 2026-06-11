@@ -840,7 +840,14 @@ class Syscalls(Plugin):
             new = bytes(sce)
             if original != new:
                 if getattr(self.panda, "direct_syscall_event_writeback", False):
-                    plugins.mem.write_bytes_panda(cpu, arg, new)
+                    try:
+                        plugins.mem.write_bytes_panda(
+                            cpu, arg & plugins.mem.addr_mask, new)
+                    except ValueError:
+                        # Direct write failed (e.g. page not resident); fall
+                        # back to the guest-mediated portal write so the
+                        # syscall modification is not silently dropped.
+                        yield from plugins.mem.write_bytes(arg, new)
                 else:
                     yield from plugins.mem.write_bytes(arg, new)
 
