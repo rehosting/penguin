@@ -1,4 +1,6 @@
+import json
 import os
+import re
 import shlex
 import threading
 from pathlib import Path
@@ -73,7 +75,20 @@ int penguin_qemu_add_mmio_region(uint64_t base, uint64_t size,
                                  penguin_mmio_read_cb_t read_cb,
                                  penguin_mmio_write_cb_t write_cb,
                                  void *opaque);
+int penguin_read_guest_reg(CPUState *cs, int regnum, uint8_t *buf,
+                           int buf_len);
+int penguin_write_guest_reg(CPUState *cs, int regnum, const uint8_t *buf,
+                            int len);
+void *penguin_cpu_env(CPUState *cs);
+void penguin_sync_cpu_state(CPUState *cs);
 """
+
+# Alternate spellings under which a QEMU build may have published its
+# library/header assets for the same architecture.
+_ARCH_FILE_ALIASES = {
+    "powerpc64el": ("powerpc64le",),
+    "powerpc64le": ("powerpc64el",),
+}
 
 
 def _repo_root() -> Path:
@@ -113,14 +128,18 @@ def resolve_qemu_paths(
     mode = _mode_prefix(mode)
     lib_env = "PENGUIN_KVM_LIB" if mode == "kvm" else "PENGUIN_QEMU_LIB"
     header_env = "PENGUIN_KVM_CFFI_HEADER" if mode == "kvm" else "PENGUIN_QEMU_CFFI_HEADER"
-    lib_name = f"libqemu-{mode}-{arch}.so"
-    header_name = f"qemu_cffi_{mode}_{arch}.h"
+    arch_names = [arch, *_ARCH_FILE_ALIASES.get(arch, ())]
 
     lib_value = lib_path or os.environ.get(lib_env)
     if lib_value:
         resolved_lib = Path(lib_value)
     else:
-        resolved_lib = _resolve_existing(_candidate_paths(mode, arch, lib_name), "library")
+        lib_candidates = [
+            path
+            for name in arch_names
+            for path in _candidate_paths(mode, name, f"libqemu-{mode}-{name}.so")
+        ]
+        resolved_lib = _resolve_existing(lib_candidates, "library")
     if not resolved_lib.exists():
         raise FileNotFoundError(f"QEMU library not found: {resolved_lib}")
 
@@ -131,13 +150,90 @@ def resolve_qemu_paths(
             raise FileNotFoundError(f"QEMU CFFI header not found: {resolved_header}")
     else:
         header_candidates = [
-            QEMU_INSTALL_HEADER_DIR / header_name,
-            resolved_lib.parent / header_name,
-            _repo_root() / "emulator" / "kvm-qemu" / ("build-kvm" if mode == "kvm" else "build-system") / header_name,
+            path
+            for name in arch_names
+            for header_name in [f"qemu_cffi_{mode}_{name}.h"]
+            for path in (
+                QEMU_INSTALL_HEADER_DIR / header_name,
+                resolved_lib.parent / header_name,
+                _repo_root() / "emulator" / "kvm-qemu" / ("build-kvm" if mode == "kvm" else "build-system") / header_name,
+            )
         ]
         resolved_header = next((path for path in header_candidates if path.exists()), None)
 
     return resolved_lib, resolved_header
+
+
+def _build_gdb_regnums():
+    """
+    GDB core-feature register numbers per architecture, as implemented by
+    each target's gdbstub (target/<arch>/gdbstub*.c). Used with the
+    penguin_{read,write}_guest_reg QEMU exports; register width is the
+    guest's natural word size for every register listed here.
+    """
+    mips32 = {
+        "zero": 0, "at": 1, "v0": 2, "v1": 3,
+        "a0": 4, "a1": 5, "a2": 6, "a3": 7,
+        "t0": 8, "t1": 9, "t2": 10, "t3": 11,
+        "t4": 12, "t5": 13, "t6": 14, "t7": 15,
+        "s0": 16, "s1": 17, "s2": 18, "s3": 19,
+        "s4": 20, "s5": 21, "s6": 22, "s7": 23,
+        "t8": 24, "t9": 25, "k0": 26, "k1": 27,
+        "gp": 28, "sp": 29, "fp": 30, "s8": 30, "ra": 31,
+        "lo": 33, "hi": 34, "pc": 37,
+    }
+    # n32/n64 pass syscall args 5-8 in registers 8-11
+    mips64 = {**mips32, "a4": 8, "a5": 9, "a6": 10, "a7": 11}
+    ppc = {**{f"r{i}": i for i in range(32)}, "sp": 1, "nip": 64, "pc": 64}
+    riscv = {
+        **{f"x{i}": i for i in range(32)},
+        "zero": 0, "ra": 1, "sp": 2, "gp": 3, "tp": 4,
+        "t0": 5, "t1": 6, "t2": 7, "s0": 8, "fp": 8, "s1": 9,
+        **{f"a{i}": 10 + i for i in range(8)},
+        **{f"s{i}": 16 + i for i in range(2, 12)},
+        "t3": 28, "t4": 29, "t5": 30, "t6": 31, "pc": 32,
+    }
+    loongarch = {
+        **{f"r{i}": i for i in range(32)},
+        "zero": 0, "ra": 1, "tp": 2, "sp": 3,
+        **{f"a{i}": 4 + i for i in range(8)},
+        **{f"t{i}": 12 + i for i in range(9)},
+        "fp": 22, **{f"s{i}": 23 + i for i in range(9)},
+        "pc": 33,
+    }
+    return {
+        "x86_64": {
+            "rax": 0, "rbx": 1, "rcx": 2, "rdx": 3,
+            "rsi": 4, "rdi": 5, "rbp": 6, "rsp": 7,
+            **{f"r{i}": i for i in range(8, 16)},
+            "sp": 7, "rip": 16, "pc": 16,
+        },
+        "i386": {
+            "eax": 0, "ecx": 1, "edx": 2, "ebx": 3,
+            "esp": 4, "ebp": 5, "esi": 6, "edi": 7,
+            "sp": 4, "eip": 8, "pc": 8,
+        },
+        "arm": {
+            **{f"r{i}": i for i in range(16)},
+            "sp": 13, "lr": 14, "pc": 15,
+        },
+        "aarch64": {
+            **{f"x{i}": i for i in range(31)},
+            "lr": 30, "sp": 31, "pc": 32,
+        },
+        "mips": mips32,
+        "mipsel": mips32,
+        "mips64": mips64,
+        "mips64el": mips64,
+        "ppc": ppc,
+        "ppc64": ppc,
+        "ppc64le": ppc,
+        "riscv64": riscv,
+        "loongarch64": loongarch,
+    }
+
+
+_GDB_REGNUMS = _build_gdb_regnums()
 
 
 class QemuArch:
@@ -236,6 +332,8 @@ class QemuArch:
         self._captured_regs = info["syscall"][1:]
         self.nr_reg = info["nr"]
         self.retval_reg = info["retval"]
+        self._gdb_regs = _GDB_REGNUMS.get(panda.arch_name, _GDB_REGNUMS.get(panda.arch_family, {}))
+        self._warned_regs = set()
 
     def __str__(self):
         return self.family
@@ -247,6 +345,11 @@ class QemuArch:
         if isinstance(other, str):
             return other in {self.name, self.family}
         return super().__eq__(other)
+
+    def _resolve_cpu(self, cpu):
+        if cpu is None or cpu == self.panda.ffi.NULL:
+            cpu = self.panda.get_cpu()
+        return cpu
 
     def get_reg(self, cpu, reg_name):
         reg_name = reg_name.lower()
@@ -262,8 +365,35 @@ class QemuArch:
         if reg_name == self.retval_reg:
             return self.panda._current_retval
 
-        logger.warning("QEMU mode: get_reg('%s') not fully supported, returning 0", reg_name)
+        regnum = self._gdb_regs.get(reg_name)
+        if regnum is not None:
+            value = self.panda._read_guest_reg(self._resolve_cpu(cpu), regnum)
+            if value is not None:
+                return value
+
+        if reg_name not in self._warned_regs:
+            self._warned_regs.add(reg_name)
+            logger.warning("QEMU mode: get_reg('%s') not supported, returning 0", reg_name)
         return 0
+
+    def set_reg(self, cpu, reg_name, value):
+        reg_name = reg_name.lower()
+        regnum = self._gdb_regs.get(reg_name)
+        if regnum is None:
+            raise ValueError(
+                f"Unsupported register {reg_name!r} for QEMU compatibility "
+                f"architecture {self.name}"
+            )
+        if not self.panda._write_guest_reg(self._resolve_cpu(cpu), regnum, value):
+            raise RuntimeError(f"Failed to write guest register {reg_name!r}")
+        # Keep the hypercall-captured view coherent with the guest.
+        unsigned = self.panda.to_unsigned_guest(value)
+        if reg_name in self._captured_regs:
+            idx = self._captured_regs.index(reg_name)
+            if idx < len(self.panda._current_args):
+                self.panda._current_args[idx] = unsigned
+        if reg_name == self.nr_reg:
+            self.panda._current_nr = unsigned
 
     def get_arg(self, cpu, index, convention="syscall"):
         loc = self._get_arg_loc(index, convention)
@@ -271,15 +401,32 @@ class QemuArch:
 
     def set_arg(self, cpu, index, value, convention="syscall"):
         loc = self._get_arg_loc(index, convention)
+        unsigned = self.panda.to_unsigned_guest(value)
+        captured = False
         if loc == self.nr_reg:
-            self.panda._current_nr = self.panda.to_unsigned_guest(value)
+            self.panda._current_nr = unsigned
+            captured = True
+        elif loc in self._captured_regs:
+            self.panda._current_args[self._captured_regs.index(loc)] = unsigned
+            captured = True
+
+        # Write through to the real guest register so the change is visible
+        # to the guest once the hypercall returns.
+        regnum = self._gdb_regs.get(loc)
+        if regnum is not None and self.panda._write_guest_reg(self._resolve_cpu(cpu), regnum, unsigned):
             return
-        if loc in self._captured_regs:
-            self.panda._current_args[self._captured_regs.index(loc)] = self.panda.to_unsigned_guest(value)
+        if captured:
+            if loc not in self._warned_regs:
+                self._warned_regs.add(loc)
+                logger.warning(
+                    "set_arg(%r): QEMU register write unavailable; the change "
+                    "is visible to host-side handlers but not to the guest",
+                    loc,
+                )
             return
         raise ValueError(
             f"Argument index {index} ({loc}) for convention {convention!r} "
-            "is not captured by the QEMU hypercall compatibility layer"
+            "is not writable by the QEMU hypercall compatibility layer"
         )
 
     def _get_arg_loc(self, index, convention):
@@ -290,7 +437,20 @@ class QemuArch:
             raise ValueError(f"Argument index {index} not supported for convention {convention}")
         return conv[index].lower()
 
-    def set_retval(self, cpu, value, convention="syscall", failure=False):
+    def set_retval(self, cpu, value, convention="default", failure=False):
+        if convention == "syscall" and self.family == "mips":
+            # PANDA parity: MIPS syscalls report success/failure in a3, and
+            # errors are returned as positive values with a3 set.
+            try:
+                self.set_reg(cpu, "a3", 1 if failure else 0)
+            except (ValueError, RuntimeError):
+                if "a3" not in self._warned_regs:
+                    self._warned_regs.add("a3")
+                    logger.warning(
+                        "set_retval: unable to set MIPS a3 success/failure flag"
+                    )
+            if failure and self.panda.from_unsigned_guest(value) < 0:
+                value = -self.panda.from_unsigned_guest(value)
         self.panda._set_current_retval(value)
 
 
@@ -364,6 +524,7 @@ class QemuCompat:
         if self.arch_name in {"mipseb", "mips64eb", "mips", "mips64", "powerpc", "powerpc64", "ppc", "ppc64"}:
             self.endianness = "big"
 
+        self._requested_arch = arch
         self.lib_path, self.header_path = resolve_qemu_paths(
             self.mode, arch, lib_path=lib_path, header_path=header_path
         )
@@ -391,6 +552,28 @@ class QemuCompat:
         ):
             if declaration not in cdef_source:
                 cdef_source += f"\n{declaration}\n"
+        for symbol, declaration in (
+            (
+                "penguin_read_guest_reg",
+                "int penguin_read_guest_reg(CPUState *cs, int regnum, "
+                "uint8_t *buf, int buf_len);",
+            ),
+            (
+                "penguin_write_guest_reg",
+                "int penguin_write_guest_reg(CPUState *cs, int regnum, "
+                "const uint8_t *buf, int len);",
+            ),
+            (
+                "penguin_cpu_env",
+                "void *penguin_cpu_env(CPUState *cs);",
+            ),
+            (
+                "penguin_sync_cpu_state",
+                "void penguin_sync_cpu_state(CPUState *cs);",
+            ),
+        ):
+            if symbol not in cdef_source:
+                cdef_source += f"\n{declaration}\n"
         if "penguin_mmio_read_cb_t" not in cdef_source:
             cdef_source += (
                 "\ntypedef uint64_t (*penguin_mmio_read_cb_t)"
@@ -414,9 +597,20 @@ class QemuCompat:
         self.lib = self.ffi.dlopen(str(self.lib_path), flags=flags)
         self.libpanda = KVMLibPandaMock(self.lib, self.ffi, self)
 
+        # Typed CPUArchState access (full per-target env: coprocessor,
+        # timer, FPU state). Prefer the compiled CFFI API-mode module
+        # (compiler-verified layout, full bitfield/anonymous-member
+        # support); fall back to the generated ABI-mode *_env.h header.
+        self._env_cdef_loaded = False
+        self._env_ffi = None
+        self._cpu_state_size = None
+        self._load_env_module()
+        self._load_env_cdef()
+
         self._callback = None
         self._after_guest_init_callback = None
         self._bound_hypercall_plugin = None
+        self._pending_exception = None
         self.arch = QemuArch(self)
         self._thread_state = threading.local()
         self._pre_shutdown_cb = None
@@ -506,6 +700,7 @@ class QemuCompat:
             "powerpc64": "ppc64",
             "ppc64": "ppc64",
             "powerpc64le": "ppc64le",
+            "powerpc64el": "ppc64le",
             "ppc64le": "ppc64le",
             "riscv64": "riscv64",
             "loongarch64": "loongarch64",
@@ -674,6 +869,177 @@ class QemuCompat:
             lambda: self.lib.cpu_memory_rw_debug(cpu, vaddr, ptr, size, bool(is_write))
         )
 
+    def _arch_alias_names(self) -> List[str]:
+        return [self._requested_arch,
+                *_ARCH_FILE_ALIASES.get(self._requested_arch, ())]
+
+    def _load_env_module(self):
+        manifest_name = f"qemu_cffi_{self.mode}_manifest.json"
+        manifest_path = next(
+            (path for path in (QEMU_INSTALL_HEADER_DIR / manifest_name,
+                               self.lib_path.parent / manifest_name)
+             if path.exists()), None)
+        if manifest_path is None:
+            return
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except Exception as exc:
+            logger.warning("Unreadable cffi manifest %s: %s", manifest_path, exc)
+            return
+        arch_names = self._arch_alias_names()
+        module_name = next(
+            (entry.get("env_module") for entry in manifest.get("headers", [])
+             if entry.get("arch") in arch_names and entry.get("env_module")),
+            None)
+        if module_name is None:
+            return
+        module_path = next(
+            (path for path in (
+                QEMU_INSTALL_LIB_DIR / "penguin-qemu-env" / module_name,
+                self.lib_path.parent / "penguin-qemu-env" / module_name)
+             if path.exists()), None)
+        if module_path is None:
+            return
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                module_path.name.split(".", 1)[0], module_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        except Exception as exc:
+            logger.warning(
+                "Failed to import compiled env module %s (Python ABI "
+                "mismatch?): %s", module_path, exc)
+            return
+        self._env_ffi = module.ffi
+        logger.debug("Loaded compiled CPUArchState module %s", module_path)
+
+    def _locate_env_header(self) -> Optional[Path]:
+        candidates = []
+        if self.header_path is not None:
+            candidates.append(
+                self.header_path.with_name(self.header_path.stem + "_env.h"))
+        arch_names = [self._requested_arch,
+                      *_ARCH_FILE_ALIASES.get(self._requested_arch, ())]
+        for name in arch_names:
+            fname = f"qemu_cffi_{self.mode}_{name}_env.h"
+            candidates.append(QEMU_INSTALL_HEADER_DIR / fname)
+            candidates.append(self.lib_path.parent / fname)
+        return next((path for path in candidates if path.exists()), None)
+
+    def _load_env_cdef(self):
+        env_header = self._locate_env_header()
+        if env_header is None:
+            return
+        try:
+            source = env_header.read_text()
+            self.ffi.cdef(source)
+        except Exception as exc:
+            logger.warning("Failed to load CPUArchState declarations from %s: %s",
+                           env_header, exc)
+            return
+        match = re.search(r"#define\s+PENGUIN_CPU_STATE_SIZE\s+(\d+)", source)
+        if match:
+            self._cpu_state_size = int(match.group(1))
+        self._env_cdef_loaded = True
+        logger.debug("Loaded CPUArchState declarations from %s", env_header)
+
+    @property
+    def env_supported(self) -> bool:
+        return self._env_ffi is not None or self._env_cdef_loaded
+
+    def sync_cpu_state(self, cpu):
+        """
+        Synchronize register state out of the accelerator into env (and mark
+        the vCPU dirty so env writes are pushed back). No-op under TCG or
+        when the QEMU library lacks the export.
+        """
+        sync = self._lib_symbol("penguin_sync_cpu_state")
+        if sync is not None and cpu is not None and cpu != self.ffi.NULL:
+            sync(cpu)
+
+    def cpu_env(self, cpu=None, sync=None):
+        """
+        Return a typed `CPUArchState *` for the given CPU (default: the
+        current hypercall CPU), giving access to the full per-target state:
+        coprocessor registers, timers, FPU, etc. Requires the *_env.h header
+        generated alongside the QEMU library. Under KVM the CPU state is
+        synchronized first so reads are fresh and writes stick; pass
+        sync=False to skip that.
+        """
+        if not self.env_supported:
+            raise RuntimeError(
+                "CPUArchState declarations unavailable: no compiled env "
+                f"module or generated qemu_cffi_{self.mode}_"
+                f"{self._requested_arch}_env.h was found alongside the "
+                "QEMU library"
+            )
+        if cpu is None:
+            cpu = self.get_cpu()
+        if cpu is None or cpu == self.ffi.NULL:
+            raise ValueError("cpu_env requires a valid CPU pointer")
+        if sync is None:
+            sync = self.mode == "kvm"
+        if sync:
+            self.sync_cpu_state(cpu)
+        env_fn = self._lib_symbol("penguin_cpu_env")
+        if env_fn is not None:
+            raw = env_fn(cpu)
+        elif self._cpu_state_size is not None:
+            # Older lib without the export: CPUArchState immediately
+            # follows CPUState (layout validated by QEMU at build time).
+            raw = self.ffi.cast("char *", cpu) + self._cpu_state_size
+        else:
+            raise RuntimeError(
+                "QEMU library lacks penguin_cpu_env and the env header has "
+                "no PENGUIN_CPU_STATE_SIZE")
+        if self._env_ffi is not None:
+            # The compiled module owns the typed view; carry the pointer
+            # across FFI instances by address.
+            addr = int(self.ffi.cast("uintptr_t", raw))
+            return self._env_ffi.cast("CPUArchState *", addr)
+        return self.ffi.cast("CPUArchState *", raw)
+
+    def _read_guest_reg(self, cpu, regnum):
+        """
+        Read a guest register by GDB core-feature register number. Returns
+        the unsigned value, or None if the QEMU library lacks the export or
+        the read fails.
+        """
+        read_reg = self._lib_symbol("penguin_read_guest_reg")
+        if read_reg is None or cpu is None or cpu == self.ffi.NULL:
+            return None
+        buf = self.ffi.new("uint8_t[16]")
+        length = read_reg(cpu, int(regnum), buf, 16)
+        if length <= 0:
+            return None
+        data = bytes(self.ffi.buffer(buf, length))
+        return int.from_bytes(data, self.endianness)
+
+    def _write_guest_reg(self, cpu, regnum, value):
+        """
+        Write a guest register by GDB core-feature register number. Returns
+        True on success, False if the QEMU library lacks the export or the
+        write fails.
+        """
+        write_reg = self._lib_symbol("penguin_write_guest_reg")
+        if write_reg is None or cpu is None or cpu == self.ffi.NULL:
+            return False
+        width = self.bits // 8
+        data = (int(value) & ((1 << self.bits) - 1)).to_bytes(width, self.endianness)
+        buf = self.ffi.new("uint8_t[]", data)
+        return write_reg(cpu, int(regnum), buf, width) == 0
+
+    def _record_callback_exception(self, exc):
+        """
+        Record a fatal error raised inside a guest callback and request
+        shutdown, mirroring PyPANDA's fail-fast behavior. The exception is
+        re-raised from run() once QEMU's main loop exits.
+        """
+        if self._pending_exception is None:
+            self._pending_exception = exc
+        self.end_analysis()
+
     def _set_current_retval(self, value):
         value = self.to_unsigned_guest(value)
         self._current_retval = value
@@ -698,7 +1064,9 @@ class QemuCompat:
         if fmt is None:
             return data
         if fmt == "int":
-            return int.from_bytes(data, self.endianness, signed=True)
+            # PyPANDA parity: fmt="int" decodes unsigned (pointers and
+            # addresses are read this way throughout the pyplugins).
+            return int.from_bytes(data, self.endianness, signed=False)
         if fmt == "uint":
             return int.from_bytes(data, self.endianness, signed=False)
         if fmt == "ptrlist":
@@ -772,6 +1140,10 @@ class QemuCompat:
                 bql_unlock()
             if replay_locked and replay_mutex_unlock:
                 replay_mutex_unlock()
+        if self._pending_exception is not None:
+            exc = self._pending_exception
+            self._pending_exception = None
+            raise exc
         return ret
 
 
