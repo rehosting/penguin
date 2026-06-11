@@ -1,6 +1,14 @@
 name: Test Container
 
 on:
+  # issue831 CI debug: this branch (issue831-ci-debug) is based on
+  # config-reshape-patches and conflicts with main, so a pull_request event
+  # can't build a merge ref and never runs CI. Trigger on direct pushes to the
+  # branch instead, which run against the branch head. Remove before merge.
+  push:
+    branches:
+      - issue831-ci-debug
+  workflow_dispatch:
   pull_request:
     branches:
       - main
