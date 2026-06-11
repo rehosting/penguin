@@ -15,8 +15,11 @@ global. The driver's sysctl mutation repoints ctl_table.data to our buffer
 but never writes through to the original .data target, so the global keeps
 the value the init script put there.
 
-No-op when core.shared_dir is unset -- there's nowhere to mirror dumps to,
-and the init script's hypercall won't fire either.
+Dormant when core.shared_dir is unset: the init script only fires the
+hypercall when SHARED_DIR is in the guest env. We subscribe unconditionally
+anyway so a stray core_pattern_lock (e.g. env.SHARED_DIR set by hand without
+core.shared_dir) is honored instead of tripping send_hypercall's
+"Unregistered send_hypercall command" error.
 """
 
 from penguin import Plugin, plugins
@@ -66,10 +69,6 @@ class CorePatternSysctl(SysctlFile):
 
 class CorePatternGuard(Plugin):
     def __init__(self):
-        conf = self.get_arg("conf") or {}
-        if not conf.get("core", {}).get("shared_dir"):
-            return
-
         self._registered = False
         plugins.send_hypercall.subscribe("core_pattern_lock", self._on_lock)
 
