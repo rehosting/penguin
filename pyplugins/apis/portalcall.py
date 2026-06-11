@@ -41,6 +41,11 @@ PORTAL_MAGIC = 0xc1d1e1f1
 PORTAL_MAGIC_64 = 0xffffffffc1d1e1f1
 PORTAL_MAGIC_MASK = 0xffffffff
 
+# Sentinel distinguishing "no handler registered" from a handler returning
+# None: with no handler we must let the guest's real syscall execute (and
+# fail loudly) instead of faking a successful return.
+_MISSING_HANDLER = object()
+
 
 class PortalCall(Plugin):
     """
@@ -69,6 +74,8 @@ class PortalCall(Plugin):
         if not self._is_portal_magic(magic):
             return
         result = yield from self._dispatch_portalcall(user_magic, argc, args)
+        if result is _MISSING_HANDLER:
+            return
         syscall.skip_syscall = True
         if isinstance(result, int):
             syscall.retval = result
@@ -83,10 +90,14 @@ class PortalCall(Plugin):
         handler = self._portalcall_registry.get(user_magic)
         if handler is None:
             if user_magic not in self._seen_missing_magics:
+                self.logger.error(
+                    f"No handler registered for user_magic {user_magic:#x}; "
+                    "letting the guest syscall run unhandled")
+                self._seen_missing_magics.add(user_magic)
+            else:
                 self.logger.debug(
                     f"No handler registered for user_magic {user_magic:#x}")
-                self._seen_missing_magics.add(user_magic)
-            return
+            return _MISSING_HANDLER
         fn_to_call = resolve_bound_method_from_class(handler)
         if handler != fn_to_call:
             self._portalcall_registry[user_magic] = fn_to_call
