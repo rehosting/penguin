@@ -178,6 +178,14 @@ class Events(Plugin):
                 else:
                     raise ValueError(f"Unknown argument type {arg}")
 
+            # Portalcalls arrive via a syscall hypercall on the vCPU thread,
+            # so the current CPU is valid here. Subscribers receive the same
+            # (cpu, *args) signature as on the hypercall delivery path.
+            cpu = self.panda.get_cpu()
+            if cpu == self.panda.ffi.NULL:
+                cpu = None
+            args[0] = cpu
+
             result = 0
             for cb in plugins.plugin_cbs[self][self.callbacks[magic]]:
                 if not hasattr(cb, '__self__') and hasattr(cb, '__qualname__') and '.' in cb.__qualname__:
