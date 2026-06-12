@@ -16,11 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import yaml
-import json
-import lzma
 
-from collections import defaultdict
 from pathlib import Path
 from penguin import getColoredLogger
 
@@ -30,9 +26,59 @@ from . import static_analyses as STATIC
 from .defaults import (
     default_version as DEFAULT_VERSION,
 )
+from .init_plugin import InitContext
+from .init_runner import InitPluginRunner
 from penguin.penguin_config import dump_config
 
 logger = getColoredLogger("penguin.gen_config")
+
+# Built-in init plugins, loaded explicitly (discovery via plugin_path comes
+# with the pyplugins/init migration). Execution is concurrent; the position of
+# each plugin's patch in the generated config's `patches:` list (and therefore
+# its override precedence) comes from its `order` attribute, not this list.
+BUILTIN_INIT_PLUGINS = [
+    # Analyses
+    STATIC.ArchId,
+    STATIC.InitFinder,
+    STATIC.EnvFinder,
+    STATIC.PseudofileFinder,
+    STATIC.InterfaceFinder,
+    STATIC.ClusterCollector,
+    STATIC.LibrarySymbols,
+    STATIC.KernelVersionFinder,
+    # Patchers
+    CP.BasePatch,
+    CP.RootShell,
+    CP.DynamicExploration,
+    CP.SingleShotFICD,
+    CP.ManualInteract,
+    CP.NetdevsDefault,
+    CP.NetdevsTailored,
+    CP.PseudofilesExpert,
+    CP.PseudofilesTailored,
+    CP.LibInjectSymlinks,
+    CP.LibInjectStringIntrospection,
+    CP.LibInjectTailoredAliases,
+    CP.LibInjectFixedAliases,
+    CP.ForceWWW,
+    CP.GenerateMissingDirs,
+    CP.GenerateReferencedDirs,
+    CP.GenerateShellMounts,
+    CP.GenerateMissingFiles,
+    CP.DeleteFiles,
+    CP.LinksysHack,
+    CP.KernelModules,
+    CP.ShimStopBins,
+    CP.ShimNoModules,
+    CP.ShimBusybox,
+    CP.ShimCrypto,
+    # CP.ShimFwEnv,  # untested, never registered
+    CP.NvramFirmAEFileSpecific,
+    CP.NvramDefaults,
+    CP.NvramConfigRecoveryWild,
+    CP.NvramConfigRecovery,
+    CP.NvramLibraryRecovery,
+]
 
 
 class ConfigBuilder:
@@ -42,7 +88,7 @@ class ConfigBuilder:
     '''
     PATCH_DIR: str = "static_patches"
 
-    def __init__(self, fs_archive: str, output_dir: str | Path) -> None:
+    def __init__(self, fs_archive: str, output_dir: str | Path, jobs: int | None = None) -> None:
         # Create a 'base' directory for analysis results, copy fs into it
         base_dir = Path(output_dir, "base")
         base_dir.mkdir(exist_ok=True, parents=True)
@@ -63,14 +109,20 @@ class ConfigBuilder:
             ["find", str(extracted_fs), "-type", "d", "-exec", "chmod", "u+rx", "{}", "+"])
 
         try:
-            # First run static analyses and produce info about the filesystem
-            # This informs how we generate configs (e.g., what's the arch, what's the init prog)
-            # and also subsequent analyses after a run (i.e., guiding refinement)
-            static_results = self.run_static_analyses(output_dir, extracted_fs)
-
-            # TODO: Is there a better way to manage order of patches?
-            patches = self.create_patches(archive_fs, static_results, extracted_fs)
-            self.render_patches(output_dir, patches)
+            # Run the init plugins: static analyses inform config generation
+            # (e.g., what's the arch, what's the init prog) and subsequent
+            # analyses after a run (i.e., guiding refinement); patch plugins
+            # produce the config patches.
+            ctx = InitContext(
+                fs_archive=archive_fs,
+                extracted_fs=extracted_fs,
+                proj_dir=output_dir,
+                static_dir=Path(output_dir, "static"),
+                patch_dir=Path(output_dir, self.PATCH_DIR),
+            )
+            runner = InitPluginRunner(BUILTIN_INIT_PLUGINS, ctx, jobs=jobs)
+            patches = runner.run()
+            runner.render_patches(patches)
 
             # Generate our base config including our list of patches
             config = self.generate_initial_config(patches)
@@ -81,103 +133,6 @@ class ConfigBuilder:
         finally:
             # Always clean up extracted filesystem
             shutil.rmtree(extracted_fs)
-
-    def run_static_analyses(
-        self,
-        output_dir: str | Path,
-        extracted_dir: str | Path,
-        static_dir_name: str = "static"
-    ) -> dict:
-        '''
-        Run static analysis on the extracted filesystem and write results to output_dir/static.
-
-        :param output_dir: Output directory for results.
-        :type output_dir: str or Path
-        :param extracted_dir: Directory containing extracted filesystem.
-        :type extracted_dir: str or Path
-        :param static_dir_name: Name of static results subdirectory.
-        :type static_dir_name: str
-        :return: Dictionary of static analysis results.
-        :rtype: dict
-        '''
-        results_dir = Path(output_dir, static_dir_name)
-        results_dir.mkdir(exist_ok=True, parents=True)
-
-        # Collect a list of all files in advance so we don't regenerate
-        # archive_files = TarHelper.get_all_members(fs_archive)
-
-        # Ordered list of static analyses to run (from static_analyses.py)
-        # Each has an init method that can return results
-        # If any raises an exception, it will be fatal to config generation and shown
-        # to a user
-        static_analyses = [
-            STATIC.ArchId,
-            STATIC.InitFinder,
-            STATIC.EnvFinder,
-            STATIC.PseudofileFinder,
-            STATIC.InterfaceFinder,
-            STATIC.ClusterCollector,
-            STATIC.LibrarySymbols,
-            STATIC.KernelVersionFinder,
-        ]
-
-        USE_JSON_XZ = [
-            STATIC.LibrarySymbols
-        ]
-
-        results = {}
-        for analysis in static_analyses:
-            # Call each analysis and store results
-            this_result = analysis().run(extracted_dir, results)
-            results[analysis.__name__] = this_result
-
-            # If we have results, store on disk. Always store in results dict, even if empty
-            if this_result:
-                if analysis in USE_JSON_XZ:
-                    with lzma.open(results_dir / f"{analysis.__name__}.json.xz", "wt", encoding="utf-8") as f:
-                        json.dump(this_result, f)
-                else:
-                    with open(results_dir / f"{analysis.__name__}.yaml", "w") as f:
-                        yaml.dump(this_result, f)
-
-        return results
-
-    def render_patches(self, output_dir: str | Path, patches: dict) -> None:
-        '''
-        Given a dictionary of patches, render them into output_dir / patches.
-
-        :param output_dir: Output directory.
-        :type output_dir: str or Path
-        :param patches: Dictionary of patches.
-        :type patches: dict
-        '''
-        patch_dir = Path(output_dir, self.PATCH_DIR)
-
-        # Now render patches
-        # Ensure patch_dir exists
-        patch_dir.mkdir(exist_ok=True, parents=True)
-
-        def _convert_to_dict(data):
-            # Recursively convert defaultdict to dict so we can yaml-ize it
-            if isinstance(data, defaultdict):
-                return {k: _convert_to_dict(v) for k, v in data.items()}
-            elif isinstance(data, dict):
-                return {k: _convert_to_dict(v) for k, v in data.items()}
-            return data
-
-        for name, (default_dict_data, _) in patches.items():
-            data = _convert_to_dict(default_dict_data)
-
-            # If there's no data, skip the patch entirely
-            if isinstance(data, dict):
-                if not data or all(not v for v in data.values()):
-                    continue
-            elif isinstance(data, list):
-                if not len(data):
-                    continue
-
-            with open(patch_dir / f"{name}.yaml", "w") as f:
-                yaml.dump(data, f, default_flow_style=False)
 
     def generate_initial_config(self, patches: dict) -> dict:
         '''
@@ -214,76 +169,6 @@ class ConfigBuilder:
             "plugins": {},
             "nvram": {},
         }
-
-    def create_patches(
-        self,
-        fs_archive: str | Path,
-        static_results: dict,
-        extract_dir: str | Path
-    ) -> dict:
-        """
-        Generate a patch that ensures we have all directories in a fixed list.
-
-        :param fs_archive: Path to filesystem archive.
-        :type fs_archive: str or Path
-        :param static_results: Static analysis results.
-        :type static_results: dict
-        :param extract_dir: Directory containing extracted filesystem.
-        :type extract_dir: str or Path
-        :return: Dictionary of generated patches.
-        :rtype: dict
-        """
-
-        # Collect a list of all files in advance so we don't regenerate
-        archive_files = CP.TarHelper.get_all_members(fs_archive)
-
-        # Instantiate and apply patch generators
-        # Later patches will override earlier ones
-        patch_generators = [
-            CP.BasePatch(static_results['ArchId'], static_results['InitFinder'], static_results['KernelVersionFinder']),
-            CP.RootShell(),
-            CP.DynamicExploration(),
-            CP.SingleShotFICD(),
-            CP.ManualInteract(),
-            CP.NetdevsDefault(),
-            CP.NetdevsTailored(static_results['InterfaceFinder']),
-            CP.PseudofilesExpert(),
-            CP.PseudofilesTailored(static_results['PseudofileFinder']),
-            CP.LibInjectSymlinks(extract_dir),
-            CP.LibInjectStringIntrospection(static_results['LibrarySymbols']),
-            CP.LibInjectTailoredAliases(static_results['LibrarySymbols']),
-            CP.LibInjectFixedAliases(),
-            CP.ForceWWW(extract_dir),
-            CP.GenerateMissingDirs(fs_archive, archive_files),
-            CP.GenerateReferencedDirs(extract_dir),
-            CP.GenerateShellMounts(extract_dir, archive_files),
-            CP.GenerateMissingFiles(extract_dir),
-            CP.DeleteFiles(extract_dir),
-            CP.LinksysHack(extract_dir),
-            CP.KernelModules(extract_dir, static_results['KernelVersionFinder']),
-            CP.ShimStopBins(archive_files),
-            CP.ShimNoModules(archive_files),
-            CP.ShimBusybox(archive_files),
-            CP.ShimCrypto(archive_files),
-            # ShimFwEnv(archive_files),
-            CP.NvramFirmAEFileSpecific(extract_dir),
-            CP.NvramDefaults(),
-            CP.NvramConfigRecoveryWild(extract_dir),
-            CP.NvramConfigRecovery(extract_dir),
-            CP.NvramLibraryRecovery(static_results['LibrarySymbols']),
-        ]
-
-        # collect patches in patches[patchfile_name] -> {section -> {key -> value}}
-        patches = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
-
-        for generator in patch_generators:
-            if result := generator.generate(patches):
-                if len(result):
-                    patches[generator.patch_name] = (result, generator.enabled)
-                    if not generator.enabled:
-                        logger.info(f"{generator.patch_name} patch generated but disabled")
-
-        return patches
 
 
 def initialize_and_build_config(

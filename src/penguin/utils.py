@@ -492,7 +492,7 @@ def get_kernel(conf: dict, proj_dir: str) -> str:
             if kernel is None:
                 try:
                     logger.info("Multiple kernels found, trying to suggest one using static analysis")
-                    from .static_analyses import KernelVersionFinder
+                    from .static_analyses import find_kernel_versions
                     fs_path = os.path.join(proj_dir, conf["core"].get("fs"))
                     if fs_path and os.path.exists(fs_path):
                         # Extract filesystem to temporary location and analyze
@@ -501,8 +501,7 @@ def get_kernel(conf: dict, proj_dir: str) -> str:
                         with tempfile.TemporaryDirectory() as temp_dir:
                             with tarfile.open(fs_path, 'r:*') as tar:
                                 tar.extractall(temp_dir)
-                            finder = KernelVersionFinder()
-                            result = finder.run(temp_dir, {})
+                            result = find_kernel_versions(temp_dir)
                             if result and result.get("selected_kernel"):
                                 suggested_version = result["selected_kernel"]
                                 # Find matching kernel from available options
