@@ -453,11 +453,17 @@ def test_arch_dir_template_resolves_in_patch():
 
 
 def test_generated_base_patch_emits_arch_templates():
-    # The BasePatch generator should emit Jinja placeholders (not baked subdirs)
-    # for the arch-specific host_paths, so load-time templating resolves them.
+    # The BasePatch init plugin should emit Jinja placeholders (not baked
+    # subdirs) for the arch-specific host_paths, so load-time templating
+    # resolves them. (BasePatch now lives as an init plugin.)
     import inspect
-    from penguin import config_patchers
-    src = inspect.getsource(config_patchers.BasePatch.generate)
+    from pathlib import Path
+    from penguin.plugin_manager import _import_plugin_classes
+    repo_root = Path(__file__).resolve().parents[2]
+    base_patch = dict(
+        _import_plugin_classes(str(repo_root / "pyplugins/init/base_patch.py"))
+    )["BasePatch"]
+    src = inspect.getsource(base_patch.patch)
     assert "{{ dylib_dir }}" in src
     assert "{{ arch_dir }}" in src
 

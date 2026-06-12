@@ -205,3 +205,16 @@ class ProcessSubscriber(Plugin):
     def process_created(self, *args):
         print(f"New process created with args: {args}")
 ```
+## Init plugins
+
+A second family of pyplugins runs at `penguin init` time (and not during
+emulation): **init plugins**, subclasses of `penguin.init_plugin.InitPlugin`.
+They analyze the extracted root filesystem and generate the project's initial
+config and `static_patches/`. They use the same plugin manager and
+inter-plugin access as runtime plugins, but run with `panda = None`, are
+discovered automatically (built-ins from `<plugin_path>/init/`, project-local
+plugins from `<project>/plugins.d/`, plus `penguin init --init-plugin-path`
+directories), and execute concurrently. Shared analyses are exposed as
+`@cached_analysis` attributes that compute once on first access.
+
+See `pyplugins/init/README.md` for the full authoring guide.
