@@ -68,7 +68,9 @@ class NvramConfigRecoveryWild(InitPlugin):
     order = 280
 
     def patch(self, ctx: InitContext) -> dict | None:
-        result = NvramHelper.nvram_config_analysis(str(ctx.extracted_fs), False)
+        result = NvramHelper.nvram_config_analysis(
+            str(ctx.extracted_fs), False, index=ctx.file_index
+        )
         if len(result):
             return {'nvram': result}
 

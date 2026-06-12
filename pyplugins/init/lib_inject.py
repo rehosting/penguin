@@ -35,11 +35,10 @@ class LibInjectSymlinks(InitPlugin):
         libc_paths = []
         result = defaultdict(dict)
 
-        # Walk through the filesystem root to find all "libc.so" files
-        for root, dirs, files in os.walk(self.filesystem_root_path):
-            for filename in files:
-                if filename.startswith("libc.so"):
-                    libc_paths.append(Path(os.path.join(root, filename)))
+        # Find all "libc.so" files in the shared file index
+        for entry in ctx.file_index.entries:
+            if entry.name.startswith("libc.so"):
+                libc_paths.append(Path(entry.path))
 
         # Iterate over the found libc.so files to generate symlinks based on ABI
         for p in libc_paths:

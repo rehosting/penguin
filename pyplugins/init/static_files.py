@@ -159,7 +159,8 @@ class GenerateReferencedDirs(InitPlugin):
     def patch(self, ctx: InitContext) -> dict:
         result = defaultdict(dict)
         for f in FileHelper.find_executables(
-            str(ctx.extracted_fs), {"/bin", "/sbin", "/usr/bin", "/usr/sbin"}
+            str(ctx.extracted_fs), {"/bin", "/sbin", "/usr/bin", "/usr/sbin"},
+            index=ctx.file_index,
         ):
             # For things that look like binaries, find unique strings that look like paths
             for dest in list(
@@ -190,7 +191,7 @@ class GenerateShellMounts(InitPlugin):
         patches = ctx.patches_snapshot()
         result = defaultdict(dict)
 
-        for f in FileHelper.find_shell_scripts(self.extract_dir):
+        for f in FileHelper.find_shell_scripts(self.extract_dir, index=ctx.file_index):
             for dest in list(
                 set(FileHelper.find_strings_in_file(f, "^/mnt/[a-zA-Z0-9._/]+$"))
             ):

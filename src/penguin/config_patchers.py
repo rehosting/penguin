@@ -77,23 +77,14 @@ class TarHelper:
 
 class FileHelper:
     @staticmethod
-    def find_executables(tmp_dir: str, target_dirs: set[str] | None = None):
+    def find_executables(tmp_dir: str, target_dirs: set[str] | None = None, index=None):
+        """Executable files outside /igloo whose path ends with one of
+        target_dirs. Pass an InitContext.file_index to avoid re-walking."""
         if not target_dirs:
             target_dirs = {"/"}
-        for root, _, files in os.walk(tmp_dir):
-            # Exclude the '/igloo' path
-            if "/igloo" in root:
-                continue
-
-            for file in files:
-                file_path = Path(root) / file
-                # Check if the file is executable and in one of the target directories
-                if (
-                    file_path.is_file()
-                    and os.access(file_path, os.X_OK)
-                    and any(str(file_path).endswith(d) for d in target_dirs)
-                ):
-                    yield file_path
+        for file_path in FileHelper._iter_executables(tmp_dir, index):
+            if any(str(file_path).endswith(d) for d in target_dirs):
+                yield file_path
 
     @staticmethod
     def find_strings_in_file(file_path: str, pattern: str) -> list[str]:
@@ -101,7 +92,23 @@ class FileHelper:
         return [line for line in result.stdout.splitlines() if re.search(pattern, line)]
 
     @staticmethod
-    def find_shell_scripts(tmp_dir: str):
+    def find_shell_scripts(tmp_dir: str, index=None):
+        """Executable *.sh files outside /igloo. Pass an
+        InitContext.file_index to avoid re-walking."""
+        for file_path in FileHelper._iter_executables(tmp_dir, index):
+            if str(file_path).endswith(".sh"):
+                yield file_path
+
+    @staticmethod
+    def _iter_executables(tmp_dir: str, index=None):
+        if index is not None:
+            for e in index.entries:
+                # Exclude the '/igloo' path
+                if "/igloo" in os.path.dirname(e.path):
+                    continue
+                if e.is_file and e.executable:
+                    yield Path(e.path)
+            return
         for root, _, files in os.walk(tmp_dir):
             # Exclude the '/igloo' path
             if "/igloo" in root:
@@ -109,12 +116,7 @@ class FileHelper:
 
             for file in files:
                 file_path = Path(root) / file
-                # Check if the file is executable and in one of the target directories
-                if (
-                    file_path.is_file()
-                    and os.access(file_path, os.X_OK)
-                    and str(file_path).endswith(".sh")
-                ):
+                if file_path.is_file() and os.access(file_path, os.X_OK):
                     yield file_path
 
     @staticmethod
@@ -274,12 +276,13 @@ class NvramHelper:
             return {}
 
     @staticmethod
-    def nvram_config_analysis(fs_path: str, full_path: bool = True) -> dict[str, str]:
+    def nvram_config_analysis(fs_path: str, full_path: bool = True, index=None) -> dict[str, str]:
         # Nvram source 2: standard nvram paths with plaintext data
         # If we have a hit, we combine with any existing values
         # These are notionally sorted - if an earlier path provides a value, we won't clobber
         # but we will consume keys from all paths that we can find and parse
         # If full_path, we check the whole path, otherwise just the basename
+        # Pass an InitContext.file_index to avoid re-walking in basename mode
         nvram_paths = [
             "./var/etc/nvram.default",
             "./etc/nvram.default",
@@ -315,21 +318,27 @@ class NvramHelper:
                             path_nvrams[k.decode()] = v.decode()
         else:
             # Check every file to see if it has a matching basename
-            for root, _, files in os.walk(fs_path):
-                for file in files:
-                    abs_path = os.path.join(root, file)
-                    rel_path = "./" + os.path.relpath(abs_path, fs_path)
+            if index is not None:
+                candidates = ((e.path, e.name) for e in index.entries)
+            else:
+                candidates = (
+                    (os.path.join(root, file), file)
+                    for root, _, files in os.walk(fs_path)
+                    for file in files
+                )
+            for abs_path, file in candidates:
+                rel_path = "./" + os.path.relpath(abs_path, fs_path)
 
-                    if rel_path in nvram_paths:
-                        # Exact match - we already checked this
-                        continue
+                if rel_path in nvram_paths:
+                    # Exact match - we already checked this
+                    continue
 
-                    if any(file == fname for fname in nvram_basenames):
-                        # Found a matching basename, parse the file
-                        with open(abs_path, "rb") as f:
-                            result = NvramHelper.parse_nvram_file(rel_path, f)
-                            for k, v in result.items():
-                                path_nvrams[k.decode()] = v.decode()
+                if any(file == fname for fname in nvram_basenames):
+                    # Found a matching basename, parse the file
+                    with open(abs_path, "rb") as f:
+                        result = NvramHelper.parse_nvram_file(rel_path, f)
+                        for k, v in result.items():
+                            path_nvrams[k.decode()] = v.decode()
 
         return path_nvrams
 

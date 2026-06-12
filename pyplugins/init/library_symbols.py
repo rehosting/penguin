@@ -7,6 +7,7 @@ import struct
 import subprocess
 import tempfile
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from subprocess import check_output, CalledProcessError, STDOUT
 
@@ -48,27 +49,37 @@ class LibrarySymbols(InitPlugin):
         nvram = {}
         sym_paths = {}  # path -> symbol names
 
-        # Now let's examine each extracted library
-        for root, _, files in os.walk(self.extract_dir):
-            for file in files:
-                file_path = Path(root) / file
-                if file_path.is_file() and \
-                        (str(file_path).endswith(".so") or ".so." in str(file_path)):
-                    try:
-                        found_nvram, found_syms = self._analyze_library(file_path,
-                                                                        self.archend)
-                    except Exception as e:
-                        logger.error(
-                            f"Unhandled exception in _analyze_library for {file_path}: {e}"
-                        )
-                        continue
-                    tmpless_path = str(file_path).replace(str(self.extract_dir), "")
-                    sym_paths[tmpless_path] = found_syms
-                    for symname, offset in found_syms.items():
-                        symbols[(tmpless_path, symname)] = offset
-                    for key, value in found_nvram.items():
-                        nvram_key = key.rsplit(":", 1)[-1]  # Handle case of value coming from ar
-                        nvram[(tmpless_path, nvram_key)] = value
+        # Now let's examine each extracted library (from the shared file
+        # index). Libraries analyze concurrently - the heavy lifting is nm
+        # subprocesses and ELF parsing - while results merge in input order so
+        # output stays deterministic.
+        candidates = [
+            Path(entry.path)
+            for entry in self.ctx.file_index.entries
+            if entry.is_file and (entry.path.endswith(".so") or ".so." in entry.path)
+        ]
+
+        def analyze(file_path):
+            try:
+                return self._analyze_library(file_path, self.archend)
+            except Exception as e:  # noqa: BLE001 - one bad lib shouldn't kill the scan
+                logger.error(
+                    f"Unhandled exception in _analyze_library for {file_path}: {e}"
+                )
+                return None
+
+        with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 4)) as pool:
+            for file_path, analyzed in zip(candidates, pool.map(analyze, candidates)):
+                if analyzed is None:
+                    continue
+                found_nvram, found_syms = analyzed
+                tmpless_path = str(file_path).replace(str(self.extract_dir), "")
+                sym_paths[tmpless_path] = found_syms
+                for symname, offset in found_syms.items():
+                    symbols[(tmpless_path, symname)] = offset
+                for key, value in found_nvram.items():
+                    nvram_key = key.rsplit(":", 1)[-1]  # Handle case of value coming from ar
+                    nvram[(tmpless_path, nvram_key)] = value
 
         # Raw data will be library path -> key -> value
         nvram_values = {}
