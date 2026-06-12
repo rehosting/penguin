@@ -1,0 +1,65 @@
+# Exercises NetBinds' socket lifecycle tracking: debounce, flap detection, the
+# transient label, and close finalization. A large debounce_period means every
+# quick re-bind during the run lands inside the window and is counted as a flap
+# (independent of emulation speed), and a low transient_threshold makes two
+# flaps enough to mark a service transient.
+plugins:
+  netbinds:
+    debounce_period: 3600
+    transient_threshold: 2
+  verifier:
+    conditions:
+      # Re-binding 8401 within the debounce window is recorded as a flap.
+      netbinds_lifecycle+flap:
+        type: file_contains
+        file: netbind_events.csv
+        strings:
+          - "flap,"
+          - ",8401,"
+      # Two flaps cross transient_threshold and emit a transient event.
+      netbinds_lifecycle+transient:
+        type: file_contains
+        file: netbind_events.csv
+        strings:
+          - "transient,"
+          - ",8401,"
+      # The cleanly-closed 8402 listener is finalized as closed at unload.
+      netbinds_lifecycle+closed:
+        type: file_contains
+        file: netbinds_lifecycle.csv
+        strings:
+          - ",8402,"
+          - "closed"
+static_files:
+  # A single process drives the lifecycle by explicitly binding/listening and
+  # closing sockets, so each close() reliably emits a release hypercall and the
+  # next bind() re-binds immediately. This is deterministic regardless of
+  # emulation speed -- unlike killing a background daemon, where the port may
+  # not be released before the next bind ("Address in use"). listen() puts the
+  # socket in TCP_LISTEN so the release fires even with a listener-only guard.
+  /tests/netbinds_lifecycle.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/micropython
+      import usocket as socket
+
+      def cycle(port, times):
+          for _ in range(times):
+              s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+              try:
+                  s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+              except Exception:
+                  pass
+              ai = socket.getaddrinfo("0.0.0.0", port, 0, socket.SOCK_STREAM)[0]
+              s.bind(ai[-1])
+              s.listen(1)
+              s.close()
+
+      # Flapping service: bind/close 8401 three times. With the large
+      # debounce_period each re-bind lands inside the window and is a flap;
+      # reaching transient_threshold (2) marks the service transient.
+      cycle(8401, 3)
+
+      # Cleanly-closed service: bind 8402 once, then close it for good.
+      cycle(8402, 1)
+    mode: 73

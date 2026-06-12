@@ -27,6 +27,7 @@ patches:
   - ./patches/tests/portalcall.yaml
   - ./patches/tests/net_missing.yaml
   - ./patches/tests/netbinds.yaml
+  - ./patches/tests/netbinds_lifecycle.yaml
   - ./patches/tests/netdevs.yaml
   - ./patches/tests/netdev_auto_register.yaml
   - ./patches/tests/netdev_names.yaml
