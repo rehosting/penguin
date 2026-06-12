@@ -26,12 +26,14 @@ class InitFinder(InitPlugin):
         filesystem_root_path = str(self.ctx.extracted_fs)
         inits = []
 
-        # Walk through the filesystem root and find potential init scripts.
-        for root, dirs, files in os.walk(filesystem_root_path):
-            for filename in files:
-                filepath = os.path.join(root, filename)
-                if self._is_init_script(filepath, filesystem_root_path):
-                    inits.append("/" + os.path.relpath(filepath, filesystem_root_path))
+        # Find potential init scripts among the indexed files. Cheap name
+        # prefilter (superset of _is_init_script's name conditions) so we only
+        # stat the few candidates.
+        for entry in self.ctx.file_index.entries:
+            if not any(x in entry.name for x in ("init", "start", "rcS")):
+                continue
+            if self._is_init_script(entry.path, filesystem_root_path):
+                inits.append(entry.rel)
 
         # Sort inits by length, shortest to longest.
         inits.sort(key=lambda x: len(x))

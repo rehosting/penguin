@@ -2,8 +2,6 @@
 Collect summary statistics for the filesystem to help identify clusters.
 """
 
-import os
-
 from subprocess import check_output, CalledProcessError, STDOUT
 
 from penguin import getColoredLogger
@@ -23,26 +21,21 @@ class ClusterCollector(InitPlugin):
 
         :return: Dict with lists of files, executables, and hashes.
         """
-        extract_dir = str(self.ctx.extracted_fs)
-
         # Collect the basename + hash of every executable file in the system
         all_files = set()
         executables = set()
         executable_hashes = set()
 
-        for root, _, files in os.walk(extract_dir):
-            for f in files:
-                file_path = os.path.join(root, f)
+        for entry in self.ctx.file_index.entries:
+            if entry.is_file:
+                all_files.add(entry.name)
 
-                if os.path.isfile(file_path):
-                    all_files.add(os.path.basename(f))
+            if entry.is_file and entry.executable:
+                executables.add(entry.name)
 
-                if os.path.isfile(file_path) and os.access(file_path, os.X_OK):
-                    executables.add(os.path.basename(f))
-
-                    hash_value = self.compute_file_hash(file_path)
-                    if hash_value:
-                        executable_hashes.add(hash_value)
+                hash_value = self.compute_file_hash(entry.path)
+                if hash_value:
+                    executable_hashes.add(hash_value)
 
         return {
             'files': list(all_files),

@@ -252,7 +252,19 @@ class InitPluginRunner:
         ordered = {k: (v[0], v[1]) for k, v in ordered.items()}
 
         self._write_manifest()
+        self._log_timings()
         return ordered
+
+    def _log_timings(self) -> None:
+        """Per-plugin durations, slowest first (visible with --verbose)."""
+        timed = sorted(
+            ((e.get("duration", 0), name) for name, e in self.manifest.items()),
+            reverse=True,
+        )
+        total = sum(d for d, _ in timed)
+        logger.debug(f"init plugin durations (sum {total:.2f}s of work):")
+        for duration, name in timed:
+            logger.debug(f"  {duration:8.3f}s  {name}")
 
     def _collect_patches(self, plugins_run, results) -> Dict[str, tuple]:
         """Build {patch_name: (data, enabled, order)} from main-phase results,

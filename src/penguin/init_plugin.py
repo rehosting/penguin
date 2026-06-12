@@ -29,7 +29,7 @@ import os
 import tarfile
 import threading
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Optional
+from typing import Any, ClassVar, Dict, NamedTuple, Optional
 
 from .plugin_manager import Plugin
 
@@ -153,6 +153,49 @@ class cached_analysis:
         return state.value
 
 
+class FileEntry(NamedTuple):
+    """One file from the extracted filesystem, as seen by os.walk."""
+
+    path: str        # absolute path in the extracted tree
+    rel: str         # path relative to the fs root, with a leading /
+    name: str        # basename
+    is_file: bool    # regular file (after following symlinks)
+    is_symlink: bool
+    executable: bool
+
+
+class FileIndex:
+    """
+    A single os.walk pass over the extracted filesystem, shared by all init
+    plugins via ``ctx.file_index`` so each doesn't re-walk (and re-stat) the
+    whole tree. Semantics match the walks it replaces: only file entries (no
+    directories), symlinks not followed into.
+    """
+
+    def __init__(self, root: str | Path) -> None:
+        self.root = str(root)
+        entries = []
+        for r, _dirs, files in os.walk(self.root):
+            for fn in files:
+                p = os.path.join(r, fn)
+                entries.append(FileEntry(
+                    path=p,
+                    rel="/" + os.path.relpath(p, self.root),
+                    name=fn,
+                    is_file=os.path.isfile(p),
+                    is_symlink=os.path.islink(p),
+                    executable=os.access(p, os.X_OK),
+                ))
+        self.entries = entries
+
+    def files(self):
+        """Regular files (symlink targets resolved)."""
+        return (e for e in self.entries if e.is_file)
+
+    def executables(self):
+        return (e for e in self.entries if e.is_file and e.executable)
+
+
 class InitContext:
     """
     Shared, read-mostly context handed to every init plugin.
@@ -184,6 +227,8 @@ class InitContext:
 
         self._archive_files = None
         self._archive_lock = threading.Lock()
+        self._file_index: Optional[FileIndex] = None
+        self._file_index_lock = threading.Lock()
         self._patches: Optional[Dict[str, tuple]] = None
 
     @property
@@ -194,6 +239,14 @@ class InitContext:
                 with tarfile.open(self.fs_archive) as tar:
                     self._archive_files = tar.getmembers()
             return self._archive_files
+
+    @property
+    def file_index(self) -> FileIndex:
+        """A shared one-pass :class:`FileIndex` over :attr:`extracted_fs`."""
+        with self._file_index_lock:
+            if self._file_index is None:
+                self._file_index = FileIndex(self.extracted_fs)
+            return self._file_index
 
     def patches_snapshot(self) -> Dict[str, tuple]:
         """

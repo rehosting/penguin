@@ -35,30 +35,29 @@ class ArchId(InitPlugin):
         extracted_fs = str(self.ctx.extracted_fs)
 
         arch_counts = {32: Counter(), 64: Counter(), "unknown": 0}
-        for root, _, files in os.walk(extracted_fs):
-            for file_name in files:
-                path = os.path.join(root, file_name)
+        for entry in self.ctx.file_index.entries:
+            path = entry.path
 
-                if (
-                    os.path.isfile(path)
-                    and not os.path.islink(path)
-                    and self._binary_filter(extracted_fs, path)
-                ):
-                    logger.debug(f"Checking architecture in {path}")
-                    with open(path, "rb") as f:
-                        if f.read(4) != b"\x7fELF":
-                            continue
-                        f.seek(0)
-                        try:
-                            ef = ELFFile(f)
-                        except ELFError as e:
-                            logger.warning(f"Failed to parse ELF file {path}: {e}. Ignoring")
-                            continue
-                        info = arch_filter(ef)
-                    if info.bits is None or info.arch is None:
-                        arch_counts["unknown"] += 1
-                    else:
-                        arch_counts[info.bits][info.arch] += 1
+            if (
+                entry.is_file
+                and not entry.is_symlink
+                and self._binary_filter(extracted_fs, path)
+            ):
+                logger.debug(f"Checking architecture in {path}")
+                with open(path, "rb") as f:
+                    if f.read(4) != b"\x7fELF":
+                        continue
+                    f.seek(0)
+                    try:
+                        ef = ELFFile(f)
+                    except ELFError as e:
+                        logger.warning(f"Failed to parse ELF file {path}: {e}. Ignoring")
+                        continue
+                    info = arch_filter(ef)
+                if info.bits is None or info.arch is None:
+                    arch_counts["unknown"] += 1
+                else:
+                    arch_counts[info.bits][info.arch] += 1
 
         # If there is at least one intel and non-intel arch,
         # filter out all the intel ones.
