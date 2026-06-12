@@ -45,7 +45,6 @@ Key attributes (all optional):
 | `patch_name` | `None` | Set to produce a patch file. |
 | `order` | `1000` | Position in the config's `patches:` list. Later patches override earlier ones; built-ins use 10–990, so user plugins override built-ins by default. |
 | `enabled` | `True` | If `False` (settable per-instance, e.g. in `patch()`), the patch file is written but left out of the config's `patches:` list. |
-| `fatal` | `False` | If `True`, an exception aborts config generation entirely. |
 | `consumes_patches` | `False` | Run after all other patchers, with `ctx.patches_snapshot()` available. |
 | `serializer` | `"yaml"` | `"json_xz"` to persist `static_result()` compressed. |
 
@@ -69,8 +68,10 @@ In precedence order (later shadows earlier, by class name):
 `penguin init --disable NAME` skips a plugin entirely; `--enable NAME`
 force-enables a disabled-by-default patch (e.g. `--enable root_shell`).
 Per-plugin results, timings, and failures are recorded in
-`static/manifest.yaml`. A failing plugin is skipped with a warning (unless
-`fatal`); a failing analysis fails every plugin that consumes it.
+`static/manifest.yaml`. **No plugin failure stops init**: a failing plugin is
+logged and skipped, a failing analysis fails every plugin that consumes it,
+and a summary of failures is printed at the end — config generation always
+completes with whatever succeeded.
 
 ## Constraints
 

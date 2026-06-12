@@ -18,10 +18,11 @@ Execution model:
   independent of execution timing, because later patches override earlier ones
   when the config is loaded.
 
-Failure model: an exception from a ``fatal`` plugin (or one of its analyses)
-aborts the run by re-raising it (``penguin.gen_config.main`` turns that into
-the project's ``result`` file). Non-fatal failures are logged, recorded in
-``static/manifest.yaml``, and the run continues without that plugin's patch.
+Failure model: no individual plugin failure stops config generation. An
+exception is logged, recorded in ``static/manifest.yaml``, and the run
+continues without that plugin's outputs; a failed cached analysis fails every
+plugin that consumes it (each recorded the same way). A summary of failures is
+logged at the end of the run.
 """
 
 from __future__ import annotations
@@ -217,19 +218,11 @@ class InitPluginRunner:
         )
 
         results: Dict[str, dict] = {}  # plugin name -> {"patch": ..., "static": ...}
-        fatal_exc: Optional[BaseException] = None
 
         with ThreadPoolExecutor(max_workers=self.jobs) as pool:
             futures = {pool.submit(self._run_plugin, p): p for p in main_phase}
             for fut, plugin in futures.items():
-                outcome = fut.result()  # _run_plugin never raises
-                results[plugin.name] = outcome
-                if outcome.get("error") is not None and plugin.fatal:
-                    fatal_exc = fatal_exc or outcome["error"]
-
-        if fatal_exc is not None:
-            self._write_manifest()
-            raise fatal_exc
+                results[plugin.name] = fut.result()  # _run_plugin never raises
 
         patches = self._collect_patches(main_phase, results)
 
@@ -238,9 +231,6 @@ class InitPluginRunner:
         for plugin in post_phase:
             outcome = self._run_plugin(plugin)
             results[plugin.name] = outcome
-            if outcome.get("error") is not None and plugin.fatal:
-                self._write_manifest()
-                raise outcome["error"]
             self._merge_patch(patches, plugin, outcome)
         self.ctx._patches = None
 
@@ -252,8 +242,20 @@ class InitPluginRunner:
         ordered = {k: (v[0], v[1]) for k, v in ordered.items()}
 
         self._write_manifest()
+        self._log_failures()
         self._log_timings()
         return ordered
+
+    def _log_failures(self) -> None:
+        """One prominent end-of-run summary; details live in the manifest."""
+        failed = sorted(
+            name for name, e in self.manifest.items() if e.get("status") == "failed"
+        )
+        if failed:
+            logger.error(
+                f"{len(failed)} init plugin(s) failed and were skipped: "
+                f"{', '.join(failed)} (details in static/{MANIFEST_NAME})"
+            )
 
     def _log_timings(self) -> None:
         """Per-plugin durations, slowest first (visible with --verbose)."""
@@ -301,14 +303,11 @@ class InitPluginRunner:
             if outcome["static"]:
                 entry["static_file"] = self._persist_static(plugin, outcome["static"])
             outcome["patch"] = plugin.patch(self.ctx)
-        except Exception as e:  # noqa: BLE001 - recorded per-plugin
+        except Exception as e:  # noqa: BLE001 - no plugin failure stops init
             outcome["error"] = e
             entry["status"] = "failed"
             entry["error"] = f"{type(e).__name__}: {e}"
-            if plugin.fatal:
-                logger.error(f"init plugin {plugin.name} failed fatally: {e}")
-            else:
-                logger.warning(f"init plugin {plugin.name} failed (skipped): {e}")
+            logger.error(f"init plugin {plugin.name} failed (continuing without it): {e}")
         finally:
             entry["duration"] = round(time.monotonic() - start, 4)
             entry["enabled"] = plugin.enabled

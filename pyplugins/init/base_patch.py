@@ -28,7 +28,9 @@ class BasePatch(InitPlugin):
 
     patch_name = "base"
     order = 10
-    fatal = True  # unsupported architecture -> config generation cannot proceed
+    # On unsupported/undetermined architecture this patch fails and is
+    # skipped; init still completes and the resulting config needs core.arch
+    # and core.kernel filled in manually before it can run.
 
     def set_arch_info(self, arch_identified: str) -> None:
         '''

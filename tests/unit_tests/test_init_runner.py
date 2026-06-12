@@ -1,7 +1,8 @@
 """
 Unit tests for the init plugin engine (penguin.init_plugin / penguin.init_runner):
-compute-once cached analyses, cycle detection, fatal-abort semantics, the
-consumes_patches post phase, and deterministic patch render order.
+compute-once cached analyses, cycle detection, failure isolation (no plugin
+failure stops the run), the consumes_patches post phase, and deterministic
+patch render order.
 """
 
 import tarfile
@@ -141,10 +142,12 @@ class TestCachedAnalysis(unittest.TestCase):
 
 
 class TestRunner(unittest.TestCase):
-    def test_fatal_abort_preserves_exception_type(self):
-        class Arch(InitPlugin):
-            fatal = True
+    def test_failed_core_analysis_does_not_stop_init(self):
+        """Even an ArchId-style failure (analysis everything depends on) must
+        not abort the run - consumers fail and are skipped, the rest of init
+        completes."""
 
+        class Arch(InitPlugin):
             @cached_analysis
             def arch(self):
                 raise NotImplementedError("unsupported arch")
@@ -152,9 +155,27 @@ class TestRunner(unittest.TestCase):
             def static_result(self):
                 return self.arch
 
+        class Base(InitPlugin):
+            patch_name = "base"
+            order = 10
+
+            def patch(self, ctx):
+                return {"core": {"arch": self.plugins.Arch.arch}}
+
+        class Unrelated(InitPlugin):
+            patch_name = "unrelated"
+            order = 20
+
+            def patch(self, ctx):
+                return {"nvram": {"k": "v"}}
+
         with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(NotImplementedError):
-                run_plugins([Arch], tmp)
+            runner, patches, _ = run_plugins([Arch, Base, Unrelated], tmp)
+        self.assertNotIn("base", patches)
+        self.assertIn("unrelated", patches)
+        self.assertEqual(runner.manifest["Arch"]["status"], "failed")
+        self.assertEqual(runner.manifest["Base"]["status"], "failed")
+        self.assertEqual(runner.manifest["Unrelated"]["status"], "ok")
 
     def test_nonfatal_failure_skips_plugin_only(self):
         class Broken(InitPlugin):
