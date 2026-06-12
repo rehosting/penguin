@@ -545,9 +545,13 @@ def cli(ctx, verbose, wrapper_help):
 @click.option("--output", type=str, default=None, help="Optional argument specifying the path where the project will be created. Default is projects/<basename of firmware file>.")
 @click.option("--force", is_flag=True, default=False, help="Forcefully delete project directory if it exists")
 @click.option("--output_base", type=str, default="projects", help="Default project directory base. Default is 'projects'")
+@click.option("--jobs", type=int, default=None, help="Init plugin thread pool size (default: cpu count)")
+@click.option("--init-plugin-path", multiple=True, help="Extra directory to search for init plugins (repeatable)")
+@click.option("--enable", multiple=True, help="Init plugin name to force-enable (repeatable)")
+@click.option("--disable", multiple=True, help="Init plugin name to skip (repeatable)")
 @verbose_option
 @click.pass_context
-def init(ctx, rootfs, output, force, output_base):
+def init(ctx, rootfs, output, force, output_base, jobs, init_plugin_path, enable, disable):
     """
     Create project from firmware root filesystem archive.
 
@@ -605,7 +609,11 @@ def init(ctx, rootfs, output, force, output_base):
 
     out_config_path = Path(output, "config.yaml")
     config = fakeroot_gen_config(
-        rootfs, out_config_path, output, ctx.obj['VERBOSE']
+        rootfs, out_config_path, output, ctx.obj['VERBOSE'],
+        jobs=jobs,
+        init_plugin_dirs=init_plugin_path,
+        enable=enable,
+        disable=disable,
     )
     if config:
         logger.info(f"Generated config at {config}")

@@ -844,6 +844,9 @@ class IGLOOPluginManager:
                 module, lambda x: inspect.isclass(x)):
             if not issubclass(cls, Plugin) or cls == Plugin:
                 continue
+            # Imported base classes (e.g. InitPlugin) are not plugins of this file
+            if cls.__name__ == "InitPlugin" and cls.__module__ == "penguin.init_plugin":
+                continue
             plugin_classes.append((name, cls))
 
         if not plugin_classes:

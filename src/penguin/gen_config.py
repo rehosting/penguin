@@ -20,65 +20,28 @@ import tempfile
 from pathlib import Path
 from penguin import getColoredLogger
 
-from . import config_patchers as CP
-from . import static_analyses as STATIC
-
 from .defaults import (
+    default_plugin_path,
     default_version as DEFAULT_VERSION,
 )
 from .init_plugin import InitContext
-from .init_runner import InitPluginRunner
+from .init_runner import InitPluginRunner, discover_init_plugins
 from penguin.penguin_config import dump_config
 
 logger = getColoredLogger("penguin.gen_config")
 
-# Built-in init plugins, loaded explicitly (discovery via plugin_path comes
-# with the pyplugins/init migration). Execution is concurrent; the position of
-# each plugin's patch in the generated config's `patches:` list (and therefore
-# its override precedence) comes from its `order` attribute, not this list.
-BUILTIN_INIT_PLUGINS = [
-    # Analyses
-    STATIC.ArchId,
-    STATIC.InitFinder,
-    STATIC.EnvFinder,
-    STATIC.PseudofileFinder,
-    STATIC.InterfaceFinder,
-    STATIC.ClusterCollector,
-    STATIC.LibrarySymbols,
-    STATIC.KernelVersionFinder,
-    # Patchers
-    CP.BasePatch,
-    CP.RootShell,
-    CP.DynamicExploration,
-    CP.SingleShotFICD,
-    CP.ManualInteract,
-    CP.NetdevsDefault,
-    CP.NetdevsTailored,
-    CP.PseudofilesExpert,
-    CP.PseudofilesTailored,
-    CP.LibInjectSymlinks,
-    CP.LibInjectStringIntrospection,
-    CP.LibInjectTailoredAliases,
-    CP.LibInjectFixedAliases,
-    CP.ForceWWW,
-    CP.GenerateMissingDirs,
-    CP.GenerateReferencedDirs,
-    CP.GenerateShellMounts,
-    CP.GenerateMissingFiles,
-    CP.DeleteFiles,
-    CP.LinksysHack,
-    CP.KernelModules,
-    CP.ShimStopBins,
-    CP.ShimNoModules,
-    CP.ShimBusybox,
-    CP.ShimCrypto,
-    # CP.ShimFwEnv,  # untested, never registered
-    CP.NvramFirmAEFileSpecific,
-    CP.NvramDefaults,
-    CP.NvramConfigRecoveryWild,
-    CP.NvramConfigRecovery,
-    CP.NvramLibraryRecovery,
-]
+
+def init_plugin_search_dirs(proj_dir: str | Path, extra_dirs=()) -> list:
+    """
+    Directories scanned for init plugins, lowest to highest precedence:
+    built-ins under <plugin_path>/init, then the project's plugins.d/, then
+    any explicitly passed directories.
+    """
+    return [
+        Path(default_plugin_path, "init"),
+        Path(proj_dir, "plugins.d"),
+        *[Path(d) for d in extra_dirs],
+    ]
 
 
 class ConfigBuilder:
@@ -88,7 +51,15 @@ class ConfigBuilder:
     '''
     PATCH_DIR: str = "static_patches"
 
-    def __init__(self, fs_archive: str, output_dir: str | Path, jobs: int | None = None) -> None:
+    def __init__(
+        self,
+        fs_archive: str,
+        output_dir: str | Path,
+        jobs: int | None = None,
+        init_plugin_dirs=(),
+        enable=(),
+        disable=(),
+    ) -> None:
         # Create a 'base' directory for analysis results, copy fs into it
         base_dir = Path(output_dir, "base")
         base_dir.mkdir(exist_ok=True, parents=True)
@@ -119,8 +90,19 @@ class ConfigBuilder:
                 proj_dir=output_dir,
                 static_dir=Path(output_dir, "static"),
                 patch_dir=Path(output_dir, self.PATCH_DIR),
+                options={"enable": tuple(enable)},
             )
-            runner = InitPluginRunner(BUILTIN_INIT_PLUGINS, ctx, jobs=jobs)
+            plugin_classes = discover_init_plugins(
+                init_plugin_search_dirs(output_dir, init_plugin_dirs),
+                disable=disable,
+            )
+            if not plugin_classes:
+                raise RuntimeError(
+                    "No init plugins discovered - is the plugin path "
+                    f"({default_plugin_path}/init) available?"
+                )
+            logger.debug(f"Running {len(plugin_classes)} init plugins")
+            runner = InitPluginRunner(plugin_classes, ctx, jobs=jobs)
             patches = runner.run()
             runner.render_patches(patches)
 
@@ -174,7 +156,11 @@ class ConfigBuilder:
 def initialize_and_build_config(
     fs: str,
     out: str | None = None,
-    artifacts_dir: str | None = None
+    artifacts_dir: str | None = None,
+    jobs: int | None = None,
+    init_plugin_dirs=(),
+    enable=(),
+    disable=(),
 ) -> str:
     """
     Given a filesystem as a .tar.gz analyze it to create a configuration file.
@@ -187,6 +173,11 @@ def initialize_and_build_config(
     :type out: str or None
     :param artifacts_dir: Path to artifacts directory.
     :type artifacts_dir: str or None
+    :param jobs: Init plugin thread pool size (default: cpu count).
+    :param init_plugin_dirs: Extra directories to search for init plugins.
+    :param enable: Init plugin names to force-enable (their patches join the
+        config's patches list even if disabled by default).
+    :param disable: Init plugin names to skip entirely.
 
     :return: Path to generated config file.
     :rtype: str
@@ -220,7 +211,13 @@ def initialize_and_build_config(
     os.umask(0o000)
 
     # Generate our config and patches
-    ConfigBuilder(fs, output_dir)
+    ConfigBuilder(
+        fs, output_dir,
+        jobs=jobs,
+        init_plugin_dirs=init_plugin_dirs,
+        enable=enable,
+        disable=disable,
+    )
 
     outfile = os.path.join(output_dir, "config.yaml")
 
@@ -238,7 +235,11 @@ def fakeroot_gen_config(
     fs: str,
     out: str,
     artifacts_dir: str,
-    verbose: int
+    verbose: int,
+    jobs: int | None = None,
+    init_plugin_dirs=(),
+    enable=(),
+    disable=(),
 ) -> str | None:
     """
     Run config generation under fakeroot.
@@ -251,6 +252,10 @@ def fakeroot_gen_config(
     :type artifacts_dir: str
     :param verbose: Verbosity level.
     :type verbose: int
+    :param jobs: Init plugin thread pool size.
+    :param init_plugin_dirs: Extra directories to search for init plugins.
+    :param enable: Init plugin names to force-enable.
+    :param disable: Init plugin names to skip entirely.
     :return: Path to generated config file or None.
     :rtype: str or None
     """
@@ -262,6 +267,14 @@ def fakeroot_gen_config(
         "--out", str(o),
         "--artifacts", artifacts_dir,
     ]
+    if jobs:
+        cmd.extend(["--jobs", str(jobs)])
+    for d in init_plugin_dirs:
+        cmd.extend(["--init-plugin-path", str(d)])
+    for name in enable:
+        cmd.extend(["--enable", name])
+    for name in disable:
+        cmd.extend(["--disable", name])
     if verbose:
         cmd.extend(["--verbose"])
     p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
@@ -274,8 +287,21 @@ def fakeroot_gen_config(
 @click.option("--fs", required=True, help="Path to a filesystem archive")
 @click.option("--out", required=True, help="Path to a config to be created")
 @click.option("--artifacts", default=None, help="Path to a directory for artifacts")
+@click.option("--jobs", default=None, type=int, help="Init plugin thread pool size (default: cpu count)")
+@click.option("--init-plugin-path", multiple=True, help="Extra directory to search for init plugins (repeatable)")
+@click.option("--enable", multiple=True, help="Init plugin name to force-enable (repeatable)")
+@click.option("--disable", multiple=True, help="Init plugin name to skip (repeatable)")
 @click.option("-v", "--verbose", count=True)
-def main(fs: str, out: str, artifacts: str | None, verbose: int) -> str | None:
+def main(
+    fs: str,
+    out: str,
+    artifacts: str | None,
+    jobs: int | None,
+    init_plugin_path: tuple,
+    enable: tuple,
+    disable: tuple,
+    verbose: int,
+) -> str | None:
     """
     CLI entrypoint for configuration generation.
 
@@ -295,7 +321,13 @@ def main(fs: str, out: str, artifacts: str | None, verbose: int) -> str | None:
 
     try:
         # Return a path to a config if we generate one
-        return initialize_and_build_config(fs, out, artifacts)
+        return initialize_and_build_config(
+            fs, out, artifacts,
+            jobs=jobs,
+            init_plugin_dirs=init_plugin_path,
+            enable=enable,
+            disable=disable,
+        )
     except NotImplementedError as e:
         # Raised for unsupported architecture - don't need a full traceback, place in result file
         result_dir = os.path.dirname(out)

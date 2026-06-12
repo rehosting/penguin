@@ -3,7 +3,12 @@ import unittest
 from pathlib import Path
 
 from penguin.init_plugin import InitContext
-from penguin.static_analyses import PseudofileFinder
+from penguin.plugin_manager import _import_plugin_classes
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PseudofileFinder = dict(
+    _import_plugin_classes(str(REPO_ROOT / "pyplugins/init/pseudofile_finder.py"))
+)["PseudofileFinder"]
 
 
 def make_plugin(cls, extracted_dir):

@@ -47,6 +47,68 @@ logger = getColoredLogger("penguin.init_runner")
 MANIFEST_NAME = "manifest.yaml"
 
 
+def _norm_name(name: str) -> str:
+    """Normalize a plugin name for CLI matching: ArchId == arch_id == archid."""
+    return name.lower().replace("_", "")
+
+
+def discover_init_plugins(
+    search_dirs,
+    disable=(),
+) -> List[Type[InitPlugin]]:
+    """
+    Find InitPlugin subclasses in .py files under the given directories
+    (searched recursively, in order — a class found in a later directory
+    shadows a same-named class from an earlier one, so project-local plugins
+    override built-ins).
+
+    Files are imported via the introspection path (no live plugin manager
+    needed); only classes *defined* in each file are considered, so imported
+    bases like InitPlugin are ignored. A file that fails to import is skipped
+    with a warning rather than aborting init.
+
+    :param search_dirs: directories to scan, lowest to highest precedence.
+    :param disable: plugin class names to exclude (case/underscore-insensitive).
+    :return: plugin classes sorted by class name.
+    """
+    from .plugin_manager import _import_plugin_classes
+
+    found: Dict[str, tuple] = {}  # class name -> (cls, source file)
+    for d in search_dirs:
+        d = Path(d)
+        if not d.is_dir():
+            continue
+        for f in sorted(d.rglob("*.py")):
+            if f.name == "__init__.py" or f.name.startswith("."):
+                continue
+            try:
+                classes = _import_plugin_classes(str(f))
+            except Exception as e:  # noqa: BLE001 - a broken file shouldn't kill init
+                logger.warning(f"Failed to import init plugin file {f}: {e}")
+                continue
+            for name, cls in classes:
+                if not issubclass(cls, InitPlugin) or cls is InitPlugin:
+                    continue
+                if cls.__module__ != "plugin_introspect":
+                    # Imported into the file, not defined in it
+                    continue
+                if name in found and found[name][1] != str(f):
+                    logger.info(
+                        f"Init plugin {name} from {f} shadows the one from {found[name][1]}"
+                    )
+                found[name] = (cls, str(f))
+
+    disabled = {_norm_name(x) for x in disable}
+    result = []
+    for name in sorted(found):
+        cls, src = found[name]
+        if _norm_name(name) in disabled:
+            logger.info(f"Init plugin {name} disabled")
+            continue
+        result.append(cls)
+    return result
+
+
 def _to_plain(data):
     """Recursively convert defaultdicts (and friends) to plain dicts for YAML."""
     if isinstance(data, dict):
@@ -114,11 +176,15 @@ class InitPluginRunner:
 
         self.manager.initialize(None, args)
 
+        force_enable = {_norm_name(x) for x in self.ctx.options.get("enable", ())}
+
         instances = []
         for cls in self.classes:
             self.manager.load(cls, args)
             inst = self.manager.plugins[cls.__name__]
             inst.ctx = self.ctx
+            if _norm_name(inst.name) in force_enable:
+                inst.enabled = True
             instances.append(inst)
         return instances
 
