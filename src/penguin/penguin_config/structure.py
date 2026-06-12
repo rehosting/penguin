@@ -1,5 +1,5 @@
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union, ClassVar
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field, RootModel, field_validator
 from pydantic.config import ConfigDict
 from pydantic_partial import PartialModelMixin, create_partial_model
 
@@ -893,6 +893,24 @@ class Plugin(PartialModelMixin, BaseModel):
     version: Annotated[Optional[str], Field(None, title="Plugin version")]
 
 
+class InitPluginEntry(PartialModelMixin, BaseModel):
+    """One init plugin's record/settings in the init_plugins section."""
+
+    model_config = ConfigDict(title="Init plugin", extra="allow")
+
+    enabled: Annotated[
+        bool,
+        Field(
+            True,
+            title="Run this init plugin during penguin refresh",
+            description=(
+                "Set to false to skip this plugin entirely when re-running "
+                "init analyses with `penguin refresh`."
+            ),
+        ),
+    ]
+
+
 class ExternalNetwork(PartialModelMixin, BaseModel):
     """Configuration for NAT for external connections"""
 
@@ -955,7 +973,25 @@ class Main(PartialModelMixin, BaseModel):
     lib_inject: LibInject
     static_files: StaticFiles
     plugins: Annotated[dict[str, Plugin], Field(title="Plugins")]
+    init_plugins: Annotated[
+        dict[str, InitPluginEntry],
+        Field(
+            None,
+            title="Init plugins",
+            description=(
+                "The init plugins that generated this project (recorded by "
+                "`penguin init`). Drives which plugins re-run on `penguin "
+                "refresh`; newly available plugins are appended when they run."
+            ),
+        ),
+    ] = None
     network: Optional[Network] = None
+
+    @field_validator("init_plugins", mode="before")
+    @classmethod
+    def _init_plugins_none_ok(cls, v):
+        # Partial-model merging can hand us an explicit None; treat as empty
+        return {} if v is None else v
 
 
 Patch = create_partial_model(Main, recursive=True)

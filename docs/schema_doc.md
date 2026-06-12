@@ -1027,6 +1027,27 @@ Make a patch to a binary file at the specified offset. This can either be arbitr
 |`depends_on`|string or null|`null`|Plugin dependency|
 |`enabled`|boolean|`true`|Enable this plugin (default depends on plugin)|
 |`version`|string or null|`null`|Plugin version|
+## `init_plugins` Init plugins
+
+|||
+|-|-|
+|__Default__|`null`|
+
+The init plugins that generated this project (recorded by `penguin init`). Drives which plugins re-run on `penguin refresh`; newly available plugins are appended when they run.
+
+### `init_plugins.<string>` Init plugin
+
+One init plugin's record/settings in the init_plugins section.
+
+#### `init_plugins.<string>.enabled` Run this init plugin during penguin refresh
+
+|||
+|-|-|
+|__Type__|boolean|
+|__Default__|`true`|
+
+Set to false to skip this plugin entirely when re-running init analyses with `penguin refresh`.
+
 ## `network` Network Configuration
 
 |||
