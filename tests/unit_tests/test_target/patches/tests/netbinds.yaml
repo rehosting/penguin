@@ -28,7 +28,50 @@ static_files:
       # start server
       /igloo/utils/busybox httpd -f -p 8000 -h / &
       sleep 1
-      /igloo/utils/netcat_udp_echo.sh &
+      # Watchdog the UDP echo server. On MIPS, micropython's getaddrinfo() (used
+      # to resolve the listen address) intermittently hangs or segfaults when
+      # another micropython process calls getaddrinfo() at the same time. If the
+      # server gets stuck before binding 4444, the host-side udp_echo check never
+      # sees the bind and fails. So: launch it, and if it has not bound 4444
+      # (0x115C in /proc/net/udp) within a few seconds, kill it and relaunch. A
+      # clean crash/exit also just falls through to a relaunch. The host retries
+      # the echo for ~10s once it sees the bind, ample for this recovery.
+      ( set +e
+        while /igloo/utils/busybox true; do
+          /igloo/utils/netcat_udp_echo.sh &
+          np=$!
+          bound=0
+          i=0
+          while [ $i -lt 4 ]; do
+            if /igloo/utils/busybox grep -qi ":115C" /proc/net/udp 2>/dev/null; then
+              bound=1
+              break
+            fi
+            /igloo/utils/busybox sleep 1
+            i=$((i + 1))
+          done
+          if [ $bound -eq 1 ]; then
+            wait $np
+          else
+            /igloo/utils/busybox kill $np 2>/dev/null
+          fi
+          /igloo/utils/busybox sleep 1
+        done ) &
+
+      # Block here until the echo server has actually bound 4444 before letting
+      # run_tests.sh advance to the next test. That next test also calls
+      # micropython getaddrinfo(), and a concurrent getaddrinfo() is exactly what
+      # makes the server hang/crash on MIPS -- so resolving the server's address
+      # while nothing else competes is what keeps it reliable. Bounded so a
+      # genuinely stuck server can't wedge the whole suite.
+      j=0
+      while [ $j -lt 20 ]; do
+        if /igloo/utils/busybox grep -qi ":115C" /proc/net/udp 2>/dev/null; then
+          break
+        fi
+        /igloo/utils/busybox sleep 1
+        j=$((j + 1))
+      done
       # echo "tests pass"
       exit 0
     mode: 73
@@ -52,7 +95,9 @@ static_files:
       try:
           while True:
               try:
-                  data, addr = sock.recvfrom(65535)
+                  # Tiny control messages -- a small buffer avoids needlessly
+                  # allocating 64 KiB per recv on memory-tight MIPS guests.
+                  data, addr = sock.recvfrom(2048)
               except Exception:   # e.g., EINTR on some ports
                   continue
               try:
