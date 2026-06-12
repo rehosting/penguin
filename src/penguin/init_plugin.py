@@ -274,12 +274,15 @@ class InitPlugin(Plugin):
       ``patches:`` list. Later patches override earlier ones on conflicting
       keys. Built-ins use 10..990; the default (1000) renders user patches
       after all built-ins.
-    - ``fatal``: if True, an exception from this plugin aborts config
-      generation entirely (e.g. unknown architecture).
     - ``consumes_patches``: if True, run in a post phase after all other
       patches are generated; ``ctx.patches_snapshot()`` becomes available.
     - ``serializer``: how :meth:`static_result` is persisted under
       ``static/<ClassName>.*`` — ``"yaml"`` (default) or ``"json_xz"``.
+
+    No plugin failure stops config generation: an exception is logged,
+    recorded in the manifest, skips this plugin's outputs, and (for a failed
+    cached analysis) fails the plugins that consume it — init carries on with
+    everything else.
 
     Instances may set ``self.enabled = False`` (e.g. in ``__init__`` or
     ``patch()``) to generate their patch file but leave it out of the config's
@@ -291,7 +294,6 @@ class InitPlugin(Plugin):
 
     patch_name: ClassVar[Optional[str]] = None
     order: ClassVar[int] = DEFAULT_ORDER
-    fatal: ClassVar[bool] = False
     consumes_patches: ClassVar[bool] = False
     serializer: ClassVar[str] = "yaml"
 

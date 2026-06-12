@@ -18,9 +18,11 @@ logger = getColoredLogger("penguin.init.arch_id")
 class ArchId(InitPlugin):
     """
     Identify the most common architecture in the extracted filesystem.
-    """
-    fatal = True
 
+    If the architecture can't be determined, this analysis (and everything
+    consuming it, notably BasePatch) fails and is skipped - init still
+    completes so the user can fill in core.arch by hand.
+    """
     @cached_analysis
     def arch(self) -> str:
         '''
