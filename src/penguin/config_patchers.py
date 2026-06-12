@@ -17,7 +17,6 @@ import tarfile
 from elftools.common.exceptions import ELFError
 from elftools.elf.elffile import ELFFile
 
-from abc import ABC, abstractmethod
 from collections import defaultdict
 from pathlib import Path
 
@@ -33,29 +32,12 @@ from .defaults import (
     default_libinject_string_introspection,
     static_dir as STATIC_DIR
 )
+from .init_plugin import InitContext, InitPlugin
 from .utils import get_arch_subdir
 
 logger = getColoredLogger("penguin.config_patchers")
 
 RESOURCES: str = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources")
-
-
-class PatchGenerator(ABC):
-    def __init__(self) -> None:
-        self.enabled: bool = True
-        self.patch_name: str | None = None
-
-    @abstractmethod
-    def generate(self, patches: dict) -> dict | None:
-        """
-        Generate a patch dictionary.
-
-        :param patches: Existing patches dictionary.
-        :type patches: dict
-        :return: Patch dictionary or None.
-        :rtype: dict or None
-        """
-        raise NotImplementedError("Subclasses should implement this method")
 
 
 class TarHelper:
@@ -369,24 +351,15 @@ class NvramHelper:
         return path_nvrams
 
 
-class BasePatch(PatchGenerator):
+class BasePatch(InitPlugin):
     '''
     Generate base config for static_files and default plugins
     '''
     UNKNOWN_INIT: str = "UNKNOWN_FIX_ME"
 
-    def __init__(self, arch_info: str, inits: list, kernel_versions: dict) -> None:
-        self.patch_name = "base"
-        self.enabled = True
-
-        self.set_arch_info(arch_info)
-        self.kernel_versions = kernel_versions
-
-        if len(inits):
-            self.igloo_init = inits[0]
-        else:
-            self.igloo_init = self.UNKNOWN_INIT
-            logger.warning("Failed to find any init programs - config will need manual refinement")
+    patch_name = "base"
+    order = 10
+    fatal = True  # unsupported architecture -> config generation cannot proceed
 
     def set_arch_info(self, arch_identified: str) -> None:
         '''
@@ -429,7 +402,17 @@ class BasePatch(PatchGenerator):
         self.arch_dir = get_arch_subdir(mock_config)
         self.dylib_dir = get_dylib_subdir(self.arch_name)
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
+        self.set_arch_info(self.plugins.ArchId.arch)
+        self.kernel_versions = self.plugins.KernelVersionFinder.versions
+
+        inits = self.plugins.InitFinder.inits
+        if len(inits):
+            self.igloo_init = inits[0]
+        else:
+            self.igloo_init = self.UNKNOWN_INIT
+            logger.warning("Failed to find any init programs - config will need manual refinement")
+
         # Serial device major/minor varies by arch (arm uses ttyAMA major 204,
         # mips uses ttyS major 4, powerpc uses hvc1 major 229) — see arch_registry.
         igloo_serial_major, igloo_serial_minor = arch_registry.spec(self.arch_name).serial
@@ -551,15 +534,15 @@ class BasePatch(PatchGenerator):
         return result
 
 
-class RootShell(PatchGenerator):
+class RootShell(InitPlugin):
     '''
     Add root shell
     '''
-    def __init__(self) -> None:
-        self.patch_name = "root_shell"
-        self.enabled = False
+    patch_name = "root_shell"
+    order = 20
+    enabled = False
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
         return {
             "core": {
                 "root_shell": False,
@@ -567,7 +550,7 @@ class RootShell(PatchGenerator):
         }
 
 
-class DynamicExploration(PatchGenerator):
+class DynamicExploration(InitPlugin):
     '''
     We are dynamically evaluating and refining a configuration. We need
     to collect data programatically. Disable root shell, enable
@@ -577,11 +560,11 @@ class DynamicExploration(PatchGenerator):
     Ideally this will also be paired with ShimBusybox to get shell-level
     instrumentation.
     '''
-    def __init__(self) -> None:
-        self.patch_name = "auto_explore"
-        self.enabled = False
+    patch_name = "auto_explore"
+    order = 30
+    enabled = False
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
         return {
             "core": {
                 "root_shell": False,
@@ -603,16 +586,16 @@ class DynamicExploration(PatchGenerator):
         }
 
 
-class SingleShotFICD(PatchGenerator):
+class SingleShotFICD(InitPlugin):
     '''
     We are doing a single-shot, automated evaluation. Disable root shell,
     but keep VPN on and measure FICD
     '''
-    def __init__(self) -> None:
-        self.patch_name = "single_shot_ficd"
-        self.enabled = False
+    patch_name = "single_shot_ficd"
+    order = 40
+    enabled = False
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
         return {
             "core": {
                 "root_shell": False,
@@ -641,16 +624,18 @@ class SingleShotFICD(PatchGenerator):
         }
 
 
-class SingleShot(PatchGenerator):
+class SingleShot(InitPlugin):
     '''
     We are doing a single-shot, automated evaluation. Disable root shell,
     leave coverage/nmap, but keep VPN on and use fetch_web to collect responses
     '''
-    def __init__(self) -> None:
-        self.patch_name = "single_shot"
-        self.enabled = False
+    # NOTE: not registered in the built-in init plugin list (matching the
+    # historic generator list, which never instantiated SingleShot)
+    patch_name = "single_shot"
+    order = 45
+    enabled = False
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
         return {
             "core": {
                 "root_shell": False,
@@ -676,16 +661,15 @@ class SingleShot(PatchGenerator):
         }
 
 
-class ManualInteract(PatchGenerator):
+class ManualInteract(InitPlugin):
     '''
     Interactive for manual exploration. Enable root shell, enable
     vpn. Do not terminate on www bind.
     '''
-    def __init__(self) -> None:
-        self.patch_name = "manual"
-        self.enabled = True
+    patch_name = "manual"
+    order = 50
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
         return {
             "core": {
                 "root_shell": True
@@ -707,60 +691,56 @@ class ManualInteract(PatchGenerator):
         }
 
 
-class NetdevsDefault(PatchGenerator):
+class NetdevsDefault(InitPlugin):
     '''
     Add list of default network device names.
     '''
-    def __init__(self) -> None:
-        self.enabled = True
-        self.patch_name = "netdevs.default"
+    patch_name = "netdevs.default"
+    order = 60
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
         return {'netdevs': default_netdevs}
 
 
-class NetdevsTailored(PatchGenerator):
+class NetdevsTailored(InitPlugin):
     '''
     Add list of network device names observed in static analysis.
     '''
-    def __init__(self, netdevs: dict) -> None:
-        self.enabled = True
-        self.patch_name = "netdevs.dynamic"
-        self.netdevs = netdevs
+    patch_name = "netdevs.dynamic"
+    order = 70
 
-    def generate(self, patches: dict) -> dict | None:
+    def patch(self, ctx: InitContext) -> dict | None:
+        netdevs = self.plugins.InterfaceFinder.interfaces
         values = set()
-        if not self.netdevs:
+        if not netdevs:
             return
-        for src, devs in self.netdevs.items():
+        for src, devs in netdevs.items():
             values.update(devs)
         if len(values):
             return {'netdevs': sorted(list(values))}
 
 
-class PseudofilesExpert(PatchGenerator):
+class PseudofilesExpert(InitPlugin):
     '''
     Fixed set of pseudofile models from FirmAE.
     '''
-    def __init__(self) -> None:
-        self.enabled = True
-        self.patch_name = "pseudofiles.expert_knowledge"
+    patch_name = "pseudofiles.expert_knowledge"
+    order = 80
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
         return {'pseudofiles': expert_knowledge_pseudofiles}
 
 
-class LibInjectSymlinks(PatchGenerator):
+class LibInjectSymlinks(InitPlugin):
     '''
     Detect the ABI of all libc.so files and place a symlink in the same
     directory to lib_inject of the same ABI.
     '''
-    def __init__(self, filesystem_root_path: str) -> None:
-        self.enabled = True
-        self.patch_name = 'lib_inject.core'
-        self.filesystem_root_path = filesystem_root_path
+    patch_name = 'lib_inject.core'
+    order = 100
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
+        self.filesystem_root_path = str(ctx.extracted_fs)
         libc_paths = []
         result = defaultdict(dict)
 
@@ -803,19 +783,18 @@ class LibInjectSymlinks(PatchGenerator):
         return result
 
 
-class LibInjectStringIntrospection(PatchGenerator):
+class LibInjectStringIntrospection(InitPlugin):
     '''
     Add LibInject aliases for string introspection (e.g., for comparison detection).
     For each method we see in the filesystem that's in our list of shim targets, add the shim
     '''
-    def __init__(self, library_info: dict) -> None:
-        self.enabled = True
-        self.patch_name = 'lib_inject.string_introspection'
-        self.library_info = library_info
+    patch_name = 'lib_inject.string_introspection'
+    order = 110
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
+        library_info = self.plugins.LibrarySymbols.library_info
         aliases = {}
-        for _, exported_syms in self.library_info.get("symbols", {}).items():
+        for _, exported_syms in library_info.get("symbols", {}).items():
             for sym in exported_syms:
                 if sym in default_libinject_string_introspection:
                     aliases[sym] = default_libinject_string_introspection[sym]
@@ -823,23 +802,21 @@ class LibInjectStringIntrospection(PatchGenerator):
         return {'lib_inject': {'aliases': aliases}}
 
 
-class LibInjectTailoredAliases(PatchGenerator):
+class LibInjectTailoredAliases(InitPlugin):
     '''
     Set default aliases in libinject based on library analysis. If one of the defaults
     is present in a library, we'll add it to the libinject alias list
     '''
+    patch_name = 'lib_inject.dynamic_models'
+    order = 120
 
-    def __init__(self, library_info: dict) -> None:
-        self.enabled = True
-        self.patch_name = 'lib_inject.dynamic_models'
-        self.library_info = library_info
+    def patch(self, ctx: InitContext) -> dict | None:
+        library_info = self.plugins.LibrarySymbols.library_info
         self.unmodeled = set()
-
-    def generate(self, patches: dict) -> dict | None:
         aliases = {}
 
         # Only copy values from our defaults if we see that same symbol exported
-        for _, exported_syms in self.library_info.get("symbols", {}).items():
+        for _, exported_syms in library_info.get("symbols", {}).items():
             for sym in exported_syms:
                 if sym in default_lib_aliases:
                     aliases[sym] = default_lib_aliases[sym]
@@ -855,15 +832,15 @@ class LibInjectTailoredAliases(PatchGenerator):
             return {'lib_inject': {'aliases': aliases}}
 
 
-class LibInjectFixedAliases(PatchGenerator):
+class LibInjectFixedAliases(InitPlugin):
     '''
     Set all aliases in libinject from our defaults.
     '''
-    def __init__(self) -> None:
-        self.enabled = False
-        self.patch_name = 'lib_inject.fixed_models'
+    patch_name = 'lib_inject.fixed_models'
+    order = 130
+    enabled = False
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
         return {'lib_inject': {'aliases': default_lib_aliases}}
 
 
@@ -900,19 +877,19 @@ class LibInjectJITAliases(PatchGenerator):
 """
 
 
-class ForceWWW(PatchGenerator):
+class ForceWWW(InitPlugin):
     '''
     This is a hacky FirmAE approach to identify webservers and just start
     them. Unsurprisingly, it increases the rate of web servers starting.
     We'll export this into our static files section so we could later decide
     to try it. We'll enable this by default here.
     '''
-    def __init__(self, fs_path: str) -> None:
-        self.enabled = False
-        self.patch_name = 'force_www'
-        self.fs_path = fs_path
+    patch_name = 'force_www'
+    order = 140
+    enabled = False
 
-    def generate(self, patches: dict) -> dict | None:
+    def patch(self, ctx: InitContext) -> dict | None:
+        self.fs_path = str(ctx.extracted_fs)
         # Map between filename and command
         file2cmd = {
             "./etc/init.d/uhttpd": "/etc/init.d/uhttpd start",
@@ -976,7 +953,7 @@ class ForceWWW(PatchGenerator):
         }
 
 
-class GenerateMissingDirs(PatchGenerator):
+class GenerateMissingDirs(InitPlugin):
     '''
     Examine the fs archive to identify missing directories
     We ignore the extracted filesystem because we want to
@@ -1005,11 +982,9 @@ class GenerateMissingDirs(PatchGenerator):
         "/usr/sbin",
     ]
 
-    def __init__(self, archive_path: str, archive_files: list) -> None:
-        self.patch_name = "static.missing_dirs"
-        self.enabled = True
-        self.archive_path = archive_path
-        self.archive_files = {member.name[1:] for member in archive_files}
+    patch_name = "static.missing_dirs"
+    order = 150
+    consumes_patches = True  # skips dirs already provided by other patches
 
     @staticmethod
     def _resolve_path(d: str, symlinks: dict, depth: int = 0) -> str:
@@ -1038,9 +1013,12 @@ class GenerateMissingDirs(PatchGenerator):
 
         return d
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
+        self.archive_files = {member.name[1:] for member in ctx.archive_files}
+        patches = ctx.patches_snapshot()
+
         # XXX: Do we want to operate on archives to ensure symlinks behave as expected?
-        symlinks = TarHelper.get_symlink_members(self.archive_path)
+        symlinks = TarHelper.get_symlink_members(str(ctx.fs_archive))
         result = defaultdict(dict)
 
         for d in self.TARGET_DIRECTORIES:
@@ -1108,21 +1086,18 @@ class GenerateMissingDirs(PatchGenerator):
         return result
 
 
-class GenerateReferencedDirs(PatchGenerator):
+class GenerateReferencedDirs(InitPlugin):
     '''
     FirmAE "Boot mitigation": find path strings in binaries, make their directories
     if they don't already exist.
     '''
+    patch_name = "static.binary_paths"
+    order = 160
 
-    def __init__(self, extract_dir):
-        self.patch_name = "static.binary_paths"
-        self.enabled = True
-        self.extract_dir = extract_dir
-
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
         result = defaultdict(dict)
         for f in FileHelper.find_executables(
-            self.extract_dir, {"/bin", "/sbin", "/usr/bin", "/usr/sbin"}
+            str(ctx.extracted_fs), {"/bin", "/sbin", "/usr/bin", "/usr/sbin"}
         ):
             # For things that look like binaries, find unique strings that look like paths
             for dest in list(
@@ -1139,18 +1114,18 @@ class GenerateReferencedDirs(PatchGenerator):
         return result
 
 
-class GenerateShellMounts(PatchGenerator):
+class GenerateShellMounts(InitPlugin):
     """
     Ensure we have /mnt/* directories referenced by shell scripts.
     """
+    patch_name = "static.shell_script_mounts"
+    order = 170
+    consumes_patches = True  # skips dirs already provided by other patches
 
-    def __init__(self, extract_dir, existing):
-        self.patch_name = "static.shell_script_mounts"
-        self.extract_dir = extract_dir
-        self.enabled = True
-        self.existing = {member.name[1:] for member in existing}
-
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
+        self.extract_dir = str(ctx.extracted_fs)
+        self.existing = {member.name[1:] for member in ctx.archive_files}
+        patches = ctx.patches_snapshot()
         result = defaultdict(dict)
 
         for f in FileHelper.find_shell_scripts(self.extract_dir):
@@ -1180,16 +1155,15 @@ class GenerateShellMounts(PatchGenerator):
         return result
 
 
-class GenerateMissingFiles(PatchGenerator):
+class GenerateMissingFiles(InitPlugin):
     '''
     Ensure we have /bin/sh, /etc/TZ, /var/run/nvramd.pid, and localhost in /etc/hosts.
     '''
-    def __init__(self, extract_dir: str) -> None:
-        self.patch_name = "static.missing_files"
-        self.enabled = True
-        self.extract_dir = extract_dir
+    patch_name = "static.missing_files"
+    order = 180
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
+        self.extract_dir = str(ctx.extracted_fs)
         # Firmadyne/FirmAE mitigation, ensure these 3 files always exist
         # Note including /bin/sh here means we'll add it if it's missing and as a symlink to /igloo/utils/busybox
         # this is similar to how we can shim an (existing) /bin/sh to point to /igloo/utils/busybox but here we
@@ -1244,16 +1218,15 @@ class GenerateMissingFiles(PatchGenerator):
         return result
 
 
-class DeleteFiles(PatchGenerator):
+class DeleteFiles(InitPlugin):
     '''
     Delete some files we don't want.
     '''
-    def __init__(self, extract_dir: str) -> None:
-        self.patch_name = "static.delete_files"
-        self.enabled = True
-        self.extract_dir = extract_dir
+    patch_name = "static.delete_files"
+    order = 190
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
+        self.extract_dir = str(ctx.extracted_fs)
         result = defaultdict(dict)
         # Delete some files that we don't want. securetty is general, limits shell access.
         # 'sys_resetbutton' is some FW-specific hack from FirmAE
@@ -1267,16 +1240,15 @@ class DeleteFiles(PatchGenerator):
         return result
 
 
-class LinksysHack(PatchGenerator):
+class LinksysHack(InitPlugin):
     '''
     Linksys specific hack from FirmAE with pseudofile model.
     '''
-    def __init__(self, extract_dir: str) -> None:
-        self.patch_name = "pseudofiles.linksys"
-        self.enabled = True
-        self.extract_dir = extract_dir
+    patch_name = "pseudofiles.linksys"
+    order = 200
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
+        self.extract_dir = str(ctx.extracted_fs)
         result = defaultdict(dict)
         # TODO: The following changes from FirmAE should likely be disabled by default
         # as we can't consider this information as part of our search if it's in the initial config
@@ -1295,16 +1267,13 @@ class LinksysHack(PatchGenerator):
         return result
 
 
-class KernelModules(PatchGenerator):
+class KernelModules(InitPlugin):
     """
     Create a symlink from the guest kernel module path to our kernel's module path.
     (ie.., /lib/modules/1.2.0-custom -> /lib/modules/4.10.0)
     """
-    def __init__(self, extract_dir: str, kernel_version: dict) -> None:
-        self.patch_name = "static.kernel_modules"
-        self.enabled = True
-        self.extract_dir = extract_dir
-        self.kernel_version = kernel_version
+    patch_name = "static.kernel_modules"
+    order = 210
 
     @staticmethod
     def is_kernel_version(name: str) -> bool:
@@ -1320,7 +1289,9 @@ class KernelModules(PatchGenerator):
             tokens.append("0")
         return ".".join(tokens)
 
-    def generate(self, patches: dict) -> dict:
+    def patch(self, ctx: InitContext) -> dict:
+        self.extract_dir = str(ctx.extracted_fs)
+        self.kernel_version = self.plugins.KernelVersionFinder.versions
         result = defaultdict(dict)
 
         # Identify original kernel version and create a symlink to /lib/modules
@@ -1374,19 +1345,16 @@ class KernelModules(PatchGenerator):
         return result
 
 
-class ShimBinaries:
+class ShimBinaries(InitPlugin):
     '''
     Identify binaries in the guest FS that we want to shim
     and add symlinks to go from guest bin -> igloo bin
     into our config.
     '''
 
-    def __init__(self, files):
-        self.files = files
-
-    def make_shims(self, shim_targets: dict[str, str]) -> dict:
+    def make_shims(self, files, shim_targets: dict[str, str]) -> dict:
         result = defaultdict(dict)
-        for fname in self.files:
+        for fname in files:
             path = fname.path.lstrip('.')  # Trim leading .
             basename = os.path.basename(path)
 
@@ -1412,53 +1380,47 @@ class ShimBinaries:
         return result
 
 
-class ShimStopBins(ShimBinaries, PatchGenerator):
-    def __init__(self, files: list) -> None:
-        super().__init__(files)
-        self.patch_name = "static.shims.stop_bins"
-        self.enabled = True
+class ShimStopBins(ShimBinaries):
+    patch_name = "static.shims.stop_bins"
+    order = 220
 
-    def generate(self, patches: dict) -> dict:
-        return self.make_shims({
+    def patch(self, ctx: InitContext) -> dict:
+        return self.make_shims(ctx.archive_files, {
             "reboot": "exit0.sh",
             "halt": "exit0.sh",
         })
 
 
-class ShimNoModules(ShimBinaries, PatchGenerator):
-    def __init__(self, files: list) -> None:
-        super().__init__(files)
-        self.patch_name = "static.shims.no_modules"
-        self.enabled = True
+class ShimNoModules(ShimBinaries):
+    patch_name = "static.shims.no_modules"
+    order = 230
 
-    def generate(self, patches: dict) -> dict:
-        return self.make_shims({
+    def patch(self, ctx: InitContext) -> dict:
+        return self.make_shims(ctx.archive_files, {
             "insmod": "exit0.sh"
         })
 
 
-class ShimBusybox(ShimBinaries, PatchGenerator):
-    def __init__(self, files: list) -> None:
-        super().__init__(files)
-        self.patch_name = "static.shims.busybox"
-        self.enabled = False
+class ShimBusybox(ShimBinaries):
+    patch_name = "static.shims.busybox"
+    order = 240
+    enabled = False
 
-    def generate(self, patches: dict) -> dict:
-        return self.make_shims({
+    def patch(self, ctx: InitContext) -> dict:
+        return self.make_shims(ctx.archive_files, {
             "ash": "busybox",
             "sh": "busybox",
             "bash": "bash",
         })
 
 
-class ShimCrypto(ShimBinaries, PatchGenerator):
-    def __init__(self, files: list) -> None:
-        super().__init__(files)
-        self.patch_name = "static.shims.crypto"
-        self.enabled = False
+class ShimCrypto(ShimBinaries):
+    patch_name = "static.shims.crypto"
+    order = 250
+    enabled = False
 
-    def generate(self, patches: dict) -> dict | None:
-        result = self.make_shims({
+    def patch(self, ctx: InitContext) -> dict | None:
+        result = self.make_shims(ctx.archive_files, {
             "openssl": "openssl",
             "ssh-keygen": "ssh-keygen"
         })
@@ -1476,25 +1438,27 @@ class ShimCrypto(ShimBinaries, PatchGenerator):
         return result
 
 
-class ShimFwEnv(ShimBinaries, PatchGenerator):
+class ShimFwEnv(ShimBinaries):
     '''
     Replace fw_printenv/getenv/setenv with hypercall based alternatives
-    Work in progress. Needs testing
+    Work in progress. Needs testing.
+    NOTE: not registered in the built-in init plugin list (untested).
     '''
-    def __init__(self, files: list) -> None:
-        raise NotImplementedError("Untested shim type")
-        super().__init__(files)
-        self.patch_name = "static.shims.fw_env"
+    patch_name = "static.shims.fw_env"
+    order = 255
 
-    def generate(self, patches: dict) -> dict:
-        return self.make_shims({
+    def __init__(self) -> None:
+        raise NotImplementedError("Untested shim type")
+
+    def patch(self, ctx: InitContext) -> dict:
+        return self.make_shims(ctx.archive_files, {
             "fw_printenv": "fw_printenv",
             "fw_getenv": "fw_printenv",
             "fw_setenv": "fw_printenv",
         })
 
 
-class NvramLibraryRecovery(PatchGenerator):
+class NvramLibraryRecovery(InitPlugin):
     '''
     During static analysis the LibrarySymbols class collected
     key->value mappings from libraries exporting some common nvram
@@ -1505,14 +1469,11 @@ class NvramLibraryRecovery(PatchGenerator):
     Then we should consider these during search. For now we just take non-conflicting values
     from largest to smallest source files. More realistic might be to try each file individually.
     '''
+    patch_name = "nvram.01_library"
+    order = 300
 
-    def __init__(self, library_info):
-        self.library_info = library_info
-        self.patch_name = "nvram.01_library"
-        self.enabled = True
-
-    def generate(self, patches: dict) -> dict | None:
-        sources = self.library_info.get("nvram", {})
+    def patch(self, ctx: InitContext) -> dict | None:
+        sources = self.plugins.LibrarySymbols.library_info.get("nvram", {})
         if not len(sources):
             return
 
@@ -1530,53 +1491,48 @@ class NvramLibraryRecovery(PatchGenerator):
             return {'nvram': nvram_defaults}
 
 
-class NvramConfigRecovery(PatchGenerator):
+class NvramConfigRecovery(InitPlugin):
     """
     Search for files that contain nvram keys and values to populate NVRAM defaults
     """
-    def __init__(self, extract_dir: str) -> None:
-        self.extract_dir = extract_dir
-        self.patch_name = "nvram.02_config_paths"
-        self.enabled = True
+    patch_name = "nvram.02_config_paths"
+    order = 290
 
-    def generate(self, patches: dict) -> dict | None:
-        result = NvramHelper.nvram_config_analysis(self.extract_dir, True)
+    def patch(self, ctx: InitContext) -> dict | None:
+        result = NvramHelper.nvram_config_analysis(str(ctx.extracted_fs), True)
         if len(result):
             return {'nvram': result}
 
 
-class NvramConfigRecoveryWild(PatchGenerator):
+class NvramConfigRecoveryWild(InitPlugin):
     """
     Search for files that contain nvram keys and values to populate NVRAM defaults.
     This version relaxes the search to allow for basename matches instead of full path
     matches.
     """
-    def __init__(self, extract_dir: str) -> None:
-        self.extract_dir = extract_dir
-        self.patch_name = "nvram.03_config_paths_basename"
-        self.enabled = True
+    patch_name = "nvram.03_config_paths_basename"
+    order = 280
 
-    def generate(self, patches: dict) -> dict | None:
-        result = NvramHelper.nvram_config_analysis(self.extract_dir, False)
+    def patch(self, ctx: InitContext) -> dict | None:
+        result = NvramHelper.nvram_config_analysis(str(ctx.extracted_fs), False)
         if len(result):
             return {'nvram': result}
 
 
-class NvramDefaults(PatchGenerator):
+class NvramDefaults(InitPlugin):
     """
     Add default nvram values from Firmadyne and FirmAE
     """
-    def __init__(self) -> None:
-        self.patch_name = "nvram.04_defaults"
-        self.enabled = True
+    patch_name = "nvram.04_defaults"
+    order = 270
 
-    def generate(self, patches: dict) -> dict | None:
+    def patch(self, ctx: InitContext) -> dict | None:
         result = NvramHelper._get_default_nvram_values()
         if len(result):
             return {'nvram': result}
 
 
-class NvramFirmAEFileSpecific(PatchGenerator):
+class NvramFirmAEFileSpecific(InitPlugin):
     """
     Apply FW-specific nvram patches based on presence of hardcoded strings in files from FirmAE.
     """
@@ -1591,11 +1547,11 @@ class NvramFirmAEFileSpecific(PatchGenerator):
         ],
     }
 
-    def __init__(self, fs_path: str) -> None:
-        self.fs_path = fs_path
-        self.patch_name = "nvram.05_firmae_file_specific"
+    patch_name = "nvram.05_firmae_file_specific"
+    order = 260
 
-    def generate(self, patches: dict) -> dict | None:
+    def patch(self, ctx: InitContext) -> dict | None:
+        self.fs_path = str(ctx.extracted_fs)
         result = {}
 
         # For each key in static_targets, check if the query is in the file
@@ -1618,21 +1574,20 @@ class NvramFirmAEFileSpecific(PatchGenerator):
             return {'nvram': result}
 
 
-class PseudofilesTailored(PatchGenerator):
+class PseudofilesTailored(InitPlugin):
     '''
     For all missing pseudofiles we saw referenced during static analysis,
     try adding them with a default model
     '''
-    def __init__(self, pseudofiles: dict) -> None:
-        self.patch_name = "pseudofiles.dynamic"
-        self.pseudofiles = pseudofiles
-        self.enabled = True
+    patch_name = "pseudofiles.dynamic"
+    order = 90
 
-    def generate(self, patches: dict) -> dict | None:
+    def patch(self, ctx: InitContext) -> dict | None:
+        pseudofiles = self.plugins.PseudofileFinder.pseudofiles
         results = {}
         mtd_count = 0
 
-        for section, file_names in self.pseudofiles.items():
+        for section, file_names in pseudofiles.items():
             for file_name in file_names:
                 if section == 'dev' and file_name.startswith("/dev/mtd"):
                     # TODO: do we want to make placeholders for MTD or not?

@@ -2,7 +2,22 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from penguin.init_plugin import InitContext
 from penguin.static_analyses import PseudofileFinder
+
+
+def make_plugin(cls, extracted_dir):
+    """Instantiate an init plugin against an extracted-fs dir, without the
+    plugin manager (enough for exercising its cached analyses)."""
+    plugin = cls.__new__(cls)
+    plugin.ctx = InitContext(
+        fs_archive=Path(extracted_dir, "unused.tar.gz"),
+        extracted_fs=extracted_dir,
+        proj_dir=extracted_dir,
+        static_dir=Path(extracted_dir, "static"),
+        patch_dir=Path(extracted_dir, "static_patches"),
+    )
+    return plugin
 
 
 class TestPseudofileFinder(unittest.TestCase):
@@ -15,7 +30,7 @@ class TestPseudofileFinder(unittest.TestCase):
                 "cat /proc/vendor_knob\n"
             )
 
-            result = PseudofileFinder().run(tmpdir, {})
+            result = make_plugin(PseudofileFinder, tmpdir).pseudofiles
 
         self.assertNotIn("/proc/sys", result["proc"])
         self.assertNotIn("/proc/sys/kernel/hostname", result["proc"])
@@ -30,7 +45,7 @@ class TestPseudofileFinder(unittest.TestCase):
                 "cat /dev/vendor_knob\n"
             )
 
-            result = PseudofileFinder().run(tmpdir, {})
+            result = make_plugin(PseudofileFinder, tmpdir).pseudofiles
 
         self.assertNotIn("/dev/pts", result["dev"])
         self.assertNotIn("/dev/pts/.placeholder", result["dev"])

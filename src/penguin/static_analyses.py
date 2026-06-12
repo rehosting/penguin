@@ -13,7 +13,6 @@ import stat
 import struct
 from subprocess import check_output, CalledProcessError, STDOUT, PIPE, SubprocessError
 
-from abc import ABC
 from elftools.common.exceptions import ELFError, ELFParseError
 from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import SymbolTableSection
@@ -26,6 +25,8 @@ import tempfile
 import subprocess
 
 from .arch import arch_filter, arch_end
+from .init_plugin import InitPlugin, cached_analysis
+
 logger = getColoredLogger("penguin.static_analyses")
 
 
@@ -144,42 +145,24 @@ class FileSystemHelper:
         return results
 
 
-class StaticAnalysis(ABC):
-    """
-    Abstract base class for static analyses.
-    """
-    def __init__(self) -> None:
-        """
-        Initialize the static analysis.
-        """
-        pass
-
-    def run(self, extract_dir: str, prior_results: dict) -> None:
-        """
-        Run the static analysis.
-
-        :param extract_dir: Directory containing extracted filesystem.
-        :param prior_results: Results from previous analyses.
-        """
-        pass
-
-
-class ArchId(StaticAnalysis):
+class ArchId(InitPlugin):
     """
     Identify the most common architecture in the extracted filesystem.
     """
-    def run(self, extracted_fs: str, prior_results: dict) -> str:
+    fatal = True
+
+    @cached_analysis
+    def arch(self) -> str:
         '''
         Count architectures to identify most common.
 
         If both 32 and 64 bit binaries from the most common architecture are present,
         prefer 64-bit. Raise an error if architecture cannot be determined or is unsupported.
 
-        :param extracted_fs: Path to extracted filesystem.
-        :param prior_results: Results from previous analyses.
         :return: Most common architecture string.
         :raises ValueError: If unable to determine architecture.
         '''
+        extracted_fs = str(self.ctx.extracted_fs)
 
         arch_counts = {32: Counter(), 64: Counter(), "unknown": 0}
         for root, _, files in os.walk(extracted_fs):
@@ -248,6 +231,9 @@ class ArchId(StaticAnalysis):
         logger.debug(f"Identified architecture: {best}")
         return best
 
+    def static_result(self) -> str:
+        return self.arch
+
     @staticmethod
     def _binary_filter(fsbase: str, name: str) -> bool:
         """
@@ -267,18 +253,18 @@ class ArchId(StaticAnalysis):
             name.endswith("busybox")
 
 
-class InitFinder(StaticAnalysis):
+class InitFinder(InitPlugin):
     '''
     Find potential init scripts and binaries in an extracted filesystem.
     '''
-    def run(self, filesystem_root_path: str, prior_results: dict) -> list[str]:
+    @cached_analysis
+    def inits(self) -> list[str]:
         '''
         Search the filesystem for binaries that might be init scripts.
 
-        :param filesystem_root_path: Root path of extracted filesystem.
-        :param prior_results: Results from previous analyses.
         :return: Sorted list of init script paths.
         '''
+        filesystem_root_path = str(self.ctx.extracted_fs)
         inits = []
 
         # Walk through the filesystem root and find potential init scripts.
@@ -342,6 +328,9 @@ class InitFinder(StaticAnalysis):
 
         return inits
 
+    def static_result(self) -> list[str]:
+        return self.inits
+
     @staticmethod
     def _is_init_script(filepath: str, fsroot: str) -> bool:
         '''
@@ -393,7 +382,7 @@ class InitFinder(StaticAnalysis):
         return False
 
 
-class KernelVersionFinder(StaticAnalysis):
+class KernelVersionFinder(InitPlugin):
     """
     Find and select the best kernel version from extracted filesystem.
     """
@@ -451,47 +440,61 @@ class KernelVersionFinder(StaticAnalysis):
         best_str = ".".join(str(x) for x in best)
         return best_str
 
-    def run(self, extract_dir: str, prior_results: dict) -> dict[str, list[str] | str]:
+    @cached_analysis
+    def versions(self) -> dict[str, list[str] | str]:
         """
         Run kernel version analysis.
 
-        :param extract_dir: Directory containing extracted filesystem.
-        :param prior_results: Results from previous analyses.
         :return: Dict with potential and selected kernel versions.
         """
-        potential_kernels = set()
+        return find_kernel_versions(str(self.ctx.extracted_fs))
 
-        # Only look at the top-level directories in self.extract_dir / lib / modules
-        modules_path = os.path.join(extract_dir, "lib/modules")
-        if os.path.exists(modules_path):
-            for d in os.listdir(modules_path):
-                d_path = os.path.join(modules_path, d)
-                if os.path.isdir(d_path):
-                    potential_kernels.add(d)
-
-        # Filter potential kernels to match the expected version pattern
-        potential_kernels = {d for d in potential_kernels if self.is_kernel_version(d)}
-        selected_kernel = self.select_best_kernel(potential_kernels)
-        return {
-            "potential_kernels": sorted(potential_kernels),
-            "selected_kernel": selected_kernel,
-        }
+    def static_result(self) -> dict[str, list[str] | str]:
+        return self.versions
 
 
-class EnvFinder(StaticAnalysis):
+def find_kernel_versions(extract_dir: str) -> dict[str, list[str] | str]:
+    """
+    Find kernel versions under ``<extract_dir>/lib/modules`` and select the
+    best-matching available kernel. Shared by the KernelVersionFinder init
+    plugin and runtime kernel resolution (penguin.utils).
+
+    :param extract_dir: Directory containing an extracted filesystem.
+    :return: Dict with potential and selected kernel versions.
+    """
+    potential_kernels = set()
+
+    # Only look at the top-level directories in extract_dir / lib / modules
+    modules_path = os.path.join(extract_dir, "lib/modules")
+    if os.path.exists(modules_path):
+        for d in os.listdir(modules_path):
+            d_path = os.path.join(modules_path, d)
+            if os.path.isdir(d_path):
+                potential_kernels.add(d)
+
+    # Filter potential kernels to match the expected version pattern
+    potential_kernels = {d for d in potential_kernels if KernelVersionFinder.is_kernel_version(d)}
+    selected_kernel = KernelVersionFinder.select_best_kernel(potential_kernels)
+    return {
+        "potential_kernels": sorted(potential_kernels),
+        "selected_kernel": selected_kernel,
+    }
+
+
+class EnvFinder(InitPlugin):
     """
     Identify potential environment variables and their values in the filesystem.
     """
     BORING_VARS: list[str] = ["TERM"]
 
-    def run(self, extract_dir: str, prior_results: dict) -> dict[str, list | None]:
+    @cached_analysis
+    def env(self) -> dict[str, list | None]:
         """
         Find environment variables and their possible values.
 
-        :param extract_dir: Directory containing extracted filesystem.
-        :param prior_results: Results from previous analyses.
         :return: Dict of environment variable names to possible values.
         """
+        extract_dir = str(self.ctx.extracted_fs)
 
         # To start, we know there's `igloo_task_size` (a knob we created to configure), and
         # igloo_init (another knob we created) to specify the init program. We'll find
@@ -501,7 +504,7 @@ class EnvFinder(StaticAnalysis):
 
         potential_env = {
             "igloo_task_size": task_options,
-            "igloo_init": prior_results['InitFinder']
+            "igloo_init": self.plugins.InitFinder.inits
         }
 
         # Now search the filesystem for shell scripts accessing /proc/cmdline
@@ -522,8 +525,11 @@ class EnvFinder(StaticAnalysis):
 
         return potential_env
 
+    def static_result(self) -> dict[str, list | None]:
+        return self.env
 
-class PseudofileFinder(StaticAnalysis):
+
+class PseudofileFinder(InitPlugin):
     """
     Find device and proc pseudofiles in the extracted filesystem.
     """
@@ -669,15 +675,16 @@ class PseudofileFinder(StaticAnalysis):
     # self and PID are related to the process itself and dynamically created
     PROC_IGNORE: list[str] = ["irq", "self", "PID", "device-tree", "net", "vmcore"]
 
-    def __init__(self) -> None:
-        """
-        Initialize PseudofileFinder and load additional procfs entries.
-        """
-        # Load ../resources/proc_sys.txt, add each line to IGLOO_PROCFS
+    @staticmethod
+    def _known_procfs() -> list[str]:
+        """IGLOO_PROCFS plus the sysctl entries from resources/proc_sys.txt."""
+        # Load ../resources/proc_sys.txt, add each line to a copy of IGLOO_PROCFS
+        procfs = list(PseudofileFinder.IGLOO_PROCFS)
         resources = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources")
         with open(os.path.join(resources, "proc_sys.txt"), "r") as f:
             for line in f.readlines():
-                self.IGLOO_PROCFS.append(line.strip())
+                procfs.append(line.strip())
+        return procfs
 
     def _filter_files(
         self,
@@ -731,14 +738,15 @@ class PseudofileFinder(StaticAnalysis):
 
         return [k for k in filtered_files if k not in directories_to_remove]
 
-    def run(self, extract_dir: str, prior_results: dict) -> dict[str, list[str]]:
+    @cached_analysis
+    def pseudofiles(self) -> dict[str, list[str]]:
         """
         Run pseudofile analysis.
 
-        :param extract_dir: Directory containing extracted filesystem.
-        :param prior_results: Results from previous analyses.
         :return: Dict with lists of device and proc files.
         """
+        extract_dir = str(self.ctx.extracted_fs)
+
         # Regex patterns for dev and proc files
         dev_pattern = re.compile(r"/dev/([a-zA-Z0-9_/]+)", re.MULTILINE)
         proc_pattern = re.compile(r"/proc/([a-zA-Z0-9_/]+)", re.MULTILINE)
@@ -748,9 +756,9 @@ class PseudofileFinder(StaticAnalysis):
             extract_dir, dev_pattern, [], self.IGLOO_ADDED_DEVICES
         )
 
-        # Filter proc files, applying PROC_IGNORE and IGLOO_PROCFS
+        # Filter proc files, applying PROC_IGNORE and known procfs entries
         proc_files = self._filter_files(
-            extract_dir, proc_pattern, self.PROC_IGNORE, self.IGLOO_PROCFS
+            extract_dir, proc_pattern, self.PROC_IGNORE, self._known_procfs()
         )
 
         # Return dev and proc files in the appropriate format
@@ -758,6 +766,9 @@ class PseudofileFinder(StaticAnalysis):
             "dev": [f"/dev/{x}" for x in dev_files],
             "proc": [f"/proc/{x}" for x in proc_files],
         }
+
+    def static_result(self) -> dict[str, list[str]]:
+        return self.pseudofiles
 
     @staticmethod
     def _get_devfiles_in_fs(extracted_dir: str) -> list[str]:
@@ -779,18 +790,19 @@ class PseudofileFinder(StaticAnalysis):
         return results
 
 
-class InterfaceFinder(StaticAnalysis):
+class InterfaceFinder(InitPlugin):
     """
     Identify network interfaces in the filesystem.
     """
-    def run(self, extract_dir: str, prior_results: dict) -> dict[str, list[str]] | None:
+    @cached_analysis
+    def interfaces(self) -> dict[str, list[str]] | None:
         """
         Find network interfaces using sysfs and command references.
 
-        :param extract_dir: Directory containing extracted filesystem.
-        :param prior_results: Results from previous analyses.
         :return: Dict of interfaces found via sysfs and commands.
         """
+        extract_dir = str(self.ctx.extracted_fs)
+
         # Find all network interfaces in the filesystem
         pattern = re.compile(r"/sys/class/net/([a-zA-Z0-9_]+)", re.MULTILINE)
         sys_net_ifaces = FileSystemHelper.find_regex(pattern, extract_dir).keys()
@@ -844,19 +856,23 @@ class InterfaceFinder(StaticAnalysis):
         if len(result):
             return result
 
+    def static_result(self) -> dict[str, list[str]] | None:
+        return self.interfaces
 
-class ClusterCollector(StaticAnalysis):
+
+class ClusterCollector(InitPlugin):
     '''
     Collect summary statistics for the filesystem to help identify clusters.
     '''
-    def run(self, extract_dir: str, prior_results: dict) -> dict[str, list[str]]:
+    @cached_analysis
+    def clusters(self) -> dict[str, list[str]]:
         """
         Collect basename and hash of every executable file.
 
-        :param extract_dir: Directory containing extracted filesystem.
-        :param prior_results: Results from previous analyses.
         :return: Dict with lists of files, executables, and hashes.
         """
+        extract_dir = str(self.ctx.extracted_fs)
+
         # Collect the basename + hash of every executable file in the system
         all_files = set()
         executables = set()
@@ -882,6 +898,9 @@ class ClusterCollector(StaticAnalysis):
             'executable_hashes': list(executable_hashes)
         }
 
+    def static_result(self) -> dict[str, list[str]]:
+        return self.clusters
+
     @staticmethod
     def compute_file_hash(file_path: str) -> str | None:
         """
@@ -900,29 +919,28 @@ class ClusterCollector(StaticAnalysis):
             return None
 
 
-class LibrarySymbols(StaticAnalysis):
+class LibrarySymbols(InitPlugin):
     """
     Examine libraries in the filesystem for NVRAM keys and exported symbols.
 
     Uses pyelftools to find definitions for NVRAM_KEYS variables and tracks exported function names.
     """
     NVRAM_KEYS: list[str] = ["Nvrams", "router_defaults"]
+    serializer = "json_xz"
 
-    def run(self, extract_dir: str, prior_results: dict) -> dict[str, dict]:
+    @cached_analysis
+    def library_info(self) -> dict[str, dict]:
         """
         Analyze libraries for NVRAM keys and symbols.
 
-        :param extract_dir: Directory containing extracted filesystem.
-        :param prior_results: Results from previous analyses.
         :return: Dict with nvram values and symbol paths.
         """
-        self.extract_dir = extract_dir
-        self.archend = arch_end(prior_results['ArchId'])
+        self.extract_dir = str(self.ctx.extracted_fs)
+        self.archend = arch_end(self.plugins.ArchId.arch)
 
         if any([x is None for x in self.archend]):
-            self.enabled = False
-            print(f"Warning: Unknown architecture/endianness: {self.archend}. Cannot run NVRAM recovery Static Analysis")
-            return
+            logger.warning(f"Unknown architecture/endianness: {self.archend}. Cannot run NVRAM recovery Static Analysis")
+            return {}
 
         symbols = {}
         nvram = {}
@@ -962,6 +980,9 @@ class LibrarySymbols(StaticAnalysis):
         # We should 1) generate patches for each possible non-conflicting source
         return {'nvram': nvram_values,
                 'symbols': sym_paths}
+
+    def static_result(self) -> dict[str, dict]:
+        return self.library_info
 
     @staticmethod
     def _find_symbol_address(
