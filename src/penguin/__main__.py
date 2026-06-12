@@ -16,7 +16,7 @@ import art
 from penguin import VERSION, getColoredLogger, yaml
 
 from .common import get_inits_from_proj
-from .gen_config import fakeroot_gen_config
+from .gen_config import fakeroot_gen_config, fakeroot_refresh
 from .manager import PandaRunner, calculate_score
 from penguin.penguin_config import load_config
 
@@ -622,6 +622,51 @@ def init(ctx, rootfs, output, force, output_base, jobs, init_plugin_path, enable
             f"Failed to generate config for {rootfs}. See {output}/result for details."
         )
         exit(1)
+
+
+@cli.command()
+@click.argument("project_dir", type=str)
+@click.option("--only", multiple=True, help="Only re-run these init plugins (repeatable)")
+@click.option("--jobs", type=int, default=None, help="Init plugin thread pool size (default: cpu count)")
+@click.option("--init-plugin-path", multiple=True, help="Extra directory to search for init plugins (repeatable)")
+@click.option("--enable", multiple=True, help="Init plugin name to force-enable (repeatable)")
+@click.option("--disable", multiple=True, help="Init plugin name to skip (repeatable)")
+@click.option("--update-config/--no-update-config", default=True,
+              help="Reconcile the config's patches/init_plugins sections (default: on)")
+@verbose_option
+@click.pass_context
+def refresh(ctx, project_dir, only, jobs, init_plugin_path, enable, disable, update_config):
+    """
+    Re-run init plugins inside an existing project.
+
+    Regenerates static/ analysis results and static_patches/ from the
+    project's base/fs.tar.gz. Project-local plugins in plugins.d/ are
+    included. The config's init_plugins: section selects what runs; the
+    patches: list is updated in place (backup in config.yaml.bak) and
+    user-edited patch files are preserved (new content goes to *.yaml.new).
+    """
+    _startup_checks(ctx.obj['VERBOSE'])
+
+    proj = Path(project_dir)
+    if not (proj / "config.yaml").is_file():
+        raise ValueError(f"No config.yaml in {project_dir} - not a penguin project?")
+    if not (proj / "base" / "fs.tar.gz").is_file():
+        raise ValueError(f"No base/fs.tar.gz in {project_dir} - cannot re-analyze")
+
+    ok = fakeroot_refresh(
+        project_dir,
+        verbose=ctx.obj['VERBOSE'],
+        jobs=jobs,
+        init_plugin_dirs=init_plugin_path,
+        enable=enable,
+        disable=disable,
+        only=only,
+        update_config=update_config,
+    )
+    if not ok:
+        logger.error(f"Refresh failed for {project_dir}")
+        exit(1)
+    logger.info(f"Refreshed init analyses in {project_dir}")
 
 
 @cli.command()

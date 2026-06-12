@@ -26,6 +26,7 @@ the project's ``result`` file). Non-fatal failures are logged, recorded in
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
 import lzma
@@ -147,7 +148,14 @@ class InitPluginRunner:
         ctx: InitContext,
         manager=None,
         jobs: Optional[int] = None,
+        skip=(),
     ) -> None:
+        """
+        :param skip: plugin names whose patch()/static_result() should NOT be
+            executed. The plugins are still loaded, so their cached analyses
+            remain available to (and are computed on demand by) selected
+            plugins; their existing on-disk outputs are left untouched.
+        """
         if manager is None:
             from .plugin_manager import plugins as default_manager
             manager = default_manager
@@ -155,8 +163,11 @@ class InitPluginRunner:
         self.classes = list(plugin_classes)
         self.ctx = ctx
         self.jobs = jobs or os.cpu_count() or 4
+        self.skip = {_norm_name(s) for s in skip}
         self.manifest: Dict[str, dict] = {}
         self._manifest_lock = threading.Lock()
+        # patch_name -> plugin name, filled as patches are collected
+        self._patch_owner: Dict[str, str] = {}
 
     # ----- loading ----------------------------------------------------------
 
@@ -197,10 +208,11 @@ class InitPluginRunner:
         files, and the manifest as a side effect.
         """
         instances = self.load_plugins()
+        selected = [p for p in instances if _norm_name(p.name) not in self.skip]
 
-        main_phase = [p for p in instances if not p.consumes_patches]
+        main_phase = [p for p in selected if not p.consumes_patches]
         post_phase = sorted(
-            (p for p in instances if p.consumes_patches),
+            (p for p in selected if p.consumes_patches),
             key=lambda p: (p.order, p.patch_name or "", p.name),
         )
 
@@ -253,11 +265,11 @@ class InitPluginRunner:
             self._merge_patch(patches, plugin, outcome)
         return patches
 
-    @staticmethod
-    def _merge_patch(patches: Dict[str, tuple], plugin: InitPlugin, outcome: dict) -> None:
+    def _merge_patch(self, patches: Dict[str, tuple], plugin: InitPlugin, outcome: dict) -> None:
         data = outcome.get("patch")
         if plugin.patch_name and data:
             patches[plugin.patch_name] = (data, plugin.enabled, plugin.order)
+            self._patch_owner[plugin.patch_name] = plugin.name
             if not plugin.enabled:
                 logger.info(f"{plugin.patch_name} patch generated but disabled")
 
@@ -314,18 +326,89 @@ class InitPluginRunner:
                 yaml.dump(_to_plain(data), f)
         return path.name
 
-    def render_patches(self, patches: Dict[str, tuple]) -> None:
-        """Write non-empty patches to ``patch_dir/<name>.yaml`` (including
-        disabled ones, matching historic behavior)."""
+    def render_patches(
+        self,
+        patches: Dict[str, tuple],
+        previous_manifest: Optional[Dict[str, dict]] = None,
+    ) -> Dict[str, list]:
+        """
+        Write non-empty patches to ``patch_dir/<name>.yaml`` (including
+        disabled ones, matching historic behavior).
+
+        When ``previous_manifest`` is given (refresh), a patch file whose
+        on-disk content no longer matches the hash penguin recorded when it
+        generated it is treated as user-edited: it is preserved and the new
+        content is written next to it as ``<name>.yaml.new``.
+
+        Returns ``{"written": [...], "preserved": [...]}`` patch names.
+        """
+        prev_hashes = {}
+        for entry in (previous_manifest or {}).values():
+            if entry.get("patch_file") and entry.get("patch_sha256"):
+                prev_hashes[entry["patch_file"]] = entry["patch_sha256"]
+
         self.ctx.patch_dir.mkdir(exist_ok=True, parents=True)
+        outcome = {"written": [], "preserved": []}
         for name, (data, _enabled) in patches.items():
             plain = _to_plain(data)
             if _is_empty_patch(plain):
                 continue
-            with open(self.ctx.patch_dir / f"{name}.yaml", "w") as f:
+            fname = f"{name}.yaml"
+            target = self.ctx.patch_dir / fname
+            if previous_manifest is not None and target.exists():
+                recorded = prev_hashes.get(fname)
+                current = _sha256_file(target)
+                if recorded is not None and recorded != current:
+                    logger.warning(
+                        f"{target} was edited since penguin generated it; "
+                        f"writing new content to {fname}.new instead"
+                    )
+                    target = self.ctx.patch_dir / f"{fname}.new"
+                    outcome["preserved"].append(name)
+                elif recorded is None:
+                    logger.warning(
+                        f"No generation record for {fname} (pre-migration "
+                        "project?); overwriting"
+                    )
+            with open(target, "w") as f:
                 yaml.dump(plain, f, default_flow_style=False)
+            if target.name == fname:
+                outcome["written"].append(name)
+            # Record ownership so future refreshes can detect user edits
+            owner = self._patch_owner.get(name)
+            if owner and owner in self.manifest:
+                self.manifest[owner]["patch_file"] = fname
+                self.manifest[owner]["patch_sha256"] = _sha256_file(
+                    self.ctx.patch_dir / fname
+                ) if (self.ctx.patch_dir / fname).exists() else None
+        self._write_manifest()
+        return outcome
+
+    def merge_previous_manifest(self, previous: Dict[str, dict]) -> None:
+        """Carry forward manifest entries for plugins that did not run this
+        time (refresh with a skip set)."""
+        for name, entry in previous.items():
+            self.manifest.setdefault(name, entry)
 
     def _write_manifest(self) -> None:
         self.ctx.static_dir.mkdir(exist_ok=True, parents=True)
         with open(self.ctx.static_dir / MANIFEST_NAME, "w") as f:
             yaml.dump({"plugins": _to_plain(self.manifest)}, f)
+
+
+def load_manifest(static_dir: str | Path) -> Dict[str, dict]:
+    """Read static/manifest.yaml; empty dict if absent or unreadable."""
+    path = Path(static_dir, MANIFEST_NAME)
+    if not path.is_file():
+        return {}
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+        return data.get("plugins", {}) or {}
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Could not read {path}: {e}")
+        return {}
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()

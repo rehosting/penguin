@@ -62,6 +62,29 @@ def penguin_init(fs, image):
         raise e
 
 
+def penguin_refresh(project_dir, image):
+    logger.info("penguin refresh")
+    try:
+        subprocess.run(
+            " ".join([
+                os.path.dirname(os.path.dirname(SCRIPT_PATH)) + "/penguin",
+                "--image",
+                image,
+                "refresh",
+                str(project_dir),
+            ]),
+            cwd=proj_dir,
+            shell=True,
+            check=True,
+            stdout=open(proj_dir / Path("test_log.txt"), "w"),
+            stderr=subprocess.STDOUT,
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error("Failed in penguin refresh")
+        subprocess.run(["tail", "-n", "50", proj_dir / Path("test_log.txt")])
+        raise e
+
+
 def penguin_run(config, image, execution_mode="qemu"):
     logger.info(f"penguin run (mode={execution_mode})")
     try:
@@ -177,6 +200,10 @@ def run_test(kernel, arch, image, execution_mode="qemu"):
     penguin_init(f"{TEST_DIR}/empty_fs.tar.gz", image)
 
     project_path = Path(proj_dir, "projects/empty_fs")
+
+    # refresh: re-run init analyses in place; must succeed and keep the
+    # project loadable (idempotent right after init)
+    penguin_refresh(project_path, image)
     if arch in DROPIN_C_TEST_ARCHES:
         shutil.copytree(TEST_DIR / "init.d", project_path / "init.d", dirs_exist_ok=True)
     else:
