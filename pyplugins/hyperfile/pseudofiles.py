@@ -1,8 +1,10 @@
+import importlib.util
 import inspect
 import os
 from pydantic import Field
-from penguin import plugins, Plugin, PluginArgs
-from hyperfile.models.base import DevFile, ProcFile, SysFile, SysfsBridge, SysctlFile
+from penguin import plugins, Plugin, PluginArgs, getColoredLogger
+from penguin.plugin_manager import find_plugin_by_name
+from hyperfile.models.base import DevFile, ProcFile, SysFile, SysfsBridge, SysctlFile, VFSFile
 from hyperfile.models.read import (
     ReadConstBuf,
     ReadConstMap,
@@ -25,20 +27,16 @@ from hyperfile.models.ioctl import (
     IoctlPluginVFS,
     IoctlPluginLegacy,
 )
+from hyperfile.models.poll import PollAlwaysReady, PollExternalVFS
 
 
-class _LegacyDevPollCompat:
-    """Convenience poll fallback for legacy dictionary-backed /dev pseudofiles."""
+class _LegacyDevSeekCompat:
+    """Seek fallback for legacy dictionary-backed /dev pseudofiles with known size.
 
-    # POLLIN | POLLRDNORM | POLLOUT | POLLWRNORM
-    _POLL_READY_MASK = 0x145
-
-    def poll(self, ptregs, file, poll_table_struct):
-        ptregs.retval = self._POLL_READY_MASK
-
-
-class _LegacyDevSeekCompat(_LegacyDevPollCompat):
-    """Seek fallback for legacy dictionary-backed /dev pseudofiles with known size."""
+    Provides only ``lseek``; the always-ready poll fallback lives in
+    :class:`~hyperfile.models.poll.PollAlwaysReady` so a known-size node can
+    keep seek support while still modelling poll() in a data-aware way.
+    """
 
     def lseek(self, ptregs, file, offset, whence):
         offset_val = int(offset)
@@ -104,6 +102,15 @@ class Pseudofiles(Plugin):
         "zero": IoctlZero,
         # "symex": IoctlSymexMixin, # If you implement symex later
     }
+
+    poll_models = {
+        "always_ready": PollAlwaysReady,
+    }
+
+    # Built-in single-object backing classes, referenced by bare name in the
+    # file-level `plugin:` key. User backings use the `file:ClassName` form
+    # instead (resolved via the pyplugin search path).
+    backing_models = {}
 
     def _translate_kwargs(self, domain, raw_config):
         """
@@ -194,6 +201,11 @@ class Pseudofiles(Plugin):
                 return IoctlExternalLegacy
             return IoctlExternalVFS
 
+        elif type_hint == "poll":
+            # Poll has no buffer/details distinction; only the VFS signature
+            # (ptregs, file, poll_table_struct) is supported.
+            return PollExternalVFS
+
         return None
 
     def _detect_plugin_style_ioctl(self, plugin_name, func_name):
@@ -275,11 +287,13 @@ class Pseudofiles(Plugin):
                 return self.write_models.get(model_name, WriteDefault)
             elif domain == "ioctl":
                 return self.ioctl_models.get(model_name, IoctlZero)
+            elif domain == "poll":
+                return self.poll_models.get(model_name, PollAlwaysReady)
 
         # 2. Handle "from_plugin"
         plugin_name = conf.get("plugin")
         # Default function names if not provided
-        default_funcs = {"read": "read", "write": "write", "ioctl": "ioctl"}
+        default_funcs = {"read": "read", "write": "write", "ioctl": "ioctl", "poll": "poll"}
         func_name = conf.get("function", default_funcs[domain])
 
         return self._detect_plugin_style(plugin_name, func_name, domain)
@@ -328,6 +342,12 @@ class Pseudofiles(Plugin):
         return None
 
     def _get_compat_bases(self, filename, details):
+        """Seek (lseek) compat for known-size /dev nodes.
+
+        Poll is resolved separately (see ``_resolve_poll_mixin``) so a
+        known-size node can keep seek support while still answering poll() in a
+        data-aware way.
+        """
         if not filename.startswith("/dev/"):
             return []
 
@@ -336,9 +356,104 @@ class Pseudofiles(Plugin):
         if known_size is not None:
             details.setdefault("size", known_size)
             return [_LegacyDevSeekCompat]
-        return [_LegacyDevPollCompat]
+        return []
+
+    @staticmethod
+    def _overrides_poll(cls):
+        """True if ``cls`` provides its own poll() (not the VFSFile stub).
+
+        A backing class with no ``poll`` at all counts as "does not override",
+        so a /dev node falls back to the legacy always-ready poll.
+        """
+        meth = getattr(cls, "poll", None)
+        if meth is None:
+            return False
+        base_meth = getattr(VFSFile, "poll", None)
+        return getattr(meth, "__code__", None) is not getattr(base_meth, "__code__", None)
+
+    def _resolve_poll_mixin(self, filename, details):
+        """Resolve the poll mixin + its kwargs for the per-domain form.
+
+        - explicit ``poll:`` domain -> the resolved poll mixin,
+        - else /dev with no poll config -> PollAlwaysReady (legacy fallback),
+        - else (e.g. /proc/sys) -> None (falls through to the VFSFile stub).
+        """
+        poll_conf = details.get("poll", {})
+        if poll_conf:
+            return self._resolve_mixin("poll", poll_conf), self._translate_kwargs("poll", poll_conf)
+        if filename.startswith("/dev/"):
+            return PollAlwaysReady, {}
+        return None, {}
+
+    def _import_backing_module(self, path):
+        mod_name = f"pseudofile_backing_{os.path.splitext(os.path.basename(path))[0]}"
+        spec = importlib.util.spec_from_file_location(mod_name, path)
+        module = importlib.util.module_from_spec(spec)
+        # Mirror plugin_manager.load_all: inject the common globals so a backing
+        # file can use `plugins`/`logger` without importing them explicitly.
+        module.__dict__.update({
+            "plugins": plugins,
+            "logger": getColoredLogger(f"plugins.{mod_name}"),
+        })
+        spec.loader.exec_module(module)
+        return module
+
+    def _resolve_backing_class(self, ref):
+        """Resolve a file-level ``plugin:`` backing reference to a class.
+
+        ``file:ClassName`` finds ``file.py`` on the pyplugin search path and
+        pulls ``ClassName`` from it; a bare name resolves against the built-in
+        ``backing_models`` registry.
+        """
+        if ":" in ref:
+            file_token, cls_name = ref.split(":", 1)
+            path, _ = find_plugin_by_name(
+                file_token,
+                plugins.get_arg("proj_dir") or "",
+                plugins.get_arg("plugin_path") or "",
+            )
+            module = self._import_backing_module(path)
+            cls = getattr(module, cls_name, None)
+            if cls is None:
+                raise ValueError(
+                    f"Backing class '{cls_name}' not found in '{file_token}' ({path})")
+            return cls
+        if ref in self.backing_models:
+            return self.backing_models[ref]
+        raise ValueError(
+            f"Unknown pseudofile backing '{ref}' "
+            "(use 'file:ClassName' to reference a user class)")
+
+    def _create_backing_class(self, filename, details, BaseClass, backing_ref):
+        """Build a node whose whole fop surface is owned by one backing class."""
+        BackingClass = self._resolve_backing_class(backing_ref)
+
+        safe_name = f"Gen_{filename.replace('/', '_')}"
+        bases = list(self._get_compat_bases(filename, details))
+        # Legacy always-ready fallback only when the backing doesn't model poll.
+        if filename.startswith("/dev/") and not self._overrides_poll(BackingClass):
+            bases.append(PollAlwaysReady)
+        bases.append(BackingClass)
+        if BaseClass is SysFile:
+            bases.append(SysfsBridge)
+        bases.append(BaseClass)
+
+        all_kwargs = {'path': filename, 'fs': getattr(BaseClass, 'FS', None)}
+        # Forward top-level file properties (size, mode, name, ...); the
+        # per-domain read/write/ioctl/poll keys and the backing ref itself are
+        # owned by the backing class, not passed through.
+        for key, val in details.items():
+            if key not in ("read", "write", "ioctl", "poll", "plugin"):
+                all_kwargs[key] = val
+
+        return type(safe_name, tuple(bases), {})(**all_kwargs)
 
     def _create_dynamic_class(self, filename, details, BaseClass):
+        # First-class single-object backing: one class owns read/write/ioctl/poll.
+        backing_ref = details.get("plugin")
+        if backing_ref:
+            return self._create_backing_class(filename, details, BaseClass, backing_ref)
+
         read_conf = details.get("read", {})
         write_conf = details.get("write", {})
         ioctl_conf = self._normalize_ioctl_conf(details.get("ioctl", {}))
@@ -346,6 +461,7 @@ class Pseudofiles(Plugin):
         # Resolve Classes
         R_Mixin = self._resolve_mixin("read", read_conf)
         W_Mixin = self._resolve_mixin("write", write_conf)
+        P_Mixin, p_kwargs = self._resolve_poll_mixin(filename, details)
 
         # Resolve Ioctl Handlers
         handlers_map = {}
@@ -364,13 +480,15 @@ class Pseudofiles(Plugin):
         # Assemble
         safe_name = f"Gen_{filename.replace('/', '_')}"
         bases = list(self._get_compat_bases(filename, details))
+        if P_Mixin is not None:
+            bases.append(P_Mixin)
         bases.extend([R_Mixin, W_Mixin, IoctlDispatcher])
 
         if BaseClass is SysFile:
             bases.append(SysfsBridge)
         bases.append(BaseClass)
 
-        all_kwargs = {**r_kwargs, **w_kwargs}
+        all_kwargs = {**r_kwargs, **w_kwargs, **p_kwargs}
         all_kwargs['ioctl_handlers'] = handlers_map
         all_kwargs['path'] = filename
         all_kwargs['fs'] = getattr(BaseClass, 'FS', None)
@@ -383,7 +501,7 @@ class Pseudofiles(Plugin):
 
         # Capture top-level file properties (size, mode, etc.)
         for key, val in details.items():
-            if key not in ("read", "write", "ioctl"):
+            if key not in ("read", "write", "ioctl", "poll", "plugin"):
                 all_kwargs[key] = val
         # -----------------------------------------------------------------
 

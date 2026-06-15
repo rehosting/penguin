@@ -1,0 +1,80 @@
+plugins:
+  poll_backing_test: {}
+  verifier:
+    conditions:
+      poll_backing+console:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_poll_backing.sh PASS"
+      poll_backing+stdout:
+        type: file_contains
+        file: shared/tests/pseudofile_poll_backing.sh/stdout
+        string: "pseudofile_poll_backing PASS"
+
+# Regression test for issue #843: a callback-backed /dev node must answer poll()
+# in a data-aware way (POLLIN only when data is queued) instead of the legacy
+# "always ready" stub that made poll()->read() readers busy-loop.
+pseudofiles:
+  # 1. First-class single-object backing: one class owns read/write/poll.
+  /dev/poll_backing:
+    plugin: poll_backing_test:PollBacking
+
+  # 2. Per-domain form: read/write/poll each from_plugin against the same plugin.
+  /dev/poll_domain:
+    read:
+      model: from_plugin
+      plugin: poll_backing_test
+      function: read
+    write:
+      model: from_plugin
+      plugin: poll_backing_test
+      function: write
+    poll:
+      model: from_plugin
+      plugin: poll_backing_test
+      function: poll
+
+static_files:
+  /tests/pseudofile_poll_backing.sh:
+    type: inline_file
+    mode: 73
+    contents: |
+      #!/igloo/utils/micropython
+      import os, select
+
+      O_RDWR = 2
+
+      def poll_in(fd, timeout):
+          po = select.poll()
+          po.register(fd, select.POLLIN)
+          return po.poll(timeout)
+
+      def check(path):
+          fd = os.open(path, O_RDWR)
+          try:
+              # 1. Fresh/empty node must NOT report POLLIN (the busy-loop fix).
+              ev = poll_in(fd, 0)
+              assert not any(m & select.POLLIN for _, m in ev), \
+                  "%s: empty node reported POLLIN" % path
+
+              # 2. After a write enqueues data it must become readable.
+              os.write(fd, b"hello")
+              ev = poll_in(fd, 100)
+              assert any(m & select.POLLIN for _, m in ev), \
+                  "%s: node with data did not report POLLIN" % path
+
+              # 3. Read drains the queued bytes.
+              data = os.read(fd, 16)
+              assert data == b"hello", "%s: read got %r" % (path, data)
+
+              # 4. Drained node is no longer readable.
+              ev = poll_in(fd, 0)
+              assert not any(m & select.POLLIN for _, m in ev), \
+                  "%s: drained node still reported POLLIN" % path
+          finally:
+              os.close(fd)
+
+      check("/dev/poll_backing")   # single-object backing
+      check("/dev/poll_domain")    # per-domain poll: from_plugin
+
+      print("pseudofile_poll_backing PASS")
