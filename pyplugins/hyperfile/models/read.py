@@ -307,11 +307,11 @@ class ReadExternalVFS:
     """
 
     def __init__(self, *, read_plugin: str = None, read_function: str = "read", **kwargs):
-        self._func = getattr(getattr(plugins, read_plugin), read_function)
+        self._read_func = getattr(getattr(plugins, read_plugin), read_function)
         super().__init__(**kwargs)
 
     def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
-        res = self._func(ptregs, file, user_buf, size, loff)
+        res = self._read_func(ptregs, file, user_buf, size, loff)
         if inspect.isgenerator(res):
             yield from res
 
@@ -323,7 +323,7 @@ class ReadExternalLegacy:
     """
 
     def __init__(self, *, read_plugin: str = None, read_function: str = "read", **kwargs):
-        self._func = getattr(getattr(plugins, read_plugin), read_function)
+        self._read_func = getattr(getattr(plugins, read_plugin), read_function)
         self._legacy_kwargs = kwargs.copy()  # Capture extra args for 'details'
         super().__init__(**kwargs)
 
@@ -336,7 +336,7 @@ class ReadExternalLegacy:
         # self.full_path comes from BaseFile via composition
         filename = getattr(self, "full_path", "unknown")
 
-        res = self._func(self, filename, user_buf, size_val, offset, details=self._legacy_kwargs)
+        res = self._read_func(self, filename, user_buf, size_val, offset, details=self._legacy_kwargs)
 
         if inspect.isgenerator(res):
             val = yield from res

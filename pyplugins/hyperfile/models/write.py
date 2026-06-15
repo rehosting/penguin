@@ -192,11 +192,11 @@ class WriteExternalVFS:
     """Modern VFS Write Adapter"""
 
     def __init__(self, *, write_plugin: str = None, write_function: str = "write", **kwargs):
-        self._func = getattr(getattr(plugins, write_plugin), write_function)
+        self._write_func = getattr(getattr(plugins, write_plugin), write_function)
         super().__init__(**kwargs)
 
     def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, loff: LoffTPtr):
-        res = self._func(ptregs, file, user_buf, size, loff)
+        res = self._write_func(ptregs, file, user_buf, size, loff)
         if inspect.isgenerator(res):
             yield from res
 
@@ -205,7 +205,7 @@ class WriteExternalLegacy:
     """Legacy Write Adapter"""
 
     def __init__(self, *, write_plugin: str = None, write_function: str = "write", **kwargs):
-        self._func = getattr(getattr(plugins, write_plugin), write_function)
+        self._write_func = getattr(getattr(plugins, write_plugin), write_function)
         self._legacy_kwargs = kwargs.copy()
         super().__init__(**kwargs)
 
@@ -215,7 +215,7 @@ class WriteExternalLegacy:
         buf = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
         offset = yield from plugins.kffi.deref(loff)
 
-        res = self._func(self, getattr(self, "full_path", "unknown"), user_buf, size_val, offset, buf, self._legacy_kwargs)
+        res = self._write_func(self, getattr(self, "full_path", "unknown"), user_buf, size_val, offset, buf, self._legacy_kwargs)
 
         if inspect.isgenerator(res):
             result = yield from res
