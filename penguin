@@ -13,6 +13,74 @@ if ! command -v realpath >/dev/null 2>&1; then
     }
 fi
 
+# Container engine selection.
+# ENGINE            - the resolved engine command ("docker" or "podman")
+# ENGINE_IS_PODMAN  - "true" when ENGINE is podman
+# PODMAN_ROOTLESS   - "true" when running rootless podman (drives user mapping)
+#
+# Precedence: explicit override (flag/env) > docker > podman. We only probe the
+# docker daemon (the one slow step) when both engines are installed and the user
+# gave no override -- single-engine hosts and explicit choices skip it entirely.
+ENGINE=""
+ENGINE_IS_PODMAN=false
+PODMAN_ROOTLESS=false
+
+resolve_engine() {
+    # $1 is the explicit override from --docker/--podman/--engine (may be empty);
+    # falls back to the PENGUIN_CONTAINER_ENGINE env var.
+    local override="${1:-}"
+    if [ -z "$override" ]; then
+        override="${PENGUIN_CONTAINER_ENGINE:-}"
+    fi
+
+    if [ -n "$override" ]; then
+        # Explicit choice is honored as-is -- no reachability probe. If the
+        # daemon is down the underlying command errors naturally rather than
+        # silently switching engines behind the user's back.
+        if ! command_exists "$override"; then
+            echo "${RED}ERROR:${RESET} requested container engine '$override' not found on PATH." >&2
+            exit 1
+        fi
+        ENGINE="$override"
+    elif ! command_exists podman; then
+        # Nothing to fall back to -- use docker without probing.
+        ENGINE="docker"
+    elif ! command_exists docker; then
+        ENGINE="podman"
+    else
+        # Both installed: prefer docker only if its daemon is reachable.
+        # Bounded by `timeout` (when available) so a hung/down docker socket
+        # can't stall the wrapper; `timeout` isn't standard on macOS/BSD, so
+        # fall back to an unbounded probe there.
+        local docker_ok=false
+        if command_exists timeout; then
+            if timeout 2 docker info >/dev/null 2>&1; then docker_ok=true; fi
+        else
+            if docker info >/dev/null 2>&1; then docker_ok=true; fi
+        fi
+        if $docker_ok; then
+            ENGINE="docker"
+        else
+            ENGINE="podman"
+        fi
+    fi
+
+    if ! command_exists "$ENGINE"; then
+        echo "${RED}ERROR:${RESET} no container engine found (looked for docker and podman)." >&2
+        exit 1
+    fi
+
+    # Detect podman + rootless (one info call, podman-only).
+    case "$(basename "$ENGINE")" in
+        podman)
+            ENGINE_IS_PODMAN=true
+            if [ "$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null)" = "true" ]; then
+                PODMAN_ROOTLESS=true
+            fi
+            ;;
+    esac
+}
+
 BOLD=""
 RESET=""
 RED=""
@@ -29,50 +97,21 @@ if [ -t 1 ] && [ -n "$TERM" ] && command_exists tput && tput setaf 1 >/dev/null 
     fi
 fi
 
-is_subnet_in_use() {
-    local subnet=$1
-    local networks=$(docker network ls --quiet)
-    for net_id in $networks; do
-        local net_info=$(docker network inspect $net_id --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}')
-        if [[ "$net_info" == "$subnet" ]]; then
-            return 0  # Subnet is in use
-        fi
-    done
-    return 1  # Subnet is not in use
-}
-
 # Function to generate a random network name
 generate_network_name() {
     echo "nw_$RANDOM"
 }
 
-# Optimized function to find a free subnet
-find_available_subnet() {
-    local base="192.168"
-
-    # 1. Get all used 3rd octets (e.g., from 192.168.5.0 -> 5) in one pass
-    # We inspect all networks, filter for our base IP, extract the 3rd octet, and sort numerically
-    local used_octets
-    used_octets=$(docker network inspect $(docker network ls -q) --format '{{range .IPAM.Config}}{{.Subnet}}{{println}}{{end}}' 2>/dev/null \
-        | grep "^$base\." \
-        | awk -F'.' '{print $3}' \
-        | sort -n)
-
-    # 2. Find the first integer between 0-255 that is NOT in the used list
-    local free_octet
-    free_octet=$(echo "$used_octets" | awk '
-        BEGIN { next_val=0 }
-        $1 == next_val { next_val++ }
-        END { if (next_val < 256) print next_val }
-    ')
-
-    if [ -n "$free_octet" ]; then
-        echo "$base.$free_octet.0/24"
-        return 0
-    fi
-
-    echo "No available subnet found!" >&2
-    exit 1
+# Optimistically create a bridge network for the given subnet.
+# Returns 0 and sets the global `network_name` on success; non-zero if the
+# subnet is already in use (or creation otherwise fails). This avoids parsing
+# `network inspect` output, whose --format schema differs between docker and
+# podman -- we just try to create and let the engine reject collisions.
+create_subnet_network() {
+    local subnet="$1"
+    local gateway="${subnet%.*}.1"
+    network_name=$(generate_network_name)
+    "$ENGINE" network create -d bridge --subnet="$subnet" --gateway="$gateway" "$network_name" >/dev/null 2>&1
 }
 
 penguin_run() {
@@ -89,13 +128,14 @@ penguin_run() {
     local image="rehosting/penguin" # Container to run
     local extra_docker_args=""
     local standalone=false
+    local engine_override="" # --docker/--podman/--engine; empty means auto-detect
 
     # Process each command-line argument
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --wrapper-help)
                 echo "Usage: penguin [WRAPPER FLAGS] [COMMAND] [ARGS]"
-                echo "Wrapper script for running PENGUIN in a Docker container"
+                echo "Wrapper script for running PENGUIN in a Docker or Podman container"
                 echo ""
                 echo "Wrapper-specific flags may be passed in *before* the PENGUIN command. If a value is required, it must be specified immediately after the flag with a space."
                 echo "  --build: Build the PENGUIN container before running the specified command. If no command is specifed, just build and exit"
@@ -106,8 +146,13 @@ penguin_run() {
                 echo "            Set to 'none' to disable network creation."
                 echo "  --name: A name to identify the penguin container. By default based on project directory (if available)"
                 echo "  --image: Which image to run. Default: rehosting/penguin"
-                echo "  --extra_docker_args: Extra arguments to pass to docker. For example --extra_docker_args \"-p 8000:80\" to expose container port 80 on host port 8000."
-                echo "  --verbose: Print verbose output for penguin wrapper (e.g., filesystem mappings, docker command)"
+                echo "  --extra_docker_args: Extra arguments to pass to the container engine. For example --extra_docker_args \"-p 8000:80\" to expose container port 80 on host port 8000."
+                echo "  --docker: Force use of the docker engine."
+                echo "  --podman: Force use of the podman engine."
+                echo "  --engine: Explicitly select the container engine by name (e.g. --engine podman)."
+                echo "            By default the wrapper auto-detects: it prefers docker when its daemon is reachable, otherwise falls back to podman."
+                echo "            The PENGUIN_CONTAINER_ENGINE environment variable has the same effect (a flag overrides the env var)."
+                echo "  --verbose: Print verbose output for penguin wrapper (e.g., filesystem mappings, container command)"
                 echo "  --wrapper-help: this message"
                 echo ""
                 echo "All other arguments will be passed through to the main PENGUIN command in the container."
@@ -153,6 +198,18 @@ penguin_run() {
                 standalone=true
                 shift
                 ;;
+            --docker)
+                engine_override="docker"
+                shift
+                ;;
+            --podman)
+                engine_override="podman"
+                shift
+                ;;
+            --engine)
+                engine_override="$2"
+                shift 2
+                ;;
             *)  # Default case: If no more known options, keep as part of command
                 cmd=("$@")
                 break
@@ -164,9 +221,13 @@ penguin_run() {
         cmd=("$@")
     fi
 
+    # Resolve the container engine (docker/podman) before doing anything else.
+    resolve_engine "$engine_override"
+
     # If verbose, log all wrapper args and command
     if $verbose; then
         echo "${BOLD}Wrapper args:${RESET}"
+        echo "  engine: $ENGINE (podman=$ENGINE_IS_PODMAN, rootless=$PODMAN_ROOTLESS)"
         echo "  build: $build"
         echo "  build_singularity: $build_singularity"
         echo "  pydev: $pydev"
@@ -390,13 +451,29 @@ penguin_run() {
     fi
 
 
-     # Build Docker command
-    docker_cmd=("docker" "run" "--rm")
+     # Build container run command
+    docker_cmd=("$ENGINE" "run" "--rm")
+
+    # Podman (especially on SELinux-enforcing hosts) needs label=disable to read
+    # the bind-mounted host paths. Harmless on non-SELinux systems. This only
+    # affects the run path -- the exec branches above reassign docker_cmd.
+    if $ENGINE_IS_PODMAN; then
+        docker_cmd+=("--security-opt" "label=disable")
+    fi
+
+    # KVM acceleration. Under docker the daemon runs as root, so device
+    # passthrough always works. Under (rootless) podman the invoking user must
+    # be able to open /dev/kvm; if it can't, warn and fall through to TCG rather
+    # than passing a device that can't be accessed.
     if [ -e /dev/kvm ]; then
-        docker_cmd+=("--device=/dev/kvm")
-        kvm_gid="$(stat -c '%g' /dev/kvm 2>/dev/null || stat -f '%g' /dev/kvm 2>/dev/null || true)"
-        if [ -n "$kvm_gid" ]; then
-            docker_cmd+=("--group-add" "$kvm_gid")
+        if $ENGINE_IS_PODMAN && { [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; }; then
+            echo "${BOLD}WARNING:${RESET} /dev/kvm is not accessible to the current user; running without KVM acceleration (TCG)." >&2
+        else
+            docker_cmd+=("--device=/dev/kvm")
+            kvm_gid="$(stat -c '%g' /dev/kvm 2>/dev/null || stat -f '%g' /dev/kvm 2>/dev/null || true)"
+            if [ -n "$kvm_gid" ]; then
+                docker_cmd+=("--group-add" "$kvm_gid")
+            fi
         fi
     fi
 
@@ -443,7 +520,7 @@ penguin_run() {
         fi
 
         if [[ -n "$container_name" && "${cmd[0]}" != "guest_cmd" && "${cmd[0]}" != "guest-cmd" && "${cmd[0]}" != "shell" ]]; then
-            if docker inspect --type container "$container_name" >/dev/null 2>&1; then
+            if "$ENGINE" inspect --type container "$container_name" >/dev/null 2>&1; then
                 echo "${BOLD}ERROR: Container name ${RED}$container_name${RESET}${BOLD} is already in use!${RESET}"
                 echo "  Please specify a different name with ${BOLD}--name${RESET}"
                 exit 1
@@ -463,7 +540,7 @@ penguin_run() {
             fi
         done
 
-        docker_cmd=("docker" "exec" "-it" "${container_name}" "python3" "/igloo_static/guesthopper/guest_cmd.py")
+        docker_cmd=("$ENGINE" "exec" "-it" "${container_name}" "python3" "/igloo_static/guesthopper/guest_cmd.py")
         if [[ ${#guest_cmd_args[@]} -gt 0 ]]; then
             docker_cmd+=("${guest_cmd_args[@]}")
         fi
@@ -477,7 +554,7 @@ penguin_run() {
     if [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "utils" ]]; then
         local target_path="$(realpath "$(pwd)")"
         local matches
-        matches=$(docker ps --filter "label=penguin.root=$target_path" --filter "status=running" --format "{{.ID}}|{{.Names}}|{{.CreatedAt}}")
+        matches=$("$ENGINE" ps --filter "label=penguin.root=$target_path" --filter "status=running" --format "{{.ID}}|{{.Names}}|{{.CreatedAt}}")
 
         local match_count=0
         if [ -n "$matches" ]; then
@@ -501,7 +578,7 @@ penguin_run() {
                     fi
                 fi
             done
-            docker_cmd=("docker" "exec")
+            docker_cmd=("$ENGINE" "exec")
             if [ -t 0 ]; then
                 docker_cmd+=("-it")
             fi
@@ -523,8 +600,8 @@ penguin_run() {
 
     # Similarly if we are running a shell in the container, start it if it's not already running, otherwise exec into that container
     if [[ ${#cmd[@]} -gt 0 && "${cmd[0]}" == "shell" ]]; then
-        if [[ -n "$container_name" ]] && docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
-            docker_cmd=("docker" "exec" "-it" "-w" "/workspace" "${container_name}" "bash")
+        if [[ -n "$container_name" ]] && "$ENGINE" ps --format '{{.Names}}' | grep -q "^$container_name$"; then
+            docker_cmd=("$ENGINE" "exec" "-it" "-w" "/workspace" "${container_name}" "bash")
             "${docker_cmd[@]}"
             exit $?
         fi
@@ -541,7 +618,7 @@ penguin_run() {
 
             # 1. Ask Docker for running containers with this specific label
             local matches
-            matches=$(docker ps --filter "label=penguin.root=$target_path" --filter "status=running" --format "{{.ID}}|{{.Names}}|{{.CreatedAt}}")
+            matches=$("$ENGINE" ps --filter "label=penguin.root=$target_path" --filter "status=running" --format "{{.ID}}|{{.Names}}|{{.CreatedAt}}")
 
             # Count matches
             local match_count=0
@@ -571,10 +648,12 @@ penguin_run() {
                 echo "Starting new session..."
 
                 # Check for *other* penguin containers to be helpful
-                # We look for any container with the penguin.root label
-                local others=$(docker ps --filter "label=penguin.root" --filter "status=running" --format "table {{.Names}}\t{{.Label \"penguin.root\"}}")
-                # If 'others' has more than 1 line (header is line 1), print it
-                if [ $(echo "$others" | wc -l) -gt 1 ]; then
+                # We look for any container with the penguin.root label.
+                # NOTE: we print names only -- docker's `{{.Label "key"}}` method
+                # isn't portable to podman's `--format`, and the label column was
+                # purely informational anyway.
+                local others=$("$ENGINE" ps --filter "label=penguin.root" --filter "status=running" --format "{{.Names}}")
+                if [ -n "$others" ]; then
                      echo ""
                      echo "${BOLD}Other active sessions:${RESET}"
                      echo "$others"
@@ -587,8 +666,8 @@ penguin_run() {
         fi
 
         # If we found a container, exec into it
-        if [[ -n "$container_name" ]] && docker ps --format '{{.Names}}' | grep -q "^$container_name$"; then
-            docker_cmd=("docker" "exec" "-it" "-w" "/workspace" "${container_name}" "bash")
+        if [[ -n "$container_name" ]] && "$ENGINE" ps --format '{{.Names}}' | grep -q "^$container_name$"; then
+            docker_cmd=("$ENGINE" "exec" "-it" "-w" "/workspace" "${container_name}" "bash")
             "${docker_cmd[@]}"
             exit $?
         fi
@@ -601,26 +680,45 @@ penguin_run() {
 
     # Dynamic network
     if [ "$subnet" != "none" ]; then
-        network_name=$(generate_network_name)
-        if [ -z "$subnet" ]; then
-            # if subnet is empty, find one. Otherwise if subet is none skip
-            subnet=$(find_available_subnet)
+        if [ -n "$subnet" ]; then
+            # User-specified subnet: must be creatable or fail loudly.
+            if ! create_subnet_network "$subnet"; then
+                echo "${RED}ERROR:${RESET} could not create a network for requested subnet $subnet (already in use?)." >&2
+                exit 1
+            fi
+        else
+            # Auto-discover: optimistically try candidate /24s until one is
+            # created. Start at a random octet so concurrent runs are unlikely
+            # to collide on the same first candidate.
+            local start=$((RANDOM % 256))
+            local created=false
+            local k octet cand
+            for ((k=0; k<256; k++)); do
+                octet=$(( (start + k) % 256 ))
+                cand="192.168.$octet.0/24"
+                if create_subnet_network "$cand"; then
+                    subnet="$cand"
+                    created=true
+                    break
+                fi
+            done
+            if ! $created; then
+                echo "${RED}ERROR:${RESET} no available 192.168.x.0/24 subnet found." >&2
+                exit 1
+            fi
         fi
         gateway="${subnet%.*}.1"
         ip="${subnet%.*}.2"
 
-        # Create the network
-        docker network create -d bridge --subnet=$subnet --gateway=$gateway $network_name > /dev/null
-
-        # Setup  on-exit cleanup
-        trap "docker network rm $network_name>/dev/null" EXIT
+        # Setup on-exit cleanup
+        trap "$ENGINE network rm $network_name >/dev/null 2>&1" EXIT
 
         docker_cmd+=("--network" "$network_name" "--ip" "$ip")
         # Add env variable CONTAINER_IP=ip
         docker_cmd+=("-e" "CONTAINER_IP=$ip")
 
         if $verbose; then
-            echo "${BOLD}Docker network setup:${RESET}"
+            echo "${BOLD}Container network setup:${RESET}"
             echo "  Network name: $network_name"
             echo "  Subnet: $subnet"
             echo "  Gateway: $gateway"
@@ -629,7 +727,7 @@ penguin_run() {
         fi
     else
         if $verbose; then
-            echo "${BOLD}Docker network setup:${RESET}"
+            echo "${BOLD}Container network setup:${RESET}"
             echo "  Skipped due to --subnet none flag"
             echo
         fi
@@ -721,6 +819,13 @@ penguin_run() {
         docker_cmd+=($extra_docker_args)
     fi
 
+    # docker2singularity conversion (below) talks to the docker socket and has
+    # no podman equivalent here yet -- guard early with a clear message.
+    if $build_singularity && $ENGINE_IS_PODMAN; then
+        echo "${RED}ERROR:${RESET} --build-singularity relies on docker2singularity (docker socket) and isn't supported under podman yet. Re-run with --docker." >&2
+        exit 1
+    fi
+
     if $build_singularity; then
         build=true
     fi
@@ -733,11 +838,20 @@ penguin_run() {
             exit 1
         fi
 
+        # DOCKER_BUILDKIT only applies to docker; podman uses buildah natively.
         if [ -n "${SSH_AUTH_SOCK:-}" ]; then
             # Build with ssh
-            DOCKER_BUILDKIT=1 docker build --build-arg SSH=1 --ssh default -t $image -t rehosting/fw2tar .
+            if $ENGINE_IS_PODMAN; then
+                "$ENGINE" build --build-arg SSH=1 --ssh default -t $image -t rehosting/fw2tar .
+            else
+                DOCKER_BUILDKIT=1 "$ENGINE" build --build-arg SSH=1 --ssh default -t $image -t rehosting/fw2tar .
+            fi
         else
-            DOCKER_BUILDKIT=1 docker build -t $image -t rehosting/fw2tar .
+            if $ENGINE_IS_PODMAN; then
+                "$ENGINE" build -t $image -t rehosting/fw2tar .
+            else
+                DOCKER_BUILDKIT=1 "$ENGINE" build -t $image -t rehosting/fw2tar .
+            fi
         fi
 
         # If we have no other args, and not build_singularity exit 0
@@ -765,40 +879,56 @@ penguin_run() {
     if $pydev; then
         echo "Running in Python development mode (--pydev). Python package will be reinstalled on each run"
 
-        # We install penguin as root (mirroring main docker logic)
-        # And then run it as the current user. To do this we add the current UID/GID to the container
-
         # make a tempdir
         d=$(mktemp -d)
 
-        # Create etc/{passwd,group} and map into container so current user exists. Based on contents in real container
-        # Username matches host UID and we add a group named 'g' that matches the host GID
-        docker run --rm "$image" /bin/bash -c "cat /etc/passwd" > $d/passwd_user
-        echo "$(id -un):x:$(id -u):$(id -g):,,,:$(eval echo ~$USER):/bin/bash" >> $d/passwd_user
-
-        docker run --rm "$image" /bin/bash -c "cat /etc/group" > $d/group_user
-        echo "g:x:$(id -g):" >> $d/group_user
-
         # Add bogus version file when running in pydev mode
         echo "0.0.1.dev0+pydev" > $d/version.txt
-
         docker_cmd+=("-v" "$d/version.txt:/pkg/penguin/version.txt")
-        docker_cmd+=("-v" "$d/passwd_user:/etc/passwd")
-        docker_cmd+=("-v" "$d/group_user:/etc/group")
-        docker_cmd+=("--cap-add=NET_BIND_SERVICE")
-        docker_cmd+=("$image")
 
         # Safely quote arguments for Bash 3.2+ compatibility
         quoted_args=""
         if [[ ${#new_cmd[@]} -gt 0 ]]; then
             quoted_args=$(printf "%q " "${new_cmd[@]}")
         fi
-        
-        docker_cmd+=("/bin/bash" "-c" "pip install -e /pkg &>/tmp/log.txt || { cat /tmp/log.txt; exit 1; }; sudo -E -su \"$(id -un)\" -g g penguin $quoted_args")
+
+        if $PODMAN_ROOTLESS; then
+            # Rootless podman: the container runs as root, and rootless userns
+            # maps container-root back to the invoking host user -- so output
+            # files are owned correctly without any UID juggling. Install and
+            # run penguin directly as root. We deliberately skip the
+            # passwd/group fabrication + `sudo -su` dance used below: a host UID
+            # inside a rootless container maps to an unprivileged *subuid*, which
+            # would give output files the wrong owner.
+            docker_cmd+=("--cap-add=NET_BIND_SERVICE")
+            docker_cmd+=("$image")
+            docker_cmd+=("/bin/bash" "-c" "pip install -e /pkg &>/tmp/log.txt || { cat /tmp/log.txt; exit 1; }; penguin $quoted_args")
+        else
+            # docker / rootful podman: install penguin as root, then run it as
+            # the current user. To do this we add the current UID/GID to the
+            # container via a fabricated /etc/passwd and /etc/group.
+            # Username matches host UID and we add a group named 'g' that matches the host GID
+            "$ENGINE" run --rm "$image" /bin/bash -c "cat /etc/passwd" > $d/passwd_user
+            echo "$(id -un):x:$(id -u):$(id -g):,,,:$(eval echo ~$USER):/bin/bash" >> $d/passwd_user
+
+            "$ENGINE" run --rm "$image" /bin/bash -c "cat /etc/group" > $d/group_user
+            echo "g:x:$(id -g):" >> $d/group_user
+
+            docker_cmd+=("-v" "$d/passwd_user:/etc/passwd")
+            docker_cmd+=("-v" "$d/group_user:/etc/group")
+            docker_cmd+=("--cap-add=NET_BIND_SERVICE")
+            docker_cmd+=("$image")
+            docker_cmd+=("/bin/bash" "-c" "pip install -e /pkg &>/tmp/log.txt || { cat /tmp/log.txt; exit 1; }; sudo -E -su \"$(id -un)\" -g g penguin $quoted_args")
+        fi
     else
         d=""
-        # Ensure we maintain the same user in the container
-        docker_cmd+=("-u" "$(id -u):$(id -g)")
+        # Ensure output files are owned by the caller. Under rootless podman we
+        # run as root-in-container (the default) -- rootless userns maps that
+        # back to the host user, and an explicit -u would map to an
+        # unprivileged subuid with the wrong ownership.
+        if ! $PODMAN_ROOTLESS; then
+            docker_cmd+=("-u" "$(id -u):$(id -g)")
+        fi
         docker_cmd+=("--cap-add=NET_BIND_SERVICE")
 
         docker_cmd+=("$image")
@@ -825,9 +955,9 @@ penguin_run() {
         fi
         echo
 
-        echo "${BOLD}Complete docker commands:${RESET}"
+        echo "${BOLD}Complete $ENGINE commands:${RESET}"
         if [ "$subnet" != "none" ]; then
-            echo "  docker network create -d bridge --subnet=$subnet --gateway=$gateway $network_name"
+            echo "  $ENGINE network create -d bridge --subnet=$subnet --gateway=$gateway $network_name"
         fi
         echo "  ${docker_cmd[*]}"
         echo
