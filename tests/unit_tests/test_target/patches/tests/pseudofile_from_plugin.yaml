@@ -1,0 +1,51 @@
+plugins:
+  from_plugin_test: {}
+  verifier:
+    conditions:
+      from_plugin_rw+console:
+        type: file_contains
+        file: console.log
+        string: "/tests/pseudofile_from_plugin.sh PASS"
+      from_plugin_rw+stdout:
+        type: file_contains
+        file: shared/tests/pseudofile_from_plugin.sh/stdout
+        string: "pseudofile_from_plugin PASS"
+
+# Regression test for issue #839: a single node with BOTH a from_plugin read
+# and a from_plugin write must dispatch each operation to the correct handler.
+pseudofiles:
+  /dev/from_plugin_rw:
+    read:
+      model: from_plugin
+      plugin: from_plugin_test
+      function: read
+    write:
+      model: from_plugin
+      plugin: from_plugin_test
+      function: write
+
+static_files:
+  /tests/pseudofile_from_plugin.sh:
+    type: inline_file
+    mode: 73
+    contents: |
+      #!/igloo/utils/sh
+      set -ux
+      bb="/igloo/utils/busybox"
+      dev="/dev/from_plugin_rw"
+
+      # Exercise the write handler first (the handler that "won" the shared
+      # attribute before the fix). This must NOT corrupt the read path.
+      $bb printf "PING" > "$dev"
+
+      # Read it back. The read handler returns a distinctive marker. With the
+      # #839 bug the read is misrouted to the write handler, which never fills
+      # the user buffer, so the marker is absent and this check fails.
+      out=$($bb cat "$dev")
+      if [ "$out" != "READ_HANDLER" ]; then
+        echo "Error: read dispatched to wrong handler (got '$out', want 'READ_HANDLER')"
+        exit 1
+      fi
+
+      echo "pseudofile_from_plugin PASS"
+      exit 0

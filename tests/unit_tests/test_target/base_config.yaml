@@ -43,6 +43,7 @@ patches:
   - ./patches/tests/native_mmap.yaml
   - ./patches/tests/pseudofile_readdir.yaml
   - ./patches/tests/pseudofile_sysfs.yaml
+  - ./patches/tests/pseudofile_from_plugin.yaml
   - ./patches/tests/shared_dir.yaml
   # - ./patches/tests/syscall.yaml
   - ./patches/tests/indiv_debug.yaml
