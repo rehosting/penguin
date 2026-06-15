@@ -670,6 +670,19 @@ Size of the pseudofile to be reported by stat(). This must be specified for mmap
 4096
 ```
 
+#### `pseudofiles.<string>.plugin` Single backing class
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Name of a single backing class that owns the whole file_operations surface (read/write/ioctl/poll) for this node. Reference a built-in backing by name, or a user class as 'file:ClassName' (the file is found via the normal pyplugin search path). When set, the per-domain read/write/ioctl/poll keys are ignored — the class owns them all.
+
+```yaml
+my_backing:SerialBacking
+```
+
 #### `pseudofiles.<string>.read` Read
 
 |||
@@ -893,6 +906,30 @@ plugin: my_plugin
 |`model`|`"from_plugin"`||ioctl modelling method (ioctl from a custom pyplugin)|
 |`plugin`|string||Name of the loaded PyPlugin|
 |`function`|string or null|`ioctl`|Function to call|
+#### `pseudofiles.<string>.poll` Poll
+
+|||
+|-|-|
+|__Default__|`null`|
+
+How to answer poll()/select() on the file
+
+##### `pseudofiles.<string>.poll.<model=always_ready>` Always report ready
+
+Constant POLLIN|POLLRDNORM|POLLOUT|POLLWRNORM mask (legacy behavior).
+
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"always_ready"`||Poll modelling method (always report ready)|
+##### `pseudofiles.<string>.poll.<model=from_plugin>` Poll from a custom PyPlugin
+
+Data-aware poll: the plugin returns a poll mask reflecting actual readiness.
+
+|Field|Type|Default|Title|
+|-|-|-|-|
+|`model`|`"from_plugin"`||Poll modelling method (poll from a custom pyplugin)|
+|`plugin`|string||Name of the loaded PyPlugin|
+|`function`|string or null|`poll`|Function to call|
 ## `nvram` NVRAM
 
 |||

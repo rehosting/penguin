@@ -637,6 +637,32 @@ IoctlCommand = _union(
 )
 
 
+Poll = _union(
+    class_name="Poll",
+    title="Poll",
+    description="How to answer poll()/select() on the file",
+    discrim_key="model",
+    discrim_title="Poll modelling method",
+    variants=(
+        dict(
+            discrim_val="always_ready",
+            title="Always report ready",
+            description="Constant POLLIN|POLLRDNORM|POLLOUT|POLLWRNORM mask (legacy behavior).",
+            fields=(),
+        ),
+        dict(
+            discrim_val="from_plugin",
+            title="Poll from a custom PyPlugin",
+            description="Data-aware poll: the plugin returns a poll mask reflecting actual readiness.",
+            fields=(
+                ("plugin", str, Field(title="Name of the loaded PyPlugin")),
+                ("function", Optional[str], Field(title="Function to call", default="poll")),
+            ),
+        ),
+    ),
+)
+
+
 Star = Literal["*"]
 
 Ioctls = _newtype(
@@ -693,9 +719,25 @@ class Pseudofile(PartialModelMixin, BaseModel):
             examples=[1, 0x1000],
         ),
     ]
+    plugin: Annotated[
+        Optional[str],
+        Field(
+            None,
+            title="Single backing class",
+            description=(
+                "Name of a single backing class that owns the whole file_operations "
+                "surface (read/write/ioctl/poll) for this node. Reference a built-in "
+                "backing by name, or a user class as 'file:ClassName' (the file is found "
+                "via the normal pyplugin search path). When set, the per-domain "
+                "read/write/ioctl/poll keys are ignored — the class owns them all."
+            ),
+            examples=["my_backing:SerialBacking"],
+        ),
+    ]
     read: Optional[Read] = None
     write: Optional[Write] = None
     ioctl: Optional[Ioctls] = None
+    poll: Optional[Poll] = None
 
 
 Pseudofiles = _newtype(
