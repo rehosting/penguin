@@ -470,9 +470,18 @@ penguin_run() {
             echo "${BOLD}WARNING:${RESET} /dev/kvm is not accessible to the current user; running without KVM acceleration (TCG)." >&2
         else
             docker_cmd+=("--device=/dev/kvm")
-            kvm_gid="$(stat -c '%g' /dev/kvm 2>/dev/null || stat -f '%g' /dev/kvm 2>/dev/null || true)"
-            if [ -n "$kvm_gid" ]; then
-                docker_cmd+=("--group-add" "$kvm_gid")
+            if $PODMAN_ROOTLESS; then
+                # Rootless podman remaps groups through the user namespace, so a
+                # numeric --group-add for the host kvm GID maps to a subgid and
+                # still can't open /dev/kvm. keep-groups preserves the host's
+                # supplementary groups (incl. kvm) into the container instead.
+                # (Mutually exclusive with a numeric --group-add.)
+                docker_cmd+=("--group-add" "keep-groups")
+            else
+                kvm_gid="$(stat -c '%g' /dev/kvm 2>/dev/null || stat -f '%g' /dev/kvm 2>/dev/null || true)"
+                if [ -n "$kvm_gid" ]; then
+                    docker_cmd+=("--group-add" "$kvm_gid")
+                fi
             fi
         fi
     fi
