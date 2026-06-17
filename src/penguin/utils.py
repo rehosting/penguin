@@ -353,9 +353,23 @@ def boot_fingerprint(proj_dir: str, conf: Dict[str, Any]) -> str:
     :return: Hex digest string.
     """
     core = conf.get("core", {})
+    # Content hash of the boot-frozen image inputs (fs tarball + the arch
+    # binaries injected into the guest). Deliberately content-based, NOT the
+    # mtime-based hash_image_inputs: a snapshot must restore after `pack
+    # --with-snapshot` relocates the project, where the fs tarball's mtime
+    # changes but its bytes do not.
+    img = hashlib.sha256()
+    fs = os.path.join(proj_dir, core.get("fs", "") or "")
+    if os.path.isfile(fs):
+        img.update(get_file_hash(fs).encode())
+    arch_dir = get_arch_dir(conf)
+    for f in ["busybox", "hyp_file_op", "send_portalcall", get_driver_kmod_path(conf)]:
+        p = os.path.join(arch_dir, f)
+        if os.path.isfile(p):
+            img.update(get_file_hash(p).encode())
     frozen = {
-        # disk + arch binaries + fs (reuses the image-input hash)
-        "image": hash_image_inputs(proj_dir, conf),
+        # disk + arch binaries + fs, by content (survives relocation)
+        "image": img.hexdigest(),
         # machine the guest runs on
         "kernel": core.get("kernel"),
         "arch": core.get("arch"),
