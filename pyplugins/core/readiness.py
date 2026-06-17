@@ -10,6 +10,10 @@ class Readiness(Plugin):
         self.init_seen = False
         self.netbind_seen = False
 
+        # Broadcast a steady-state signal other plugins can observe (the raw
+        # send_hypercall "readiness" event is single-subscriber and owned here).
+        plugins.register(self, "ready")
+
         plugins.send_hypercall.subscribe("readiness", self.on_readiness)
         plugins.subscribe(plugins.NetBinds, "on_bind", self.on_netbind)
 
@@ -27,6 +31,7 @@ class Readiness(Plugin):
 
         self.init_seen = True
         self._write_marker("igloo_init.ready", value + "\n")
+        plugins.publish(self, "ready", "igloo_init")
 
         guest = self._guest_ip()
         port = self.get_arg("telnet_port") or 23
@@ -40,3 +45,4 @@ class Readiness(Plugin):
             return
         self.netbind_seen = True
         self._write_marker("netbind.ready", f"{procname},{ipvn},{sock_type},{ip},{port}\n")
+        plugins.publish(self, "ready", "netbind")

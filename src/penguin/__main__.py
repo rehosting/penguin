@@ -25,6 +25,7 @@ from .graph_search import graph_search
 from .patch_search import patch_search
 from .patch_minimizer import minimize as patch_minimize
 from .plugin_manager import find_local_plugins
+from .utils import hash_image_inputs
 from .compose import run_compose, scaffold_compose
 from .utils_cli import utils as _utils_group
 
@@ -82,7 +83,8 @@ def _validate_project(proj_dir, config_path):
     return config
 
 
-def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=False):
+def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=False,
+                    from_snapshot=None, ignore_saved_config=False):
     config = _validate_project(proj_dir, config_path)
 
     # You already have a config, let's just run it. This is what happens
@@ -110,6 +112,15 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
                 "Static analysis failed to identify an init script. Please specify one in your config under env.igloo_init"
             )
 
+    extra_env = {}
+    if from_snapshot:
+        extra_env["PENGUIN_SNAPSHOT_BOOT_FROM"] = from_snapshot
+    if ignore_saved_config:
+        # Opt out of defaulting to the snapshot's own saved config; drive the
+        # restored guest with the provided config instead (fingerprint-gated).
+        extra_env["PENGUIN_SNAPSHOT_IGNORE_SAVED_CONFIG"] = "1"
+    extra_env = extra_env or None
+
     try:
         PandaRunner().run(
             config_path,
@@ -120,6 +131,7 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
             show_output=True,
             verbose=verbose,
             resolved_kernel=config["core"]["kernel"],
+            extra_env=extra_env,
         )
     except RuntimeError:
         logger.error("No post-run analysis since there was no .run file")
@@ -255,7 +267,53 @@ def _startup_checks(verbose):
             )
 
 
-def _do_package(project_dir, output_path):
+def _stage_snapshots(project_dir_abs, config, tags, temp_dir):
+    """Stage portable copies of snapshot bundles for packaging.
+
+    Snapshots live in qcows/ (omitted from a normal pack). For each tag we copy
+    the overlay + base image + sidecars into temp_dir/qcows and rebase the
+    overlay COPY to a *relative* backing file (qemu-img rebase -u), so the
+    bundle is self-contained and portable — the live project is never touched.
+    Returns True if anything was staged.
+    """
+    qcow_dir = os.path.join(project_dir_abs, "qcows")
+    base_name = f"image_{hash_image_inputs(project_dir_abs, config)}.qcow2"
+    base_path = os.path.join(qcow_dir, base_name)
+    staged = False
+    stage_dir = os.path.join(temp_dir, "qcows")
+
+    for tag in tags:
+        overlay = os.path.join(qcow_dir, f"snapshot_{tag}.qcow2")
+        if not os.path.isfile(overlay):
+            logger.warning(f"No snapshot overlay for tag '{tag}' ({overlay}); skipping")
+            continue
+        os.makedirs(stage_dir, exist_ok=True)
+        # Base image must travel so the overlay's disk resolves.
+        if os.path.isfile(base_path) and not os.path.isfile(os.path.join(stage_dir, base_name)):
+            shutil.copy2(base_path, os.path.join(stage_dir, base_name))
+        staged_overlay = os.path.join(stage_dir, f"snapshot_{tag}.qcow2")
+        shutil.copy2(overlay, staged_overlay)
+        # Point the COPY at a relative backing so it resolves wherever qcows/
+        # lands on unpack. -u is unsafe (metadata-only); no data is rewritten.
+        try:
+            subprocess.run(
+                ["qemu-img", "rebase", "-u", "-b", base_name, "-F", "qcow2", staged_overlay],
+                check=True)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to rebase staged snapshot '{tag}': {e}")
+            exit(1)
+        for side in (f"snapshot_{tag}.meta.json", f"snapshot_{tag}.host.json",
+                     f"snapshot_{tag}.config.yaml"):
+            src = os.path.join(qcow_dir, side)
+            if os.path.isfile(src):
+                shutil.copy2(src, os.path.join(stage_dir, side))
+        logger.info(f"Staged snapshot '{tag}' (overlay + base + sidecars) for packaging")
+        staged = True
+
+    return staged
+
+
+def _do_package(project_dir, output_path, with_snapshots=()):
     project_dir_abs = os.path.abspath(project_dir)
     config_path = os.path.join(project_dir_abs, "config.yaml")
 
@@ -410,6 +468,13 @@ def _do_package(project_dir, output_path):
                 # copy2 preserves file metadata
                 shutil.copy2(ext_f, os.path.join(ext_dir, os.path.basename(ext_f)))
 
+        # Optionally stage portable snapshot bundles (overlay + base + sidecars)
+        # into temp_dir/qcows so they travel with the project for 'capture & share'.
+        has_snapshots = False
+        if with_snapshots:
+            has_snapshots = _stage_snapshots(project_dir_abs, config,
+                                             with_snapshots, temp_dir)
+
         # Construct the tar command using -I pigz
         tar_cmd = [
             "tar",
@@ -424,6 +489,10 @@ def _do_package(project_dir, output_path):
         # Append external_files directory if we copied anything into it
         if has_external:
             tar_cmd.append("external_files")
+
+        # Append staged snapshot bundle (qcows/) if present
+        if has_snapshots:
+            tar_cmd.append("qcows")
 
         logger.debug(f"Running packaging command: {' '.join(tar_cmd)}")
         try:
@@ -676,9 +745,15 @@ def refresh(ctx, project_dir, only, jobs, init_plugin_path, enable, disable, upd
 @click.option("--force", is_flag=True, default=False, help="Forcefully delete output directory if it exists.")
 @click.option("--timeout", type=int, default=None, help="Number of seconds that run/iteration should last. Default is None (must manually kill)")
 @click.option("-a", "--auto", is_flag=True, help="Run in auto mode (don't start telnet shell).")
+@click.option("--from-snapshot", "from_snapshot", type=str, default=None,
+              help="Restore from a saved VM snapshot tag at startup (sugar for core.snapshot.boot_from).")
+@click.option("--ignore-saved-config", "ignore_saved_config", is_flag=True, default=False,
+              help="When restoring, do NOT default to the config the snapshot was saved with; "
+                   "use the provided config instead (still gated by the snapshot fingerprint).")
 @verbose_option
 @click.pass_context
-def run(ctx, project_dir, config, output, force, timeout, auto):
+def run(ctx, project_dir, config, output, force, timeout, auto, from_snapshot,
+        ignore_saved_config):
     """
     Run from a config.
 
@@ -738,7 +813,8 @@ def run(ctx, project_dir, config, output, force, timeout, auto):
             "Note messages referencing /host paths reflect automatically-mapped shared directories based on your command line arguments"
         )
 
-    run_from_config(project_dir, config, output, timeout=timeout, verbose=ctx.obj['VERBOSE'])
+    run_from_config(project_dir, config, output, timeout=timeout, verbose=ctx.obj['VERBOSE'],
+                    from_snapshot=from_snapshot, ignore_saved_config=ignore_saved_config)
 
 
 @cli.command()
@@ -1088,16 +1164,20 @@ def guest_cmd(ctx, args):
 @cli.command()
 @click.argument("project_dir", type=click.Path(exists=True))
 @click.option("-o", "--out", type=str, default=None, help="Output tar.gz file path. Defaults to <project_dir_name>.tar.gz")
+@click.option("--with-snapshot", "with_snapshot", multiple=True, metavar="TAG",
+              help="Also include the named VM snapshot bundle (overlay + base + sidecars) so the project can boot_from it elsewhere. Repeatable.")
 @verbose_option
 @click.pass_context
-def pack(ctx, project_dir, out):
+def pack(ctx, project_dir, out, with_snapshot):
     """
     Package a penguin project into a distributable archive.
 
-    Creates a tar.gz pulling in configs, base, and static patches while omitting results and qcows.
+    Creates a tar.gz pulling in configs, base, and static patches while omitting
+    results and qcows. Pass --with-snapshot TAG to additionally bundle a saved
+    VM snapshot (made portable via a relative backing rebase) for capture & share.
     """
     _startup_checks(ctx.obj['VERBOSE'])
-    _do_package(project_dir, out)
+    _do_package(project_dir, out, with_snapshots=with_snapshot)
 
 
 @cli.command()

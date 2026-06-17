@@ -210,6 +210,55 @@ class Plugin:
         """Ensure that the plugin is fully initialized before use."""
         pass
 
+    def on_snapshot(self, tag: str) -> None:
+        """Hook called after a VM snapshot is saved.
+
+        Override to persist any host-side state that must be reproduced when
+        the snapshot is later restored. No-op by default. Plugins may also
+        subscribe to the Snapshot plugin's ``on_snapshot`` event instead.
+        """
+        pass
+
+    def on_restore(self, tag: str) -> None:
+        """Hook called after a VM snapshot is restored (or booted via -loadvm).
+
+        Called after :meth:`load_state` has run, so any state captured at save
+        time is already available. Override to rehydrate host-side state (e.g.
+        re-establish bridges, replay recorded bindings) so it matches the
+        restored guest. No-op by default.
+        """
+        pass
+
+    def save_state(self):
+        """Opt-in: return JSON-serialisable host-side state to bundle with a
+        snapshot, or None to save nothing (default).
+
+        A snapshot does not capture host-side plugin state; plugins that hold
+        in-memory state needed for continuity after a cross-process restore
+        should return it here. File-backed state (e.g. NVRAM's nvram_state.yaml)
+        can self-heal via the output dir and need not be returned. The returned
+        value is stored in the snapshot's host sidecar and handed back to
+        :meth:`load_state` on restore.
+        """
+        return None
+
+    def load_state(self, data) -> None:
+        """Opt-in: rehydrate state previously returned by :meth:`save_state`.
+
+        Called on restore before :meth:`on_restore`. No-op by default.
+        """
+        pass
+
+    def reset_state(self) -> None:
+        """Opt-in: reset host-side state to a pristine baseline.
+
+        Reserved for fork/restore-many (restoring the same point repeatedly),
+        where each restore needs a clean host-side slate (fresh counters, port
+        maps, etc.). Not exercised by once-and-continue restore. No-op by
+        default; this is the designed seam, not yet driven by any caller.
+        """
+        pass
+
     @property
     def name(self) -> str:
         """

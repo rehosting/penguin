@@ -285,6 +285,36 @@ class RemoteCtrl(Plugin):
         hid = hooklogger.register_syscall(name, action, pid, proc, logfile)
         return {"id": hid}
 
+    def _handle_snapshot(self, cmd):
+        """Host-driven snapshot request.
+
+        cmd fields: action ('save'|'load', default 'save'), tag, and for save:
+        when ('next_syscall'|'symbol'|'now'), process_filter/proc, symbol.
+        Forwards to the Snapshot plugin's request_save/request_restore so the
+        capture is armed at a safe execution boundary.
+        """
+        snap = plugins.get_plugin_by_name("Snapshot")
+        if not snap:
+            return {"status": "error", "message": "Snapshot plugin not loaded"}
+
+        action = cmd.get("action", "save")
+        tag = cmd.get("tag")
+        if action == "save":
+            when = cmd.get("when", "next_syscall")
+            proc = cmd.get("process_filter") or cmd.get("proc")
+            symbol = cmd.get("symbol")
+            ok = snap.request_save(tag, when=when, proc=proc, symbol=symbol)
+            if ok:
+                return {"status": "success",
+                        "message": f"snapshot save armed (when={when})"}
+            return {"status": "error", "message": "failed to arm snapshot save"}
+        elif action == "load":
+            ok = snap.request_restore(tag)
+            if ok:
+                return {"status": "success", "message": "snapshot restore scheduled"}
+            return {"status": "error", "message": "failed to schedule restore"}
+        return {"status": "error", "message": f"unknown snapshot action: {action}"}
+
     def _handle_list(self, cmd):
         return {"hooks": hooklogger.list_hooks()}
 

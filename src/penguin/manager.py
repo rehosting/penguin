@@ -21,7 +21,7 @@ import signal
 import subprocess
 import time
 from penguin import getColoredLogger
-from .common import yaml
+from .common import yaml, CoreLoader
 
 logger = getColoredLogger("penguin.manager.calculate_score")
 
@@ -73,7 +73,10 @@ def calculate_score(result_dir: str, have_console: bool = True) -> dict[str, int
     # --- Load core_config.yaml ---
     try:
         with open(os.path.join(result_dir, "core_config.yaml")) as f:
-            config = yaml.safe_load(f) or {}  # Ensure config is a dict even if file is empty
+            # core_config.yaml is written with CoreDumper (YAML 1.2: octal modes
+            # 0o..., hex addresses 0x...); read it with the matching 1.2 loader
+            # so those parse back as ints (safe_load/1.1 mangles 0o755 to a str).
+            config = yaml.load(f, Loader=CoreLoader) or {}  # dict even if empty
     except FileNotFoundError:
         logger.warning(f"Config file not found in {result_dir}. Cannot determine blocked signals.")
     except yaml.YAMLError as e:

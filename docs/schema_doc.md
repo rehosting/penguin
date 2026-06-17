@@ -182,6 +182,103 @@ lighttpd: 9999
 |__Default__|`null`|
 
 
+### `core.snapshot` Snapshot configuration
+
+|||
+|-|-|
+|__Default__|`null`|
+
+VM snapshot (savevm/loadvm) configuration.
+
+    Snapshotting is *active* whenever ``save_at`` or ``boot_from`` is set — there
+    is no separate enable flag. When active, the guest runs on a persistent
+    qcow2 overlay (rather than the throwaway immutable overlay) so an internal VM
+    snapshot can be saved and later restored. Saving a snapshot at a chosen point
+    lets a later run boot directly from that state instead of re-booting the
+    firmware.
+    
+
+#### `core.snapshot.backend` Snapshot backend
+
+|||
+|-|-|
+|__Type__|`"internal"` or `"file"`|
+|__Default__|`internal`|
+
+'internal' stores the snapshot inside the qcow2 overlay (savevm/loadvm). 'file' (not yet implemented) writes a standalone migration file bundle.
+
+```yaml
+internal
+```
+
+```yaml
+file
+```
+
+#### `core.snapshot.tag` Snapshot tag
+
+|||
+|-|-|
+|__Type__|string|
+|__Default__|`boot`|
+
+Name of the internal VM snapshot to save and/or restore.
+
+```yaml
+boot
+```
+
+```yaml
+post_init
+```
+
+#### `core.snapshot.save_at` When to save the snapshot
+
+|||
+|-|-|
+|__Type__|`"readiness"` or `"manual"` or null|
+|__Default__|`null`|
+
+'readiness' saves once the guest reaches steady state; 'manual' arms the Snapshot plugin to save on request (via guest_cmd / hypercall). None disables saving.
+
+```yaml
+readiness
+```
+
+```yaml
+manual
+```
+
+#### `core.snapshot.boot_from` Snapshot tag to boot from
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+If set, restore this internal snapshot at startup (-loadvm).
+
+```yaml
+boot
+```
+
+#### `core.snapshot.stop_after_save` End the run after saving
+
+|||
+|-|-|
+|__Type__|boolean|
+|__Default__|`false`|
+
+Shut the guest down immediately after the snapshot is saved.
+
+```yaml
+false
+```
+
+```yaml
+true
+```
+
 ### `core.force_www` Try to force webserver start
 
 |||
