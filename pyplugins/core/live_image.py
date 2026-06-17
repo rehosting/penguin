@@ -90,7 +90,7 @@ class LiveImage(Plugin):
         """
         actions = self.get_arg("conf").get("static_files", {}).items()
 
-        action_order = ["delete", "move", "shim", "dir", "host_file",
+        action_order = ["delete", "move", "shim", "dir", "host_file", "host_tar",
                         "inline_file", "binary_patch", "dev", "symlink"]
 
         partitions = {key: [] for key in action_order}
@@ -242,6 +242,26 @@ class LiveImage(Plugin):
                             shutil.copy(host_src, staged_path)
                         if 'mode' in action:
                             record_mode(file_path, action['mode'])
+
+            elif action_type == "host_tar":
+                # Extract a host tarball into the staging tree rooted at file_path.
+                # Used to deliver large directory trees (e.g. a tool's /nix/store
+                # runtime closure) that the host_file globber can't handle because
+                # it is non-recursive and dereferences symlinks.
+                record_parent_dirs(file_path)
+                host_path_str = action['host_path']
+                if not os.path.isabs(host_path_str):
+                    tar_src = self.proj_dir / host_path_str
+                else:
+                    tar_src = Path(host_path_str)
+                if not tar_src.is_file():
+                    raise FileNotFoundError(
+                        f"host_tar source not found: {tar_src} "
+                        f"(static_files entry: {file_path} -> {action})")
+                dest_root = staging_dir / file_path.lstrip('/')
+                dest_root.mkdir(parents=True, exist_ok=True)
+                with tarfile.open(tar_src, "r:*") as tf:
+                    tf.extractall(path=dest_root)
 
             # Queue or generate commands for post-tar execution
             elif action_type == "binary_patch":
