@@ -380,6 +380,17 @@ class Nvram2(Plugin):
         except Exception as e:
             self.logger.warning(f"failed to save persisted nvram to {self.persist_path}: {e}")
 
+    def save_state(self):
+        """Snapshot the in-memory NVRAM set-value state for restore continuity."""
+        return {"state": dict(self.state)}
+
+    def load_state(self, data) -> None:
+        """Restore NVRAM set-value state captured at snapshot time."""
+        saved = (data or {}).get("state")
+        if isinstance(saved, dict):
+            self.state.update(saved)
+            self.logger.info("restored %d nvram values from snapshot", len(saved))
+
     def log_write(self, entry: str) -> None:
         """
         Write a log entry to the CSV file.

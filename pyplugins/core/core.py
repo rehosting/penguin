@@ -168,9 +168,12 @@ class Core(Plugin):
         with open(os.path.join(self.outdir, "core_plugins.yaml"), "w") as f:
             f.write(yaml.dump(plugs))  # Names and args
 
-        # Record config in outdir:
+        # Record config in outdir, rendered like dump_config (octal modes, hex
+        # addresses); read back with CoreLoader (see manager.py).
         with open(os.path.join(self.outdir, "core_config.yaml"), "w") as f:
-            f.write(yaml.dump(self.get_arg("conf").args))
+            f.write(yaml.dump(common.style_config_for_dump(self.get_arg("conf").args),
+                              sort_keys=False, default_flow_style=False, width=None,
+                              Dumper=common.CoreDumper))
 
         signal.signal(signal.SIGUSR1, self.graceful_shutdown)
 
@@ -275,9 +278,12 @@ class Core(Plugin):
         with open(os.path.join(self.outdir, "core_plugins.yaml"), "w") as f:
             f.write(yaml.dump(plugins))  # Names and args
 
-        # Record config in outdir:
+        # Record config in outdir, rendered like dump_config (octal modes, hex
+        # addresses); read back with CoreLoader (see manager.py).
         with open(os.path.join(self.outdir, "core_config.yaml"), "w") as f:
-            f.write(yaml.dump(self.get_arg("conf").args))
+            f.write(yaml.dump(common.style_config_for_dump(self.get_arg("conf").args),
+                              sort_keys=False, default_flow_style=False, width=None,
+                              Dumper=common.CoreDumper))
 
         if hasattr(self, "shutdown_event") and not self.shutdown_event.is_set():
             # Tell the shutdown thread to exit if it was started

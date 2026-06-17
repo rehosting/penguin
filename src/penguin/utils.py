@@ -12,6 +12,7 @@ filesystem and kernel management, plugin analysis loading, and mitigation provid
 import hashlib
 import heapq
 import importlib
+import json
 import os
 import subprocess
 import penguin
@@ -330,6 +331,47 @@ def hash_image_inputs(proj_dir: str, conf: Dict[str, Any]) -> str:
     # add the fstype - if it changes we need to rebuild
     hsh.update("ext4".encode())
     return hsh.hexdigest()
+
+
+def boot_fingerprint(proj_dir: str, conf: Dict[str, Any]) -> str:
+    """
+    Coarse fingerprint of the *boot-frozen* inputs that a VM snapshot is bound
+    to. A snapshot captures guest state produced by these inputs, so a restore
+    is only coherent if they still match.
+
+    This is intentionally broader than :func:`hash_image_inputs` (which omits the
+    kernel and the boot/append args) and intentionally *coarse*: it freezes whole
+    device-ish config sections rather than tracking which individual NVRAM keys
+    or pseudofiles the guest actually touched. That can refuse a restore that
+    would in fact have been fine; per-access precision can be layered on later.
+
+    Mutable-on-restore config (analysis/logging/breakpoint plugins, and the
+    response logic of already-wired pseudofiles) is deliberately excluded.
+
+    :param proj_dir: Project directory.
+    :param conf: Configuration dictionary.
+    :return: Hex digest string.
+    """
+    core = conf.get("core", {})
+    frozen = {
+        # disk + arch binaries + fs (reuses the image-input hash)
+        "image": hash_image_inputs(proj_dir, conf),
+        # machine the guest runs on
+        "kernel": core.get("kernel"),
+        "arch": core.get("arch"),
+        "machine": core.get("machine"),
+        "mem": core.get("mem"),
+        # boot args shape the booted state
+        "env": conf.get("env"),
+        # device-ish inputs baked into the booted guest
+        "nvram": conf.get("nvram"),
+        "netdevs": conf.get("netdevs"),
+        # the *set* of pseudofile nodes (enumeration is baked in); the response
+        # logic is mutable and excluded by hashing only the keys.
+        "pseudofile_nodes": sorted((conf.get("pseudofiles") or {}).keys()),
+    }
+    blob = json.dumps(frozen, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode()).hexdigest()
 
 
 def _load_penguin_analysis_from(plugin_file: str) -> PenguinAnalysis:

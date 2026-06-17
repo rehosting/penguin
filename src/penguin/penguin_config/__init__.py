@@ -13,10 +13,12 @@ from collections import defaultdict
 import click
 import jsonschema
 try:
-    from penguin.common import yaml, CoreDumper, CoreLoader
+    from penguin.common import yaml, CoreDumper, CoreLoader, style_config_for_dump
 except ImportError:
     from yamlcore import CoreLoader, CoreDumper
     import yaml
+    def style_config_for_dump(obj, _key=None):
+        return obj
 from pydantic import BaseModel, Field, RootModel, ValidationError
 from pydantic.config import ConfigDict
 
@@ -502,11 +504,14 @@ def dump_config(config, path):
     validation doesn't check this
     """
     _validate_config(config)
+    # Wrap ints for readable rendering (octal modes, hex addresses) without
+    # mutating the caller's config; validation above ran on the originals.
+    styled = style_config_for_dump(config)
     with open(path, "w") as f:
         f.write(
             "# yaml-language-server: $schema=https://github.com/rehosting/penguin/releases/latest/download/config_schema.yaml\n"
         )
-        yaml.dump(config, f, sort_keys=False, default_flow_style=False, width=None, Dumper=CoreDumper)
+        yaml.dump(styled, f, sort_keys=False, default_flow_style=False, width=None, Dumper=CoreDumper)
 
 
 def hash_yaml_config(config: dict):

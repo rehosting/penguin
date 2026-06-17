@@ -147,6 +147,11 @@ class VPN(Plugin):
         self.wild_ips = set()  # (sock_type, port, procname) tuples
         self.mapped_ports = set()  # Ports we've mapped
         self.active_listeners = set()  # (proto, port)
+        # (sock_type, ip, guest_port) -> {procname, ipvn, host_port}; recorded so
+        # bridges can be re-established on the same host ports after a snapshot
+        # restore (the restored guest is already past its binds).
+        self.bridges_made = {}
+        self._restore_data = None
 
         # Check if we have CONTAINER_{IP,NAME} in env
         self.exposed_ip = env.get("CONTAINER_IP", "127.0.0.1")
@@ -303,6 +308,60 @@ class VPN(Plugin):
         host_port = self.bridge(sock_type, ip, port, procname, ipvn)
         plugins.publish(self, "on_bind", sock_type, ip, port, host_port, self.exposed_ip, procname)
 
+    def save_state(self):
+        """Capture the active bridges (and IP-discovery state) so they can be
+        re-established on the same host ports after a snapshot restore."""
+        return {
+            "bridges": [
+                {"sock_type": k[0], "ip": k[1], "guest_port": k[2],
+                 "procname": v["procname"], "ipvn": v["ipvn"],
+                 "host_port": v["host_port"]}
+                for k, v in self.bridges_made.items()
+            ],
+            "seen_ips": sorted(self.seen_ips),
+            "wild_ips": [list(w) for w in self.wild_ips],
+        }
+
+    def load_state(self, data) -> None:
+        """Stash bridge state captured at snapshot time; replayed in on_restore."""
+        self._restore_data = data or None
+
+    def on_restore(self, tag: str) -> None:
+        """Re-establish bridges after a snapshot restore.
+
+        The restored guest is already past its binds, so NetBinds won't re-emit
+        on_bind events. We replay the recorded bridges, pinning each to the same
+        host port via fixed_maps so host-side URLs stay stable across restore.
+        Live connections are not (and cannot be) replayed.
+        """
+        data = self._restore_data
+        if not data:
+            return
+        self.seen_ips.update(data.get("seen_ips", []))
+        for w in data.get("wild_ips", []):
+            self.wild_ips.add(tuple(w))
+        bridges = data.get("bridges", [])
+        self.logger.info("Re-establishing %d VPN bridge(s) after restore of '%s'",
+                         len(bridges), tag)
+        for b in bridges:
+            key = (b["sock_type"], b["ip"], b["guest_port"])
+            # Pin the same host port so URLs are stable across restore.
+            self.fixed_maps[key] = b["host_port"]
+            self.active_listeners.add(key)
+            try:
+                host_port = self.bridge(b["sock_type"], b["ip"], b["guest_port"],
+                                        b["procname"], b["ipvn"])
+            except Exception as e:
+                self.logger.warning("failed to re-establish bridge %s: %s", key, e)
+                continue
+            # Re-notify downstream consumers (e.g. service probes/automation)
+            # that the bridged service is available again. The restored guest is
+            # past its binds so NetBinds won't re-emit on_bind; replaying it here
+            # keeps on_bind subscribers symmetric across a snapshot restore.
+            plugins.publish(self, "on_bind", b["sock_type"], b["ip"],
+                            b["guest_port"], host_port, self.exposed_ip,
+                            b["procname"])
+
     def map_bound_socket(self, sock_type: str, ip: str, guest_port: int, procname: str) -> int:
         """
         Map a guest socket to a host port, handling privileged ports and collisions.
@@ -420,6 +479,9 @@ class VPN(Plugin):
         with self.port_map_lock:
             host_port = self.map_bound_socket(sock_type, ip, guest_port, procname)
             self.mapped_ports.add(host_port)
+            self.bridges_made[(sock_type, ip, guest_port)] = {
+                "procname": procname, "ipvn": ipvn, "host_port": host_port,
+            }
 
         # Set up the event for the host vpn in the background - lets us run commands in the guest if we'd like
         threading.Thread(

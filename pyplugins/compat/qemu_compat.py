@@ -549,6 +549,9 @@ class QemuCompat:
             "void penguin_unregister_guest_hypercall(uint64_t nr);",
             "void penguin_clear_guest_hypercalls(void);",
             "bool penguin_guest_hypercall_registered(uint64_t nr);",
+            "bool penguin_save_snapshot(const char *name);",
+            "bool penguin_load_snapshot(const char *name);",
+            "void penguin_schedule_snapshot(const char *name, bool load);",
         ):
             if declaration not in cdef_source:
                 cdef_source += f"\n{declaration}\n"
@@ -1088,6 +1091,68 @@ class QemuCompat:
         if err < 0:
             raise ValueError(f"Memory write failed at {addr:#x}")
         return len(view)
+
+    def save_snapshot(self, name: str) -> bool:
+        """Save an internal VM snapshot named ``name`` (savevm).
+
+        Wraps the fork's penguin_save_snapshot(). The underlying
+        save_snapshot() stops the VM, serialises device + RAM state into the
+        active block device's internal-snapshot store, and resumes. Must be
+        invoked from the main loop context (e.g. a readiness/event callback,
+        not a vCPU-thread hypercall handler) to avoid contending with the
+        snapshot's own main-loop pumping; the BQL is taken here if needed.
+        Returns True on success.
+        """
+        fn = self._lib_symbol("penguin_save_snapshot")
+        if fn is None:
+            logger.warning(
+                "QEMU library does not expose penguin_save_snapshot; "
+                "snapshot support requires a rebuilt pandare deb")
+            return False
+        cname = self.ffi.new("char[]", name.encode("utf-8"))
+        ok = bool(self._call_with_bql(lambda: fn(cname)))
+        if not ok:
+            logger.error("savevm '%s' failed (see QEMU stderr)", name)
+        return ok
+
+    def load_snapshot(self, name: str) -> bool:
+        """Restore an internal VM snapshot named ``name`` (loadvm).
+
+        Wraps the fork's penguin_load_snapshot(), which stops the VM, restores
+        device + RAM state, and restores the prior runstate. Same calling-context
+        rules as :meth:`save_snapshot`. Returns True on success.
+        """
+        fn = self._lib_symbol("penguin_load_snapshot")
+        if fn is None:
+            logger.warning(
+                "QEMU library does not expose penguin_load_snapshot; "
+                "snapshot support requires a rebuilt pandare deb")
+            return False
+        cname = self.ffi.new("char[]", name.encode("utf-8"))
+        ok = bool(self._call_with_bql(lambda: fn(cname)))
+        if not ok:
+            logger.error("loadvm '%s' failed (see QEMU stderr)", name)
+        return ok
+
+    def schedule_snapshot(self, name: str, load: bool = False) -> bool:
+        """Schedule a savevm (load=False) or loadvm (load=True) on the main loop.
+
+        Fire-and-forget and safe to call from a vCPU-thread callback (e.g. a
+        guest hypercall / readiness handler): the snapshot runs in the main
+        loop context where it can stop the vCPUs without deadlocking. Prefer
+        this over :meth:`save_snapshot`/:meth:`load_snapshot` from such
+        callbacks. Returns True if the request was successfully scheduled (not
+        whether the snapshot itself succeeded — that is logged to QEMU stderr).
+        """
+        fn = self._lib_symbol("penguin_schedule_snapshot")
+        if fn is None:
+            logger.warning(
+                "QEMU library does not expose penguin_schedule_snapshot; "
+                "snapshot support requires a rebuilt pandare deb")
+            return False
+        cname = self.ffi.new("char[]", name.encode("utf-8"))
+        self._call_with_bql(lambda: fn(cname, bool(load)))
+        return True
 
     def end_analysis(self):
         if hasattr(self.lib, "qemu_system_shutdown_request"):

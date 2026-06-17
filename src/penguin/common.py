@@ -32,14 +32,55 @@ def redirect_logs_to(handler: logging.Handler) -> None:
 
 
 # Hex integers
-def int_to_hex_representer(dumper, data):
-    if not isinstance(data, int):
-        raise ValueError(f"YAML representer received non-integer: {data}. Something has gone very wrong")
+# Integer rendering for dumped configs (see style_config_for_dump). A plain
+# YAML scalar representer only receives the value, never the mapping key, so it
+# cannot tell a permission `mode` from a port by value alone. Instead, config
+# dumping wraps the values it wants specially formatted in these int subclasses
+# and we register one representer per subclass. Plain ints fall through to
+# CoreDumper's default base-10 rendering.
+class HexInt(int):
+    """An int that dumps as hex (``0x...``) — for addresses, masks, etc."""
 
-    if data > 10:
-        # Values < 10 can be base 10
-        return dumper.represent_scalar("tag:yaml.org,2002:int", data)
-    return dumper.represent_scalar("tag:yaml.org,2002:int", hex(data))
+
+class OctInt(int):
+    """An int that dumps as octal (``0o...``) — for file permission modes."""
+
+
+def _hexint_representer(dumper, data):
+    # represent_scalar needs a *string* value; the explicit int tag keeps it an
+    # int on load (CoreLoader parses 0x.../0o... per the YAML 1.2 core schema).
+    return dumper.represent_scalar("tag:yaml.org,2002:int", hex(int(data)))
+
+
+def _octint_representer(dumper, data):
+    return dumper.represent_scalar("tag:yaml.org,2002:int", oct(int(data)))
+
+
+# Config keys whose integer values are file permissions and read best as octal.
+PERMISSION_KEYS = frozenset({"mode"})
+# Integers at or above this render as hex (memory addresses, masks, ...);
+# smaller values (ports <=65535, timeouts, counts) stay decimal.
+HEX_INT_THRESHOLD = 0x10000
+
+
+def style_config_for_dump(obj, _key=None):
+    """Return a copy of a config with ints wrapped for readable YAML output:
+    permission (``mode``) fields as octal, large/address-like ints as hex, and
+    everything else left as plain base-10 ints. Booleans are passed through
+    untouched (``bool`` is an ``int`` subclass but must stay true/false)."""
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, int):
+        if _key in PERMISSION_KEYS:
+            return OctInt(obj)
+        if obj >= HEX_INT_THRESHOLD:
+            return HexInt(obj)
+        return obj
+    if isinstance(obj, dict):
+        return {k: style_config_for_dump(v, k) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [style_config_for_dump(v, _key) for v in obj]
+    return obj
 
 
 # Multi-line strings
@@ -52,9 +93,16 @@ def literal_presenter(dumper, data):
     return dumper.represent_scalar("tag:yaml.org,2002:str", data)
 
 
-# Representer. Need special handling for dumping literals and tuples. Support base dumper or safe
+# Representers: multi-line strings as literal blocks, and the hex/oct int
+# subclasses. Plain ints intentionally keep CoreDumper's default base-10 output.
 CoreDumper.add_representer(str, literal_presenter)
-CoreDumper.add_representer(int, int_to_hex_representer)
+CoreDumper.add_representer(HexInt, _hexint_representer)
+CoreDumper.add_representer(OctInt, _octint_representer)
+# Configs can carry binary blobs (e.g. inlined lib_inject .so contents) as
+# bytes. yamlcore's CoreDumper lacks a bytes representer, so reuse PyYAML's
+# !!binary (base64) one — symmetric with the construct_yaml_binary constructor
+# registered on CoreLoader below, so these round-trip.
+CoreDumper.add_representer(bytes, yaml.representer.SafeRepresenter.represent_binary)
 yaml.add_constructor(
     'tag:yaml.org,2002:binary',
     yaml.constructor.SafeConstructor.construct_yaml_binary,

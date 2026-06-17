@@ -77,6 +77,7 @@ default_plugins: dict[str, dict] = {
     "send_hypercall": {
     },
     "readiness": {},
+    "snapshot": {},
     "indiv_debug": {},
 }
 

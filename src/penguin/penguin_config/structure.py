@@ -94,6 +94,74 @@ GDBServerPrograms = _newtype(
 )
 
 
+class Snapshot(PartialModelMixin, BaseModel):
+    """VM snapshot (savevm/loadvm) configuration.
+
+    Snapshotting is *active* whenever ``save_at`` or ``boot_from`` is set — there
+    is no separate enable flag. When active, the guest runs on a persistent
+    qcow2 overlay (rather than the throwaway immutable overlay) so an internal VM
+    snapshot can be saved and later restored. Saving a snapshot at a chosen point
+    lets a later run boot directly from that state instead of re-booting the
+    firmware.
+    """
+
+    model_config = ConfigDict(title="Snapshot configuration", extra="forbid")
+
+    backend: Annotated[
+        Literal["internal", "file"],
+        Field(
+            "internal",
+            title="Snapshot backend",
+            description=(
+                "'internal' stores the snapshot inside the qcow2 overlay "
+                "(savevm/loadvm). 'file' (not yet implemented) writes a "
+                "standalone migration file bundle."
+            ),
+            examples=["internal", "file"],
+        ),
+    ]
+    tag: Annotated[
+        str,
+        Field(
+            "boot",
+            title="Snapshot tag",
+            description="Name of the internal VM snapshot to save and/or restore.",
+            examples=["boot", "post_init"],
+        ),
+    ]
+    save_at: Annotated[
+        Optional[Literal["readiness", "manual"]],
+        Field(
+            None,
+            title="When to save the snapshot",
+            description=(
+                "'readiness' saves once the guest reaches steady state; "
+                "'manual' arms the Snapshot plugin to save on request "
+                "(via guest_cmd / hypercall). None disables saving."
+            ),
+            examples=["readiness", "manual"],
+        ),
+    ]
+    boot_from: Annotated[
+        Optional[str],
+        Field(
+            None,
+            title="Snapshot tag to boot from",
+            description="If set, restore this internal snapshot at startup (-loadvm).",
+            examples=["boot"],
+        ),
+    ]
+    stop_after_save: Annotated[
+        bool,
+        Field(
+            False,
+            title="End the run after saving",
+            description="Shut the guest down immediately after the snapshot is saved.",
+            examples=[False, True],
+        ),
+    ]
+
+
 class Core(PartialModelMixin, BaseModel):
     """Core configuration options for this rehosting"""
 
@@ -187,6 +255,7 @@ class Core(PartialModelMixin, BaseModel):
         ),
     ]
     gdbserver: Optional[GDBServerPrograms] = None
+    snapshot: Optional[Snapshot] = None
     force_www: Annotated[
         bool,
         Field(

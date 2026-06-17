@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import os
+import json
 import shutil
 import shlex
+import subprocess
 import sys
 import tempfile
 import socket
@@ -10,11 +12,12 @@ from pathlib import Path
 from time import sleep
 from penguin import getColoredLogger, plugins
 
-from .common import yaml
+from .common import yaml, style_config_for_dump
+from yamlcore import CoreDumper, CoreLoader
 from .defaults import default_plugin_path, vnc_password
 from penguin.penguin_config import load_config
 from .plugin_manager import ArgsBox
-from .utils import hash_image_inputs, get_penguin_kernel_version
+from .utils import hash_image_inputs, get_penguin_kernel_version, boot_fingerprint
 from .q_config import load_q_config, ROOTFS
 from . import arch_registry
 
@@ -147,6 +150,44 @@ def run_config(
         conf = load_config(proj_dir, conf_yaml, resolved_kernel=resolved_kernel, verbose=True)
     else:
         conf = load_config(proj_dir, conf_yaml, verbose=True)
+
+    # `penguin run --from-snapshot <tag>` is sugar for core.snapshot.boot_from;
+    # it crosses the subprocess boundary as an env var so we apply it here.
+    boot_from_env = os.environ.get("PENGUIN_SNAPSHOT_BOOT_FROM")
+    if boot_from_env:
+        conf["core"].setdefault("snapshot", {})["boot_from"] = boot_from_env
+        logger.info("Restoring from snapshot '%s' (--from-snapshot)", boot_from_env)
+
+    # When restoring, default to the *exact config the snapshot was saved with*
+    # (persisted next to the overlay at save time). The snapshot froze guest
+    # state produced by that config, so reusing it is the coherent, low-surprise
+    # default — running a restored guest under a different config is the kind of
+    # mismatch the fingerprint exists to catch. A user can opt out with
+    # `run --ignore-saved-config` to deliberately drive the restored guest with
+    # the provided config instead (still fingerprint-gated).
+    snap_cfg = conf["core"].get("snapshot") or {}
+    boot_from = snap_cfg.get("boot_from")
+    ignore_saved = bool(os.environ.get("PENGUIN_SNAPSHOT_IGNORE_SAVED_CONFIG"))
+    if boot_from and not ignore_saved:
+        snap_tag = snap_cfg.get("tag", "boot")
+        saved_cfg_path = os.path.join(proj_dir, "qcows",
+                                      f"snapshot_{snap_tag}.config.yaml")
+        if os.path.isfile(saved_cfg_path):
+            with open(saved_cfg_path) as f:
+                saved_conf = yaml.load(f, Loader=CoreLoader)
+            # Carry the restore intent onto the saved config.
+            saved_conf.setdefault("core", {}).setdefault("snapshot", {})
+            saved_conf["core"]["snapshot"]["boot_from"] = boot_from
+            saved_conf["core"]["snapshot"]["tag"] = snap_tag
+            conf = saved_conf
+            logger.info("Loaded the config this snapshot was saved with (%s); "
+                        "pass --ignore-saved-config to override", saved_cfg_path)
+        else:
+            logger.warning("Snapshot '%s' has no saved config (%s); restoring "
+                           "with the provided config", snap_tag, saved_cfg_path)
+    elif boot_from and ignore_saved:
+        logger.info("--ignore-saved-config: restoring with the provided config "
+                    "rather than the snapshot's saved config")
 
     pkversion = get_penguin_kernel_version(conf)
 
@@ -308,10 +349,93 @@ def run_config(
     if telnet_port is None:
         raise OSError("No available port found in the specified range")
 
-    # If core config specifes immutable: False we'll run without snapshot
-    no_snapshot_drive = f"file={config_image},id=hd0"
+    # Resolve snapshot (savevm/loadvm) configuration. Snapshotting is *active*
+    # whenever save_at or boot_from is set (no separate enable flag). When active
+    # we cannot use QEMU's throwaway `snapshot=on` overlay (its internal
+    # snapshots are discarded on exit); instead we run on a persistent qcow2
+    # overlay backed by the cached base image so savevm state survives and a
+    # later run can boot from it. See core.snapshot in the config schema.
+    snap_cfg = conf["core"].get("snapshot") or {}
+    snapshot_save_at = snap_cfg.get("save_at")
+    snapshot_boot_from = snap_cfg.get("boot_from")
+    snapshot_enabled = (snapshot_save_at is not None) or (snapshot_boot_from is not None)
+    drive_image = config_image
+
+    if snapshot_enabled and snap_cfg.get("backend", "internal") == "file":
+        # The standalone migration-file backend (migrate file:/-incoming with
+        # mapped-ram) is designed but not yet implemented — it is async and
+        # captures only RAM+devices, needing the disk overlay bundled alongside.
+        # Until then, only the qcow2-internal backend is wired.
+        raise NotImplementedError(
+            "core.snapshot.backend='file' is not implemented yet; use 'internal'")
+
+    if snapshot_enabled:
+        snap_tag = snap_cfg.get("tag", "boot")
+        overlay_path = os.path.join(qcow_dir, f"snapshot_{snap_tag}.qcow2")
+        meta_path = os.path.join(qcow_dir, f"snapshot_{snap_tag}.meta.json")
+        # A snapshot freezes guest state produced by the boot-frozen inputs; a
+        # restore is only coherent if those inputs still match.
+        fingerprint = boot_fingerprint(proj_dir, conf)
+        if snapshot_boot_from:
+            # Restore mode: the overlay must already hold the named snapshot.
+            if not os.path.isfile(overlay_path):
+                raise ValueError(
+                    f"snapshot.boot_from='{snapshot_boot_from}' requested but "
+                    f"overlay {overlay_path} does not exist; run with "
+                    f"snapshot.save_at set first to create it")
+            saved_fp = None
+            if os.path.isfile(meta_path):
+                with open(meta_path) as f:
+                    saved_fp = json.load(f).get("fingerprint")
+            if saved_fp is None:
+                logger.warning(
+                    "Snapshot '%s' has no fingerprint metadata; cannot verify "
+                    "it matches the current config — restoring anyway", snap_tag)
+            elif saved_fp != fingerprint:
+                raise ValueError(
+                    f"snapshot.boot_from='{snapshot_boot_from}': the boot-frozen "
+                    f"config (kernel, env/append, arch, machine, nvram, netdevs, "
+                    f"pseudofile set) changed since this snapshot was saved, so "
+                    f"the restored guest state would be incoherent. Re-create the "
+                    f"snapshot (snapshot.save_at) or revert the config. "
+                    f"(saved {saved_fp[:12]} != current {fingerprint[:12]})")
+            logger.info("Booting from snapshot '%s' in %s",
+                        snapshot_boot_from, overlay_path)
+        else:
+            # Save mode: start from a fresh overlay over the cached base so
+            # the saved snapshot reflects a clean boot, and record the
+            # boot-fingerprint so a later restore can verify it.
+            if os.path.isfile(overlay_path):
+                os.remove(overlay_path)
+            subprocess.check_output([
+                "qemu-img", "create", "-f", "qcow2",
+                "-b", config_image, "-F", "qcow2", overlay_path,
+            ])
+            with open(meta_path, "w") as f:
+                json.dump({"tag": snap_tag, "fingerprint": fingerprint}, f)
+            # Persist the exact resolved config this snapshot is being saved
+            # with, so a restore can default to it (see the boot_from handling
+            # above). Travels with the overlay in qcows/ and is bundled by
+            # `pack --with-snapshot`.
+            saved_cfg_path = os.path.join(qcow_dir, f"snapshot_{snap_tag}.config.yaml")
+            with open(saved_cfg_path, "w") as f:
+                # Same rendering as dump_config (octal modes, hex addresses);
+                # read back with CoreLoader on restore. The resolved conf is
+                # already validated, so we don't re-validate here.
+                yaml.dump(style_config_for_dump(conf), f, sort_keys=False,
+                          default_flow_style=False, width=None, Dumper=CoreDumper)
+            logger.info("Created snapshot overlay %s over %s (fingerprint %s)",
+                        overlay_path, config_image, fingerprint[:12])
+        drive_image = overlay_path
+
+    # If core config specifes immutable: False we'll run without snapshot.
+    # Snapshotting forces a persistent (non-throwaway) overlay regardless.
+    no_snapshot_drive = f"file={drive_image},id=hd0"
     snapshot_drive = no_snapshot_drive + ",cache=unsafe,snapshot=on"
-    drive = snapshot_drive if conf["core"].get("immutable", True) else no_snapshot_drive
+    if snapshot_enabled:
+        drive = no_snapshot_drive + ",cache=unsafe"
+    else:
+        drive = snapshot_drive if conf["core"].get("immutable", True) else no_snapshot_drive
     if vpn_enabled and ("mips" in q_config["arch"]):  # and "ppc" not in q_config["arch"]):
         machine_args = q_config["qemu_machine"]+",memory-backend=mem0"
     else:
@@ -352,6 +476,10 @@ def run_config(
         args += ["-bios", "/usr/local/share/qemu/edk2-loongarch64-code.fd"]
 
     args += ["-no-reboot"]
+
+    if snapshot_enabled and snapshot_boot_from:
+        # Restore device + RAM state from the named internal snapshot at boot.
+        args += ["-loadvm", snapshot_boot_from]
 
     if conf["core"].get("network", False):
         # Connect guest to network if specified
@@ -550,6 +678,13 @@ def run_config(
         from apis.hypercall import Hypercall
         plugins.load(Hypercall, args)
     plugins.load_plugins(conf_plugins)
+
+    # When booting from a snapshot, rehydrate host-side plugin state now that
+    # all plugins are loaded but before the guest resumes (panda.run below).
+    if snapshot_enabled and snapshot_boot_from:
+        snap_plugin = plugins.get_plugin_by_name("Snapshot")
+        if snap_plugin is not None:
+            snap_plugin.dispatch_restore()
 
     # XXX HACK: normally panda args are set at the constructor. But we want to load
     # our plugins first and these need a handle to panda. So after we've constructed
