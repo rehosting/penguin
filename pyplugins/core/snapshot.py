@@ -56,8 +56,9 @@ class Snapshot(Plugin):
         # there is no separate enable flag.
         self.enabled = (self.save_at is not None) or (self.boot_from is not None)
         self.saved = False
-        # Live one-shot arming handles, so we can guard against double-fire.
-        self._armed = []
+        # The single in-flight armed save (one safe-spot at a time), so we can
+        # guard against a double-fire.
+        self._pending = None
 
         # Lifecycle events for host-side reconciliation around save/restore.
         plugins.register(self, "on_snapshot")
@@ -132,12 +133,12 @@ class Snapshot(Plugin):
         if when == "now":
             return self._do_save_now(tag)
         if when == "next_syscall":
-            return self._arm(tag, self._register_syscall_boundary, proc)
+            return self._arm(tag, "syscall", proc)
         if when == "symbol":
             if not symbol:
                 self.logger.error("snapshot when='symbol' needs a symbol")
                 return False
-            return self._arm(tag, self._register_symbol_boundary, proc, symbol)
+            return self._arm(tag, "symbol", proc, symbol)
         self.logger.error("Unknown snapshot 'when': %s", when)
         return False
 
@@ -152,40 +153,54 @@ class Snapshot(Plugin):
 
     # --- safe-spot arming ---------------------------------------------------
 
-    def _arm(self, tag, register_fn, proc, symbol=None) -> bool:
-        """Register a one-shot boundary hook that fires the save exactly once."""
-        state = {"fired": False, "handle": None, "unregister": None}
+    def _arm(self, tag, kind, proc, symbol=None) -> bool:
+        """Register a one-shot boundary hook that fires the save exactly once.
 
-        def fire(*_args, **_kwargs):
-            if state["fired"]:
-                return
-            state["fired"] = True
-            try:
-                if state["unregister"] and state["handle"] is not None:
-                    state["unregister"](state["handle"])
-            except Exception as e:
-                self.logger.debug("snapshot hook unregister failed: %s", e)
-            self._do_save_now(tag)
-
+        The hook callback MUST be a bound method (``self._on_boundary``), not a
+        closure: the syscalls/uprobes APIs re-resolve callbacks by
+        ``__qualname__`` (``Class.method`` -> ``getattr(plugins, Class).method``)
+        on each event, so a nested closure would be misdetected as a method that
+        doesn't exist on the instance. Only one save is armed at a time.
+        """
+        if self._pending and not self._pending.get("fired"):
+            self.logger.warning("A snapshot is already armed; replacing it")
+            self._disarm()
+        state = {"tag": tag, "fired": False, "handle": None, "unregister": None}
         try:
-            state["handle"], state["unregister"] = register_fn(fire, proc, symbol)
+            if kind == "syscall":
+                state["handle"] = plugins.syscalls.syscall(
+                    "on_all_sys_return", comm_filter=proc)(self._on_boundary)
+                state["unregister"] = plugins.syscalls.unregister
+            else:  # symbol
+                state["handle"] = plugins.uprobes.uprobe(
+                    symbol=symbol, process_filter=proc)(self._on_boundary)
+                state["unregister"] = plugins.uprobes.unregister
         except Exception as e:
             self.logger.error("Failed to arm snapshot boundary: %s", e)
             return False
-        self._armed.append(state)
+        self._pending = state
         where = symbol or (f"proc {proc}" if proc else "any process")
-        self.logger.info("Armed snapshot '%s' at %s (%s)", tag,
-                         register_fn.__name__.replace("_register_", "").replace("_boundary", ""),
-                         where)
+        self.logger.info("Armed snapshot '%s' at %s (%s)", tag, kind, where)
         return True
 
-    def _register_syscall_boundary(self, cb, proc, _symbol):
-        handle = plugins.syscalls.syscall("on_all_sys_return", comm_filter=proc)(cb)
-        return handle, plugins.syscalls.unregister
+    def _on_boundary(self, *_args, **_kwargs):
+        """One-shot boundary callback (bound method — see _arm)."""
+        state = self._pending
+        if not state or state.get("fired"):
+            return
+        state["fired"] = True
+        self._disarm()
+        self._do_save_now(state["tag"])
 
-    def _register_symbol_boundary(self, cb, proc, symbol):
-        handle = plugins.uprobes.uprobe(symbol=symbol, process_filter=proc)(cb)
-        return handle, plugins.uprobes.unregister
+    def _disarm(self) -> None:
+        state = self._pending
+        if not state:
+            return
+        try:
+            if state.get("unregister") and state.get("handle") is not None:
+                state["unregister"](state["handle"])
+        except Exception as e:
+            self.logger.debug("snapshot hook unregister failed: %s", e)
 
     # --- actions ------------------------------------------------------------
 

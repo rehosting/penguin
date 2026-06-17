@@ -7,12 +7,20 @@ Validate the previously-unverified snapshot paths:
            relative backing + base image + sidecars + saved config) surviving
            relocation.
   socket : host-driven trigger.  A run stays alive (no guest-side save); a
-           `snapshot save` command sent over the RemoteCtrl unix socket
-           (`_handle_snapshot` -> Snapshot.request_save) produces the snapshot,
-           which a fresh `--from-snapshot` run then restores.
+           `snapshot save --when now` command sent over the RemoteCtrl unix
+           socket (`_handle_snapshot` -> Snapshot.request_save) produces the
+           snapshot, which a fresh `--from-snapshot` run then restores.
+  syscall: safe-spot arming.  `snapshot save --when next_syscall` over the
+           socket must ARM at the next syscall boundary (one-shot syscalls-API
+           hook) rather than fire instantly, then fire and produce a restorable
+           snapshot.
+  guestcmd: guesthopper control plane post-restore.  After a cross-process
+           `--from-snapshot` restore, the vsock chardev reconnects to a fresh
+           vhost-device-vsock so `guest_cmd` (guesthopper over vsock) still
+           reaches the restored guest.
 
 Usage: python3 snapshot_paths_test.py -i <image> [-a armel] [-k 4.10]
-                                       [-m pack|socket|all]
+                                       [-m pack|socket|syscall|guestcmd|all]
 """
 import logging
 import os
@@ -32,6 +40,9 @@ logger = logging.getLogger("penguin.snappaths")
 TEST_DIR = Path(__file__).resolve().parent
 proj_dir = TEST_DIR
 PENGUIN = str(TEST_DIR.parent.parent.parent / "penguin")
+# Live-mount src/ and pyplugins/ so local edits apply without an image rebuild.
+PYDEV = os.environ.get("SNAP_TEST_PYDEV", "1") == "1"
+WRAPPER_FLAGS = ["--pydev"] if PYDEV else []
 
 # httpd on :8000, wait for the bind, then guest-driven snapshot, then stay alive.
 INIT_SELFSAVE = """#!/igloo/utils/sh
@@ -61,7 +72,7 @@ def run_cmd(cmd, **kw):
 
 
 def penguin(image, *args, log, name=None, check=True):
-    cmd = [PENGUIN, "--image", image]
+    cmd = [PENGUIN, "--image", image] + WRAPPER_FLAGS
     if name:
         cmd += ["--name", name]
     cmd += list(args)
@@ -102,10 +113,13 @@ def build_project(image, arch, slug):
     return Path(proj_dir, f"projects/empty_fs_{slug}")
 
 
-def write_config(project, kernel, snapshot, init_contents, plugins):
+def write_config(project, kernel, snapshot, init_contents, plugins, core_extra=None):
+    core = {"kernel": str(kernel), "timeout": 90, "snapshot": snapshot}
+    if core_extra:
+        core.update(core_extra)
     patch = {
         "env": {"igloo_init": "/snap_init.sh"},
-        "core": {"kernel": str(kernel), "timeout": 90, "snapshot": snapshot},
+        "core": core,
         "static_files": {
             "/snap_init.sh": {"type": "inline_file", "mode": 73, "contents": init_contents},
         },
@@ -219,6 +233,151 @@ def _container_running(name):
     return name in out.stdout.split()
 
 
+def _bg_run(image, cfg, cname, log, *extra,
+            ready_markers=("RemoteCtrl: Listening", ":8000"), timeout_s=90):
+    """Launch a `penguin run` in the background and wait until `ready_markers`
+    all appear in its (host stdout) log. Returns the Popen so the caller can
+    poke the container, then must clean it up."""
+    subprocess.run(["docker", "rm", "-f", cname], capture_output=True)
+    cmd = [PENGUIN, "--image", image, *WRAPPER_FLAGS, "--name", cname,
+           "run", cfg, *extra]
+    logger.info("$ (bg) " + " ".join(cmd))
+    proc = subprocess.Popen(cmd, cwd=proj_dir, stdout=open(log, "w"),
+                            stderr=subprocess.STDOUT)
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        blob = Path(log).read_text(errors="replace")
+        if all(m in blob for m in ready_markers):
+            return proc
+        if proc.poll() is not None:
+            subprocess.run(["tail", "-n", "60", str(log)])
+            raise AssertionError(f"run {cname} exited before ready; see {log}")
+        time.sleep(2)
+    raise AssertionError(f"run {cname} never reached {ready_markers}; see {log}")
+
+
+def _kill_bg(cname, proc):
+    subprocess.run(["docker", "rm", "-f", cname], capture_output=True)
+    try:
+        proc.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def _find_in_container(cname, pattern):
+    out = subprocess.run(
+        ["docker", "exec", cname, "sh", "-c",
+         f"find / -name {pattern} 2>/dev/null | head -1"],
+        capture_output=True, text=True)
+    return out.stdout.strip()
+
+
+def run_syscall(image, arch, kernel):
+    """Safe-spot arming: a host-driven `snapshot save --when next_syscall`
+    must ARM at the next syscall boundary (not fire instantly), then fire and
+    produce a restorable snapshot."""
+    slug = f"{arch}_{kernel}_syscall"
+    cname = f"{slug}_s"
+    project = build_project(image, arch, slug)
+    qcows = project / "qcows"
+    cfg = write_config(project, kernel, {"save_at": "manual", "tag": "warm"},
+                       INIT_STAYALIVE, PLUGINS)
+    save_log = proj_dir / f"snappaths_{slug}_save.txt"
+    proc = _bg_run(image, cfg, cname, save_log)
+    try:
+        time.sleep(5)  # let httpd bind + VPN bridge
+        sock = _find_in_container(cname, "remotectrl.sock")
+        if not sock:
+            raise AssertionError("remotectrl.sock not found in container")
+        logger.info(f"[{slug}] socket: {sock}; arming `snapshot save --when next_syscall`")
+        out = subprocess.run(
+            ["docker", "exec", cname, "snapshot", "save", "--tag", "warm",
+             "--when", "next_syscall", "--sock", sock],
+            capture_output=True, text=True)
+        logger.info(f"[{slug}] cli_snapshot rc={out.returncode} out={out.stdout.strip()} "
+                    f"err={out.stderr.strip()}")
+        if out.returncode != 0:
+            raise AssertionError("cli_snapshot --when next_syscall failed")
+
+        # The save must ARM at the syscall boundary, then fire (the guest's
+        # sleep loop hits syscalls constantly, so it fires within seconds).
+        deadline = time.time() + 40
+        while time.time() < deadline:
+            if (qcows / "snapshot_warm.host.json").is_file():
+                break
+            time.sleep(2)
+        else:
+            subprocess.run(["tail", "-n", "60", str(save_log)])
+            raise AssertionError("next_syscall-armed save never fired")
+        blob = save_log.read_text(errors="replace")
+        if "Armed snapshot" not in blob or "at syscall" not in blob:
+            raise AssertionError("log does not show syscall-boundary arming")
+        logger.info(f"[{slug}] OK: armed at syscall boundary, fired, snapshot saved")
+    finally:
+        _kill_bg(cname, proc)
+
+    for n in ("snapshot_warm.qcow2", "snapshot_warm.config.yaml"):
+        if not (qcows / n).is_file():
+            raise AssertionError(f"syscall save missing {n}")
+    assert_restore(image, cfg, "warm", slug)
+    logger.info(f"[{slug}] OK: next_syscall snapshot RESTORED cross-process")
+
+
+def run_guestcmd(image, arch, kernel):
+    """guesthopper control plane post-restore: after a cross-process restore,
+    the vsock chardev must reconnect to a fresh vhost-device-vsock so
+    `guest_cmd` (guesthopper over vsock) still works against the restored
+    guest."""
+    slug = f"{arch}_{kernel}_guestcmd"
+    project = build_project(image, arch, slug)
+    qcows = project / "qcows"
+    # guest_cmd: true starts guesthopper in the guest; it is captured in the
+    # snapshot's frozen RAM and must talk over a reconnected vsock on restore.
+    cfg = write_config(project, kernel, {"save_at": "manual", "tag": "warm"},
+                       INIT_SELFSAVE.replace("TAG", "warm"), {"vpn_test": {}},
+                       core_extra={"guest_cmd": True})
+
+    logger.info(f"[{slug}] SAVE run (guest-driven) with guesthopper running")
+    penguin(image, "run", cfg, log=f"snappaths_{slug}_save.txt", name=f"{slug}_s")
+    for n in ("snapshot_warm.qcow2", "snapshot_warm.config.yaml"):
+        if not (qcows / n).is_file():
+            raise AssertionError(f"save did not produce {n}")
+    logger.info(f"[{slug}] OK: snapshot saved with guesthopper in frozen RAM")
+
+    cname = f"{slug}_r"
+    rlog = proj_dir / f"snappaths_{slug}_restore.txt"
+    proc = _bg_run(image, cfg, cname, rlog, "--from-snapshot", "warm",
+                   ready_markers=("Booting from snapshot", "Re-establishing"))
+    try:
+        # Wait for the host vsock UDS to come up, then let guesthopper's vsock
+        # reconnect after the chardev re-attaches.
+        deadline = time.time() + 40
+        vsock = ""
+        while time.time() < deadline:
+            vsock = _find_in_container(cname, "vsocket")
+            if vsock:
+                break
+            time.sleep(2)
+        if not vsock:
+            raise AssertionError("vsocket not found in restore container")
+        logger.info(f"[{slug}] vsocket: {vsock}; running guest_cmd post-restore")
+        time.sleep(5)
+
+        marker = "HELLO_FROM_RESTORED_GUEST"
+        out = subprocess.run(
+            ["docker", "exec", cname, "guest_cmd", "--socket", vsock,
+             f"/igloo/utils/busybox echo {marker}"],
+            capture_output=True, text=True, timeout=60)
+        logger.info(f"[{slug}] guest_cmd rc={out.returncode} out={out.stdout.strip()!r} "
+                    f"err={out.stderr.strip()!r}")
+        if out.returncode != 0 or marker not in out.stdout:
+            raise AssertionError("guest_cmd failed post-restore (vsock did not "
+                                 "reconnect to guesthopper)")
+        logger.info(f"[{slug}] OK: guest_cmd works post-restore (vsock reconnected)")
+    finally:
+        _kill_bg(cname, proc)
+
+
 def run_socket(image, arch, kernel):
     slug = f"{arch}_{kernel}_socket"
     cname = f"{slug}_s"
@@ -231,7 +390,7 @@ def run_socket(image, arch, kernel):
 
     # Launch the run in the background so we can poke its socket while it's up.
     save_log = proj_dir / f"snappaths_{slug}_save.txt"
-    cmd = [PENGUIN, "--image", image, "--name", cname, "run", cfg]
+    cmd = [PENGUIN, "--image", image, *WRAPPER_FLAGS, "--name", cname, "run", cfg]
     logger.info("$ (bg) " + " ".join(cmd))
     proc = subprocess.Popen(cmd, cwd=proj_dir, stdout=open(save_log, "w"),
                             stderr=subprocess.STDOUT)
@@ -300,16 +459,20 @@ def run_socket(image, arch, kernel):
 @click.option("--image", "-i", required=True)
 @click.option("--arch", "-a", default="armel")
 @click.option("--kernel", "-k", default="4.10")
-@click.option("--mode", "-m", type=click.Choice(["pack", "socket", "all"]), default="all")
+@click.option("--mode", "-m",
+              type=click.Choice(["pack", "socket", "syscall", "guestcmd", "all"]),
+              default="all")
 def main(image, arch, kernel, mode):
     if proj_dir.joinpath("projects").exists():
         shutil.rmtree(proj_dir / "projects")
-    modes = ["pack", "socket"] if mode == "all" else [mode]
+    runners = {"pack": run_pack, "socket": run_socket,
+               "syscall": run_syscall, "guestcmd": run_guestcmd}
+    modes = list(runners) if mode == "all" else [mode]
     results = {}
     for m in modes:
         logger.info(f"########## {m} ({arch}/{kernel}) ##########")
         try:
-            (run_pack if m == "pack" else run_socket)(image, arch, kernel)
+            runners[m](image, arch, kernel)
             results[m] = "PASS"
         except Exception as e:
             results[m] = f"FAIL: {e}"
