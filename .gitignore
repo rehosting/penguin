@@ -17,3 +17,5 @@ fw
 src/penguin/version.txt
 db/events.*
 local_packages/*
+# keep the dir present so `COPY ./local_package[s]` works under podman/buildah
+!local_packages/.gitkeep
