@@ -9,7 +9,7 @@ ARG LIBNVRAM_VERSION="0.0.26"
 ARG CONSOLE_VERSION="1.0.7"
 ARG GUESTHOPPER_VERSION="1.0.21"
 ARG HYPERFS_VERSION="0.0.44"
-ARG PENGUIN_TOOLS_VERSION="0.0.8"
+ARG PENGUIN_TOOLS_VERSION="0.0.11"
 ARG GLOW_VERSION="1.5.1"
 ARG GUM_VERSION="0.14.5"
 ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
@@ -172,14 +172,17 @@ ARG IGLOO_DRIVER_VERSION
 RUN /get_release.sh rehosting igloo_driver ${IGLOO_DRIVER_VERSION} igloo_driver.tar.gz | \
     tar xzf - -C /igloo_static
 
-# Download penguin-tools: per-arch guest debugging tools (gdbserver, strace,
-# ltrace, python) cross-compiled to musl, plus their dylibs and a per-arch
-# drop-in sysroot (crt objects + libc.so/libgcc_s.so.1). The tarball is rooted
-# at igloo_static/, so extract at / to populate /igloo_static/<arch>/,
-# /igloo_static/dylibs/<arch>/ and /igloo_static/sysroots/<arch>/. penguin-tools
-# is now the sole provider of these (hyperfs is gone), so a plain extract with
-# no overwrite-avoidance is correct. The per-arch symlink pass later exposes
-# each binary as /igloo_static/utils.bin/<tool>.<arch>.
+# Download penguin-tools. As of v0.0.11 the per-arch guest debugging tools
+# (gdbserver, strace, ltrace, python3, iptables) ship as pristine nixpkgs glibc
+# cross *runtime closures* rather than ELF-rewritten musl bundles -- the
+# rewriting caused intermittent wrong-mm SIGSEGVs on MIPS (#823). The tarball is
+# rooted at igloo_static/, so extract at / to populate:
+#   /igloo_static/closures/<arch>/{closure.tar.gz,manifest.json}  -- the tools;
+#       penguin extracts the closure to the guest's /igloo/nix and runs each
+#       tool via an unshare-mount wrapper (see config_patchers.py).
+#   /igloo_static/dylibs/<arch>/ and /igloo_static/sysroots/<arch>/  -- the musl
+#       drop-in compilation sysroot for per-project init.d/*.c (dropin_compile.py).
+# hyperfs is gone, so a plain extract with no overwrite-avoidance is correct.
 ARG PENGUIN_TOOLS_VERSION
 RUN /get_release.sh rehosting penguin-tools ${PENGUIN_TOOLS_VERSION} penguin-tools.tar.gz | \
     tar xzf - -C /
