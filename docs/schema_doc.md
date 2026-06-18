@@ -1093,14 +1093,6 @@ Copy a file from the host into the guest
 |`type`|`"host_file"`||Type of file action (copy host file)|
 |`mode`|integer|`493`|Permissions of file|
 |`host_path`|string||Host path|
-#### `static_files.<string>.<type=host_tar>` Extract host tarball
-
-Extract a tarball from the host into the guest, rooted at the entry's path. Used for large directory trees (e.g. a tool's /nix/store runtime closure) that host_file cannot deliver.
-
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`type`|`"host_tar"`||Type of file action (extract host tarball)|
-|`host_path`|string||Host path to tarball|
 #### `static_files.<string>.<type=dir>` Add directory
 
 
