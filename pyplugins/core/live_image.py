@@ -34,6 +34,9 @@ Classes
 
 from penguin import Plugin, plugins
 from penguin.plugin_manager import resolve_bound_method_from_class
+from penguin.defaults import static_dir as STATIC_DIR
+from penguin.utils import get_arch_subdir
+import json
 import shutil
 import os
 from typing import Iterator, Dict, Tuple, Optional, Callable
@@ -90,7 +93,7 @@ class LiveImage(Plugin):
         """
         actions = self.get_arg("conf").get("static_files", {}).items()
 
-        action_order = ["delete", "move", "shim", "dir", "host_file", "host_tar",
+        action_order = ["delete", "move", "shim", "dir", "host_file",
                         "inline_file", "binary_patch", "dev", "symlink"]
 
         partitions = {key: [] for key in action_order}
@@ -104,6 +107,64 @@ class LiveImage(Plugin):
             reverse_sort = action_type == "delete"
             for path, action in sorted(partitions[action_type], key=lambda item: len(item[0]), reverse=reverse_sort):
                 yield path, action
+
+    def _stage_tool_closure(self, staging_dir: Path) -> None:
+        """Stage the per-arch debugging tools (python3, strace, gdbserver,
+        ltrace, iptables) as a pristine nixpkgs glibc runtime closure plus
+        wrapper scripts.
+
+        penguin-tools ships, per arch:
+          <STATIC_DIR>/closures/<arch>/closure.tar.gz  -- /nix/store/... closure
+          <STATIC_DIR>/closures/<arch>/manifest.json   -- {tool: in-store exe}
+
+        The closure is extracted under /igloo (its members are rooted at
+        nix/store/..., landing at /igloo/nix/store/...). For each tool we install
+        a /igloo/utils/<tool> wrapper that runs the pristine binary inside a
+        private mount namespace with /igloo/nix bind-mounted onto /nix, so the
+        binary's own absolute /nix/store interpreter/rpath resolve unchanged
+        without polluting the real /nix. (Replacing the old ELF-rewritten musl
+        bundles with pristine binaries fixes intermittent wrong-mm SIGSEGVs on
+        MIPS -- penguin #823.)
+        """
+        arch_dir = get_arch_subdir(self.config)
+        closure_dir = Path(STATIC_DIR) / "closures" / arch_dir
+        manifest_path = closure_dir / "manifest.json"
+        closure_tar = closure_dir / "closure.tar.gz"
+        if not manifest_path.is_file() or not closure_tar.is_file():
+            self.logger.warning(
+                f"No tool closure at {closure_dir}; debugging tools "
+                f"(python3/strace/gdbserver/ltrace/iptables) unavailable for {arch_dir}")
+            return
+
+        with open(manifest_path) as f:
+            tool_manifest = json.load(f)
+
+        # Extract the closure under /igloo -> /igloo/nix/store/...
+        igloo_dir = staging_dir / "igloo"
+        igloo_dir.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(closure_tar, "r:*") as tf:
+            tf.extractall(path=igloo_dir)
+
+        # Empty /nix mountpoint for the per-tool bind mount.
+        (staging_dir / "nix").mkdir(parents=True, exist_ok=True)
+
+        utils_dir = staging_dir / "igloo" / "utils"
+        utils_dir.mkdir(parents=True, exist_ok=True)
+        for tool, exe in tool_manifest.items():
+            # busybox unshare -m runs the inner sh in a fresh mount namespace;
+            # the bind mount is private to it and torn down on exit. $0 is the
+            # in-store exe, "$@" the caller's args.
+            wrapper = (
+                "#!/igloo/utils/sh\n"
+                "exec /igloo/utils/busybox unshare -m /igloo/utils/sh -c "
+                "'/igloo/utils/busybox mount -o bind /igloo/nix /nix && exec \"$0\" \"$@\"' "
+                f"{shlex.quote(exe)} \"$@\"\n"
+            )
+            wrapper_path = utils_dir / tool
+            wrapper_path.write_text(wrapper)
+            wrapper_path.chmod(0o755)
+        self.logger.info(
+            f"Staged tool closure for {arch_dir}: {', '.join(sorted(tool_manifest))}")
 
     def _generate_setup_script(self) -> str:
         """Builds an efficient setup script using hyp_file_op for file transfer, not shared_dir."""
@@ -243,26 +304,6 @@ class LiveImage(Plugin):
                         if 'mode' in action:
                             record_mode(file_path, action['mode'])
 
-            elif action_type == "host_tar":
-                # Extract a host tarball into the staging tree rooted at file_path.
-                # Used to deliver large directory trees (e.g. a tool's /nix/store
-                # runtime closure) that the host_file globber can't handle because
-                # it is non-recursive and dereferences symlinks.
-                record_parent_dirs(file_path)
-                host_path_str = action['host_path']
-                if not os.path.isabs(host_path_str):
-                    tar_src = self.proj_dir / host_path_str
-                else:
-                    tar_src = Path(host_path_str)
-                if not tar_src.is_file():
-                    raise FileNotFoundError(
-                        f"host_tar source not found: {tar_src} "
-                        f"(static_files entry: {file_path} -> {action})")
-                dest_root = staging_dir / file_path.lstrip('/')
-                dest_root.mkdir(parents=True, exist_ok=True)
-                with tarfile.open(tar_src, "r:*") as tf:
-                    tf.extractall(path=dest_root)
-
             # Queue or generate commands for post-tar execution
             elif action_type == "binary_patch":
                 self.patch_queue.append((file_path, action))
@@ -326,6 +367,11 @@ class LiveImage(Plugin):
         # /igloo/shims is guaranteed to exist in the base image
         igloo_shims = staging_dir / "igloo" / "shims"
         igloo_shims.mkdir(parents=True, exist_ok=True)
+
+        # Stage the per-arch debugging-tool runtime closure + wrappers. This is
+        # image-level (not project-level) data, so it is staged here on every
+        # run rather than baked into the config by an init-time patch generator.
+        self._stage_tool_closure(staging_dir)
 
         # --- Phase 2: Ensure all staged files are readable before creating the tarball ---
         for root, dirs, files in os.walk(staging_dir):

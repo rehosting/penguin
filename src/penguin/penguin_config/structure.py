@@ -853,14 +853,6 @@ StaticFileAction = _union(
             ),
         ),
         dict(
-            discrim_val="host_tar",
-            title="Extract host tarball",
-            description="Extract a tarball from the host into the guest, rooted at the entry's path. Used for large directory trees (e.g. a tool's /nix/store runtime closure) that host_file cannot deliver.",
-            fields=(
-                ("host_path", str, Field(title="Host path to tarball")),
-            ),
-        ),
-        dict(
             discrim_val="dir",
             title="Add directory",
             description=None,
