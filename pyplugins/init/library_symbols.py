@@ -3,6 +3,7 @@ Examine libraries in the filesystem for NVRAM keys and exported symbols.
 """
 
 import os
+import re
 import struct
 import subprocess
 import tempfile
@@ -30,6 +31,31 @@ class LibrarySymbols(InitPlugin):
     """
     NVRAM_KEYS: list[str] = ["Nvrams", "router_defaults"]
     serializer = "json_xz"
+
+    # When the pointer-table walk runs past the real defaults table it reads
+    # adjacent sections (.comment, .ARM.attributes, string arrays), yielding
+    # keys with control chars or non-identifier starts and values that are
+    # compiler/toolchain banners. None of these are real NVRAM entries.
+    _TOOLCHAIN_RE = re.compile(r"GCC:|\(Buildroot|GNU [CA]|clang version|Copyright|[ae]abi\b")
+
+    @staticmethod
+    def _plausible_nvram(key: str, val) -> bool:
+        """Whether a scraped (key, val) is a plausible NVRAM default rather than
+        garbage read past the end of the table."""
+        if not key:
+            return False
+        # printable ASCII only - no control/high bytes
+        if not all(32 <= ord(c) < 127 for c in key):
+            return False
+        if any(c in key for c in ' /\t\n\r<>"'):
+            return False
+        # real keys start with a letter or underscore
+        if not (key[0].isalpha() or key[0] == "_"):
+            return False
+        # a toolchain/version-string value means we walked off the table
+        if isinstance(val, str) and LibrarySymbols._TOOLCHAIN_RE.search(val):
+            return False
+        return True
 
     @cached_analysis
     def library_info(self) -> dict[str, dict]:
@@ -243,11 +269,7 @@ class LibrarySymbols(InitPlugin):
                         key = LibrarySymbols._get_string_from_address(elffile, ptrs[0], is_64, is_eb)
                         val = LibrarySymbols._get_string_from_address(elffile, ptrs[1], is_64, is_eb)
 
-                        if (
-                            key
-                            and not any([x in key for x in ' /\t\n\r<>"'])
-                            and not key[0].isnumeric()
-                        ):
+                        if LibrarySymbols._plausible_nvram(key, val):
                             fail_count = 0
                             if key not in nvram_data:
                                 nvram_data[key] = val
