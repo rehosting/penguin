@@ -4,6 +4,7 @@ Identify potential environment variables and their values in the filesystem.
 
 import re
 
+from penguin.defaults import well_known_env_vars
 from penguin.init_plugin import InitPlugin, cached_analysis
 from penguin.static_analyses import FileSystemHelper
 
@@ -12,7 +13,12 @@ class EnvFinder(InitPlugin):
     """
     Identify potential environment variables and their values in the filesystem.
     """
-    BORING_VARS: list[str] = ["TERM"]
+    # Standard kernel cmdline params + penguin-internal knobs we should never
+    # "discover" as vendor-specific env vars (shared with the runtime tracker).
+    BORING_VARS: list[str] = well_known_env_vars
+
+    # Reject implausibly long keys - a glued scrape, not a real var name.
+    MAX_ENV_KEY_LEN: int = 64
 
     @cached_analysis
     def env(self) -> dict[str, list | None]:
@@ -37,6 +43,15 @@ class EnvFinder(InitPlugin):
         # Now search the filesystem for shell scripts accessing /proc/cmdline
         pattern = re.compile(r"\/proc\/cmdline.*?([A-Za-z0-9_]+)=", re.MULTILINE)
         potential_keys = FileSystemHelper.find_regex(pattern, extract_dir, ignore=self.BORING_VARS).keys()
+
+        # Drop well-known params (case-insensitive) and implausible/glued keys.
+        boring_lower = {v.lower() for v in self.BORING_VARS}
+        potential_keys = [
+            k for k in potential_keys
+            if k.lower() not in boring_lower
+            and not k.isnumeric()
+            and len(k) <= self.MAX_ENV_KEY_LEN
+        ]
 
         # For each key, try pulling out potential values from the filesystem
         for k in potential_keys:

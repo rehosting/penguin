@@ -2,6 +2,7 @@ import itertools
 import re
 from os.path import join as pjoin
 from penguin import plugins, Plugin, yaml
+from penguin.defaults import well_known_env_vars
 
 ENV_MAGIC_VAL = "DYNVALDYNVALDYNVAL"  # We want this to be longer than the other strings we might compare to
 # If we change this we also need to change the regex below
@@ -19,23 +20,9 @@ uboot_output = "env_uboot.txt"
 missing_output = "env_missing.yaml"
 mtd_output = "env_mtd.txt"
 
-DEFAULT_ENV_VARS = [
-    "root",
-    "console",
-    "clocksource",
-    "elevator",
-    "nohz",
-    "idle",
-    "acpi",
-    "LD_LIBRARY_PATH",
-    # Vars that control penguin's init script - ignore
-    "SHARED_DIR",
-    "ROOT_SHELL",
-    "WWW",
-    "CID",
-    "STRACE",
-    "igloo_init"
-]
+# Well-known kernel cmdline params + penguin-internal knobs (shared with the
+# init-time EnvFinder), plus igloo_init which we always set ourselves.
+DEFAULT_ENV_VARS = list(well_known_env_vars) + ["igloo_init"]
 
 
 class EnvTracker(Plugin):
