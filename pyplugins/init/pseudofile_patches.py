@@ -7,8 +7,20 @@ import os
 
 from collections import defaultdict
 
+from penguin import getColoredLogger
 from penguin.defaults import expert_knowledge_pseudofiles
 from penguin.init_plugin import InitContext, InitPlugin
+
+logger = getColoredLogger("penguin.init.pseudofile_patches")
+
+# Char devices we must never (re)model or nest a child under. Backstop for the
+# PseudofileFinder filtering: even if a bad path reaches here (hand-edited static
+# result, future finder), modeling a child turns /dev/null into a directory and
+# breaks the guest. See penguin#830.
+CRITICAL_DEV_NODES: tuple[str, ...] = (
+    "/dev/null", "/dev/zero", "/dev/full", "/dev/console", "/dev/tty",
+    "/dev/ptmx", "/dev/random", "/dev/urandom", "/dev/mem", "/dev/kmem",
+)
 
 
 class PseudofilesExpert(InitPlugin):
@@ -37,6 +49,17 @@ class PseudofilesTailored(InitPlugin):
 
         for section, file_names in pseudofiles.items():
             for file_name in file_names:
+                # Never (re)model a critical char device or anything nested
+                # under one - see CRITICAL_DEV_NODES / penguin#830.
+                if file_name in CRITICAL_DEV_NODES or any(
+                    file_name.startswith(node + "/") for node in CRITICAL_DEV_NODES
+                ):
+                    logger.warning(
+                        f"Refusing to model critical device path {file_name!r} "
+                        "(would shadow a devtmpfs node or recreate it as a directory)"
+                    )
+                    continue
+
                 if section == 'dev' and file_name.startswith("/dev/mtd"):
                     # TODO: do we want to make placeholders for MTD or not?
                     continue
