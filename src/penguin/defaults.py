@@ -30,6 +30,23 @@ default_netdevs: list[str] = (
     + ["enx0", "enp0s25", "wlp2s0"]
 )
 
+# Well-known kernel command-line parameters and penguin-internal env knobs.
+# These appear near /proc/cmdline references in firmware scripts but are not
+# vendor-specific knobs worth "discovering": surfacing them as candidate env
+# vars only pollutes the config and wastes search iterations, and varying some
+# of them (console=, root=, ...) actively breaks boot. Shared by the init-time
+# EnvFinder and the runtime env tracker so both ignore the same set.
+well_known_env_vars: list[str] = [
+    # standard kernel command-line parameters
+    "root", "rootfstype", "rootwait", "rootdelay", "ro", "rw", "init",
+    "console", "clocksource", "elevator", "nohz", "idle", "acpi", "mem",
+    "quiet", "debug", "loglevel", "panic", "reboot", "earlyprintk", "ramdisk_size",
+    "mtdparts", "single", "initrd", "vt", "fbcon", "ubi", "ubiroot", "noinitrd",
+    # penguin-internal init knobs (set by us, not discovered)
+    "SHARED_DIR", "ROOT_SHELL", "WWW", "CID", "STRACE", "LD_LIBRARY_PATH",
+    "TERM",
+]
+
 # Resolve current path then go to ../resources/init.sh
 default_init_script: str = open(
     f"{dirname(dirname(__file__))}/resources/init.sh").read()
