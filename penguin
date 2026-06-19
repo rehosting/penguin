@@ -111,7 +111,40 @@ create_subnet_network() {
     local subnet="$1"
     local gateway="${subnet%.*}.1"
     network_name=$(generate_network_name)
-    "$ENGINE" network create -d bridge --subnet="$subnet" --gateway="$gateway" "$network_name" >/dev/null 2>&1
+    "$ENGINE" network create -d bridge --subnet="$subnet" --gateway="$gateway" \
+        --label penguin.network=1 "$network_name" >/dev/null 2>&1
+}
+
+# Wait until a container name is free. A force-remove (`rm -f`) returns before
+# the daemon has actually released the name, so a follow-up `run --name` can
+# still collide. Poll `inspect` until it fails, bounded by a ~10s timeout.
+wait_for_name_free() {
+    local name="$1" tries=0
+    while "$ENGINE" inspect --type container "$name" >/dev/null 2>&1; do
+        tries=$((tries + 1))
+        if [ "$tries" -gt 100 ]; then
+            echo "${RED}ERROR:${RESET} container name '$name' still in use after timeout." >&2
+            return 1
+        fi
+        sleep 0.1
+    done
+}
+
+# Walk up from the current directory to / looking for a config file. Echoes the
+# first match's path and returns 0; returns 1 if none is found. Used to discover
+# per-tree defaults (.penguin-image, .penguin-subnet) without an env var.
+find_up() {
+    local filename="$1" dir
+    dir="$(pwd)"
+    while [ -n "$dir" ]; do
+        if [ -f "$dir/$filename" ]; then
+            echo "$dir/$filename"
+            return 0
+        fi
+        [ "$dir" = "/" ] && break
+        dir="$(dirname "$dir")"
+    done
+    return 1
 }
 
 penguin_run() {
@@ -124,8 +157,11 @@ penguin_run() {
     local reproduce=false
     local shell_mode=false
     local subnet=""
+    local subnet_explicit=false # whether --subnet was passed (vs env/file/auto)
     local container_name="" # Name of the instance
-    local image="rehosting/penguin" # Container to run
+    local replace=false # --replace: reclaim a colliding container name
+    local image="" # Container to run; resolved below (flag > env > file > default)
+    local image_explicit=false # whether --image was passed
     local extra_docker_args=""
     local standalone=false
     local engine_override="" # --docker/--podman/--engine; empty means auto-detect
@@ -139,13 +175,21 @@ penguin_run() {
                 echo ""
                 echo "Wrapper-specific flags may be passed in *before* the PENGUIN command. If a value is required, it must be specified immediately after the flag with a space."
                 echo "  --build: Build the PENGUIN container before running the specified command. If no command is specifed, just build and exit"
+                echo "           Requires an explicit --image TAG to name the built image (e.g. --image rehosting/penguin:dev),"
+                echo "           so a local build never shadows the default rehosting/penguin:latest run image."
                 echo "  --build-singularity: Build the PENGUIN container and then convert it to singularity. No command will be run"
                 echo "  --pydev: Map local python package and plugin code into container and reinstall before running the specified command."
                 echo "  --subnet: IP subnet to use. For example --subnet 192.168.0.0/24 would produce a network with firmware reachable at 192.168.0.2."
                 echo "            Default: automatically find next free /24 subnet in 192.168.x.x"
                 echo "            Set to 'none' to disable network creation."
+                echo "            May also be set via PENGUIN_SUBNET or a .penguin-subnet file (walked up from cwd)."
+                echo "            Precedence: --subnet > PENGUIN_SUBNET > .penguin-subnet > auto-discover."
                 echo "  --name: A name to identify the penguin container. By default based on project directory (if available)"
-                echo "  --image: Which image to run. Default: rehosting/penguin"
+                echo "  --replace: If a container with the resolved --name already exists, remove it and proceed (alias: --force-name)."
+                echo "             Useful in iterative loops where an unclean exit leaves the prior container running."
+                echo "  --image: Which image to run. Default: rehosting/penguin:latest"
+                echo "           May also be set via PENGUIN_IMAGE or a .penguin-image file (walked up from cwd)."
+                echo "           Precedence: --image > PENGUIN_IMAGE > .penguin-image > rehosting/penguin (built-in default)."
                 echo "  --extra_docker_args: Extra arguments to pass to the container engine. For example --extra_docker_args \"-p 8000:80\" to expose container port 80 on host port 8000."
                 echo "  --docker: Force use of the docker engine."
                 echo "  --podman: Force use of the podman engine."
@@ -154,6 +198,11 @@ penguin_run() {
                 echo "            The PENGUIN_CONTAINER_ENGINE environment variable has the same effect (a flag overrides the env var)."
                 echo "  --verbose: Print verbose output for penguin wrapper (e.g., filesystem mappings, container command)"
                 echo "  --wrapper-help: this message"
+                echo ""
+                echo "Wrapper-handled commands:"
+                echo "  down (aka clean/teardown): Force-remove this project's container and its docker network, and reap"
+                echo "       any dangling penguin networks (zero attached containers). Resolves the container via --name or the"
+                echo "       penguin.root label of the current directory. Idempotent. Use --name to target a specific container."
                 echo ""
                 echo "All other arguments will be passed through to the main PENGUIN command in the container."
                 echo "For example try:"
@@ -176,14 +225,20 @@ penguin_run() {
                 ;;
             --subnet)
                 subnet="$2"
+                subnet_explicit=true
                 shift 2
                 ;;
             --name)
                 container_name="$2"
                 shift 2
                 ;;
+            --replace|--force-name)
+                replace=true
+                shift
+                ;;
             --image)
                 image="$2"
+                image_explicit=true
                 shift 2
                 ;;
             --extra_docker_args)
@@ -223,6 +278,30 @@ penguin_run() {
 
     # Resolve the container engine (docker/podman) before doing anything else.
     resolve_engine "$engine_override"
+
+    # Resolve the default image when --image was not given explicitly.
+    # Precedence: --image > PENGUIN_IMAGE > .penguin-image (walked up) > built-in.
+    if ! $image_explicit; then
+        local image_file=""
+        if [ -n "${PENGUIN_IMAGE:-}" ]; then
+            image="$PENGUIN_IMAGE"
+        elif image_file="$(find_up ".penguin-image")"; then
+            image="$(head -n1 "$image_file" | tr -d '[:space:]')"
+        else
+            image="rehosting/penguin:latest"
+        fi
+    fi
+
+    # Resolve the default subnet when --subnet was not given explicitly.
+    # Precedence: --subnet > PENGUIN_SUBNET > .penguin-subnet (walked up) > auto.
+    if ! $subnet_explicit; then
+        local subnet_file=""
+        if [ -n "${PENGUIN_SUBNET:-}" ]; then
+            subnet="$PENGUIN_SUBNET"
+        elif subnet_file="$(find_up ".penguin-subnet")"; then
+            subnet="$(head -n1 "$subnet_file" | tr -d '[:space:]')"
+        fi
+    fi
 
     # If verbose, log all wrapper args and command
     if $verbose; then
@@ -530,9 +609,21 @@ penguin_run() {
 
         if [[ -n "$container_name" && "${cmd[0]}" != "guest_cmd" && "${cmd[0]}" != "guest-cmd" && "${cmd[0]}" != "shell" ]]; then
             if "$ENGINE" inspect --type container "$container_name" >/dev/null 2>&1; then
-                echo "${BOLD}ERROR: Container name ${RED}$container_name${RESET}${BOLD} is already in use!${RESET}"
-                echo "  Please specify a different name with ${BOLD}--name${RESET}"
-                exit 1
+                if $replace; then
+                    # --replace: reclaim a leaked/stale container with this name
+                    # instead of erroring. Scope is strictly this name -- never a
+                    # global sweep. Wait for the daemon to release the name before
+                    # we hand it to `run`.
+                    if $verbose; then
+                        echo "${BOLD}--replace: removing existing container ${GREEN}$container_name${RESET}"
+                    fi
+                    "$ENGINE" rm -f "$container_name" >/dev/null 2>&1
+                    wait_for_name_free "$container_name" || exit 1
+                else
+                    echo "${BOLD}ERROR: Container name ${RED}$container_name${RESET}${BOLD} is already in use!${RESET}"
+                    echo "  Please specify a different name with ${BOLD}--name${RESET}, or pass ${BOLD}--replace${RESET} to reclaim it."
+                    exit 1
+                fi
             fi
             # Unique name - add it to command
             docker_cmd+=("--name" "$container_name")
@@ -679,6 +770,79 @@ penguin_run() {
             docker_cmd=("$ENGINE" "exec" "-it" "-w" "/workspace" "${container_name}" "bash")
             "${docker_cmd[@]}"
             exit $?
+        fi
+    fi
+
+    # Teardown command: explicitly release a run's resources. The container uses
+    # `docker run --rm` and the network is removed by an EXIT trap, but both leak
+    # on an unclean exit (SIGKILL can't be trapped). `down` reaps them and any
+    # dangling penguin networks. Scope is strictly the resolved name/label plus
+    # penguin-owned (labelled / nw_*-named) networks -- never a global sweep.
+    if [[ ${#cmd[@]} -gt 0 && ( "${cmd[0]}" == "down" || "${cmd[0]}" == "clean" || "${cmd[0]}" == "teardown" ) ]]; then
+        local down_name="$container_name"
+
+        # If no --name, resolve via the penguin.root label of the target dir.
+        # Target dir is a path arg if given, else cwd. Include stopped containers
+        # (-a): a leaked container may have stopped without being removed.
+        if [ -z "$down_name" ]; then
+            local target_path="$(realpath "$(pwd)")"
+            for ((i=1; i<${#cmd[@]}; i++)); do
+                if [[ -e "${cmd[$i]}" ]]; then
+                    local _p="$(realpath "${cmd[$i]}")"
+                    [[ -f "$_p" ]] && _p="$(dirname "$_p")"
+                    target_path="$_p"
+                    break
+                fi
+            done
+            local down_matches
+            down_matches=$("$ENGINE" ps -a --filter "label=penguin.root=$target_path" --format "{{.Names}}")
+            if [ -n "$down_matches" ]; then
+                down_name=$(echo "$down_matches" | head -n1)
+            fi
+        fi
+
+        # Remove the resolved container and the networks it is attached to.
+        # Capture the networks before removing the container (afterwards they are
+        # no longer discoverable from it).
+        if [ -n "$down_name" ]; then
+            local down_nets
+            down_nets=$("$ENGINE" inspect "$down_name" \
+                --format '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' \
+                2>/dev/null | grep '^nw_' || true)
+            if "$ENGINE" rm -f "$down_name" >/dev/null 2>&1; then
+                echo "Removed container: $down_name"
+            fi
+            if [ -n "$down_nets" ]; then
+                # shellcheck disable=SC2086
+                "$ENGINE" network rm $down_nets >/dev/null 2>&1 || true
+            fi
+        else
+            echo "No penguin container found to remove."
+        fi
+
+        # Reap dangling penguin networks (zero attached containers). Only consider
+        # networks that are ours: the penguin.network label, plus the nw_* name
+        # prefix for legacy networks created before the label existed.
+        local nw reaped=0
+        for nw in $( { "$ENGINE" network ls --filter label=penguin.network --format '{{.Name}}';
+                       "$ENGINE" network ls --format '{{.Name}}' | grep '^nw_'; } 2>/dev/null | sort -u ); do
+            local cnt
+            cnt=$("$ENGINE" network inspect "$nw" --format '{{len .Containers}}' 2>/dev/null)
+            if [ "$cnt" = "0" ]; then
+                "$ENGINE" network rm "$nw" >/dev/null 2>&1 && reaped=$((reaped + 1))
+            fi
+        done
+        [ "$reaped" -gt 0 ] && echo "Reaped $reaped dangling penguin network(s)."
+        exit 0
+    fi
+
+    # We are about to launch a fresh container (all exec-into-existing and
+    # teardown commands have exited above). Nudge away from the moving :latest
+    # tag -- the main source of "it worked yesterday" irreproducibility. Skip for
+    # local builds (image is built here, not pulled) and reproduce (pins its own).
+    if ! $build && ! $reproduce; then
+        if [[ "$image" == *:latest || "$image" != *:* ]]; then
+            echo "${BOLD}WARNING:${RESET} using moving image '${image}' (resolves to :latest). Pin a release via --image, PENGUIN_IMAGE, or a .penguin-image file for reproducible runs." >&2
         fi
     fi
 
@@ -840,6 +1004,15 @@ penguin_run() {
     fi
 
     if $build; then
+        # Require an explicit tag so a local build never silently shadows the
+        # default rehosting/penguin:latest run image. (--build-singularity sets
+        # build=true above, so this guards it too.)
+        if ! $image_explicit; then
+            echo "${RED}ERROR:${RESET} --build requires an explicit --image TAG to name the built image" >&2
+            echo "       (e.g. --image rehosting/penguin:dev). This keeps local builds from shadowing" >&2
+            echo "       the default rehosting/penguin:latest run image." >&2
+            exit 1
+        fi
         echo "Running with container rebuild (--build). Entire container will be rebuilt."
         cd "$(dirname "$(realpath "$0")")"
         if [ ! -f "Dockerfile" ]; then
@@ -899,8 +1072,8 @@ penguin_run() {
             -v $(pwd)/.singularity:/output \
             --privileged -t \
             --rm quay.io/singularity/docker2singularity:v3.9.0 \
-            rehosting/penguin
-        mv -f .singularity/rehosting_penguin*.sif penguin.sif
+            "$image"
+        mv -f .singularity/*.sif penguin.sif
         rm -rf .singularity || true
         echo "penguin.sif built"
         exit 0
