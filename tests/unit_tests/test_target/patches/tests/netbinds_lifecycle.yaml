@@ -40,8 +40,8 @@ static_files:
   /tests/netbinds_lifecycle.sh:
     type: inline_file
     contents: |
-      #!/igloo/utils/micropython
-      import usocket as socket
+      #!/igloo/utils/python3
+      import socket
 
       def cycle(port, times):
           for _ in range(times):
@@ -50,8 +50,9 @@ static_files:
                   s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
               except Exception:
                   pass
-              ai = socket.getaddrinfo("0.0.0.0", port, 0, socket.SOCK_STREAM)[0]
-              s.bind(ai[-1])
+              # Bind a numeric address directly -- no getaddrinfo, which is a
+              # heavier path that's occasionally unstable under MIPS emulation.
+              s.bind(("0.0.0.0", port))
               s.listen(1)
               s.close()
 
