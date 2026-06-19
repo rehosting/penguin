@@ -381,13 +381,15 @@ def gen_plugin_args_docs(name, args_model):
         desc = info.description or ""
         out.append(f"|`{fname}`|{type_name}|{default}|{'yes' if required else ''}|{desc}|")
     out.append("")
-    out.append("Use either form:")
+    out.append("Configure under `plugins:`:")
     out.append("```yaml")
     out.append(f"plugins:\n  {name}:\n    # args...")
     out.append("```")
-    out.append("```yaml")
-    out.append(f"{name}:\n  # args...   (first-class top-level form)")
-    out.append("```")
+    out.append("")
+    out.append(
+        f"> The first-class top-level form (`{name}:` at the config root) is "
+        "**deprecated**: it still loads but logs a warning and may be removed."
+    )
     return "\n".join(out) + "\n"
 
 

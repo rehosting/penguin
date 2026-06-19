@@ -314,6 +314,18 @@ def test_promote_first_class_plugin(plugin_dir):
     assert raw["plugins"]["widget"] == {"names": ["x"]}
 
 
+def test_promote_first_class_plugin_warns_deprecated(plugin_dir, monkeypatch):
+    # First-class promotion still works for BC but must warn that it's deprecated.
+    warnings = []
+    monkeypatch.setattr(pc.logger, "warning",
+                        lambda msg, *a, **k: warnings.append((msg % a) if a else msg))
+    raw = base_config()
+    raw["widget"] = {"names": ["x"]}
+    pc._promote_first_class_plugins(raw, "/tmp", plugin_dir)
+    assert raw["plugins"]["widget"] == {"names": ["x"]}  # still promoted
+    assert any("deprecated" in w.lower() for w in warnings)
+
+
 def test_unknown_top_level_key_is_left_for_schema(plugin_dir):
     raw = base_config()
     raw["totally_unknown"] = {"x": 1}

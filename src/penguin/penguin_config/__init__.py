@@ -215,6 +215,14 @@ def _promote_first_class_plugins(raw, proj_dir, plugin_path):
     Only keys that resolve to a plugin declaring an ``Args`` schema are promoted;
     any other unknown top-level key is left alone so the schema's extra="forbid"
     still catches typos. Raises ValueError on a top-level/``plugins:`` conflict.
+
+    .. deprecated::
+        The first-class top-level form is deprecated. It makes the set of valid
+        top-level keys depend on which plugins happen to declare ``Args``, which
+        is ambiguous to read and risks shadowing if a plugin name ever collides
+        with a reserved section. Configure plugins under ``plugins:`` instead.
+        Promotion still works for now but logs a warning and may be removed in a
+        future release.
     """
     if not isinstance(raw, dict):
         return raw
@@ -232,6 +240,12 @@ def _promote_first_class_plugins(raw, proj_dir, plugin_path):
                 f"plugin '{key}' is configured both at the top level and under "
                 f"'plugins:'; use only one"
             )
+        logger.warning(
+            "Plugin '%s' is configured at the top level (first-class syntax). "
+            "This form is deprecated and may be removed; move it under the "
+            "'plugins:' section (plugins.%s) instead.",
+            key, key,
+        )
         plugins[key] = raw.pop(key)
     return raw
 
