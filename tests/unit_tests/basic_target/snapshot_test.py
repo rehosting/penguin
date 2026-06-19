@@ -12,7 +12,6 @@ the snapshot is taken), then drives two runs:
 Usage: python3 snapshot_test.py -i <image> [-a armel] [-k 4.10]
 """
 import logging
-import os
 from pathlib import Path
 import click
 import shutil

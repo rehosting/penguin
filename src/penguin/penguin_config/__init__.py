@@ -17,6 +17,7 @@ try:
 except ImportError:
     from yamlcore import CoreLoader, CoreDumper
     import yaml
+
     def style_config_for_dump(obj, _key=None):
         return obj
 from pydantic import BaseModel, Field, RootModel, ValidationError
