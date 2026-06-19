@@ -181,15 +181,26 @@ jobs:
           username: ${{ env.USER }}
           password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
       
-      # Locally tag as latest, just for testing
-      # Instead of 'docker pull', we use 'buildx build --load'. 
-      # This forces the configured BuildKit container to fetch the image (ignoring SSL)
-      # and pipe it directly into the local Docker Daemon.
-      - name: Pull image via Buildx and Load to Daemon
+      # EXPERIMENT: acquire the prebuilt image with a plain `docker pull` instead
+      # of the old `buildx build --load` heredoc. The latter round-trips the whole
+      # ~GB image out of BuildKit and back into the daemon (~5-6 min/job); a plain
+      # pull uses the daemon's image store directly.
+      #
+      # The historical reason for buildx was that `docker pull` failed Harbor's
+      # self-signed-cert / HTTP check at the daemon. The rehosting-arc dind
+      # sidecar is now started with `--insecure-registry=harbor.harbor.svc...`
+      # (kube/helmfile.yaml), which is exactly the daemon-level exception a plain
+      # pull needs — so this should now work. This minimal change swaps ONLY the
+      # acquisition step (cert-trust + login above are unchanged) to prove that
+      # on the real runners before refactoring the rest.
+      - name: Pull image to Daemon
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: |
-          echo "FROM ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }}" | \
-          docker buildx build -t rehosting/penguin:latest --load -
+          set -euo pipefail
+          img="${{ env.TARGET }}/rehosting/penguin:${{ github.sha }}"
+          echo "Pulling ${img}"
+          docker pull "${img}"
+          docker tag "${img}" rehosting/penguin:latest
       
       - name: Basic test for ${{ matrix.arch }}
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
