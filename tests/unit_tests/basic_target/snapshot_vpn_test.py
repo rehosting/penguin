@@ -22,7 +22,6 @@ Run via --pydev so the VPN/snapshot pyplugin changes apply without an image
 rebuild:  python3 snapshot_vpn_test.py -i <image> [-a armel] [-k 4.10]
 """
 import logging
-import os
 from pathlib import Path
 import click
 import shutil
