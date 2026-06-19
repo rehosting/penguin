@@ -398,21 +398,22 @@ def gen_plugin_args_docs(name, args_model, deprecation_note=True):
     return "\n".join(out) + "\n"
 
 
-def gen_all_plugin_args_docs(plugin_path=None):
+def gen_all_plugin_args_docs(plugin_path=None, manager=None, panda=None):
     """
     Render a single markdown reference for every plugin that declares an ``Args``
     schema under ``plugin_path`` (default: the schema's ``core.plugin_path``).
 
-    Completeness depends on the runtime environment — many plugins only import
-    inside the penguin container — so this is meant to be generated there (the
-    docgen plugin / ``penguin docs``), not on a bare runner.
+    Completeness depends on the runtime: many plugins only import with a live
+    ``plugins`` manager bound (e.g. kernel-FFI enums). Pass ``manager``/``panda``
+    (the live singletons, as the docgen plugin does) for full coverage; without
+    them this is best-effort and runtime-dependent plugins are skipped.
     """
     from penguin.plugin_manager import discover_declaring_plugins
 
     if plugin_path is None:
         plugin_path = structure.Core.model_fields["plugin_path"].default
 
-    found, skipped = discover_declaring_plugins(plugin_path)
+    found, skipped = discover_declaring_plugins(plugin_path, manager=manager, panda=panda)
 
     out = [
         "# Plugin arguments",

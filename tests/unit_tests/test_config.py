@@ -97,6 +97,25 @@ CLASSBODY_PLUGIN = """
 """
 
 
+# Reads live runtime state (like hyper.consts -> plugins.kffi.get_enum_dict) at
+# import time: imports with the no-op stub (len 0) but succeeds with a real
+# manager bound.
+RUNTIME_PLUGIN = """
+    from penguin import plugins, Plugin, PluginArgs
+    from pydantic import Field
+
+    _enum = plugins.kffi.get_enum_dict("HYPER_OP")
+    assert len(_enum) > 0, "needs a live manager"
+
+    class Runtime(Plugin):
+        class Args(PluginArgs):
+            level: int = Field(default=1)
+
+        def __init__(self):
+            pass
+"""
+
+
 @pytest.fixture
 def plugin_dir():
     with tempfile.TemporaryDirectory() as d:
@@ -376,6 +395,28 @@ def test_discover_declaring_plugins(plugin_dir):
     names = [n for n, _ in found]
     assert "widget" in names
     assert "gadget" not in names
+
+
+def test_discover_live_manager_recovers_runtime_plugin(plugin_dir):
+    # A plugin that reads runtime state at import time is skipped under the
+    # no-op stub but recovered when the live `plugins` manager is injected.
+    write_plugin(plugin_dir, "runtime.py", RUNTIME_PLUGIN)
+    plugin_manager._import_plugin_classes.cache_clear()
+
+    found, skipped = plugin_manager.discover_declaring_plugins(plugin_dir)
+    assert "runtime" not in [n for n, _ in found]
+    assert any("runtime.py" in s for s in skipped)
+
+    class _FakeKffi:
+        def get_enum_dict(self, name):
+            return {"A": 0, "B": 1}
+
+    class _FakeManager:
+        kffi = _FakeKffi()
+
+    found, skipped = plugin_manager.discover_declaring_plugins(
+        plugin_dir, manager=_FakeManager())
+    assert "runtime" in [n for n, _ in found]
 
 
 def test_gen_all_plugin_args_docs(plugin_dir):

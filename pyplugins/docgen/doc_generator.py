@@ -72,11 +72,14 @@ class SphinxGenerator(Plugin):
         shutil.copytree(self.docs_dir, dst_docs)
 
         # Generate the plugin-arguments reference from plugins' declared Args.
-        # Done here (in the container) so all plugins import and coverage is
-        # complete; the page is then picked up by the Markdown glob in the index.
+        # Done here, inside a live run, so introspection imports bind the real
+        # `plugins` manager + panda (kernel-FFI enums etc. resolve) and coverage
+        # is complete. The page is then picked up by the Markdown glob in index.
         try:
+            from penguin import plugins as live_manager
             from penguin.penguin_config.gen_docs import gen_all_plugin_args_docs
-            (dst_docs / "plugin_args.md").write_text(gen_all_plugin_args_docs())
+            md = gen_all_plugin_args_docs(manager=live_manager, panda=self.panda)
+            (dst_docs / "plugin_args.md").write_text(md)
             self.logger.info("✅ Generated docs/plugin_args.md from declared plugin Args")
         except Exception as e:
             self.logger.warning(f"⚠️ Could not generate plugin_args.md: {e}")
