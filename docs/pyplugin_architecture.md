@@ -61,7 +61,8 @@ adds three things:
    returns the default instead of `None` when an arg is omitted.
 3. **Schema & docs** — `penguin schema <plugin>` renders the declared arguments
    (types, defaults, descriptions), so users can discover what a plugin accepts
-   without reading its source.
+   without reading its source. Every declaring plugin is also collected into the
+   generated [Plugin arguments reference](plugin_args.md).
 
 Configure a plugin's arguments under the top-level `plugins:` section, keyed by
 the plugin's name:

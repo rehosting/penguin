@@ -370,6 +370,21 @@ def test_gen_plugin_args_docs(plugin_dir):
     assert "`names`" in md and "`count`" in md and "`quiet`" in md
 
 
+def test_discover_declaring_plugins(plugin_dir):
+    # Declaring plugins are collected (sorted); the legacy plugin (gadget) is not.
+    found, skipped = plugin_manager.discover_declaring_plugins(plugin_dir)
+    names = [n for n, _ in found]
+    assert "widget" in names
+    assert "gadget" not in names
+
+
+def test_gen_all_plugin_args_docs(plugin_dir):
+    md = gen_docs.gen_all_plugin_args_docs(plugin_dir)
+    assert "# Plugin arguments" in md
+    assert "# Plugin `widget` arguments" in md
+    assert "`names`" in md and "`count`" in md
+
+
 # --------------------------------------------------------------------------- #
 # PR4: Jinja2 templating
 # --------------------------------------------------------------------------- #

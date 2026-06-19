@@ -605,6 +605,42 @@ def get_plugin_args_model(name: str, proj_dir: str, plugin_path: str) -> Optiona
     return None
 
 
+def discover_declaring_plugins(plugin_path: str) -> Tuple[List[Tuple[str, Type[PluginArgs]]], List[str]]:
+    """
+    Walk ``plugin_path`` and return every plugin that declares an ``Args`` schema.
+
+    :return: ``(found, skipped)`` where ``found`` is a sorted list of
+        ``(config_name, args_model)`` (``config_name`` is the file stem users put
+        in ``plugins:``) and ``skipped`` is a sorted list of files that could not
+        be imported (missing deps, etc.). Reliable enumeration needs the full
+        runtime environment (e.g. inside the penguin container); on a bare host
+        many plugins land in ``skipped``.
+    """
+    found: List[Tuple[str, Type[PluginArgs]]] = []
+    skipped: List[str] = []
+    for path in sorted(glob.glob(join(plugin_path, "**", "*.py"), recursive=True)):
+        if "__pycache__" in path or os.path.basename(path).startswith("_"):
+            continue
+        try:
+            classes = _import_plugin_classes(path)
+        except Exception:
+            skipped.append(path)
+            continue
+        stem = os.path.splitext(os.path.basename(path))[0]
+        for _cname, cls in classes:
+            if cls.declares_args():
+                found.append((stem, cls.__dict__["Args"]))
+    # De-dup by config name (first wins) and sort for stable output.
+    seen = set()
+    deduped = []
+    for name, model in sorted(found, key=lambda x: x[0]):
+        if name in seen:
+            continue
+        seen.add(name)
+        deduped.append((name, model))
+    return deduped, sorted(skipped)
+
+
 class IGLOOPluginManager:
     """
     Singleton class that manages the loading, unloading, and interaction with plugins.
