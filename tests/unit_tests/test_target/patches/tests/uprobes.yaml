@@ -59,43 +59,14 @@ static_files:
   /tests/uprobes_test.sh:
     type: inline_file
     contents: |
-      #!/igloo/utils/python3
-      import ctypes
-      import sys
-
-      libc = ctypes.CDLL("/igloo/dylibs/libc.so", use_errno=True)
-
-      # The uprobes are registered with process_filter="uprobes_test.sh", which
-      # matches the kernel task comm. For a shebang script the kernel derives
-      # comm from the script basename, but the /igloo/utils/python3 wrapper adds
-      # a second shebang hop (python3 -> sh -> python/bin/python3), so comm ends
-      # up as "python3". Reset it to the expected name (PR_SET_NAME = 15, capped
-      # at 15 chars, which "uprobes_test.sh" fits exactly) before the probed calls.
-      libc.prctl(15, b"uprobes_test.sh", 0, 0, 0)
-
-      msg = b"Hello from uprobe_test\n"
-      libc.strncmp(msg, msg, len(msg))
-
-      num_fmtargs = 11
-      fmt = b"Hello from uprobe_test " + (b"%d " * num_fmtargs)
-      libc.printf(fmt, *range(num_fmtargs))
-
-      libc.fopen.restype = ctypes.c_void_p
-      fp = libc.fopen(b"/proc/self/cmdline", b"r")
-      print(fp)
-
-      libc.getenv.restype = ctypes.c_char_p
-      libc.getenv(b"PROJ_NAME")
-
-      # Trigger atoi twice. Should be unregistered after first.
-      libc.atoi(b"10")
-      libc.atoi(b"20")
-
-      # Trigger atol twice. Should be unregistered after first.
-      libc.atol(b"30")
-      libc.atol(b"40")
-
-      sys.exit(0)
+      #!/igloo/utils/sh
+      # /uprobes_test is a native musl-dynamic binary (guest-utils/native/
+      # uprobes_test.c) that calls the probed libc functions directly, so the
+      # calls route through /igloo/dylibs/libc.so where the uprobes live. It
+      # sets its own comm to "uprobes_test.sh" (the process_filter) via prctl.
+      /igloo/utils/busybox chmod +x /uprobes_test
+      /uprobes_test
+      exit 0
 
     mode: 73
   /tests/uprobes_test_executable.sh:
