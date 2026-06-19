@@ -4,7 +4,7 @@ Plugins that declare an `Args` schema validate their arguments and document them
 
 > The first-class top-level form (writing `<plugin>:` at the config root instead of under `plugins:`) is **deprecated**: it still loads but logs a warning and may be removed.
 
-**Plugins:** [`db`](#plugin-db-arguments), [`fetch_web`](#plugin-fetch_web-arguments), [`ficd`](#plugin-ficd-arguments), [`kernelversion`](#plugin-kernelversion-arguments), [`kmods`](#plugin-kmods-arguments), [`mount`](#plugin-mount-arguments), [`netbinds`](#plugin-netbinds-arguments), [`nvram2`](#plugin-nvram2-arguments), [`qemu_mem`](#plugin-qemu_mem-arguments), [`syscalls_logger`](#plugin-syscalls_logger-arguments), [`verifier`](#plugin-verifier-arguments), [`vpn`](#plugin-vpn-arguments)
+**Plugins:** [`db`](#plugin-db-arguments), [`fetch_web`](#plugin-fetch_web-arguments), [`ficd`](#plugin-ficd-arguments), [`kernelversion`](#plugin-kernelversion-arguments), [`kmods`](#plugin-kmods-arguments), [`mount`](#plugin-mount-arguments), [`netbinds`](#plugin-netbinds-arguments), [`nvram2`](#plugin-nvram2-arguments), [`pseudofiles`](#plugin-pseudofiles-arguments), [`qemu_mem`](#plugin-qemu_mem-arguments), [`syscalls_logger`](#plugin-syscalls_logger-arguments), [`verifier`](#plugin-verifier-arguments), [`vpn`](#plugin-vpn-arguments)
 
 # Plugin `db` arguments
 
@@ -124,6 +124,19 @@ plugins:
     # args...
 ```
 
+# Plugin `pseudofiles` arguments
+
+|Argument|Type|Default|Required|Description|
+|-|-|-|-|-|
+|`disable_tracking`|boolean|`false`||If true, do not initialize the pseudofile_tracker plugin alongside pseudofiles.|
+
+Configure under `plugins:`:
+```yaml
+plugins:
+  pseudofiles:
+    # args...
+```
+
 # Plugin `qemu_mem` arguments
 
 |Argument|Type|Default|Required|Description|
@@ -183,5 +196,5 @@ plugins:
 ```
 
 
-<!-- 45 plugin file(s) could not be imported for introspection and were skipped. -->
+<!-- 31 plugin file(s) could not be imported for introspection and were skipped. -->
 

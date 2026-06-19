@@ -35,7 +35,9 @@ Penguin emulation environment, enabling modular analysis, automation, and extens
 """
 
 import os
+import sys
 from os.path import join, isfile, basename, splitext, isdir
+from contextlib import contextmanager
 from penguin import getColoredLogger
 import shutil
 from typing import List, Dict, Union, Callable, Tuple, Optional, Any, Type, TypeVar, Iterator
@@ -533,6 +535,43 @@ class _IntrospectionStub:
     def __getitem__(self, _):
         return self
 
+    # Behave as an empty container too, so class-body code that does
+    # ``len(plugins.x)``, ``for y in plugins.x``, ``if plugins.x`` etc. against
+    # the stub gets harmless no-op results instead of a TypeError.
+    def __len__(self):
+        return 0
+
+    def __iter__(self):
+        return iter(())
+
+    def __bool__(self):
+        return False
+
+    def __contains__(self, _):
+        return False
+
+
+@contextmanager
+def _plugin_root_on_path(plugin_path: str):
+    """
+    Temporarily put ``plugin_path`` on ``sys.path`` so that introspection imports
+    of plugins that reference sibling packages (``import hyper``, ``from apis
+    import ...``) resolve the same way they do at runtime. Restores ``sys.path``
+    on exit. A no-op if the path is missing or already present.
+    """
+    root = os.path.realpath(plugin_path) if plugin_path else None
+    added = bool(root and isdir(root) and root not in sys.path)
+    if added:
+        sys.path.insert(0, root)
+    try:
+        yield
+    finally:
+        if added:
+            try:
+                sys.path.remove(root)
+            except ValueError:
+                pass
+
 
 @functools.lru_cache(maxsize=None)
 def _import_plugin_classes(path: str) -> Tuple[Tuple[str, type], ...]:
@@ -584,7 +623,8 @@ def get_plugin_class(name: str, proj_dir: str, plugin_path: str) -> Optional[typ
     except ValueError:
         return None
     try:
-        classes = _import_plugin_classes(path)
+        with _plugin_root_on_path(plugin_path):
+            classes = _import_plugin_classes(path)
     except Exception:
         return None
     # Prefer a class whose name matches the requested plugin; else the first.
@@ -618,18 +658,19 @@ def discover_declaring_plugins(plugin_path: str) -> Tuple[List[Tuple[str, Type[P
     """
     found: List[Tuple[str, Type[PluginArgs]]] = []
     skipped: List[str] = []
-    for path in sorted(glob.glob(join(plugin_path, "**", "*.py"), recursive=True)):
-        if "__pycache__" in path or os.path.basename(path).startswith("_"):
-            continue
-        try:
-            classes = _import_plugin_classes(path)
-        except Exception:
-            skipped.append(path)
-            continue
-        stem = os.path.splitext(os.path.basename(path))[0]
-        for _cname, cls in classes:
-            if cls.declares_args():
-                found.append((stem, cls.__dict__["Args"]))
+    with _plugin_root_on_path(plugin_path):
+        for path in sorted(glob.glob(join(plugin_path, "**", "*.py"), recursive=True)):
+            if "__pycache__" in path or basename(path).startswith("_"):
+                continue
+            try:
+                classes = _import_plugin_classes(path)
+            except Exception:
+                skipped.append(path)
+                continue
+            stem = splitext(basename(path))[0]
+            for _cname, cls in classes:
+                if cls.declares_args():
+                    found.append((stem, cls.__dict__["Args"]))
     # De-dup by config name (first wins) and sort for stable output.
     seen = set()
     deduped = []
