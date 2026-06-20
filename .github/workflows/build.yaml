@@ -140,68 +140,33 @@ jobs:
     steps:
       # using the version from here https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md
       # makes things faster
-      - name: Set up Python
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.10.12" 
-      - name: Install dependencies
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: pip install click pyyaml
       - name: Checkout code
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
-      
-      - name: Trust Harbor's self-signed certificate
+
+      # Acquire the prebuilt image with a plain `docker pull` via the shared
+      # org action, replacing the old `buildx build --load` heredoc (~5-6 min/job
+      # of GB export/import). install-cert is off: the rehosting-arc dind daemon
+      # already trusts Harbor's CA (system trust store), which is what the pull
+      # needs — see rehosting/ci pull-image docs. install-python pulls the deps
+      # the test runners need (click, pyyaml).
+      - name: Set up penguin image
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: |
-          echo "Fetching certificate from ${{ env.REGISTRY }}"
-          openssl s_client -showcerts -connect ${{ env.REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
-          sudo update-ca-certificates
-      
-      - name: Set up Docker Buildx
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            network=host
-          buildkitd-config-inline: |
-            [registry."${{ env.REGISTRY }}"]
-              insecure = true
-              http = true
-      
-      - name: Log in to Rehosting Arc Registry
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: docker/login-action@v3
+        uses: rehosting/ci/actions/pull-image@v1
         with:
           registry: ${{ env.REGISTRY }}
+          target: ${{ env.TARGET }}
+          image: rehosting/penguin
+          tag: ${{ github.sha }}
+          local-tag: rehosting/penguin:latest
           username: ${{ env.USER }}
           password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
-      
-      # EXPERIMENT: acquire the prebuilt image with a plain `docker pull` instead
-      # of the old `buildx build --load` heredoc. The latter round-trips the whole
-      # ~GB image out of BuildKit and back into the daemon (~5-6 min/job); a plain
-      # pull uses the daemon's image store directly.
-      #
-      # The historical reason for buildx was that `docker pull` failed Harbor's
-      # self-signed-cert / HTTP check at the daemon. The rehosting-arc dind
-      # sidecar is now started with `--insecure-registry=harbor.harbor.svc...`
-      # (kube/helmfile.yaml), which is exactly the daemon-level exception a plain
-      # pull needs — so this should now work. This minimal change swaps ONLY the
-      # acquisition step (cert-trust + login above are unchanged) to prove that
-      # on the real runners before refactoring the rest.
-      - name: Pull image to Daemon
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: |
-          set -euo pipefail
-          img="${{ env.TARGET }}/rehosting/penguin:${{ github.sha }}"
-          echo "Pulling ${img}"
-          docker pull "${img}"
-          docker tag "${img}" rehosting/penguin:latest
-      
+          install-python: "true"
+          install-cert: "false"
+
       - name: Basic test for ${{ matrix.arch }}
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/basic_target/test.py --arch ${{ matrix.arch }}
