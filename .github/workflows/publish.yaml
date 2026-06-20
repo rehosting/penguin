@@ -5,134 +5,105 @@ on:
     branches:
       - main
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: write
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+# One release at a time; don't cancel an in-progress production release.
 concurrency:
   group: "release"
   cancel-in-progress: false
 
 jobs:
-    build_container:
-        runs-on: rehosting-arc
+  # 1. Compute the next version (off the self-hosted pool).
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      v: ${{ steps.version.outputs.v-version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Get next version
+        id: version
+        uses: reecetech/version-increment@2023.10.1
+        with:
+          use_api: true
 
-        steps:
-          - name: Update and Install Dependencies
-            run: |
-              # Nuke the existing corrupted lists
-              sudo rm -rf /var/lib/apt/lists/*
-              sudo apt-get clean
-              
-              # Targeted replacement to avoid mangling the protocol slashes
-              # This targets the domain names specifically
-              SOURCES_FILES="/etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources"
-              
-              for f in $SOURCES_FILES; do
-                if [ -f "$f" ]; then
-                  echo "Updating $f to use MIT mirror..."
-                  sudo sed -i -E 's/([a-z]+\.)?archive\.ubuntu\.com/mirrors.mit.edu/g' "$f"
-                  sudo sed -i -E 's/security\.ubuntu\.com/mirrors.mit.edu/g' "$f"
-                fi
-              done
-     
-              # Verify the file content if it fails again
-              # cat /etc/apt/sources.list.d/ubuntu.sources
+  # 2. Build + push the image to Harbor AND Docker Hub via the shared workflow.
+  #    tag-sha tags Harbor :<sha>; extra-tags add the Docker Hub :<sha>/:<version>/
+  #    :latest (dockerhub-token enables the Docker Hub push). cache-*-extra keep
+  #    refreshing the :cache_last_published ref that PR/docs/publish builds read.
+  #    NOTE: the cache refs hardcode the registry host because a reusable-workflow
+  #    `with:` block can't reference `secrets`; publish only runs on the main repo
+  #    (push to main), never forks, so this is safe. Auth still uses the secret.
+  build:
+    needs: version
+    uses: rehosting/ci/.github/workflows/build-and-push.yml@v1
+    with:
+      image: rehosting/penguin
+      extra-tags: |
+        rehosting/penguin:${{ needs.version.outputs.v }}
+        rehosting/penguin:latest
+        rehosting/penguin:${{ github.sha }}
+      build-args: |
+        OVERRIDE_VERSION=${{ needs.version.outputs.v }}
+        APT_MIRROR=MIT
+      dockerhub-user: rehosting
+      cache-from-extra: |
+        type=registry,ref=harbor.harbor.svc.cluster.local/rehosting/penguin:cache_last_published,mode=max
+      cache-to-extra: |
+        type=registry,ref=harbor.harbor.svc.cluster.local/rehosting/penguin:cache_last_published,mode=max
+    secrets:
+      registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
+      registry-user: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
+      registry-password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
+      dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
-              sudo apt-get update
-              sudo apt-get install -yy curl jq
+  # 3. Config schema + GitHub release (after the image exists). Docs/PDF/Pages
+  #    are built out-of-band by docs.yaml on `release: published`.
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Python for config schema
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10.12"
+      - name: Install dependencies for config schema
+        run: pip install pydantic pydantic-partial pyyaml yamlcore
+      - name: Generate config schema
+        run: python3 src/penguin/penguin_config/gen_docs.py schema > config_schema.yaml
 
-          - name: Get next version
-            uses: reecetech/version-increment@2023.10.1
-            id: version
-            with:
-              use_api: true
-          - name: Log in to Docker Hub
-            uses: docker/login-action@v3
-            with:
-              username: rehosting
-              password: ${{secrets.DOCKERHUB_TOKEN}}
+      - name: Upload config schema to server
+        uses: easingthemes/ssh-deploy@main
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          ARGS: "-rlgoDzvc -i --delete"
+          SOURCE: config_schema.yaml
+          REMOTE_HOST: rehosti.ng
+          REMOTE_USER: github
+          TARGET: /var/www/igloo
 
-          - name: Install dependencies and label git workspace safe
-            run: |
-              sudo apt-get update
-              sudo apt-get -y install git curl jq gzip tmux
-              git config --global --add safe.directory "$GITHUB_WORKSPACE"
-            
-          - name: Checkout code
-            uses: actions/checkout@v4
-            with:
-              fetch-depth: 0
-      
-          # Harbor cert trust + insecure buildx + login via the shared org action
-          # (replaces the inline cert/buildx/login blocks).
-          - name: Set up Arc registry (cert, buildx, login)
-            uses: rehosting/ci/actions/arc-registry-setup@v1
-            with:
-              registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
-              username: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
-              password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
-
-          - name: Build Docker image and push to Dockerhub
-            uses: docker/build-push-action@v6.18.0
-            with:
-              context: .
-              push: true
-              cache-from: |
-                type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache,mode=max
-                type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache_last_published,mode=max
-              cache-to: |
-                type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache,mode=max
-                type=registry,ref=${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:cache_last_published,mode=max
-              tags: rehosting/penguin:${{ github.sha }},rehosting/penguin:${{ steps.version.outputs.v-version }},rehosting/penguin:latest,${{secrets.REHOSTING_ARC_REGISTRY}}/rehosting/penguin:${{ github.sha }}
-              build-args: |
-                OVERRIDE_VERSION=${{ steps.version.outputs.v-version }}
-                REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy
-                APT_MIRROR=MIT
-          
-          - name: Set up Python for config schema
-            uses: actions/setup-python@v5
-            with:
-              python-version: "3.10"
-          - name: Install dependencies for config schema
-            run: pip install pydantic pydantic-partial pyyaml yamlcore
-          - name: Generate config schema
-            run: python3 src/penguin/penguin_config/gen_docs.py schema > config_schema.yaml
-
-          - name: Upload config schema to server
-            uses: easingthemes/ssh-deploy@main
-            with:
-              SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-              ARGS: "-rlgoDzvc -i --delete"
-              SOURCE: config_schema.yaml
-              REMOTE_HOST: rehosti.ng
-              REMOTE_USER: github
-              TARGET: /var/www/igloo
-
-          # Docs (Sphinx + LaTeX PDF) + GitHub Pages are built/deployed
-          # out-of-band by docs.yaml, triggered on `release: published`. That
-          # keeps this release path fast and stops a docs/PDF failure from
-          # blocking the image publish + GitHub release. docs.yaml attaches the
-          # PDF to the release it triggered on.
-
-          - name: Create release
-            id: create_release
-            uses: softprops/action-gh-release@v2.3.3
-            env:
-              GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-            with:
-              tag_name: ${{ steps.version.outputs.v-version }}
-              name: Release ${{ steps.version.outputs.v-version }} ${{ github.ref }}
-              body: |
-                Release ${{ steps.version.outputs.v-version }} @${{ github.ref }}
-              draft: false
-              generate_release_notes: true
-              prerelease: false
-              files: |
-                config_schema.yaml
-              # The PDF + docs.tar.gz are attached to this release by docs.yaml
-              # after it builds the docs (release: published trigger).
+      - name: Create release
+        id: create_release
+        uses: softprops/action-gh-release@v2.3.3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ needs.version.outputs.v }}
+          name: Release ${{ needs.version.outputs.v }} ${{ github.ref }}
+          body: |
+            Release ${{ needs.version.outputs.v }} @${{ github.ref }}
+          draft: false
+          generate_release_notes: true
+          prerelease: false
+          # The PDF + docs.tar.gz are attached to this release by docs.yaml
+          # after it builds the docs (release: published trigger).
+          files: |
+            config_schema.yaml

@@ -32,6 +32,16 @@ jobs:
     steps:
       - name: Install dependencies and label git workspace safe
         run: |
+          # rehosting-arc's runner image ships broken apt sources; repoint to the
+          # MIT mirror before installing (same fixup the old publish job used).
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo apt-get clean
+          for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+            if [ -f "$f" ]; then
+              sudo sed -i -E 's/([a-z]+\.)?archive\.ubuntu\.com/mirrors.mit.edu/g' "$f"
+              sudo sed -i -E 's/security\.ubuntu\.com/mirrors.mit.edu/g' "$f"
+            fi
+          done
           sudo apt-get update
           sudo apt-get -y install git curl jq gzip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
