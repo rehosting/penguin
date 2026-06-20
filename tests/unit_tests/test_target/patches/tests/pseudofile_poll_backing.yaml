@@ -39,12 +39,12 @@ static_files:
     type: inline_file
     mode: 73
     contents: |
-      #!/igloo/utils/micropython
+      #!/igloo/utils/python3
       # NB: use the builtin open()/file-object API + select.poll on the file
-      # object. Some arches' micropython build (riscv64, powerpc64, mips64el,
-      # loongarch64) ship without os.open/os.read/os.write, so the fd-based
-      # os.* API is not portable; open()+poll.register(f) is (see
-      # pseudofile_dev_compat_poll, anonfs).
+      # object. buffering=0 gives a raw unbuffered FileIO so each write()/read()
+      # is exactly one syscall -- the poll() semantics under test depend on the
+      # write hitting the backing immediately and the read draining it; a
+      # buffered stream would defer/coalesce those and break the test.
       import select
 
       POLLIN = getattr(select, "POLLIN", 0x001)
@@ -55,7 +55,7 @@ static_files:
           return po.poll(timeout)
 
       def check(path):
-          f = open(path, "r+b")  # unbuffered FileIO (binary) -> 1 syscall per read/write
+          f = open(path, "r+b", buffering=0)  # unbuffered FileIO -> 1 syscall per read/write
           try:
               # 1. Fresh/empty node must NOT report POLLIN (the busy-loop fix).
               ev = poll_in(f, 0)
