@@ -2,7 +2,13 @@ if [ ! -z "${SHARED_DIR}" ]; then
   unset SHARED_DIR
   /igloo/utils/busybox mkdir /igloo/shared
   echo '[IGLOO INIT] Mounting shared directory';
-  /igloo/utils/busybox mount -t 9p -o trans=virtio igloo_shared_dir /igloo/shared -oversion=9p2000.L,posixacl,msize=8192000
+  # A large msize maximizes shared-dir throughput, but the per-request buffers
+  # can't be allocated on memory-tight 32-bit guests (e.g. mipsel/mipseb, whose
+  # limited lowmem leaves nothing for the GFP_NOFS 9p allocations -> "9pnet:
+  # Couldn't grow tag array" -> ENOMEM). Fall back to a small msize so the mount
+  # still succeeds there; arches that can allocate 8MB keep the larger buffer.
+  /igloo/utils/busybox mount -t 9p -o trans=virtio igloo_shared_dir /igloo/shared -oversion=9p2000.L,posixacl,msize=8192000 || \
+  /igloo/utils/busybox mount -t 9p -o trans=virtio igloo_shared_dir /igloo/shared -oversion=9p2000.L,posixacl,msize=131072
 
   # Set up core dumps
   #
