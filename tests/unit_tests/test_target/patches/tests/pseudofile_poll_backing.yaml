@@ -40,39 +40,44 @@ static_files:
     mode: 73
     contents: |
       #!/igloo/utils/micropython
-      import os, select
+      # NB: use the builtin open()/file-object API + select.poll on the file
+      # object. Some arches' micropython build (riscv64, powerpc64, mips64el,
+      # loongarch64) ship without os.open/os.read/os.write, so the fd-based
+      # os.* API is not portable; open()+poll.register(f) is (see
+      # pseudofile_dev_compat_poll, anonfs).
+      import select
 
-      O_RDWR = 2
+      POLLIN = getattr(select, "POLLIN", 0x001)
 
-      def poll_in(fd, timeout):
+      def poll_in(f, timeout):
           po = select.poll()
-          po.register(fd, select.POLLIN)
+          po.register(f, POLLIN)
           return po.poll(timeout)
 
       def check(path):
-          fd = os.open(path, O_RDWR)
+          f = open(path, "r+b")  # unbuffered FileIO (binary) -> 1 syscall per read/write
           try:
               # 1. Fresh/empty node must NOT report POLLIN (the busy-loop fix).
-              ev = poll_in(fd, 0)
-              assert not any(m & select.POLLIN for _, m in ev), \
+              ev = poll_in(f, 0)
+              assert not any(m & POLLIN for _, m in ev), \
                   "%s: empty node reported POLLIN" % path
 
               # 2. After a write enqueues data it must become readable.
-              os.write(fd, b"hello")
-              ev = poll_in(fd, 100)
-              assert any(m & select.POLLIN for _, m in ev), \
+              f.write(b"hello")
+              ev = poll_in(f, 100)
+              assert any(m & POLLIN for _, m in ev), \
                   "%s: node with data did not report POLLIN" % path
 
               # 3. Read drains the queued bytes.
-              data = os.read(fd, 16)
+              data = f.read(16)
               assert data == b"hello", "%s: read got %r" % (path, data)
 
               # 4. Drained node is no longer readable.
-              ev = poll_in(fd, 0)
-              assert not any(m & select.POLLIN for _, m in ev), \
+              ev = poll_in(f, 0)
+              assert not any(m & POLLIN for _, m in ev), \
                   "%s: drained node still reported POLLIN" % path
           finally:
-              os.close(fd)
+              f.close()
 
       check("/dev/poll_backing")   # single-object backing
       check("/dev/poll_domain")    # per-domain poll: from_plugin
