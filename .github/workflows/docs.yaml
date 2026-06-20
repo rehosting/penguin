@@ -1,0 +1,151 @@
+name: Docs
+
+# Docs (Sphinx HTML + LaTeX PDF) and the GitHub Pages deploy, decoupled from
+# publish.yaml. Triggered when publish.yaml creates a Release, this builds the
+# docs FROM the just-published image, deploys Pages, and attaches the PDF +
+# docs tarball to that release. A docs/PDF failure here no longer blocks the
+# image publish or the GitHub release.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to (re)build docs for
+        required: true
+
+permissions:
+  contents: write   # attach PDF/docs.tar.gz assets to the release
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "docs"
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  build_docs:
+    runs-on: rehosting-arc
+    steps:
+      - name: Install dependencies and label git workspace safe
+        run: |
+          # rehosting-arc's runner image ships broken apt sources; repoint to the
+          # MIT mirror before installing (same fixup the old publish job used).
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo apt-get clean
+          for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+            if [ -f "$f" ]; then
+              sudo sed -i -E 's/([a-z]+\.)?archive\.ubuntu\.com/mirrors.mit.edu/g' "$f"
+              sudo sed -i -E 's/security\.ubuntu\.com/mirrors.mit.edu/g' "$f"
+            fi
+          done
+          sudo apt-get update
+          sudo apt-get -y install git curl jq gzip
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
+
+      # Harbor cert trust + insecure buildx + login via the shared org action.
+      - name: Set up Arc registry (cert, buildx, login)
+        uses: rehosting/ci/actions/arc-registry-setup@v1
+        with:
+          registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
+          username: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
+
+      - name: Add docs stage to Dockerfile
+        run: |
+          cat <<'EOF' >> Dockerfile
+
+          FROM penguin AS docs
+
+          RUN pip install sphinx \
+              sphinx-autobuild \
+              sphinx-rtd-theme \
+              myst-parser \
+              sphinx-copybutton \
+              furo \
+              linkify-it-py \
+              sphinx-prompt \
+              sphinxemoji \
+              sphinx-notfound-page \
+              sphinx-last-updated-by-git
+          RUN apt-get update && apt-get install -y texlive-latex-base texlive-latex-recommended texlive-fonts-recommended texlive-latex-extra
+          EOF
+
+      - name: Build docs image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: rehosting/penguin:docs
+          build-args: |
+            REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy
+          cache-from: |
+            type=registry,ref=${{ secrets.REHOSTING_ARC_REGISTRY }}/rehosting/penguin:cache,mode=max
+            type=registry,ref=${{ secrets.REHOSTING_ARC_REGISTRY }}/rehosting/penguin:cache_docs,mode=max
+            type=registry,ref=${{ secrets.REHOSTING_ARC_REGISTRY }}/rehosting/penguin:cache_last_published,mode=max
+          cache-to: |
+            type=registry,ref=${{ secrets.REHOSTING_ARC_REGISTRY }}/rehosting/penguin:cache_docs,mode=max
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10.12"
+      - name: Install dependencies
+        run: pip install click pyyaml
+
+      - name: Generate Docs
+        run: |
+          timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py -i rehosting/penguin:docs --docs-only
+          cp $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/latest/sphinx/latex/penguin.pdf $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/latest/sphinx/html
+          tar -czvf $GITHUB_WORKSPACE/docs.tar.gz -C $GITHUB_WORKSPACE/tests/unit_tests/test_target/results/latest/sphinx/html .
+
+      - name: Attach docs assets to the release
+        uses: softprops/action-gh-release@v2.3.3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            ${{ github.workspace }}/tests/unit_tests/test_target/results/latest/sphinx/latex/penguin.pdf
+            ${{ github.workspace }}/docs.tar.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: html
+          path: ${{ github.workspace }}/docs.tar.gz
+
+  deploy_static:
+    needs: build_docs
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: html
+      - name: Unzip HTML
+        run: |
+          mkdir html_content
+          tar -xvf docs.tar.gz -C html_content
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'html_content'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
