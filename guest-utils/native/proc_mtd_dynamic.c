@@ -14,10 +14,19 @@
 #include <string.h>
 
 int main(void) {
+    /* /igloo/dylibs/lib_inject.so is a symlink to the arch-correct
+     * /igloo/lib_inject_<abi>.so and lives in the musl loader's reach, so it
+     * resolves on every arch. The /lib/lib_inject.so symlink the old python
+     * driver relied on is only created by the init plugin, which `penguin run`
+     * bypasses; and a bare "lib_inject.so" isn't on this binary's search path.
+     * The abi-specific absolute paths are kept as fallbacks. */
     const char *options[] = {
-        "lib_inject.so",
+        "/igloo/dylibs/lib_inject.so",
         "/igloo/lib_inject_default.so",
+        "/igloo/lib_inject_soft_float.so",
+        "/igloo/lib_inject_hard_float.so",
         "/igloo/lib_inject_ppc64.so",
+        "lib_inject.so",
     };
 
     void *lib_inject = NULL;
