@@ -54,7 +54,7 @@ static_files:
       _libc = ctypes.CDLL(None, use_errno=True)
       _libc.mmap.restype = ctypes.c_void_p
       _libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
-                             ctypes.c_int, ctypes.c_int, ctypes.c_longlong]
+                             ctypes.c_int, ctypes.c_int, ctypes.c_long]
       _libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
       MAP_FAILED = ctypes.c_void_p(-1).value
       PROT_READ, PROT_WRITE, MAP_SHARED, MAP_PRIVATE = 1, 2, 1, 2
@@ -85,7 +85,7 @@ static_files:
       _libc = ctypes.CDLL(None, use_errno=True)
       _libc.mmap.restype = ctypes.c_void_p
       _libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
-                             ctypes.c_int, ctypes.c_int, ctypes.c_longlong]
+                             ctypes.c_int, ctypes.c_int, ctypes.c_long]
       _libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
       MAP_FAILED = ctypes.c_void_p(-1).value
       PROT_READ, PROT_WRITE, MAP_SHARED, MAP_PRIVATE = 1, 2, 1, 2
@@ -183,7 +183,7 @@ static_files:
       _libc = ctypes.CDLL(None, use_errno=True)
       _libc.mmap.restype = ctypes.c_void_p
       _libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
-                             ctypes.c_int, ctypes.c_int, ctypes.c_longlong]
+                             ctypes.c_int, ctypes.c_int, ctypes.c_long]
       _libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
       MAP_FAILED = ctypes.c_void_p(-1).value
       PROT_READ, PROT_WRITE, MAP_SHARED = 1, 2, 1
