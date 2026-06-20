@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-# NOTE: trivial touch so the `changes` path-filter classifies this PR as "code"
-# and actually runs run_tests (which exercises the docker-pull experiment in
-# build.yaml). Revert before merge.
 import logging
 import os
 import sys

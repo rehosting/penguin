@@ -19,7 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       run_lint: ${{ steps.filter.outputs.python }}
-      run_tests: ${{ steps.filter.outputs.code }}
+      # Run the guest-test matrix on code changes OR on changes to the test
+      # workflow / test fixtures themselves (the `code` filter excludes
+      # .github/**, so a build.yaml-only change would otherwise skip the tests
+      # it governs).
+      run_tests: ${{ steps.filter.outputs.code == 'true' || steps.filter.outputs.testci == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - id: filter
@@ -37,6 +41,11 @@ jobs:
               - '!**/.gitignore'
             python:
               - '**/*.py'
+            # Changes that should re-run the guest-test matrix even though the
+            # `code` filter excludes .github/**: the test workflow and fixtures.
+            testci:
+              - '.github/workflows/build.yaml'
+              - 'tests/**'
   lint:
     if: ${{ !github.event.pull_request.draft }}
     runs-on: rehosting-arc
