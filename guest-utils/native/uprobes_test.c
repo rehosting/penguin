@@ -25,8 +25,12 @@ int main(void) {
     /* Volatile sink so no optimization level can drop the unused results. */
     volatile long sink = 0;
 
+    /* Two distinct buffers with identical contents: comparing one buffer to
+     * itself, strncmp(m, m, n), gets folded to a constant 0 even at -O0, so no
+     * call is emitted and the uprobe never fires. */
     const char *msg = "Hello from uprobe_test\n";
-    sink += strncmp(msg, msg, strlen(msg));
+    char msg_copy[] = "Hello from uprobe_test\n";
+    sink += strncmp(msg, msg_copy, strlen(msg));
 
     printf("Hello from uprobe_test %d %d %d %d %d %d %d %d %d %d %d\n",
            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
