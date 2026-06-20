@@ -51,7 +51,7 @@ static_files:
       # than the file size, but these pseudofiles are page-backed in the kernel
       # and the test deliberately maps a full page (matching the original ffi).
       import os, ctypes
-      _libc = ctypes.CDLL("/igloo/dylibs/libc.so", use_errno=True)
+      _libc = ctypes.CDLL(None, use_errno=True)
       _libc.mmap.restype = ctypes.c_void_p
       _libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
                              ctypes.c_int, ctypes.c_int, ctypes.c_longlong]
@@ -82,7 +82,7 @@ static_files:
     contents: |
       #!/igloo/utils/python3
       import os, ctypes
-      _libc = ctypes.CDLL("/igloo/dylibs/libc.so", use_errno=True)
+      _libc = ctypes.CDLL(None, use_errno=True)
       _libc.mmap.restype = ctypes.c_void_p
       _libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
                              ctypes.c_int, ctypes.c_int, ctypes.c_longlong]
@@ -180,7 +180,7 @@ static_files:
     contents: |
       #!/igloo/utils/python3
       import os, ctypes
-      _libc = ctypes.CDLL("/igloo/dylibs/libc.so", use_errno=True)
+      _libc = ctypes.CDLL(None, use_errno=True)
       _libc.mmap.restype = ctypes.c_void_p
       _libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
                              ctypes.c_int, ctypes.c_int, ctypes.c_longlong]

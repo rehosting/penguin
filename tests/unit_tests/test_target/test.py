@@ -128,7 +128,7 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mod
     }
 
     # Now get the test executables from the docker image
-    for binname in ("test_executable", "uprobes_test"):
+    for binname in ("test_executable", "uprobes_test", "proc_mtd_dynamic"):
         result = subprocess.run([
                 "docker", "run", "--rm", image,
                 "cat", f"/igloo_static/utils.bin/{binname}.{arch}"

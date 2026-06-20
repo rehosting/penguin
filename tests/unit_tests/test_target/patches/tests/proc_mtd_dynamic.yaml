@@ -14,34 +14,13 @@ static_files:
   /tests/proc_mtd_dynamic.sh:
     type: inline_file
     contents: |
-      #!/igloo/utils/python3
-
-      import ctypes
-      import sys
-      options = ["lib_inject.so", "/igloo/lib_inject_default.so",
-          "/igloo/lib_inject_ppc64.so"]
-      lib_inject = None
-      for option in options:
-        try:
-          lib_inject = ctypes.CDLL(option)
-          break
-        except OSError as e:
-          print(f"Error loading {option}:", e)
-      if lib_inject is None:
-        print("Error loading any of the lib_inject libraries.")
-        sys.exit(1)
-
-      strstr = lib_inject.libinject_strstr
-      strstr.restype = ctypes.c_char_p
-      strstr.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
-
-      device_path = None
-      with open("/proc/mtd") as f:
-        for line in f:
-          if strstr(line.encode(), b"flash"):
-            device = line.split(":")[0]
-            device_path = f"/dev/{device}"
-            break
-
-      print("flash device path:", device_path)
+      #!/igloo/utils/sh
+      # /proc_mtd_dynamic is a native musl-dynamic binary (guest-utils/native/
+      # proc_mtd_dynamic.c) that dlopens the musl lib_inject and calls its
+      # libinject_strstr to scan /proc/mtd. A native musl binary loads the musl
+      # injection lib cleanly; dlopening it from glibc python3 crashes on 32-bit.
+      # exec so the binary's exit code is the script's: a lib_inject load
+      # failure (return 1) must fail the test, as the old python driver did.
+      /igloo/utils/busybox chmod +x /proc_mtd_dynamic
+      exec /proc_mtd_dynamic
     mode: 73
