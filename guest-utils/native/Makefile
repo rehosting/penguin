@@ -92,6 +92,10 @@ out/%/uprobes_test: uprobes_test.c
 	@mkdir -p $(dir $@)
 	$(CC_$*) $(CFLAGS_DYNAMIC_$*) -Wl,--dynamic-linker=/igloo/dylibs/ld-musl-$*.so.1 $< -o $@
 
+out/%/proc_mtd_dynamic: proc_mtd_dynamic.c
+	@mkdir -p $(dir $@)
+	$(CC_$*) $(CFLAGS_DYNAMIC_$*) -Wl,--dynamic-linker=/igloo/dylibs/ld-musl-$*.so.1 $< -o $@ -ldl
+
 out/%/test_executable: test_executable.c
 	@mkdir -p $(dir $@)
 	$(CC_$*) $(filter-out -s,$(CFLAGS_$*)) $< -o $@
