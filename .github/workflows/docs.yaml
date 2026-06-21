@@ -1,18 +1,25 @@
 name: Docs
 
 # Docs (Sphinx HTML + LaTeX PDF) and the GitHub Pages deploy, decoupled from
-# publish.yaml. Triggered when publish.yaml creates a Release, this builds the
-# docs FROM the just-published image, deploys Pages, and attaches the PDF +
-# docs tarball to that release. A docs/PDF failure here no longer blocks the
-# image publish or the GitHub release.
+# publish.yaml. Runs AFTER the "Release Container" (publish) workflow completes,
+# builds the docs from the just-published image, deploys Pages, and attaches the
+# PDF + docs tarball to the latest release. A docs/PDF failure here no longer
+# blocks the image publish or the GitHub release.
+#
+# NOTE: this uses `workflow_run`, NOT `on: release`. publish creates the release
+# with the default GITHUB_TOKEN, and GitHub does not fire `release` events from
+# GITHUB_TOKEN-created releases (recursion prevention) — so `on: release` would
+# never trigger. `workflow_run` fires regardless.
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["Release Container"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to (re)build docs for
-        required: true
+        description: Release tag to (re)build docs for (default: latest release)
+        required: false
+        default: ""
 
 permissions:
   contents: write   # attach PDF/docs.tar.gz assets to the release
@@ -23,12 +30,11 @@ concurrency:
   group: "docs"
   cancel-in-progress: false
 
-env:
-  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
-
 jobs:
   build_docs:
     runs-on: rehosting-arc
+    # Only after a SUCCESSFUL publish (or a manual dispatch).
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Install dependencies and label git workspace safe
         run: |
@@ -46,11 +52,26 @@ jobs:
           sudo apt-get -y install git curl jq gzip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      # Resolve which release to build docs for: the dispatch input if given,
+      # else the latest release (which the just-finished publish created).
+      - name: Resolve release tag
+        id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.inputs.tag }}"
+          if [ -z "$tag" ]; then
+            tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)"
+          fi
+          echo "Building docs for release: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ steps.rel.outputs.tag }}
 
       # Harbor cert trust + insecure buildx + login via the shared org action.
       - name: Set up Arc registry (cert, buildx, login)
@@ -114,7 +135,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
+          tag_name: ${{ steps.rel.outputs.tag }}
           files: |
             ${{ github.workspace }}/tests/unit_tests/test_target/results/latest/sphinx/latex/penguin.pdf
             ${{ github.workspace }}/docs.tar.gz
