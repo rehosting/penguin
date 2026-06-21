@@ -318,7 +318,7 @@ def hash_image_inputs(proj_dir: str, conf: Dict[str, Any]) -> str:
     :return: Hex digest string.
     :rtype: str
     """
-    from penguin.defaults import default_preinit_script
+    from penguin.defaults import default_preinit_script, static_dir
     hsh = hashlib.sha256()
     hsh.update(default_preinit_script.encode())
     fs = os.path.join(proj_dir, conf["core"]["fs"])
@@ -330,6 +330,15 @@ def hash_image_inputs(proj_dir: str, conf: Dict[str, Any]) -> str:
     hsh.update(f"{modification_timestamp}".encode())
     # add the fstype - if it changes we need to rebuild
     hsh.update("ext4".encode())
+    # The debugging-tool closure is baked into the base image (gen_image.
+    # tar_add_tool_closure), so a closure change must rebuild it. Hash the tiny
+    # manifest.json rather than the ~100MB tarball: its in-store exe paths are
+    # content-addressed, so it changes whenever any part of the closure does.
+    manifest = os.path.join(static_dir, "closures", get_arch_subdir(conf), "manifest.json")
+    if os.path.isfile(manifest):
+        hsh.update(get_file_hash(manifest).encode())
+    else:
+        hsh.update(b"no-closure")
     return hsh.hexdigest()
 
 

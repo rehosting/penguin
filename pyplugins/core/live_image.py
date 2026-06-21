@@ -109,21 +109,22 @@ class LiveImage(Plugin):
                 yield path, action
 
     def _stage_tool_closure(self, staging_dir: Path) -> None:
-        """Stage the per-arch debugging tools (python3, strace, gdbserver,
-        ltrace, iptables) as a pristine nixpkgs glibc runtime closure plus
-        wrapper scripts.
+        """Stage the per-arch debugging-tool wrappers (python3, strace,
+        gdbserver, ltrace, iptables).
 
         penguin-tools ships, per arch:
           <STATIC_DIR>/closures/<arch>/closure.tar.gz  -- /nix/store/... closure
           <STATIC_DIR>/closures/<arch>/manifest.json   -- {tool: in-store exe}
 
-        The closure is extracted under /igloo (its members are rooted at
-        nix/store/..., landing at /igloo/nix/store/...). For each tool we install
-        a /igloo/utils/<tool> wrapper that runs the pristine binary inside a
-        private mount namespace with /igloo/nix bind-mounted onto /nix, so the
-        binary's own absolute /nix/store interpreter/rpath resolve unchanged
-        without polluting the real /nix. (Replacing the old ELF-rewritten musl
-        bundles with pristine binaries fixes intermittent wrong-mm SIGSEGVs on
+        The closure itself (~150-300MB, ~8.4k files) is large, image-level, and
+        content-stable, so it is *baked into the base image* once at
+        /igloo/nix/store/... (see gen_image.tar_add_tool_closure) and reused
+        across configs/runs -- NOT re-shipped here every boot. This method only
+        stages the tiny per-tool /igloo/utils/<tool> wrappers, which run the
+        pristine binary inside a private mount namespace with /igloo/nix
+        bind-mounted onto /nix so the binary's own absolute /nix/store
+        interpreter/rpath resolve unchanged. (Pristine binaries instead of the
+        old ELF-rewritten musl bundles fix intermittent wrong-mm SIGSEGVs on
         MIPS -- penguin #823.)
         """
         arch_dir = get_arch_subdir(self.config)
@@ -139,13 +140,9 @@ class LiveImage(Plugin):
         with open(manifest_path) as f:
             tool_manifest = json.load(f)
 
-        # Extract the closure under /igloo -> /igloo/nix/store/...
-        igloo_dir = staging_dir / "igloo"
-        igloo_dir.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(closure_tar, "r:*") as tf:
-            tf.extractall(path=igloo_dir)
-
-        # Empty /nix mountpoint for the per-tool bind mount.
+        # The closure store and the /nix mountpoint are baked into the base
+        # image; create the mountpoint here too so a forced-reuse of an old,
+        # pre-bake cached image still has the bind target (cheap, idempotent).
         (staging_dir / "nix").mkdir(parents=True, exist_ok=True)
 
         utils_dir = staging_dir / "igloo" / "utils"
@@ -164,7 +161,8 @@ class LiveImage(Plugin):
             wrapper_path.write_text(wrapper)
             wrapper_path.chmod(0o755)
         self.logger.info(
-            f"Staged tool closure for {arch_dir}: {', '.join(sorted(tool_manifest))}")
+            f"Staged tool wrappers for {arch_dir} (closure baked into base image): "
+            f"{', '.join(sorted(tool_manifest))}")
 
     def _generate_setup_script(self) -> str:
         """Builds an efficient setup script using hyp_file_op for file transfer, not shared_dir."""
