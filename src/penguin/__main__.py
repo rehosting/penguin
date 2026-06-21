@@ -6,7 +6,7 @@ import os
 import shutil
 import subprocess
 import glob
-from os.path import dirname, join
+from os.path import join
 from pathlib import Path
 import sys
 import hashlib
@@ -20,10 +20,6 @@ from .gen_config import fakeroot_gen_config, fakeroot_refresh
 from .manager import PandaRunner, calculate_score
 from penguin.penguin_config import load_config
 
-from .genetic import ga_search
-from .graph_search import graph_search
-from .patch_search import patch_search
-from .patch_minimizer import minimize as patch_minimize
 from .plugin_manager import find_local_plugins
 from .utils import hash_image_inputs
 from .compose import run_compose, scaffold_compose
@@ -158,42 +154,6 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
         f.write(f"{total_score:.02f}\n")
 
 
-def explore_from_config(
-    explore_type, proj_dir, config_path, output_dir, niters, timeout,
-    nworkers=1, verbose=False,
-):
-    config = _validate_project(proj_dir, config_path)
-
-    if not explore_type:
-        raise ValueError("Must specify explore_type when running multiple iterations")
-
-    if explore_type == "explore":
-        return graph_search(
-            proj_dir, config, output_dir, timeout, max_iters=niters,
-            nthreads=nworkers, verbose=verbose
-        )
-
-    if explore_type == "ga_explore":
-        return ga_search(
-            proj_dir, config_path, output_dir, timeout, max_iters=niters,
-            nthreads=nworkers, verbose=verbose, nmuts=1
-        )
-
-    if explore_type == "patch_explore":
-        return patch_search(
-            proj_dir, config_path, output_dir, timeout, max_iters=niters,
-            nworkers=nworkers, verbose=verbose
-        )
-
-    if explore_type == "minimize":
-        return patch_minimize(
-            proj_dir, config_path, output_dir, timeout, max_iters=niters,
-            nworkers=nworkers, verbose=verbose
-        )
-
-    raise ValueError(f"Invalid explore_type: {explore_type}")
-
-
 def get_file_hash(filename):
     sha256 = hashlib.sha256()
     try:
@@ -204,39 +164,6 @@ def get_file_hash(filename):
         print(f"Error: File '{filename}' not found.")
         exit(1)
     return sha256.hexdigest()
-
-
-def _setup_explore_dirs(config_path, output, force, cmd_name):
-    """Shared logic for setting up explore/minimize output directories."""
-    config_path = Path(config_path)
-    if not config_path.exists():
-        raise ValueError(f"Config file does not exist: {config_path}")
-
-    # Allow config to be the project dir (which contains config.yaml)
-    if os.path.isdir(config_path) and os.path.exists(
-        os.path.join(config_path, "config.yaml")
-    ):
-        config_path = Path(config_path, "config.yaml")
-
-    # Sanity check, should have a 'base' directory next to the config
-    if not os.path.isdir(os.path.join(os.path.dirname(config_path), "base")):
-        raise ValueError(
-            f"Config directory does not contain a 'base' directory: {os.path.dirname(config_path)}."
-        )
-
-    if output is None:
-        output = os.path.join(os.path.dirname(config_path), cmd_name)
-
-    if force and os.path.isdir(output):
-        shutil.rmtree(output, ignore_errors=True)
-
-    if os.path.exists(output):
-        raise ValueError(
-            f"Output directory exists: {output}. Run with --force to delete."
-        )
-
-    os.makedirs(output)
-    return config_path, output
 
 
 def _startup_checks(verbose):
@@ -997,143 +924,6 @@ def schema(ctx, section, project_dir, as_json):
 def structure_json_schema():
     from penguin.penguin_config import structure
     return structure.Main.model_json_schema()
-
-
-@cli.command()
-@click.argument("config", type=str)
-@click.option("--niters", type=int, default=100, help="Number of iterations to run. Default is 100.")
-@click.option("--nworkers", type=int, default=4, help="Number of workers to run in parallel. Default is 4")
-@click.option("--timeout", type=int, default=300, help="Number of seconds that automated runs will execute for. Default is 300.")
-@click.option("--output", type=str, default=None, help="The output directory path. Defaults to results/explore.")
-@click.option("--force", is_flag=True, default=False, help="Forcefully delete output directory if it exists.")
-@verbose_option
-@click.pass_context
-def explore(ctx, config, niters, nworkers, timeout, output, force):
-    """
-    Search for alternative configurations to improve system health by walking a configuration graph.
-
-    CONFIG is the path to a config file within a project directory or a project directory that contains a config.yaml.
-    """
-    _startup_checks(ctx.obj['VERBOSE'])
-    config_path, output_dir = _setup_explore_dirs(config, output, force, "explore")
-    logger.info(f"Exploring from {config_path} and saving results to {output_dir}")
-
-    if "/host_" in str(config_path) or "/host_" in output_dir:
-        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories")
-
-    explore_from_config(
-        "explore",
-        dirname(config_path),
-        str(config_path),
-        output_dir,
-        niters,
-        timeout,
-        nworkers=nworkers,
-        verbose=ctx.obj['VERBOSE']
-    )
-
-
-@cli.command()
-@click.argument("config", type=str)
-@click.option("--niters", type=int, default=100, help="Number of iterations to run. Default is 100.")
-@click.option("--nworkers", type=int, default=4, help="Number of workers to run in parallel. Default is 4")
-@click.option("--timeout", type=int, default=300, help="Number of seconds that automated runs will execute for. Default is 300.")
-@click.option("--output", type=str, default=None, help="The output directory path.")
-@click.option("--force", is_flag=True, default=False, help="Forcefully delete output directory if it exists.")
-@click.option("--nmuts", type=int, default=1, help="Number of mutations to try per chromosome per generation. Default is 1.")
-@verbose_option
-@click.pass_context
-def ga_explore(ctx, config, niters, nworkers, timeout, output, force, nmuts):
-    """
-    Search for alternative configurations to improve system health by using a genetic algorithm.
-
-    CONFIG is the path to a config file within a project directory or a project directory that contains a config.yaml.
-    """
-    _startup_checks(ctx.obj['VERBOSE'])
-    config_path, output_dir = _setup_explore_dirs(config, output, force, "ga_explore")
-    logger.info(f"Exploring from {config_path} and saving results to {output_dir}")
-
-    if "/host_" in str(config_path) or "/host_" in output_dir:
-        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories")
-
-    explore_from_config(
-        "ga_explore",
-        dirname(config_path),
-        str(config_path),
-        output_dir,
-        niters,
-        timeout,
-        nworkers=nworkers,
-        verbose=ctx.obj['VERBOSE']
-    )
-
-
-@cli.command()
-@click.argument("config", type=str)
-@click.option("--niters", type=int, default=100, help="Number of iterations to run. Default is 100.")
-@click.option("--nworkers", type=int, default=4, help="Number of workers to run in parallel. Default is 4")
-@click.option("--timeout", type=int, default=300, help="Number of seconds that automated runs will execute for. Default is 300.")
-@click.option("--output", type=str, default=None, help="The output directory path.")
-@click.option("--force", is_flag=True, default=False, help="Forcefully delete output directory if it exists.")
-@verbose_option
-@click.pass_context
-def patch_explore(ctx, config, niters, nworkers, timeout, output, force):
-    """
-    Search for alternative configurations to improve system health by using a patch-based search.
-
-    CONFIG is the path to a config file within a project directory or a project directory that contains a config.yaml.
-    """
-    _startup_checks(ctx.obj['VERBOSE'])
-    config_path, output_dir = _setup_explore_dirs(config, output, force, "patch_explore")
-    logger.info(f"Exploring from {config_path} and saving results to {output_dir}")
-
-    if "/host_" in str(config_path) or "/host_" in output_dir:
-        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories")
-
-    explore_from_config(
-        "patch_explore",
-        dirname(config_path),
-        str(config_path),
-        output_dir,
-        niters,
-        timeout,
-        nworkers=nworkers,
-        verbose=ctx.obj['VERBOSE']
-    )
-
-
-@cli.command()
-@click.argument("config", type=str)
-@click.option("--niters", type=int, default=100, help="Number of iterations to run. Default is 100.")
-@click.option("--nworkers", type=int, default=4, help="Number of workers to run in parallel. Default is 4")
-@click.option("--timeout", type=int, default=300, help="Number of seconds that automated runs will execute for. Default is 300.")
-@click.option("--output", type=str, default=None, help="The output directory path.")
-@click.option("--force", is_flag=True, default=False, help="Forcefully delete output directory if it exists.")
-@verbose_option
-@click.pass_context
-def minimize(ctx, config, niters, nworkers, timeout, output, force):
-    """
-    Search for a minimal set of patches to rehost a system.
-
-    CONFIG is the path to a config file within a project directory or a project directory that contains a config.yaml.
-    """
-    _startup_checks(ctx.obj['VERBOSE'])
-    config_path, output_dir = _setup_explore_dirs(config, output, force, "minimize")
-    logger.info(f"Exploring from {config_path} and saving results to {output_dir}")
-
-    if "/host_" in str(config_path) or "/host_" in output_dir:
-        logger.info("Note messages referencing /host paths reflect automatically-mapped shared directories")
-
-    explore_from_config(
-        "minimize",
-        dirname(config_path),
-        str(config_path),
-        output_dir,
-        niters,
-        timeout,
-        nworkers=nworkers,
-        verbose=ctx.obj['VERBOSE']
-    )
 
 
 @cli.command(context_settings=dict(
