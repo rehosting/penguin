@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to (re)build docs for (default: latest release)
+        description: "Release tag to (re)build docs for (default: latest release)"
         required: false
         default: ""
 
