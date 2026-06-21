@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+  # Manual trigger: cut a release on demand (also useful for verifying the
+  # release pipeline after CI changes). Like a push to main, this bumps the
+  # version and publishes — there is no dry-run.
+  workflow_dispatch:
 
 permissions:
   contents: write
