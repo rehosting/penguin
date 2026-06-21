@@ -16,8 +16,8 @@ import tempfile
 from pathlib import Path
 from subprocess import check_output
 from random import randint
-from penguin.defaults import default_preinit_script
-from penguin.utils import get_arch_dir, get_driver_kmod_path
+from penguin.defaults import default_preinit_script, static_dir
+from penguin.utils import get_arch_dir, get_arch_subdir, get_driver_kmod_path
 import tarfile
 import time
 import io
@@ -116,6 +116,66 @@ def tar_add_min_files(tf_path: str, config: dict) -> None:
         tf.add(driver, arcname="igloo/boot/igloo.ko", filter=lambda ti: (setattr(ti, 'mode', 0o755) or ti))
 
 
+def tar_add_tool_closure(tf_path: str, config: dict) -> None:
+    """
+    Bake the per-arch debugging-tool runtime closure into the base image.
+
+    The closure (pristine nixpkgs glibc python3/strace/gdbserver/ltrace/iptables)
+    is large (~150-300MB, ~8.4k files). It is image-level, content-stable data,
+    so we bake it into the cached base qcow2 once instead of re-shipping it into
+    every guest via live_image on every boot. Its store paths land at
+    /igloo/nix/store/...; the per-tool /igloo/utils/<tool> wrappers (still staged
+    per-run by live_image) bind-mount /igloo/nix onto /nix and exec the in-store
+    binary, so the wrappers work unchanged against the baked store.
+
+    The base qcow2 is cache-keyed by hash_image_inputs, which folds in the
+    closure manifest hash, so a closure change rebuilds the image while configs
+    and explore iterations reuse it. Absent closure (older images / arches
+    without one) is skipped gracefully.
+
+    :param tf_path: Path to the (uncompressed) tar archive to append into.
+    :param config: Configuration dictionary.
+    """
+    closure_dir = os.path.join(static_dir, "closures", get_arch_subdir(config))
+    closure_tar = os.path.join(closure_dir, "closure.tar.gz")
+    if not os.path.isfile(closure_tar):
+        logger.warning(
+            "No tool closure at %s; debugging tools "
+            "(python3/strace/gdbserver/ltrace/iptables) will be unavailable",
+            closure_dir)
+        return
+
+    logger.info("Baking tool closure %s into the base image", closure_tar)
+    with tarfile.open(tf_path, "a") as dst:
+        # Parent dirs the closure store lives under, plus the empty /nix
+        # mountpoint the per-tool wrappers bind /igloo/nix onto.
+        for dname in ("igloo/nix/", "igloo/nix/store/", "nix/"):
+            di = tarfile.TarInfo(name=dname)
+            di.type = tarfile.DIRTYPE
+            di.mode = 0o755
+            di.mtime = int(time.time())
+            di.uname = "root"
+            di.gname = "root"
+            dst.addfile(di)
+
+        with tarfile.open(closure_tar, "r:*") as src:
+            for m in src:
+                # Skip the closure's own bare nix/ and nix/store/ dir entries;
+                # we added them above (avoid duplicate dir entries).
+                if m.name.rstrip("/") in ("nix", "nix/store", "."):
+                    continue
+                # Extract content (by member offset) before re-rooting the name.
+                fileobj = src.extractfile(m) if m.isreg() else None
+                m.name = "igloo/" + m.name
+                # Hardlink targets must be re-rooted too; relative symlink
+                # targets are intra-store and must be left untouched.
+                if m.islnk():
+                    m.linkname = "igloo/" + m.linkname
+                # Preserve the closure's own mode/uid/gid (store paths are
+                # root-owned); do not force perms like the boot binaries.
+                dst.addfile(m, fileobj)
+
+
 def make_image(fs: str, out: str, artifacts: str | None, config: dict) -> None:
     """
     Generate a new disk image from the given filesystem and configuration.
@@ -144,6 +204,9 @@ def make_image(fs: str, out: str, artifacts: str | None, config: dict) -> None:
         check_output(f"pigz -dc '{str(IN_TARBALL)}' > '{uncompressed_tar}'", shell=True)
         # Add files directly to the tar
         tar_add_min_files(uncompressed_tar, config)
+        # Bake the debugging-tool closure into the base image (cached, reused
+        # across configs) so live_image no longer re-ships ~300MB every boot.
+        tar_add_tool_closure(uncompressed_tar, config)
         check_output(f"pigz -c '{uncompressed_tar}' > '{MODIFIED_TARBALL}'", shell=True)
         TARBALL = MODIFIED_TARBALL
         # 1GB of padding. XXX is this a good amount - does it slow things down if it's too much?
