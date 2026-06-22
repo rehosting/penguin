@@ -175,8 +175,8 @@ penguin_run() {
                 echo ""
                 echo "Wrapper-specific flags may be passed in *before* the PENGUIN command. If a value is required, it must be specified immediately after the flag with a space."
                 echo "  --build: Build the PENGUIN container before running the specified command. If no command is specifed, just build and exit"
-                echo "           Requires an explicit --image TAG to name the built image (e.g. --image rehosting/penguin:dev),"
-                echo "           so a local build never shadows the default rehosting/penguin:latest run image."
+                echo "           With no --image, builds and runs the localhost/penguin:dev tag so a local build never"
+                echo "           shadows the default rehosting/penguin:latest run image. Pass --image to choose another tag."
                 echo "  --build-singularity: Build the PENGUIN container and then convert it to singularity. No command will be run"
                 echo "  --pydev: Map local python package and plugin code into container and reinstall before running the specified command."
                 echo "  --subnet: IP subnet to use. For example --subnet 192.168.0.0/24 would produce a network with firmware reachable at 192.168.0.2."
@@ -1004,14 +1004,17 @@ penguin_run() {
     fi
 
     if $build; then
-        # Require an explicit tag so a local build never silently shadows the
-        # default rehosting/penguin:latest run image. (--build-singularity sets
-        # build=true above, so this guards it too.)
-        if ! $image_explicit; then
-            echo "${RED}ERROR:${RESET} --build requires an explicit --image TAG to name the built image" >&2
-            echo "       (e.g. --image rehosting/penguin:dev). This keeps local builds from shadowing" >&2
-            echo "       the default rehosting/penguin:latest run image." >&2
-            exit 1
+        # A local build must never silently shadow the default
+        # rehosting/penguin:latest run image. When no tag was chosen explicitly
+        # (and the resolved image is just the built-in default), build to a
+        # local :dev tag instead of clobbering :latest. The same invocation then
+        # runs that :dev image. (--build-singularity sets build=true above, so
+        # this covers it too.) Override any time with --image / PENGUIN_IMAGE /
+        # .penguin-image.
+        if ! $image_explicit && [ "$image" = "rehosting/penguin:latest" ]; then
+            image="localhost/penguin:dev"
+            echo "No --image given for --build; building and running ${BOLD}$image${RESET} so the local"
+            echo "build doesn't shadow rehosting/penguin:latest. Pass --image to choose another tag."
         fi
         echo "Running with container rebuild (--build). Entire container will be rebuilt."
         cd "$(dirname "$(realpath "$0")")"
