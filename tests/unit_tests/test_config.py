@@ -466,6 +466,65 @@ def test_gen_all_plugin_args_docs(plugin_dir):
 
 
 # --------------------------------------------------------------------------- #
+# PR3: AST <-> imported-model equivalence guard
+#
+# Config load detects declared plugin Args *statically* (AST, no import) while
+# the real type validation happens later against the imported Pydantic model.
+# That split only stays correct as long as the AST parser and the real model
+# agree on which fields exist. These tests pin that invariant so the AST
+# convention can't silently drift from the live model.
+# --------------------------------------------------------------------------- #
+def test_ast_field_set_matches_imported_model(plugin_dir):
+    # For each on-disk fixture, the field names AST extracts must equal the field
+    # names the imported model reports. Covers the representative declaration
+    # shapes: annotated assignment (`names: List[str] = ...`), Field()-assigned,
+    # and a class-body-callback plugin (sproket).
+    for name in ("widget", "sproket"):
+        model = plugin_manager.get_plugin_args_model(name, "/tmp", plugin_dir)
+        ast_fields = plugin_manager.plugin_declared_arg_fields(name, "/tmp", plugin_dir)
+        assert model is not None
+        assert ast_fields == set(model.model_fields), name
+    # Non-declaring / missing plugins: AST agrees there is no schema.
+    assert plugin_manager.plugin_declared_arg_fields("gadget", "/tmp", plugin_dir) is None
+    assert plugin_manager.plugin_declared_arg_fields("nope", "/tmp", plugin_dir) is None
+
+
+def _shipped_pyplugins_dir():
+    # tests/unit_tests/test_config.py -> repo root -> pyplugins/
+    d = Path(__file__).resolve().parents[2] / "pyplugins"
+    return str(d) if d.is_dir() else None
+
+
+def test_shipped_plugins_ast_matches_model():
+    """Guard against AST drift on the *real* shipped pyplugins.
+
+    For every declaring plugin we can actually import in this environment,
+    the statically-parsed field set must equal the imported model's fields.
+    Coverage depends on what imports here: full in-container (pandare + the
+    live runtime resolve every declaring plugin), partial on a bare host. The
+    test skips entirely when nothing imports so it never silently empty-passes.
+    """
+    pyplugins = _shipped_pyplugins_dir()
+    if pyplugins is None:
+        pytest.skip("shipped pyplugins/ directory not found")
+    plugin_manager._import_plugin_classes.cache_clear()
+    found, _skipped = plugin_manager.discover_declaring_plugins(pyplugins)
+    if not found:
+        pytest.skip("no shipped declaring plugins importable in this environment")
+    mismatches = []
+    for name, model in found:
+        ast_fields = plugin_manager.plugin_declared_arg_fields(name, ".", pyplugins)
+        expected = set(model.model_fields)
+        if ast_fields != expected:
+            mismatches.append((name, expected, ast_fields))
+    assert not mismatches, (
+        "AST-detected plugin Args drifted from the imported model "
+        "(name, model_fields, ast_fields):\n" +
+        "\n".join(f"  {n}: model={e} ast={a}" for n, e, a in mismatches)
+    )
+
+
+# --------------------------------------------------------------------------- #
 # PR4: Jinja2 templating
 # --------------------------------------------------------------------------- #
 def test_substitute_arch_and_core_fields():
