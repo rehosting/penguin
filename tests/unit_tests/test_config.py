@@ -97,6 +97,41 @@ CLASSBODY_PLUGIN = """
 """
 
 
+# Reads live runtime state (like hyper.consts -> plugins.kffi.get_enum_dict) at
+# import time: imports with the no-op stub (len 0) but succeeds with a real
+# manager bound.
+RUNTIME_PLUGIN = """
+    from penguin import plugins, Plugin, PluginArgs
+    from pydantic import Field
+
+    _enum = plugins.kffi.get_enum_dict("HYPER_OP")
+    assert len(_enum) > 0, "needs a live manager"
+
+    class Runtime(Plugin):
+        class Args(PluginArgs):
+            level: int = Field(default=1)
+
+        def __init__(self):
+            pass
+"""
+
+
+# A plain sibling module + a plugin that imports it at top level, to prove
+# introspection doesn't leak imported sibling modules into sys.modules.
+SIDECAR_MODULE = "LEAKED = True\n"
+IMPORTING_PLUGIN = """
+    import sidecar_mod  # noqa: F401
+    from penguin import Plugin, PluginArgs
+
+    class Importer(Plugin):
+        class Args(PluginArgs):
+            n: int = 0
+
+        def __init__(self):
+            pass
+"""
+
+
 @pytest.fixture
 def plugin_dir():
     with tempfile.TemporaryDirectory() as d:
@@ -266,8 +301,11 @@ def test_preinit_legacy_passthrough_no_defaults():
 
 
 def test_preinit_rejects_bad_type():
+    # __preinit__ now formats the error and exits (friendly message) rather than
+    # letting the raw ValidationError propagate — this is where arg types are
+    # validated now that config load no longer imports plugins.
     p = _DeclaringPlugin.__new__(_DeclaringPlugin)
-    with pytest.raises(ValidationError):
+    with pytest.raises(SystemExit):
         p.__preinit__(_FakeMgr(), {"count": "not-an-int"})
 
 
@@ -314,6 +352,18 @@ def test_promote_first_class_plugin(plugin_dir):
     assert raw["plugins"]["widget"] == {"names": ["x"]}
 
 
+def test_promote_first_class_plugin_warns_deprecated(plugin_dir, monkeypatch):
+    # First-class promotion still works for BC but must warn that it's deprecated.
+    warnings = []
+    monkeypatch.setattr(pc.logger, "warning",
+                        lambda msg, *a, **k: warnings.append((msg % a) if a else msg))
+    raw = base_config()
+    raw["widget"] = {"names": ["x"]}
+    pc._promote_first_class_plugins(raw, "/tmp", plugin_dir)
+    assert raw["plugins"]["widget"] == {"names": ["x"]}  # still promoted
+    assert any("deprecated" in w.lower() for w in warnings)
+
+
 def test_unknown_top_level_key_is_left_for_schema(plugin_dir):
     raw = base_config()
     raw["totally_unknown"] = {"x": 1}
@@ -335,10 +385,11 @@ def test_validate_plugin_args_good(plugin_dir):
     pc._validate_plugin_args(cfg, "/tmp", plugin_dir)
 
 
-def test_validate_plugin_args_bad_type_exits(plugin_dir):
+def test_validate_plugin_args_defers_type_check_to_load(plugin_dir):
+    # config load only catches unknown keys (statically, no import); a known key
+    # with a bad *type* is not rejected here — that happens at __preinit__.
     cfg = base_config(plugins={"widget": {"count": "nope"}})
-    with pytest.raises(SystemExit):
-        pc._validate_plugin_args(cfg, "/tmp", plugin_dir)
+    pc._validate_plugin_args(cfg, "/tmp", plugin_dir)  # must not exit
 
 
 def test_validate_plugin_args_unknown_key_exits(plugin_dir):
@@ -356,6 +407,121 @@ def test_gen_plugin_args_docs(plugin_dir):
     model = plugin_manager.get_plugin_args_model("widget", "/tmp", plugin_dir)
     md = gen_docs.gen_plugin_args_docs("widget", model)
     assert "`names`" in md and "`count`" in md and "`quiet`" in md
+
+
+def test_discover_declaring_plugins(plugin_dir):
+    # Declaring plugins are collected (sorted); the legacy plugin (gadget) is not.
+    found, skipped = plugin_manager.discover_declaring_plugins(plugin_dir)
+    names = [n for n, _ in found]
+    assert "widget" in names
+    assert "gadget" not in names
+
+
+def test_config_load_does_not_import_plugins(plugin_dir):
+    # Config load must not *execute* plugin code (it runs in the same process as
+    # the real run). `importer` declares Args and does `import sidecar_mod` at
+    # module scope; if config load imported it, sidecar_mod would appear in
+    # sys.modules. Both promotion and arg-validation use AST instead.
+    import sys
+    write_plugin(plugin_dir, "sidecar_mod.py", SIDECAR_MODULE)
+    write_plugin(plugin_dir, "importer.py", IMPORTING_PLUGIN)
+    sys.modules.pop("sidecar_mod", None)
+
+    raw = base_config()
+    raw["importer"] = {"n": 1}
+    pc._promote_first_class_plugins(raw, "/tmp", plugin_dir)
+    assert raw["plugins"]["importer"] == {"n": 1}      # promoted via AST
+    pc._validate_plugin_args(raw, "/tmp", plugin_dir)  # AST unknown-key check
+
+    assert "sidecar_mod" not in sys.modules            # plugin was never executed
+
+
+def test_discover_live_manager_recovers_runtime_plugin(plugin_dir):
+    # A plugin that reads runtime state at import time is skipped under the
+    # no-op stub but recovered when the live `plugins` manager is injected.
+    write_plugin(plugin_dir, "runtime.py", RUNTIME_PLUGIN)
+    plugin_manager._import_plugin_classes.cache_clear()
+
+    found, skipped = plugin_manager.discover_declaring_plugins(plugin_dir)
+    assert "runtime" not in [n for n, _ in found]
+    assert any("runtime.py" in s for s in skipped)
+
+    class _FakeKffi:
+        def get_enum_dict(self, name):
+            return {"A": 0, "B": 1}
+
+    class _FakeManager:
+        kffi = _FakeKffi()
+
+    found, skipped = plugin_manager.discover_declaring_plugins(
+        plugin_dir, manager=_FakeManager())
+    assert "runtime" in [n for n, _ in found]
+
+
+def test_gen_all_plugin_args_docs(plugin_dir):
+    md = gen_docs.gen_all_plugin_args_docs(plugin_dir)
+    assert "# Plugin arguments" in md
+    assert "# Plugin `widget` arguments" in md
+    assert "`names`" in md and "`count`" in md
+
+
+# --------------------------------------------------------------------------- #
+# PR3: AST <-> imported-model equivalence guard
+#
+# Config load detects declared plugin Args *statically* (AST, no import) while
+# the real type validation happens later against the imported Pydantic model.
+# That split only stays correct as long as the AST parser and the real model
+# agree on which fields exist. These tests pin that invariant so the AST
+# convention can't silently drift from the live model.
+# --------------------------------------------------------------------------- #
+def test_ast_field_set_matches_imported_model(plugin_dir):
+    # For each on-disk fixture, the field names AST extracts must equal the field
+    # names the imported model reports. Covers the representative declaration
+    # shapes: annotated assignment (`names: List[str] = ...`), Field()-assigned,
+    # and a class-body-callback plugin (sproket).
+    for name in ("widget", "sproket"):
+        model = plugin_manager.get_plugin_args_model(name, "/tmp", plugin_dir)
+        ast_fields = plugin_manager.plugin_declared_arg_fields(name, "/tmp", plugin_dir)
+        assert model is not None
+        assert ast_fields == set(model.model_fields), name
+    # Non-declaring / missing plugins: AST agrees there is no schema.
+    assert plugin_manager.plugin_declared_arg_fields("gadget", "/tmp", plugin_dir) is None
+    assert plugin_manager.plugin_declared_arg_fields("nope", "/tmp", plugin_dir) is None
+
+
+def _shipped_pyplugins_dir():
+    # tests/unit_tests/test_config.py -> repo root -> pyplugins/
+    d = Path(__file__).resolve().parents[2] / "pyplugins"
+    return str(d) if d.is_dir() else None
+
+
+def test_shipped_plugins_ast_matches_model():
+    """Guard against AST drift on the *real* shipped pyplugins.
+
+    For every declaring plugin we can actually import in this environment,
+    the statically-parsed field set must equal the imported model's fields.
+    Coverage depends on what imports here: full in-container (pandare + the
+    live runtime resolve every declaring plugin), partial on a bare host. The
+    test skips entirely when nothing imports so it never silently empty-passes.
+    """
+    pyplugins = _shipped_pyplugins_dir()
+    if pyplugins is None:
+        pytest.skip("shipped pyplugins/ directory not found")
+    plugin_manager._import_plugin_classes.cache_clear()
+    found, _skipped = plugin_manager.discover_declaring_plugins(pyplugins)
+    if not found:
+        pytest.skip("no shipped declaring plugins importable in this environment")
+    mismatches = []
+    for name, model in found:
+        ast_fields = plugin_manager.plugin_declared_arg_fields(name, ".", pyplugins)
+        expected = set(model.model_fields)
+        if ast_fields != expected:
+            mismatches.append((name, expected, ast_fields))
+    assert not mismatches, (
+        "AST-detected plugin Args drifted from the imported model "
+        "(name, model_fields, ast_fields):\n" +
+        "\n".join(f"  {n}: model={e} ast={a}" for n, e, a in mismatches)
+    )
 
 
 # --------------------------------------------------------------------------- #

@@ -34,8 +34,11 @@ The plugin manager provides a flexible, extensible, and event-driven system for 
 Penguin emulation environment, enabling modular analysis, automation, and extension of the emulation workflow.
 """
 
+import ast
 import os
+import sys
 from os.path import join, isfile, basename, splitext, isdir
+from contextlib import contextmanager
 from penguin import getColoredLogger
 import shutil
 from typing import List, Dict, Union, Callable, Tuple, Optional, Any, Type, TypeVar, Iterator
@@ -46,7 +49,7 @@ import inspect
 import datetime
 import functools
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 # Forward reference for type annotations
 T = TypeVar('T', bound='Plugin')
@@ -194,9 +197,22 @@ class Plugin:
         if cls.declares_args():
             args_model = cls.__dict__["Args"]
             # Only feed declared fields to the (extra="forbid") model; global
-            # args like outdir/conf/proj_dir must not reach it.
+            # args like outdir/conf/proj_dir must not reach it. (Unknown user-
+            # supplied keys are caught earlier, at config load, via the static
+            # AST check; here we just validate types/values of declared args.)
             declared = {k: v for k, v in args.items() if k in args_model.model_fields}
-            validated = args_model(**declared)
+            try:
+                validated = args_model(**declared)
+            except ValidationError as e:
+                from penguin.penguin_config.errors import format_validation_error
+                self.logger = getColoredLogger(f"plugins.{camel_to_snake(self.name)}")
+                self.logger.error(
+                    "\n" + format_validation_error(
+                        e, root_model=args_model,
+                        header=f"Invalid arguments for plugin '{self.name}':",
+                    )
+                )
+                sys.exit(1)
             merged = dict(args)
             merged.update(validated.model_dump())  # fill in declared defaults
             self.args = ArgsBox(merged)
@@ -533,18 +549,50 @@ class _IntrospectionStub:
     def __getitem__(self, _):
         return self
 
+    # Behave as an empty container too, so class-body code that does
+    # ``len(plugins.x)``, ``for y in plugins.x``, ``if plugins.x`` etc. against
+    # the stub gets harmless no-op results instead of a TypeError.
+    def __len__(self):
+        return 0
 
-@functools.lru_cache(maxsize=None)
-def _import_plugin_classes(path: str) -> Tuple[Tuple[str, type], ...]:
+    def __iter__(self):
+        return iter(())
+
+    def __bool__(self):
+        return False
+
+    def __contains__(self, _):
+        return False
+
+
+@contextmanager
+def _plugin_root_on_path(plugin_path: str):
     """
-    Import a plugin module and return its ``Plugin`` subclasses WITHOUT
-    instantiating them. Used for argument-schema/docs introspection.
+    Temporarily put ``plugin_path`` on ``sys.path`` so that introspection imports
+    of plugins that reference sibling packages (``import hyper``, ``from apis
+    import ...``) resolve the same way they do at runtime. Restores ``sys.path``
+    on exit. A no-op if the path is missing or already present.
+    """
+    root = os.path.realpath(plugin_path) if plugin_path else None
+    added = bool(root and isdir(root) and root not in sys.path)
+    if added:
+        sys.path.insert(0, root)
+    try:
+        yield
+    finally:
+        if added:
+            try:
+                sys.path.remove(root)
+            except ValueError:
+                pass
 
-    Imports the module under a distinct name (so it never clashes with the
-    runtime ``load_all`` import) and neutralizes the ``plugins`` singleton with a
-    no-op stub for the duration of the import, so plugins that wire callbacks in
-    their class/module body still import cleanly. Cached by real path. Raises on
-    import failure; callers decide how to handle that.
+
+def _exec_plugin_module(path, singleton, panda):
+    """
+    Import a plugin module under a throwaway name with ``singleton`` bound as the
+    ``plugins`` object (both as a module global and as ``penguin.plugins``, so
+    ``from penguin import plugins`` resolves to it) and return its ``Plugin``
+    subclasses WITHOUT instantiating them. Raises on import failure.
     """
     import penguin  # lazy to avoid an import cycle
 
@@ -553,15 +601,14 @@ def _import_plugin_classes(path: str) -> Tuple[Tuple[str, type], ...]:
     if spec is None:
         raise ValueError(f"Unable to load {path}")
     module = importlib.util.module_from_spec(spec)
-    stub = _IntrospectionStub()
     module.__dict__.update({
-        "plugins": stub,
+        "plugins": singleton,
         "logger": getColoredLogger("plugins.introspect"),
-        "panda": None,
+        "panda": panda,
         "args": ArgsBox({}),
     })
     saved = getattr(penguin, "plugins", None)
-    penguin.plugins = stub  # so `from penguin import plugins` binds the stub
+    penguin.plugins = singleton
     try:
         spec.loader.exec_module(module)
     finally:
@@ -571,6 +618,74 @@ def _import_plugin_classes(path: str) -> Tuple[Tuple[str, type], ...]:
         if issubclass(cls, Plugin) and cls is not Plugin and cls is not ScriptingPlugin:
             out.append((name, cls))
     return tuple(out)
+
+
+@functools.lru_cache(maxsize=None)
+def _import_plugin_classes(path: str) -> Tuple[Tuple[str, type], ...]:
+    """
+    Import a plugin module for introspection with the ``plugins`` singleton
+    neutralized by a no-op stub, so plugins that wire callbacks in their
+    class/module body still import cleanly without a live emulator/manager.
+
+    Cached by real path. This is the standalone path (CLI ``penguin schema``,
+    config-load first-class detection); plugins whose import needs real runtime
+    state (e.g. ``hyper.consts`` calling ``plugins.kffi.get_enum_dict``) will
+    raise here. Inside a live run, use :func:`_import_plugin_classes_live`.
+    """
+    return _exec_plugin_module(path, _IntrospectionStub(), None)
+
+
+def _import_plugin_classes_live(path, manager, panda):
+    """
+    Like :func:`_import_plugin_classes` but binds the real ``manager`` and
+    ``panda`` during import, so plugins that read live runtime state at import
+    time (kernel-FFI enums, etc.) resolve. Not cached (manager/panda are
+    process state). Used by introspection that runs inside a real penguin
+    process, e.g. the docgen plugin.
+    """
+    return _exec_plugin_module(path, manager, panda)
+
+
+def plugin_declared_arg_fields(name: str, proj_dir: str,
+                               plugin_path: str) -> Optional[set]:
+    """
+    Statically determine whether plugin ``name`` declares an ``Args`` schema, and
+    if so the set of field names it declares — **without importing the module**.
+
+    Parses the plugin file with ``ast`` and looks for a nested
+    ``class Args(PluginArgs)``. Returns the declared field names (possibly empty)
+    if found, else ``None``. Because it never executes plugin code, it is safe to
+    call during config load in the run's own process (unlike importing, which
+    drags in sibling/third-party modules — see ``_exec_plugin_module``).
+    """
+    try:
+        path, _ = find_plugin_by_name(name, proj_dir, plugin_path)
+    except ValueError:
+        return None
+    try:
+        with open(path, "r") as f:
+            tree = ast.parse(f.read(), filename=path)
+    except (OSError, SyntaxError):
+        return None
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.ClassDef) and node.name == "Args"):
+            continue
+        declares = any(
+            (isinstance(b, ast.Name) and b.id == "PluginArgs")
+            or (isinstance(b, ast.Attribute) and b.attr == "PluginArgs")
+            for b in node.bases
+        )
+        if not declares:
+            continue
+        fields = set()
+        for stmt in node.body:
+            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                fields.add(stmt.target.id)
+            elif isinstance(stmt, ast.Assign):
+                fields.update(t.id for t in stmt.targets if isinstance(t, ast.Name))
+        # model_config / dunders are pydantic machinery, not user-facing fields.
+        return {f for f in fields if f != "model_config" and not f.startswith("_")}
+    return None
 
 
 def get_plugin_class(name: str, proj_dir: str, plugin_path: str) -> Optional[type]:
@@ -584,7 +699,8 @@ def get_plugin_class(name: str, proj_dir: str, plugin_path: str) -> Optional[typ
     except ValueError:
         return None
     try:
-        classes = _import_plugin_classes(path)
+        with _plugin_root_on_path(plugin_path):
+            classes = _import_plugin_classes(path)
     except Exception:
         return None
     # Prefer a class whose name matches the requested plugin; else the first.
@@ -603,6 +719,54 @@ def get_plugin_args_model(name: str, proj_dir: str, plugin_path: str) -> Optiona
     if cls is not None and cls.declares_args():
         return cls.__dict__["Args"]
     return None
+
+
+def discover_declaring_plugins(plugin_path: str, manager=None, panda=None
+                               ) -> Tuple[List[Tuple[str, Type[PluginArgs]]], List[str]]:
+    """
+    Walk ``plugin_path`` and return every plugin that declares an ``Args`` schema.
+
+    :param manager: If given (the live ``plugins`` singleton from inside a real
+        penguin process), imports run with the real runtime bound instead of the
+        no-op stub, so plugins that read runtime state at import time (kernel-FFI
+        enums via ``plugins.kffi``, etc.) resolve and aren't skipped. Pass it
+        from the docgen plugin for full coverage; omit it for best-effort
+        standalone enumeration.
+    :param panda: The live emulator/panda object to bind alongside ``manager``.
+
+    :return: ``(found, skipped)`` where ``found`` is a sorted list of
+        ``(config_name, args_model)`` (``config_name`` is the file stem users put
+        in ``plugins:``) and ``skipped`` is a sorted list of files that could not
+        be imported. With ``manager`` unset, many runtime-dependent plugins land
+        in ``skipped``.
+    """
+    found: List[Tuple[str, Type[PluginArgs]]] = []
+    skipped: List[str] = []
+    with _plugin_root_on_path(plugin_path):
+        for path in sorted(glob.glob(join(plugin_path, "**", "*.py"), recursive=True)):
+            if "__pycache__" in path or basename(path).startswith("_"):
+                continue
+            try:
+                if manager is not None:
+                    classes = _import_plugin_classes_live(path, manager, panda)
+                else:
+                    classes = _import_plugin_classes(path)
+            except Exception:
+                skipped.append(path)
+                continue
+            stem = splitext(basename(path))[0]
+            for _cname, cls in classes:
+                if cls.declares_args():
+                    found.append((stem, cls.__dict__["Args"]))
+    # De-dup by config name (first wins) and sort for stable output.
+    seen = set()
+    deduped = []
+    for name, model in sorted(found, key=lambda x: x[0]):
+        if name in seen:
+            continue
+        seen.add(name)
+        deduped.append((name, model))
+    return deduped, sorted(skipped)
 
 
 class IGLOOPluginManager:

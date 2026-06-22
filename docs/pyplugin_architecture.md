@@ -59,8 +59,19 @@ adds three things:
    types, etc. produce a clear, located error before the run starts.
 2. **Defaults** — declared defaults are applied automatically, so `get_arg`
    returns the default instead of `None` when an arg is omitted.
-3. **Schema & docs** — `penguin schema <plugin>` renders the declared arguments,
-   and the plugin becomes eligible for the first-class top-level syntax (below).
+3. **Schema & docs** — `penguin schema <plugin>` renders the declared arguments
+   (types, defaults, descriptions), so users can discover what a plugin accepts
+   without reading its source. Every declaring plugin is also collected into the
+   generated [Plugin arguments reference](plugin_args.md).
+
+Configure a plugin's arguments under the top-level `plugins:` section, keyed by
+the plugin's name:
+
+```yaml
+plugins:
+  kmods:
+    allowlist: [wireguard]
+```
 
 ```python
 from typing import List
@@ -79,18 +90,15 @@ class Kmods(Plugin):
         self.quiet = self.get_arg_bool("quiet")
 ```
 
-## First-class plugin syntax
+## First-class plugin syntax (deprecated)
 
-A plugin that declares an `Args` schema can be configured at the **top level** of
-the config, not just under `plugins:`. These two forms are equivalent:
-
-```yaml
-plugins:
-  kmods:
-    allowlist: [wireguard]
-```
+> **Deprecated.** A plugin that declares an `Args` schema may also be configured
+> at the **top level** of the config (e.g. `kmods:` at the root instead of under
+> `plugins:`). This still works but **logs a warning at load time and may be
+> removed in a future release** — prefer the `plugins:` form above.
 
 ```yaml
+# Deprecated — equivalent to the plugins: form above, but warns.
 kmods:
   allowlist: [wireguard]
 ```
@@ -98,6 +106,12 @@ kmods:
 The top-level form is only honored for plugins that declare `Args`; any other
 unknown top-level key is still rejected as a typo. Configuring the same plugin
 both at the top level and under `plugins:` is an error.
+
+Why it's deprecated: it makes the set of valid top-level keys depend on which
+plugins declare `Args`, so a reader can't tell at a glance whether a top-level
+key is a core config section, a plugin, or a typo — and a plugin name could one
+day shadow (or be shadowed by) a reserved section. Keeping plugin args under
+`plugins:` keeps that boundary explicit.
 
 ## Meta-variable templating
 

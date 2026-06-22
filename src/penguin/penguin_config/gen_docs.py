@@ -57,10 +57,12 @@ def gen_docs_type_name(t):
         return " or ".join(map(gen_docs_type_name, args))
     elif og is Literal:
         return " or ".join([gen_docs_literal_arg(a) for a in args])
-    elif og in (list, tuple):
-        return "list of " + gen_docs_type_name(args[0])
-    elif og is dict:
-        return f"mapping from {gen_docs_type_name(args[0])} to {gen_docs_type_name(args[1])}"
+    elif og in (list, tuple) or t in (list, tuple):
+        return "list of " + gen_docs_type_name(args[0]) if args else "list"
+    elif og is dict or t is dict:
+        if len(args) >= 2:
+            return f"mapping from {gen_docs_type_name(args[0])} to {gen_docs_type_name(args[1])}"
+        return "mapping"
     elif t is Any:
         return "any"
     elif t is int:
@@ -357,12 +359,14 @@ def resolve_section(dotted):
     return type_
 
 
-def gen_plugin_args_docs(name, args_model):
+def gen_plugin_args_docs(name, args_model, deprecation_note=True):
     """
     Render a plugin's declared ``Args`` model as a markdown section.
 
     ``args_model`` is a ``PluginArgs`` subclass; we render one row per field with
-    its type, default, required-ness, and description.
+    its type, default, required-ness, and description. Set ``deprecation_note``
+    to False to omit the per-plugin first-class-syntax note (the aggregate
+    reference states it once instead).
     """
     out = [f"# Plugin `{name}` arguments", ""]
     fields = args_model.model_fields
@@ -374,20 +378,71 @@ def gen_plugin_args_docs(name, args_model):
     for fname, info in fields.items():
         try:
             type_name = gen_docs_type_name(info.annotation)
-        except ValueError:
+        except Exception:
             type_name = getattr(info.annotation, "__name__", str(info.annotation))
         required = info.is_required()
         default = "" if required else "`" + gen_docs_yaml_dump(info.default) + "`"
         desc = info.description or ""
         out.append(f"|`{fname}`|{type_name}|{default}|{'yes' if required else ''}|{desc}|")
     out.append("")
-    out.append("Use either form:")
+    out.append("Configure under `plugins:`:")
     out.append("```yaml")
     out.append(f"plugins:\n  {name}:\n    # args...")
     out.append("```")
-    out.append("```yaml")
-    out.append(f"{name}:\n  # args...   (first-class top-level form)")
-    out.append("```")
+    if deprecation_note:
+        out.append("")
+        out.append(
+            f"> The first-class top-level form (`{name}:` at the config root) is "
+            "**deprecated**: it still loads but logs a warning and may be removed."
+        )
+    return "\n".join(out) + "\n"
+
+
+def gen_all_plugin_args_docs(plugin_path=None, manager=None, panda=None):
+    """
+    Render a single markdown reference for every plugin that declares an ``Args``
+    schema under ``plugin_path`` (default: the schema's ``core.plugin_path``).
+
+    Completeness depends on the runtime: many plugins only import with a live
+    ``plugins`` manager bound (e.g. kernel-FFI enums). Pass ``manager``/``panda``
+    (the live singletons, as the docgen plugin does) for full coverage; without
+    them this is best-effort and runtime-dependent plugins are skipped.
+    """
+    from penguin.plugin_manager import discover_declaring_plugins
+
+    if plugin_path is None:
+        plugin_path = structure.Core.model_fields["plugin_path"].default
+
+    found, skipped = discover_declaring_plugins(plugin_path, manager=manager, panda=panda)
+
+    out = [
+        "# Plugin arguments",
+        "",
+        "Plugins that declare an `Args` schema validate their arguments and "
+        "document them here. Configure them under the top-level `plugins:` "
+        "section, keyed by the plugin name. This page is generated from the "
+        "plugins' declared `Args`; run `penguin schema <plugin>` for the same "
+        "information at the CLI.",
+        "",
+        "> The first-class top-level form (writing `<plugin>:` at the config "
+        "root instead of under `plugins:`) is **deprecated**: it still loads "
+        "but logs a warning and may be removed.",
+        "",
+    ]
+    if not found:
+        out.append("_No plugins declaring an `Args` schema were discovered "
+                   f"under `{plugin_path}`._")
+        return "\n".join(out) + "\n"
+
+    out.append("**Plugins:** " + ", ".join(f"[`{n}`](#plugin-{n}-arguments)"
+                                           for n, _ in found))
+    out.append("")
+    for name, model in found:
+        out.append(gen_plugin_args_docs(name, model, deprecation_note=False))
+    if skipped:
+        out.append("")
+        out.append(f"<!-- {len(skipped)} plugin file(s) could not be imported "
+                   "for introspection and were skipped. -->")
     return "\n".join(out) + "\n"
 
 
@@ -414,7 +469,17 @@ def main():
         help="Write generated config docs to stdout",
     ).set_defaults(func=lambda: print(gen_docs()))
 
-    p.parse_args().func()
+    pa = sp.add_parser(
+        "plugin-docs",
+        help="Write generated plugin-arguments docs to stdout "
+             "(run inside the penguin container for full coverage)",
+    )
+    pa.add_argument("--plugin-path", default=None,
+                    help="Plugin search path (default: core.plugin_path)")
+    pa.set_defaults(func=lambda: print(gen_all_plugin_args_docs(args.plugin_path)))
+
+    args = p.parse_args()
+    args.func()
 
 
 if __name__ == "__main__":
