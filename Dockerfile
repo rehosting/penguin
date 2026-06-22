@@ -1,6 +1,12 @@
 # versions of the various dependencies.
 ARG REGISTRY="docker.io"
 ARG BASE_IMAGE="${REGISTRY}/ubuntu:22.04"
+# NOTE: console/busybox/vpnguin/guesthopper/libnvram are no longer downloaded
+# per-tool at build time -- penguin-tools (below) cross-builds them for every
+# guest arch and ships them in penguin-tools.tar.gz. These ARGs are retained as
+# provenance for the versions penguin-tools bundles; a developer can still
+# override any single tool by dropping its tarball in local_packages/ (the
+# local_packages stage below applies after penguin-tools, so it wins).
 ARG VPN_VERSION="1.0.25"
 ARG BUSYBOX_VERSION="0.0.16"
 ARG LINUX_VERSION="3.5.33-beta"
@@ -9,7 +15,7 @@ ARG LIBNVRAM_VERSION="0.0.26"
 ARG CONSOLE_VERSION="1.0.7"
 ARG GUESTHOPPER_VERSION="1.0.21"
 ARG HYPERFS_VERSION="0.0.44"
-ARG PENGUIN_TOOLS_VERSION="0.0.11"
+ARG PENGUIN_TOOLS_VERSION="0.0.14"
 ARG GLOW_VERSION="1.5.1"
 ARG GUM_VERSION="0.14.5"
 ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
@@ -121,23 +127,10 @@ ARG LINUX_VERSION
 RUN /get_release.sh rehosting linux_builder ${LINUX_VERSION} kernels-latest.tar.gz | \
     tar xzf - -C /igloo_static
 
-# Populate /igloo_static/utils.bin/utils/busybox.*
-ARG BUSYBOX_VERSION
-RUN /get_release.sh rehosting busybox ${BUSYBOX_VERSION} busybox-latest.tar.gz | \
-    tar xzf - -C /igloo_static/ && \
-    mv /igloo_static/build/* /igloo_static/
-
-# Get panda provided console from CI. Populate /igloo_static/console
-ARG CONSOLE_VERSION
-RUN /get_release.sh rehosting console ${CONSOLE_VERSION} console.tar.gz | \
-    tar xzf - -C /igloo_static
-
-
-# Download libnvram. Populate /igloo_static/libnvram.
-ARG LIBNVRAM_VERSION
-RUN wget -qO- https://github.com/rehosting/libnvram/archive/refs/tags/v${LIBNVRAM_VERSION}.tar.gz | \
-    tar xzf - -C /igloo_static && \
-    mv /igloo_static/libnvram-${LIBNVRAM_VERSION} /igloo_static/libnvram
+# busybox (igloo_static/<arch>/busybox), console (igloo_static/<arch>/console)
+# and the libnvram source tree (igloo_static/libnvram/*.{c,h}) now come from
+# penguin-tools.tar.gz (downloaded below), which cross-builds them for every
+# guest arch. The standalone per-tool downloads they replaced are gone.
 
 # Build musl headers for each arch
 ARG MUSL_VERSION
@@ -152,20 +145,14 @@ RUN wget -qO- https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz | \
     done && \
     rm -rf musl-*
 
-# Download VPN from CI pushed to panda.re. Populate /igloo_static/vpn
-ARG VPN_VERSION
-RUN /get_release.sh rehosting vpnguin ${VPN_VERSION} vpn.tar.gz | \
-    tar xzf - -C /igloo_static
-
+# vpnguin (guest igloo_static/<arch>/vpn + host-side igloo_static/vpn/vpn.<arch>)
+# and guesthopper (igloo_static/guesthopper/guesthopper.<arch> + guest_cmd.py)
+# now come from penguin-tools.tar.gz (downloaded below).
+#
 # hyperfs is retired: the hyperfs utility moved into the kernel, and the guest
 # dylibs + tools it used to provide now come from penguin-tools (downloaded
 # below). /igloo_static/dylibs and the drop-in sysroots are sourced from
 # penguin-tools' canonical per-arch trees.
-
-# Download guesthopper from CI. Populate /igloo_static/guesthopper
-ARG GUESTHOPPER_VERSION
-RUN /get_release.sh rehosting guesthopper ${GUESTHOPPER_VERSION} guesthopper.tar.gz | \
-    tar xzf - -C /igloo_static
 
 # Download igloo_driver. Should fill in to kernel directories
 ARG IGLOO_DRIVER_VERSION
@@ -664,11 +651,11 @@ RUN  cd /igloo_static &&  \
         mkdir -p /igloo_static/vpn /igloo_static/console; \
         for file in /igloo_static/"$arch"/* ; do \
             if [ $(basename "$file") = *"vpn"* ]; then \
-                ln -s "$file" /igloo_static/vpn/vpn."$arch"; \
+                ln -sf "$file" /igloo_static/vpn/vpn."$arch"; \
             elif [ $(basename "$file") = *"console"* ]; then \
-                ln -s "$file" /igloo_static/console/console."$arch"; \
+                ln -sf "$file" /igloo_static/console/console."$arch"; \
             else \
-                ln -s "$file" /igloo_static/utils.bin/"$(basename "$file")"."$arch"; \
+                ln -sf "$file" /igloo_static/utils.bin/"$(basename "$file")"."$arch"; \
             fi; \
         done \
     done
