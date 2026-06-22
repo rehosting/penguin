@@ -34,6 +34,7 @@ The plugin manager provides a flexible, extensible, and event-driven system for 
 Penguin emulation environment, enabling modular analysis, automation, and extension of the emulation workflow.
 """
 
+import ast
 import os
 import sys
 from os.path import join, isfile, basename, splitext, isdir
@@ -48,7 +49,7 @@ import inspect
 import datetime
 import functools
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 # Forward reference for type annotations
 T = TypeVar('T', bound='Plugin')
@@ -196,9 +197,22 @@ class Plugin:
         if cls.declares_args():
             args_model = cls.__dict__["Args"]
             # Only feed declared fields to the (extra="forbid") model; global
-            # args like outdir/conf/proj_dir must not reach it.
+            # args like outdir/conf/proj_dir must not reach it. (Unknown user-
+            # supplied keys are caught earlier, at config load, via the static
+            # AST check; here we just validate types/values of declared args.)
             declared = {k: v for k, v in args.items() if k in args_model.model_fields}
-            validated = args_model(**declared)
+            try:
+                validated = args_model(**declared)
+            except ValidationError as e:
+                from penguin.penguin_config.errors import format_validation_error
+                self.logger = getColoredLogger(f"plugins.{camel_to_snake(self.name)}")
+                self.logger.error(
+                    "\n" + format_validation_error(
+                        e, root_model=args_model,
+                        header=f"Invalid arguments for plugin '{self.name}':",
+                    )
+                )
+                sys.exit(1)
             merged = dict(args)
             merged.update(validated.model_dump())  # fill in declared defaults
             self.args = ArgsBox(merged)
@@ -630,6 +644,48 @@ def _import_plugin_classes_live(path, manager, panda):
     process, e.g. the docgen plugin.
     """
     return _exec_plugin_module(path, manager, panda)
+
+
+def plugin_declared_arg_fields(name: str, proj_dir: str,
+                               plugin_path: str) -> Optional[set]:
+    """
+    Statically determine whether plugin ``name`` declares an ``Args`` schema, and
+    if so the set of field names it declares — **without importing the module**.
+
+    Parses the plugin file with ``ast`` and looks for a nested
+    ``class Args(PluginArgs)``. Returns the declared field names (possibly empty)
+    if found, else ``None``. Because it never executes plugin code, it is safe to
+    call during config load in the run's own process (unlike importing, which
+    drags in sibling/third-party modules — see ``_exec_plugin_module``).
+    """
+    try:
+        path, _ = find_plugin_by_name(name, proj_dir, plugin_path)
+    except ValueError:
+        return None
+    try:
+        with open(path, "r") as f:
+            tree = ast.parse(f.read(), filename=path)
+    except (OSError, SyntaxError):
+        return None
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.ClassDef) and node.name == "Args"):
+            continue
+        declares = any(
+            (isinstance(b, ast.Name) and b.id == "PluginArgs")
+            or (isinstance(b, ast.Attribute) and b.attr == "PluginArgs")
+            for b in node.bases
+        )
+        if not declares:
+            continue
+        fields = set()
+        for stmt in node.body:
+            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                fields.add(stmt.target.id)
+            elif isinstance(stmt, ast.Assign):
+                fields.update(t.id for t in stmt.targets if isinstance(t, ast.Name))
+        # model_config / dunders are pydantic machinery, not user-facing fields.
+        return {f for f in fields if f != "model_config" and not f.startswith("_")}
+    return None
 
 
 def get_plugin_class(name: str, proj_dir: str, plugin_path: str) -> Optional[type]:

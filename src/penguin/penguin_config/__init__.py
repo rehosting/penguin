@@ -226,11 +226,13 @@ def _promote_first_class_plugins(raw, proj_dir, plugin_path):
     """
     if not isinstance(raw, dict):
         return raw
-    from penguin.plugin_manager import get_plugin_args_model
+    from penguin.plugin_manager import plugin_declared_arg_fields
 
     reserved = _reserved_sections()
     for key in [k for k in raw.keys() if k not in reserved]:
-        if get_plugin_args_model(key, proj_dir, plugin_path) is None:
+        # Detect declaring plugins statically (AST); importing here would run
+        # plugin code in the run's own process and corrupt the live plugins.
+        if plugin_declared_arg_fields(key, proj_dir, plugin_path) is None:
             continue  # not a declaring plugin -> leave for extra="forbid"
         plugins = raw.setdefault("plugins", {})
         if not isinstance(plugins, dict):
@@ -251,27 +253,33 @@ def _promote_first_class_plugins(raw, proj_dir, plugin_path):
 
 
 def _validate_plugin_args(config, proj_dir, plugin_path):
-    """Validate each enabled plugin's args against its declared ``Args`` model."""
-    from penguin.plugin_manager import get_plugin_args_model
+    """
+    Catch unknown argument keys for each enabled declaring plugin, statically.
+
+    Field names are read from the plugin's declared ``Args`` via AST (no import,
+    so this is safe in the run's own process). Type/value validation of the
+    declared args happens later, against the real Pydantic model, in
+    ``Plugin.__preinit__`` at plugin load (before the guest boots).
+    """
+    from penguin.plugin_manager import plugin_declared_arg_fields
 
     reserved = {"enabled", "depends_on", "description", "version"}
     had_error = False
     for name, pargs in (config.get("plugins") or {}).items():
         if isinstance(pargs, dict) and pargs.get("enabled", True) is False:
             continue
-        model = get_plugin_args_model(name, proj_dir, plugin_path)
-        if model is None:
+        fields = plugin_declared_arg_fields(name, proj_dir, plugin_path)
+        if fields is None:
             continue  # legacy / non-declaring plugin -> no validation (BC)
-        candidate = {k: v for k, v in (pargs or {}).items() if k not in reserved}
-        try:
-            model(**candidate)
-        except ValidationError as e:
+        unknown = sorted(
+            k for k in (pargs or {}) if k not in reserved and k not in fields
+        )
+        if unknown:
             had_error = True
+            valid = ", ".join(sorted(fields)) or "(none)"
             logger.error(
-                "\n" + format_validation_error(
-                    e, root_model=model,
-                    header=f"Invalid arguments for plugin '{name}':",
-                )
+                f"Unknown argument(s) for plugin '{name}': {', '.join(unknown)}. "
+                f"Valid arguments: {valid}."
             )
     if had_error:
         sys.exit(1)

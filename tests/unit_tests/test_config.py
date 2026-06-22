@@ -116,6 +116,22 @@ RUNTIME_PLUGIN = """
 """
 
 
+# A plain sibling module + a plugin that imports it at top level, to prove
+# introspection doesn't leak imported sibling modules into sys.modules.
+SIDECAR_MODULE = "LEAKED = True\n"
+IMPORTING_PLUGIN = """
+    import sidecar_mod  # noqa: F401
+    from penguin import Plugin, PluginArgs
+
+    class Importer(Plugin):
+        class Args(PluginArgs):
+            n: int = 0
+
+        def __init__(self):
+            pass
+"""
+
+
 @pytest.fixture
 def plugin_dir():
     with tempfile.TemporaryDirectory() as d:
@@ -285,8 +301,11 @@ def test_preinit_legacy_passthrough_no_defaults():
 
 
 def test_preinit_rejects_bad_type():
+    # __preinit__ now formats the error and exits (friendly message) rather than
+    # letting the raw ValidationError propagate — this is where arg types are
+    # validated now that config load no longer imports plugins.
     p = _DeclaringPlugin.__new__(_DeclaringPlugin)
-    with pytest.raises(ValidationError):
+    with pytest.raises(SystemExit):
         p.__preinit__(_FakeMgr(), {"count": "not-an-int"})
 
 
@@ -366,10 +385,11 @@ def test_validate_plugin_args_good(plugin_dir):
     pc._validate_plugin_args(cfg, "/tmp", plugin_dir)
 
 
-def test_validate_plugin_args_bad_type_exits(plugin_dir):
+def test_validate_plugin_args_defers_type_check_to_load(plugin_dir):
+    # config load only catches unknown keys (statically, no import); a known key
+    # with a bad *type* is not rejected here — that happens at __preinit__.
     cfg = base_config(plugins={"widget": {"count": "nope"}})
-    with pytest.raises(SystemExit):
-        pc._validate_plugin_args(cfg, "/tmp", plugin_dir)
+    pc._validate_plugin_args(cfg, "/tmp", plugin_dir)  # must not exit
 
 
 def test_validate_plugin_args_unknown_key_exits(plugin_dir):
@@ -395,6 +415,25 @@ def test_discover_declaring_plugins(plugin_dir):
     names = [n for n, _ in found]
     assert "widget" in names
     assert "gadget" not in names
+
+
+def test_config_load_does_not_import_plugins(plugin_dir):
+    # Config load must not *execute* plugin code (it runs in the same process as
+    # the real run). `importer` declares Args and does `import sidecar_mod` at
+    # module scope; if config load imported it, sidecar_mod would appear in
+    # sys.modules. Both promotion and arg-validation use AST instead.
+    import sys
+    write_plugin(plugin_dir, "sidecar_mod.py", SIDECAR_MODULE)
+    write_plugin(plugin_dir, "importer.py", IMPORTING_PLUGIN)
+    sys.modules.pop("sidecar_mod", None)
+
+    raw = base_config()
+    raw["importer"] = {"n": 1}
+    pc._promote_first_class_plugins(raw, "/tmp", plugin_dir)
+    assert raw["plugins"]["importer"] == {"n": 1}      # promoted via AST
+    pc._validate_plugin_args(raw, "/tmp", plugin_dir)  # AST unknown-key check
+
+    assert "sidecar_mod" not in sys.modules            # plugin was never executed
 
 
 def test_discover_live_manager_recovers_runtime_plugin(plugin_dir):
