@@ -1,0 +1,58 @@
+plugins:
+  kprobes_test: {}
+  verifier:
+    conditions:
+      kprobes_exec_entry:
+        type: file_contains
+        file: kprobe_exec_test.txt
+        string: "kprobe exec entry test passed"
+      kprobes_open_return:
+        type: file_contains
+        file: kprobe_open_test.txt
+        string: "kprobe open return test passed"
+      kprobes_unregister_handle:
+        type: file_contains
+        file: kprobe_unregister_test.txt
+        string: "handle count: 1 (PASSED)"
+      kprobes_unregister_name:
+        type: file_contains
+        file: kprobe_unregister_test.txt
+        string: "name count: 1 (PASSED)"
+      kprobes_process_filter:
+        type: file_contains
+        file: kprobe_filter_test.txt
+        string: "process_filter: hits"
+      kprobes_process_filter_ok:
+        type: file_contains
+        file: kprobe_filter_test.txt
+        string: "leaks=0 (PASSED)"
+      kprobes_pid_filter:
+        type: file_contains
+        file: kprobe_filter_test.txt
+        string: "pid_filter: hits"
+
+static_files:
+  /tests/kprobes_test.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      # cat /doesnotexist triggers an execve (-> do_execveat_common) and a
+      # do_filp_open on a missing path (-> -ENOENT), exercising the entry kprobe
+      # and the entry+return kprobe.
+      /igloo/utils/busybox cat /doesnotexist
+
+      # Unregister tests: open each sentinel once (probe fires + self-unregisters),
+      # wait for the async/workqueue-deferred unregister to settle, then open them
+      # several more times. A working unregister keeps each count at exactly 1.
+      /igloo/utils/busybox cat /kprobe_unreg_handle
+      /igloo/utils/busybox cat /kprobe_unreg_name
+      /igloo/utils/busybox sleep 3
+      i=0
+      while [ $i -lt 5 ]; do
+        /igloo/utils/busybox cat /kprobe_unreg_handle
+        /igloo/utils/busybox cat /kprobe_unreg_name
+        i=$((i+1))
+      done
+      exit 0
+
+    mode: 73
