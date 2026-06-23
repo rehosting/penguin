@@ -33,6 +33,20 @@ class Kprobes(Plugin):
         if self.get_arg_bool("verbose"):
             self.logger.setLevel("DEBUG")
 
+        # MIPS has no hardware single-step; the kernel single-steps a probed
+        # instruction out-of-line, which can corrupt state and panic the guest
+        # for certain mid-function instructions. Entry probes (offset 0) and
+        # kretprobes are safe; non-zero offsets are unreliable. Detect MIPS so
+        # we can warn. Prefer the normalized config arch; fall back to the
+        # emulator-compat object's arch_name.
+        arch = ""
+        conf = self.get_arg("conf")
+        if conf:
+            arch = (conf.get("core", {}) or {}).get("arch", "") or ""
+        if not arch:
+            arch = getattr(getattr(self, "panda", None), "arch_name", "") or ""
+        self._is_mips = "mips" in arch.lower()
+
         # Maps probe_id to (callback_handle, is_method, read_only, original_func, injection_config)
         self._hooks: Dict[int, tuple] = {}
         self._hook_info = {}
@@ -437,6 +451,14 @@ class Kprobes(Plugin):
         if symbol is None:
             self.logger.error("Must specify a kernel symbol name.")
             return _no_op_decorator
+
+        if offset and self._is_mips:
+            self.logger.warning(
+                f"kprobe(symbol={symbol!r}, offset={offset:#x}): non-entry kprobe "
+                "offsets are unreliable on MIPS — single-step-out-of-line can "
+                "corrupt register state and panic the guest kernel. Prefer offset=0 "
+                "or a kretprobe. See docs/kprobes.md."
+            )
 
         cfg = {
             'symbol': symbol,
