@@ -6,6 +6,9 @@ Coverage:
   * aggregate entry+return kprobe (kretprobe) on do_filp_open (-ENOENT return)
   * unregister by wrapper handle and by function name (probe must fire exactly once)
   * process_filter and pid_filter (only matching tasks are delivered to the handler)
+  * state modification: a kretprobe rewrites do_filp_open's return value to
+    ERR_PTR(-ENOENT) for an existing file, and the guest's control flow branches
+    on the (now-failed) open — proving the guest acts on the modified register.
 """
 
 from penguin import Plugin, plugins
@@ -19,6 +22,11 @@ osi = plugins.osi
 UNREG_HANDLE_PATH = "/kprobe_unreg_handle"
 UNREG_NAME_PATH = "/kprobe_unreg_name"
 
+# State-modification test: this file EXISTS, but a kretprobe forces its open to
+# fail; the guest then opens WRITE_APPLIED_PATH, which the plugin watches for.
+WRITE_TARGET_PATH = "/kprobe_write_target"
+WRITE_APPLIED_PATH = "/kprobe_write_applied"
+
 
 class KprobesTest(Plugin):
     def __init__(self, panda):
@@ -28,10 +36,13 @@ class KprobesTest(Plugin):
         self.test_results = {
             "exec_entry": False,
             "open_return": False,
+            "write_modify": False,
         }
 
         # State shared between do_filp_open enter and return.
         self._open_pid = None
+        # State for the write/state-modification test.
+        self._write_pid = None
 
         # --- Unregister test state ---
         self.unreg_handle_count = 0
@@ -84,6 +95,14 @@ class KprobesTest(Plugin):
             pid_filter=1,
         )(self.kprobe_pidfilter)
 
+        # State-modification: force do_filp_open to fail for WRITE_TARGET_PATH by
+        # rewriting its return value in the kretprobe.
+        kprobes.kprobe(
+            symbol="do_filp_open",
+            on_enter=True,
+            on_return=True,
+        )(self.kprobe_write_force_enoent)
+
     def kprobe_do_execveat_common(self, pt_regs):
         # do_execveat_common(int fd, struct filename *filename, ...)
         # arg index 1 is the struct filename *.
@@ -130,6 +149,14 @@ class KprobesTest(Plugin):
             if "/doesnotexist" in pathname:
                 proc = yield from plugins.osi.get_proc()
                 self._open_pid = proc.pid
+
+            # The guest only reaches WRITE_APPLIED_PATH if our kretprobe forced
+            # the (existing) WRITE_TARGET_PATH open to fail — i.e. the state
+            # modification took effect and the guest acted on it.
+            if WRITE_APPLIED_PATH in pathname and not self.test_results["write_modify"]:
+                self.test_results["write_modify"] = True
+                with open(join(self.outdir, "kprobe_write_test.txt"), "w") as f:
+                    f.write("kprobe write test passed: forced open failure observed by guest\n")
         else:
             if self._open_pid is None:
                 return
@@ -148,6 +175,35 @@ class KprobesTest(Plugin):
                 self._open_pid = None
                 with open(join(self.outdir, "kprobe_open_test.txt"), "w") as f:
                     f.write("kprobe open return test passed\n")
+
+    # --- State-modification test ---
+    # WRITE_TARGET_PATH exists, so its open normally succeeds. On enter we record
+    # the opening task; on return we overwrite the return register with
+    # ERR_PTR(-ENOENT) so the kernel hands -ENOENT back to userspace. The guest
+    # script branches on the failed open and opens WRITE_APPLIED_PATH, which the
+    # do_filp_open enter handler above watches for.
+
+    def kprobe_write_force_enoent(self, pt_regs, is_enter):
+        if is_enter:
+            name = yield from self._read_filp_path(pt_regs)
+            if name and WRITE_TARGET_PATH in name:
+                proc = yield from plugins.osi.get_proc()
+                self._write_pid = proc.pid
+        else:
+            if self._write_pid is None:
+                return
+            proc = yield from plugins.osi.get_proc()
+            if proc.pid != self._write_pid:
+                return
+            self._write_pid = None
+            # ERR_PTR(-ENOENT): width-correct unsigned two's complement of -2
+            # (0xFFFFFFFE on 32-bit, 0xFFFF...FE on 64-bit). The wrapper writes
+            # it into the return register and _kprobe_event pushes pt_regs back
+            # to the guest, so the kretprobe trampoline restores the new value.
+            err = int(self.panda.ffi.cast("target_ulong", -2))
+            pt_regs.set_retval(err)
+            self.logger.info(
+                f"forced do_filp_open({WRITE_TARGET_PATH}) return -> -ENOENT")
 
     # --- Unregister tests ---
     # Each fires on a unique sentinel path, counts the hit, then unregisters

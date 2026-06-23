@@ -30,8 +30,17 @@ plugins:
         type: file_contains
         file: kprobe_filter_test.txt
         string: "pid_filter: hits"
+      kprobes_write_modify:
+        type: file_contains
+        file: kprobe_write_test.txt
+        string: "kprobe write test passed"
 
 static_files:
+  /kprobe_write_target:
+    type: inline_file
+    contents: |
+      this file exists; the write test forces its open to fail
+    mode: 420
   /tests/kprobes_test.sh:
     type: inline_file
     contents: |
@@ -40,6 +49,16 @@ static_files:
       # do_filp_open on a missing path (-> -ENOENT), exercising the entry kprobe
       # and the entry+return kprobe.
       /igloo/utils/busybox cat /doesnotexist
+
+      # State-modification test: /kprobe_write_target EXISTS, so this open
+      # normally succeeds. A kretprobe rewrites do_filp_open's return value to
+      # -ENOENT, so the open should fail and we take the else branch, opening
+      # /kprobe_write_applied (which the plugin watches for).
+      if /igloo/utils/busybox cat /kprobe_write_target >/dev/null 2>&1; then
+        /igloo/utils/busybox cat /kprobe_write_not_applied >/dev/null 2>&1
+      else
+        /igloo/utils/busybox cat /kprobe_write_applied >/dev/null 2>&1
+      fi
 
       # Unregister tests: open each sentinel once (probe fires + self-unregisters),
       # wait for the async/workqueue-deferred unregister to settle, then open them
