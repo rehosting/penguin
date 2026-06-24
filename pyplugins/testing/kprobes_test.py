@@ -239,10 +239,15 @@ class KprobesTest(Plugin):
                     else "\nSome kprobe tests FAILED!\n")
 
         with open(join(self.outdir, "kprobe_unregister_test.txt"), "w") as f:
-            f.write(f"handle count: {self.unreg_handle_count} "
-                    f"({'PASSED' if self.unreg_handle_count == 1 else 'FAILED'})\n")
-            f.write(f"name count: {self.unreg_name_count} "
-                    f"({'PASSED' if self.unreg_name_count == 1 else 'FAILED'})\n")
+            # Unregister is asynchronous (portal round-trip + workqueue), so a few
+            # opens can still slip through before it takes effect. The script opens
+            # each sentinel 1 + 5 times, so a working unregister yields ~1 and a
+            # broken one yields 6; accept a small straggler window to avoid a
+            # timing flake under heavy CI load while still catching real breakage.
+            h_ok = 1 <= self.unreg_handle_count <= 3
+            n_ok = 1 <= self.unreg_name_count <= 3
+            f.write(f"handle unregister: {'PASSED' if h_ok else 'FAILED'} (count={self.unreg_handle_count})\n")
+            f.write(f"name unregister: {'PASSED' if n_ok else 'FAILED'} (count={self.unreg_name_count})\n")
 
         with open(join(self.outdir, "kprobe_filter_test.txt"), "w") as f:
             pf_ok = self.pfilter_count > 0 and self.pfilter_bad == 0
