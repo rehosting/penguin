@@ -1,0 +1,43 @@
+# Exercises the vpn owned-interface datapaths. The vpn plugin owns a tap-backed
+# interface `testif`; the guest agent stands it up and assigns it 10.99.0.2. A
+# guest httpd on :8010 is reachable on the tap, and owned_iface_test drives the
+# TCP forward (Inc A), raw L3 ICMP (Inc B), and raw L2 ARP (Inc C) datapaths
+# through it. See pyplugins/testing/owned_iface_test.py.
+plugins:
+  verifier:
+    conditions:
+      owned_iface_probe:
+        type: file_contains
+        file: owned_iface_probe.txt
+        string: "OWNED IFACE PROBE OK"
+      owned_iface_raw:
+        type: file_contains
+        file: owned_iface_raw.txt
+        string: "OWNED IFACE RAW OK"
+      owned_iface_l2:
+        type: file_contains
+        file: owned_iface_l2.txt
+        string: "OWNED IFACE L2 OK"
+  vpn:
+    interfaces:
+      testif:
+        host_ip: 10.99.0.1
+        guest_ip: 10.99.0.2
+        prefix: 24
+  owned_iface_test: {}
+static_files:
+  /tests/owned_iface.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+      # Wait for the agent to assign the tap IP, then serve on it (bind the
+      # IPv4 address explicitly so the probe reaches a v4 listener). Backgrounded
+      # so run_tests.sh continues.
+      i=0
+      while [ $i -lt 20 ]; do
+        /igloo/utils/busybox ip addr show testif 2>/dev/null | /igloo/utils/busybox grep -q 10.99.0.2 && break
+        /igloo/utils/busybox sleep 1; i=$((i+1))
+      done
+      /igloo/utils/busybox httpd -p 10.99.0.2:8010 -h / &
+      exit 0
+    mode: 73
