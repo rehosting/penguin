@@ -249,17 +249,12 @@ ENV PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y python3-pip git wget liblzo2-dev
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip wheel --no-cache-dir --wheel-dir /app/wheels \
-      beautifulsoup4 \
       coloredlogs \
-      html5lib \
-      ipdb \
       ipython \
       python-Levenshtein \
       jinja2 \
-      lief  \
       lxml \
       lz4 \
-      openai \
       pydantic \
       pydantic-partial \
       pyelftools \
@@ -279,20 +274,10 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       git+https://github.com/devttys0/yaffshiv.git \
       git+https://github.com/marin-m/vmlinux-to-elf@20a99a92f61a6af1d1aca1041d8580d9889a60bb \
       jefferson \
-      gnupg \
       poetry \
-      psycopg2-binary \
-      pycryptodome \
-      pylzma \
-      setuptools \
-      sqlalchemy \
-      telnetlib3 \
-      tk \
       ujson \
       cxxfilt \
-      zstandard \
       pdoc \
-      numpy \
       dwarffi>=0.0.35 \
       ratarmountcore[full]
 
