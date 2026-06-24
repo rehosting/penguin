@@ -322,7 +322,7 @@ ARG FW2TAR_TAG
 RUN git clone --depth=1 -b ${FW2TAR_TAG} https://github.com/rehosting/fw2tar.git /tmp/fw2tar
 RUN git clone --depth=1 https://github.com/davidribyrne/cramfs.git /cramfs && \
     cd /cramfs && make
-RUN git clone --depth=1 https://github.com/rehosting/unblob.git /unblob
+RUN git clone --depth=1 --branch main-pre-26.6.4 https://github.com/rehosting/unblob.git /unblob
 
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts
 ARG SSH
