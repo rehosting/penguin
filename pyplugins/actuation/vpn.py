@@ -113,6 +113,32 @@ class VPN(Plugin):
         spoof: Optional[Dict] = Field(
             default=None, description="Source IP spoofing configuration keyed by <proto>:<guest_ip>:<guest_port> with 'source' and 'dev' entries."
         )
+        interfaces: Optional[Dict] = Field(
+            default=None,
+            description=(
+                "Owned interfaces the VPN guest agent stands up as tap-backed userspace TCP/IP "
+                "stacks, keyed by guest interface name with {host_ip, guest_ip, prefix} values "
+                "(any omitted -> WAN defaults 203.0.113.1/203.0.113.2/24). A service routed to "
+                "one of these (see 'routes'/'default_interface') genuinely ingresses on that "
+                "interface so the firmware's netfilter 'INPUT -i <iface>' chain is exercised. "
+                "Unset -> only the default loopback ('LAN') path exists (the historical behavior)."
+            ),
+        )
+        routes: Optional[Dict] = Field(
+            default=None,
+            description=(
+                "Interface routing matrix, keyed exactly like 'spoof' (<proto>:<guest_ip>:<guest_port>) "
+                "-> an interface name from 'interfaces'. Independent of 'spoof': spoof picks the "
+                "source IP, routes picks the ingress interface."
+            ),
+        )
+        default_interface: Optional[str] = Field(
+            default=None,
+            description=(
+                "Interface (a key of 'interfaces') used for binds with no matching 'routes' entry. "
+                "Unset -> unrouted binds use the default loopback path."
+            ),
+        )
 
     def __init__(self, panda) -> None:
         """
@@ -202,6 +228,44 @@ class VPN(Plugin):
         if self.spoof and not self.get_arg("conf")["core"]["guest_cmd"]:
             self.logger.error("guest_cmd is disabled!")
             raise ValueError("Source address spoofing requires guest_cmd to be enabled")
+
+        """
+        Owned interfaces + interface routing matrix. E.g.
+            interfaces:
+              wan0: { host_ip: 203.0.113.1, guest_ip: 203.0.113.2, prefix: 24 }
+            default_interface: wan0      # or per-service via routes
+            routes:
+              "tcp:192.168.1.1:443": wan0
+        Each declared interface is handed to the guest agent (via the
+        IGLOO_OWN_IFACES env var -> --own-iface flags) which stands up a
+        tap-backed stack on it. _do_bridge tags each event line with the chosen
+        interface so the host side routes the forward through it.
+        """
+        self.interfaces = self.get_arg("interfaces") or {}
+        self.routes = self.get_arg("routes") or {}
+        self.default_interface = self.get_arg("default_interface")
+        for key, name in self.routes.items():
+            if name not in self.interfaces:
+                raise ValueError(
+                    f"vpn.routes['{key}'] references undeclared interface '{name}'"
+                )
+        if self.default_interface and self.default_interface not in self.interfaces:
+            raise ValueError(
+                f"vpn.default_interface '{self.default_interface}' is not in vpn.interfaces"
+            )
+        if self.interfaces:
+            specs = []
+            for name, spec in self.interfaces.items():
+                spec = spec or {}
+                host = spec.get("host_ip", "") or ""
+                guest = spec.get("guest_ip", "") or ""
+                prefix = spec.get("prefix", "")
+                prefix = "" if prefix in (None, "") else str(prefix)
+                specs.append(f"{name}:{host}/{guest}/{prefix}")
+            conf = self.get_arg("conf")
+            conf["env"]["IGLOO_OWN_IFACES"] = ";".join(specs)
+            self.logger.info(f"VPN owning interfaces: {conf['env']['IGLOO_OWN_IFACES']}")
+
         self.port_map_lock = threading.Lock()
         self.lock = threading.Lock()
 
@@ -457,8 +521,13 @@ class VPN(Plugin):
                 self.logger.debug(f"Will spoof source address for {guest_addr} with {source_ip}")
                 self.ensure_dev_has_ip(source_ip, spoof["dev"], ipvn)
 
+            # Interface matrix: route this service to an owned interface (real
+            # ingress on that iface) or, if none matches, the loopback path
+            # (empty field). Independent of spoof's source-IP choice above.
+            iface = self.routes.get(guest_addr) or self.default_interface or ""
+
             with open(self.event_file.name, "a") as f:
-                f.write(f"{sock_type},{ip}:{guest_port},0.0.0.0:{host_port},{source_ip}:0\n")
+                f.write(f"{sock_type},{ip}:{guest_port},0.0.0.0:{host_port},{source_ip}:0,{iface}\n")
 
             with open(join(self.outdir, BRIDGE_FILE), "a") as f:
                 f.write(f"{procname},ipv{ipvn},{sock_type},{ip},{guest_port},{host_port}\n")
