@@ -249,10 +249,8 @@ ENV PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y python3-pip git wget liblzo2-dev
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip wheel --no-cache-dir --wheel-dir /app/wheels \
-      angr \
       beautifulsoup4 \
       coloredlogs \
-      git+https://github.com/AndrewFasano/angr-targets.git@af_fixes \
       html5lib \
       ipdb \
       ipython \
@@ -384,17 +382,11 @@ COPY --from=downloader /tmp/gum.deb /tmp/
 COPY --from=downloader /tmp/ripgrep.deb /tmp/
 COPY --from=downloader /tmp/penguin-qemu.tar.gz /tmp/
 
-# We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
-# we'll fail because we get a distutils distribution of pycparser 2.19 that we can't
-# uninstall somewhere in setting up other dependencies.
-
 RUN apt-get update && \
     apt-get --no-install-recommends install -y python3-pip && \
     rm -rf /var/lib/apt/lists/*
 RUN --mount=type=cache,target=/root/.cache/pip \
-      pip install --upgrade \
-        pip \
-        "pycparser>=2.21"
+      pip install --upgrade pip
 
 
 # Update and install prerequisites
