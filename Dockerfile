@@ -306,9 +306,14 @@ RUN if [ ! -z "${OVERRIDE_VERSION}" ]; then \
         echo "Pretending version is ${OVERRIDE_VERSION}"; \
     else \
         python3 -m pip install setuptools_scm; \
-        echo -n "v" >> /app/version.txt; \
-        python3 -m setuptools_scm -r /app/ >> /app/version.txt; \
-        echo "Generating version from git"; \
+        SCM_VERSION="$(python3 -m setuptools_scm -r /app/ 2>/dev/null)"; \
+        if [ -z "${SCM_VERSION}" ]; then \
+            SCM_VERSION="0.0.0.dev0"; \
+            echo "setuptools_scm produced no version (e.g. a git worktree, whose .git is a pointer file, or a checkout without tags); defaulting to dev version ${SCM_VERSION}"; \
+        else \
+            echo "Generating version from git"; \
+        fi; \
+        echo "v${SCM_VERSION}" > /app/version.txt; \
     fi;
 
 ### Build fw2tar deps ahead of time ###
