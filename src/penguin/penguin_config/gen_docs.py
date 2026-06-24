@@ -310,7 +310,11 @@ def _advance_section(type_, seg):
     Move one user-facing step into the schema by `seg`, transparently skipping
     non-consuming wrappers (Optional, RootModel newtypes, and dict values).
 
-    Returns the resolved sub-type, or None if `seg` doesn't resolve.
+    Returns ``(resolved_sub_type, field_info)`` where ``field_info`` is the
+    Pydantic ``FieldInfo`` that ``seg`` resolved to (carrying field-level
+    metadata like the title), or ``None`` when the step resolved through a
+    dict value or tagged-union variant rather than a named field. Returns
+    ``(None, None)`` when ``seg`` doesn't resolve.
     """
     while True:
         # Collapse Optional[... T ...] to T
@@ -330,20 +334,20 @@ def _advance_section(type_, seg):
                     disc = variant.model_fields.get(info.discriminator)
                     vals = typing.get_args(disc.annotation) if disc else ()
                     if vals and vals[0] == seg:
-                        return variant
-                return None
+                        return variant, None
+                return None, None
             type_ = ann  # newtype: unwrap and retry the same segment
             continue
 
         if hasattr(type_, "model_fields"):
             field = type_.model_fields.get(seg)
-            return field.annotation if field is not None else None
+            return (field.annotation, field) if field is not None else (None, None)
 
         if typing.get_origin(type_) is dict:
             type_ = typing.get_args(type_)[1]  # descend into the value type
             continue
 
-        return None
+        return None, None
 
 
 def resolve_section(dotted):
@@ -353,22 +357,49 @@ def resolve_section(dotted):
     """
     type_ = structure.Main
     for seg in [s for s in dotted.split(".") if s]:
-        type_ = _advance_section(type_, seg)
+        type_, _field = _advance_section(type_, seg)
         if type_ is None:
             return None
     return type_
 
 
-def gen_plugin_args_docs(name, args_model, deprecation_note=True):
+def resolve_section_docs_field(dotted):
+    """
+    Resolve a dotted config-section path to a `DocsField`, carrying the
+    field-level metadata (title, description, examples) of the section.
+
+    `resolve_section` returns only the bare type, which loses metadata that
+    lives on the `Field` rather than the model — e.g. the `plugins` section is
+    a plain `dict[str, Plugin]` whose title only exists on its `Field`. Using
+    `DocsField.from_type` on that bare dict yields a title-less field and makes
+    `gen_docs` raise. Resolving through the owning field keeps the metadata so
+    rendering matches the full-tree docs. Returns None if the path doesn't
+    resolve.
+    """
+    type_ = structure.Main
+    field = None
+    for seg in [s for s in dotted.split(".") if s]:
+        type_, field = _advance_section(type_, seg)
+        if type_ is None:
+            return None
+    if field is not None:
+        return DocsField.from_field(field)
+    return DocsField.from_type(type_)
+
+
+def gen_plugin_args_docs(name, args_model, deprecation_note=True, level=1):
     """
     Render a plugin's declared ``Args`` model as a markdown section.
 
     ``args_model`` is a ``PluginArgs`` subclass; we render one row per field with
     its type, default, required-ness, and description. Set ``deprecation_note``
     to False to omit the per-plugin first-class-syntax note (the aggregate
-    reference states it once instead).
+    reference states it once instead). ``level`` sets the markdown heading depth
+    of the plugin's section header (1 → ``#`` for a standalone page, 2 → ``##``
+    when nested under an aggregate page's single ``#`` title).
     """
-    out = [f"# Plugin `{name}` arguments", ""]
+    heading = "#" * level
+    out = [f"{heading} Plugin `{name}` arguments", ""]
     fields = args_model.model_fields
     if not fields:
         out.append("This plugin declares an `Args` schema with no fields.")
@@ -438,7 +469,7 @@ def gen_all_plugin_args_docs(plugin_path=None, manager=None, panda=None):
                                            for n, _ in found))
     out.append("")
     for name, model in found:
-        out.append(gen_plugin_args_docs(name, model, deprecation_note=False))
+        out.append(gen_plugin_args_docs(name, model, deprecation_note=False, level=2))
     if skipped:
         out.append("")
         out.append(f"<!-- {len(skipped)} plugin file(s) could not be imported "

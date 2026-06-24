@@ -255,6 +255,29 @@ def test_gen_docs_runs_without_error():
     assert isinstance(out, str) and len(out) > 0
 
 
+def test_resolve_section_docs_field_carries_field_title():
+    # `plugins` is a bare `dict[str, Plugin]` whose title lives on its Field,
+    # not its type. Resolving via DocsField.from_type alone dropped the title
+    # and made `penguin schema plugins` raise; resolve_section_docs_field must
+    # carry the field-level title so rendering succeeds.
+    df = gen_docs.resolve_section_docs_field("plugins")
+    assert df is not None and df.title == "Plugins"
+    md = gen_docs.gen_docs(path=["plugins"], docs_field=df)
+    assert "Plugins" in md and "Plugin" in md
+
+
+def test_resolve_section_docs_field_every_top_level_section_renders():
+    # `penguin schema <section>` must not error for any top-level section.
+    for name, _title in gen_docs.list_sections():
+        df = gen_docs.resolve_section_docs_field(name)
+        assert df is not None, name
+        assert gen_docs.gen_docs(path=[name], docs_field=df)
+
+
+def test_resolve_section_docs_field_unknown_returns_none():
+    assert gen_docs.resolve_section_docs_field("does.not.exist") is None
+
+
 # --------------------------------------------------------------------------- #
 # PR3: plugin Args declaration + defaults + validation
 # --------------------------------------------------------------------------- #
@@ -460,8 +483,12 @@ def test_discover_live_manager_recovers_runtime_plugin(plugin_dir):
 
 def test_gen_all_plugin_args_docs(plugin_dir):
     md = gen_docs.gen_all_plugin_args_docs(plugin_dir)
-    assert "# Plugin arguments" in md
-    assert "# Plugin `widget` arguments" in md
+    # The aggregate page has exactly one H1 (its title); per-plugin sections
+    # nest under it as H2 so the docs toctree shows one page with subsections
+    # instead of one top-level entry per plugin.
+    h1s = [ln for ln in md.splitlines() if ln.startswith("# ")]
+    assert h1s == ["# Plugin arguments"]
+    assert "## Plugin `widget` arguments" in md
     assert "`names`" in md and "`count`" in md
 
 
