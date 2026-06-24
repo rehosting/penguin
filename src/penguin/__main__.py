@@ -864,7 +864,6 @@ def schema(ctx, section, project_dir, as_json):
     """
     _startup_checks(ctx.obj['VERBOSE'])
     from penguin.penguin_config import gen_docs
-    from penguin.penguin_config.gen_docs import DocsField
 
     if not section:
         if as_json:
@@ -887,9 +886,12 @@ def schema(ctx, section, project_dir, as_json):
             except AttributeError:
                 click.echo(f"(section '{section}' is a primitive type with no sub-schema)")
             return
+        # Resolve through the owning field so field-level metadata (e.g. the
+        # `plugins` section's title, which lives on its Field rather than its
+        # type) is preserved; DocsField.from_type alone would drop it.
         md = gen_docs.gen_docs(
             path=section.split("."),
-            docs_field=DocsField.from_type(resolved),
+            docs_field=gen_docs.resolve_section_docs_field(section),
         )
         _render_markdown(md)
         return
