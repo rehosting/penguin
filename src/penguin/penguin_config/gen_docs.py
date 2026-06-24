@@ -398,23 +398,56 @@ def gen_plugin_args_docs(name, args_model, deprecation_note=True, level=1):
     of the plugin's section header (1 → ``#`` for a standalone page, 2 → ``##``
     when nested under an aggregate page's single ``#`` title).
     """
-    heading = "#" * level
-    out = [f"{heading} Plugin `{name}` arguments", ""]
-    fields = args_model.model_fields
-    if not fields:
-        out.append("This plugin declares an `Args` schema with no fields.")
-        return "\n".join(out) + "\n"
-    out.append("|Argument|Type|Default|Required|Description|")
-    out.append("|-|-|-|-|-|")
-    for fname, info in fields.items():
+    rows = []
+    for fname, info in args_model.model_fields.items():
         try:
             type_name = gen_docs_type_name(info.annotation)
         except Exception:
             type_name = getattr(info.annotation, "__name__", str(info.annotation))
         required = info.is_required()
         default = "" if required else "`" + gen_docs_yaml_dump(info.default) + "`"
-        desc = info.description or ""
-        out.append(f"|`{fname}`|{type_name}|{default}|{'yes' if required else ''}|{desc}|")
+        rows.append((fname, type_name, default, required, info.description or ""))
+    return _render_plugin_args_section(name, rows, deprecation_note, level)
+
+
+def gen_plugin_args_docs_from_specs(name, arg_specs, deprecation_note=True, level=1):
+    """
+    Render a plugin's arguments from statically-extracted ``ArgSpec``s (see
+    ``plugin_manager.discover_declaring_plugins_static``) — the import-free path,
+    so plugins that can't be imported outside a live emulator are still covered.
+
+    Types and defaults are rendered from source (e.g. ``List[str]``, ``false``)
+    rather than via pydantic, so output is slightly lower-fidelity than the
+    model-based :func:`gen_plugin_args_docs` but available without a runtime.
+    """
+    rows = []
+    for spec in arg_specs:
+        type_name = spec.type or "any"
+        if spec.required or spec.default is None:
+            default = ""
+        elif spec.default[0] == "literal":
+            default = "`" + gen_docs_yaml_dump(spec.default[1]) + "`"
+        else:  # ("src", "<source text>")
+            default = "`" + spec.default[1] + "`"
+        rows.append((spec.name, type_name, default, spec.required, spec.description or ""))
+    return _render_plugin_args_section(name, rows, deprecation_note, level)
+
+
+def _render_plugin_args_section(name, rows, deprecation_note, level):
+    """
+    Render a plugin's argument ``rows`` as a markdown section. Each row is
+    ``(arg, type_str, default_str, required_bool, description)`` with cells
+    already formatted. Shared by the model-based and AST-based renderers.
+    """
+    heading = "#" * level
+    out = [f"{heading} Plugin `{name}` arguments", ""]
+    if not rows:
+        out.append("This plugin declares an `Args` schema with no fields.")
+        return "\n".join(out) + "\n"
+    out.append("|Argument|Type|Default|Required|Description|")
+    out.append("|-|-|-|-|-|")
+    for arg, type_name, default, required, desc in rows:
+        out.append(f"|`{arg}`|{type_name}|{default}|{'yes' if required else ''}|{desc}|")
     out.append("")
     out.append("Configure under `plugins:`:")
     out.append("```yaml")
@@ -429,31 +462,46 @@ def gen_plugin_args_docs(name, args_model, deprecation_note=True, level=1):
     return "\n".join(out) + "\n"
 
 
-def gen_all_plugin_args_docs(plugin_path=None, manager=None, panda=None):
+def gen_all_plugin_args_docs(plugin_path=None, manager=None, panda=None,
+                             level=1, show_skipped=False, static=False):
     """
     Render a single markdown reference for every plugin that declares an ``Args``
     schema under ``plugin_path`` (default: the schema's ``core.plugin_path``).
 
-    Completeness depends on the runtime: many plugins only import with a live
-    ``plugins`` manager bound (e.g. kernel-FFI enums). Pass ``manager``/``panda``
-    (the live singletons, as the docgen plugin does) for full coverage; without
-    them this is best-effort and runtime-dependent plugins are skipped.
+    With ``static=True`` the declared ``Args`` are read via ``ast`` without
+    importing the plugins, so coverage is complete even outside a live emulator —
+    this is what the CLI uses. Otherwise plugins are imported: pass
+    ``manager``/``panda`` (the live singletons, as the docgen plugin does) for
+    full, high-fidelity coverage; without them import-based discovery is
+    best-effort and runtime-dependent plugins are skipped.
+
+    ``level`` sets the heading depth of the page title (and shifts each plugin's
+    sub-heading to ``level + 1``) so this can nest under another section. When
+    ``show_skipped`` is true, the count of plugins that could not be introspected
+    is rendered as a visible note (rather than an HTML comment).
     """
-    from penguin.plugin_manager import discover_declaring_plugins
+    from penguin.plugin_manager import (
+        discover_declaring_plugins, discover_declaring_plugins_static)
 
     if plugin_path is None:
         plugin_path = structure.Core.model_fields["plugin_path"].default
 
-    found, skipped = discover_declaring_plugins(plugin_path, manager=manager, panda=panda)
+    if static:
+        found, skipped = discover_declaring_plugins_static(plugin_path)
+        render_one = gen_plugin_args_docs_from_specs
+    else:
+        found, skipped = discover_declaring_plugins(plugin_path, manager=manager, panda=panda)
+        render_one = gen_plugin_args_docs
 
+    heading = "#" * level
     out = [
-        "# Plugin arguments",
+        f"{heading} Plugin arguments",
         "",
         "Plugins that declare an `Args` schema validate their arguments and "
         "document them here. Configure them under the top-level `plugins:` "
         "section, keyed by the plugin name. This page is generated from the "
-        "plugins' declared `Args`; run `penguin schema <plugin>` for the same "
-        "information at the CLI.",
+        "plugins' declared `Args`; run `penguin schema <plugin>` for a single "
+        "plugin at the CLI.",
         "",
         "> The first-class top-level form (writing `<plugin>:` at the config "
         "root instead of under `plugins:`) is **deprecated**: it still loads "
@@ -468,12 +516,20 @@ def gen_all_plugin_args_docs(plugin_path=None, manager=None, panda=None):
     out.append("**Plugins:** " + ", ".join(f"[`{n}`](#plugin-{n}-arguments)"
                                            for n, _ in found))
     out.append("")
-    for name, model in found:
-        out.append(gen_plugin_args_docs(name, model, deprecation_note=False, level=2))
+    for name, payload in found:
+        out.append(
+            render_one(name, payload, deprecation_note=False, level=level + 1)
+        )
     if skipped:
         out.append("")
-        out.append(f"<!-- {len(skipped)} plugin file(s) could not be imported "
-                   "for introspection and were skipped. -->")
+        if show_skipped:
+            out.append(f"> _{len(skipped)} plugin(s) could not be introspected "
+                       "statically and are omitted; many plugins only import "
+                       "with a live emulator bound. The generated documentation "
+                       "(built during a real run) covers them._")
+        else:
+            out.append(f"<!-- {len(skipped)} plugin file(s) could not be imported "
+                       "for introspection and were skipped. -->")
     return "\n".join(out) + "\n"
 
 

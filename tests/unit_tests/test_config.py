@@ -492,6 +492,84 @@ def test_gen_all_plugin_args_docs(plugin_dir):
     assert "`names`" in md and "`count`" in md
 
 
+def test_gen_all_plugin_args_docs_nested_level(plugin_dir):
+    # When nested under another section (as `penguin schema plugins` does), the
+    # page title shifts to the given level and each plugin one deeper.
+    md = gen_docs.gen_all_plugin_args_docs(plugin_dir, level=2)
+    assert "## Plugin arguments" in md
+    assert "### Plugin `widget` arguments" in md
+    # No H1 is emitted at level 2.
+    assert not any(ln == "# Plugin arguments" for ln in md.splitlines())
+
+
+def test_gen_all_plugin_args_docs_show_skipped(plugin_dir):
+    # The legacy plugin (gadget) doesn't declare Args so it's not "skipped"
+    # (skipped == couldn't import); use a plugin that fails to import.
+    write_plugin(plugin_dir, "broken.py", "import nonexistent_module_xyz\n")
+    plugin_manager._import_plugin_classes.cache_clear()
+    md = gen_docs.gen_all_plugin_args_docs(plugin_dir, show_skipped=True)
+    # The skipped note is visible (a blockquote), not an HTML comment.
+    assert "could not be introspected statically" in md
+    assert "<!--" not in md
+
+
+# --------------------------------------------------------------------------- #
+# Static (AST-based) plugin Args extraction — covers plugins that can't be
+# imported outside a live emulator, exactly as config-load validation does.
+# --------------------------------------------------------------------------- #
+def test_discover_declaring_plugins_static_covers_unimportable(plugin_dir):
+    # IMPORTING_PLUGIN imports a sibling and RUNTIME_PLUGIN reads live state at
+    # import; both are skipped by import-based discovery without a manager, but
+    # the AST path reads their declared Args regardless.
+    write_plugin(plugin_dir, "importer.py", IMPORTING_PLUGIN)
+    write_plugin(plugin_dir, "runtime.py", RUNTIME_PLUGIN)
+
+    imported, _ = plugin_manager.discover_declaring_plugins(plugin_dir)
+    assert "runtime" not in [n for n, _ in imported]  # import path skips it
+
+    found, skipped = plugin_manager.discover_declaring_plugins_static(plugin_dir)
+    names = {n for n, _ in found}
+    assert {"widget", "sproket", "importer", "runtime"} <= names
+    assert "gadget" not in names          # declares no Args
+    assert skipped == []                  # AST never needs to import
+
+
+def test_static_arg_specs_capture_type_default_description(plugin_dir):
+    found = dict(plugin_manager.discover_declaring_plugins_static(plugin_dir)[0])
+    specs = {s.name: s for s in found["widget"]}
+    assert specs["names"].type == "List[str]"
+    assert specs["names"].default == ("literal", [])
+    assert specs["names"].description == "names"
+    assert specs["count"].default == ("literal", 3)
+    # bare literal default (no Field) is captured too
+    assert specs["quiet"].default == ("literal", False)
+    assert specs["quiet"].required is False
+
+
+def test_gen_all_plugin_args_docs_static(plugin_dir):
+    write_plugin(plugin_dir, "runtime.py", RUNTIME_PLUGIN)
+    md = gen_docs.gen_all_plugin_args_docs(plugin_dir, static=True)
+    # The unimportable plugin's args are rendered from source.
+    assert "## Plugin `runtime` arguments" in md
+    assert "## Plugin `widget` arguments" in md
+    assert "`names`" in md and "List[str]" in md
+
+
+def test_plugin_declared_arg_specs_by_name(plugin_dir):
+    # Single-plugin AST lookup (backs `schema <plugin>` / `schema plugins.<plugin>`),
+    # including a plugin that can't be imported without a live manager.
+    write_plugin(plugin_dir, "runtime.py", RUNTIME_PLUGIN)
+    specs = plugin_manager.plugin_declared_arg_specs("widget", "/tmp", plugin_dir)
+    assert {s.name for s in specs} == {"names", "count", "quiet"}
+    # unimportable plugin still resolves via AST
+    rspecs = plugin_manager.plugin_declared_arg_specs("runtime", "/tmp", plugin_dir)
+    assert [s.name for s in rspecs] == ["level"]
+    # legacy plugin declares no Args -> None
+    assert plugin_manager.plugin_declared_arg_specs("gadget", "/tmp", plugin_dir) is None
+    # unknown plugin -> None
+    assert plugin_manager.plugin_declared_arg_specs("nope", "/tmp", plugin_dir) is None
+
+
 # --------------------------------------------------------------------------- #
 # PR3: AST <-> imported-model equivalence guard
 #

@@ -35,6 +35,7 @@ Penguin emulation environment, enabling modular analysis, automation, and extens
 """
 
 import ast
+import collections
 import os
 import sys
 from os.path import join, isfile, basename, splitext, isdir
@@ -686,6 +687,181 @@ def plugin_declared_arg_fields(name: str, proj_dir: str,
         # model_config / dunders are pydantic machinery, not user-facing fields.
         return {f for f in fields if f != "model_config" and not f.startswith("_")}
     return None
+
+
+# A statically-extracted plugin argument. ``default`` is one of:
+#   None                      -> required (no default), or default unknown
+#   ("literal", value)        -> a literal default we could evaluate (e.g. 3, [], False)
+#   ("src", "source text")    -> a non-literal default, kept as source (e.g. a factory)
+# ``required`` is True when the field has no usable default. ``type`` is the
+# annotation rendered back to source (e.g. "Optional[List[str]]"), or None.
+ArgSpec = collections.namedtuple("ArgSpec", "name type default required description")
+
+
+def _ast_field_default(node):
+    """Classify a default-value AST node into the ``ArgSpec.default`` form."""
+    try:
+        return ("literal", ast.literal_eval(node))
+    except (ValueError, SyntaxError, TypeError):
+        return ("src", ast.unparse(node))
+
+
+def _ast_is_field_call(node) -> bool:
+    """True if ``node`` is a pydantic ``Field(...)`` call (``Field`` or ``x.Field``)."""
+    return isinstance(node, ast.Call) and (
+        (isinstance(node.func, ast.Name) and node.func.id == "Field")
+        or (isinstance(node.func, ast.Attribute) and node.func.attr == "Field")
+    )
+
+
+def _ast_parse_field_call(call):
+    """
+    Extract ``(default, required, description)`` from a ``Field(...)`` call node.
+
+    Mirrors pydantic's rules closely enough for docs: a positional first arg or a
+    ``default=`` keyword sets the default (``...`` means required); ``default_factory``
+    means not-required with a non-literal default; a bare ``Field()`` is required.
+    """
+    default = None
+    required = False
+    description = None
+    has_default = has_factory = False
+
+    if call.args:  # Field(<default>, ...)
+        default_node = call.args[0]
+        has_default = True
+    else:
+        default_node = None
+    for kw in call.keywords:
+        if kw.arg == "default":
+            default_node = kw.value
+            has_default = True
+        elif kw.arg == "default_factory":
+            has_factory = True
+            factory_node = kw.value
+        elif kw.arg == "description" and isinstance(kw.value, ast.Constant) \
+                and isinstance(kw.value.value, str):
+            description = kw.value.value
+
+    if has_default:
+        if isinstance(default_node, ast.Constant) and default_node.value is Ellipsis:
+            required = True
+        else:
+            default = _ast_field_default(default_node)
+    elif has_factory:
+        # Not required; the value comes from a factory we can't evaluate statically.
+        default = ("src", f"{ast.unparse(factory_node)}()")
+    else:
+        required = True  # bare Field() with no default is required
+    return default, required, description
+
+
+def _ast_arg_specs_from_classdef(node) -> List[ArgSpec]:
+    """Build the list of :data:`ArgSpec` for an ``class Args(PluginArgs)`` node."""
+    specs = []
+    for stmt in node.body:
+        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+            name = stmt.target.id
+            annotation = stmt.annotation
+            value = stmt.value
+        elif isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 \
+                and isinstance(stmt.targets[0], ast.Name):
+            name = stmt.targets[0].id
+            annotation = None
+            value = stmt.value
+        else:
+            continue
+        if name == "model_config" or name.startswith("_"):
+            continue
+
+        type_str = ast.unparse(annotation) if annotation is not None else None
+        default = None
+        required = False
+        description = None
+        if value is None:
+            required = True  # annotation-only (`x: int`) -> required
+        elif _ast_is_field_call(value):
+            default, required, description = _ast_parse_field_call(value)
+        elif isinstance(value, ast.Constant) and value.value is Ellipsis:
+            required = True
+        else:
+            default = _ast_field_default(value)
+        specs.append(ArgSpec(name, type_str, default, required, description))
+    return specs
+
+
+def _ast_find_args_classdef(tree):
+    """Return the first ``class Args(PluginArgs)`` ClassDef node in ``tree``, or None."""
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.ClassDef) and node.name == "Args"):
+            continue
+        if any(
+            (isinstance(b, ast.Name) and b.id == "PluginArgs")
+            or (isinstance(b, ast.Attribute) and b.attr == "PluginArgs")
+            for b in node.bases
+        ):
+            return node
+    return None
+
+
+def plugin_declared_arg_specs(name: str, proj_dir: str,
+                              plugin_path: str) -> Optional[List[ArgSpec]]:
+    """
+    Return the declared :data:`ArgSpec`s for plugin ``name`` via ``ast``, without
+    importing it — the rich counterpart to :func:`plugin_declared_arg_fields`.
+
+    Returns the (possibly empty) spec list if the plugin declares an ``Args``
+    schema, else ``None`` (plugin not found, unparseable, or no ``Args``).
+    """
+    try:
+        path, _ = find_plugin_by_name(name, proj_dir, plugin_path)
+    except ValueError:
+        return None
+    try:
+        with open(path, "r") as f:
+            tree = ast.parse(f.read(), filename=path)
+    except (OSError, SyntaxError):
+        return None
+    node = _ast_find_args_classdef(tree)
+    return _ast_arg_specs_from_classdef(node) if node is not None else None
+
+
+def discover_declaring_plugins_static(plugin_path: str
+                                      ) -> Tuple[List[Tuple[str, List[ArgSpec]]], List[str]]:
+    """
+    Like :func:`discover_declaring_plugins`, but reads each plugin's declared
+    ``Args`` via ``ast`` **without importing** — so runtime-dependent plugins
+    (kernel-FFI enums, sibling imports, a live emulator) are covered too, exactly
+    as config-load arg validation already does.
+
+    :return: ``(found, skipped)`` where ``found`` is a sorted list of
+        ``(config_name, [ArgSpec])`` and ``skipped`` lists files that failed to
+        parse. Lower-fidelity than the imported model (types/defaults are rendered
+        from source, not pydantic), but complete without a runtime.
+    """
+    found: List[Tuple[str, List[ArgSpec]]] = []
+    skipped: List[str] = []
+    for path in sorted(glob.glob(join(plugin_path, "**", "*.py"), recursive=True)):
+        if "__pycache__" in path or basename(path).startswith("_"):
+            continue
+        try:
+            with open(path, "r") as f:
+                tree = ast.parse(f.read(), filename=path)
+        except (OSError, SyntaxError):
+            skipped.append(path)
+            continue
+        args_node = _ast_find_args_classdef(tree)
+        if args_node is not None:
+            found.append((splitext(basename(path))[0], _ast_arg_specs_from_classdef(args_node)))
+    # De-dup by config name (first wins) and sort for stable output.
+    seen = set()
+    deduped = []
+    for name, specs in sorted(found, key=lambda x: x[0]):
+        if name in seen:
+            continue
+        seen.add(name)
+        deduped.append((name, specs))
+    return deduped, sorted(skipped)
 
 
 def get_plugin_class(name: str, proj_dir: str, plugin_path: str) -> Optional[type]:
