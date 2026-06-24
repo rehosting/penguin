@@ -26,6 +26,32 @@
         "url": "https://github.com/rehosting/linux_builder/releases/download/v3.5.33-beta/kernels-latest.tar.gz"
       }
     },
+    "ltrace-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1383620011,
+        "narHash": "sha256-FM21gm2lcsE7dfdwEAaw6ug203bHZZHLsKicmH+6tFE=",
+        "type": "tarball",
+        "url": "https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-0.7.91.tar.bz2/9db3bdee7cf3e11c87d8cc7673d4d25b/ltrace-0.7.91.tar.bz2"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-0.7.91.tar.bz2/9db3bdee7cf3e11c87d8cc7673d4d25b/ltrace-0.7.91.tar.bz2"
+      }
+    },
+    "musl-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1709258853,
+        "narHash": "sha256-xNKVsRfEK7TkSiYrxPho9ap8MWGix7nVHLecGW0D7kE=",
+        "type": "tarball",
+        "url": "https://musl.libc.org/releases/musl-1.2.5.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://musl.libc.org/releases/musl-1.2.5.tar.gz"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1773201692,
@@ -72,6 +98,8 @@
       "inputs": {
         "igloo-driver": "igloo-driver",
         "kernels": "kernels",
+        "ltrace-src": "ltrace-src",
+        "musl-src": "musl-src",
         "nixpkgs": "nixpkgs",
         "penguin-qemu": "penguin-qemu",
         "penguin-tools": "penguin-tools"
