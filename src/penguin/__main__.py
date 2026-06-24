@@ -859,8 +859,9 @@ def schema(ctx, section, project_dir, as_json):
 
     With no SECTION, lists the top-level config sections. With a dotted SECTION
     (e.g. `core`, `pseudofiles.read`, `pseudofiles.read.const_buf`), renders that
-    part of the schema. If SECTION names a plugin that declares an `Args` schema,
-    its arguments are rendered instead.
+    part of the schema. `schema plugins` additionally lists the declared
+    arguments of every discovered plugin; `schema <plugin>` (or the dotted
+    `schema plugins.<plugin>`) renders one plugin's arguments.
     """
     _startup_checks(ctx.obj['VERBOSE'])
     from penguin.penguin_config import gen_docs
@@ -874,8 +875,37 @@ def schema(ctx, section, project_dir, as_json):
             lines.append(f"- `{name}` — {title}")
         lines.append("")
         lines.append("Run `penguin schema <section>` to see details, e.g. `penguin schema core`.")
-        lines.append("Run `penguin schema <plugin>` to see a plugin's arguments.")
+        lines.append("Run `penguin schema plugins` to see every plugin's arguments, "
+                     "or `penguin schema <plugin>` for a single plugin.")
         _render_markdown("\n".join(lines))
+        return
+
+    from penguin.penguin_config import structure as _structure
+    plugin_path = _structure.Core.model_fields["plugin_path"].default
+
+    # The `plugins` section is special: its type is just `dict[str, Plugin]`
+    # (the generic per-plugin keys), which says nothing about what arguments any
+    # given plugin actually accepts. Augment it with every discovered plugin's
+    # declared `Args` so `penguin schema plugins` surfaces real plugin arguments.
+    if section == "plugins":
+        # Read declared Args via AST (no import) so every plugin is covered, not
+        # just those importable outside a live emulator — the same static
+        # approach config-load validation uses.
+        if as_json:
+            from penguin.plugin_manager import discover_declaring_plugins_static
+            found, _skipped = discover_declaring_plugins_static(plugin_path)
+            click.echo(yaml.dump(
+                {name: _arg_specs_to_schema(specs) for name, specs in found},
+                indent=2, sort_keys=False,
+            ))
+            return
+        section_md = gen_docs.gen_docs(
+            path=["plugins"],
+            docs_field=gen_docs.resolve_section_docs_field("plugins"),
+        )
+        args_md = gen_docs.gen_all_plugin_args_docs(
+            plugin_path, level=2, show_skipped=True, static=True)
+        _render_markdown(section_md + "\n" + args_md)
         return
 
     resolved = gen_docs.resolve_section(section)
@@ -896,24 +926,37 @@ def schema(ctx, section, project_dir, as_json):
         _render_markdown(md)
         return
 
-    # Not a config section: maybe it's a plugin name.
-    from penguin.plugin_manager import get_plugin_args_model, get_plugin_class
-    from penguin.penguin_config import structure as _structure
+    # Not a config section: maybe it's a plugin name. Accept both the bare name
+    # (`schema vpn`) and the dotted form under the section (`schema plugins.vpn`).
+    from penguin.plugin_manager import (
+        get_plugin_args_model, get_plugin_class, plugin_declared_arg_specs)
 
+    plugin = section[len("plugins."):] if section.startswith("plugins.") else section
     proj = project_dir or os.getcwd()
-    plugin_path = _structure.Core.model_fields["plugin_path"].default
-    args_model = get_plugin_args_model(section, proj, plugin_path)
+
+    # Prefer the imported model (richer types); fall back to AST-extracted specs
+    # so plugins that can't be imported outside a live emulator still render —
+    # matching `schema plugins`.
+    args_model = get_plugin_args_model(plugin, proj, plugin_path)
     if args_model is not None:
         if as_json:
             click.echo(yaml.dump(args_model.model_json_schema(), indent=2))
             return
-        _render_markdown(gen_docs.gen_plugin_args_docs(section, args_model))
+        _render_markdown(gen_docs.gen_plugin_args_docs(plugin, args_model))
         return
 
-    cls = get_plugin_class(section, proj, plugin_path)
+    specs = plugin_declared_arg_specs(plugin, proj, plugin_path)
+    if specs is not None:
+        if as_json:
+            click.echo(yaml.dump(_arg_specs_to_schema(specs), indent=2, sort_keys=False))
+            return
+        _render_markdown(gen_docs.gen_plugin_args_docs_from_specs(plugin, specs))
+        return
+
+    cls = get_plugin_class(plugin, proj, plugin_path)
     if cls is not None:
         doc = cls.__doc__ or "(no docstring)"
-        _render_markdown(f"# Plugin `{section}`\n\nThis plugin does not declare an `Args` schema.\n\n{doc}")
+        _render_markdown(f"# Plugin `{plugin}`\n\nThis plugin does not declare an `Args` schema.\n\n{doc}")
         return
 
     logger.error(
@@ -926,6 +969,24 @@ def schema(ctx, section, project_dir, as_json):
 def structure_json_schema():
     from penguin.penguin_config import structure
     return structure.Main.model_json_schema()
+
+
+def _arg_specs_to_schema(arg_specs):
+    """
+    Turn a list of statically-extracted ``ArgSpec`` into a JSON-serializable dict
+    keyed by argument name (type/default rendered from source — see
+    ``plugin_manager.discover_declaring_plugins_static``).
+    """
+    out = {}
+    for spec in arg_specs:
+        entry = {"type": spec.type, "required": spec.required}
+        if not spec.required and spec.default is not None:
+            kind, val = spec.default
+            entry["default"] = val if kind == "literal" else f"{val}  # (non-literal)"
+        if spec.description:
+            entry["description"] = spec.description
+        out[spec.name] = entry
+    return out
 
 
 @cli.command(context_settings=dict(
