@@ -12,8 +12,42 @@
   # store closure (and Cachix hits).
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/b6067cc0127d4db9c26c79e4de0513e58d0c40c9";
 
+  # --- Prebuilt release artifacts, pinned by flake.lock ----------------------
+  # Each is a release tarball consumed as an opaque source tree (no flake of its
+  # own); flake.lock records the narHash. These replace the Dockerfile
+  # `get_release.sh` downloads (asset URLs: .../releases/download/v<ver>/<asset>).
+
+  # The PANDA-QEMU fork. THIS IS THE qemu SEAM: today it's the prebuilt release
+  # tarball (contents extract under /usr/local). When the qemu/ repo grows its
+  # own flake, swap this single input for `url = "github:rehosting/qemu"` (and
+  # build penguinQemu from `penguin-qemu.packages.<system>...`) without touching
+  # the rest of this flake.
+  inputs.penguin-qemu = {
+    url = "https://github.com/rehosting/qemu/releases/download/v0.0.10/penguin-qemu.tar.gz";
+    flake = false;
+  };
+  inputs.kernels = {
+    url = "https://github.com/rehosting/linux_builder/releases/download/v3.5.33-beta/kernels-latest.tar.gz";
+    flake = false;
+  };
+  inputs.igloo-driver = {
+    url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.82/igloo_driver.tar.gz";
+    flake = false;
+  };
+  inputs.penguin-tools = {
+    url = "https://github.com/rehosting/penguin-tools/releases/download/v0.0.14/penguin-tools.tar.gz";
+    flake = false;
+  };
+
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      penguin-qemu,
+      kernels,
+      igloo-driver,
+      penguin-tools,
+    }:
     let
       systems = [
         "x86_64-linux"
@@ -45,6 +79,25 @@
           junit-xml = py.pkgs.callPackage ./nix/junit-xml.nix { };
           dwarffi = py.pkgs.callPackage ./nix/dwarffi.nix { };
 
+          # ---- The qemu seam + /igloo_static --------------------------------
+          penguinQemu = import ./src/mk-penguin-qemu.nix {
+            inherit pkgs;
+            src = penguin-qemu;
+          };
+
+          iglooStatic = import ./src/mk-igloo-static.nix {
+            inherit
+              pkgs
+              kernels
+              igloo-driver
+              penguin-tools
+              ;
+            guestUtils = lib.fileset.toSource {
+              root = ./guest-utils;
+              fileset = ./guest-utils;
+            };
+          };
+
           pythonEnv = py.withPackages (ps: [
             ps.coloredlogs
             ps.ipython
@@ -72,7 +125,7 @@
           ]);
         in
         {
-          inherit pythonEnv;
+          inherit pythonEnv penguinQemu iglooStatic;
           default = pythonEnv;
         }
       );
