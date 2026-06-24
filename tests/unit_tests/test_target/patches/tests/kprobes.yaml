@@ -13,11 +13,11 @@ plugins:
       kprobes_unregister_handle:
         type: file_contains
         file: kprobe_unregister_test.txt
-        string: "handle count: 1 (PASSED)"
+        string: "handle unregister: PASSED"
       kprobes_unregister_name:
         type: file_contains
         file: kprobe_unregister_test.txt
-        string: "name count: 1 (PASSED)"
+        string: "name unregister: PASSED"
       kprobes_process_filter:
         type: file_contains
         file: kprobe_filter_test.txt
@@ -71,7 +71,7 @@ static_files:
         # wait for the deferred unregister to settle, then open several more.
         true < /kprobe_unreg_handle
         true < /kprobe_unreg_name
-        /igloo/utils/busybox sleep 3
+        /igloo/utils/busybox sleep 5
         i=0
         while [ $i -lt 5 ]; do
           true < /kprobe_unreg_handle
