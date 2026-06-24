@@ -1,5 +1,31 @@
 {
   "nodes": {
+    "igloo-driver": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1781904494,
+        "narHash": "sha256-T1sxFZjiYTF5DVcIyQ7xnnxoqswRIoEKeJ3LtM0Mtgc=",
+        "type": "tarball",
+        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.82/igloo_driver.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.82/igloo_driver.tar.gz"
+      }
+    },
+    "kernels": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1779026150,
+        "narHash": "sha256-gqcWw6bMRc8Cnqq02adRKI29T/ImTmovKimqNXeU+Fo=",
+        "type": "tarball",
+        "url": "https://github.com/rehosting/linux_builder/releases/download/v3.5.33-beta/kernels-latest.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://github.com/rehosting/linux_builder/releases/download/v3.5.33-beta/kernels-latest.tar.gz"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1773201692,
@@ -16,9 +42,39 @@
         "type": "github"
       }
     },
+    "penguin-qemu": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1781661864,
+        "narHash": "sha256-7VUux1wdyY8WlZ0/stmkMWhFHiTRQbEGgv1o0xkqAcA=",
+        "type": "tarball",
+        "url": "https://github.com/rehosting/qemu/releases/download/v0.0.10/penguin-qemu.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://github.com/rehosting/qemu/releases/download/v0.0.10/penguin-qemu.tar.gz"
+      }
+    },
+    "penguin-tools": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1,
+        "narHash": "sha256-2LfISOw3ywFhuun5n+B/IOWWJ7QQjc5Aj8zZxWIKaeI=",
+        "type": "tarball",
+        "url": "https://github.com/rehosting/penguin-tools/releases/download/v0.0.14/penguin-tools.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://github.com/rehosting/penguin-tools/releases/download/v0.0.14/penguin-tools.tar.gz"
+      }
+    },
     "root": {
       "inputs": {
-        "nixpkgs": "nixpkgs"
+        "igloo-driver": "igloo-driver",
+        "kernels": "kernels",
+        "nixpkgs": "nixpkgs",
+        "penguin-qemu": "penguin-qemu",
+        "penguin-tools": "penguin-tools"
       }
     }
   },
