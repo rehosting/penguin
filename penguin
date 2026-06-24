@@ -162,6 +162,7 @@ penguin_run() {
     local replace=false # --replace: reclaim a colliding container name
     local image="" # Container to run; resolved below (flag > env > file > default)
     local image_explicit=false # whether --image was passed
+    local image_is_default=false # whether image fell through to the built-in moving default
     local extra_docker_args=""
     local standalone=false
     local engine_override="" # --docker/--podman/--engine; empty means auto-detect
@@ -289,6 +290,7 @@ penguin_run() {
             image="$(head -n1 "$image_file" | tr -d '[:space:]')"
         else
             image="rehosting/penguin:latest"
+            image_is_default=true
         fi
     fi
 
@@ -838,12 +840,14 @@ penguin_run() {
 
     # We are about to launch a fresh container (all exec-into-existing and
     # teardown commands have exited above). Nudge away from the moving :latest
-    # tag -- the main source of "it worked yesterday" irreproducibility. Skip for
-    # local builds (image is built here, not pulled) and reproduce (pins its own).
-    if ! $build && ! $reproduce; then
-        if [[ "$image" == *:latest || "$image" != *:* ]]; then
-            echo "${BOLD}WARNING:${RESET} using moving image '${image}' (resolves to :latest). Pin a release via --image, PENGUIN_IMAGE, or a .penguin-image file for reproducible runs." >&2
-        fi
+    # tag -- the main source of "it worked yesterday" irreproducibility. Only
+    # warn when the image fell through to the built-in default: if the user
+    # named an image (--image, PENGUIN_IMAGE, or .penguin-image) they made a
+    # deliberate choice -- even ':latest' of their own image is a specific build
+    # to them -- so don't nag. Skip for local builds (image is built here, not
+    # pulled) and reproduce (pins its own).
+    if ! $build && ! $reproduce && $image_is_default; then
+        echo "${BOLD}WARNING:${RESET} using moving image '${image}' (resolves to :latest). Pin a release via --image, PENGUIN_IMAGE, or a .penguin-image file for reproducible runs." >&2
     fi
 
     # Check if we're in an interactive terminal, if so add -it
