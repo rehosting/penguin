@@ -10,11 +10,11 @@
 # Then the symlink staging from Dockerfile lines 612-638 (utils.source, arch-name
 # compat renames, the flat vpn/console link dirs, and utils.bin/<tool>.<arch>).
 #
-# NOT yet included (follow-ups before the full image; each is its own concern):
-#   - musl-headers (built from musl source, Dockerfile 135-146)
-#   - ltrace prototype .conf files (Dockerfile 177-190)
-#   - send_hypercall native helper (cross_builder, Dockerfile 192-196)
-#   - the sysroot header/-lgcc_s linking (Dockerfile 444-464, needs musl-headers)
+# NOT yet included (follow-up; its own concern):
+#   - send_hypercall + the other guest-utils/native/*.c helpers (cross_builder,
+#     Dockerfile 192-196): static-musl binaries cross-built for ~14 arches into
+#     /igloo_static/<arch>/. This needs the cross-toolchain matrix (mirror
+#     penguin-tools' archs.nix + mk-guest-c-tool.nix) and is deferred.
 # The exact byte-structure here must be golden-diffed against the Docker image's
 # /igloo_static before this is trusted for the runtime image.
 {
@@ -23,6 +23,9 @@
   igloo-driver,
   penguin-tools,
   guestUtils,
+  muslHeaders,
+  ltraceSrc,
+  ltraceNvramConf,
 }:
 
 pkgs.runCommand "igloo-static"
@@ -48,6 +51,15 @@ pkgs.runCommand "igloo-static"
     # guest-utils source tree (scripts + native sources), Dockerfile COPY.
     cp -a ${guestUtils} "$out/igloo_static/guest-utils"
     chmod -R u+w "$out/igloo_static/guest-utils"
+
+    # Per-arch musl headers (Dockerfile 135-146 + COPY).
+    cp -a ${muslHeaders}/musl-headers "$out/igloo_static/musl-headers"
+
+    # ltrace prototype .conf files (Dockerfile 177-190): ltrace's etc/ tree plus
+    # the libnvram prototype dropped in as lib_inject.so.conf.
+    cp -a ${ltraceSrc}/etc "$out/igloo_static/ltrace"
+    chmod -R u+w "$out/igloo_static/ltrace" "$out/igloo_static/musl-headers"
+    cp ${ltraceNvramConf} "$out/igloo_static/ltrace/lib_inject.so.conf"
     cd "$out/igloo_static"
 
     # --- Dockerfile 612-615: utils.source (shell drop-in helpers) -------------
@@ -88,5 +100,22 @@ pkgs.runCommand "igloo-static"
           *)         ln -sf "/igloo_static/$file" "utils.bin/$base.$arch" ;;
         esac
       done
+    done
+
+    # --- Dockerfile 444-464: drop-in sysroot header + linker-alias links ------
+    # penguin-tools ships sysroots/<arch>/{lib,...} (crt objects + libc/libgcc);
+    # here we layer on the musl headers and the -lgcc_s alias. Targets are
+    # runtime-absolute (/igloo_static/...), resolved once mounted -- like the
+    # Dockerfile.
+    for pair in armel:arm aarch64:aarch64 powerpc64:powerpc64 powerpc64le:powerpc64 \
+                riscv64:riscv64 mipsel:mips mipseb:mips mips64el:mips64 \
+                mips64eb:mips64 loongarch64:loongarch64 x86_64:x86_64; do
+      arch="''${pair%%:*}"; musl_arch="''${pair##*:}"
+      [ -d "sysroots/$arch/lib" ] || continue
+      ln -sfn "/igloo_static/musl-headers/$musl_arch/include" "sysroots/$arch/include"
+      mkdir -p "sysroots/$arch/usr"
+      ln -sfn ../include "sysroots/$arch/usr/include"
+      ln -sfn ../lib     "sysroots/$arch/usr/lib"
+      ln -sfn libgcc_s.so.1 "sysroots/$arch/lib/libgcc_s.so"
     done
   ''
