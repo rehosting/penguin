@@ -39,6 +39,19 @@
     flake = false;
   };
 
+  # musl source (headers only -- install-headers, no compiler). Dockerfile builds
+  # per-arch headers into /igloo_static/musl-headers/<arch>.
+  inputs.musl-src = {
+    url = "https://musl.libc.org/releases/musl-1.2.5.tar.gz";
+    flake = false;
+  };
+  # ltrace prototype .conf files (the etc/ tree); fetched from Fedora's pkg store
+  # because ltrace.org drops old versions. Path embeds the upstream md5.
+  inputs.ltrace-src = {
+    url = "https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-0.7.91.tar.bz2/9db3bdee7cf3e11c87d8cc7673d4d25b/ltrace-0.7.91.tar.bz2";
+    flake = false;
+  };
+
   outputs =
     {
       self,
@@ -47,6 +60,8 @@
       kernels,
       igloo-driver,
       penguin-tools,
+      musl-src,
+      ltrace-src,
     }:
     let
       systems = [
@@ -85,17 +100,25 @@
             src = penguin-qemu;
           };
 
+          muslHeaders = import ./src/mk-musl-headers.nix {
+            inherit pkgs;
+            src = musl-src;
+          };
+
           iglooStatic = import ./src/mk-igloo-static.nix {
             inherit
               pkgs
               kernels
               igloo-driver
               penguin-tools
+              muslHeaders
               ;
             guestUtils = lib.fileset.toSource {
               root = ./guest-utils;
               fileset = ./guest-utils;
             };
+            ltraceSrc = ltrace-src;
+            ltraceNvramConf = ./src/resources/ltrace_nvram.conf;
           };
 
           pythonEnv = py.withPackages (ps: [
@@ -125,7 +148,7 @@
           ]);
         in
         {
-          inherit pythonEnv penguinQemu iglooStatic;
+          inherit pythonEnv penguinQemu iglooStatic muslHeaders;
           default = pythonEnv;
         }
       );
