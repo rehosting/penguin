@@ -51,6 +51,12 @@
     url = "https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-0.7.91.tar.bz2/9db3bdee7cf3e11c87d8cc7673d4d25b/ltrace-0.7.91.tar.bz2";
     flake = false;
   };
+  # vhost-device: the host-side vsock device backend penguin runs alongside qemu
+  # (Dockerfile rust_builder builds --bin vhost-device-vsock, static).
+  inputs.vhost-device = {
+    url = "github:rust-vmm/vhost-device/vhost-device-vsock-v0.2.0";
+    flake = false;
+  };
 
   outputs =
     {
@@ -62,6 +68,7 @@
       penguin-tools,
       musl-src,
       ltrace-src,
+      vhost-device,
     }:
     let
       systems = [
@@ -117,6 +124,10 @@
           muslHeaders = import ./nix/mk-musl-headers.nix {
             inherit pkgs;
             src = musl-src;
+          };
+
+          vhostDeviceVsock = pkgs.callPackage ./nix/vhost-device-vsock.nix {
+            src = vhost-device;
           };
 
           # ---- Guest native helpers (send_hypercall etc.), cross-built -------
@@ -198,9 +209,23 @@
             pengutils
             penguin
           ]);
+
+          dockerImage = import ./nix/mk-image.nix {
+            inherit pkgs pythonEnv iglooStatic penguinQemu vhostDeviceVsock;
+            pypluginsSrc = lib.fileset.toSource {
+              root = ./pyplugins;
+              fileset = ./pyplugins;
+            };
+            docsSrc = lib.fileset.toSource {
+              root = ./docs;
+              fileset = ./docs;
+            };
+            wrapperSrc = ./penguin;
+            resourcesSrc = ./src/resources;
+          };
         in
         {
-          inherit pythonEnv penguinQemu iglooStatic muslHeaders nativeHelpersTree penguin pengutils;
+          inherit pythonEnv penguinQemu iglooStatic muslHeaders nativeHelpersTree penguin pengutils vhostDeviceVsock dockerImage;
           nativeHelper-x86_64 = nativeHelpers.x86_64;
           default = pythonEnv;
         }
