@@ -71,6 +71,12 @@ let
     extractionBundle
     llvm.clang
     llvm.lld
+    # gen_image.py runs `mke2fs -t ext4 -d <tarball>` to build+populate the
+    # guest ext4 image directly from the rootfs tarball. nixpkgs e2fsprogs
+    # (1.47.3) is already built --with-libarchive, so this needs no custom build
+    # (the Dockerfile's e2fsprogs_builder stage is obsolete). qemu-img comes from
+    # penguinQemu.
+    pkgs.e2fsprogs
     pkgs.bashInteractive
     pkgs.coreutils
     pkgs.findutils
