@@ -10,11 +10,6 @@
 # Then the symlink staging from Dockerfile lines 612-638 (utils.source, arch-name
 # compat renames, the flat vpn/console link dirs, and utils.bin/<tool>.<arch>).
 #
-# NOT yet included (follow-up; its own concern):
-#   - send_hypercall + the other guest-utils/native/*.c helpers (cross_builder,
-#     Dockerfile 192-196): static-musl binaries cross-built for ~14 arches into
-#     /igloo_static/<arch>/. This needs the cross-toolchain matrix (mirror
-#     penguin-tools' archs.nix + mk-guest-c-tool.nix) and is deferred.
 # The exact byte-structure here must be golden-diffed against the Docker image's
 # /igloo_static before this is trusted for the runtime image.
 {
@@ -26,6 +21,7 @@
   muslHeaders,
   ltraceSrc,
   ltraceNvramConf,
+  nativeHelpersTree, # out/<arch>/<bin> static guest helpers (send_hypercall etc.)
 }:
 
 pkgs.runCommand "igloo-static"
@@ -60,6 +56,12 @@ pkgs.runCommand "igloo-static"
     cp -a ${ltraceSrc}/etc "$out/igloo_static/ltrace"
     chmod -R u+w "$out/igloo_static/ltrace" "$out/igloo_static/musl-headers"
     cp ${ltraceNvramConf} "$out/igloo_static/ltrace/lib_inject.so.conf"
+
+    # Guest native helpers (Dockerfile cross_builder: COPY /source/out ->
+    # /igloo_static/). Merge into the per-arch dirs BEFORE the staging loop so
+    # they get globbed into utils.bin/<bin>.<arch> like everything else.
+    cp -a ${nativeHelpersTree}/. "$out/igloo_static/"
+    chmod -R u+w "$out/igloo_static"
     cd "$out/igloo_static"
 
     # --- Dockerfile 612-615: utils.source (shell drop-in helpers) -------------
