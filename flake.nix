@@ -105,6 +105,38 @@
             src = musl-src;
           };
 
+          # ---- Guest native helpers (send_hypercall etc.), cross-built -------
+          nativeArchs = import ./src/native-archs.nix;
+          nativeSrc = lib.fileset.toSource {
+            root = ./guest-utils/native;
+            fileset = ./guest-utils/native;
+          };
+          mkMuslCrossPkgs =
+            archSpec:
+            import nixpkgs {
+              inherit system;
+              config.allowUnsupportedSystem = true;
+              crossSystem = archSpec.muslCrossSystem;
+            };
+          mkNativeHelpers =
+            archName: archSpec:
+            import ./src/mk-native-helpers.nix {
+              crossPkgs = mkMuslCrossPkgs archSpec;
+              src = nativeSrc;
+              extraCFlags = archSpec.extraCFlags or [ ];
+            };
+          nativeHelpers = lib.mapAttrs mkNativeHelpers nativeArchs;
+          # Assemble into out/<arch>/<bin>, the layout the Docker cross_builder
+          # COPYs into /igloo_static/.
+          nativeHelpersTree = pkgs.runCommand "penguin-native-helpers-tree" { } (
+            lib.concatStringsSep "\n" (
+              lib.mapAttrsToList (archName: drv: ''
+                mkdir -p "$out/${archName}"
+                cp -a ${drv}/. "$out/${archName}/"
+              '') nativeHelpers
+            )
+          );
+
           iglooStatic = import ./src/mk-igloo-static.nix {
             inherit
               pkgs
@@ -112,6 +144,7 @@
               igloo-driver
               penguin-tools
               muslHeaders
+              nativeHelpersTree
               ;
             guestUtils = lib.fileset.toSource {
               root = ./guest-utils;
@@ -148,7 +181,8 @@
           ]);
         in
         {
-          inherit pythonEnv penguinQemu iglooStatic muslHeaders;
+          inherit pythonEnv penguinQemu iglooStatic muslHeaders nativeHelpersTree;
+          nativeHelper-x86_64 = nativeHelpers.x86_64;
           default = pythonEnv;
         }
       );
