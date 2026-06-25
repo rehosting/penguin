@@ -102,7 +102,25 @@
         "musl-src": "musl-src",
         "nixpkgs": "nixpkgs",
         "penguin-qemu": "penguin-qemu",
-        "penguin-tools": "penguin-tools"
+        "penguin-tools": "penguin-tools",
+        "vhost-device": "vhost-device"
+      }
+    },
+    "vhost-device": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1721731830,
+        "narHash": "sha256-78ApeHdPSLA46JP9xg6LUvTTpJmpn5LjdcsrZmX9Lgk=",
+        "owner": "rust-vmm",
+        "repo": "vhost-device",
+        "rev": "1e6667fbba428f3bfc6c3980596dd03e4894b068",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rust-vmm",
+        "ref": "vhost-device-vsock-v0.2.0",
+        "repo": "vhost-device",
+        "type": "github"
       }
     }
   },
