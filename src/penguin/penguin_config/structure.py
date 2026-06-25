@@ -231,18 +231,23 @@ class Core(PartialModelMixin, BaseModel):
         ),
     ]
     analysis_scope: Annotated[
-        bool,
+        Union[bool, str],
         Field(
-            True,
-            title="Scope analysis to the firmware process subtree",
+            "firmware",
+            title="Scope of per-process analysis",
             description=" ".join((
-                "If true, per-process analysis loggers (syscalls, exec, read/write,",
-                "binds, shell coverage) only capture the firmware-under-analysis",
+                "Which processes the per-process analysis loggers (syscalls, exec,",
+                "read/write, binds, shell coverage) capture. Recognized values:",
+                "'firmware' (default) captures only the firmware-under-analysis",
                 "process subtree, excluding Penguin's own infrastructure (boot",
-                "machinery and the vpnguin/console/guesthopper helpers). Set false",
-                "to capture every process, including Penguin infrastructure.",
+                "machinery and the vpnguin/console/guesthopper helpers); 'none'",
+                "captures every process, including Penguin infrastructure; 'infra'",
+                "inverts the firmware filter to capture only Penguin's own tools.",
+                "Booleans are accepted for backward compatibility: true == 'firmware',",
+                "false == 'none'. The field is a string so further interpretations can",
+                "be added without a schema change.",
             )),
-            examples=[True, False],
+            examples=["firmware", "none", "infra"],
         ),
     ]
     strace: Annotated[

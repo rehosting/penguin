@@ -40,17 +40,29 @@ class Scope(Plugin):
 
     def __init__(self) -> None:
         conf = self.get_arg("conf")
-        self.enabled: bool = (
-            bool(conf["core"].get("analysis_scope", True)) if conf else True
-        )
+        raw = conf["core"].get("analysis_scope", "firmware") if conf else "firmware"
+        self.mode: str = self._normalize_mode(raw)
+
+        # Scoping is active for every mode except "none". "firmware" keeps only
+        # the firmware subtree; future modes (e.g. "infra") reuse the same
+        # driver gating with a different interpretation.
+        self.enabled: bool = self.mode != "none"
 
         # pids known to be in the firmware subtree (seen via in-scope exec_event)
         self.in_scope_pids: set = set()
         self._enable_sent: bool = False
 
         if not self.enabled:
-            self.logger.info("analysis_scope disabled; capturing all processes")
+            self.logger.info("analysis_scope=none; capturing all processes")
             return
+
+        if self.mode != "firmware":
+            # The field is a string so new interpretations can be added without
+            # a schema change; only "firmware"/"none" are wired up so far.
+            self.logger.warning(
+                "analysis_scope=%r not yet implemented; treating as 'firmware'",
+                self.mode,
+            )
 
         # Turn on kernel-side gating as early as possible (before the init
         # handoff) so Penguin's own pre-handoff boot machinery is excluded too.
@@ -58,6 +70,21 @@ class Scope(Plugin):
         plugins.portal.queue_interrupt("scope")
 
         plugins.subscribe(plugins.Execs, "exec_event", self._on_exec_event)
+
+    @staticmethod
+    def _normalize_mode(raw) -> str:
+        """
+        Map the ``core.analysis_scope`` config value to a scope mode string.
+
+        Booleans are accepted for backward compatibility (``True`` -> ``firmware``,
+        ``False`` -> ``none``); strings are lowercased and passed through so new
+        interpretations can be added without touching the schema.
+        """
+        if isinstance(raw, bool):
+            return "firmware" if raw else "none"
+        if isinstance(raw, str):
+            return raw.strip().lower() or "firmware"
+        return "firmware"
 
     def _enable_handler(self):
         """Portal interrupt handler: tell the driver to enable scope gating."""
