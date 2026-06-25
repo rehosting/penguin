@@ -227,7 +227,7 @@ class Execs(Plugin):
         else:
             self.logger.warning("Execs: Could not retrieve current process info for exec event")
 
-    @plugins.syscalls.syscall("on_sys_execve_enter")
+    @plugins.syscalls.syscall("on_sys_execve_enter", scope_filter=True)
     def on_execve(self, regs: PtRegsWrapper, proto: Any, syscall: int,
                   fname_ptr: int, argv_ptr: int, envp_ptr: int) -> Generator[Any, None, None]:
         """
@@ -239,7 +239,7 @@ class Execs(Plugin):
         """
         yield from self._handle_exec_event(regs, proto, syscall, fname_ptr, argv_ptr, envp_ptr)
 
-    @plugins.syscalls.syscall("on_sys_execveat_enter")
+    @plugins.syscalls.syscall("on_sys_execveat_enter", scope_filter=True)
     def on_execveat(self, regs: PtRegsWrapper, proto: Any, syscall: int, dirfd: int,
                     fname_ptr: int, argv_ptr: int, envp_ptr: int, flags: int) -> Generator[Any, None, None]:
         """

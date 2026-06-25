@@ -107,7 +107,8 @@ class Interfaces(Plugin):
                                   ValueFilter.range(0x8000, 0x9000 - 1),
                                   None
                               ],
-                              retval_filter=ValueFilter.error()
+                              retval_filter=ValueFilter.error(),
+                              scope_filter=True
                               )
     def after_ioctl(self, regs, proto, syscall, fd, request, arg):
         iface = yield from plugins.mem.read_str(arg)

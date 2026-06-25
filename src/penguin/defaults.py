@@ -79,6 +79,7 @@ default_plugins: dict[str, dict] = {
     "readiness": {},
     "snapshot": {},
     "indiv_debug": {},
+    "scope": {},
 }
 
 # We add ioctl wildcard -> 0 in single-iteration mode
