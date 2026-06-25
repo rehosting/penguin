@@ -116,21 +116,25 @@ false
 true
 ```
 
-### `core.analysis_scope` Scope analysis to the firmware process subtree
+### `core.analysis_scope` Scope of per-process analysis
 
 |||
 |-|-|
-|__Type__|boolean|
-|__Default__|`true`|
+|__Type__|boolean or string|
+|__Default__|`firmware`|
 
-If true, per-process analysis loggers (syscalls, exec, read/write, binds, shell coverage) only capture the firmware-under-analysis process subtree, excluding Penguin's own infrastructure (boot machinery and the vpnguin/console/guesthopper helpers). Set false to capture every process, including Penguin infrastructure.
+Which processes the per-process analysis loggers (syscalls, exec, read/write, binds, shell coverage) capture. Recognized values: 'firmware' (default) captures only the firmware-under-analysis process subtree, excluding Penguin's own infrastructure (boot machinery and the vpnguin/console/guesthopper helpers); 'none' captures every process, including Penguin infrastructure; 'infra' inverts the firmware filter to capture only Penguin's own tools. Booleans are accepted for backward compatibility: true == 'firmware', false == 'none'. The field is a string so further interpretations can be added without a schema change.
 
 ```yaml
-true
+firmware
 ```
 
 ```yaml
-false
+none
+```
+
+```yaml
+infra
 ```
 
 ### `core.strace` Enable strace
