@@ -57,6 +57,11 @@
     url = "github:rust-vmm/vhost-device/vhost-device-vsock-v0.2.0";
     flake = false;
   };
+  # fw2tar (already nixified): penguin co-locates the firmware-extraction stack
+  # in its image and sources it from fw2tar's extractionBundle rather than
+  # re-deriving fw2tar/unblob/binwalk/extractor backends. fw2tar pins its own
+  # nixpkgs (unstable); we follow it for its closure, not ours.
+  inputs.fw2tar.url = "github:rehosting/fw2tar/2160c6d9d0f5c4cd250e92f380d4280610b242ed";
 
   outputs =
     {
@@ -69,6 +74,7 @@
       musl-src,
       ltrace-src,
       vhost-device,
+      fw2tar,
     }:
     let
       systems = [
@@ -212,6 +218,7 @@
 
           dockerImage = import ./nix/mk-image.nix {
             inherit pkgs pythonEnv iglooStatic penguinQemu vhostDeviceVsock;
+            extractionBundle = fw2tar.packages.${system}.extractionBundle;
             pypluginsSrc = lib.fileset.toSource {
               root = ./pyplugins;
               fileset = ./pyplugins;
