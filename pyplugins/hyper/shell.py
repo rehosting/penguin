@@ -109,18 +109,19 @@ class BBCov(Plugin):
         hc_type = hc_type & 0xFFFFFFFF
         length = length & 0xFFFFFFFF
 
+        # These events arrive over the portalcall transport, so guest memory
+        # must be read with the yielding plugins.mem API (this callback is a
+        # generator). A synchronous panda read here returns nothing.
         try:
-            argv = self.panda.virtual_memory_read(
-                cpu, argptr, self.pointer_size * length, fmt="ptrlist"
-            )
+            argv = yield from plugins.mem.read_ptrlist(argptr, length)
         except ValueError:
             argv = []
 
         if hc_type == HC_CMD_LOG_LINENO:
-            self.log_line_no(cpu, argv)
+            yield from self.log_line_no(cpu, argv)
             return
         elif hc_type == HC_CMD_LOG_ENV_ARGS:
-            self.log_env_args(cpu, argv)
+            yield from self.log_env_args(cpu, argv)
             return
 
         if hc_type not in self.seen_unknown:
@@ -142,13 +143,13 @@ class BBCov(Plugin):
             return
         file_str_ptr, lineno_ptr, pid_ptr = argv
 
-        filename = self.try_read_string(cpu, file_str_ptr)
+        filename = yield from self.try_read_string(cpu, file_str_ptr)
         if filename is None:
             filename = f"[error reading guest memory at {file_str_ptr:#x}]"
         if filename.startswith("/igloo/"):
             return
-        lineno = self.try_read_int(cpu, lineno_ptr)
-        pid = self.try_read_int(cpu, pid_ptr)
+        lineno = yield from self.try_read_int(cpu, lineno_ptr)
+        pid = yield from self.try_read_int(cpu, pid_ptr)
 
         # Populate read_scripts or fs_missing_files with this script
         if filename not in self.read_scripts and filename not in self.fs_missing_files:
@@ -196,31 +197,31 @@ class BBCov(Plugin):
             self.logger.warning(f"Invalid argv in log_env_args: {argv}")
             return
         file_str_ptr, lineno_ptr, pid_ptr, envs_ptr, env_vals_ptr, envs_count_ptr = argv
-        filename = self.try_read_string(cpu, file_str_ptr)
+        filename = yield from self.try_read_string(cpu, file_str_ptr)
         if filename is None:
             filename = f"[error reading guest memory at {file_str_ptr:#x}]"
 
         if filename.startswith("/igloo/"):
             return
-        lineno = self.try_read_int(cpu, lineno_ptr)
-        pid = self.try_read_int(cpu, pid_ptr)
+        lineno = yield from self.try_read_int(cpu, lineno_ptr)
+        pid = yield from self.try_read_int(cpu, pid_ptr)
 
         try:
-            envs_count = self.panda.virtual_memory_read(
-                cpu, envs_count_ptr, 4, fmt="int"
+            envs_count = yield from plugins.mem.read_int(envs_count_ptr)
+
+            env_str_ptrs = yield from plugins.mem.read_ptrlist(
+                envs_ptr, envs_count
+            )
+            env_vals_ptrs = yield from plugins.mem.read_ptrlist(
+                env_vals_ptr, envs_count
             )
 
-            env_str_ptrs = self.panda.virtual_memory_read(
-                cpu, envs_ptr, self.pointer_size * envs_count, fmt="ptrlist"
-            )
-            env_vals_ptrs = self.panda.virtual_memory_read(
-                cpu, env_vals_ptr, self.pointer_size * envs_count, fmt="ptrlist"
-            )
-
-            env_names = [self.try_read_string(
-                cpu, ptr) for ptr in env_str_ptrs]
-            env_vals = [self.try_read_string(cpu, ptr)
-                        for ptr in env_vals_ptrs]
+            env_names = []
+            for ptr in env_str_ptrs:
+                env_names.append((yield from self.try_read_string(cpu, ptr)))
+            env_vals = []
+            for ptr in env_vals_ptrs:
+                env_vals.append((yield from self.try_read_string(cpu, ptr)))
 
             envs = list(zip(env_names, env_vals))
         except ValueError:
@@ -265,7 +266,7 @@ class BBCov(Plugin):
             return None
 
         try:
-            return plugins.mem.read_str_panda(cpu, ptr)
+            return (yield from plugins.mem.read_str(ptr))
         except ValueError:
             return "[virtual mem read fail]"
 
@@ -284,6 +285,6 @@ class BBCov(Plugin):
             return None
 
         try:
-            return self.panda.virtual_memory_read(cpu, ptr, 4, fmt="int")
+            return (yield from plugins.mem.read_int(ptr))
         except ValueError:
             return "[virtual mem read fail]"
