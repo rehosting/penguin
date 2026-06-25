@@ -230,6 +230,21 @@ class Core(PartialModelMixin, BaseModel):
             examples=[False, True],
         ),
     ]
+    analysis_scope: Annotated[
+        bool,
+        Field(
+            True,
+            title="Scope analysis to the firmware process subtree",
+            description=" ".join((
+                "If true, per-process analysis loggers (syscalls, exec, read/write,",
+                "binds, shell coverage) only capture the firmware-under-analysis",
+                "process subtree, excluding Penguin's own infrastructure (boot",
+                "machinery and the vpnguin/console/guesthopper helpers). Set false",
+                "to capture every process, including Penguin infrastructure.",
+            )),
+            examples=[True, False],
+        ),
+    ]
     strace: Annotated[
         Union[bool, list[str]],
         Field(

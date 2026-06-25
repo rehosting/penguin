@@ -932,6 +932,13 @@ class Syscalls(Plugin):
 
         procname = hook_config.get("procname", None)
         pid_filter = hook_config.get("pid_filter", None)
+        # Analysis scoping: read-only (logging) hooks default to firmware-only
+        # scope so they skip Penguin infrastructure once scoping is enabled;
+        # intervention hooks (read_only=False) stay unscoped. Callers may set
+        # scope_filter explicitly to override.
+        scope_filter = hook_config.get("scope_filter")
+        if scope_filter is None:
+            scope_filter = hook_config.get("read_only", False)
         init_data = {
             "enabled": hook_config.get("enabled", True),
             "on_enter": hook_config.get("on_enter", False),
@@ -942,6 +949,8 @@ class Syscalls(Plugin):
 
             "comm_filter_enabled": procname is not None,
             "comm_filter": procname or "",
+
+            "scope_filter_enabled": bool(scope_filter),
 
             "pid_filter_enabled": pid_filter is not None,
             "filter_pid": pid_filter if pid_filter is not None else 0,
@@ -971,7 +980,8 @@ class Syscalls(Plugin):
         pid_filter: Optional[int] = None,
         retval_filter: Optional[Union[ValueFilter, str, int]] = None,
         enabled: bool = True,
-        read_only: bool = False
+        read_only: bool = False,
+        scope_filter: Optional[bool] = None
     ) -> Callable:
         """
         Decorator for registering syscall callbacks.
@@ -1089,6 +1099,8 @@ class Syscalls(Plugin):
                 "retval_filter": retval_filter,  # Now supports complex filtering
                 "is_method": is_method,  # Store method detection result
                 "read_only": read_only,  # Store read_only flag
+                # None => default to read_only (logging hooks scope to firmware)
+                "scope_filter": scope_filter,
             }
 
             # Create a unique wrapper handle for this registration

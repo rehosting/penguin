@@ -143,13 +143,16 @@ class BBCov(Plugin):
             return
         file_str_ptr, lineno_ptr, pid_ptr = argv
 
+        # Only log shells in the firmware-under-analysis subtree. Penguin's own
+        # shells (boot init.sh, the console root shell, etc.) run outside it.
+        pid = yield from self.try_read_int(cpu, pid_ptr)
+        if not plugins.scope.in_scope(pid):
+            return
+
         filename = yield from self.try_read_string(cpu, file_str_ptr)
         if filename is None:
             filename = f"[error reading guest memory at {file_str_ptr:#x}]"
-        if filename.startswith("/igloo/"):
-            return
         lineno = yield from self.try_read_int(cpu, lineno_ptr)
-        pid = yield from self.try_read_int(cpu, pid_ptr)
 
         # Populate read_scripts or fs_missing_files with this script
         if filename not in self.read_scripts and filename not in self.fs_missing_files:
@@ -197,14 +200,16 @@ class BBCov(Plugin):
             self.logger.warning(f"Invalid argv in log_env_args: {argv}")
             return
         file_str_ptr, lineno_ptr, pid_ptr, envs_ptr, env_vals_ptr, envs_count_ptr = argv
+
+        # Only log shells in the firmware-under-analysis subtree (see log_line_no).
+        pid = yield from self.try_read_int(cpu, pid_ptr)
+        if not plugins.scope.in_scope(pid):
+            return
+
         filename = yield from self.try_read_string(cpu, file_str_ptr)
         if filename is None:
             filename = f"[error reading guest memory at {file_str_ptr:#x}]"
-
-        if filename.startswith("/igloo/"):
-            return
         lineno = yield from self.try_read_int(cpu, lineno_ptr)
-        pid = yield from self.try_read_int(cpu, pid_ptr)
 
         try:
             envs_count = yield from plugins.mem.read_int(envs_count_ptr)

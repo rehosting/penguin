@@ -33,7 +33,7 @@ class FICD(Plugin):
         self.stop_on_if = self.get_arg_bool("stop_on_if")
         self.logger.info("Loading FICD plugin")
 
-        @plugins.syscalls.syscall("on_sys_execve_enter")
+        @plugins.syscalls.syscall("on_sys_execve_enter", scope_filter=True)
         def ficd_execve(regs, proto, syscall, fname_ptr, argv_ptr, envp):
             cpu = self.panda.get_cpu()
             try:
