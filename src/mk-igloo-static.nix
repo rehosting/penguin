@@ -82,7 +82,9 @@ pkgs.runCommand "igloo-static"
     done
 
     # --- Dockerfile 621: aarch64 vpn aliases armel's (legacy) -----------------
-    [ -e armel/vpn ] && ln -sf /igloo_static/armel/vpn /igloo_static/aarch64/vpn || true
+    # Link NAME must be relative (we're cd'd into $out/igloo_static); the target
+    # is the runtime-absolute path, matching the image.
+    [ -e armel/vpn ] && ln -sf /igloo_static/armel/vpn aarch64/vpn || true
 
     # --- Dockerfile 622-638: utils.bin + flat vpn/console link dirs -----------
     mkdir -p utils.bin vpn console
@@ -94,7 +96,11 @@ pkgs.runCommand "igloo-static"
       fi
       [ -d "$arch" ] || continue
       for file in "$arch"/*; do
-        [ -e "$file" ] || continue
+        # Include dangling symlinks: aarch64/vpn points at the runtime-absolute
+        # /igloo_static/armel/vpn (unresolvable at build time). The Dockerfile
+        # loop has no existence guard, so we must stage symlinks too -- a plain
+        # `-e` test would skip them and diverge from the image.
+        [ -e "$file" ] || [ -L "$file" ] || continue
         base="$(basename "$file")"
         case "$base" in
           *vpn*)     ln -sf "/igloo_static/$file" "vpn/vpn.$arch" ;;
