@@ -2,18 +2,17 @@
 # final `penguin` stage. Built with dockerTools.buildLayeredImage like
 # fw2tar/flake.nix.
 #
-# DEFERRED (own follow-up): the firmware-extraction stack -- fw2tar, binwalk,
-# unblob, cramfs, custom e2fsprogs and the ~40 apt extractor backends. penguin
-# only *runs* rehostings from a pre-made fs.tar.gz; extraction is a separate
-# co-located concern best sourced from fw2tar's already-nixified `extractionTools`
-# closure. This image therefore covers the `penguin run/explore/...` path; add
-# the extractor closure before it fully replaces the Docker image.
+# The firmware-extraction stack (fw2tar, unblob, binwalk, the extractor
+# backends) is kept co-located per project decision and sourced from fw2tar's
+# already-nixified `extractionBundle` (a cross-flake input) rather than
+# re-derived here. The custom mke2fs-with-libarchive build is not yet included.
 {
   pkgs,
   pythonEnv, # includes penguin + pengutils + all runtime deps
   iglooStatic, # $out/igloo_static
   penguinQemu, # $out/usr/local (qemu fork)
   vhostDeviceVsock,
+  extractionBundle, # fw2tar.extractionBundle: fw2tar/unblob/binwalk + backends
   pypluginsSrc, # the pyplugins/ tree
   docsSrc, # the docs/ tree
   wrapperSrc, # the host ./penguin wrapper script
@@ -28,11 +27,48 @@ let
   # `clang`; provide a `clang-20` alias (+ lld for ld.lld).
   llvm = pkgs.llvmPackages_20;
 
+  # Overlay package: everything that must live at a specific absolute path
+  # (/usr/local/..., /pyplugins, /docs, /etc). penguinQemu also populates
+  # /usr/local, so these can't be created by extraCommands on top of the
+  # read-only merged content tree -- they must be a *content* themselves, so
+  # buildEnv unions them with qemu's /usr/local. Symlink targets are store-
+  # absolute (the store is in the image), matching how penguin resolves them.
+  overlay = pkgs.runCommand "penguin-overlay" { } ''
+    mkdir -p "$out/usr/local/bin" "$out/usr/local/src" "$out/etc"
+
+    # clang-20: dropin_compile.py invokes it by that exact name (-fuse-ld=lld;
+    # ld.lld comes from llvm.lld on PATH).
+    ln -s ${llvm.clang}/bin/clang "$out/usr/local/bin/clang-20"
+    # vhost-device-vsock at the Dockerfile path (also on PATH).
+    ln -s ${vhostDeviceVsock}/bin/vhost-device-vsock "$out/usr/local/bin/vhost-device-vsock"
+
+    # rootshell helper (Dockerfile: telnet localhost 4321).
+    printf '%s\n%s\n' '#!/bin/sh' 'telnet localhost 4321' > "$out/usr/local/bin/rootshell"
+    chmod +x "$out/usr/local/bin/rootshell"
+
+    # Host-facing wrapper + install helpers (users copy these out to the host).
+    cp ${wrapperSrc}                          "$out/usr/local/src/penguin_wrapper"
+    cp ${resourcesSrc}/banner.sh              "$out/usr/local/bin/banner.sh"
+    cp ${resourcesSrc}/penguin_install        "$out/usr/local/bin/penguin_install"
+    cp ${resourcesSrc}/penguin_install.local  "$out/usr/local/bin/penguin_install.local"
+    chmod +x "$out/usr/local/bin/banner.sh" "$out/usr/local/bin/penguin_install" "$out/usr/local/bin/penguin_install.local"
+
+    # penguin source trees penguin discovers at runtime.
+    mkdir -p "$out/pyplugins" "$out/docs"
+    cp -a ${pypluginsSrc}/. "$out/pyplugins/"
+    cp -a ${docsSrc}/.      "$out/docs/"
+
+    # Banner on interactive shells (Dockerfile parity).
+    printf '%s\n' '[ ! -z "$TERM" ] && [ -z "$NOBANNER" ] && /usr/local/bin/banner.sh' > "$out/etc/bash.bashrc"
+  '';
+
   contents = [
+    overlay
     pythonEnv
     iglooStatic
     penguinQemu
     vhostDeviceVsock
+    extractionBundle
     llvm.clang
     llvm.lld
     pkgs.bashInteractive
@@ -59,38 +95,12 @@ let
     pkgs.dockerTools.fakeNss
   ];
 
+  # Only genuinely-new writable dirs no content provides; everything at a fixed
+  # path lives in `overlay` above (so it merges via buildEnv, not on top of the
+  # read-only content tree).
   extraCommands = ''
-    # Writable scratch + HOME (minimal image ships neither).
     mkdir -p tmp && chmod 1777 tmp
     mkdir -p root && chmod 0777 root
-
-    # clang-20 alias on PATH (dropin_compile.py calls it by that exact name).
-    mkdir -p usr/local/bin
-    ln -sf ${llvm.clang}/bin/clang usr/local/bin/clang-20
-
-    # vhost-device-vsock at the path the Dockerfile installs it (also on PATH).
-    ln -sf ${vhostDeviceVsock}/bin/vhost-device-vsock usr/local/bin/vhost-device-vsock
-
-    # rootshell helper (Dockerfile: telnet localhost 4321).
-    printf '%s\n%s\n' '#!/bin/sh' 'telnet localhost 4321' > usr/local/bin/rootshell
-    chmod +x usr/local/bin/rootshell
-
-    # penguin source trees penguin discovers at runtime.
-    mkdir -p pyplugins docs
-    cp -a ${pypluginsSrc}/. pyplugins/
-    cp -a ${docsSrc}/. docs/
-
-    # Host-facing wrapper + install helpers (users copy these out to the host).
-    mkdir -p usr/local/src
-    cp ${wrapperSrc} usr/local/src/penguin_wrapper
-    cp ${resourcesSrc}/banner.sh            usr/local/bin/banner.sh
-    cp ${resourcesSrc}/penguin_install       usr/local/bin/penguin_install
-    cp ${resourcesSrc}/penguin_install.local usr/local/bin/penguin_install.local
-    chmod +x usr/local/bin/banner.sh usr/local/bin/penguin_install usr/local/bin/penguin_install.local
-
-    # Banner on interactive shells (Dockerfile parity).
-    mkdir -p etc
-    printf '%s\n' '[ ! -z "$TERM" ] && [ -z "$NOBANNER" ] && /usr/local/bin/banner.sh' >> etc/bash.bashrc
   '';
 
   config = {
@@ -107,9 +117,19 @@ let
       "LD_LIBRARY_PATH=/usr/local/lib"
     ];
   };
+  # Pre-merge all contents into one root. With this many packages, several
+  # provide /sbin (some as a dir, some as a symlink), which buildLayeredImage's
+  # per-path merge rejects ("sbin: File exists"). buildEnv with ignoreCollisions
+  # resolves it into a single conflict-free tree.
+  rootEnv = pkgs.buildEnv {
+    name = "penguin-root";
+    ignoreCollisions = true;
+    paths = contents;
+  };
 in
 pkgs.dockerTools.buildLayeredImage {
   name = "rehosting/penguin";
   tag = "latest";
-  inherit contents extraCommands config;
+  contents = [ rootEnv ];
+  inherit extraCommands config;
 }
