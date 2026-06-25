@@ -94,19 +94,33 @@
           junit-xml = py.pkgs.callPackage ./nix/junit-xml.nix { };
           dwarffi = py.pkgs.callPackage ./nix/dwarffi.nix { };
 
+          # Penguin's own packages (Dockerfile: pip install -e /pengutils, /pkg).
+          pengutils = py.pkgs.callPackage ./nix/pengutils.nix {
+            src = lib.fileset.toSource {
+              root = ./pengutils;
+              fileset = ./pengutils;
+            };
+          };
+          penguin = py.pkgs.callPackage ./nix/penguin.nix {
+            src = lib.fileset.toSource {
+              root = ./src;
+              fileset = ./src;
+            };
+          };
+
           # ---- The qemu seam + /igloo_static --------------------------------
-          penguinQemu = import ./src/mk-penguin-qemu.nix {
+          penguinQemu = import ./nix/mk-penguin-qemu.nix {
             inherit pkgs;
             src = penguin-qemu;
           };
 
-          muslHeaders = import ./src/mk-musl-headers.nix {
+          muslHeaders = import ./nix/mk-musl-headers.nix {
             inherit pkgs;
             src = musl-src;
           };
 
           # ---- Guest native helpers (send_hypercall etc.), cross-built -------
-          nativeArchs = import ./src/native-archs.nix;
+          nativeArchs = import ./nix/native-archs.nix;
           nativeSrc = lib.fileset.toSource {
             root = ./guest-utils/native;
             fileset = ./guest-utils/native;
@@ -120,7 +134,7 @@
             };
           mkNativeHelpers =
             archName: archSpec:
-            import ./src/mk-native-helpers.nix {
+            import ./nix/mk-native-helpers.nix {
               crossPkgs = mkMuslCrossPkgs archSpec;
               src = nativeSrc;
               extraCFlags = archSpec.extraCFlags or [ ];
@@ -137,7 +151,7 @@
             )
           );
 
-          iglooStatic = import ./src/mk-igloo-static.nix {
+          iglooStatic = import ./nix/mk-igloo-static.nix {
             inherit
               pkgs
               kernels
@@ -175,13 +189,18 @@
             ps.cxxfilt
             ps.pdoc
             ps.ratarmountcore
+            ps.yamlcore
+            ps.networkx
+            ps.rich # pengutils dep
             pydantic-partial
             junit-xml
             dwarffi
+            pengutils
+            penguin
           ]);
         in
         {
-          inherit pythonEnv penguinQemu iglooStatic muslHeaders nativeHelpersTree;
+          inherit pythonEnv penguinQemu iglooStatic muslHeaders nativeHelpersTree penguin pengutils;
           nativeHelper-x86_64 = nativeHelpers.x86_64;
           default = pythonEnv;
         }
