@@ -99,3 +99,11 @@ or test your changes without needing to tag a new release of the dependency on G
 
 When you have finished prototyping with your local dependency, you should delete your `local_packages`
 directory so subsequent builds of `penguin` use standard versions of dependencies.
+
+## Building with Nix
+
+The `Dockerfile` build described above is the build of record. Penguin can also
+be built reproducibly from a Nix flake (`nix build .#dockerImage`), which pins
+every dependency through `flake.lock` rather than `local_packages/` overrides.
+See [nix.md](nix.md) for the flake outputs, how to bump pinned inputs (including
+the QEMU fork), and the CI integration.
