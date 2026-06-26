@@ -169,16 +169,24 @@
       }
     },
     "penguin-qemu": {
-      "flake": false,
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
       "locked": {
-        "lastModified": 1781661864,
-        "narHash": "sha256-7VUux1wdyY8WlZ0/stmkMWhFHiTRQbEGgv1o0xkqAcA=",
-        "type": "tarball",
-        "url": "https://github.com/rehosting/qemu/releases/download/v0.0.10/penguin-qemu.tar.gz"
+        "lastModified": 1782484827,
+        "narHash": "sha256-SOBYo1PETJ7KQYJ3LvdMhSeqoiaqGKyU74vCF55V8eY=",
+        "owner": "rehosting",
+        "repo": "qemu",
+        "rev": "0c438ff204e6ef1353fe5e745cb34a73805c29e1",
+        "type": "github"
       },
       "original": {
-        "type": "tarball",
-        "url": "https://github.com/rehosting/qemu/releases/download/v0.0.10/penguin-qemu.tar.gz"
+        "owner": "rehosting",
+        "ref": "v0.0.11",
+        "repo": "qemu",
+        "type": "github"
       }
     },
     "penguin-tools": {
