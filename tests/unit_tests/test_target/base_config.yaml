@@ -7,6 +7,9 @@ core:
   version: 2
   force_www: false
   shared_dir: ./shared
+  # Tests exercise Penguin's own infrastructure (helpers, infra services), so
+  # disable analysis scoping and observe every process.
+  analysis_scope: none
 
 env:
   igloo_init: /run_tests.sh

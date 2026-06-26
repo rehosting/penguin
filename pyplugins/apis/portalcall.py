@@ -64,11 +64,15 @@ class PortalCall(Plugin):
             plugins.portal.register_interrupt_handler(
                 "portalcall", self._portalcall_interrupt_handler)
 
+        # scope_filter=False: the portal transport carries hypercalls for
+        # Penguin's own infrastructure too (e.g. init.sh's readiness signal and
+        # scope.py enabling gating), so it must never be scoped to the firmware
+        # subtree -- doing so would cut off the transport for infra.
         # 64-bit systems can sign-extend the magic number
         if self.panda.bits == 64:
-            plugins.syscalls.syscall("on_sys_sendto_enter", arg_filters=[PORTAL_MAGIC_64, None, None, None, None])(self._portalcall_syscall_handler)
+            plugins.syscalls.syscall("on_sys_sendto_enter", arg_filters=[PORTAL_MAGIC_64, None, None, None, None], scope_filter=False)(self._portalcall_syscall_handler)
         self._seen_missing_magics = set()
-        plugins.syscalls.syscall("on_sys_sendto_enter", arg_filters=[PORTAL_MAGIC, None, None, None, None])(self._portalcall_syscall_handler)
+        plugins.syscalls.syscall("on_sys_sendto_enter", arg_filters=[PORTAL_MAGIC, None, None, None, None], scope_filter=False)(self._portalcall_syscall_handler)
 
     def _portalcall_syscall_handler(self, regs, proto, syscall, magic, user_magic, argc, args, dest_addr, addrlen):
         if not self._is_portal_magic(magic):

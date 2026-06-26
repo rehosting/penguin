@@ -1,5 +1,7 @@
 core:
   shared_dir: ./shared
+  # Tests exercise Penguin's own infrastructure, so disable analysis scoping.
+  analysis_scope: none
 
 env:
   igloo_init: /init.sh
