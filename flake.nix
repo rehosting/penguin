@@ -26,7 +26,7 @@
   # (follows), so the closure is shared, and ships CFFI env modules built
   # against this flake's CPython (3.13) so they match penguin's interpreter.
   inputs.penguin-qemu = {
-    url = "github:rehosting/qemu/v0.0.11";
+    url = "github:rehosting/qemu/v0.0.12";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   inputs.kernels = {
