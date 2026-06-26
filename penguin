@@ -1032,13 +1032,43 @@ penguin_run() {
             exit 1
         fi
 
+        # Derive the version the way the old Dockerfile's setuptools_scm did, so
+        # `penguin --version` is correct: <tag> on a tagged commit, else a PEP440
+        # guess-next-dev version off `git describe`. A pure Nix flake can't read
+        # git tags, so we compute it on the host and inject it into the build via
+        # the env var the flake reads (PENGUIN_OVERRIDE_VERSION; needs --impure).
+        penguin_version=""
+        describe="$(git describe --tags --long --dirty 2>/dev/null || true)"
+        if [ -n "$describe" ]; then
+            # e.g. v3.0.46-21-g0d73df31[-dirty]
+            dirty=""
+            case "$describe" in *-dirty) dirty=".dirty"; describe="${describe%-dirty}";; esac
+            hash="${describe##*-g}"          # 0d73df31
+            rest="${describe%-g*}"           # v3.0.46-21
+            dist="${rest##*-}"               # 21
+            base="${rest%-*}"; base="${base#v}"   # 3.0.46
+            if [ "$dist" = "0" ] && [ -z "$dirty" ]; then
+                penguin_version="$base"
+            else
+                # guess-next-dev: bump the last numeric component of the tag
+                vmajor="${base%%.*}"; vrest="${base#*.}"; vminor="${vrest%%.*}"; vpatch="${base##*.}"
+                penguin_version="${vmajor}.${vminor}.$((vpatch + 1)).dev${dist}+g${hash}${dirty}"
+            fi
+        fi
+
         # Build the image tarball with Nix and load it into the engine. The flake
         # names the image rehosting/penguin:latest; retag to the resolved $image
         # so the same invocation runs what we just built. Dependency overrides
         # are flake inputs now (see docs/nix.md), not local_packages/. Override
         # the build attr/args with PENGUIN_NIX_BUILD_ARGS if needed.
         set +e
-        nix build ${PENGUIN_NIX_BUILD_ARGS:-} --accept-flake-config .#dockerImage
+        if [ -n "$penguin_version" ]; then
+            echo "Building penguin version ${penguin_version}"
+            PENGUIN_OVERRIDE_VERSION="$penguin_version" \
+                nix build --impure ${PENGUIN_NIX_BUILD_ARGS:-} --accept-flake-config .#dockerImage
+        else
+            nix build ${PENGUIN_NIX_BUILD_ARGS:-} --accept-flake-config .#dockerImage
+        fi
         build_rc=$?
         if [ "$build_rc" -eq 0 ]; then
             "$ENGINE" load < result

@@ -95,19 +95,20 @@
           lib = pkgs.lib;
 
           # Package version (penguin reads penguin/version.txt at runtime for
-          # `penguin --version`). A release injects the semver via
-          # PENGUIN_OVERRIDE_VERSION -- the publish workflow sets it and builds
-          # with --impure (in pure eval getEnv returns "", so normal builds are
-          # unaffected). Otherwise derive a traceable version from this flake's
-          # git metadata: revCount + short rev on a clean tree, falling back to
-          # the dirty-rev for an uncommitted working tree.
+          # `penguin --version`). The version is tag-derived (setuptools_scm
+          # style, e.g. 3.0.47.dev21+g<rev>), but a pure Nix flake cannot see
+          # git *tags* -- only self.rev -- so the value is computed where the
+          # tags live and injected via PENGUIN_OVERRIDE_VERSION (read here with
+          # builtins.getEnv, which needs --impure; "" in pure eval):
+          #   * release: the publish workflow passes the bumped semver;
+          #   * ./penguin --build and CI: pass `git describe`-derived version.
+          # The fallback below is only hit by a bare `nix build` with no
+          # injected version -- it mirrors the old Dockerfile's
+          # setuptools_scm-produced-nothing case (0.0.0.dev0), tagged with the
+          # commit for traceability.
           overrideVersion = builtins.getEnv "PENGUIN_OVERRIDE_VERSION";
-          gitVersion =
-            if self ? rev then
-              "0.0.0+r${toString (self.revCount or 0)}.g${self.shortRev}"
-            else
-              "0.0.0+g${self.dirtyShortRev or "unknown"}";
-          penguinVersion = if overrideVersion != "" then overrideVersion else gitVersion;
+          gitRev = self.shortRev or self.dirtyShortRev or "unknown";
+          penguinVersion = if overrideVersion != "" then overrideVersion else "0.0.0.dev0+g${gitRev}";
 
           # ---- Penguin core Python environment ----------------------------
           # The post-prune dependency set (angr/symex and the 13 unused
