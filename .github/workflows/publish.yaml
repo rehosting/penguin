@@ -54,6 +54,12 @@ jobs:
       extra-tags: |
         rehosting/penguin:${{ needs.version.outputs.v }}
         rehosting/penguin:latest
+      # Bake the release version into the image (penguin --version). The flake
+      # reads PENGUIN_OVERRIDE_VERSION via builtins.getEnv, which requires
+      # --impure; without it normal builds derive a git-based version.
+      extra-build-args: --impure
+      build-env: |
+        PENGUIN_OVERRIDE_VERSION=${{ needs.version.outputs.v }}
     secrets:
       registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
       registry-user: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}

@@ -6,16 +6,18 @@
 # import set (incl. pengutils); the flake passes it in, shared with pythonEnv as
 # the single source of truth.
 #
-# version.txt is normally produced by setuptools_scm at image build (Dockerfile
-# version_generator stage). Here we write it in preBuild from `version` -- a
-# follow-up can thread the real git-derived version through a flake arg.
+# version.txt was produced by setuptools_scm at image build under the Dockerfile.
+# Here `version` is threaded in from the flake (flake.nix penguinVersion): the
+# release semver via PENGUIN_OVERRIDE_VERSION, else a git-derived version from
+# the flake's `self`. We write it into version.txt in preBuild (for setup.py) and
+# postInstall (for the runtime open(version.txt) in penguin/__init__.py).
 {
   lib,
   buildPythonPackage,
   python,
   setuptools,
   src,
-  version ? "0.0.1+nix",
+  version ? "0.0.0+unknown",
   # Full runtime dependency set (passed explicitly from the flake).
   dependencies ? [ ],
 }:
