@@ -29,11 +29,15 @@ class SphinxGenerator(Plugin):
         self.html_dir = self.outdir / "sphinx" / "html"
         self.docs_dir = Path("/docs")
 
-        # Modules to document
+        # Modules to document. Resolve the package source dirs from their
+        # install location rather than hardcoding /pkg/* -- under the Nix image
+        # penguin/pengutils live in the store env, not an editable /pkg tree.
+        import penguin as _penguin
+        import pengutils as _pengutils
         self.module_specs = {
             "pyplugins": Path("/pyplugins"),
-            "penguin": Path("/pkg/penguin"),
-            "pengutils": Path("/pengutils/pengutils"),
+            "penguin": Path(_penguin.__file__).resolve().parent,
+            "pengutils": Path(_pengutils.__file__).resolve().parent,
         }
 
         # Prepare directories
