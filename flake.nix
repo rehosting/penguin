@@ -157,6 +157,13 @@
               capstone
             ]
           )
+          # ratarmountcore[full]: penguin reads the firmware rootfs tarball at
+          # runtime via ratarmountcore (portal iterator / hypercall handler).
+          # The bare package ships no compression backends, so opening the gzip
+          # fs.tar.gz fails ("unrecognized format" -> StaticFS never loads ->
+          # the run produces no .ran). The Docker image installed
+          # ratarmountcore[full]; mirror that with its optional-dependency set.
+          ++ py.pkgs.ratarmountcore.optional-dependencies.full
           ++ [
             pydantic-partial
             junit-xml
