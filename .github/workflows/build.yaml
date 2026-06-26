@@ -215,6 +215,76 @@ jobs:
             type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache,mode=max
             type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache-PR-${{ github.event.number }}
 
+  # Build the same penguin image from the Nix flake (flake.nix at the repo root)
+  # and push it under a `<sha>-nix` tag, alongside (not replacing) the Docker
+  # build above. The Dockerfile stays the build-of-record while the flake is
+  # validated in CI; the eventual cutover retires the Docker job. The build is
+  # heavy (full qemu system-arch matrix + python env), so it leans on the shared
+  # rehosting-tools Cachix cache via rehosting/ci's nix-setup (PR builds pull,
+  # don't push -- nix-setup's default). The image is loaded into the Harbor
+  # daemon and pushed so run_tests_nix can `docker pull` it exactly like the
+  # Docker path.
+  build_container_nix:
+    runs-on: rehosting-arc
+    needs: [changes, lint]
+    if: ${{ !github.event.pull_request.draft }}
+    env:
+      USER: runner
+      LOGNAME: runner
+      TMPDIR: /home/runner/_work/_temp
+      XDG_CACHE_HOME: /home/runner/_work/.cache
+    steps:
+      - name: Checkout code
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare runner directories
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        run: mkdir -p "$TMPDIR" "$XDG_CACHE_HOME"
+
+      - name: Set up Nix
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: rehosting/ci/actions/nix-setup@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache-backend: cachix
+          cachix-name: rehosting-tools
+          cachix-auth-token: ${{ secrets.CACHIX_REHOSTING }}
+          # No VM needed; avoids install-nix-action's KVM/udevadm step that
+          # fails on Arc pods which expose /dev/kvm without a working udevd.
+          enable-kvm: false
+          extra-nix-config: |
+            max-jobs = 8
+            cores = 8
+
+      - name: Trust Harbor's self-signed certificate
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        run: |
+          echo "Fetching certificate from ${{ env.REGISTRY }}"
+          openssl s_client -showcerts -connect ${{ env.REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
+          sudo update-ca-certificates
+
+      - name: Log in to Rehosting Arc Registry
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.USER }}
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
+
+      - name: Build penguin image from the Nix flake
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        run: |
+          set -eux
+          nix build -L .#dockerImage
+          # buildLayeredImage emits a docker-load'able tar; load it, then retag
+          # to the Harbor <sha>-nix tag and push for the per-arch matrix.
+          docker load < result
+          docker tag rehosting/penguin:latest "${TARGET}/rehosting/penguin:${{ github.sha }}-nix"
+          docker push "${TARGET}/rehosting/penguin:${{ github.sha }}-nix"
+
   run_tests:
     needs: [changes, build_container]
     runs-on: rehosting-arc
@@ -311,6 +381,69 @@ jobs:
           path: |
             ${{ github.workspace }}/tests/integration/basic_target/projects/empty_fs/results/latest/
             ${{ github.workspace }}/tests/integration/test_target/results/latest/
+
+  # Same per-arch suite as run_tests, but against the Nix-built image
+  # (<sha>-nix). The matrix adds the two system targets the legacy Docker
+  # qemu .deb doesn't ship but the flake does: powerpc (32-bit BE) and
+  # powerpc64le. (powerpc64el is an alias of powerpc64le -- same ppc64-softmmu
+  # library -- so it is not tested separately.) This validates the nixified
+  # image across every bootable arch it produces.
+  run_tests_nix:
+    needs: [changes, build_container_nix]
+    runs-on: rehosting-arc
+    if: ${{ !github.event.pull_request.draft }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ["armel", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc", "powerpc64", "powerpc64le", "loongarch64", "aarch64", "x86_64", "riscv64"]
+
+    steps:
+      - name: Checkout code
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Set up penguin image
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: rehosting/ci/actions/pull-image@v1
+        with:
+          registry: ${{ env.REGISTRY }}
+          target: ${{ env.TARGET }}
+          image: rehosting/penguin
+          tag: ${{ github.sha }}-nix
+          local-tag: rehosting/penguin:latest
+          username: ${{ env.USER }}
+          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
+          install-python: "true"
+          install-cert: "false"
+
+      - name: Basic test for ${{ matrix.arch }} (nix)
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/basic_target/test.py --arch ${{ matrix.arch }}
+
+      - name: Test for ${{ matrix.arch }} all kernels (nix)
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        run: timeout 20m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py --arch ${{ matrix.arch }}
+
+      - name: Test Report
+        uses: dorny/test-reporter@v2.1.1
+        if: ${{ needs.changes.outputs.run_tests == 'true'  && ((success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository)}}
+        with:
+          name: ${{ matrix.arch }}-test-results-nix
+          path: ${{ github.workspace }}/tests/unit_tests/test_target/results/[0-9]*/verifier.xml
+          reporter: java-junit
+
+      - name: Debug info
+        if: ${{ needs.changes.outputs.run_tests == 'true' && failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.arch }}-artifacts-nix
+          if-no-files-found: ignore
+          path: |
+            ${{ github.workspace }}/tests/unit_tests/basic_target/projects/empty_fs/results/latest/
+            ${{ github.workspace }}/tests/unit_tests/test_target/results/latest/
 
   run_compose:
     # Compose's mcast plumbing is arch-independent, so this runs once outside
