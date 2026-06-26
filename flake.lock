@@ -175,16 +175,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1782484827,
-        "narHash": "sha256-SOBYo1PETJ7KQYJ3LvdMhSeqoiaqGKyU74vCF55V8eY=",
+        "lastModified": 1782506599,
+        "narHash": "sha256-/pcIXwWCiZhw6TPGuJUrQzwPq/rCWx+y2sUWH6Ve+58=",
         "owner": "rehosting",
         "repo": "qemu",
-        "rev": "0c438ff204e6ef1353fe5e745cb34a73805c29e1",
+        "rev": "5d28a03369922b195e0d9151fc91cac19ed5288b",
         "type": "github"
       },
       "original": {
         "owner": "rehosting",
-        "ref": "v0.0.11",
+        "ref": "v0.0.12",
         "repo": "qemu",
         "type": "github"
       }
