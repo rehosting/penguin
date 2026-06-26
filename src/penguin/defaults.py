@@ -8,8 +8,14 @@ This module provides default scripts, plugin settings, device models, and
 library injection mappings used throughout Penguin.
 """
 
+import os
 from copy import deepcopy
 from os.path import dirname
+
+# Stable resources dir, pinned by PENGUIN_RESOURCES in the image (see
+# penguin.config_patchers.RESOURCES for why); install-relative fallback for
+# editable/dev checkouts.
+_resources_dir: str = os.environ.get("PENGUIN_RESOURCES") or f"{dirname(dirname(__file__))}/resources"
 
 vnc_password: str = "IGLOOPassw0rd!"
 
@@ -47,13 +53,9 @@ well_known_env_vars: list[str] = [
     "TERM",
 ]
 
-# Resolve current path then go to ../resources/init.sh
-default_init_script: str = open(
-    f"{dirname(dirname(__file__))}/resources/init.sh").read()
+default_init_script: str = open(f"{_resources_dir}/init.sh").read()
 
-# Resolve current path then go to ../resources/preinit.sh
-default_preinit_script: str = open(
-    f"{dirname(dirname(__file__))}/resources/preinit.sh").read()
+default_preinit_script: str = open(f"{_resources_dir}/preinit.sh").read()
 
 default_plugins: dict[str, dict] = {
     "core": {},
