@@ -35,6 +35,12 @@ jobs:
     runs-on: rehosting-arc
     # Only after a SUCCESSFUL publish (or a manual dispatch).
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    env:
+      # nix-setup expects these on the self-hosted Arc pool (mirrors build.yaml).
+      USER: runner
+      LOGNAME: runner
+      TMPDIR: /home/runner/_work/_temp
+      XDG_CACHE_HOME: /home/runner/_work/.cache
     steps:
       - name: Install dependencies and label git workspace safe
         run: |
@@ -85,49 +91,32 @@ jobs:
           fetch-depth: 0
           ref: ${{ steps.rel.outputs.tag }}
 
-      # Harbor cert trust + insecure buildx + login via the shared org action.
-      - name: Set up Arc registry (cert, buildx, login)
-        uses: rehosting/ci/actions/arc-registry-setup@v1
+      # Build the docs image (rehosting/penguin:docs) from the Nix flake: the
+      # runtime image plus the in-image sphinx toolchain + LaTeX engine. There
+      # is no Dockerfile; .#docsImage is named rehosting/penguin:docs, so a
+      # plain `docker load` of the result tarball gives the tag the docs run
+      # expects. Pulls from the rehosting-tools Cachix cache (the runtime image
+      # was just published, so most of the closure is cached).
+      - name: Prepare runner directories
+        run: mkdir -p "$TMPDIR" "$XDG_CACHE_HOME"
+
+      - name: Set up Nix
+        uses: rehosting/ci/actions/nix-setup@v1
         with:
-          registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
-          username: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
-          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
-
-      - name: Add docs stage to Dockerfile
-        run: |
-          cat <<'EOF' >> Dockerfile
-
-          FROM penguin AS docs
-
-          RUN pip install sphinx \
-              sphinx-autobuild \
-              sphinx-rtd-theme \
-              myst-parser \
-              sphinx-copybutton \
-              furo \
-              linkify-it-py \
-              sphinx-prompt \
-              sphinxemoji \
-              sphinx-notfound-page \
-              sphinx-last-updated-by-git
-          RUN apt-get update && apt-get install -y texlive-latex-base texlive-latex-recommended texlive-fonts-recommended texlive-latex-extra
-          EOF
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache-backend: cachix
+          cachix-name: rehosting-tools
+          cachix-auth-token: ${{ secrets.CACHIX_REHOSTING }}
+          enable-kvm: false
+          extra-nix-config: |
+            max-jobs = 8
+            cores = 8
 
       - name: Build docs image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          load: true
-          push: false
-          tags: rehosting/penguin:docs
-          build-args: |
-            REGISTRY=${{ secrets.REHOSTING_ARC_REGISTRY }}/proxy
-          cache-from: |
-            type=registry,ref=${{ secrets.REHOSTING_ARC_REGISTRY }}/rehosting/penguin:cache,mode=max
-            type=registry,ref=${{ secrets.REHOSTING_ARC_REGISTRY }}/rehosting/penguin:cache_docs,mode=max
-            type=registry,ref=${{ secrets.REHOSTING_ARC_REGISTRY }}/rehosting/penguin:cache_last_published,mode=max
-          cache-to: |
-            type=registry,ref=${{ secrets.REHOSTING_ARC_REGISTRY }}/rehosting/penguin:cache_docs,mode=max
+        run: |
+          set -eux
+          nix build -L .#docsImage
+          docker load < result
 
       - name: Set up Python
         uses: actions/setup-python@v6

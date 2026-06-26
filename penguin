@@ -1020,47 +1020,35 @@ penguin_run() {
             echo "No --image given for --build; building and running ${BOLD}$image${RESET} so the local"
             echo "build doesn't shadow rehosting/penguin:latest. Pass --image to choose another tag."
         fi
-        echo "Running with container rebuild (--build). Entire container will be rebuilt."
+        echo "Running with container rebuild (--build) via Nix. Entire image will be rebuilt."
         cd "$(dirname "$(realpath "$0")")"
-        if [ ! -f "Dockerfile" ]; then
-            echo "Dockerfile not found in $(pwd) and you requested a container rebuild"
+        if ! command -v nix >/dev/null 2>&1; then
+            echo "${RED}ERROR:${RESET} --build builds the image from the Nix flake, but 'nix' was not found on PATH." >&2
+            echo "Install Nix (with flakes enabled), or pull a prebuilt image and run with --image instead." >&2
+            exit 1
+        fi
+        if [ ! -f "flake.nix" ]; then
+            echo "flake.nix not found in $(pwd) and you requested an image rebuild" >&2
             exit 1
         fi
 
-        # The Dockerfile uses `RUN --mount=type=cache` for pip caches. docker
-        # BuildKit and podman 4+ support it; buildah < 1.24 (podman 3.x) rejects
-        # it ("invalid mount type cache"). Keep the cache mounts in the canonical
-        # Dockerfile and, only for old podman, build from a temp copy with those
-        # mounts stripped -- they only speed up rebuilds, the image is identical.
-        build_dockerfile="Dockerfile"
-        stripped_dockerfile=""
-        if $ENGINE_IS_PODMAN; then
-            podman_major="$(podman version --format '{{.Client.Version}}' 2>/dev/null | cut -d. -f1)"
-            if [ -n "$podman_major" ] && [ "$podman_major" -lt 4 ] 2>/dev/null; then
-                stripped_dockerfile="$(mktemp)"
-                sed -E 's# --mount=type=cache[^ ]*##g' Dockerfile > "$stripped_dockerfile"
-                build_dockerfile="$stripped_dockerfile"
-                echo "Note: podman ${podman_major}.x / buildah lacks 'RUN --mount=type=cache'; stripping pip cache mounts for this build (resulting image is unchanged)."
+        # Build the image tarball with Nix and load it into the engine. The flake
+        # names the image rehosting/penguin:latest; retag to the resolved $image
+        # so the same invocation runs what we just built. Dependency overrides
+        # are flake inputs now (see docs/nix.md), not local_packages/. Override
+        # the build attr/args with PENGUIN_NIX_BUILD_ARGS if needed.
+        set +e
+        nix build ${PENGUIN_NIX_BUILD_ARGS:-} --accept-flake-config .#dockerImage
+        build_rc=$?
+        if [ "$build_rc" -eq 0 ]; then
+            "$ENGINE" load < result
+            build_rc=$?
+            if [ "$build_rc" -eq 0 ] && [ "$image" != "rehosting/penguin:latest" ]; then
+                "$ENGINE" tag rehosting/penguin:latest "$image"
+                build_rc=$?
             fi
         fi
-
-        # Assemble the build command (always non-empty -> safe under set -u).
-        build_cmd=("$ENGINE" "build")
-        if [ -n "${SSH_AUTH_SOCK:-}" ]; then
-            build_cmd+=("--build-arg" "SSH=1" "--ssh" "default")
-        fi
-        build_cmd+=("-f" "$build_dockerfile" "-t" "$image" "-t" "rehosting/fw2tar" ".")
-
-        # DOCKER_BUILDKIT only applies to docker; podman uses buildah natively.
-        set +e
-        if $ENGINE_IS_PODMAN; then
-            "${build_cmd[@]}"
-        else
-            DOCKER_BUILDKIT=1 "${build_cmd[@]}"
-        fi
-        build_rc=$?
         set -e
-        [ -n "$stripped_dockerfile" ] && rm -f "$stripped_dockerfile"
         if [ "$build_rc" -ne 0 ]; then
             exit "$build_rc"
         fi
