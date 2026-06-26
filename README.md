@@ -114,6 +114,12 @@ docker run rehosting/penguin penguin_install.local | sh
 You can also build your penguin container from source and do local software development
 by following the instructions in [docs/dev.md](docs/dev.md)
 
+## Building with Nix
+
+In addition to the `Dockerfile` build, Penguin can be built reproducibly from a
+Nix flake (`nix build .#dockerImage`). See [docs/nix.md](docs/nix.md) for the
+flake outputs, the QEMU-fork seam, per-arch coverage, and CI integration.
+
 # Learn more about Penguin
 
 To learn more about Penguin you can look in the [docs](docs/) directory or run the `docs`
@@ -135,6 +141,7 @@ For additional help, you can run any of the `penguin` subcommands with a `--help
 * Plugin documentation:       [docs/plugins.md](docs/plugins.md) - describes each of the dynamic analysis plugins.
 * Config file documentation:  [docs/schema_doc.md](docs/schema_doc.md) - describes the configuration file format.
 * Testing pyplugins:          [docs/testing.md](docs/testing.md) - how to test a plugin's host-side logic with no guest boot.
+* Nix build:                  [docs/nix.md](docs/nix.md) - describes building the penguin image reproducibly from the Nix flake.
 
 ## Disclaimer
 

@@ -29,3 +29,7 @@ tests/unit/.isf_cache/
 src/penguin/testing/.isf_cache/
 # coverage.py data
 .coverage
+
+# Per-worktree workspace template + stray logs (never belong in the repo)
+CLAUDE.md
+*.log
