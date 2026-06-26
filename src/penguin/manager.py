@@ -19,6 +19,7 @@ import csv
 import os
 import signal
 import subprocess
+import sys
 import time
 from penguin import getColoredLogger
 from .common import yaml, CoreLoader
@@ -282,8 +283,16 @@ class PandaRunner:
 
         # Python subprocess. No pipe (pipes can get full and deadlock the child!)
         assert os.path.isfile(conf_yaml), f"Config file {conf_yaml} not found"
+        # Use sys.executable (the interpreter penguin is already running under),
+        # not a bare "python3" resolved via PATH. penguin_run must import the
+        # penguin package; a PATH-resolved "python3" can land on a different
+        # interpreter that lacks it -- e.g. under Nix the console-script wrapper
+        # prepends the bare interpreter's bin (no penguin on its path) ahead of
+        # the packaged environment. sys.executable is the same interpreter that
+        # imported penguin here, so the child always finds it (and this is
+        # equally correct on the Docker image).
         cmd = timeout_cmd + [
-            "python3",
+            sys.executable,
             "-m",
             "penguin.penguin_run",
             proj_dir,

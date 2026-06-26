@@ -1,6 +1,10 @@
 # The penguin package (Dockerfile: pip install -e /pkg). setup.cfg declares only
-# pyyaml/jsonschema/jinja2; penguin's broader runtime imports (pydantic, click,
-# coloredlogs, ...) are satisfied by the shared pythonEnv it installs into.
+# pyyaml/jsonschema/jinja2, but penguin's CLI shells out to its other console
+# scripts (gen_config, gen_image, ...) as separate processes, and a console
+# script's Nix wrapper only sees the package's *declared* dependencies -- not
+# the surrounding pythonEnv. So `dependencies` must carry penguin's full runtime
+# import set (incl. pengutils); the flake passes it in, shared with pythonEnv as
+# the single source of truth.
 #
 # version.txt is normally produced by setuptools_scm at image build (Dockerfile
 # version_generator stage). Here we write it in preBuild from `version` -- a
@@ -10,11 +14,10 @@
   buildPythonPackage,
   python,
   setuptools,
-  pyyaml,
-  jsonschema,
-  jinja2,
   src,
   version ? "0.0.1+nix",
+  # Full runtime dependency set (passed explicitly from the flake).
+  dependencies ? [ ],
 }:
 
 buildPythonPackage {
@@ -23,7 +26,7 @@ buildPythonPackage {
   pyproject = true;
 
   build-system = [ setuptools ];
-  dependencies = [ pyyaml jsonschema jinja2 ];
+  inherit dependencies;
 
   # setup.py reads penguin/version.txt at build; penguin also reads it at runtime
   # (open'd relative to __file__). package_data doesn't ship it, so write it both

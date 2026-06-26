@@ -117,11 +117,59 @@
               fileset = ./pengutils;
             };
           };
+
+          # Penguin's full runtime dependency set, the single source of truth
+          # shared by both the penguin package (so its subprocess'd console
+          # scripts' wrappers carry these) and pythonEnv (the interpreter the
+          # image runs). Over-declaring here is harmless; under-declaring breaks
+          # gen_config/gen_image when penguin shells out to them.
+          penguinRuntimeDeps = (
+            with py.pkgs;
+            [
+              coloredlogs
+              ipython
+              levenshtein
+              jinja2
+              lxml
+              lz4
+              pydantic
+              pyelftools
+              pyyaml
+              pyvis
+              jsonschema
+              click
+              art
+              setuptools
+              sqlalchemy
+              jc
+              ujson
+              cxxfilt
+              pdoc
+              ratarmountcore
+              yamlcore
+              networkx
+              rich
+              cffi
+              # keystone is imported unconditionally by the essential core plugin
+              # pyplugins/core/live_image.py; capstone backs apis/unwind.py
+              # (guarded). Both are core to the rehosting assembler/disassembler.
+              keystone-engine
+              capstone
+            ]
+          )
+          ++ [
+            pydantic-partial
+            junit-xml
+            dwarffi
+            pengutils
+          ];
+
           penguin = py.pkgs.callPackage ./nix/penguin.nix {
             src = lib.fileset.toSource {
               root = ./src;
               fileset = ./src;
             };
+            dependencies = penguinRuntimeDeps;
           };
 
           # ---- The qemu seam + /igloo_static --------------------------------
@@ -161,6 +209,7 @@
             import ./nix/mk-native-helpers.nix {
               crossPkgs = mkMuslCrossPkgs archSpec;
               src = nativeSrc;
+              inherit archName;
               extraCFlags = archSpec.extraCFlags or [ ];
             };
           nativeHelpers = lib.mapAttrs mkNativeHelpers nativeArchs;
@@ -192,40 +241,10 @@
             ltraceNvramConf = ./src/resources/ltrace_nvram.conf;
           };
 
-          pythonEnv = py.withPackages (ps: [
-            ps.coloredlogs
-            ps.ipython
-            ps.levenshtein
-            ps.jinja2
-            ps.lxml
-            ps.lz4
-            ps.pydantic
-            ps.pyelftools
-            ps.pyyaml
-            ps.pyvis
-            ps.jsonschema
-            ps.click
-            ps.art
-            ps.setuptools
-            ps.sqlalchemy
-            ps.jc
-            ps.ujson
-            ps.cxxfilt
-            ps.pdoc
-            ps.ratarmountcore
-            ps.yamlcore
-            ps.networkx
-            ps.rich # pengutils dep
-            # Runtime for the qemu fork's CFFI API-mode env modules
-            # (_penguin_qemu_env_*.so import _cffi_backend) + penguin's qemu
-            # compat layer.
-            ps.cffi
-            pydantic-partial
-            junit-xml
-            dwarffi
-            pengutils
-            penguin
-          ]);
+          # The interpreter the image runs: the shared runtime deps plus penguin
+          # itself. cffi (in penguinRuntimeDeps) also backs the qemu fork's CFFI
+          # API-mode env modules (_penguin_qemu_env_*.so import _cffi_backend).
+          pythonEnv = py.withPackages (_ps: penguinRuntimeDeps ++ [ penguin ]);
 
           dockerImage = import ./nix/mk-image.nix {
             inherit pkgs pythonEnv iglooStatic penguinQemu vhostDeviceVsock;
