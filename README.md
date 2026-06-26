@@ -116,9 +116,10 @@ by following the instructions in [docs/dev.md](docs/dev.md)
 
 ## Building with Nix
 
-In addition to the `Dockerfile` build, Penguin can be built reproducibly from a
-Nix flake (`nix build .#dockerImage`). See [docs/nix.md](docs/nix.md) for the
-flake outputs, the QEMU-fork seam, per-arch coverage, and CI integration.
+The `rehosting/penguin` image is built reproducibly from a Nix flake
+(`nix build .#dockerImage`, or `./penguin --build`). See
+[docs/nix.md](docs/nix.md) for the flake outputs, the QEMU-fork seam, per-arch
+coverage, and CI integration.
 
 # Learn more about Penguin
 

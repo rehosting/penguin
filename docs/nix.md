@@ -1,22 +1,13 @@
 # Building Penguin with Nix
 
-Penguin has two coexisting build paths:
+The `rehosting/penguin` image is built from a **Nix flake** (`flake.nix` at the
+repo root). There is no Dockerfile — the flake is the sole build path.
 
-- **The `Dockerfile`** — the historical build, and still the *build of record*.
-  Everything in [docs/dev.md](dev.md) (the `./penguin --build` /
-  `local_packages/` loop) continues to work unchanged.
-- **A Nix flake** (`flake.nix` at the repo root) — a fully reproducible,
-  pinned build of the same `rehosting/penguin` image. This document covers it.
-
-The flake produces a byte-for-byte reproducible image: every dependency
-(the Python environment, the PANDA-QEMU fork, `/igloo_static`, the
-firmware-extraction stack, clang-20) is pinned by `flake.lock`, so two builds
-of the same commit yield the same closure. It is the same image the Dockerfile
-produces, assembled by Nix instead of `apt` + `pip` + release downloads.
-
-> The Dockerfile is not going away yet. The flake is validated alongside it in
-> CI (see [CI](#ci-integration)); the Dockerfile will only be retired after the
-> Nix image passes a full nightly cycle.
+The flake produces a reproducible image: every dependency (the Python
+environment, the PANDA-QEMU fork, `/igloo_static`, the firmware-extraction
+stack, clang-20) is pinned by `flake.lock`, so two builds of the same commit
+yield the same closure. It replaces what the old multi-stage Dockerfile did
+with `apt` + `pip` + release downloads.
 
 ## Prerequisites
 
@@ -47,6 +38,15 @@ docker load < result
 image is named `rehosting/penguin:latest`, layered on `ubuntu:22.04` (so it
 keeps a normal FHS userland + `apt`), with the Nix-built components on top.
 
+The `./penguin` wrapper's `--build` flag does exactly the above for you — it
+runs `nix build .#dockerImage`, loads the result into your container engine,
+and retags it to the run image (`localhost/penguin:dev` by default, or whatever
+`--image` selects):
+
+```sh
+./penguin --build run projects/your_fw   # rebuild from the flake, then run
+```
+
 ## Flake outputs
 
 Built for both `x86_64-linux` and `aarch64-linux`. Build any with
@@ -55,6 +55,7 @@ Built for both `x86_64-linux` and `aarch64-linux`. Build any with
 | Output | What it is |
 |--------|------------|
 | `dockerImage` | the full `rehosting/penguin:latest` image tarball |
+| `docsImage` | `rehosting/penguin:docs` — the runtime image plus the sphinx toolchain + texlive, used by the docs release job |
 | `pythonEnv` *(default)* | the interpreter the image runs: penguin + all runtime deps |
 | `penguin` | the penguin Python package alone |
 | `pengutils` | the `pengutils` helper package |
@@ -67,7 +68,7 @@ Built for both `x86_64-linux` and `aarch64-linux`. Build any with
 Inspect without building the whole image, e.g. `nix build .#iglooStatic` then
 `find result/`.
 
-## How the pieces map to the Dockerfile
+## How the pieces fit together
 
 ### The qemu seam
 
@@ -173,11 +174,24 @@ Inputs include `penguin-qemu`, `kernels`, `igloo-driver`, `penguin-tools`,
 `musl-src`, `ltrace-src`, `vhost-device`, and `fw2tar` (whose closure supplies
 the firmware-extraction stack). Re-run `nix build .#dockerImage` after any bump.
 
+## Dependency overrides (replacing `local_packages/`)
+
+The old Dockerfile let you drop a prebuilt artifact into `local_packages/` to
+override a pinned dependency. The flake has no such mechanism — dependencies are
+pinned as flake inputs, so to test a local change to a sibling repo (qemu,
+kernels, igloo-driver, …) point its input at your checkout:
+
+```sh
+# Build against a local qemu checkout instead of the pinned release:
+nix build .#dockerImage --override-input penguin-qemu path:/abs/path/to/qemu --accept-flake-config
+```
+
+For a permanent change, edit the input's `url` in `flake.nix` and
+`nix flake update <input>` (see [Updating pinned inputs](#updating-pinned-inputs)).
+
 ## Not yet covered
 
-- A Nix **devShell** for the `--pydev` live-edit loop is not yet implemented;
-  use the Docker `./penguin --pydev` flow ([docs/dev.md](dev.md)) for iterating
-  on `src/` and `pyplugins/`.
-- The `local_packages/` override contract is a Docker-build feature; the Nix
-  build pins dependencies through flake inputs instead (see
-  [Updating pinned inputs](#updating-pinned-inputs)).
+- A Nix **devShell** for the `--pydev` live-edit loop is not yet implemented.
+  `./penguin --pydev` still mounts `src/`→`/pkg` and `pip install -e`s over the
+  image for iterating on `src/` and `pyplugins/`; for a from-scratch image
+  rebuild use `./penguin --build` (which now runs `nix build .#dockerImage`).
