@@ -17,14 +17,17 @@
   # own); flake.lock records the narHash. These replace the Dockerfile
   # `get_release.sh` downloads (asset URLs: .../releases/download/v<ver>/<asset>).
 
-  # The PANDA-QEMU fork. THIS IS THE qemu SEAM: today it's the prebuilt release
-  # tarball (contents extract under /usr/local). When the qemu/ repo grows its
-  # own flake, swap this single input for `url = "github:rehosting/qemu"` (and
-  # build penguinQemu from `penguin-qemu.packages.<system>...`) without touching
-  # the rest of this flake.
+  # The PANDA-QEMU fork. THIS IS THE qemu SEAM: it's now the qemu repo's own
+  # flake (built from source), pinned by release tag. We consume the flake's
+  # `penguin-qemu` package output (not a fetchurl of the tarball): the Nix-built
+  # libqemu-system-*.so / qemu-img carry rpaths into /nix/store, so the package
+  # output drags its closure (glibc/pixman/libfdt/glib/slirp) into the image --
+  # a plain tarball would leave those dangling. It pins the same nixpkgs as us
+  # (follows), so the closure is shared, and ships CFFI env modules built
+  # against this flake's CPython (3.13) so they match penguin's interpreter.
   inputs.penguin-qemu = {
-    url = "https://github.com/rehosting/qemu/releases/download/v0.0.10/penguin-qemu.tar.gz";
-    flake = false;
+    url = "github:rehosting/qemu/v0.0.11";
+    inputs.nixpkgs.follows = "nixpkgs";
   };
   inputs.kernels = {
     url = "https://github.com/rehosting/linux_builder/releases/download/v3.5.33-beta/kernels-latest.tar.gz";
@@ -122,9 +125,13 @@
           };
 
           # ---- The qemu seam + /igloo_static --------------------------------
+          # The qemu flake's `penguin-qemu` output is the unpacked tree
+          # (bin/include/lib/share) -- same layout the prebuilt tarball had, so
+          # mk-penguin-qemu.nix stages it identically; its store-path rpaths pull
+          # the qemu runtime closure into the image.
           penguinQemu = import ./nix/mk-penguin-qemu.nix {
             inherit pkgs;
-            src = penguin-qemu;
+            src = penguin-qemu.packages.${system}.penguin-qemu;
           };
 
           muslHeaders = import ./nix/mk-musl-headers.nix {
@@ -209,6 +216,10 @@
             ps.yamlcore
             ps.networkx
             ps.rich # pengutils dep
+            # Runtime for the qemu fork's CFFI API-mode env modules
+            # (_penguin_qemu_env_*.so import _cffi_backend) + penguin's qemu
+            # compat layer.
+            ps.cffi
             pydantic-partial
             junit-xml
             dwarffi
