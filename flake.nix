@@ -253,23 +253,66 @@
           # API-mode env modules (_penguin_qemu_env_*.so import _cffi_backend).
           pythonEnv = py.withPackages (_ps: penguinRuntimeDeps ++ [ penguin ]);
 
-          dockerImage = import ./nix/mk-image.nix {
-            inherit pkgs pythonEnv iglooStatic penguinQemu vhostDeviceVsock;
-            extractionBundle = fw2tar.packages.${system}.extractionBundle;
-            pypluginsSrc = lib.fileset.toSource {
-              root = ./pyplugins;
-              fileset = ./pyplugins;
-            };
-            docsSrc = lib.fileset.toSource {
-              root = ./docs;
-              fileset = ./docs;
-            };
-            wrapperSrc = ./penguin;
-            resourcesSrc = ./src/resources;
+          # The docs toolchain (pyplugins/docgen/doc_generator.py imports sphinx
+          # in-process and shells out to sphinx-apidoc + pdflatex). The docs
+          # image is the runtime image plus these sphinx packages in the *same*
+          # interpreter and a LaTeX toolchain on PATH -- mirroring the sphinx/
+          # texlive set the old Dockerfile docs stage pip/apt-installed.
+          docsPythonEnv = py.withPackages (
+            ps:
+            penguinRuntimeDeps
+            ++ [ penguin ]
+            ++ (with ps; [
+              sphinx
+              sphinx-rtd-theme
+              myst-parser
+              sphinx-copybutton
+              furo
+              linkify-it-py
+              sphinx-prompt
+              sphinxemoji
+              sphinx-notfound-page
+              sphinx-last-updated-by-git
+              sphinx-autobuild
+            ])
+          );
+
+          # Shared across the runtime and docs images; only pythonEnv/tag/
+          # extraContents differ between them.
+          mkImage =
+            args:
+            import ./nix/mk-image.nix (
+              {
+                inherit pkgs iglooStatic penguinQemu vhostDeviceVsock;
+                extractionBundle = fw2tar.packages.${system}.extractionBundle;
+                pypluginsSrc = lib.fileset.toSource {
+                  root = ./pyplugins;
+                  fileset = ./pyplugins;
+                };
+                docsSrc = lib.fileset.toSource {
+                  root = ./docs;
+                  fileset = ./docs;
+                };
+                wrapperSrc = ./penguin;
+                resourcesSrc = ./src/resources;
+              }
+              // args
+            );
+
+          dockerImage = mkImage { inherit pythonEnv; };
+
+          # The release docs image (rehosting/penguin:docs): the runtime image
+          # plus the in-image sphinx toolchain and a LaTeX engine for the PDF
+          # build. texlive scheme-medium provides pdflatex + latexmk + the
+          # latex-extra/fonts packages the old Dockerfile docs stage apt-installed.
+          docsImage = mkImage {
+            pythonEnv = docsPythonEnv;
+            tag = "docs";
+            extraContents = [ pkgs.texliveMedium ];
           };
         in
         {
-          inherit pythonEnv penguinQemu iglooStatic muslHeaders nativeHelpersTree penguin pengutils vhostDeviceVsock dockerImage;
+          inherit pythonEnv penguinQemu iglooStatic muslHeaders nativeHelpersTree penguin pengutils vhostDeviceVsock dockerImage docsImage;
           nativeHelper-x86_64 = nativeHelpers.x86_64;
           default = pythonEnv;
         }
