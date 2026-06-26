@@ -20,7 +20,18 @@ from penguin import getColoredLogger
 
 logger = getColoredLogger("penguin.config_patchers")
 
-RESOURCES: str = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources")
+# Penguin's bundled resources (source.d, static_keys, proc_sys.txt, init
+# scripts). Some of these paths are baked into a project's generated config as
+# host_file globs (e.g. /igloo/source.d/* <- RESOURCES/source.d/*), so RESOURCES
+# must be a STABLE absolute path: deriving it from the package install location
+# gives /pkg/resources for an editable install but a content-hashed
+# /nix/store/...-env/.../resources path otherwise, which changes on every image
+# rebuild and breaks configs generated against an earlier image. The image pins
+# it via PENGUIN_RESOURCES (see nix/mk-image.nix); fall back to the
+# install-relative path for editable/dev checkouts.
+RESOURCES: str = os.environ.get("PENGUIN_RESOURCES") or os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "resources"
+)
 
 
 class TarHelper:
