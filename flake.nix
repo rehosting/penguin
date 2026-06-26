@@ -94,6 +94,21 @@
           pkgs = pkgsFor system;
           lib = pkgs.lib;
 
+          # Package version (penguin reads penguin/version.txt at runtime for
+          # `penguin --version`). A release injects the semver via
+          # PENGUIN_OVERRIDE_VERSION -- the publish workflow sets it and builds
+          # with --impure (in pure eval getEnv returns "", so normal builds are
+          # unaffected). Otherwise derive a traceable version from this flake's
+          # git metadata: revCount + short rev on a clean tree, falling back to
+          # the dirty-rev for an uncommitted working tree.
+          overrideVersion = builtins.getEnv "PENGUIN_OVERRIDE_VERSION";
+          gitVersion =
+            if self ? rev then
+              "0.0.0+r${toString (self.revCount or 0)}.g${self.shortRev}"
+            else
+              "0.0.0+g${self.dirtyShortRev or "unknown"}";
+          penguinVersion = if overrideVersion != "" then overrideVersion else gitVersion;
+
           # ---- Penguin core Python environment ----------------------------
           # The post-prune dependency set (angr/symex and the 13 unused
           # packages are gone). Firmware-extraction Python backends (binwalk
@@ -177,6 +192,7 @@
               fileset = ./src;
             };
             dependencies = penguinRuntimeDeps;
+            version = penguinVersion;
           };
 
           # ---- The qemu seam + /igloo_static --------------------------------
