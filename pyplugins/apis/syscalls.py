@@ -932,13 +932,16 @@ class Syscalls(Plugin):
 
         procname = hook_config.get("procname", None)
         pid_filter = hook_config.get("pid_filter", None)
-        # Analysis scoping: read-only (logging) hooks default to firmware-only
-        # scope so they skip Penguin infrastructure once scoping is enabled;
-        # intervention hooks (read_only=False) stay unscoped. Callers may set
-        # scope_filter explicitly to override.
+        # Analysis scoping: hooks default to firmware-only scope, so once
+        # scoping is enabled they skip Penguin's own infrastructure (boot
+        # machinery and the vpnguin/console/guesthopper helpers). This applies
+        # to interventions too -- a hook a user adds in a default context is
+        # meant to analyze/affect the firmware, not Penguin's plumbing. The
+        # handful of hooks that must run for infra (the portal transport in
+        # particular) opt out with scope_filter=False.
         scope_filter = hook_config.get("scope_filter")
         if scope_filter is None:
-            scope_filter = hook_config.get("read_only", False)
+            scope_filter = True
         init_data = {
             "enabled": hook_config.get("enabled", True),
             "on_enter": hook_config.get("on_enter", False),
@@ -1006,6 +1009,11 @@ class Syscalls(Plugin):
             Whether the hook is enabled.
         read_only : bool
             Whether the hook modifies arguments (set to True to optimize).
+        scope_filter : bool, optional
+            Whether to restrict this hook to the firmware-under-analysis process
+            subtree when analysis scoping is enabled. Defaults to True (firmware
+            only). Set False for hooks that must also fire for Penguin's own
+            infrastructure (e.g. the portal transport).
 
         Returns
         -------
@@ -1099,7 +1107,8 @@ class Syscalls(Plugin):
                 "retval_filter": retval_filter,  # Now supports complex filtering
                 "is_method": is_method,  # Store method detection result
                 "read_only": read_only,  # Store read_only flag
-                # None => default to read_only (logging hooks scope to firmware)
+                # None => default to firmware-only scope (see register_syscall_hook);
+                # set False on hooks that must also run for Penguin infrastructure.
                 "scope_filter": scope_filter,
             }
 
