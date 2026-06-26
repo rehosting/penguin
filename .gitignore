@@ -33,3 +33,11 @@ src/penguin/testing/.isf_cache/
 # Per-worktree workspace template + stray logs (never belong in the repo)
 CLAUDE.md
 *.log
+
+# Nix build symlinks (./penguin --build, nix build .#dockerImage, etc.)
+/result
+/result-*
+
+# basic_target test-run artifacts
+tests/unit_tests/basic_target/fs/
+tests/unit_tests/basic_target/test_log.txt

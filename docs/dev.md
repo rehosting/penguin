@@ -5,10 +5,16 @@
 After cloning this repository you can use the local `./penguin` script
 to build your container and to run Penguin.
 
-To build the container you can run:
+To build the image you can run:
 ```sh
 ./penguin --build
 ```
+
+`--build` builds the image from the Nix flake (`nix build .#dockerImage`),
+loads it into your container engine, and runs it. It requires `nix` on your
+host (with flakes enabled); see [nix.md](nix.md) for the full Nix build
+reference. With no `--image`, `--build` builds and runs `localhost/penguin:dev`
+so it never shadows the pinned `rehosting/penguin:latest`.
 
 You can view all the wrapper arguments that may assist with development by running
 ```sh
@@ -27,83 +33,59 @@ Note that the standard `penguin` wrapper command that we recommend users install
 supports these development options, so you can use these wrapper flags even if
 the `penguin` command is installed for a user or system.
 
-## Private dependencies
+## Iterating on Penguin's Python code
 
-Members of penguin development team who wish to use our private nmap fork may build it
-by first launching ssh-agent and then rebuilding their penguin container. This fork is not
-distributed externally (as binaries or source) due to licensing restrictions, but the changes
-are minor.
+For fast iteration on `src/` and `pyplugins/` without rebuilding the image, use
+`--pydev`, which live-mounts your source over the image and reinstalls it before
+each run:
 
 ```sh
-eval $(ssh-agent)
-ssh-agent add ~/.ssh/id_rsa
-penguin --build
+./penguin --pydev run projects/myfw     # edit src/ or pyplugins/ -> re-run
+./penguin --build --pydev run ...        # rebuild the image too
 ```
 
-## Dependency Development
+## Dependency development
 
-If you wish to prototype changes to a Penguin dependency, you can develop the
-dependency locally, build the artifacts, and place them into a directory called
-`local_packages`. When build artifacts are present in this directory, they will
-be installed and replace the standard versions at container build.
-
-The following filenames are expected in the `local_packages` directory:
-
-* busybox-latest.tar.gz
-* hyperfs.tar.gz
-* kernels-latest.tar.gz
-* libnvram-latest.tar.gz
-* pandare_22.04.deb
-* penguin_plugins.tar.gz
-* penguin-qemu.tar.gz
-* vpn.tar.gz
-
-For QEMU development, build `emulator/kvm-qemu/penguin-qemu.tar.gz` and copy it
-to `penguin/local_packages/`. The archive installs `libqemu-system-*.so`,
-`libqemu-kvm-*.so`, and matching CFFI declarations under
-`/usr/local/include/penguin-qemu-cffi/`.
-
-For example, the following workflow shows how to test modifications to the Penguin
-Linux kernel.
-
-# Example: Local kernel development
-
-First clone and update the Linux kernel repo
+Penguin's dependencies (the PANDA-QEMU fork, kernels, igloo-driver,
+penguin-tools, the firmware-extraction stack, …) are pinned as **Nix flake
+inputs** in `flake.nix`, not downloaded at build time. To prototype a change to
+one of them, point its input at your local checkout for a build:
 
 ```sh
-$ git clone --recurse-submodules  git@github.com:rehosting/linux_builder.git && cd linux_builder
-$ # Edit some files in linux/4.10 (not shown)
+./penguin --image penguin:dev --build ...   # uses flake.nix as-is
+# or build the image directly against a local sibling-repo checkout:
+nix build .#dockerImage \
+  --override-input penguin-qemu path:/abs/path/to/qemu \
+  --accept-flake-config
+docker load < result
 ```
 
-Then build the artifacts - note you don't have to build all kernels if you just wish to test
-with a single architecture.
+To make the change permanent, edit that input's `url` in `flake.nix` and run
+`nix flake update <input>`. See [nix.md](nix.md#dependency-overrides-replacing-local_packages)
+for the input list and more detail.
+
+# Example: local kernel development
+
+Clone the kernel builder and make your changes:
 
 ```sh
-$ # Build kernels-latest.tar.gz, for example with just 4.10 and armel
+$ git clone --recurse-submodules git@github.com:rehosting/linux_builder.git && cd linux_builder
+$ # Edit some files in linux/ (not shown)
+$ # Build kernels-latest.tar.gz, e.g. for just 4.10 + armel
 $ ./build.sh --versions 4.10 --targets armel
 ```
 
-Next, copy the artifacts into your Penguin source directory.
+Then build the penguin image against that local artifact by overriding the
+`kernels` input:
 
 ```sh
-$ mkdir ../penguin/local_packages
-$ cp kernels-latest.tar.gz ../penguin/local_packages/
+$ cd ../penguin
+$ nix build .#dockerImage \
+    --override-input kernels path:/abs/path/to/linux_builder/kernels-latest.tar.gz \
+    --accept-flake-config
+$ docker load < result
 ```
 
-Now when you build your container, it will use this local version and allow you to use
-or test your changes without needing to tag a new release of the dependency on GitHub.
-
-```sh
-./penguin --build ...
-```
-
-When you have finished prototyping with your local dependency, you should delete your `local_packages`
-directory so subsequent builds of `penguin` use standard versions of dependencies.
-
-## Building with Nix
-
-The `Dockerfile` build described above is the build of record. Penguin can also
-be built reproducibly from a Nix flake (`nix build .#dockerImage`), which pins
-every dependency through `flake.lock` rather than `local_packages/` overrides.
-See [nix.md](nix.md) for the flake outputs, how to bump pinned inputs (including
-the QEMU fork), and the CI integration.
+This builds an image with your kernel without needing to tag a new release of
+the dependency on GitHub. When you are finished, build without the
+`--override-input` to return to the pinned version.

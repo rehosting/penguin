@@ -1,8 +1,0 @@
-.*.sw*
-pyplugins/__pycache__
-**/__pycache__
-**/.pytest_cache
-unittest
-tests
-src/penguin.egg-info
-src/penguin/version.txt
