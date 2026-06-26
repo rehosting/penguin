@@ -43,8 +43,13 @@ let
   };
 
   # clang-20 / ld.lld: penguin's dropin_compile.py invokes `clang-20
-  # -fuse-ld=lld` to compile per-project init.d/*.c. nixpkgs names the binary
-  # `clang`; provide a `clang-20` alias (+ lld for ld.lld).
+  # -fuse-ld=lld` as a *cross* compiler (`--target=<arch>-linux-musl...
+  # --sysroot=/igloo_static/sysroots/<arch>`) for every guest arch. It must be
+  # the UNWRAPPED clang: nixpkgs' cc-wrapper'd clang force-injects the host
+  # glibc dev include/lib paths (-idirafter .../glibc-*-dev/include), which
+  # shadow the musl sysroot headers and make `#include <fcntl.h>` pull host
+  # glibc -> `gnu/stubs-32.h not found`. clang-unwrapped honors --target/
+  # --sysroot like a plain cross clang. (ld.lld still comes from llvm.lld.)
   llvm = pkgs.llvmPackages_20;
 
   # Overlay package: everything that must live at a specific absolute path
@@ -58,7 +63,7 @@ let
 
     # clang-20: dropin_compile.py invokes it by that exact name (-fuse-ld=lld;
     # ld.lld comes from llvm.lld on PATH).
-    ln -s ${llvm.clang}/bin/clang "$out/usr/local/bin/clang-20"
+    ln -s ${llvm.clang-unwrapped}/bin/clang "$out/usr/local/bin/clang-20"
     # vhost-device-vsock at the Dockerfile path (also on PATH).
     ln -s ${vhostDeviceVsock}/bin/vhost-device-vsock "$out/usr/local/bin/vhost-device-vsock"
 
@@ -127,6 +132,17 @@ let
   extraCommands = ''
     mkdir -p tmp && chmod 1777 tmp
     mkdir -p root && chmod 0777 root
+    # qemu writes its `snapshot=on` drive overlay to a temp file under /var/tmp
+    # (qemu's get_tmp_filename), so the image needs a *writable* /var/tmp or the
+    # guest fails to launch: "Could not open temporary file
+    # '/var/tmp/vl.XXXXXX': No such file". fakeNss provides /var/empty, so
+    # buildEnv collapses `var` into a symlink into the read-only store --
+    # mkdir'ing into it fails ("Permission denied"). Replace the symlink with a
+    # real, writable dir; recreate var/empty (fakeNss's nobody home) alongside
+    # the writable tmp. (cp -a from the store would preserve its read-only mode,
+    # so recreate fresh instead.)
+    rm -rf var
+    mkdir -p var/empty var/tmp && chmod 1777 var/tmp
   '';
 
   config = {
