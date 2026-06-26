@@ -1,11 +1,20 @@
 # The penguin runtime image (rehosting/penguin), mirroring the Dockerfile's
-# final `penguin` stage. Built with dockerTools.buildLayeredImage like
-# fw2tar/flake.nix.
+# final `penguin` stage.
+#
+# Unlike the sealed fw2tar/penguin-tools images (built from `scratch`), penguin
+# is an interactive analysis tool: it runs guest firmware, shells out
+# constantly, compiles init.d dropins at runtime, and users exec into it and
+# expect a normal userland (+ apt). So this image is layered on top of the same
+# ubuntu:22.04 base the Dockerfile used (dockerTools.buildLayeredImage with
+# `fromImage`), with all the heavy components (python env, the qemu fork,
+# /igloo_static, the extraction stack, clang) supplied by Nix on top. The
+# Ubuntu base provides the FHS glibc userland, coreutils, and apt; the Nix
+# layers provide everything the Dockerfile previously apt-installed or built.
 #
 # The firmware-extraction stack (fw2tar, unblob, binwalk, the extractor
 # backends) is kept co-located per project decision and sourced from fw2tar's
 # already-nixified `extractionBundle` (a cross-flake input) rather than
-# re-derived here. The custom mke2fs-with-libarchive build is not yet included.
+# re-derived here.
 {
   pkgs,
   pythonEnv, # includes penguin + pengutils + all runtime deps
@@ -21,6 +30,17 @@
 
 let
   lib = pkgs.lib;
+
+  # The ubuntu:22.04 base layer (same base the Dockerfile used). Pinned by
+  # digest so the build is reproducible; refresh both fields together with
+  # `nix run nixpkgs#nix-prefetch-docker -- --image-name ubuntu --image-tag 22.04`.
+  ubuntuBase = pkgs.dockerTools.pullImage {
+    imageName = "ubuntu";
+    imageDigest = "sha256:4f838adc7181d9039ac795a7d0aba05a9bd9ecd480d294483169c5def983b64d";
+    hash = "sha256-L5hEr4S/AnNswxQc0dqDf85QZtEvQtVfes4r9n4q6mc=";
+    finalImageName = "ubuntu";
+    finalImageTag = "22.04";
+  };
 
   # clang-20 / ld.lld: penguin's dropin_compile.py invokes `clang-20
   # -fuse-ld=lld` to compile per-project init.d/*.c. nixpkgs names the binary
@@ -112,7 +132,9 @@ let
   config = {
     Cmd = [ "/usr/local/bin/banner.sh" ];
     Env = [
-      "PATH=/usr/local/bin:/bin"
+      # Nix-provided tools live under /usr/local/bin and the merged /bin; the
+      # ubuntu base's userland (apt, dpkg, etc.) is in /usr/bin and /sbin.
+      "PATH=/usr/local/bin:/bin:/usr/bin:/sbin:/usr/sbin"
       "HOME=/root"
       "TMPDIR=/tmp"
       "TZ=America/New_York"
@@ -136,6 +158,8 @@ in
 pkgs.dockerTools.buildLayeredImage {
   name = "rehosting/penguin";
   tag = "latest";
+  # Layer the Nix contents on top of the ubuntu:22.04 base (FHS userland + apt).
+  fromImage = ubuntuBase;
   contents = [ rootEnv ];
   inherit extraCommands config;
 }
