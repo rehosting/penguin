@@ -192,7 +192,7 @@ DEFAULT_ARCHES = ['armel', 'aarch64',
 
 # these are the architectures that only work with certain kernels
 NONDEFAULT_KERNEL_ARCHES = {
-    '6.13': ['powerpc64', 'loongarch64', 'riscv64'],
+    '6.13': ['powerpc64', 'powerpc', 'powerpc64le', 'loongarch64', 'riscv64'],
 }
 
 
