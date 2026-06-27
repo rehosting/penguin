@@ -20,8 +20,33 @@ plugins:
         type: file_contains
         file: pseudofiles_failures.yaml
         string: "default_ioctl"
+      # open()/release() from_plugin hooks fire on the guest opening/closing
+      # the node; the handlers record into a host file.
+      ext_open_fires:
+        type: file_contains
+        file: ext_lifecycle_events.txt
+        string: "open"
+      ext_release_fires:
+        type: file_contains
+        file: ext_lifecycle_events.txt
+        string: "release"
 
 pseudofiles:
+  # Broadened VFS surface (W2): open/release dispatched to a plugin. The node
+  # keeps an ordinary const_buf read so the lifecycle hooks are observed via a
+  # host file, not by reading this node back.
+  /dev/ext_lifecycle:
+    read:
+      model: const_buf
+      val: "lc\n"
+    open:
+      model: from_plugin
+      plugin: pseudofile_ext_test
+      function: on_open
+    release:
+      model: from_plugin
+      plugin: pseudofile_ext_test
+      function: on_release
   # Broadened VFS surface (W2): lseek dispatched to a plugin.
   /dev/ext_seek:
     read:
@@ -93,6 +118,14 @@ static_files:
       custom=$($bb cat /dev/ext_custom)
       if [ "$custom" != "42" ]; then
         echo "Error: custom model got '$custom' (want '42')"
+        exit 1
+      fi
+
+      # Open/close the lifecycle node so its open()/release() hooks fire. The
+      # const_buf read must still work with open/release wired on the node.
+      lc=$($bb cat /dev/ext_lifecycle)
+      if [ "$lc" != "lc" ]; then
+        echo "Error: lifecycle read got '$lc' (want 'lc')"
         exit 1
       fi
 
