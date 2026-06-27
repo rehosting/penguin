@@ -84,6 +84,11 @@ class OpenExternalVFS:
         super().__init__(**kwargs)
 
     def open(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr):
+        # Default to success (0). open() is `int (*)(...)`: a non-zero return
+        # fails the open() syscall, so a side-effect-only hook that never
+        # touches retval would otherwise break the file. The hook may still set
+        # ptregs.retval to fail the open deliberately.
+        ptregs.retval = 0
         res = self._open_func(ptregs, inode, file)
         if inspect.isgenerator(res):
             yield from res
@@ -97,6 +102,8 @@ class ReleaseExternalVFS:
         super().__init__(**kwargs)
 
     def release(self, ptregs: PtRegsWrapper, inode: InodePtr, file: FilePtr):
+        # Default to success (0); release() is `int (*)(...)` like open().
+        ptregs.retval = 0
         res = self._release_func(ptregs, inode, file)
         if inspect.isgenerator(res):
             yield from res
