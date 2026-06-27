@@ -66,7 +66,7 @@
   # via fw2tar, unblob) follow our nixpkgs so the extraction stack shares the
   # same CPython/glibc as penguin instead of shipping duplicate interpreters.
   inputs.fw2tar = {
-    url = "github:rehosting/fw2tar/ddca434e8f6f3d76e3694a9dc69c316bb4af284f";
+    url = "github:rehosting/fw2tar/b9e72b0dd8475715eb5d6cb85ac60ee0d1f2d7e5";
     inputs.nixpkgs.follows = "nixpkgs";
   };
 
