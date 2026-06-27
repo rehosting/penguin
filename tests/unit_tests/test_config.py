@@ -974,5 +974,165 @@ def test_templating_arch_alias_canonical_and_derived():
     assert out2["x"] == "aarch64 arm64"
 
 
+# --------------------------------------------------------------------------- #
+# Pseudofile model expansion (backwards-compatible additive work)
+#
+# Covers the new declarative model vocabulary, the broadened VFS-operation
+# surface, the `custom` (register_model) escape variant, the per-variant
+# `provenance` tag, and the per-path validation that rejects an op attached to
+# a filesystem that can't service it. All of this validates at the schema layer
+# (no emulator), so it runs in this host/CI unit suite.
+# --------------------------------------------------------------------------- #
+def _pf(pseudofiles):
+    """Validate a pseudofiles block through the full Main schema."""
+    return structure.Main(**base_config(pseudofiles=pseudofiles)).model_dump()
+
+
+def _pf_error(pseudofiles):
+    try:
+        structure.Main(**base_config(pseudofiles=pseudofiles))
+    except ValidationError as e:
+        return e
+    raise AssertionError("expected ValidationError")
+
+
+# --- new read models -------------------------------------------------------- #
+def test_read_cycle_validates():
+    m = _pf({"/dev/a": {"read": {"model": "cycle", "val": "AB"}}})
+    assert m["pseudofiles"]["/dev/a"]["read"]["val"] == "AB"
+
+
+def test_read_stateful_validates_with_optional_initial():
+    # stateful read paired with a recording write = a YAML read/write register
+    m = _pf({"/dev/reg": {"read": {"model": "stateful", "initial": "0"},
+                          "write": {"model": "default"}}})
+    assert m["pseudofiles"]["/dev/reg"]["read"]["initial"] == "0"
+    # initial is optional
+    _pf({"/dev/reg": {"read": {"model": "stateful"}}})
+
+
+def test_read_sequence_validates():
+    m = _pf({"/proc/status": {"read": {"model": "sequence",
+                                       "vals": ["busy\n", "busy\n", "ready\n"],
+                                       "cycle": True}}})
+    r = m["pseudofiles"]["/proc/status"]["read"]
+    assert r["vals"][-1] == "ready\n" and r["cycle"] is True
+
+
+# --- new write models ------------------------------------------------------- #
+def test_write_return_const_validates():
+    m = _pf({"/dev/a": {"write": {"model": "return_const", "const": -1}}})
+    assert m["pseudofiles"]["/dev/a"]["write"]["const"] == -1
+
+
+def test_write_unhandled_validates():
+    _pf({"/dev/a": {"write": {"model": "unhandled"}}})
+
+
+# --- new ioctl models ------------------------------------------------------- #
+def test_ioctl_write_data_validates_in_command_map():
+    m = _pf({"/dev/a": {"ioctl": {4660: {"model": "write_data",
+                                         "data": "\x01\x00\x00\x00", "val": 0}}}})
+    h = m["pseudofiles"]["/dev/a"]["ioctl"][4660]
+    assert h["data"] == "\x01\x00\x00\x00" and h["val"] == 0
+
+
+def test_ioctl_unhandled_validates_wildcard():
+    _pf({"/dev/a": {"ioctl": {"*": {"model": "unhandled"}}}})
+
+
+# --- broadened VFS operation surface ---------------------------------------- #
+def test_lseek_default_and_unsupported_validate():
+    _pf({"/dev/a": {"lseek": {"model": "default"}}})
+    _pf({"/dev/a": {"lseek": {"model": "unsupported"}}})
+
+
+def test_lseek_from_plugin_validates():
+    _pf({"/dev/a": {"lseek": {"model": "from_plugin", "plugin": "p", "function": "seek"}}})
+
+
+def test_compat_ioctl_same_as_ioctl_validates():
+    _pf({"/dev/a": {"ioctl": {"*": {"model": "return_const", "val": 0}},
+                    "compat_ioctl": {"model": "same_as_ioctl"}}})
+
+
+@pytest.mark.parametrize("op", ["mmap", "open", "release", "flush", "fsync",
+                                "fasync", "lock", "read_iter", "write_iter",
+                                "get_unmapped_area"])
+def test_plugin_op_domains_validate_on_dev(op):
+    # every plugin-driven op domain accepts a from_plugin model on a /dev node
+    _pf({"/dev/a": {op: {"model": "from_plugin", "plugin": "p"}}})
+
+
+# --- custom (register_model) escape variant -------------------------------- #
+def test_custom_read_model_accepts_model_name_and_extra_kwargs():
+    # `model: custom` carries a model_name + free kwargs forwarded to the mixin
+    m = _pf({"/dev/sensor": {"read": {"model": "custom", "model_name": "my_sensor",
+                                      "scale": 10}}})
+    r = m["pseudofiles"]["/dev/sensor"]["read"]
+    assert r["model_name"] == "my_sensor" and r["scale"] == 10
+
+
+# --- provenance ------------------------------------------------------------- #
+def test_provenance_tag_accepted_on_any_variant():
+    m = _pf({"/dev/d": {"read": {"model": "zero", "provenance": "default"},
+                        "write": {"model": "discard", "provenance": "default"}}})
+    assert m["pseudofiles"]["/dev/d"]["read"]["provenance"] == "default"
+
+
+# --- strict validation preserved (extra="forbid") --------------------------- #
+def test_unknown_field_in_variant_still_rejected():
+    msg = format_validation_error(_pf_error({"/dev/a": {"read": {"model": "zero", "bogus": 1}}}))
+    assert "bogus" in msg
+
+
+# --- per-path validation (the most recent ask) ------------------------------ #
+@pytest.mark.parametrize("path,op,model", [
+    ("/proc/x", "flush", {"model": "from_plugin", "plugin": "p"}),
+    ("/sys/x", "lseek", {"model": "default"}),
+    ("/proc/sys/x", "mmap", {"model": "from_plugin", "plugin": "p"}),
+    ("/proc/x", "write_iter", {"model": "from_plugin", "plugin": "p"}),
+    ("/sys/x", "fsync", {"model": "from_plugin", "plugin": "p"}),
+])
+def test_op_rejected_on_unsupported_filesystem(path, op, model):
+    msg = format_validation_error(_pf_error({path: {op: model}}))
+    assert op in msg and path in msg
+
+
+@pytest.mark.parametrize("path,op,model", [
+    ("/dev/a", "flush", {"model": "from_plugin", "plugin": "p"}),  # /dev-only op on /dev
+    ("/dev/a", "write_iter", {"model": "from_plugin", "plugin": "p"}),
+    ("/dev/a", "lseek", {"model": "default"}),
+    ("/proc/a", "lseek", {"model": "default"}),                    # broader op on /proc
+    ("/proc/a", "mmap", {"model": "from_plugin", "plugin": "p"}),
+])
+def test_op_allowed_on_supported_filesystem(path, op, model):
+    _pf({path: {op: model}})
+
+
+def test_read_write_ioctl_poll_unconstrained_by_path():
+    # the legacy domains are wired everywhere — never path-restricted
+    for path in ("/dev/a", "/proc/a", "/proc/sys/a", "/sys/a"):
+        _pf({path: {"read": {"model": "zero"},
+                    "write": {"model": "discard"},
+                    "ioctl": {"*": {"model": "return_const", "val": 0}}}})
+
+
+# --- backwards compatibility ------------------------------------------------ #
+def test_legacy_pseudofile_config_unchanged():
+    # a pre-expansion config validates and round-trips with no new keys leaking in
+    legacy = {"/dev/leg": {"read": {"model": "const_buf", "val": "x"},
+                           "write": {"model": "discard"},
+                           "ioctl": {"*": {"model": "return_const", "val": 0}}}}
+    m = _pf(legacy)
+    node = m["pseudofiles"]["/dev/leg"]
+    assert node["read"]["val"] == "x"
+    # the new optional op domains all default to None (absent) — purely additive
+    for op in ("lseek", "mmap", "open", "release", "compat_ioctl", "flush",
+               "fsync", "fasync", "lock", "read_iter", "write_iter",
+               "get_unmapped_area"):
+        assert node[op] is None
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

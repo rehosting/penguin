@@ -649,7 +649,7 @@ DYNVALDYNVALDYNVAL
 
 |||
 |-|-|
-|__Default__|`null`|
+|__Default__|`{}`|
 
 Device files to emulate in the guest
 
@@ -715,30 +715,102 @@ How to handle reads from the file
 ##### `pseudofiles.<string>.read.<model=zero>` Read a zero
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"zero"`||Read modelling method (read a zero)|
+###### `pseudofiles.<string>.read.<model=zero>.model` Read modelling method (read a zero)
+
+|||
+|-|-|
+|__Type__|`"zero"`|
+
+
+###### `pseudofiles.<string>.read.<model=zero>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
 ##### `pseudofiles.<string>.read.<model=one>` Read a one
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"one"`||Read modelling method (read a one)|
+###### `pseudofiles.<string>.read.<model=one>.model` Read modelling method (read a one)
+
+|||
+|-|-|
+|__Type__|`"one"`|
+
+
+###### `pseudofiles.<string>.read.<model=one>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
 ##### `pseudofiles.<string>.read.<model=empty>` Read empty file
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"empty"`||Read modelling method (read empty file)|
+###### `pseudofiles.<string>.read.<model=empty>.model` Read modelling method (read empty file)
+
+|||
+|-|-|
+|__Type__|`"empty"`|
+
+
+###### `pseudofiles.<string>.read.<model=empty>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
 ##### `pseudofiles.<string>.read.<model=const_buf>` Read a constant buffer
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"const_buf"`||Read modelling method (read a constant buffer)|
-|`val`|string||Pseudofile contents|
-|`null_terminate`|boolean|`false`|Append a NUL byte to the configured contents|
-|`nul_terminate`|boolean|`false`|Alias for null_terminate|
+###### `pseudofiles.<string>.read.<model=const_buf>.model` Read modelling method (read a constant buffer)
+
+|||
+|-|-|
+|__Type__|`"const_buf"`|
+
+
+###### `pseudofiles.<string>.read.<model=const_buf>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.read.<model=const_buf>.val` Pseudofile contents
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.read.<model=const_buf>.null_terminate` Append a NUL byte to the configured contents
+
+|||
+|-|-|
+|__Type__|boolean|
+|__Default__|`false`|
+
+
+###### `pseudofiles.<string>.read.<model=const_buf>.nul_terminate` Alias for null_terminate
+
+|||
+|-|-|
+|__Type__|boolean|
+|__Default__|`false`|
+
+
 ##### `pseudofiles.<string>.read.<model=const_map>` Read a constant map
 
 
@@ -748,6 +820,15 @@ How to handle reads from the file
 |-|-|
 |__Type__|`"const_map"`|
 
+
+###### `pseudofiles.<string>.read.<model=const_map>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
 
 ###### `pseudofiles.<string>.read.<model=const_map>.pad` Byte for padding file
 
@@ -787,6 +868,15 @@ When this is a list of integers, it treated as a byte array. When this is a list
 |__Type__|`"const_map_file"`|
 
 
+###### `pseudofiles.<string>.read.<model=const_map_file>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
 ###### `pseudofiles.<string>.read.<model=const_map_file>.filename` Path to host file to store constant map
 
 |||
@@ -822,27 +912,202 @@ When this is a list of integers, it treated as a byte array. When this is a list
 
 When this is a list of integers, it treated as a byte array. When this is a list of strings, the strings are separated by null bytes.
 
+##### `pseudofiles.<string>.read.<model=cycle>` Read a repeating buffer
+
+Repeat the configured buffer forever (never reports EOF).
+
+###### `pseudofiles.<string>.read.<model=cycle>.model` Read modelling method (read a repeating buffer)
+
+|||
+|-|-|
+|__Type__|`"cycle"`|
+
+
+###### `pseudofiles.<string>.read.<model=cycle>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.read.<model=cycle>.val` Buffer to repeat
+
+|||
+|-|-|
+|__Type__|string|
+
+
 ##### `pseudofiles.<string>.read.<model=from_file>` Read from a host file
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"from_file"`||Read modelling method (read from a host file)|
-|`filename`|string||Path to host file|
+###### `pseudofiles.<string>.read.<model=from_file>.model` Read modelling method (read from a host file)
+
+|||
+|-|-|
+|__Type__|`"from_file"`|
+
+
+###### `pseudofiles.<string>.read.<model=from_file>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.read.<model=from_file>.filename` Path to host file
+
+|||
+|-|-|
+|__Type__|string|
+
+
+##### `pseudofiles.<string>.read.<model=stateful>` Read back what was written
+
+Serve bytes from this node's write buffer, giving a read-after-write register. Pair with write model 'default' (or 'discard'/'record', which all record) so writes are stored.
+
+###### `pseudofiles.<string>.read.<model=stateful>.model` Read modelling method (read back what was written)
+
+|||
+|-|-|
+|__Type__|`"stateful"`|
+
+
+###### `pseudofiles.<string>.read.<model=stateful>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.read.<model=stateful>.initial` Initial buffer contents
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+
+##### `pseudofiles.<string>.read.<model=sequence>` Read successive values
+
+Return each entry of 'vals' on successive reads; the common 'busy... busy... ready' status pattern. Holds the last entry when exhausted unless 'cycle' wraps around.
+
+###### `pseudofiles.<string>.read.<model=sequence>.model` Read modelling method (read successive values)
+
+|||
+|-|-|
+|__Type__|`"sequence"`|
+
+
+###### `pseudofiles.<string>.read.<model=sequence>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.read.<model=sequence>.vals` Ordered values to return
+
+|||
+|-|-|
+|__Type__|list|
+
+
+###### `pseudofiles.<string>.read.<model=sequence>.cycle` Wrap around when exhausted
+
+|||
+|-|-|
+|__Type__|boolean|
+|__Default__|`false`|
+
+
 ##### `pseudofiles.<string>.read.<model=from_plugin>` Read from a custom PyPlugin
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"from_plugin"`||Read modelling method (read from a custom pyplugin)|
-|`plugin`|string||Name of the loaded PyPlugin|
-|`function`|string or null|`read`|Function to call|
+###### `pseudofiles.<string>.read.<model=from_plugin>.model` Read modelling method (read from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.read.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.read.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.read.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`read`|
+
+
 ##### `pseudofiles.<string>.read.<model=default>` Default
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"default"`||Read modelling method (default)|
+###### `pseudofiles.<string>.read.<model=default>.model` Read modelling method (default)
+
+|||
+|-|-|
+|__Type__|`"default"`|
+
+
+###### `pseudofiles.<string>.read.<model=default>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `pseudofiles.<string>.read.<model=custom>` Custom registered model
+
+Use a model registered via @register_model in a loaded plugin. 'model_name' selects it; any extra keys are forwarded to the model.
+
+###### `pseudofiles.<string>.read.<model=custom>.model` Read modelling method (custom registered model)
+
+|||
+|-|-|
+|__Type__|`"custom"`|
+
+
+###### `pseudofiles.<string>.read.<model=custom>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.read.<model=custom>.model_name` Registered model name
+
+|||
+|-|-|
+|__Type__|string|
+
+
 #### `pseudofiles.<string>.write` Write
 
 |||
@@ -854,30 +1119,175 @@ How to handle writes to the file
 ##### `pseudofiles.<string>.write.<model=to_file>` Write to host file
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"to_file"`||Write modelling method (write to host file)|
-|`filename`|string||Path to host file|
+###### `pseudofiles.<string>.write.<model=to_file>.model` Write modelling method (write to host file)
+
+|||
+|-|-|
+|__Type__|`"to_file"`|
+
+
+###### `pseudofiles.<string>.write.<model=to_file>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.write.<model=to_file>.filename` Path to host file
+
+|||
+|-|-|
+|__Type__|string|
+
+
 ##### `pseudofiles.<string>.write.<model=from_plugin>` Read from a custom PyPlugin
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"from_plugin"`||Write modelling method (read from a custom pyplugin)|
-|`plugin`|string||Name of the loaded PyPlugin|
-|`function`|string or null|`write`|Function to call|
+###### `pseudofiles.<string>.write.<model=from_plugin>.model` Write modelling method (read from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.write.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.write.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.write.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`write`|
+
+
 ##### `pseudofiles.<string>.write.<model=discard>` Discard write
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"discard"`||Write modelling method (discard write)|
+###### `pseudofiles.<string>.write.<model=discard>.model` Write modelling method (discard write)
+
+|||
+|-|-|
+|__Type__|`"discard"`|
+
+
+###### `pseudofiles.<string>.write.<model=discard>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `pseudofiles.<string>.write.<model=return_const>` Return a constant on write
+
+Return a fixed value (e.g. a byte count or a negative errno) without storing data.
+
+###### `pseudofiles.<string>.write.<model=return_const>.model` Write modelling method (return a constant on write)
+
+|||
+|-|-|
+|__Type__|`"return_const"`|
+
+
+###### `pseudofiles.<string>.write.<model=return_const>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.write.<model=return_const>.const` Value to return from write()
+
+|||
+|-|-|
+|__Type__|integer|
+
+
+##### `pseudofiles.<string>.write.<model=unhandled>` Reject writes
+
+Return -EINVAL for every write.
+
+###### `pseudofiles.<string>.write.<model=unhandled>.model` Write modelling method (reject writes)
+
+|||
+|-|-|
+|__Type__|`"unhandled"`|
+
+
+###### `pseudofiles.<string>.write.<model=unhandled>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
 ##### `pseudofiles.<string>.write.<model=default>` Default
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"default"`||Write modelling method (default)|
+###### `pseudofiles.<string>.write.<model=default>.model` Write modelling method (default)
+
+|||
+|-|-|
+|__Type__|`"default"`|
+
+
+###### `pseudofiles.<string>.write.<model=default>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `pseudofiles.<string>.write.<model=custom>` Custom registered model
+
+Use a model registered via @register_model in a loaded plugin. 'model_name' selects it; any extra keys are forwarded to the model.
+
+###### `pseudofiles.<string>.write.<model=custom>.model` Write modelling method (custom registered model)
+
+|||
+|-|-|
+|__Type__|`"custom"`|
+
+
+###### `pseudofiles.<string>.write.<model=custom>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.write.<model=custom>.model_name` Registered model name
+
+|||
+|-|-|
+|__Type__|string|
+
+
 #### `pseudofiles.<string>.ioctl` Ioctl
 
 |||
@@ -909,24 +1319,138 @@ plugin: my_plugin
 ##### `pseudofiles.<string>.ioctl.<model=return_const>` Return a constant
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"return_const"`||ioctl modelling method (return a constant)|
-|`val`|integer|`0`|Constant to return|
+###### `pseudofiles.<string>.ioctl.<model=return_const>.model` ioctl modelling method (return a constant)
+
+|||
+|-|-|
+|__Type__|`"return_const"`|
+
+
+###### `pseudofiles.<string>.ioctl.<model=return_const>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.ioctl.<model=return_const>.val` Constant to return
+
+|||
+|-|-|
+|__Type__|integer|
+|__Default__|`0`|
+
+
 ##### `pseudofiles.<string>.ioctl.<model=zero>` Return zero
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"zero"`||ioctl modelling method (return zero)|
+###### `pseudofiles.<string>.ioctl.<model=zero>.model` ioctl modelling method (return zero)
+
+|||
+|-|-|
+|__Type__|`"zero"`|
+
+
+###### `pseudofiles.<string>.ioctl.<model=zero>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `pseudofiles.<string>.ioctl.<model=unhandled>` Reject ioctl
+
+Return -ENOTTY (inappropriate ioctl for device).
+
+###### `pseudofiles.<string>.ioctl.<model=unhandled>.model` ioctl modelling method (reject ioctl)
+
+|||
+|-|-|
+|__Type__|`"unhandled"`|
+
+
+###### `pseudofiles.<string>.ioctl.<model=unhandled>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `pseudofiles.<string>.ioctl.<model=write_data>` Write a buffer to the arg pointer
+
+Write a constant buffer to the user pointer in 'arg' (the common shape of an ioctl that fills a struct), then return 'val'.
+
+###### `pseudofiles.<string>.ioctl.<model=write_data>.model` ioctl modelling method (write a buffer to the arg pointer)
+
+|||
+|-|-|
+|__Type__|`"write_data"`|
+
+
+###### `pseudofiles.<string>.ioctl.<model=write_data>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.ioctl.<model=write_data>.data` Bytes to write to *arg
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.ioctl.<model=write_data>.val` Value to return from ioctl()
+
+|||
+|-|-|
+|__Type__|integer|
+|__Default__|`0`|
+
+
 ##### `pseudofiles.<string>.ioctl.<model=from_plugin>` ioctl from a custom PyPlugin
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"from_plugin"`||ioctl modelling method (ioctl from a custom pyplugin)|
-|`plugin`|string||Name of the loaded PyPlugin|
-|`function`|string or null|`ioctl`|Function to call|
+###### `pseudofiles.<string>.ioctl.<model=from_plugin>.model` ioctl modelling method (ioctl from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.ioctl.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.ioctl.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.ioctl.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`ioctl`|
+
+
 #### `pseudofiles.<string>.poll` Poll
 
 |||
@@ -939,18 +1463,947 @@ How to answer poll()/select() on the file
 
 Constant POLLIN|POLLRDNORM|POLLOUT|POLLWRNORM mask (legacy behavior).
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"always_ready"`||Poll modelling method (always report ready)|
+###### `pseudofiles.<string>.poll.<model=always_ready>.model` Poll modelling method (always report ready)
+
+|||
+|-|-|
+|__Type__|`"always_ready"`|
+
+
+###### `pseudofiles.<string>.poll.<model=always_ready>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
 ##### `pseudofiles.<string>.poll.<model=from_plugin>` Poll from a custom PyPlugin
 
 Data-aware poll: the plugin returns a poll mask reflecting actual readiness.
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`model`|`"from_plugin"`||Poll modelling method (poll from a custom pyplugin)|
-|`plugin`|string||Name of the loaded PyPlugin|
-|`function`|string or null|`poll`|Function to call|
+###### `pseudofiles.<string>.poll.<model=from_plugin>.model` Poll modelling method (poll from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.poll.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.poll.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.poll.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`poll`|
+
+
+##### `pseudofiles.<string>.poll.<model=custom>` Custom registered model
+
+Use a model registered via @register_model in a loaded plugin. 'model_name' selects it; any extra keys are forwarded to the model.
+
+###### `pseudofiles.<string>.poll.<model=custom>.model` Poll modelling method (custom registered model)
+
+|||
+|-|-|
+|__Type__|`"custom"`|
+
+
+###### `pseudofiles.<string>.poll.<model=custom>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.poll.<model=custom>.model_name` Registered model name
+
+|||
+|-|-|
+|__Type__|string|
+
+
+#### `pseudofiles.<string>.lseek` Seek
+
+|||
+|-|-|
+|__Default__|`null`|
+
+How to handle lseek() on the file
+
+##### `pseudofiles.<string>.lseek.<model=default>` Standard offset arithmetic
+
+SEEK_SET/CUR/END against the node's reported size.
+
+###### `pseudofiles.<string>.lseek.<model=default>.model` Seek modelling method (standard offset arithmetic)
+
+|||
+|-|-|
+|__Type__|`"default"`|
+
+
+###### `pseudofiles.<string>.lseek.<model=default>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `pseudofiles.<string>.lseek.<model=unsupported>` Reject seeks
+
+Return -ESPIPE (for pipe/stream-like nodes).
+
+###### `pseudofiles.<string>.lseek.<model=unsupported>.model` Seek modelling method (reject seeks)
+
+|||
+|-|-|
+|__Type__|`"unsupported"`|
+
+
+###### `pseudofiles.<string>.lseek.<model=unsupported>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `pseudofiles.<string>.lseek.<model=from_plugin>` lseek from a custom PyPlugin
+
+
+###### `pseudofiles.<string>.lseek.<model=from_plugin>.model` Seek modelling method (lseek from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.lseek.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.lseek.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.lseek.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`lseek`|
+
+
+##### `pseudofiles.<string>.lseek.<model=custom>` Custom registered model
+
+Use a model registered via @register_model in a loaded plugin. 'model_name' selects it; any extra keys are forwarded to the model.
+
+###### `pseudofiles.<string>.lseek.<model=custom>.model` Seek modelling method (custom registered model)
+
+|||
+|-|-|
+|__Type__|`"custom"`|
+
+
+###### `pseudofiles.<string>.lseek.<model=custom>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.lseek.<model=custom>.model_name` Registered model name
+
+|||
+|-|-|
+|__Type__|string|
+
+
+#### `pseudofiles.<string>.mmap` Mmap
+
+|||
+|-|-|
+|__Default__|`null`|
+
+How to handle mmap() on the file
+
+##### `pseudofiles.<string>.mmap.<model=from_plugin>` mmap from a custom PyPlugin
+
+
+###### `pseudofiles.<string>.mmap.<model=from_plugin>.model` Mmap modelling method (mmap from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.mmap.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.mmap.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.mmap.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`mmap`|
+
+
+##### `pseudofiles.<string>.mmap.<model=custom>` Custom registered model
+
+Use a model registered via @register_model in a loaded plugin. 'model_name' selects it; any extra keys are forwarded to the model.
+
+###### `pseudofiles.<string>.mmap.<model=custom>.model` Mmap modelling method (custom registered model)
+
+|||
+|-|-|
+|__Type__|`"custom"`|
+
+
+###### `pseudofiles.<string>.mmap.<model=custom>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.mmap.<model=custom>.model_name` Registered model name
+
+|||
+|-|-|
+|__Type__|string|
+
+
+#### `pseudofiles.<string>.open` Open
+
+|||
+|-|-|
+|__Default__|`null`|
+
+How to handle open() on the file
+
+##### `pseudofiles.<string>.open.<model=from_plugin>` open from a custom PyPlugin
+
+Fire a plugin function when the guest opens this node.
+
+###### `pseudofiles.<string>.open.<model=from_plugin>.model` Open modelling method (open from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.open.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.open.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.open.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`open`|
+
+
+##### `pseudofiles.<string>.open.<model=custom>` Custom registered model
+
+Use a model registered via @register_model in a loaded plugin. 'model_name' selects it; any extra keys are forwarded to the model.
+
+###### `pseudofiles.<string>.open.<model=custom>.model` Open modelling method (custom registered model)
+
+|||
+|-|-|
+|__Type__|`"custom"`|
+
+
+###### `pseudofiles.<string>.open.<model=custom>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.open.<model=custom>.model_name` Registered model name
+
+|||
+|-|-|
+|__Type__|string|
+
+
+#### `pseudofiles.<string>.release` Release
+
+|||
+|-|-|
+|__Default__|`null`|
+
+How to handle release()/close() on the file
+
+##### `pseudofiles.<string>.release.<model=from_plugin>` release from a custom PyPlugin
+
+Fire a plugin function when the guest closes this node.
+
+###### `pseudofiles.<string>.release.<model=from_plugin>.model` Release modelling method (release from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.release.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.release.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.release.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`release`|
+
+
+##### `pseudofiles.<string>.release.<model=custom>` Custom registered model
+
+Use a model registered via @register_model in a loaded plugin. 'model_name' selects it; any extra keys are forwarded to the model.
+
+###### `pseudofiles.<string>.release.<model=custom>.model` Release modelling method (custom registered model)
+
+|||
+|-|-|
+|__Type__|`"custom"`|
+
+
+###### `pseudofiles.<string>.release.<model=custom>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.release.<model=custom>.model_name` Registered model name
+
+|||
+|-|-|
+|__Type__|string|
+
+
+#### `pseudofiles.<string>.compat_ioctl` Compat ioctl
+
+|||
+|-|-|
+|__Default__|`null`|
+
+How to handle 32-bit compat_ioctl() on the file
+
+##### `pseudofiles.<string>.compat_ioctl.<model=same_as_ioctl>` Reuse the ioctl model
+
+Route compat_ioctl through the same handlers as ioctl (the common driver pattern).
+
+###### `pseudofiles.<string>.compat_ioctl.<model=same_as_ioctl>.model` compat_ioctl modelling method (reuse the ioctl model)
+
+|||
+|-|-|
+|__Type__|`"same_as_ioctl"`|
+
+
+###### `pseudofiles.<string>.compat_ioctl.<model=same_as_ioctl>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `pseudofiles.<string>.compat_ioctl.<model=from_plugin>` compat_ioctl from a custom PyPlugin
+
+
+###### `pseudofiles.<string>.compat_ioctl.<model=from_plugin>.model` compat_ioctl modelling method (compat_ioctl from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.compat_ioctl.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.compat_ioctl.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.compat_ioctl.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`compat_ioctl`|
+
+
+#### `pseudofiles.<string>.flush` Flush
+
+|||
+|-|-|
+|__Default__|`null`|
+
+How to handle flush() on the file
+
+##### `pseudofiles.<string>.flush.<model=from_plugin>` flush from a custom PyPlugin
+
+
+###### `pseudofiles.<string>.flush.<model=from_plugin>.model` Flush modelling method (flush from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.flush.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.flush.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.flush.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`flush`|
+
+
+##### `pseudofiles.<string>.flush.<model=custom>` Custom registered model
+
+Use a model registered via @register_model in a loaded plugin. 'model_name' selects it; any extra keys are forwarded to the model.
+
+###### `pseudofiles.<string>.flush.<model=custom>.model` Flush modelling method (custom registered model)
+
+|||
+|-|-|
+|__Type__|`"custom"`|
+
+
+###### `pseudofiles.<string>.flush.<model=custom>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.flush.<model=custom>.model_name` Registered model name
+
+|||
+|-|-|
+|__Type__|string|
+
+
+#### `pseudofiles.<string>.fsync` Fsync
+
+|||
+|-|-|
+|__Default__|`null`|
+
+How to handle fsync() on the file
+
+##### `pseudofiles.<string>.fsync.<model=from_plugin>` fsync from a custom PyPlugin
+
+
+###### `pseudofiles.<string>.fsync.<model=from_plugin>.model` Fsync modelling method (fsync from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.fsync.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.fsync.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.fsync.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`fsync`|
+
+
+##### `pseudofiles.<string>.fsync.<model=custom>` Custom registered model
+
+Use a model registered via @register_model in a loaded plugin. 'model_name' selects it; any extra keys are forwarded to the model.
+
+###### `pseudofiles.<string>.fsync.<model=custom>.model` Fsync modelling method (custom registered model)
+
+|||
+|-|-|
+|__Type__|`"custom"`|
+
+
+###### `pseudofiles.<string>.fsync.<model=custom>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.fsync.<model=custom>.model_name` Registered model name
+
+|||
+|-|-|
+|__Type__|string|
+
+
+#### `pseudofiles.<string>.fasync` Fasync
+
+|||
+|-|-|
+|__Default__|`null`|
+
+How to handle fasync() on the file
+
+##### `pseudofiles.<string>.fasync.<model=from_plugin>` fasync from a custom PyPlugin
+
+
+###### `pseudofiles.<string>.fasync.<model=from_plugin>.model` Fasync modelling method (fasync from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.fasync.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.fasync.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.fasync.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`fasync`|
+
+
+##### `pseudofiles.<string>.fasync.<model=custom>` Custom registered model
+
+Use a model registered via @register_model in a loaded plugin. 'model_name' selects it; any extra keys are forwarded to the model.
+
+###### `pseudofiles.<string>.fasync.<model=custom>.model` Fasync modelling method (custom registered model)
+
+|||
+|-|-|
+|__Type__|`"custom"`|
+
+
+###### `pseudofiles.<string>.fasync.<model=custom>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.fasync.<model=custom>.model_name` Registered model name
+
+|||
+|-|-|
+|__Type__|string|
+
+
+#### `pseudofiles.<string>.lock` Lock
+
+|||
+|-|-|
+|__Default__|`null`|
+
+How to handle lock() on the file
+
+##### `pseudofiles.<string>.lock.<model=from_plugin>` lock from a custom PyPlugin
+
+
+###### `pseudofiles.<string>.lock.<model=from_plugin>.model` Lock modelling method (lock from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.lock.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.lock.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.lock.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`lock`|
+
+
+##### `pseudofiles.<string>.lock.<model=custom>` Custom registered model
+
+Use a model registered via @register_model in a loaded plugin. 'model_name' selects it; any extra keys are forwarded to the model.
+
+###### `pseudofiles.<string>.lock.<model=custom>.model` Lock modelling method (custom registered model)
+
+|||
+|-|-|
+|__Type__|`"custom"`|
+
+
+###### `pseudofiles.<string>.lock.<model=custom>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.lock.<model=custom>.model_name` Registered model name
+
+|||
+|-|-|
+|__Type__|string|
+
+
+#### `pseudofiles.<string>.read_iter` Read iterator
+
+|||
+|-|-|
+|__Default__|`null`|
+
+How to handle read_iter() on the file
+
+##### `pseudofiles.<string>.read_iter.<model=from_plugin>` read_iter from a custom PyPlugin
+
+
+###### `pseudofiles.<string>.read_iter.<model=from_plugin>.model` Read iterator modelling method (read_iter from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.read_iter.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.read_iter.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.read_iter.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`read_iter`|
+
+
+##### `pseudofiles.<string>.read_iter.<model=custom>` Custom registered model
+
+Use a model registered via @register_model in a loaded plugin. 'model_name' selects it; any extra keys are forwarded to the model.
+
+###### `pseudofiles.<string>.read_iter.<model=custom>.model` Read iterator modelling method (custom registered model)
+
+|||
+|-|-|
+|__Type__|`"custom"`|
+
+
+###### `pseudofiles.<string>.read_iter.<model=custom>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.read_iter.<model=custom>.model_name` Registered model name
+
+|||
+|-|-|
+|__Type__|string|
+
+
+#### `pseudofiles.<string>.write_iter` Write iterator
+
+|||
+|-|-|
+|__Default__|`null`|
+
+How to handle write_iter() on the file
+
+##### `pseudofiles.<string>.write_iter.<model=from_plugin>` write_iter from a custom PyPlugin
+
+
+###### `pseudofiles.<string>.write_iter.<model=from_plugin>.model` Write iterator modelling method (write_iter from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.write_iter.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.write_iter.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.write_iter.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`write_iter`|
+
+
+##### `pseudofiles.<string>.write_iter.<model=custom>` Custom registered model
+
+Use a model registered via @register_model in a loaded plugin. 'model_name' selects it; any extra keys are forwarded to the model.
+
+###### `pseudofiles.<string>.write_iter.<model=custom>.model` Write iterator modelling method (custom registered model)
+
+|||
+|-|-|
+|__Type__|`"custom"`|
+
+
+###### `pseudofiles.<string>.write_iter.<model=custom>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.write_iter.<model=custom>.model_name` Registered model name
+
+|||
+|-|-|
+|__Type__|string|
+
+
+#### `pseudofiles.<string>.get_unmapped_area` Get unmapped area
+
+|||
+|-|-|
+|__Default__|`null`|
+
+How to handle get_unmapped_area() on the file
+
+##### `pseudofiles.<string>.get_unmapped_area.<model=from_plugin>` get_unmapped_area from a custom PyPlugin
+
+
+###### `pseudofiles.<string>.get_unmapped_area.<model=from_plugin>.model` Get unmapped area modelling method (get_unmapped_area from a custom pyplugin)
+
+|||
+|-|-|
+|__Type__|`"from_plugin"`|
+
+
+###### `pseudofiles.<string>.get_unmapped_area.<model=from_plugin>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.get_unmapped_area.<model=from_plugin>.plugin` Name of the loaded PyPlugin
+
+|||
+|-|-|
+|__Type__|string|
+
+
+###### `pseudofiles.<string>.get_unmapped_area.<model=from_plugin>.function` Function to call
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`get_unmapped_area`|
+
+
+##### `pseudofiles.<string>.get_unmapped_area.<model=custom>` Custom registered model
+
+Use a model registered via @register_model in a loaded plugin. 'model_name' selects it; any extra keys are forwarded to the model.
+
+###### `pseudofiles.<string>.get_unmapped_area.<model=custom>.model` Get unmapped area modelling method (custom registered model)
+
+|||
+|-|-|
+|__Type__|`"custom"`|
+
+
+###### `pseudofiles.<string>.get_unmapped_area.<model=custom>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+###### `pseudofiles.<string>.get_unmapped_area.<model=custom>.model_name` Registered model name
+
+|||
+|-|-|
+|__Type__|string|
+
+
 ## `nvram` NVRAM
 
 |||
@@ -1100,76 +2553,327 @@ Files to create in the guest filesystem
 
 Add a file with contents specified inline in this config
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`type`|`"inline_file"`||Type of file action (add inline file)|
-|`mode`|integer|`420`|Permissions of file|
-|`contents`|string||Contents of file|
+##### `static_files.<string>.<type=inline_file>.type` Type of file action (add inline file)
+
+|||
+|-|-|
+|__Type__|`"inline_file"`|
+
+
+##### `static_files.<string>.<type=inline_file>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `static_files.<string>.<type=inline_file>.mode` Permissions of file
+
+|||
+|-|-|
+|__Type__|integer|
+|__Default__|`420`|
+
+
+##### `static_files.<string>.<type=inline_file>.contents` Contents of file
+
+|||
+|-|-|
+|__Type__|string|
+
+
 #### `static_files.<string>.<type=host_file>` Copy host file
 
 Copy a file from the host into the guest
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`type`|`"host_file"`||Type of file action (copy host file)|
-|`mode`|integer|`493`|Permissions of file|
-|`host_path`|string||Host path|
+##### `static_files.<string>.<type=host_file>.type` Type of file action (copy host file)
+
+|||
+|-|-|
+|__Type__|`"host_file"`|
+
+
+##### `static_files.<string>.<type=host_file>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `static_files.<string>.<type=host_file>.mode` Permissions of file
+
+|||
+|-|-|
+|__Type__|integer|
+|__Default__|`493`|
+
+
+##### `static_files.<string>.<type=host_file>.host_path` Host path
+
+|||
+|-|-|
+|__Type__|string|
+
+
 #### `static_files.<string>.<type=dir>` Add directory
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`type`|`"dir"`||Type of file action (add directory)|
-|`mode`|integer|`493`|Permissions of directory|
+##### `static_files.<string>.<type=dir>.type` Type of file action (add directory)
+
+|||
+|-|-|
+|__Type__|`"dir"`|
+
+
+##### `static_files.<string>.<type=dir>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `static_files.<string>.<type=dir>.mode` Permissions of directory
+
+|||
+|-|-|
+|__Type__|integer|
+|__Default__|`493`|
+
+
 #### `static_files.<string>.<type=symlink>` Add symbolic link
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`type`|`"symlink"`||Type of file action (add symbolic link)|
-|`target`|string||Target linked path|
+##### `static_files.<string>.<type=symlink>.type` Type of file action (add symbolic link)
+
+|||
+|-|-|
+|__Type__|`"symlink"`|
+
+
+##### `static_files.<string>.<type=symlink>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `static_files.<string>.<type=symlink>.target` Target linked path
+
+|||
+|-|-|
+|__Type__|string|
+
+
 #### `static_files.<string>.<type=dev>` Add device file
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`type`|`"dev"`||Type of file action (add device file)|
-|`devtype`|`"char"` or `"block"`||Type of device file|
-|`major`|integer||Major device number|
-|`minor`|integer||Minor device number|
-|`mode`|integer|`438`|Permissions of device file|
+##### `static_files.<string>.<type=dev>.type` Type of file action (add device file)
+
+|||
+|-|-|
+|__Type__|`"dev"`|
+
+
+##### `static_files.<string>.<type=dev>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `static_files.<string>.<type=dev>.devtype` Type of device file
+
+|||
+|-|-|
+|__Type__|`"char"` or `"block"`|
+
+
+##### `static_files.<string>.<type=dev>.major` Major device number
+
+|||
+|-|-|
+|__Type__|integer|
+
+
+##### `static_files.<string>.<type=dev>.minor` Minor device number
+
+|||
+|-|-|
+|__Type__|integer|
+
+
+##### `static_files.<string>.<type=dev>.mode` Permissions of device file
+
+|||
+|-|-|
+|__Type__|integer|
+|__Default__|`438`|
+
+
 #### `static_files.<string>.<type=delete>` Delete file
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`type`|`"delete"`||Type of file action (delete file)|
+##### `static_files.<string>.<type=delete>.type` Type of file action (delete file)
+
+|||
+|-|-|
+|__Type__|`"delete"`|
+
+
+##### `static_files.<string>.<type=delete>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
 #### `static_files.<string>.<type=move>` Move file
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`type`|`"move"`||Type of file action (move file)|
-|`from`|string||File to be moved to the specified location|
-|`mode`|integer or null|`null`|Permissions of target file|
+##### `static_files.<string>.<type=move>.type` Type of file action (move file)
+
+|||
+|-|-|
+|__Type__|`"move"`|
+
+
+##### `static_files.<string>.<type=move>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `static_files.<string>.<type=move>.from` File to be moved to the specified location
+
+|||
+|-|-|
+|__Type__|string|
+
+
+##### `static_files.<string>.<type=move>.mode` Permissions of target file
+
+|||
+|-|-|
+|__Type__|integer or null|
+|__Default__|`null`|
+
+
 #### `static_files.<string>.<type=shim>` Shim file
 
 
-|Field|Type|Default|Title|
-|-|-|-|-|
-|`type`|`"shim"`||Type of file action (shim file)|
-|`target`|string||Target file we want the shim to be symlinked to|
+##### `static_files.<string>.<type=shim>.type` Type of file action (shim file)
+
+|||
+|-|-|
+|__Type__|`"shim"`|
+
+
+##### `static_files.<string>.<type=shim>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `static_files.<string>.<type=shim>.target` Target file we want the shim to be symlinked to
+
+|||
+|-|-|
+|__Type__|string|
+
+
 #### `static_files.<string>.<type=binary_patch>` Patch binary file
 
 Make a patch to a binary file at the specified offset. This can either be arbitrary bytes specified as a hex string, or assembly code that will be automatically assembled in the specified mode.
 
-|Field|Type|Default|Title|Examples|
-|-|-|-|-|-|
-|`type`|`"binary_patch"`||Type of file action (patch binary file)||
-|`file_offset`|integer||File offset (integer)||
-|`hex_bytes`|string or null|`null`|Bytes to write at offset (hex string)|`DEADBEEF`, `90 90`|
-|`asm`|string or null|`null`|Assembly code to write at offset (runs through keystone)|`nop`, `'mov r0, #0xdeadbeef'`|
-|`mode`|string or null|`null`|Assembly mode|`arm`, `thumb`|
+##### `static_files.<string>.<type=binary_patch>.type` Type of file action (patch binary file)
+
+|||
+|-|-|
+|__Type__|`"binary_patch"`|
+
+
+##### `static_files.<string>.<type=binary_patch>.provenance` Model provenance
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
+
+##### `static_files.<string>.<type=binary_patch>.file_offset` File offset (integer)
+
+|||
+|-|-|
+|__Type__|integer|
+
+
+##### `static_files.<string>.<type=binary_patch>.hex_bytes` Bytes to write at offset (hex string)
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+
+```yaml
+DEADBEEF
+```
+
+```yaml
+90 90
+```
+
+##### `static_files.<string>.<type=binary_patch>.asm` Assembly code to write at offset (runs through keystone)
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+
+```yaml
+nop
+```
+
+```yaml
+'mov r0, #0xdeadbeef'
+```
+
+##### `static_files.<string>.<type=binary_patch>.mode` Assembly mode
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+
+```yaml
+arm
+```
+
+```yaml
+thumb
+```
+
 ## `plugins` Plugins
 
 

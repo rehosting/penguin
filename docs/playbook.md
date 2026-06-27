@@ -61,6 +61,10 @@ a system expects to run with will no longer be present or, if they are present,
 behave differently than expected. While many of these changes are acceptable, some
 will be fatal and must be handled in your rehosting config.
 
+For the full set of models you can attach to a pseudofile — including stateful
+registers, sequenced responses, ioctl struct-fills, and the seek/open/release
+ops — see the [pseudofile model catalog](pseudofile_models.md).
+
 ### When to create pseudofile models
 If you see errors in your `console.log` about missing devices or it seems like
 services are crashing or failing to start, pseudofiles are a good place to begin

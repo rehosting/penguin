@@ -117,7 +117,10 @@ This plugin tracks accesses and interactions with files in `/dev/` and `/proc/`.
 In `pseudofiles_failures.yaml` details of failed interactions are reported.
 
 Users can add pseudofiles and configure models for reads, writes, and IOCTLs on
-these files by adding entries into the `pseudofiles` config section.
+these files by adding entries into the `pseudofiles` config section. See the
+[pseudofile model catalog](pseudofile_models.md) for every available model
+(read/write/ioctl/poll/seek/mmap/open/release), copy-paste snippets, and how to
+add custom models in Python via `@register_model`.
 
 ## Shell
 This plugin tracks the behavior of shell scripts, capturing coverage in `shell_cov.csv`, environment variable values in `shell_env.csv` and a combined trace in `shell_cov_trace.csv`.

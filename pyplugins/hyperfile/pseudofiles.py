@@ -9,25 +9,54 @@ from hyperfile.models.read import (
     ReadConstBuf,
     ReadConstMap,
     ReadConstMapFile,
+    ReadCycle,
     ReadDefault,
     ReadEmpty,
     ReadExternalLegacy,
     ReadExternalVFS,
     ReadFromFile,
     ReadOne,
+    ReadSequence,
+    ReadStateful,
     ReadZero,
 )
-from hyperfile.models.write import WriteDefault, WriteExternalVFS, WriteExternalLegacy, WriteToFile
+from hyperfile.models.write import (
+    WriteDefault,
+    WriteExternalVFS,
+    WriteExternalLegacy,
+    WriteReturnConst,
+    WriteToFile,
+    WriteUnhandled,
+)
 from hyperfile.models.ioctl import (
     IoctlDispatcher,
+    CompatIoctlDispatcher,
     IoctlReturnConst,
     IoctlExternalVFS,
     IoctlExternalLegacy,
+    IoctlWriteData,
     IoctlZero,
     IoctlPluginVFS,
     IoctlPluginLegacy,
 )
 from hyperfile.models.poll import PollAlwaysReady, PollExternalVFS
+from hyperfile.models.registry import get_model
+from hyperfile.models.seek import (
+    SeekDefault,
+    SeekUnsupported,
+    SeekExternalVFS,
+    OpenExternalVFS,
+    ReleaseExternalVFS,
+    MmapExternalVFS,
+    FlushExternalVFS,
+    FsyncExternalVFS,
+    FasyncExternalVFS,
+    LockExternalVFS,
+    ReadIterExternalVFS,
+    WriteIterExternalVFS,
+    GetUnmappedAreaExternalVFS,
+    CompatIoctlExternalVFS,
+)
 
 
 class _LegacyDevSeekCompat:
@@ -73,9 +102,22 @@ class Pseudofiles(Plugin):
 
     def __init__(self):
         self.config = self.get_arg("conf")
-        if not self.get_arg_bool("disable_tracking"):
+        self._tracking = not self.get_arg_bool("disable_tracking")
+        if self._tracking:
             plugins.pseudofile_tracker.ensure_init()
         self._populate_hf_config()
+
+    def _record_default_hit(self, path, op, details):
+        """Forward a default-model hit to the tracker's failures view.
+
+        No-op if the tracker is not loaded (e.g. disable_tracking).
+        """
+        if not self._tracking:
+            return
+        tracker = getattr(plugins, "pseudofile_tracker", None)
+        if tracker is None:
+            return
+        tracker.record_default_hit(path, op, details)
 
     # 1. MAPPING LEGACY NAMES TO NEW CLASSES
     # --------------------------------------
@@ -86,7 +128,10 @@ class Pseudofiles(Plugin):
         "const_buf": ReadConstBuf,
         "const_map": ReadConstMap,
         "const_map_file": ReadConstMapFile,
+        "cycle": ReadCycle,
         "from_file": ReadFromFile,
+        "stateful": ReadStateful,
+        "sequence": ReadSequence,
         "return_const": ReadConstBuf,  # Legacy compatibility
         "default": ReadDefault,
     }
@@ -94,6 +139,8 @@ class Pseudofiles(Plugin):
     write_models = {
         "discard": WriteDefault,
         "to_file": WriteToFile,
+        "return_const": WriteReturnConst,
+        "unhandled": WriteUnhandled,
         "default": WriteDefault,
     }
 
@@ -107,6 +154,42 @@ class Pseudofiles(Plugin):
         "always_ready": PollAlwaysReady,
     }
 
+    # Per-operation models for the rest of the VFS surface. Each maps a model
+    # name to a mixin; "from_plugin" is handled via the adapter in EXTRA_OPS.
+    # An absent/None entry (e.g. open/release "noop") leaves the base no-op,
+    # which is the kernel default — so omitting a domain is fully backwards
+    # compatible.
+    seek_models = {
+        "default": SeekDefault,
+        "unsupported": SeekUnsupported,
+    }
+    mmap_models = {}
+    open_models = {}
+    release_models = {}
+
+    # domain -> (models_dict, from_plugin_adapter). The device-specific fops
+    # (flush/fsync/fasync/lock) wire only for /dev (and anonfs); read_iter /
+    # write_iter / get_unmapped_area are advanced fops. All are from_plugin-only.
+    EXTRA_OPS = {
+        "lseek": (seek_models, SeekExternalVFS),
+        "mmap": (mmap_models, MmapExternalVFS),
+        "open": (open_models, OpenExternalVFS),
+        "release": (release_models, ReleaseExternalVFS),
+        "flush": ({}, FlushExternalVFS),
+        "fsync": ({}, FsyncExternalVFS),
+        "fasync": ({}, FasyncExternalVFS),
+        "lock": ({}, LockExternalVFS),
+        "read_iter": ({}, ReadIterExternalVFS),
+        "write_iter": ({}, WriteIterExternalVFS),
+        "get_unmapped_area": ({}, GetUnmappedAreaExternalVFS),
+    }
+    # Config keys consumed by per-domain resolution (excluded from the
+    # top-level file-property passthrough).
+    _DOMAIN_KEYS = ("read", "write", "ioctl", "poll", "plugin",
+                    "lseek", "seek", "mmap", "open", "release",
+                    "compat_ioctl", "flush", "fsync", "fasync", "lock",
+                    "read_iter", "write_iter", "get_unmapped_area")
+
     # Built-in single-object backing classes, referenced by bare name in the
     # file-level `plugin:` key. User backings use the `file:ClassName` form
     # instead (resolved via the pyplugin search path).
@@ -118,6 +201,10 @@ class Pseudofiles(Plugin):
         domain: 'read', 'write', or 'ioctl'
         """
         new_kwargs = {}
+
+        # 0. Provenance (per-domain so read/write can each carry their own)
+        if "provenance" in raw_config:
+            new_kwargs[f"{domain}_provenance"] = raw_config["provenance"]
 
         # 1. Handle Plugins (collision prone)
         if "plugin" in raw_config:
@@ -145,7 +232,7 @@ class Pseudofiles(Plugin):
         # Careful: 'size' might be used by both read maps and base file props.
         # Usually BaseFile consumes 'size' via kwargs last, so it's okay to pass through.
         for k, v in raw_config.items():
-            if k not in ["plugin", "function", "filename", "val", "model"]:
+            if k not in ["plugin", "function", "filename", "val", "model", "model_name", "provenance"]:
                 new_kwargs[k] = v
 
         return new_kwargs
@@ -232,13 +319,20 @@ class Pseudofiles(Plugin):
         Creates a specific Handler object for one ioctl entry.
         """
         model = details.get("model", "return_const")
+        provenance = details.get("provenance")
 
         if model == "return_const":
             val = details.get("val", 0)
-            return IoctlReturnConst(val)
+            return IoctlReturnConst(val, provenance=provenance)
 
         elif model == "zero":
-            return IoctlReturnConst(0)
+            return IoctlReturnConst(0, provenance=provenance)
+
+        elif model == "unhandled":
+            return IoctlReturnConst(-25, provenance=provenance)  # -ENOTTY
+
+        elif model == "write_data":
+            return IoctlWriteData(details.get("data", b""), details.get("val", 0), provenance=provenance)
 
         elif model == "from_plugin":
             plugin_name = details.get("plugin")
@@ -279,6 +373,15 @@ class Pseudofiles(Plugin):
         """
         model_name = conf.get("model", "default")  # e.g. "zero", "from_plugin"
 
+        # 0. Handle a registered custom model (model: custom, model_name: foo)
+        if model_name == "custom":
+            custom = get_model(domain, conf.get("model_name"))
+            if custom is None:
+                raise ValueError(
+                    f"No custom {domain} model named '{conf.get('model_name')}' "
+                    "registered (use @register_model in a loaded plugin)")
+            return custom
+
         # 1. Handle Standard Models
         if model_name != "from_plugin":
             if domain == "read":
@@ -297,6 +400,39 @@ class Pseudofiles(Plugin):
         func_name = conf.get("function", default_funcs[domain])
 
         return self._detect_plugin_style(plugin_name, func_name, domain)
+
+    def _resolve_extra_ops(self, details):
+        """Resolve mixins + kwargs for the extra VFS-op domains present in config.
+
+        Returns (bases, kwargs). A domain that is absent, or whose model has no
+        mixin (e.g. open/release "noop"), contributes nothing — the base
+        no-op (kernel default) stands, so this is backwards compatible.
+        """
+        bases = []
+        kwargs = {}
+        for domain, (models, adapter) in self.EXTRA_OPS.items():
+            conf = details.get(domain, {})
+            # Accept "seek" as an alias for the "lseek" domain.
+            if domain == "lseek" and not conf:
+                conf = details.get("seek", {})
+            if not conf:
+                continue
+            model_name = conf.get("model", "default")
+            if model_name == "from_plugin":
+                mixin = adapter
+            elif model_name == "custom":
+                mixin = get_model(domain, conf.get("model_name"))
+                if mixin is None:
+                    raise ValueError(
+                        f"No custom {domain} model named '{conf.get('model_name')}' "
+                        "registered (use @register_model in a loaded plugin)")
+            else:
+                mixin = models.get(model_name)
+            if mixin is None:
+                continue
+            bases.append(mixin)
+            kwargs.update(self._translate_kwargs(domain, conf))
+        return bases, kwargs
 
     def _resolve_known_size(self, filename, details, read_conf):
         if "size" in details and details["size"] is not None:
@@ -443,7 +579,7 @@ class Pseudofiles(Plugin):
         # per-domain read/write/ioctl/poll keys and the backing ref itself are
         # owned by the backing class, not passed through.
         for key, val in details.items():
-            if key not in ("read", "write", "ioctl", "poll", "plugin"):
+            if key not in self._DOMAIN_KEYS:
                 all_kwargs[key] = val
 
         return type(safe_name, tuple(bases), {})(**all_kwargs)
@@ -477,9 +613,28 @@ class Pseudofiles(Plugin):
         r_kwargs = self._translate_kwargs("read", read_conf)
         w_kwargs = self._translate_kwargs("write", write_conf)
 
-        # Assemble
+        # Resolve extra VFS ops (lseek/mmap/open/release/flush/fsync/...)
+        extra_bases, extra_kwargs = self._resolve_extra_ops(details)
+
+        # compat_ioctl: 'same_as_ioctl' reuses the ioctl handler map; otherwise
+        # 'from_plugin' routes to a plugin. Handled here (not in EXTRA_OPS)
+        # because same_as_ioctl needs the handlers_map built above.
+        compat_conf = details.get("compat_ioctl") or {}
+        if compat_conf:
+            compat_model = compat_conf.get("model")
+            if compat_model == "same_as_ioctl":
+                extra_bases.append(CompatIoctlDispatcher)
+                extra_kwargs["compat_ioctl_handlers"] = handlers_map
+            elif compat_model == "from_plugin":
+                extra_bases.append(CompatIoctlExternalVFS)
+                extra_kwargs.update(self._translate_kwargs("compat_ioctl", compat_conf))
+
+        # Assemble. Extra-op mixins go FIRST so an explicit lseek/mmap/etc.
+        # model wins over the _LegacyDevSeekCompat fallback (which also defines
+        # lseek) in the compat bases.
         safe_name = f"Gen_{filename.replace('/', '_')}"
-        bases = list(self._get_compat_bases(filename, details))
+        bases = list(extra_bases)
+        bases.extend(self._get_compat_bases(filename, details))
         if P_Mixin is not None:
             bases.append(P_Mixin)
         bases.extend([R_Mixin, W_Mixin, IoctlDispatcher])
@@ -488,10 +643,12 @@ class Pseudofiles(Plugin):
             bases.append(SysfsBridge)
         bases.append(BaseClass)
 
-        all_kwargs = {**r_kwargs, **w_kwargs, **p_kwargs}
+        all_kwargs = {**r_kwargs, **w_kwargs, **p_kwargs, **extra_kwargs}
         all_kwargs['ioctl_handlers'] = handlers_map
         all_kwargs['path'] = filename
         all_kwargs['fs'] = getattr(BaseClass, 'FS', None)
+        if self._tracking:
+            all_kwargs['default_hit_cb'] = self._record_default_hit
 
         # --- Compatibility bridge for SysctlFile ---
         # If the old config uses a const_buf read mixin to set a static sysctl value,
@@ -501,7 +658,7 @@ class Pseudofiles(Plugin):
 
         # Capture top-level file properties (size, mode, etc.)
         for key, val in details.items():
-            if key not in ("read", "write", "ioctl", "poll", "plugin"):
+            if key not in self._DOMAIN_KEYS:
                 all_kwargs[key] = val
         # -----------------------------------------------------------------
 

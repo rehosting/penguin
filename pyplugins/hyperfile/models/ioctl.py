@@ -128,6 +128,33 @@ class IoctlDispatcher:
             ptregs.retval = -25  # -ENOTTY
 
 
+class CompatIoctlDispatcher:
+    """Route compat_ioctl() through a handler map (32-bit-on-64-bit ioctls).
+
+    Mirrors :class:`IoctlDispatcher` but for the ``compat_ioctl`` fop. When
+    configured ``same_as_ioctl`` it is given the very same handler map as
+    ``ioctl`` (the common driver pattern ``.compat_ioctl = .unlocked_ioctl``).
+    """
+
+    def __init__(self, *, compat_ioctl_handlers: dict = None, **kwargs):
+        self.compat_ioctl_handlers = compat_ioctl_handlers or {}
+        super().__init__(**kwargs)
+
+    def compat_ioctl(self, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
+        cmd_val = int(cmd)
+        handler = self.compat_ioctl_handlers.get(cmd_val)
+        if handler is None:
+            handler = self.compat_ioctl_handlers.get(str(cmd_val))
+        if handler is None:
+            handler = self.compat_ioctl_handlers.get("*")
+        if handler:
+            res = handler.handle(self, ptregs, file, cmd_val, arg)
+            if inspect.isgenerator(res):
+                yield from res
+        else:
+            ptregs.retval = -25  # -ENOTTY
+
+
 class IoctlHandlerBase:
     def handle(self, file_obj, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
         raise NotImplementedError
@@ -136,10 +163,39 @@ class IoctlHandlerBase:
 class IoctlReturnConst(IoctlHandlerBase):
     """Returns a static constant."""
 
-    def __init__(self, val):
+    def __init__(self, val, provenance=None):
         self.val = val
+        self.provenance = provenance
 
     def handle(self, file_obj, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
+        report = getattr(file_obj, "_report_default", None)
+        if report:
+            report("ioctl", {"cmd": int(cmd), "arg": int(arg)}, provenance=self.provenance)
+        ptregs.retval = self.val
+
+
+class IoctlWriteData(IoctlHandlerBase):
+    """Writes a constant buffer to the address pointed to by ``arg``.
+
+    This is the per-command handler analogue of :class:`IoctlWriteDataArg`,
+    for the ioctl command-map dispatch. Covers the very common shape of an
+    ioctl that fills a user-supplied struct, then returns ``val``.
+    """
+
+    def __init__(self, data: Union[bytes, str] = b"", val: int = 0, provenance=None):
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+        self.data = data
+        self.val = val
+        self.provenance = provenance
+
+    def handle(self, file_obj, ptregs: PtRegsWrapper, file: FilePtr, cmd: CInt, arg: CInt):
+        report = getattr(file_obj, "_report_default", None)
+        if report:
+            report("ioctl", {"cmd": int(cmd), "arg": int(arg)}, provenance=self.provenance)
+        arg_addr = int(arg)
+        if self.data and arg_addr != 0:
+            yield from plugins.mem.write(arg_addr, self.data)
         ptregs.retval = self.val
 
 

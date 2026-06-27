@@ -21,6 +21,10 @@ class WriteDiscard:
         Discards all written data.
         Always returns the size written.
         """
+        report = getattr(self, "_report_default", None)
+        if report:
+            buf = yield from plugins.mem.read(user_buf, int(size), fmt="bytes")
+            report("write", {"payload": buf[:64].hex(), "len": int(size)})
         ptregs.retval = int(size)
 
 
@@ -65,6 +69,10 @@ class WriteRecord:
         """
         size_val = int(size)
         buf = yield from plugins.mem.read(user_buf, size_val, fmt="bytes")
+
+        report = getattr(self, "_report_default", None)
+        if report:
+            report("write", {"payload": buf[:64].hex(), "len": size_val})
 
         offset = yield from plugins.kffi.deref(offset_ptr)
         previous = self.written_data[:offset]

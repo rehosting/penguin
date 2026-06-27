@@ -73,16 +73,18 @@ class PseudofilesTailored(InitPlugin):
                 results[file_name] = {
                     'read': {
                         "model": "zero",
+                        "provenance": "default",
                     },
                     'write': {
                         "model": "discard",
+                        "provenance": "default",
                     }
                 }
 
                 if section == "dev":
                     # /dev files get a default IOCTL model
                     results[file_name]['ioctl'] = {
-                        '*': {"model": "return_const", "val": 0}
+                        '*': {"model": "return_const", "val": 0, "provenance": "default"}
                     }
 
                     if file_name.startswith("/dev/mtd"):
