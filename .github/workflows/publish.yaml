@@ -49,6 +49,9 @@ jobs:
       image: rehosting/penguin
       flake-attr: .#dockerImage
       cachix-name: rehosting-tools
+      # Match the CI Nix to the one that generated flake.lock (modern Nix);
+      # install-nix-action's default 2.22.1 rejects the lock's tarball narHashes.
+      nix-install-url: https://releases.nixos.org/nix/nix-2.31.2/install
       enable-kvm: false
       dockerhub-user: rehosting
       extra-tags: |
