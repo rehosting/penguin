@@ -50,21 +50,23 @@
     "fw2tar": {
       "inputs": {
         "binwalk-v2": "binwalk-v2",
-        "nixpkgs": "nixpkgs",
+        "nixpkgs": [
+          "nixpkgs"
+        ],
         "unblob": "unblob"
       },
       "locked": {
-        "lastModified": 1782358792,
-        "narHash": "sha256-xcj8pRjUhxQ0GlA+JFGYpO12WhhEYmsjH/kqp2sNWhI=",
+        "lastModified": 1782563028,
+        "narHash": "sha256-S4s9guwelgw0QRY/7GCoNVe+xqRlT6+1OkQK4GL6UuI=",
         "owner": "rehosting",
         "repo": "fw2tar",
-        "rev": "2160c6d9d0f5c4cd250e92f380d4280610b242ed",
+        "rev": "ddca434e8f6f3d76e3694a9dc69c316bb4af284f",
         "type": "github"
       },
       "original": {
         "owner": "rehosting",
         "repo": "fw2tar",
-        "rev": "2160c6d9d0f5c4cd250e92f380d4280610b242ed",
+        "rev": "ddca434e8f6f3d76e3694a9dc69c316bb4af284f",
         "type": "github"
       }
     },
@@ -122,38 +124,6 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1781607440,
-        "narHash": "sha256-rxO+uc/KFbSJp+pgyXRuAX6QlG9hJdnt0BXpEQRXY+U=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "3e41b24abd260e8f71dbe2f5737d24122f972158",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "nixpkgs-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "nixpkgs_2": {
-      "locked": {
-        "lastModified": 1778036283,
-        "narHash": "sha256-62EWg6lI0qyzm7oAx5cAnGkLutvJsRBe0KkEW2JDZCE=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "ed67bc86e84e51d4a88e73c7fd36006dc876476f",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "nixpkgs-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "nixpkgs_3": {
-      "locked": {
         "lastModified": 1773201692,
         "narHash": "sha256-NXrKzNMniu4Oam2kAFvqJ3GB2kAvlAFIriTAheaY8hw=",
         "owner": "NixOS",
@@ -193,13 +163,13 @@
       "flake": false,
       "locked": {
         "lastModified": 1,
-        "narHash": "sha256-2LfISOw3ywFhuun5n+B/IOWWJ7QQjc5Aj8zZxWIKaeI=",
+        "narHash": "sha256-j3Hqq8uiopJMwYs5Pd4vjqjv8y3WRwcNAycudAggyQ8=",
         "type": "tarball",
-        "url": "https://github.com/rehosting/penguin-tools/releases/download/v0.0.14/penguin-tools.tar.gz"
+        "url": "https://github.com/rehosting/penguin-tools/releases/download/v0.0.16/penguin-tools.tar.gz"
       },
       "original": {
         "type": "tarball",
-        "url": "https://github.com/rehosting/penguin-tools/releases/download/v0.0.14/penguin-tools.tar.gz"
+        "url": "https://github.com/rehosting/penguin-tools/releases/download/v0.0.16/penguin-tools.tar.gz"
       }
     },
     "root": {
@@ -209,7 +179,7 @@
         "kernels": "kernels",
         "ltrace-src": "ltrace-src",
         "musl-src": "musl-src",
-        "nixpkgs": "nixpkgs_3",
+        "nixpkgs": "nixpkgs",
         "penguin-qemu": "penguin-qemu",
         "penguin-tools": "penguin-tools",
         "vhost-device": "vhost-device"
@@ -234,7 +204,10 @@
       "inputs": {
         "filter": "filter",
         "flake-compat": "flake-compat",
-        "nixpkgs": "nixpkgs_2",
+        "nixpkgs": [
+          "fw2tar",
+          "nixpkgs"
+        ],
         "shell-hooks": "shell-hooks"
       },
       "locked": {
