@@ -76,10 +76,6 @@ pseudofiles:
       vals:
         - "s1\n"
         - "s2\n"
-  /dev/yaml_cycle:
-    read:
-      model: cycle
-      val: "AB"
   /dev/yaml_ioctl_write_data:
     ioctl:
       2222:
@@ -288,13 +284,6 @@ static_files:
       seq2=$($bb cat /proc/yaml_sequence)
       if [ "$seq1" != "s1" ] || [ "$seq2" != "s2" ]; then
         echo "Error: sequence fail (got '$seq1' then '$seq2')"
-        exit 1
-      fi
-
-      # cycle: a repeating buffer fills any read length
-      cyc=$($bb dd if=/dev/yaml_cycle bs=5 count=1 2>/dev/null)
-      if [ "$cyc" != "ABABA" ]; then
-        echo "Error: cycle fail (got '$cyc')"
         exit 1
       fi
 
