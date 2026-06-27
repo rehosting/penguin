@@ -61,12 +61,15 @@ class ReadBufWrapper:
             if data_len == 0:
                 ptregs.retval = 0
                 return
-            pos = offset % data_len
+            # offset is a kffi BoundTypeInstance (loff_t); coerce to int — it
+            # supports comparison/add/index but not %, which the cycle math needs.
+            off = int(offset)
+            pos = off % data_len
             # Repeat the buffer enough times to cover [pos, pos+size_val), then slice.
             reps = (pos + size_val + data_len - 1) // data_len
             chunk_data = (data_bytes * reps)[pos:pos + size_val]
             yield from plugins.mem.write(user_buf, chunk_data)
-            yield from plugins.mem.write(offset_ptr, offset + size_val)
+            yield from plugins.mem.write(offset_ptr, off + size_val)
             ptregs.retval = size_val
 
 
