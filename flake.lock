@@ -56,17 +56,17 @@
         "unblob": "unblob"
       },
       "locked": {
-        "lastModified": 1782563028,
+        "lastModified": 1782563803,
         "narHash": "sha256-S4s9guwelgw0QRY/7GCoNVe+xqRlT6+1OkQK4GL6UuI=",
         "owner": "rehosting",
         "repo": "fw2tar",
-        "rev": "ddca434e8f6f3d76e3694a9dc69c316bb4af284f",
+        "rev": "b9e72b0dd8475715eb5d6cb85ac60ee0d1f2d7e5",
         "type": "github"
       },
       "original": {
         "owner": "rehosting",
         "repo": "fw2tar",
-        "rev": "ddca434e8f6f3d76e3694a9dc69c316bb4af284f",
+        "rev": "b9e72b0dd8475715eb5d6cb85ac60ee0d1f2d7e5",
         "type": "github"
       }
     },
