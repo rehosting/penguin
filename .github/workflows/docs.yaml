@@ -105,6 +105,9 @@ jobs:
         uses: rehosting/ci/actions/nix-setup@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Match the CI Nix to the one that generated flake.lock; the default
+          # 2.22.1 rejects the lock's tarball narHashes ("NAR hash mismatch").
+          install-url: https://releases.nixos.org/nix/nix-2.31.2/install
           cache-backend: cachix
           cachix-name: rehosting-tools
           cachix-auth-token: ${{ secrets.CACHIX_REHOSTING }}
