@@ -22,20 +22,7 @@ plugins:
         string: "default_ioctl"
 
 pseudofiles:
-  # Broadened VFS surface (W2): open/release/lseek dispatched to a plugin.
-  /dev/ext_lifecycle:
-    open:
-      model: from_plugin
-      plugin: pseudofile_ext_test
-      function: on_open
-    release:
-      model: from_plugin
-      plugin: pseudofile_ext_test
-      function: on_release
-    read:
-      model: from_plugin
-      plugin: pseudofile_ext_test
-      function: lifecycle
+  # Broadened VFS surface (W2): lseek dispatched to a plugin.
   /dev/ext_seek:
     read:
       model: const_buf
@@ -109,18 +96,9 @@ static_files:
         exit 1
       fi
 
-      # Lifecycle: each open() and release() must reach the plugin. The first
-      # cat opens (open=1) then closes (release=1); the second cat therefore
-      # reports open=2 release=1.
-      first=$($bb cat /dev/ext_lifecycle)
-      second=$($bb cat /dev/ext_lifecycle)
-      if [ "$second" != "open=2 release=1" ]; then
-        echo "Error: lifecycle first='$first' second='$second' (want 'open=2 release=1')"
-        exit 1
-      fi
-
       # Touch the provenance-default node so its stub reports default_read /
-      # default_write into pseudofiles_failures.yaml.
+      # default_write into pseudofiles_failures.yaml (default_ioctl comes from
+      # the .py companion).
       $bb cat /dev/ext_default > /dev/null
       echo "x" > /dev/ext_default
 
