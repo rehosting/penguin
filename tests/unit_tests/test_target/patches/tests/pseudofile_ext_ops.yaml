@@ -1,0 +1,133 @@
+plugins:
+  pseudofile_ext_test: {}
+  verifier:
+    conditions:
+      pseudofile_ext_ops:
+        type: file_contains
+        file: shared/tests/pseudofile_ext_ops.sh/stdout
+        string: "pseudofile_ext_ops PASS"
+      # Provenance: a default-tagged stub self-reports each op it serves into
+      # pseudofiles_failures.yaml (default_read / default_write / default_ioctl).
+      ext_provenance_read:
+        type: file_contains
+        file: pseudofiles_failures.yaml
+        string: "default_read"
+      ext_provenance_write:
+        type: file_contains
+        file: pseudofiles_failures.yaml
+        string: "default_write"
+      ext_provenance_ioctl:
+        type: file_contains
+        file: pseudofiles_failures.yaml
+        string: "default_ioctl"
+
+pseudofiles:
+  # Broadened VFS surface (W2): open/release/lseek dispatched to a plugin.
+  /dev/ext_lifecycle:
+    open:
+      model: from_plugin
+      plugin: pseudofile_ext_test
+      function: on_open
+    release:
+      model: from_plugin
+      plugin: pseudofile_ext_test
+      function: on_release
+    read:
+      model: from_plugin
+      plugin: pseudofile_ext_test
+      function: lifecycle
+  /dev/ext_seek:
+    read:
+      model: const_buf
+      val: "seekdata\n"
+    lseek:
+      model: from_plugin
+      plugin: pseudofile_ext_test
+      function: seek_sentinel
+  # Custom @register_model read model selected by name (W3): 6 * scale = 42.
+  /dev/ext_custom:
+    read:
+      model: custom
+      model_name: ext_sensor
+      scale: 7
+  # Provenance (W5): a synthesized default stub. Reading/writing/ioctl'ing it
+  # must surface default_* events in pseudofiles_failures.yaml.
+  /dev/ext_default:
+    read:
+      model: zero
+      provenance: default
+    write:
+      model: discard
+      provenance: default
+    ioctl:
+      '*':
+        model: return_const
+        val: 0
+        provenance: default
+
+static_files:
+  /tests/pseudofile_ext_ops.py:
+    type: inline_file
+    mode: 0o755
+    contents: |
+      #!/igloo/utils/python3
+      import os, fcntl
+
+      # lseek from_plugin: the handler sets a distinctive sentinel offset, so a
+      # successful seek proves the kernel's lseek reached the plugin.
+      fd = os.open("/dev/ext_seek", os.O_RDONLY)
+      try:
+          pos = os.lseek(fd, 0, os.SEEK_SET)
+          if pos != 4242:
+              print("Error: lseek from_plugin sentinel got", pos)
+              raise SystemExit(1)
+      finally:
+          os.close(fd)
+
+      # ioctl the provenance-default node so the tracker logs default_ioctl.
+      # (return_const 0 -> the ioctl succeeds; the point is the default report.)
+      fd = os.open("/dev/ext_default", os.O_RDONLY)
+      try:
+          fcntl.ioctl(fd, 1234, 0)
+      finally:
+          os.close(fd)
+
+      print("ext python ops pass")
+
+  /tests/pseudofile_ext_ops.sh:
+    type: inline_file
+    mode: 0o755
+    contents: |
+      #!/igloo/utils/sh
+      set -ux
+      bb="/igloo/utils/busybox"
+
+      # Custom @register_model read model: ext_sensor with scale=7 -> "42".
+      custom=$($bb cat /dev/ext_custom)
+      if [ "$custom" != "42" ]; then
+        echo "Error: custom model got '$custom' (want '42')"
+        exit 1
+      fi
+
+      # Lifecycle: each open() and release() must reach the plugin. The first
+      # cat opens (open=1) then closes (release=1); the second cat therefore
+      # reports open=2 release=1.
+      first=$($bb cat /dev/ext_lifecycle)
+      second=$($bb cat /dev/ext_lifecycle)
+      if [ "$second" != "open=2 release=1" ]; then
+        echo "Error: lifecycle first='$first' second='$second' (want 'open=2 release=1')"
+        exit 1
+      fi
+
+      # Touch the provenance-default node so its stub reports default_read /
+      # default_write into pseudofiles_failures.yaml.
+      $bb cat /dev/ext_default > /dev/null
+      echo "x" > /dev/ext_default
+
+      if ! /igloo/utils/python3 /tests/pseudofile_ext_ops.py; then
+        echo "Error: python ext ops failed"
+        exit 1
+      fi
+
+      echo "pseudofile_ext_ops PASS"
+      exit 0

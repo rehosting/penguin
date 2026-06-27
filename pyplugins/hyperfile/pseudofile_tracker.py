@@ -223,6 +223,21 @@ class PseudofileTracker(Plugin):
             if path and path_interesting(path):
                 self.log_ioctl_failure(path, cmd)
 
+    def record_default_hit(self, path, op, details=None):
+        """Record that a synthesized default model actively served an access.
+
+        Folds the hit into the same failures view as genuine -ENOENT/-ENOTTY
+        failures (events default_read/default_write/default_ioctl), so an
+        active default surfaces as "needs a real model". Called by the
+        Pseudofiles plugin, already deduplicated per (op, cmd) at the model.
+        """
+        if not self.log_missing:
+            return
+        event = f"default_{op}"
+        self.centralized_log(path, event, details or None)
+        self.logger.debug(f"Default model served {op} on {path} {details or ''}")
+        self.dump_results()
+
     # --- Telemetry & Logging Methods ---
 
     def centralized_log(self, path, event, event_details=None):

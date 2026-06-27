@@ -30,6 +30,9 @@ class ReadBufWrapper:
         Reads data once, respecting offset and size.
         Returns 0 if offset is beyond the data.
         """
+        report = getattr(self, "_report_default", None)
+        if report:
+            report("read")
         size_val = int(size)
 
         if isinstance(self._data, bytes):
@@ -59,14 +62,9 @@ class ReadBufWrapper:
                 ptregs.retval = 0
                 return
             pos = offset % data_len
-            # Build the output by repeating the buffer as needed
-            full_repeats = (size_val + data_len - 1 - pos) // data_len
-            end_pos = (pos + size_val) % data_len
-            if end_pos > pos:
-                chunk_data = data_bytes[pos:end_pos]
-            else:
-                chunk_data = data_bytes[pos:] + data_bytes * (full_repeats - 1) + data_bytes[:end_pos]
-            chunk_data = chunk_data[:size_val]  # Ensure exact size
+            # Repeat the buffer enough times to cover [pos, pos+size_val), then slice.
+            reps = (pos + size_val + data_len - 1) // data_len
+            chunk_data = (data_bytes * reps)[pos:pos + size_val]
             yield from plugins.mem.write(user_buf, chunk_data)
             yield from plugins.mem.write(offset_ptr, offset + size_val)
             ptregs.retval = size_val
@@ -298,6 +296,101 @@ class ReadConstBufCycle(ReadCycle):
 
     def __init__(self, *, buffer: str = None, **kwargs):
         super().__init__(buffer=buffer, **kwargs)
+
+
+class ReadStateful:
+    '''
+    Reads back whatever was last written to this node.
+
+    Serves bytes from ``self.written_data`` — the same attribute that
+    ``WriteRecord``/``WriteDefault`` populate — so pairing
+    ``read: {model: stateful}`` with ``write: {model: default}`` yields a
+    read-after-write register expressed entirely in YAML, with no plugin.
+    An optional ``initial`` value seeds the buffer.
+    '''
+
+    def __init__(self, *, initial: Union[bytes, str] = None, **kwargs):
+        if not hasattr(self, "written_data"):
+            if initial is None:
+                self.written_data = b""
+            elif isinstance(initial, bytes):
+                self.written_data = initial
+            else:
+                self.written_data = str(initial).encode("utf-8")
+        super().__init__(**kwargs)
+
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
+        size_val = int(size)
+        data_bytes = self.written_data or b""
+        data_len = len(data_bytes)
+
+        offset = yield from plugins.kffi.deref(offset_ptr)
+
+        if size_val <= 0 or offset < 0 or offset >= data_len:
+            ptregs.retval = 0
+            return
+
+        chunk = min(size_val, data_len - offset)
+        yield from plugins.mem.write(user_buf, data_bytes[offset:offset + chunk])
+        yield from plugins.mem.write(offset_ptr, offset + chunk)
+        ptregs.retval = chunk
+
+
+class ReadSequence:
+    '''
+    Returns successive entries from a list on successive reads.
+
+    Each (fresh, offset 0) read pops the next entry from ``vals``; once the
+    list is exhausted the last entry is held forever, or — when ``cycle`` is
+    set — the sequence wraps around. Covers the common
+    "busy... busy... ready" status-polling pattern that otherwise forces a
+    custom plugin. Within a single entry, offset/size are honored so partial
+    reads of a large entry advance through it before moving to the next.
+    '''
+
+    def __init__(self, *, vals=None, cycle: bool = False, **kwargs):
+        seq = vals or []
+        self._seq = []
+        for v in seq:
+            if isinstance(v, bytes):
+                self._seq.append(v)
+            else:
+                self._seq.append(str(v).encode("utf-8"))
+        self._seq_cycle = cycle
+        self._seq_idx = 0
+        super().__init__(**kwargs)
+
+    def read(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr):
+        size_val = int(size)
+        offset = yield from plugins.kffi.deref(offset_ptr)
+
+        if size_val <= 0 or offset < 0 or not self._seq:
+            ptregs.retval = 0
+            return
+
+        idx = self._seq_idx
+        if idx >= len(self._seq):
+            if self._seq_cycle:
+                idx = idx % len(self._seq)
+            else:
+                idx = len(self._seq) - 1
+        data_bytes = self._seq[idx]
+        data_len = len(data_bytes)
+
+        if offset >= data_len:
+            # EOF for this entry; the tail-serve below already advanced the
+            # index, so just report end-of-file here.
+            ptregs.retval = 0
+            return
+
+        chunk = min(size_val, data_len - offset)
+        yield from plugins.mem.write(user_buf, data_bytes[offset:offset + chunk])
+        yield from plugins.mem.write(offset_ptr, offset + chunk)
+        ptregs.retval = chunk
+
+        # If we served the tail of this entry, advance for the next open/read.
+        if offset + chunk >= data_len:
+            self._seq_idx += 1
 
 
 class ReadExternalVFS:

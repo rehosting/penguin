@@ -1,5 +1,5 @@
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union, ClassVar
-from pydantic import BaseModel, Field, RootModel, field_validator
+from pydantic import BaseModel, Field, RootModel, field_validator, model_validator
 from pydantic.config import ConfigDict
 from pydantic_partial import PartialModelMixin, create_partial_model
 
@@ -48,17 +48,29 @@ def _newtype(class_name, type_, title, description=None, default=None, examples=
     )
 
 
-def _variant(discrim_val, title, description, discrim_key, discrim_title, fields):
+def _variant(discrim_val, title, description, discrim_key, discrim_title, fields, extra="forbid"):
     return type(
         discrim_val,
         (PartialModelMixin, BaseModel),
         dict(
-            model_config=ConfigDict(title=title, extra="forbid"),
+            model_config=ConfigDict(title=title, extra=extra),
             __doc__=description,
             __annotations__={
                 discrim_key: Annotated[
                     Literal[discrim_val],
                     Field(title=f"{discrim_title} ({title.lower()})"),
+                ],
+                "provenance": Annotated[
+                    Optional[str],
+                    Field(
+                        None,
+                        title="Model provenance",
+                        description=(
+                            "Origin tag. Set 'default' for a synthesized stub (it "
+                            "reports its hits into pseudofiles_failures.yaml); leave "
+                            "unset for author-intentional models."
+                        ),
+                    ),
                 ],
             }
             | {key: Annotated[type, field] for key, type, field in fields},
@@ -66,7 +78,24 @@ def _variant(discrim_val, title, description, discrim_key, discrim_title, fields
     )
 
 
-def _union(class_name, title, description, discrim_key, discrim_title, variants):
+# Shared escape variant: select a model registered at runtime via
+# @register_model (hyperfile.models.registry). Allows extra keys so the
+# custom model's own constructor args validate.
+_CUSTOM_VARIANT = dict(
+    discrim_val="custom",
+    title="Custom registered model",
+    description=(
+        "Use a model registered via @register_model in a loaded plugin. "
+        "'model_name' selects it; any extra keys are forwarded to the model."
+    ),
+    fields=(("model_name", str, Field(title="Registered model name")),),
+    extra="allow",
+)
+
+
+def _union(class_name, title, description, discrim_key, discrim_title, variants, allow_custom=False):
+    if allow_custom:
+        variants = tuple(variants) + (_CUSTOM_VARIANT,)
     variants = tuple(
         _variant(discrim_key=discrim_key, discrim_title=discrim_title, **v)
         for v in variants
@@ -500,6 +529,7 @@ _const_map_fields = (
 
 Read = _union(
     class_name="Read",
+    allow_custom=True,
     title="Read",
     description="How to handle reads from the file",
     discrim_key="model",
@@ -565,10 +595,43 @@ Read = _union(
             + _const_map_fields,
         ),
         dict(
+            discrim_val="cycle",
+            title="Read a repeating buffer",
+            description="Repeat the configured buffer forever (never reports EOF).",
+            fields=(
+                ("val", str, Field(title="Buffer to repeat")),
+            ),
+        ),
+        dict(
             discrim_val="from_file",
             title="Read from a host file",
             description=None,
             fields=(("filename", str, Field(title="Path to host file")),),
+        ),
+        dict(
+            discrim_val="stateful",
+            title="Read back what was written",
+            description=(
+                "Serve bytes from this node's write buffer, giving a "
+                "read-after-write register. Pair with write model 'default' "
+                "(or 'discard'/'record', which all record) so writes are stored."
+            ),
+            fields=(
+                ("initial", Optional[str], Field(None, title="Initial buffer contents")),
+            ),
+        ),
+        dict(
+            discrim_val="sequence",
+            title="Read successive values",
+            description=(
+                "Return each entry of 'vals' on successive reads; the common "
+                "'busy... busy... ready' status pattern. Holds the last entry "
+                "when exhausted unless 'cycle' wraps around."
+            ),
+            fields=(
+                ("vals", list, Field(title="Ordered values to return")),
+                ("cycle", bool, Field(False, title="Wrap around when exhausted")),
+            ),
         ),
         dict(
             discrim_val="from_plugin",
@@ -591,6 +654,7 @@ Read = _union(
 
 Write = _union(
     class_name="Write",
+    allow_custom=True,
     title="Write",
     description="How to handle writes to the file",
     discrim_key="model",
@@ -615,6 +679,18 @@ Write = _union(
             discrim_val="discard",
             title="Discard write",
             description=None,
+            fields=(),
+        ),
+        dict(
+            discrim_val="return_const",
+            title="Return a constant on write",
+            description="Return a fixed value (e.g. a byte count or a negative errno) without storing data.",
+            fields=(("const", int, Field(title="Value to return from write()")),),
+        ),
+        dict(
+            discrim_val="unhandled",
+            title="Reject writes",
+            description="Return -EINVAL for every write.",
             fields=(),
         ),
         dict(
@@ -647,6 +723,24 @@ IoctlCommand = _union(
             fields=(),
         ),
         dict(
+            discrim_val="unhandled",
+            title="Reject ioctl",
+            description="Return -ENOTTY (inappropriate ioctl for device).",
+            fields=(),
+        ),
+        dict(
+            discrim_val="write_data",
+            title="Write a buffer to the arg pointer",
+            description=(
+                "Write a constant buffer to the user pointer in 'arg' (the common "
+                "shape of an ioctl that fills a struct), then return 'val'."
+            ),
+            fields=(
+                ("data", str, Field(title="Bytes to write to *arg")),
+                ("val", int, Field(0, title="Value to return from ioctl()")),
+            ),
+        ),
+        dict(
             discrim_val="from_plugin",
             title="ioctl from a custom PyPlugin",
             description=None,
@@ -661,6 +755,7 @@ IoctlCommand = _union(
 
 Poll = _union(
     class_name="Poll",
+    allow_custom=True,
     title="Poll",
     description="How to answer poll()/select() on the file",
     discrim_key="model",
@@ -679,6 +774,163 @@ Poll = _union(
             fields=(
                 ("plugin", str, Field(title="Name of the loaded PyPlugin")),
                 ("function", Optional[str], Field(title="Function to call", default="poll")),
+            ),
+        ),
+    ),
+)
+
+
+Seek = _union(
+    class_name="Seek",
+    allow_custom=True,
+    title="Seek",
+    description="How to handle lseek() on the file",
+    discrim_key="model",
+    discrim_title="Seek modelling method",
+    variants=(
+        dict(
+            discrim_val="default",
+            title="Standard offset arithmetic",
+            description="SEEK_SET/CUR/END against the node's reported size.",
+            fields=(),
+        ),
+        dict(
+            discrim_val="unsupported",
+            title="Reject seeks",
+            description="Return -ESPIPE (for pipe/stream-like nodes).",
+            fields=(),
+        ),
+        dict(
+            discrim_val="from_plugin",
+            title="lseek from a custom PyPlugin",
+            description=None,
+            fields=(
+                ("plugin", str, Field(title="Name of the loaded PyPlugin")),
+                ("function", Optional[str], Field(title="Function to call", default="lseek")),
+            ),
+        ),
+    ),
+)
+
+
+Mmap = _union(
+    class_name="Mmap",
+    allow_custom=True,
+    title="Mmap",
+    description="How to handle mmap() on the file",
+    discrim_key="model",
+    discrim_title="Mmap modelling method",
+    variants=(
+        dict(
+            discrim_val="from_plugin",
+            title="mmap from a custom PyPlugin",
+            description=None,
+            fields=(
+                ("plugin", str, Field(title="Name of the loaded PyPlugin")),
+                ("function", Optional[str], Field(title="Function to call", default="mmap")),
+            ),
+        ),
+    ),
+)
+
+
+Open = _union(
+    class_name="Open",
+    allow_custom=True,
+    title="Open",
+    description="How to handle open() on the file",
+    discrim_key="model",
+    discrim_title="Open modelling method",
+    variants=(
+        dict(
+            discrim_val="from_plugin",
+            title="open from a custom PyPlugin",
+            description="Fire a plugin function when the guest opens this node.",
+            fields=(
+                ("plugin", str, Field(title="Name of the loaded PyPlugin")),
+                ("function", Optional[str], Field(title="Function to call", default="open")),
+            ),
+        ),
+    ),
+)
+
+
+Release = _union(
+    class_name="Release",
+    allow_custom=True,
+    title="Release",
+    description="How to handle release()/close() on the file",
+    discrim_key="model",
+    discrim_title="Release modelling method",
+    variants=(
+        dict(
+            discrim_val="from_plugin",
+            title="release from a custom PyPlugin",
+            description="Fire a plugin function when the guest closes this node.",
+            fields=(
+                ("plugin", str, Field(title="Name of the loaded PyPlugin")),
+                ("function", Optional[str], Field(title="Function to call", default="release")),
+            ),
+        ),
+    ),
+)
+
+
+def _plugin_op_union(class_name, title, op):
+    """A 'from_plugin'-only op union (with the shared custom escape variant)."""
+    return _union(
+        class_name=class_name,
+        title=title,
+        description=f"How to handle {op}() on the file",
+        discrim_key="model",
+        discrim_title=f"{title} modelling method",
+        allow_custom=True,
+        variants=(
+            dict(
+                discrim_val="from_plugin",
+                title=f"{op} from a custom PyPlugin",
+                description=None,
+                fields=(
+                    ("plugin", str, Field(title="Name of the loaded PyPlugin")),
+                    ("function", Optional[str], Field(title="Function to call", default=op)),
+                ),
+            ),
+        ),
+    )
+
+
+# Device-specific / advanced fops. flush/fsync/fasync/lock are /dev-only
+# (procfs does not wire them); read_iter/write_iter/get_unmapped_area are
+# advanced. All are plugin-driven.
+Flush = _plugin_op_union("Flush", "Flush", "flush")
+Fsync = _plugin_op_union("Fsync", "Fsync", "fsync")
+Fasync = _plugin_op_union("Fasync", "Fasync", "fasync")
+Lock = _plugin_op_union("Lock", "Lock", "lock")
+ReadIter = _plugin_op_union("ReadIter", "Read iterator", "read_iter")
+WriteIter = _plugin_op_union("WriteIter", "Write iterator", "write_iter")
+GetUnmappedArea = _plugin_op_union("GetUnmappedArea", "Get unmapped area", "get_unmapped_area")
+
+
+CompatIoctl = _union(
+    class_name="CompatIoctl",
+    title="Compat ioctl",
+    description="How to handle 32-bit compat_ioctl() on the file",
+    discrim_key="model",
+    discrim_title="compat_ioctl modelling method",
+    variants=(
+        dict(
+            discrim_val="same_as_ioctl",
+            title="Reuse the ioctl model",
+            description="Route compat_ioctl through the same handlers as ioctl (the common driver pattern).",
+            fields=(),
+        ),
+        dict(
+            discrim_val="from_plugin",
+            title="compat_ioctl from a custom PyPlugin",
+            description=None,
+            fields=(
+                ("plugin", str, Field(title="Name of the loaded PyPlugin")),
+                ("function", Optional[str], Field(title="Function to call", default="compat_ioctl")),
             ),
         ),
     ),
@@ -760,14 +1012,82 @@ class Pseudofile(PartialModelMixin, BaseModel):
     write: Optional[Write] = None
     ioctl: Optional[Ioctls] = None
     poll: Optional[Poll] = None
+    lseek: Optional[Seek] = None
+    mmap: Optional[Mmap] = None
+    open: Optional[Open] = None
+    release: Optional[Release] = None
+    compat_ioctl: Optional[CompatIoctl] = None
+    flush: Optional[Flush] = None
+    fsync: Optional[Fsync] = None
+    fasync: Optional[Fasync] = None
+    lock: Optional[Lock] = None
+    read_iter: Optional[ReadIter] = None
+    write_iter: Optional[WriteIter] = None
+    get_unmapped_area: Optional[GetUnmappedArea] = None
 
 
-Pseudofiles = _newtype(
-    class_name="Pseudofiles",
-    type_=dict[str, Pseudofile],
-    title="Pseudo-files",
-    description="Device files to emulate in the guest",
-)
+# Which path classes wire each operation, so we can reject a model attached to
+# a node whose filesystem can't service it. Keyed by Pseudofile field name.
+#   - char-device fops (flush/fsync/fasync/lock/write_iter) only wire for /dev
+#   - the broader VFS fops also wire for /proc (procfs), but NOT /proc/sys
+#     (sysctl) or /sys (sysfs), which only service reads/writes.
+_OP_SUPPORTED_PATHS = {
+    "flush": ("dev",),
+    "fsync": ("dev",),
+    "fasync": ("dev",),
+    "lock": ("dev",),
+    "write_iter": ("dev",),
+    "lseek": ("dev", "proc"),
+    "mmap": ("dev", "proc"),
+    "open": ("dev", "proc"),
+    "release": ("dev", "proc"),
+    "compat_ioctl": ("dev", "proc"),
+    "read_iter": ("dev", "proc"),
+    "get_unmapped_area": ("dev", "proc"),
+}
+
+_PATH_CLASS_LABEL = {
+    "dev": "/dev",
+    "proc": "/proc",
+    "procsys": "/proc/sys",
+    "sys": "/sys",
+}
+
+
+def _classify_pseudofile_path(path: str) -> str:
+    if path.startswith("/dev/"):
+        return "dev"
+    if path.startswith("/proc/sys/"):
+        return "procsys"
+    if path.startswith("/proc/"):
+        return "proc"
+    if path.startswith("/sys/"):
+        return "sys"
+    return "other"
+
+
+class Pseudofiles(RootModel):
+    """Device files to emulate in the guest"""
+
+    model_config = ConfigDict(title="Pseudo-files")
+
+    root: dict[str, Pseudofile] = {}
+
+    @model_validator(mode="after")
+    def _validate_op_paths(self):
+        for path, node in (self.root or {}).items():
+            cls = _classify_pseudofile_path(path)
+            for op, allowed in _OP_SUPPORTED_PATHS.items():
+                if getattr(node, op, None) is None:
+                    continue
+                if cls not in allowed:
+                    allowed_labels = " or ".join(_PATH_CLASS_LABEL[a] for a in allowed)
+                    raise ValueError(
+                        f"pseudofile '{path}': the '{op}' model is only supported "
+                        f"on {allowed_labels} nodes (this filesystem does not wire "
+                        f"{op}()). Remove it or move the node."
+                    )
+        return self
 
 Patches = _newtype(
     class_name="Patches",

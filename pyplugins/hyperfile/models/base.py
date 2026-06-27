@@ -42,7 +42,7 @@ class BaseFile:
     SIZE = 0
     SUPPORT_MMAP = False  # Explicitly declare mmap capability
 
-    def __init__(self, *, path: str = None, fs: str = None, size: int = None, mode: int = None, support_mmap: bool = None, **kwargs):
+    def __init__(self, *, path: str = None, fs: str = None, size: int = None, mode: int = None, support_mmap: bool = None, default_hit_cb=None, **kwargs):
         """
         Consumes 'path', 'fs', 'size', 'mode', and 'support_mmap' arguments.
         """
@@ -63,7 +63,44 @@ class BaseFile:
         else:
             self.MODE = self._derive_mode()
 
+        # Provenance/observability: a synthesized "default" model reports its
+        # hits so it doesn't silently mask behavior. Capture per-domain
+        # provenance tags (read_provenance, write_provenance, ...) and the hit
+        # callback; absence makes _report_default a no-op (backwards compatible).
+        self._default_hit_cb = default_hit_cb
+        self._default_hit_seen = set()
+        self._provenance = {}
+        for _op in ("read", "write", "ioctl", "poll", "lseek", "mmap", "open", "release"):
+            _val = kwargs.pop(f"{_op}_provenance", None)
+            if _val is not None:
+                self._provenance[_op] = _val
+
         super().__init__()
+
+    def _report_default(self, op: str, details: dict = None, provenance: str = None):
+        """Report that a synthesized default model served an access.
+
+        Fires the hit callback once per (op, distinct cmd), so a hot default
+        device does not flood telemetry. ``provenance`` may be passed explicitly
+        (ioctl handlers track their own); otherwise the per-domain tag captured
+        at construction is used. No-op unless the model is a tracked default and
+        a callback is wired.
+        """
+        prov = provenance if provenance is not None else self._provenance.get(op)
+        if prov not in ("default", "discovered"):
+            return
+        cb = getattr(self, "_default_hit_cb", None)
+        if cb is None:
+            return
+        details = details or {}
+        key = (op, details.get("cmd"))
+        if key in self._default_hit_seen:
+            return
+        self._default_hit_seen.add(key)
+        try:
+            cb(self.PATH, op, details)
+        except Exception:
+            pass
 
     def _derive_mode(self) -> int:
         """Derive appropriate file permissions based on implemented methods."""
@@ -190,6 +227,11 @@ class VFSFile(BaseFile):
         pass
 
     def write(self, ptregs: PtRegsWrapper, file: FilePtr, user_buf: CharPtr, size: SizeT, offset_ptr: LoffTPtr) -> None:
+        pass
+
+    def write_iter(self, ptregs: PtRegsWrapper, kiocb: KiocbPtr, iov_iter: IovIterPtr) -> None:
+        # Stub so write_iter is recognizable as overridable (devfs/anonfs wire
+        # it); previously referenced by the registration layer but undefined.
         pass
 
     def lseek(self, ptregs: PtRegsWrapper, file: FilePtr, offset: LoffT, whence: CInt) -> None:

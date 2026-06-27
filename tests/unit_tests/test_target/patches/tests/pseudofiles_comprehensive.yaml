@@ -64,6 +64,58 @@ pseudofiles:
     ioctl:
       '*':
         model: return_const
+  /dev/yaml_stateful:
+    read:
+      model: stateful
+      initial: "init\n"
+    write:
+      model: default
+  /proc/yaml_sequence:
+    read:
+      model: sequence
+      vals:
+        - "s1\n"
+        - "s2\n"
+  /dev/yaml_cycle:
+    read:
+      model: cycle
+      val: "AB"
+  /dev/yaml_ioctl_write_data:
+    ioctl:
+      2222:
+        model: write_data
+        data: "\x01\x02\x03\x04"
+        val: 0
+  /dev/yaml_lseek_unsup:
+    read:
+      model: const_buf
+      val: "seekme\n"
+    lseek:
+      model: unsupported
+  /dev/yaml_lseek_default:
+    read:
+      model: const_buf
+      val: "0123456789"
+    lseek:
+      model: default
+  /dev/yaml_write_return_const:
+    write:
+      model: return_const
+      const: -13      # -EACCES: writes rejected with a specific errno
+  /dev/yaml_write_unhandled:
+    write:
+      model: unhandled   # -EINVAL on every write
+  /dev/yaml_ioctl_unhandled:
+    ioctl:
+      '*':
+        model: unhandled   # -ENOTTY for any command
+  /proc/yaml_seq_cycle:
+    read:
+      model: sequence
+      cycle: true
+      vals:
+        - "c1\n"
+        - "c2\n"
 
 static_files:
   /tests/test_ioctl.py:
@@ -71,7 +123,7 @@ static_files:
     mode: 0o755
     contents: |
       #!/igloo/utils/python3
-      import os, fcntl
+      import os, fcntl, array, errno
 
       def check(path, op, expected):
           fd = os.open(path, os.O_RDONLY)
@@ -89,6 +141,85 @@ static_files:
       check("/dev/yaml_ioctl_whole", 1234, 77)
       check("/dev/yaml_ioctl_zero", 1234, 0)
       check("/dev/yaml_ioctl_default_zero", 1234, 0)
+
+      # write_data: the ioctl must fill the caller's buffer with the const bytes
+      buf = array.array("B", [0, 0, 0, 0])
+      fd = os.open("/dev/yaml_ioctl_write_data", os.O_RDONLY)
+      try:
+          fcntl.ioctl(fd, 2222, buf, True)
+      finally:
+          os.close(fd)
+      if buf.tolist() != [1, 2, 3, 4]:
+          print("Error: ioctl write_data got", buf.tolist())
+          raise SystemExit(1)
+
+      # lseek unsupported: seeking must fail with ESPIPE
+      fd = os.open("/dev/yaml_lseek_unsup", os.O_RDONLY)
+      try:
+          os.lseek(fd, 0, os.SEEK_SET)
+          print("Error: lseek on yaml_lseek_unsup unexpectedly succeeded")
+          raise SystemExit(1)
+      except OSError as e:
+          if e.errno != errno.ESPIPE:
+              print("Error: lseek expected ESPIPE, got", e.errno)
+              raise SystemExit(1)
+      finally:
+          os.close(fd)
+
+      # ioctl unhandled: any command must fail with ENOTTY
+      fd = os.open("/dev/yaml_ioctl_unhandled", os.O_RDONLY)
+      try:
+          fcntl.ioctl(fd, 1234, 0)
+          print("Error: ioctl unhandled unexpectedly succeeded")
+          raise SystemExit(1)
+      except OSError as e:
+          if e.errno != errno.ENOTTY:
+              print("Error: ioctl unhandled expected ENOTTY, got", e.errno)
+              raise SystemExit(1)
+      finally:
+          os.close(fd)
+
+      # write return_const: a write must fail with the configured errno (EACCES)
+      fd = os.open("/dev/yaml_write_return_const", os.O_WRONLY)
+      try:
+          os.write(fd, b"x")
+          print("Error: write return_const unexpectedly succeeded")
+          raise SystemExit(1)
+      except OSError as e:
+          if e.errno != errno.EACCES:
+              print("Error: write return_const expected EACCES, got", e.errno)
+              raise SystemExit(1)
+      finally:
+          os.close(fd)
+
+      # write unhandled: a write must fail with EINVAL
+      fd = os.open("/dev/yaml_write_unhandled", os.O_WRONLY)
+      try:
+          os.write(fd, b"x")
+          print("Error: write unhandled unexpectedly succeeded")
+          raise SystemExit(1)
+      except OSError as e:
+          if e.errno != errno.EINVAL:
+              print("Error: write unhandled expected EINVAL, got", e.errno)
+              raise SystemExit(1)
+      finally:
+          os.close(fd)
+
+      # lseek default: standard offset arithmetic against the node's size
+      fd = os.open("/dev/yaml_lseek_default", os.O_RDONLY)
+      try:
+          if os.lseek(fd, 0, os.SEEK_END) != 10:
+              print("Error: lseek default SEEK_END != size")
+              raise SystemExit(1)
+          if os.lseek(fd, 4, os.SEEK_SET) != 4:
+              print("Error: lseek default SEEK_SET != 4")
+              raise SystemExit(1)
+          if os.read(fd, 3) != b"456":
+              print("Error: lseek default read-from-offset wrong")
+              raise SystemExit(1)
+      finally:
+          os.close(fd)
+
       print("ioctl tests pass")
 
   /tests/pseudofiles_comprehensive.sh:
@@ -138,6 +269,41 @@ static_files:
 
       if ! $bb grep -q "host_read_content" /proc/yaml_file; then
         echo "Error: from_file fail"
+        exit 1
+      fi
+
+      # stateful: read back what was written (read-after-write register)
+      if [ "$($bb cat /dev/yaml_stateful)" != "init" ]; then
+        echo "Error: stateful initial fail"
+        exit 1
+      fi
+      $bb printf "hello" > /dev/yaml_stateful
+      if [ "$($bb cat /dev/yaml_stateful)" != "hello" ]; then
+        echo "Error: stateful read-after-write fail"
+        exit 1
+      fi
+
+      # sequence: successive reads return successive entries
+      seq1=$($bb cat /proc/yaml_sequence)
+      seq2=$($bb cat /proc/yaml_sequence)
+      if [ "$seq1" != "s1" ] || [ "$seq2" != "s2" ]; then
+        echo "Error: sequence fail (got '$seq1' then '$seq2')"
+        exit 1
+      fi
+
+      # cycle: a repeating buffer fills any read length
+      cyc=$($bb dd if=/dev/yaml_cycle bs=5 count=1 2>/dev/null)
+      if [ "$cyc" != "ABABA" ]; then
+        echo "Error: cycle fail (got '$cyc')"
+        exit 1
+      fi
+
+      # sequence with cycle: wraps around once the list is exhausted
+      sc1=$($bb cat /proc/yaml_seq_cycle)
+      sc2=$($bb cat /proc/yaml_seq_cycle)
+      sc3=$($bb cat /proc/yaml_seq_cycle)
+      if [ "$sc1" != "c1" ] || [ "$sc2" != "c2" ] || [ "$sc3" != "c1" ]; then
+        echo "Error: sequence cycle fail (got '$sc1' '$sc2' '$sc3')"
         exit 1
       fi
 
