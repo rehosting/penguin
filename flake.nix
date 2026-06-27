@@ -38,7 +38,7 @@
     flake = false;
   };
   inputs.penguin-tools = {
-    url = "https://github.com/rehosting/penguin-tools/releases/download/v0.0.14/penguin-tools.tar.gz";
+    url = "https://github.com/rehosting/penguin-tools/releases/download/v0.0.16/penguin-tools.tar.gz";
     flake = false;
   };
 
@@ -62,9 +62,13 @@
   };
   # fw2tar (already nixified): penguin co-locates the firmware-extraction stack
   # in its image and sources it from fw2tar's extractionBundle rather than
-  # re-deriving fw2tar/unblob/binwalk/extractor backends. fw2tar pins its own
-  # nixpkgs (unstable); we follow it for its closure, not ours.
-  inputs.fw2tar.url = "github:rehosting/fw2tar/2160c6d9d0f5c4cd250e92f380d4280610b242ed";
+  # re-deriving fw2tar/unblob/binwalk/extractor backends. We make fw2tar (and,
+  # via fw2tar, unblob) follow our nixpkgs so the extraction stack shares the
+  # same CPython/glibc as penguin instead of shipping duplicate interpreters.
+  inputs.fw2tar = {
+    url = "github:rehosting/fw2tar/ddca434e8f6f3d76e3694a9dc69c316bb4af284f";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
 
   outputs =
     {
