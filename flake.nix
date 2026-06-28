@@ -34,7 +34,7 @@
     flake = false;
   };
   inputs.igloo-driver = {
-    url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.82/igloo_driver.tar.gz";
+    url = "https://github.com/rehosting/igloo_driver/releases/download/v0.0.85/igloo_driver.tar.gz";
     flake = false;
   };
   inputs.penguin-tools = {
@@ -170,6 +170,10 @@
               networkx
               rich
               cffi
+              # pyplugins/testing/vpn_test.py imports requests directly. The old
+              # Docker image only had it transitively (via poetry, now pruned),
+              # so declare it explicitly.
+              requests
               # keystone is imported unconditionally by the essential core plugin
               # pyplugins/core/live_image.py; capstone backs apis/unwind.py
               # (guarded). Both are core to the rehosting assembler/disassembler.
