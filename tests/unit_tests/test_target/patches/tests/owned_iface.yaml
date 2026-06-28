@@ -47,5 +47,19 @@ static_files:
           /igloo/utils/busybox sleep 2
         done
       ) &
+      # run_tests.sh is guest PID1; when it exits the run ends and the verifier
+      # runs. The host-side checks (owned_iface_test) only fire once the agent
+      # has assigned 10.99.0.2 to testif, which is slow under heavy qemu
+      # emulation (mips*/aarch64/loongarch/ppc) -- often slower than the rest of
+      # the suite. Without holding init open the run ends before the tap is up
+      # and all three checks fail with "no result". Block here until the IP
+      # lands (bounded) plus a grace window for the probe/raw/l2 checks to run,
+      # then exit so the run still terminates.
+      i=0
+      while [ $i -lt 180 ]; do
+        /igloo/utils/busybox ip addr show testif 2>/dev/null | /igloo/utils/busybox grep -q 10.99.0.2 && break
+        /igloo/utils/busybox sleep 1; i=$((i+1))
+      done
+      /igloo/utils/busybox sleep 30
       exit 0
     mode: 73
