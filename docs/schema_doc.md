@@ -476,6 +476,24 @@ A list of additional QEMU command-line arguments to use when booting the guest
 -vnc :0 -vga std -device usb-kbd -device usb-tablet
 ```
 
+### `core.kernel_cmdline_append` Extra kernel command-line tokens
+
+|||
+|-|-|
+|__Type__|string|
+|__Patch merge behavior__|Concatenate strings separated by `' '`|
+|__Default__|`null`|
+
+Tokens appended verbatim to the kernel command line (-append). Use this to set real kernel parameters or anything you need on /proc/cmdline. Unlike `env`, these are never diverted to the early-boot env blob, so they always reach the kernel cmdline. They count against the per-arch COMMAND_LINE_SIZE budget (256 bytes on MIPS), so penguin warns/errors if they overflow it.
+
+```yaml
+nokaslr mem=256M
+```
+
+```yaml
+igloo_debug=1
+```
+
 ### `core.mem` Panda Memory Value
 
 |||

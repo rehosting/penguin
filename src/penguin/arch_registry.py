@@ -45,6 +45,15 @@ class ArchSpec:
     # Guest device / boot
     serial: Tuple[int, int] = (204, 65)     # (major, minor) of /igloo/serial
     console_replacement: Optional[Tuple[str, str]] = None  # (find, replace) on kernel append
+    # Kernel COMMAND_LINE_SIZE for the kernels we ship: the size (incl. the NUL
+    # terminator) of the boot_command_line buffer. The kernel silently truncates
+    # any -append longer than this, so it caps how much env we can smuggle on the
+    # cmdline. MIPS is the tight one (256B on the older MIPS kernels we ship);
+    # arm/x86/riscv/loongarch are 4096. Empirically confirmed (see the MIPS
+    # cmdline truncation that dropped IGLOO_OWN_IFACES on all four MIPS arches).
+    # TODO(env-off-cmdline slice 1): derive this from each shipped kernel's
+    # config/ISF instead of hardcoding, so it tracks the kernels we actually ship.
+    command_line_size: int = 4096
     endianness: str = "little"              # "little" | "big"
     _abi_key: Optional[str] = None          # key into ARCH_ABI_INFO (defaults to canonical)
 
@@ -110,6 +119,7 @@ _SPECS = (
         qemu_arch="mipsel",
         qemu_machine="malta",
         serial=(4, 65),
+        command_line_size=256,
         endianness="little",
     ),
     ArchSpec(
@@ -121,6 +131,7 @@ _SPECS = (
         qemu_machine="malta",
         _kernel_whole="vmlinux.mipseb",
         serial=(4, 65),
+        command_line_size=256,
         endianness="big",
     ),
     ArchSpec(
@@ -132,6 +143,7 @@ _SPECS = (
         cpu="MIPS64R2-generic",
         _kernel_whole="vmlinux.mips64el",
         serial=(4, 65),
+        command_line_size=256,
         endianness="little",
     ),
     ArchSpec(
@@ -144,6 +156,7 @@ _SPECS = (
         cpu="MIPS64R2-generic",
         _kernel_whole="vmlinux.mips64eb",
         serial=(4, 65),
+        command_line_size=256,
         endianness="big",
     ),
     ArchSpec(
