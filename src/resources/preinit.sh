@@ -7,6 +7,14 @@
 # the handoff into the firmware init so only the firmware is covered. With
 # core.analysis_scope: none the line is omitted and all shells report.
 /igloo/boot/busybox insmod /igloo/boot/igloo.ko
+# Penguin's internal env (ROOT_SHELL, igloo_init, IGLOO_*, ...) now arrives over
+# the portal instead of the kernel cmdline (which MIPS caps at 256 bytes).
+# Source it here so it lands in PID1's environment and propagates to
+# /igloo/init and the whole guest process tree, exactly as cmdline env did.
+/igloo/boot/hyp_file_op get igloo_env.sh /igloo/boot/igloo_env.sh
+if [ -s /igloo/boot/igloo_env.sh ]; then
+    . /igloo/boot/igloo_env.sh
+fi
 /igloo/boot/hyp_file_op get gen_live_image.sh /igloo/boot/gen_live_image.sh
 /igloo/boot/busybox sh /igloo/boot/gen_live_image.sh
 if [ $? -ne 0 ]; then

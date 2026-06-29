@@ -412,6 +412,22 @@ class Core(PartialModelMixin, BaseModel):
             examples=["-vnc :0 -vga std -device usb-kbd -device usb-tablet"],
         ),
     ]
+    kernel_cmdline_append: Annotated[
+        Optional[StrSepSpace],
+        Field(
+            None,
+            title="Extra kernel command-line tokens",
+            description=(
+                "Tokens appended verbatim to the kernel command line (-append). "
+                "Use this to set real kernel parameters or anything you need on "
+                "/proc/cmdline. Unlike `env`, these are never diverted to the "
+                "early-boot env blob, so they always reach the kernel cmdline. "
+                "They count against the per-arch COMMAND_LINE_SIZE budget (256 "
+                "bytes on MIPS), so penguin warns/errors if they overflow it."
+            ),
+            examples=["nokaslr mem=256M", "igloo_debug=1"],
+        ),
+    ]
     mem: Annotated[
         Optional[str],
         Field(

@@ -19,6 +19,7 @@ from penguin.penguin_config import load_config
 from .plugin_manager import ArgsBox
 from .utils import hash_image_inputs, get_penguin_kernel_version, boot_fingerprint
 from .q_config import load_q_config, ROOTFS
+from .boot_env import partition_boot_env
 from . import arch_registry
 
 
@@ -37,6 +38,83 @@ def _env_int(name: str, default: int, min_value: int = 0) -> int:
 
 def _runtime_path(value) -> str | None:
     return str(value) if value is not None else None
+
+
+def render_kernel_append(append_parts: list[str], env: dict, extra_cmdline: str = "") -> str:
+    """Assemble the kernel ``-append`` string.
+
+    ``append_parts`` is the original whitespace-split append (e.g. ``root=…``,
+    ``console=…`` that QEMU/penguin already put there); ``env`` is the full
+    ``conf["env"]``; ``extra_cmdline`` is ``core.kernel_cmdline_append`` (raw
+    tokens the user wants on the cmdline verbatim).
+
+    Only the *firmware-expected* portion of the env reaches the cmdline:
+    :func:`penguin.boot_env.partition_boot_env` strips penguin's internal knobs
+    (``ROOT_SHELL``, ``igloo_init``, ``IGLOO_*``, …), which are instead
+    delivered over the portal as an early-boot env blob (see
+    ``pyplugins/core/live_image.py`` + ``preinit.sh``). What remains on the
+    cmdline is user/config ``env:`` entries that a vendor init may read from
+    ``/proc/cmdline``.
+
+    Layout is ``critical_args + config_args + extra_cmdline + rest_args``:
+      * critical args (``root=``, ``init=``, ``panic=1``, any ``console=``, ``rw``)
+        go first and cannot be clobbered by config;
+      * then the firmware-expected env;
+      * then ``core.kernel_cmdline_append`` tokens, verbatim and never diverted
+        to the env blob (the explicit "put this on the kernel cmdline" channel);
+      * then whatever else was originally on the append.
+
+    Pure / side-effect free so it can be unit-tested and length-checked
+    (see :func:`check_cmdline_size`) before it is handed to the kernel.
+    """
+    cmdline_env, _blob_env = partition_boot_env(env)
+    config_args = [
+        f"{k}" + (f"={v}" if v is not None else "") for k, v in cmdline_env.items()
+    ]
+    extra_args = shlex.split(extra_cmdline) if extra_cmdline else []
+
+    root_str = f"root={ROOTFS}"
+    critical_args = [root_str, "init=/igloo/boot/preinit", "panic=1"]
+    critical_args.extend(part for part in append_parts if part.startswith("console="))
+    if "rw" in append_parts:
+        critical_args.append("rw")
+    critical_seen = set(critical_args)
+    rest_args = [part for part in append_parts if part not in critical_seen]
+    return " ".join(critical_args + config_args + extra_args + rest_args)
+
+
+def check_cmdline_size(cmdline: str, archend: str, logger) -> None:
+    """Guard against silent kernel-cmdline truncation.
+
+    The kernel copies at most ``COMMAND_LINE_SIZE - 1`` bytes of ``-append`` into
+    ``boot_command_line`` (one byte reserved for the NUL terminator) and
+    **silently drops the rest** — so an over-long cmdline quietly loses env
+    knobs and produces a baffling rehost. We warn as we approach the cap and
+    raise once we'd exceed it, rather than letting the kernel truncate in
+    silence. See the per-arch ``command_line_size`` in :mod:`penguin.arch_registry`.
+    """
+    try:
+        cap = arch_registry.spec(archend).command_line_size
+    except KeyError:
+        # Unknown arch: load_q_config would already have failed; nothing to check.
+        return
+    usable = cap - 1  # kernel reserves one byte for the trailing NUL
+    length = len(cmdline)
+    if length > usable:
+        raise RuntimeError(
+            f"Kernel cmdline is {length} bytes but {archend} kernels cap it at "
+            f"COMMAND_LINE_SIZE={cap} ({usable} usable); the kernel would silently "
+            "truncate it and drop boot env, breaking the rehost. Reduce the env "
+            "passed on the cmdline (see the env-off-cmdline work). Cmdline was:\n"
+            f"{cmdline}"
+        )
+    if length > usable * 9 // 10:
+        logger.warning(
+            "Kernel cmdline is %d/%d usable bytes for %s "
+            "(COMMAND_LINE_SIZE=%d); approaching the limit at which the kernel "
+            "silently truncates it.",
+            length, usable, archend, cap,
+        )
 
 
 def _write_runtime_metadata(out_dir: str, metadata: dict) -> None:
@@ -695,42 +773,20 @@ def run_config(
     # Find the argument after '-append' in the list and re-render it based on updated env
     append_idx = panda.panda_args.index("-append") + 1
 
-    priority_env = (
-        "igloo_init",
-        "CID",
-        "PROJ_NAME",
-        "SHARED_DIR",
-        "ROOT_SHELL",
-        "WWW",
-        "STRACE",
-        "IGLOO_CGROUP_MODE",
-        "IGLOO_IPTABLES_BACKEND",
-    )
-    env_items = []
-    seen_env = set()
-    for key in priority_env:
-        if key in conf["env"]:
-            env_items.append((key, conf["env"][key]))
-            seen_env.add(key)
-    env_items.extend((key, value) for key, value in conf["env"].items() if key not in seen_env)
-    config_args = [
-        f"{k}" + (f"={v}" if v is not None else "") for k, v in env_items
-    ]
-
-    # We had some args originally (e.g., rootfs), not from our config, so
-    # we need to keep those.
-    # XXX: This is a bit hacky. We want users to be able to clobber args by prioritizing config
-    # args first, but we need to know the start of the string too. So let's say a user can't change
-    # the root=/dev/vda argument and put that first. Then config args. Then the rest of the args
+    # We had some args originally (e.g., rootfs), not from our config, so we
+    # need to keep those. render_kernel_append keeps the critical args
+    # (root=/dev/vda, init=, panic=) first so config can't clobber them, then
+    # the firmware-expected env, then the rest of the original append. Penguin's
+    # internal knobs are stripped here and delivered over the portal instead
+    # (LiveImage serves igloo_env.sh; preinit.sh sources it).
     append_parts = panda.panda_args[append_idx].split()
-    root_str = f"root={ROOTFS}"
-    critical_args = [root_str, "init=/igloo/boot/preinit", "panic=1"]
-    critical_args.extend(part for part in append_parts if part.startswith("console="))
-    if "rw" in append_parts:
-        critical_args.append("rw")
-    critical_seen = set(critical_args)
-    rest_args = [part for part in append_parts if part not in critical_seen]
-    panda.panda_args[append_idx] = " ".join(critical_args + config_args + rest_args)
+    rendered_append = render_kernel_append(
+        append_parts, conf["env"], conf["core"].get("kernel_cmdline_append") or ""
+    )
+    # Never let the kernel silently truncate an over-long cmdline (MIPS caps it
+    # at 256B); warn near the limit and fail loudly past it.
+    check_cmdline_size(rendered_append, archend, logger)
+    panda.panda_args[append_idx] = rendered_append
 
     @panda.cb_pre_shutdown
     def pre_shutdown():

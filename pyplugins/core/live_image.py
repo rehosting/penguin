@@ -36,6 +36,7 @@ from penguin import Plugin, plugins
 from penguin.plugin_manager import resolve_bound_method_from_class
 from penguin.defaults import static_dir as STATIC_DIR
 from penguin.utils import get_arch_subdir
+from penguin.boot_env import partition_boot_env, render_env_blob
 import json
 import shutil
 import os
@@ -54,6 +55,11 @@ MAGIC_PUT = 0xf113c0e2
 MAGIC_GET_PERM = 0xf113c0e3
 MAGIC_GETSIZE = 0xf113c0e4
 REPORT_ERROR = 0xfa14487
+
+# Virtual file (generated on demand, never staged) holding penguin's internal
+# boot env as `export K=V` lines. preinit.sh fetches and sources it after
+# insmod so the knobs land in PID1's env instead of riding the kernel cmdline.
+BOOT_ENV_FILENAME = "igloo_env.sh"
 
 
 class LiveImage(Plugin):
@@ -686,14 +692,27 @@ class LiveImage(Plugin):
             self._gen_live_image_script_bytes = script_content.encode()
         return self._gen_live_image_script_bytes
 
+    def _get_boot_env_script_bytes(self):
+        """Render penguin's internal boot env (the blob bucket of
+        partition_boot_env) as a sourceable `export K=V` snippet. Generated
+        once on first request -- conf["env"] is finalized by the time the guest
+        boots and asks for it -- and cached so getsize/get agree on length."""
+        if getattr(self, "_boot_env_script_bytes", None) is None:
+            _cmdline_env, blob_env = partition_boot_env(self.config.get("env", {}))
+            self._boot_env_script_bytes = render_env_blob(blob_env).encode()
+        return self._boot_env_script_bytes
+
     @plugins.portalcall.portalcall(MAGIC_GET)
     def portalcall_get(self, path_ptr, offset, chunk_size, buffer_ptr):
         path = yield from plugins.mem.read_str(path_ptr)
         self.logger.debug(
             f"portalcall_get: path={path}, offset={offset}, chunk_size={chunk_size}, buffer_ptr={buffer_ptr}")
-        # On-demand generation for gen_live_image.sh
-        if path == "gen_live_image.sh":
-            script_bytes = self._get_gen_live_image_script_bytes()
+        # On-demand generation for virtual (never-staged) files.
+        if path in ("gen_live_image.sh", BOOT_ENV_FILENAME):
+            if path == BOOT_ENV_FILENAME:
+                script_bytes = self._get_boot_env_script_bytes()
+            else:
+                script_bytes = self._get_gen_live_image_script_bytes()
             script_len = len(script_bytes)
             if offset >= script_len:
                 self.logger.debug(
@@ -702,7 +721,7 @@ class LiveImage(Plugin):
             end = min(offset + chunk_size, script_len)
             data = script_bytes[offset:end]
             self.logger.debug(
-                f"portalcall_get: gen_live_image.sh, writing {len(data)} bytes")
+                f"portalcall_get: {path}, writing {len(data)} bytes")
             yield from plugins.mem.write_bytes(buffer_ptr, data)
             return len(data)
         staged_dir = getattr(self, "staged_dir", None)
@@ -762,6 +781,8 @@ class LiveImage(Plugin):
         if path == "gen_live_image.sh":
             script_bytes = self._get_gen_live_image_script_bytes()
             return len(script_bytes)
+        if path == BOOT_ENV_FILENAME:
+            return len(self._get_boot_env_script_bytes())
         staged_dir = getattr(self, "staged_dir", None)
         if staged_dir is None:
             staged_dir = tempfile.gettempdir()
