@@ -143,12 +143,10 @@ class BBCov(Plugin):
             return
         file_str_ptr, lineno_ptr, pid_ptr = argv
 
-        # Only log shells in the firmware-under-analysis subtree. Penguin's own
-        # shells (boot init.sh, the console root shell, etc.) run outside it.
+        # Shell-coverage scoping happens in the guest: busybox suppresses these
+        # hypercalls when IGLOO_NO_SHELL_COV is set (Penguin's infrastructure),
+        # so everything reaching here is already firmware-under-analysis.
         pid = yield from self.try_read_int(cpu, pid_ptr)
-        if not plugins.scope.in_scope(pid):
-            return
-
         filename = yield from self.try_read_string(cpu, file_str_ptr)
         if filename is None:
             filename = f"[error reading guest memory at {file_str_ptr:#x}]"
@@ -201,11 +199,8 @@ class BBCov(Plugin):
             return
         file_str_ptr, lineno_ptr, pid_ptr, envs_ptr, env_vals_ptr, envs_count_ptr = argv
 
-        # Only log shells in the firmware-under-analysis subtree (see log_line_no).
+        # Scoped in the guest by busybox (see log_line_no).
         pid = yield from self.try_read_int(cpu, pid_ptr)
-        if not plugins.scope.in_scope(pid):
-            return
-
         filename = yield from self.try_read_string(cpu, file_str_ptr)
         if filename is None:
             filename = f"[error reading guest memory at {file_str_ptr:#x}]"
