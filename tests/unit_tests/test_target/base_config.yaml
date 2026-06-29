@@ -7,9 +7,10 @@ core:
   version: 2
   force_www: false
   shared_dir: ./shared
-  # Tests exercise Penguin's own infrastructure (helpers, infra services), so
-  # disable analysis scoping and observe every process.
-  analysis_scope: none
+  # Run with the default firmware scoping on so the default path stays covered.
+  # netbinds always reports (so the gdbserver bind check still passes) and shell
+  # coverage self-gates in busybox via IGLOO_NO_SHELL_COV.
+  analysis_scope: firmware
 
 env:
   igloo_init: /run_tests.sh

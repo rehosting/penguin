@@ -8,9 +8,9 @@ ARG BASE_IMAGE="${REGISTRY}/ubuntu:22.04"
 # override any single tool by dropping its tarball in local_packages/ (the
 # local_packages stage below applies after penguin-tools, so it wins).
 ARG VPN_VERSION="1.0.25"
-ARG BUSYBOX_VERSION="0.0.16"
+ARG BUSYBOX_VERSION="0.0.17"
 ARG LINUX_VERSION="3.5.33-beta"
-ARG IGLOO_DRIVER_VERSION="0.0.85"
+ARG IGLOO_DRIVER_VERSION="0.0.86"
 ARG LIBNVRAM_VERSION="0.0.26"
 ARG CONSOLE_VERSION="1.0.7"
 ARG GUESTHOPPER_VERSION="1.0.21"

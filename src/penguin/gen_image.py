@@ -85,7 +85,21 @@ def tar_add_min_files(tf_path: str, config: dict) -> None:
         igloo_boot_dir.gname = "root"
         tf.addfile(igloo_boot_dir)
         # /igloo/boot/preinit
-        init_bytes = default_preinit_script.encode()
+        # Drive busybox shell-coverage scoping off the same core.analysis_scope
+        # switch as the driver syscall gate: when scoping is on, export the infra
+        # marker so Penguin's boot machinery / source.d helpers stay silent
+        # (init.sh clears it at the firmware handoff). With analysis_scope: none
+        # the marker is omitted and every shell reports.
+        scope_val = config.get("core", {}).get("analysis_scope", "firmware")
+        scope_on = not (
+            scope_val is False
+            or (isinstance(scope_val, str) and scope_val.strip().lower() == "none")
+        )
+        preinit_script = default_preinit_script
+        if scope_on:
+            shebang, _, rest = preinit_script.partition("\n")
+            preinit_script = f"{shebang}\nexport IGLOO_NO_SHELL_COV=1\n{rest}"
+        init_bytes = preinit_script.encode()
         ti = tarfile.TarInfo(name="igloo/boot/preinit")
         ti.size = len(init_bytes)
         ti.mode = 0o755

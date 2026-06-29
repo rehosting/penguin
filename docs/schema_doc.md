@@ -123,7 +123,7 @@ true
 |__Type__|boolean or string|
 |__Default__|`firmware`|
 
-Which processes the per-process analysis loggers (syscalls, exec, read/write, binds, shell coverage) capture. Recognized values: 'firmware' (default) captures only the firmware-under-analysis process subtree, excluding Penguin's own infrastructure (boot machinery and the vpnguin/console/guesthopper helpers); 'none' captures every process, including Penguin infrastructure; 'infra' inverts the firmware filter to capture only Penguin's own tools. Booleans are accepted for backward compatibility: true == 'firmware', false == 'none'. The field is a string so further interpretations can be added without a schema change.
+Which processes the per-process analysis loggers capture. Affects the syscall/exec-derived loggers (syscalls, exec, read/write, ficd, interfaces) and busybox shell coverage; netbinds always reports for every process regardless of this setting. Recognized values: 'firmware' (default) captures only the firmware-under-analysis process subtree, excluding Penguin's own infrastructure (boot machinery and the vpnguin/console/guesthopper helpers); 'none' captures every process, including Penguin infrastructure; 'infra' inverts the firmware filter to capture only Penguin's own tools. Booleans are accepted for backward compatibility: true == 'firmware', false == 'none'. The field is a string so further interpretations can be added without a schema change.
 
 ```yaml
 firmware
@@ -211,13 +211,13 @@ lighttpd: 9999
 
 VM snapshot (savevm/loadvm) configuration.
 
-    Snapshotting is *active* whenever ``save_at`` or ``boot_from`` is set — there
-    is no separate enable flag. When active, the guest runs on a persistent
-    qcow2 overlay (rather than the throwaway immutable overlay) so an internal VM
-    snapshot can be saved and later restored. Saving a snapshot at a chosen point
-    lets a later run boot directly from that state instead of re-booting the
-    firmware.
-    
+Snapshotting is *active* whenever ``save_at`` or ``boot_from`` is set — there
+is no separate enable flag. When active, the guest runs on a persistent
+qcow2 overlay (rather than the throwaway immutable overlay) so an internal VM
+snapshot can be saved and later restored. Saving a snapshot at a chosen point
+lets a later run boot directly from that state instead of re-booting the
+firmware.
+
 
 #### `core.snapshot.backend` Snapshot backend
 

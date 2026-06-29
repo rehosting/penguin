@@ -1,7 +1,7 @@
 core:
   shared_dir: ./shared
-  # Tests exercise Penguin's own infrastructure, so disable analysis scoping.
-  analysis_scope: none
+  # Keep the default firmware scoping on so the default path stays covered.
+  analysis_scope: firmware
 
 env:
   igloo_init: /init.sh

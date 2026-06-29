@@ -236,8 +236,10 @@ class Core(PartialModelMixin, BaseModel):
             "firmware",
             title="Scope of per-process analysis",
             description=" ".join((
-                "Which processes the per-process analysis loggers (syscalls, exec,",
-                "read/write, binds, shell coverage) capture. Recognized values:",
+                "Which processes the per-process analysis loggers capture. Affects the",
+                "syscall/exec-derived loggers (syscalls, exec, read/write, ficd,",
+                "interfaces) and busybox shell coverage; netbinds always reports for",
+                "every process regardless of this setting. Recognized values:",
                 "'firmware' (default) captures only the firmware-under-analysis",
                 "process subtree, excluding Penguin's own infrastructure (boot",
                 "machinery and the vpnguin/console/guesthopper helpers); 'none'",
