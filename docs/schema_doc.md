@@ -211,13 +211,13 @@ lighttpd: 9999
 
 VM snapshot (savevm/loadvm) configuration.
 
-Snapshotting is *active* whenever ``save_at`` or ``boot_from`` is set — there
-is no separate enable flag. When active, the guest runs on a persistent
-qcow2 overlay (rather than the throwaway immutable overlay) so an internal VM
-snapshot can be saved and later restored. Saving a snapshot at a chosen point
-lets a later run boot directly from that state instead of re-booting the
-firmware.
-
+    Snapshotting is *active* whenever ``save_at`` or ``boot_from`` is set — there
+    is no separate enable flag. When active, the guest runs on a persistent
+    qcow2 overlay (rather than the throwaway immutable overlay) so an internal VM
+    snapshot can be saved and later restored. Saving a snapshot at a chosen point
+    lets a later run boot directly from that state instead of re-booting the
+    firmware.
+    
 
 #### `core.snapshot.backend` Snapshot backend
 
