@@ -87,11 +87,18 @@ def test_internal_knobs_are_off_the_cmdline():
     assert "mtdparts=" in cmdline
 
 
-def test_mips_cap_is_the_tight_256():
-    """Guard against the table drifting away from the empirically-confirmed MIPS cap."""
-    for arch in ("mipsel", "mipseb", "mips64el", "mips64eb"):
-        assert arch_registry.spec(arch).command_line_size == 256
-    for arch in ("armel", "aarch64", "riscv64", "loongarch64", "x86_64"):
+def test_all_arches_share_the_4096_cap():
+    """Every shipped arch now caps at 4096.
+
+    MIPS used to be the tight one (256B) because QEMU's malta board passed the
+    cmdline through a single 256B prom env slot (hw/mips/malta.c ENVP_ENTRY_SIZE),
+    truncating it before the kernel saw it. That slot is now 0xfdc0, and the MIPS
+    kernels themselves use COMMAND_LINE_SIZE=4096, so MIPS matches everyone else.
+    This anti-drift check fails if a future edit re-tightens MIPS without also
+    re-tightening the malta board (the two must move together).
+    """
+    for arch in ("mipsel", "mipseb", "mips64el", "mips64eb",
+                 "armel", "aarch64", "riscv64", "loongarch64", "x86_64"):
         assert arch_registry.spec(arch).command_line_size == 4096
 
 
@@ -119,9 +126,9 @@ def test_kernel_cmdline_append_reaches_cmdline_verbatim():
 def test_kernel_cmdline_append_counts_against_cap():
     """Explicit cmdline tokens are measured by the length guard like everything else."""
     logger = _CapturingLogger()
-    big = " ".join(f"flag{i}=xxxxxxxx" for i in range(30))
+    big = " ".join(f"flag{i}=xxxxxxxx" for i in range(300))
     cmdline = render_kernel_append([], {}, extra_cmdline=big)
-    assert len(cmdline) > 256
+    assert len(cmdline) > 4096
     with pytest.raises(RuntimeError, match="COMMAND_LINE_SIZE"):
         check_cmdline_size(cmdline, "mipsel", logger)
 
@@ -129,15 +136,13 @@ def test_kernel_cmdline_append_counts_against_cap():
 def test_oversized_cmdline_raises_loudly():
     """Exceeding the cap must raise — never silently truncate."""
     logger = _CapturingLogger()
-    # Build env that comfortably blows the 256B MIPS budget. Use non-internal
-    # keys so they actually land on the cmdline (internal knobs move to the blob).
-    big_env = {f"vendorvar_{i:02d}": "x" * 10 for i in range(30)}
+    # Build env that comfortably blows the 4096B budget. Use non-internal keys
+    # so they actually land on the cmdline (internal knobs move to the blob).
+    big_env = {f"vendorvar_{i:03d}": "x" * 20 for i in range(200)}
     cmdline = render_kernel_append([], big_env)
-    assert len(cmdline) > 256
+    assert len(cmdline) > 4096
     with pytest.raises(RuntimeError, match="COMMAND_LINE_SIZE"):
         check_cmdline_size(cmdline, "mipsel", logger)
-    # The same cmdline is fine on a 4096B arch.
-    check_cmdline_size(cmdline, "x86_64", logger)
 
 
 def test_warns_when_approaching_cap():

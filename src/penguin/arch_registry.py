@@ -45,12 +45,16 @@ class ArchSpec:
     # Guest device / boot
     serial: Tuple[int, int] = (204, 65)     # (major, minor) of /igloo/serial
     console_replacement: Optional[Tuple[str, str]] = None  # (find, replace) on kernel append
-    # Kernel COMMAND_LINE_SIZE for the kernels we ship: the size (incl. the NUL
-    # terminator) of the boot_command_line buffer. The kernel silently truncates
-    # any -append longer than this, so it caps how much env we can smuggle on the
-    # cmdline. MIPS is the tight one (256B on the older MIPS kernels we ship);
-    # arm/x86/riscv/loongarch are 4096. Empirically confirmed (see the MIPS
-    # cmdline truncation that dropped IGLOO_OWN_IFACES on all four MIPS arches).
+    # Effective kernel command-line cap (incl. the NUL terminator): the smaller
+    # of what the emulated machine can deliver and the kernel's COMMAND_LINE_SIZE
+    # boot_command_line buffer. Anything longer is silently truncated, so it caps
+    # how much we can smuggle on the cmdline. All shipped arches are 4096: the
+    # MIPS kernels use COMMAND_LINE_SIZE=4096 (upstream since v3.7), and our QEMU
+    # malta board passes a cmdline that large (hw/mips/malta.c ENVP_ENTRY_SIZE is
+    # bumped from the stock 256 to 0xfdc0). NOTE: that malta bump must be present
+    # in the running qemu (rehosting/qemu release pinned by the Dockerfile's
+    # QEMU_VERSION) for MIPS to actually receive >256B; the old prom slot
+    # truncated at 256 before the kernel ever saw the tail.
     # TODO(env-off-cmdline slice 1): derive this from each shipped kernel's
     # config/ISF instead of hardcoding, so it tracks the kernels we actually ship.
     command_line_size: int = 4096
@@ -119,7 +123,6 @@ _SPECS = (
         qemu_arch="mipsel",
         qemu_machine="malta",
         serial=(4, 65),
-        command_line_size=256,
         endianness="little",
     ),
     ArchSpec(
@@ -131,7 +134,6 @@ _SPECS = (
         qemu_machine="malta",
         _kernel_whole="vmlinux.mipseb",
         serial=(4, 65),
-        command_line_size=256,
         endianness="big",
     ),
     ArchSpec(
@@ -143,7 +145,6 @@ _SPECS = (
         cpu="MIPS64R2-generic",
         _kernel_whole="vmlinux.mips64el",
         serial=(4, 65),
-        command_line_size=256,
         endianness="little",
     ),
     ArchSpec(
@@ -156,7 +157,6 @@ _SPECS = (
         cpu="MIPS64R2-generic",
         _kernel_whole="vmlinux.mips64eb",
         serial=(4, 65),
-        command_line_size=256,
         endianness="big",
     ),
     ArchSpec(
