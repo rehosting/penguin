@@ -51,9 +51,13 @@ jobs:
         rehosting/penguin:${{ needs.version.outputs.v }}
         rehosting/penguin:latest
         rehosting/penguin:${{ github.sha }}
+      # APT_MIRROR=MIT temporarily dropped: mirrors.mit.edu fell out of sync on
+      # the jammy security pocket (index advertised libnss3 ...22.04.4 while its
+      # pool only had ...04.3), 404ing apt-get and breaking image builds.
+      # Omitting it falls back to archive.ubuntu.com (Dockerfile default
+      # APT_MIRROR=ubuntu). Restore "APT_MIRROR=MIT" once the mirror is healthy.
       build-args: |
         OVERRIDE_VERSION=${{ needs.version.outputs.v }}
-        APT_MIRROR=MIT
       dockerhub-user: rehosting
       cache-from-extra: |
         type=registry,ref=harbor.harbor.svc.cluster.local/rehosting/penguin:cache_last_published,mode=max

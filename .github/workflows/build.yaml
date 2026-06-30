@@ -126,9 +126,13 @@ jobs:
           context: .
           push: true
           tags: ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }}
+          # APT_MIRROR=MIT temporarily dropped: mirrors.mit.edu fell out of sync
+          # on the jammy security pocket (index advertised libnss3 ...22.04.4
+          # while its pool only had ...04.3), 404ing apt-get and breaking image
+          # builds. Omitting it falls back to archive.ubuntu.com (Dockerfile
+          # default APT_MIRROR=ubuntu). Restore "APT_MIRROR=MIT" once healthy.
           build-args: |
             REGISTRY=${{ env.CACHE }}
-            APT_MIRROR=MIT
           cache-from: |
             type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache,mode=max
             type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache-PR-${{github.event.number}},mode=max
