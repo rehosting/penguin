@@ -249,19 +249,12 @@ ENV PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y python3-pip git wget liblzo2-dev
 RUN --mount=type=cache,target=/root/.cache/pip \
       pip wheel --no-cache-dir --wheel-dir /app/wheels \
-      angr \
-      beautifulsoup4 \
       coloredlogs \
-      git+https://github.com/AndrewFasano/angr-targets.git@af_fixes \
-      html5lib \
-      ipdb \
       ipython \
       python-Levenshtein \
       jinja2 \
-      lief  \
       lxml \
       lz4 \
-      openai \
       pydantic \
       pydantic-partial \
       pyelftools \
@@ -281,20 +274,10 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       git+https://github.com/devttys0/yaffshiv.git \
       git+https://github.com/marin-m/vmlinux-to-elf@20a99a92f61a6af1d1aca1041d8580d9889a60bb \
       jefferson \
-      gnupg \
       poetry \
-      psycopg2-binary \
-      pycryptodome \
-      pylzma \
-      setuptools \
-      sqlalchemy \
-      telnetlib3 \
-      tk \
       ujson \
       cxxfilt \
-      zstandard \
       pdoc \
-      numpy \
       dwarffi>=0.0.35 \
       ratarmountcore[full]
 
@@ -389,17 +372,11 @@ COPY --from=downloader /tmp/gum.deb /tmp/
 COPY --from=downloader /tmp/ripgrep.deb /tmp/
 COPY --from=downloader /tmp/penguin-qemu.tar.gz /tmp/
 
-# We need pycparser>=2.21 for angr. If we try this later with the other pip commands,
-# we'll fail because we get a distutils distribution of pycparser 2.19 that we can't
-# uninstall somewhere in setting up other dependencies.
-
 RUN apt-get update && \
     apt-get --no-install-recommends install -y python3-pip && \
     rm -rf /var/lib/apt/lists/*
 RUN --mount=type=cache,target=/root/.cache/pip \
-      pip install --upgrade \
-        pip \
-        "pycparser>=2.21"
+      pip install --upgrade pip
 
 
 # Update and install prerequisites
