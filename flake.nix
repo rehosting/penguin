@@ -326,6 +326,15 @@
 
           dockerImage = mkImage { inherit pythonEnv; };
 
+          # Streaming variant of the runtime image (same layers, not realised as
+          # a .tar.gz in the store). The output is a script that emits the image
+          # tarball to stdout -- e.g. `nix run .#dockerImageStream | docker load`
+          # or pipe straight to a registry push in CI.
+          dockerImageStream = mkImage {
+            inherit pythonEnv;
+            stream = true;
+          };
+
           # The release docs image (rehosting/penguin:docs): the runtime image
           # plus the in-image sphinx toolchain and a LaTeX engine for the PDF
           # build. texlive scheme-medium provides pdflatex + latexmk + the
@@ -337,7 +346,7 @@
           };
         in
         {
-          inherit pythonEnv penguinQemu iglooStatic muslHeaders nativeHelpersTree penguin pengutils vhostDeviceVsock dockerImage docsImage;
+          inherit pythonEnv penguinQemu iglooStatic muslHeaders nativeHelpersTree penguin pengutils vhostDeviceVsock dockerImage dockerImageStream docsImage;
           nativeHelper-x86_64 = nativeHelpers.x86_64;
           default = pythonEnv;
         }
