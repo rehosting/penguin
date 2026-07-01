@@ -38,9 +38,14 @@ class OwnedIfaceTest(Plugin):
         plugins.subscribe(plugins.VPN, "on_bind", self.on_bind)
 
     def on_bind(self, proto, guest_ip, guest_port, host_port, host_ip, procname):
-        # The httpd bind means the guest is up and the tap stack is running.
+        # Any bind on the tap IP means the agent assigned it and the tap stack is
+        # running -- start the checks then. We deliberately do NOT key on the
+        # httpd's tcp :8010 bind specifically: that single event is sometimes
+        # reported late or as udp, and missing it stranded the whole test. The
+        # checks retry until the httpd listener answers, so triggering on the
+        # first GUEST_IP bind is both sufficient and robust.
         self.logger.info(f"owned_iface_test on_bind {proto} {guest_ip}:{guest_port}")
-        if proto == "tcp" and guest_port == HTTPD_PORT and not self.started:
+        if guest_ip == GUEST_IP and not self.started:
             self.started = True
             self.logger.info("owned_iface_test: starting checks")
             threading.Thread(target=self.run_checks, daemon=True).start()
