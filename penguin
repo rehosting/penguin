@@ -1104,73 +1104,47 @@ penguin_run() {
         exit 0
     fi
 
-    # Add the command
+    # Add the command.
+    #
+    # --pydev overlays the live worktree source (src/ -> /pkg and
+    # pyplugins/ -> /pyplugins, bind-mounted above) via PYTHONPATH rather than an
+    # in-container `pip install -e`. The image is an immutable
+    # python3.withPackages env: it has no pip, and its site-packages live in a
+    # read-only /nix/store. Prepending /pkg:/pyplugins makes `import penguin`
+    # (and plugin loading) resolve to the mounted tree instead of the baked-in
+    # packages. No root/pip/sudo step is needed, so pydev shares the normal run
+    # path below; output-file ownership is handled by -u like any other run.
+    d=""
     if $pydev; then
-        echo "Running in Python development mode (--pydev). Python package will be reinstalled on each run"
+        echo "Running in Python development mode (--pydev): overlaying live source via PYTHONPATH (edits apply without a rebuild)"
 
-        # make a tempdir
+        # penguin opens penguin/version.txt at import; it is build-generated and
+        # absent from the worktree, so mount a placeholder over the mounted /pkg.
         d=$(mktemp -d)
-
-        # Add bogus version file when running in pydev mode
-        echo "0.0.1.dev0+pydev" > $d/version.txt
+        echo "0.0.1.dev0+pydev" > "$d/version.txt"
         docker_cmd+=("-v" "$d/version.txt:/pkg/penguin/version.txt")
+        docker_cmd+=("-e" "PYTHONPATH=/pkg:/pyplugins")
+    fi
 
-        # Safely quote arguments for Bash 3.2+ compatibility
-        quoted_args=""
-        if [[ ${#new_cmd[@]} -gt 0 ]]; then
-            quoted_args=$(printf "%q " "${new_cmd[@]}")
-        fi
+    # Ensure output files are owned by the caller. Under rootless podman we
+    # run as root-in-container (the default) -- rootless userns maps that
+    # back to the host user, and an explicit -u would map to an
+    # unprivileged subuid with the wrong ownership.
+    if ! $PODMAN_ROOTLESS; then
+        docker_cmd+=("-u" "$(id -u):$(id -g)")
+    fi
+    docker_cmd+=("--cap-add=NET_BIND_SERVICE")
 
-        if $PODMAN_ROOTLESS; then
-            # Rootless podman: the container runs as root, and rootless userns
-            # maps container-root back to the invoking host user -- so output
-            # files are owned correctly without any UID juggling. Install and
-            # run penguin directly as root. We deliberately skip the
-            # passwd/group fabrication + `sudo -su` dance used below: a host UID
-            # inside a rootless container maps to an unprivileged *subuid*, which
-            # would give output files the wrong owner.
-            docker_cmd+=("--cap-add=NET_BIND_SERVICE")
-            docker_cmd+=("$image")
-            docker_cmd+=("/bin/bash" "-c" "pip install -e /pkg &>/tmp/log.txt || { cat /tmp/log.txt; exit 1; }; penguin $quoted_args")
+    docker_cmd+=("$image")
+
+    # reproduce runs the default commmand
+    if ! $reproduce; then
+        if $shell_mode; then
+            docker_cmd+=("bash")
         else
-            # docker / rootful podman: install penguin as root, then run it as
-            # the current user. To do this we add the current UID/GID to the
-            # container via a fabricated /etc/passwd and /etc/group.
-            # Username matches host UID and we add a group named 'g' that matches the host GID
-            "$ENGINE" run --rm "$image" /bin/bash -c "cat /etc/passwd" > $d/passwd_user
-            echo "$(id -un):x:$(id -u):$(id -g):,,,:$(eval echo ~$USER):/bin/bash" >> $d/passwd_user
-
-            "$ENGINE" run --rm "$image" /bin/bash -c "cat /etc/group" > $d/group_user
-            echo "g:x:$(id -g):" >> $d/group_user
-
-            docker_cmd+=("-v" "$d/passwd_user:/etc/passwd")
-            docker_cmd+=("-v" "$d/group_user:/etc/group")
-            docker_cmd+=("--cap-add=NET_BIND_SERVICE")
-            docker_cmd+=("$image")
-            docker_cmd+=("/bin/bash" "-c" "pip install -e /pkg &>/tmp/log.txt || { cat /tmp/log.txt; exit 1; }; sudo -E -su \"$(id -un)\" -g g penguin $quoted_args")
-        fi
-    else
-        d=""
-        # Ensure output files are owned by the caller. Under rootless podman we
-        # run as root-in-container (the default) -- rootless userns maps that
-        # back to the host user, and an explicit -u would map to an
-        # unprivileged subuid with the wrong ownership.
-        if ! $PODMAN_ROOTLESS; then
-            docker_cmd+=("-u" "$(id -u):$(id -g)")
-        fi
-        docker_cmd+=("--cap-add=NET_BIND_SERVICE")
-
-        docker_cmd+=("$image")
-
-        # reproduce runs the default commmand
-        if ! $reproduce; then
-            if $shell_mode; then
-                docker_cmd+=("bash")
-            else
-                docker_cmd+=("penguin")
-                if [[ ${#new_cmd[@]} -gt 0 ]]; then
-                    docker_cmd+=("${new_cmd[@]}")
-                fi
+            docker_cmd+=("penguin")
+            if [[ ${#new_cmd[@]} -gt 0 ]]; then
+                docker_cmd+=("${new_cmd[@]}")
             fi
         fi
     fi
