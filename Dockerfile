@@ -7,7 +7,7 @@ ARG BASE_IMAGE="${REGISTRY}/ubuntu:22.04"
 # provenance for the versions penguin-tools bundles; a developer can still
 # override any single tool by dropping its tarball in local_packages/ (the
 # local_packages stage below applies after penguin-tools, so it wins).
-ARG VPN_VERSION="1.0.25"
+ARG VPN_VERSION="1.0.28"
 ARG BUSYBOX_VERSION="0.0.19"
 ARG LINUX_VERSION="3.5.33-beta"
 ARG IGLOO_DRIVER_VERSION="0.0.86"
@@ -15,7 +15,7 @@ ARG LIBNVRAM_VERSION="0.0.26"
 ARG CONSOLE_VERSION="1.0.7"
 ARG GUESTHOPPER_VERSION="1.0.21"
 ARG HYPERFS_VERSION="0.0.44"
-ARG PENGUIN_TOOLS_VERSION="0.0.20"
+ARG PENGUIN_TOOLS_VERSION="0.0.23"
 ARG GLOW_VERSION="1.5.1"
 ARG GUM_VERSION="0.14.5"
 ARG LTRACE_PROTOTYPES_VERSION="0.7.91"
