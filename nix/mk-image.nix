@@ -28,6 +28,13 @@
   resourcesSrc, # src/resources (banner.sh, penguin_install[.local])
   tag ? "latest", # image tag (docsImage overrides to "docs")
   extraContents ? [ ], # extra packages to union into the root (docsImage adds texlive)
+  # When true, build with dockerTools.streamLayeredImage instead of
+  # buildLayeredImage: the result is an executable that writes the image tarball
+  # to stdout on demand (pipe to `docker load` or a registry push) rather than
+  # realising the full .tar.gz in the Nix store. Identical layer structure; just
+  # avoids materialising the tarball -- useful for CI push. Local `docker load`
+  # keeps using the non-streaming output.
+  stream ? false,
 }:
 
 let
@@ -186,7 +193,7 @@ let
     paths = contents;
   };
 in
-pkgs.dockerTools.buildLayeredImage {
+(if stream then pkgs.dockerTools.streamLayeredImage else pkgs.dockerTools.buildLayeredImage) {
   name = "rehosting/penguin";
   inherit tag;
   # Layer the Nix contents on top of the ubuntu:22.04 base (FHS userland + apt).
