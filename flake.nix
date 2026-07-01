@@ -342,5 +342,41 @@
           default = pythonEnv;
         }
       );
+
+      # Host-side dev shell for the `--pydev`-style loop: the assembled penguin
+      # Python interpreter (all runtime deps + the penguin/pengutils/pyplugins
+      # packages) with the *live worktree* sources layered on top via PYTHONPATH
+      # so edits take effect without a rebuild. This is for host tooling --
+      # imports, linting, gen_docs, config schema -- NOT emulation (PANDA-QEMU,
+      # igloo_static and the guest tools only run inside the image).
+      #
+      # The shellHook re-prepends the interpreter to PATH *after* rc files run,
+      # so it wins against a pyenv `init` that re-prepends ~/.pyenv/shims on
+      # shell startup (otherwise the shim shadows this python3).
+      devShells = forAllSystems (
+        system:
+        let
+          pkgs = pkgsFor system;
+          pythonEnv = self.packages.${system}.pythonEnv;
+        in
+        {
+          default = pkgs.mkShell {
+            packages = [ pythonEnv ];
+            shellHook = ''
+              export PATH="${pythonEnv}/bin:$PATH"
+              export PYTHONPATH="$PWD/src:$PWD/pengutils:$PWD/pyplugins''${PYTHONPATH:+:$PYTHONPATH}"
+              hash -r
+              # penguin/__init__.py opens version.txt at import; it is generated
+              # at build time (gitignored) and absent from the live worktree, so
+              # importing from src/ would crash. Drop a dev placeholder if missing.
+              if [ -f "$PWD/src/penguin/__init__.py" ] && [ ! -f "$PWD/src/penguin/version.txt" ]; then
+                echo "0.0.0.dev0+devshell" > "$PWD/src/penguin/version.txt"
+              fi
+              echo "penguin devshell: $(python3 --version) @ ${pythonEnv}/bin/python3"
+              echo "  live sources on PYTHONPATH: src/ pengutils/ pyplugins/"
+            '';
+          };
+        }
+      );
     };
 }
