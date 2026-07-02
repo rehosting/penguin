@@ -58,8 +58,77 @@ let
   # glibc dev include/lib paths (-idirafter .../glibc-*-dev/include), which
   # shadow the musl sysroot headers and make `#include <fcntl.h>` pull host
   # glibc -> `gnu/stubs-32.h not found`. clang-unwrapped honors --target/
-  # --sysroot like a plain cross clang. (ld.lld still comes from llvm.lld.)
+  # --sysroot like a plain cross clang.
   llvm = pkgs.llvmPackages_20;
+
+  # Slim runtime toolchain. Referencing clang-unwrapped/lld directly drags
+  # ~1.7 GiB into the image closure (clang-lib + llvm-lib are mostly static
+  # .a archives; the wrapped clang additionally pulls the full host gcc), but
+  # the four clang-20 call sites (dropin_compile.py, penguin_prep.py,
+  # nvram2.py, kffi.py) only need the driver, ld.lld, the two shared libs
+  # they link, and the builtin-header resource dir (~300 MiB). Copy exactly
+  # those and patchelf the RUNPATHs -- a copy alone is not enough, since the
+  # embedded RUNPATH strings would still be scanned as closure references to
+  # the fat lib outputs. Small support libs (glibc, libstdc++, zlib, libxml2,
+  # libffi) stay as normal store references. clang resolves its resource dir
+  # relative to the driver's realpath (bin/.. -> lib/clang/<major>), so
+  # co-locating driver and lib/clang in one output keeps -print-resource-dir
+  # correct; -fuse-ld=lld likewise finds ld.lld next to the driver.
+  clang20SlimDeps = [
+    pkgs.glibc
+    pkgs.stdenv.cc.cc.lib # libstdc++ / libgcc_s
+    pkgs.zlib
+    pkgs.libxml2
+    pkgs.libffi
+  ];
+  clang20Slim =
+    pkgs.runCommand "clang-20-slim"
+      {
+        nativeBuildInputs = [
+          pkgs.patchelf
+          pkgs.nukeReferences
+        ];
+        supportRpath = lib.makeLibraryPath clang20SlimDeps;
+      }
+      ''
+        mkdir -p "$out/bin" "$out/lib"
+
+        cp ${llvm.clang-unwrapped}/bin/clang-20 "$out/bin/clang-20"
+        cp ${llvm.lld}/bin/lld "$out/bin/lld"
+        ln -s lld "$out/bin/ld.lld"
+
+        cp ${llvm.clang-unwrapped.lib}/lib/libclang-cpp.so.* "$out/lib/"
+        cp ${llvm.libllvm.lib}/lib/libLLVM.so.*.* "$out/lib/"
+        cp -r ${llvm.clang-unwrapped.lib}/lib/clang "$out/lib/clang"
+
+        chmod -R u+w "$out"
+        for f in "$out/bin/clang-20" "$out/bin/lld" "$out"/lib/*.so.*; do
+          patchelf --set-rpath "$out/lib:$supportRpath" "$f"
+        done
+
+        # patchelf handles the RUNPATHs, but libclang-cpp additionally embeds
+        # the original llvm-lib path as plain data strings (compile-time LLVM
+        # prefix constants; never consulted by our -nostdlib --sysroot call
+        # sites). The reference scanner would re-drag the 550 MiB llvm-lib
+        # into the closure over them, so nuke every store ref that isn't a
+        # real runtime dep. The sanity checks below run *after* this.
+        nuke-refs -e "$out" ${
+          # getLib, to match makeLibraryPath above: for multi-output packages
+          # (libxml2's default output is `bin`) the plain outPath is NOT the
+          # one in the RUNPATH, and nuke-refs would clobber the entry.
+          lib.concatMapStringsSep " " (p: "-e ${lib.getLib p}") clang20SlimDeps
+        } \
+          "$out/bin/clang-20" "$out/bin/lld" "$out"/lib/*.so.*
+
+        # Sanity: the driver runs against the copied libs and resolves its
+        # resource dir inside this output (i.e. no fallback to clang-lib).
+        "$out/bin/clang-20" --version > /dev/null
+        rdir=$("$out/bin/clang-20" -print-resource-dir)
+        case "$rdir" in
+          "$out"/lib/clang/*) ;;
+          *) echo "resource dir escaped the slim output: $rdir" >&2; exit 1 ;;
+        esac
+      '';
 
   # Overlay package: everything that must live at a specific absolute path
   # (/usr/local/..., /pyplugins, /docs, /etc). penguinQemu also populates
@@ -71,8 +140,8 @@ let
     mkdir -p "$out/usr/local/bin" "$out/usr/local/src" "$out/etc"
 
     # clang-20: dropin_compile.py invokes it by that exact name (-fuse-ld=lld;
-    # ld.lld comes from llvm.lld on PATH).
-    ln -s ${llvm.clang-unwrapped}/bin/clang "$out/usr/local/bin/clang-20"
+    # ld.lld sits next to the driver in clang20Slim, also merged onto PATH).
+    ln -s ${clang20Slim}/bin/clang-20 "$out/usr/local/bin/clang-20"
     # vhost-device-vsock at the Dockerfile path (also on PATH).
     ln -s ${vhostDeviceVsock}/bin/vhost-device-vsock "$out/usr/local/bin/vhost-device-vsock"
 
@@ -112,8 +181,7 @@ let
     penguinQemu
     vhostDeviceVsock
     extractionBundle
-    llvm.clang
-    llvm.lld
+    clang20Slim
     # gen_image.py runs `mke2fs -t ext4 -d <tarball>` to build+populate the
     # guest ext4 image directly from the rootfs tarball. nixpkgs e2fsprogs
     # (1.47.3) is already built --with-libarchive, so this needs no custom build
@@ -199,5 +267,11 @@ in
   # Layer the Nix contents on top of the ubuntu:22.04 base (FHS userland + apt).
   fromImage = ubuntuBase;
   contents = [ rootEnv ];
+  # The default cap (100) was being hit exactly, so everything past the 99th
+  # store path got lumped into one ~1.5 GB tail layer -- bad for pull/push
+  # dedup between releases. Docker's hard limit is 127 layers total including
+  # the base image's; 115 leaves headroom while letting the big store paths
+  # (igloo-static, qemu, clang) each keep their own layer.
+  maxLayers = 115;
   inherit extraCommands config;
 }
