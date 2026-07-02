@@ -293,6 +293,29 @@ class Netdevs(Plugin):
         self.logger.debug(f"Netdev '{name}' state is {'up' if state else 'down'}")
         return state
 
+    # Interface families that userspace creates at runtime: bridges (brctl
+    # addbr / ip link add type bridge), bonds (ip link add type bond), and VLANs
+    # (vconfig add / ip link add link ... type vlan, including dotted
+    # sub-interfaces like eth0.100). penguin must NOT auto-create a stub netdev
+    # for these from a scraped conf/neigh/sysfs path: the firmware creates the
+    # real device itself, and a pre-existing igloonet stub makes that creation
+    # fail (EEXIST). Worse, because the stub is a plain Ethernet device with no
+    # bridge/bond semantics, every subsequent management ioctl on it
+    # (brctl addif/setfd/stp, bond enslave, hwaddr set) returns EOPNOTSUPP, so
+    # the firmware's L2 topology never comes up. The scraped sysctl path is still
+    # served as a pseudofile, so reads/writes of conf/<dev>/... keep working
+    # whether or not the firmware ends up creating <dev>. A device explicitly
+    # listed in the `netdevs` config is unaffected (that path calls
+    # register_netdev directly, not through here), which is the escape hatch for
+    # a target that genuinely needs a pre-created stub.
+    RUNTIME_CREATED_IFACE = re.compile(r"^(?:br|bridge|bond|vlan)\d|^br-")
+
+    def _is_runtime_created_iface(self, iface: str) -> bool:
+        # Dotted VLAN sub-interface, e.g. eth0.100 / eth0.1
+        if "." in iface:
+            return True
+        return bool(self.RUNTIME_CREATED_IFACE.match(iface))
+
     def ensure_netdev_from_path(self, filepath: str):
         """
         Analyzes a normalized pseudofile path and extracts the network interface name.
@@ -320,7 +343,14 @@ class Netdevs(Plugin):
                 # Check against the centralized validation standard
                 if self.VALID_IFACE_PATTERN.match(iface):
                     if iface not in ("all", "default", "lo"):
-                        if iface not in self._netdev_classes and iface not in self._pending_netdevs:
+                        # Don't pre-create devices the firmware builds itself
+                        # (bridges/bonds/VLANs); doing so breaks their creation
+                        # and management. See RUNTIME_CREATED_IFACE.
+                        if self._is_runtime_created_iface(iface):
+                            self.logger.debug(
+                                f"Not auto-registering runtime-created netdev '{iface}' "
+                                f"referenced by {filepath}; firmware will create it")
+                        elif iface not in self._netdev_classes and iface not in self._pending_netdevs:
                             self.logger.debug(f"Auto-registering missing netdev '{iface}' referenced by {filepath}")
                             self.register_netdev(iface, exist_ok=True)
 
