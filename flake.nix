@@ -38,7 +38,7 @@
     flake = false;
   };
   inputs.penguin-tools = {
-    url = "https://github.com/rehosting/penguin-tools/releases/download/v0.0.16/penguin-tools.tar.gz";
+    url = "https://github.com/rehosting/penguin-tools/releases/download/v0.0.23/penguin-tools.tar.gz";
     flake = false;
   };
 
