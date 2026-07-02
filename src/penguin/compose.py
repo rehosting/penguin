@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import shutil
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
@@ -529,6 +530,7 @@ def _run_device(
     """
     from penguin.penguin_config import load_config
     from .manager import PandaRunner, calculate_score
+    from .run_summary import write_run_summary
     from .common import get_inits_from_proj
 
     os.makedirs(device_meta_dir, exist_ok=True)
@@ -558,6 +560,7 @@ def _run_device(
         endpoints, runtime_metadata_path,
     )
 
+    run_start = time.time()
     try:
         PandaRunner().run(
             derived_config_path,
@@ -579,12 +582,19 @@ def _run_device(
     except RuntimeError as e:
         logger.error(f"Device '{device.name}' run failed: {e}")
         return {}
+    wallclock_s = time.time() - run_start
 
     try:
-        return calculate_score(device_out_dir)
+        scores = calculate_score(device_out_dir)
     except Exception as e:
         logger.warning(f"Device '{device.name}' score calculation failed: {e}")
         return {}
+    if scores:
+        try:
+            write_run_summary(device_out_dir, scores, wallclock_s=wallclock_s)
+        except Exception as e:
+            logger.warning(f"Device '{device.name}': failed to write summary.json: {e}")
+    return scores
 
 
 # ---------------------------------------------------------------------------

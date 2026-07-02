@@ -138,6 +138,7 @@ rehosting continues to running.
 
 * Examine the console output by looking at `./projects/stride/results/0/console.log`. To view the output as it is updated you can run `tail -f ./projects/stride/results/0/console.log`.
 * Examine dynamically-traced shell script execution at `./projects/stride/results/0/shell_cov_trace.csv` and note that concrete values for each variable are included in the trace.
+* After the run completes, `./projects/stride/results/0/summary.json` holds a single machine-readable digest of the run (total and per-metric scores, network binds, unmodeled pseudofile count, panic flag, wallclock) aggregated from the other output files — handy for scripting and CI, e.g. `jq .score results/latest/summary.json`.
 
 Note that some files will not be created or populated until the emulation terminates. To learn
 more about the outputs created in this directory, check out [docs/plugins.md](docs/plugins.md).
