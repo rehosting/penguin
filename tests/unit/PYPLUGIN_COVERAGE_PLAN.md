@@ -141,9 +141,16 @@ Ordered most-valuable first. Percentages are current host coverage.
    `actuation/nmap.py` ✅ (`test_nmap.py`, 27→88% — UDP short-circuit, scan-command
    construction incl. the custom-nmap redirect branch, subprocess cleanup, via a
    patched `subprocess.Popen`).
-8. **Sibling Phase-0 plugins** as they land on this branch: `crashes.yaml`
-   (draft 01) and `summary.json` (draft 02) aggregation — the harness is their
-   natural host-side test.
+8. **Sibling Phase-0 plugins** as they land on this branch:
+   - ✅ **`analysis/crashes.py`** (draft 01) — done (`test_crashes_plugin.py`):
+     fatal signal-delivery events → `crashes.yaml`, dedup on (proc, signal, pc)
+     with count, first-occurrence pid/time, watched-set filtering, and
+     `event.drop` skipping; driven through the harness by dispatching
+     `signal_deliver` with synthetic events and a `signals` double for the
+     per-arch name→number resolution. `manager.calculate_score`'s crashes
+     category is covered separately by `test_manager_score.py`. The guest
+     round-trip (dequeue_signal kretprobe → SignalMonitor) stays the
+     `tests/integration/` fixture (`crashes.yaml`).
    - ✅ **`hyperfile/pseudofile_tracker.py`** (draft 03, PR #879) — done
      (`test_pseudofile_tracker.py`, behind the FFI-enum boundary via
      `real_isf=`): the -ENOENT open/stat and -ENOTTY ioctl **generator**
@@ -157,6 +164,8 @@ Ordered most-valuable first. Percentages are current host coverage.
      with the crashes.yaml join. Guest round-trip (real ENOENT delivery,
      crash → crashes.yaml production) stays in `tests/integration/` fixtures
      (`pseudofile_missing`/`pseudofile_ioctl`/`pseudofile_ext_ops`).
+   - `summary.json` (draft 02) aggregation — the harness is its natural
+     host-side test as it lands.
 9. **`analysis/interfaces.py` + the `apis.syscalls`-importing class** ✅ done
    (`test_interfaces.py`, `analysis/interfaces.py` 4→93%) — the FFI-enum boundary,
    crossed with the **`real_isf=`** load mode. `from apis.syscalls import
