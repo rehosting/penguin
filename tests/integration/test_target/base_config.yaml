@@ -72,6 +72,7 @@ patches:
   - ./patches/tests/pseudofiles_comprehensive.yaml
   - ./patches/tests/pseudofile_ext_ops.yaml
   - ./patches/tests/signal_interception.yaml
+  - ./patches/tests/crashes.yaml
   # - ./patches/tests/uboot_env_cmp.yaml
 
 

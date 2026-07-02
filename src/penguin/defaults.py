@@ -59,6 +59,8 @@ default_plugins: dict[str, dict] = {
     "core": {},
     "netbinds": {
     },
+    "crashes": {
+    },
     "vpn": {
     },
     "shell": {},
