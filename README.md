@@ -114,6 +114,13 @@ docker run rehosting/penguin penguin_install.local | sh
 You can also build your penguin container from source and do local software development
 by following the instructions in [docs/dev.md](docs/dev.md)
 
+## Building with Nix
+
+The `rehosting/penguin` image is built reproducibly from a Nix flake
+(`nix build .#dockerImage`, or `./penguin --build`). See
+[docs/nix.md](docs/nix.md) for the flake outputs, the QEMU-fork seam, per-arch
+coverage, and CI integration.
+
 # Learn more about Penguin
 
 To learn more about Penguin you can look in the [docs](docs/) directory or run the `docs`
@@ -134,6 +141,7 @@ For additional help, you can run any of the `penguin` subcommands with a `--help
 * Playbook:                   [docs/playbook.md](docs/playbook.md) - describes strategies to use for rehosting firmware that don't work out of the box.
 * Plugin documentation:       [docs/plugins.md](docs/plugins.md) - describes each of the dynamic analysis plugins.
 * Config file documentation:  [docs/schema_doc.md](docs/schema_doc.md) - describes the configuration file format.
+* Nix build:                  [docs/nix.md](docs/nix.md) - describes building the penguin image reproducibly from the Nix flake.
 
 ## Disclaimer
 

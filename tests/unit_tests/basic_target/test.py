@@ -27,7 +27,7 @@ DROPIN_C_TEST_ARCHES = {
     'mipsel', 'mipseb', 'mips64el', 'mips64eb',
     'riscv64',
     'x86_64',
-    'powerpc', 'powerpc64',
+    'powerpc', 'powerpc64', 'powerpc64le',
 }
 
 
@@ -246,7 +246,7 @@ DEFAULT_ARCHES = ['armel', 'aarch64',
 
 # architectures that only work with specific kernels
 NONDEFAULT_KERNEL_ARCHES = {
-    '6.13': ['powerpc64', 'loongarch64', 'riscv64'],
+    '6.13': ['powerpc64', 'powerpc', 'powerpc64le', 'loongarch64', 'riscv64'],
 }
 
 

@@ -1,0 +1,247 @@
+{
+  "nodes": {
+    "binwalk-v2": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1684177161,
+        "narHash": "sha256-kn5qH5lV3zn6j8FHD8Mm3OdxMiu2cyto9G0QDyHzdHM=",
+        "owner": "rehosting",
+        "repo": "binwalk",
+        "rev": "153ab60d745e5d9420307e1dc418002068911ebc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rehosting",
+        "repo": "binwalk",
+        "type": "github"
+      }
+    },
+    "filter": {
+      "locked": {
+        "lastModified": 1757882181,
+        "narHash": "sha256-+cCxYIh2UNalTz364p+QYmWHs0P+6wDhiWR4jDIKQIU=",
+        "owner": "numtide",
+        "repo": "nix-filter",
+        "rev": "59c44d1909c72441144b93cf0f054be7fe764de5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "nix-filter",
+        "type": "github"
+      }
+    },
+    "flake-compat": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1767039857,
+        "narHash": "sha256-vNpUSpF5Nuw8xvDLj2KCwwksIbjua2LZCqhV1LNRDns=",
+        "owner": "edolstra",
+        "repo": "flake-compat",
+        "rev": "5edf11c44bc78a0d334f6334cdaf7d60d732daab",
+        "type": "github"
+      },
+      "original": {
+        "owner": "edolstra",
+        "repo": "flake-compat",
+        "type": "github"
+      }
+    },
+    "fw2tar": {
+      "inputs": {
+        "binwalk-v2": "binwalk-v2",
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "unblob": "unblob"
+      },
+      "locked": {
+        "lastModified": 1782563803,
+        "narHash": "sha256-S4s9guwelgw0QRY/7GCoNVe+xqRlT6+1OkQK4GL6UuI=",
+        "owner": "rehosting",
+        "repo": "fw2tar",
+        "rev": "b9e72b0dd8475715eb5d6cb85ac60ee0d1f2d7e5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rehosting",
+        "repo": "fw2tar",
+        "rev": "b9e72b0dd8475715eb5d6cb85ac60ee0d1f2d7e5",
+        "type": "github"
+      }
+    },
+    "igloo-driver": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1782396133,
+        "narHash": "sha256-RO40vtHnmnggd9l7EayzbbpqnvtM7JNOe2ptlbkEuO8=",
+        "type": "tarball",
+        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.85/igloo_driver.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://github.com/rehosting/igloo_driver/releases/download/v0.0.85/igloo_driver.tar.gz"
+      }
+    },
+    "kernels": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1779026150,
+        "narHash": "sha256-gqcWw6bMRc8Cnqq02adRKI29T/ImTmovKimqNXeU+Fo=",
+        "type": "tarball",
+        "url": "https://github.com/rehosting/linux_builder/releases/download/v3.5.33-beta/kernels-latest.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://github.com/rehosting/linux_builder/releases/download/v3.5.33-beta/kernels-latest.tar.gz"
+      }
+    },
+    "ltrace-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1383620011,
+        "narHash": "sha256-FM21gm2lcsE7dfdwEAaw6ug203bHZZHLsKicmH+6tFE=",
+        "type": "tarball",
+        "url": "https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-0.7.91.tar.bz2/9db3bdee7cf3e11c87d8cc7673d4d25b/ltrace-0.7.91.tar.bz2"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://src.fedoraproject.org/repo/pkgs/ltrace/ltrace-0.7.91.tar.bz2/9db3bdee7cf3e11c87d8cc7673d4d25b/ltrace-0.7.91.tar.bz2"
+      }
+    },
+    "musl-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1709258853,
+        "narHash": "sha256-xNKVsRfEK7TkSiYrxPho9ap8MWGix7nVHLecGW0D7kE=",
+        "type": "tarball",
+        "url": "https://musl.libc.org/releases/musl-1.2.5.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://musl.libc.org/releases/musl-1.2.5.tar.gz"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1773201692,
+        "narHash": "sha256-NXrKzNMniu4Oam2kAFvqJ3GB2kAvlAFIriTAheaY8hw=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "b6067cc0127d4db9c26c79e4de0513e58d0c40c9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "b6067cc0127d4db9c26c79e4de0513e58d0c40c9",
+        "type": "github"
+      }
+    },
+    "penguin-qemu": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1782506599,
+        "narHash": "sha256-/pcIXwWCiZhw6TPGuJUrQzwPq/rCWx+y2sUWH6Ve+58=",
+        "owner": "rehosting",
+        "repo": "qemu",
+        "rev": "5d28a03369922b195e0d9151fc91cac19ed5288b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rehosting",
+        "ref": "v0.0.12",
+        "repo": "qemu",
+        "type": "github"
+      }
+    },
+    "penguin-tools": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1,
+        "narHash": "sha256-8Olvdc27etOPKFDMJJfyE2XJycE1RfMgFUfLm5DEH1U=",
+        "type": "tarball",
+        "url": "https://github.com/rehosting/penguin-tools/releases/download/v0.0.23/penguin-tools.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://github.com/rehosting/penguin-tools/releases/download/v0.0.23/penguin-tools.tar.gz"
+      }
+    },
+    "root": {
+      "inputs": {
+        "fw2tar": "fw2tar",
+        "igloo-driver": "igloo-driver",
+        "kernels": "kernels",
+        "ltrace-src": "ltrace-src",
+        "musl-src": "musl-src",
+        "nixpkgs": "nixpkgs",
+        "penguin-qemu": "penguin-qemu",
+        "penguin-tools": "penguin-tools",
+        "vhost-device": "vhost-device"
+      }
+    },
+    "shell-hooks": {
+      "locked": {
+        "lastModified": 1777468175,
+        "narHash": "sha256-I4ZT5YFNdVSbVXdnWGXwmIAalh5rpqZKiZvW249koCE=",
+        "owner": "vlaci",
+        "repo": "nix-shell-hooks",
+        "rev": "54cd9a05ad92382d1c5ddf2f1229d79d8765c0bc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "vlaci",
+        "repo": "nix-shell-hooks",
+        "type": "github"
+      }
+    },
+    "unblob": {
+      "inputs": {
+        "filter": "filter",
+        "flake-compat": "flake-compat",
+        "nixpkgs": [
+          "fw2tar",
+          "nixpkgs"
+        ],
+        "shell-hooks": "shell-hooks"
+      },
+      "locked": {
+        "lastModified": 1782176382,
+        "narHash": "sha256-a9SYhKZby1PvgR+YKyDxErP3Bz2yRpfPpbx5PnTpFck=",
+        "owner": "rehosting",
+        "repo": "unblob",
+        "rev": "5c9680a57c3a105f95451da3875baa3eb962ba21",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rehosting",
+        "repo": "unblob",
+        "type": "github"
+      }
+    },
+    "vhost-device": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1721731830,
+        "narHash": "sha256-78ApeHdPSLA46JP9xg6LUvTTpJmpn5LjdcsrZmX9Lgk=",
+        "owner": "rust-vmm",
+        "repo": "vhost-device",
+        "rev": "1e6667fbba428f3bfc6c3980596dd03e4894b068",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rust-vmm",
+        "ref": "vhost-device-vsock-v0.2.0",
+        "repo": "vhost-device",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

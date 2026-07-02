@@ -42,9 +42,13 @@ jobs:
             python:
               - '**/*.py'
             # Changes that should re-run the guest-test matrix even though the
-            # `code` filter excludes .github/**: the test workflow and fixtures.
+            # `code` filter excludes .github/**: the test workflow, the flake
+            # (which builds the image), and fixtures.
             testci:
               - '.github/workflows/build.yaml'
+              - 'flake.nix'
+              - 'flake.lock'
+              - 'nix/**'
               - 'tests/**'
   lint:
     if: ${{ !github.event.pull_request.draft }}
@@ -83,64 +87,76 @@ jobs:
       run: |
         flake8
 
-  build_container:
-    runs-on: rehosting-arc
-    needs: [changes, lint]
+  # Build the penguin image from the Nix flake (flake.nix at the repo root) and
+  # push it to Harbor as :<sha>, via the shared rehosting/ci reusable workflow
+  # (the Nix counterpart of build-and-push.yml). The flake is the sole build
+  # path -- there is no Dockerfile. The build is heavy (full qemu system-arch
+  # matrix + python env), so it pulls from the rehosting-tools Cachix cache;
+  # PR builds pull only (nix-setup skips the Cachix push on pull_request).
+  # Derive the tag-based version (setuptools_scm-style guess-next-dev off
+  # `git describe`) so the built image's `penguin --version` is correct -- a
+  # pure Nix flake can't read git tags, so we compute it here and inject it.
+  version:
     if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    needs: changes
+    outputs:
+      v: ${{ steps.v.outputs.v }}
     steps:
-      - name: Checkout code
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Trust Harbor's self-signed certificate
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+      - id: v
         run: |
-          echo "Fetching certificate from ${{ env.REGISTRY }}"
-          openssl s_client -showcerts -connect ${{ env.REGISTRY }}:443 < /dev/null 2>/dev/null | openssl x509 -outform PEM | sudo tee /usr/local/share/ca-certificates/harbor.crt > /dev/null
-          sudo update-ca-certificates
-      
-      - name: Set up Docker Buildx
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            network=host
-          buildkitd-config-inline: |
-            [registry."${{ env.REGISTRY }}"]
-              insecure = true
-              http = true
-      
-      - name: Log in to Rehosting Arc Registry
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ env.USER }}
-          password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD || env.EXTERNAL_REGISTRY_PASS }}
-      
-      - name: Build Docker image and push to Docker Hub
-        if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ env.TARGET }}/rehosting/penguin:${{ github.sha }}
-          # APT_MIRROR=MIT temporarily dropped: mirrors.mit.edu fell out of sync
-          # on the jammy security pocket (index advertised libnss3 ...22.04.4
-          # while its pool only had ...04.3), 404ing apt-get and breaking image
-          # builds. Omitting it falls back to archive.ubuntu.com (Dockerfile
-          # default APT_MIRROR=ubuntu). Restore "APT_MIRROR=MIT" once healthy.
-          build-args: |
-            REGISTRY=${{ env.CACHE }}
-          cache-from: |
-            type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache,mode=max
-            type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache-PR-${{github.event.number}},mode=max
-            type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache_last_published,mode=max
-          cache-to: |
-            type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache,mode=max
-            type=registry,ref=${{ env.TARGET }}/rehosting/penguin:cache-PR-${{ github.event.number }}
+          set -euo pipefail
+          describe="$(git describe --tags --long --dirty 2>/dev/null || true)"
+          if [ -z "$describe" ]; then
+            v="0.0.0.dev0"
+          else
+            dirty=""
+            case "$describe" in *-dirty) dirty=".dirty"; describe="${describe%-dirty}";; esac
+            hash="${describe##*-g}"; rest="${describe%-g*}"; dist="${rest##*-}"
+            base="${rest%-*}"; base="${base#v}"
+            if [ "$dist" = "0" ] && [ -z "$dirty" ]; then
+              v="$base"
+            else
+              maj="${base%%.*}"; r="${base#*.}"; min="${r%%.*}"; pat="${base##*.}"
+              v="${maj}.${min}.$((pat + 1)).dev${dist}+g${hash}${dirty}"
+            fi
+          fi
+          echo "Computed version: $v"
+          echo "v=$v" >> "$GITHUB_OUTPUT"
 
+  build_container:
+    needs: [changes, lint, version]
+    if: ${{ !github.event.pull_request.draft && needs.changes.outputs.run_tests == 'true' }}
+    uses: rehosting/ci/.github/workflows/nix-image-push.yml@v1
+    with:
+      image: rehosting/penguin
+      flake-attr: .#dockerImage
+      cachix-name: rehosting-tools
+      # Our flake.lock is generated by modern Nix; install-nix-action's default
+      # (2.22.1) computes different tarball-input narHashes and rejects the lock
+      # ("NAR hash mismatch"). Pin a CI Nix whose hashing matches the lock.
+      nix-install-url: https://releases.nixos.org/nix/nix-2.31.2/install
+      # Self-hosted Arc pods expose /dev/kvm without a working udevd, which
+      # breaks install-nix-action's KVM setup; the image build needs no VM.
+      enable-kvm: false
+      # Inject the computed version (flake reads PENGUIN_OVERRIDE_VERSION via
+      # builtins.getEnv, which needs --impure).
+      extra-build-args: --impure
+      build-env: |
+        PENGUIN_OVERRIDE_VERSION=${{ needs.version.outputs.v }}
+    secrets:
+      registry: ${{ secrets.REHOSTING_ARC_REGISTRY }}
+      registry-user: ${{ secrets.REHOSTING_ARC_REGISTRY_USER }}
+      registry-password: ${{ secrets.REHOSTING_ARC_REGISTRY_PASSWORD }}
+      cachix-auth-token: ${{ secrets.CACHIX_REHOSTING }}
+
+  # Run the basic_target + test_target suites against the Nix-built image across
+  # all 12 bootable system arches the flake produces -- including powerpc
+  # (32-bit BE) and powerpc64le. (powerpc64el is an alias of powerpc64le -- same
+  # ppc64-softmmu library -- so it is not tested separately.)
   run_tests:
     needs: [changes, build_container]
     runs-on: rehosting-arc
@@ -148,11 +164,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: ["armel", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc64", "loongarch64", "aarch64", "x86_64", "riscv64"]
+        arch: ["armel", "mipsel", "mipseb", "mips64el", "mips64eb", "powerpc", "powerpc64", "powerpc64le", "loongarch64", "aarch64", "x86_64", "riscv64"]
 
     steps:
-      # using the version from here https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md
-      # makes things faster
       - name: Checkout code
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         uses: actions/checkout@v5
@@ -161,10 +175,8 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       # Acquire the prebuilt image with a plain `docker pull` via the shared
-      # org action, replacing the old `buildx build --load` heredoc (~5-6 min/job
-      # of GB export/import). install-cert is off: the rehosting-arc dind daemon
-      # already trusts Harbor's CA (system trust store), which is what the pull
-      # needs — see rehosting/ci pull-image docs. install-python pulls the deps
+      # org action. install-cert is off: the rehosting-arc dind daemon already
+      # trusts Harbor's CA (system trust store). install-python pulls the deps
       # the test runners need (click, pyyaml).
       - name: Set up penguin image
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
@@ -183,18 +195,18 @@ jobs:
       - name: Basic test for ${{ matrix.arch }}
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/basic_target/test.py --arch ${{ matrix.arch }}
-          
+
       - name: Test for ${{ matrix.arch }} all kernels
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         # 20m (was 10m): the test_target suite now drives full CPython per
         # python test instead of micropython, which pushes slow-emulated arches
         # (powerpc64, loongarch64) past the old 10m budget.
         run: timeout 20m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py --arch ${{ matrix.arch }}
-      
+
       - name: Test Report
         uses: dorny/test-reporter@v2.1.1
         if: ${{ needs.changes.outputs.run_tests == 'true'  && ((success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository)}}
-        with: 
+        with:
           name: ${{ matrix.arch }}-test-results
           # Update the glob pattern here to only match numbered folders
           path: ${{ github.workspace }}/tests/unit_tests/test_target/results/[0-9]*/verifier.xml
@@ -214,7 +226,7 @@ jobs:
 
   run_compose:
     # Compose's mcast plumbing is arch-independent, so this runs once outside
-    # the per-arch matrix instead of multiplying CI cost by 10.
+    # the per-arch matrix instead of multiplying CI cost by 12.
     needs: [changes, build_container]
     runs-on: rehosting-arc
     if: ${{ !github.event.pull_request.draft }}
