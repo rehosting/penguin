@@ -123,6 +123,10 @@ def run_test(kernel, arch, image, test_file=None, docs_only=False, execution_mod
         "helloworld": b"helloworld\0",
         "testfile1.bin": b"\x01\x02\x03\x04",
         "testfile2.bin": b"\x10\x20\x30\x40",
+        "testfile3.bin": b"\xde\xad\xbe\xef",
+        "testfile4.bin": b"\xaa\xbb\xcc\xdd",
+        "testfile5.bin": b"\x01\x02\x03\x04",
+        "testfile6.bin": bytes(range(16)),  # 00 01 02 ... 0f; multi-patch target
         "shim.txt": b"original data\0",
         "shimtarget.txt": b"target data\0",
     }

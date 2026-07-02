@@ -5,6 +5,15 @@ plugins:
         type: file_contains
         file: console.log
         string: "/tests/live_image.sh PASS"
+      live_image+patch_provenance:
+        type: file_contains
+        file: binary_patches.yaml
+        strings:
+          - "tag: livetest"
+          - "why: expect-match applies the patch"
+          - "result: applied"
+          - "result: skipped"
+          - "already patched (bytes at offset equal the patch bytes)"
 
 static_files:
   /testdir:
@@ -78,10 +87,49 @@ static_files:
     type: binary_patch
     file_offset: 0
     hex_bytes: "aabbccdd"
+    expect: "01020304"           # matches the original bytes -> patch applies
+    why: "expect-match applies the patch"
+    tag: livetest
   /testfile2.bin:
     type: binary_patch
     file_offset: 0
     hex_bytes: "11223344"
+  /testfile3.bin:
+    type: binary_patch
+    file_offset: 0
+    hex_bytes: "cafef00d"
+    expect: "00000000"           # mismatch (file is deadbeef) + skip -> untouched
+    on_mismatch: skip
+    why: "expect-mismatch with skip leaves the file alone"
+    tag: livetest
+  /testfile4.bin:
+    type: binary_patch
+    file_offset: 0
+    hex_bytes: "aabbccdd"
+    expect: "01020304"           # mismatch, but bytes already equal the patch -> idempotent skip under default fail policy
+    why: "already-patched file skips idempotently"
+    tag: livetest
+  /testfile5.bin:
+    type: binary_patch
+    file_offset: 0
+    hex_bytes: "55667788"
+    expect: "ffffffff"           # mismatch + warn -> patch applies anyway
+    on_mismatch: warn
+    why: "expect-mismatch with warn still patches"
+    tag: livetest
+  /testfile6.bin:
+    type: binary_patch          # multiple offsets in one file via patches list
+    patches:
+      - file_offset: 0
+        hex_bytes: "0xaabb"     # 0x-prefixed hex; overwrites bytes 00 01
+        expect: "0001"
+        why: "first edit at offset 0"
+        tag: livetest
+      - file_offset: 8
+        hex_bytes: "cc dd"      # spaced hex; overwrites bytes 08 09
+        expect: "0809"
+        why: "second edit at offset 8"
+        tag: livetest
   /shim.txt:
     type: shim
     target: /shimtarget.txt
@@ -178,6 +226,22 @@ static_files:
       # Check binary patch for /testfile2.bin
       if ! /igloo/utils/busybox head -c 4 /testfile2.bin | /igloo/utils/busybox hexdump -v -e '4/1 "%02X"' | /igloo/utils/busybox grep -q "11223344"; then
         echo "/testfile2.bin binary patch failed"; exit 1
+      fi
+      # Check /testfile3.bin was NOT patched (expect mismatch + on_mismatch: skip)
+      if ! /igloo/utils/busybox head -c 4 /testfile3.bin | /igloo/utils/busybox hexdump -v -e '4/1 "%02X"' | /igloo/utils/busybox grep -q "DEADBEEF"; then
+        echo "/testfile3.bin should be untouched after skipped patch"; exit 1
+      fi
+      # Check /testfile4.bin kept its already-patched bytes (idempotent skip)
+      if ! /igloo/utils/busybox head -c 4 /testfile4.bin | /igloo/utils/busybox hexdump -v -e '4/1 "%02X"' | /igloo/utils/busybox grep -q "AABBCCDD"; then
+        echo "/testfile4.bin idempotent skip failed"; exit 1
+      fi
+      # Check /testfile5.bin WAS patched despite expect mismatch (on_mismatch: warn)
+      if ! /igloo/utils/busybox head -c 4 /testfile5.bin | /igloo/utils/busybox hexdump -v -e '4/1 "%02X"' | /igloo/utils/busybox grep -q "55667788"; then
+        echo "/testfile5.bin warn-policy patch failed"; exit 1
+      fi
+      # Check /testfile6.bin got BOTH edits from the patches list (offsets 0 and 8)
+      if ! /igloo/utils/busybox head -c 10 /testfile6.bin | /igloo/utils/busybox hexdump -v -e '10/1 "%02X"' | /igloo/utils/busybox grep -q "AABB020304050607CCDD"; then
+        echo "/testfile6.bin multi-patch failed"; exit 1
       fi
       # Check shim
       if ! /igloo/utils/busybox grep target /shim.txt ; then

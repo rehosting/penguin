@@ -2819,7 +2819,7 @@ Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseud
 
 #### `static_files.<string>.<type=binary_patch>` Patch binary file
 
-Make a patch to a binary file at the specified offset. This can either be arbitrary bytes specified as a hex string, or assembly code that will be automatically assembled in the specified mode.
+Patch a binary file at one or more offsets. A single edit is given inline (file_offset + one of hex_bytes/asm); multiple edits to the same file go in the 'patches' list (applied together in one host-side pass, with overlapping write ranges rejected). Each edit may verify the bytes currently at its offset first (expect/on_mismatch) so the patch is idempotent and safe across firmware variants, and record rationale (why/tag); every edit's outcome is written to binary_patches.yaml in the run output.
 
 ##### `static_files.<string>.<type=binary_patch>.type` Type of file action (patch binary file)
 
@@ -2837,11 +2837,12 @@ Make a patch to a binary file at the specified offset. This can either be arbitr
 
 Origin tag. Set 'default' for a synthesized stub (it reports its hits into pseudofiles_failures.yaml); leave unset for author-intentional models.
 
-##### `static_files.<string>.<type=binary_patch>.file_offset` File offset (integer)
+##### `static_files.<string>.<type=binary_patch>.file_offset` File offset (integer) — for a single inline edit; omit when using 'patches'
 
 |||
 |-|-|
-|__Type__|integer|
+|__Type__|integer or null|
+|__Default__|`null`|
 
 
 ##### `static_files.<string>.<type=binary_patch>.hex_bytes` Bytes to write at offset (hex string)
@@ -2890,6 +2891,178 @@ arm
 
 ```yaml
 thumb
+```
+
+##### `static_files.<string>.<type=binary_patch>.expect` Expected bytes at offset before patching (hex string)
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+If set, the current bytes at file_offset are compared against this hex string (over its own length, which may differ from the patch length) before the patch is written. If the bytes at the offset already equal the patch bytes, the patch is skipped (idempotent re-run); otherwise the on_mismatch policy applies.
+
+```yaml
+0102 0304
+```
+
+```yaml
+DEADBEEF
+```
+
+##### `static_files.<string>.<type=binary_patch>.on_mismatch` Policy when 'expect' does not match
+
+|||
+|-|-|
+|__Type__|`"fail"` or `"skip"` or `"warn"`|
+|__Default__|`fail`|
+
+fail: abort the run (default, safest). skip: leave the file unpatched and continue. warn: log a warning and write the patch anyway. Only meaningful when 'expect' is set.
+
+##### `static_files.<string>.<type=binary_patch>.why` Rationale for this patch, recorded in the run's binary_patches.yaml
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+
+```yaml
+NOP out the secure-boot check
+```
+
+##### `static_files.<string>.<type=binary_patch>.tag` Label grouping related patches, recorded in the run's binary_patches.yaml
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+
+```yaml
+secureboot
+```
+
+##### `static_files.<string>.<type=binary_patch>.patches` Multiple edits to this file
+
+|||
+|-|-|
+|__Type__|list of Binary patch entry|
+|__Default__|`null`|
+
+A list of edits applied to this one file in a single host-side pass. Use this instead of the inline file_offset/hex_bytes/asm fields when patching a binary at more than one offset. Overlapping write ranges are rejected.
+
+###### `static_files.<string>.<type=binary_patch>.patches.<item>` Binary patch entry
+
+A single edit within a ``binary_patch`` action: bytes to write at one
+    file offset, optionally guarded by an ``expect`` check. Multiple entries can
+    target one file via the action's ``patches`` list; they are applied
+    host-side to one buffer in a single pass, and overlapping write ranges are
+    rejected.
+
+###### `static_files.<string>.<type=binary_patch>.patches.<item>.file_offset` File offset (integer)
+
+|||
+|-|-|
+|__Type__|integer|
+
+
+###### `static_files.<string>.<type=binary_patch>.patches.<item>.hex_bytes` Bytes to write at offset (hex string)
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+
+```yaml
+DEADBEEF
+```
+
+```yaml
+90 90
+```
+
+###### `static_files.<string>.<type=binary_patch>.patches.<item>.asm` Assembly code to write at offset (runs through keystone)
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+
+```yaml
+nop
+```
+
+```yaml
+'mov r0, #0xdeadbeef'
+```
+
+###### `static_files.<string>.<type=binary_patch>.patches.<item>.mode` Assembly mode
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+
+```yaml
+arm
+```
+
+```yaml
+thumb
+```
+
+###### `static_files.<string>.<type=binary_patch>.patches.<item>.expect` Expected bytes at offset before patching (hex string)
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+If set, the current bytes at file_offset are compared against this hex string (over its own length, which may differ from the patch length) before the patch is written. If the bytes at the offset already equal the patch bytes, the patch is skipped (idempotent re-run); otherwise the on_mismatch policy applies.
+
+```yaml
+0102 0304
+```
+
+```yaml
+DEADBEEF
+```
+
+###### `static_files.<string>.<type=binary_patch>.patches.<item>.on_mismatch` Policy when 'expect' does not match
+
+|||
+|-|-|
+|__Type__|`"fail"` or `"skip"` or `"warn"`|
+|__Default__|`fail`|
+
+fail: abort the run (default, safest). skip: leave the file unpatched and continue. warn: log a warning and write the patch anyway. Only meaningful when 'expect' is set.
+
+###### `static_files.<string>.<type=binary_patch>.patches.<item>.why` Rationale for this patch, recorded in the run's binary_patches.yaml
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+
+```yaml
+NOP out the secure-boot check
+```
+
+###### `static_files.<string>.<type=binary_patch>.patches.<item>.tag` Label grouping related patches, recorded in the run's binary_patches.yaml
+
+|||
+|-|-|
+|__Type__|string or null|
+|__Default__|`null`|
+
+
+```yaml
+secureboot
 ```
 
 ## `plugins` Plugins
