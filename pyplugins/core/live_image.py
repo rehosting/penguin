@@ -79,6 +79,7 @@ class LiveImage(Plugin):
         self.script_generated = False
         self.fs_generated = False
         self.patch_queue = []
+        self._patch_base_offset = {}
         self.config = self.get_arg("conf")
         core_config = self.config.get("core", {})
         self.arch = core_config.get("arch", "x86_64")
@@ -179,6 +180,7 @@ class LiveImage(Plugin):
         post_tar_commands = []
         paths_to_delete = []
         self.patch_queue = []  # Reset for this run
+        self._patch_base_offset = {}  # index -> window base offset (set in Phase 4)
         move_sources_to_remove = []
         staging_dir = Path(self.staged_dir)
         from collections import defaultdict
@@ -468,16 +470,25 @@ class LiveImage(Plugin):
         add_run_or_report("tar x -om -f /igloo/boot/filesystem.tar -C / --no-same-permissions")
 
         # --- Phase 4: Batch-process binary patches ---
+        # Only the byte window each patch touches is shipped host<->guest (via
+        # hyp_file_op --range), not the whole target file, so patching a few
+        # bytes of a large binary no longer streams the entire file twice. The
+        # host records each window's base offset so the batch hypercall can
+        # apply edits (whose offsets are absolute) against the window.
         if self.patch_queue:
             patch_staging_cmds = []
             patch_return_cmds = []
 
-            for i, (file_path, _) in enumerate(self.patch_queue):
+            for i, (file_path, action) in enumerate(self.patch_queue):
                 shared_file_name = f"patch_{i}"
+                base_off, win_len = self._patch_window(action)
+                self._patch_base_offset[i] = base_off
                 add_require_exists(file_path, "binary_patch")
                 patch_staging_cmds.append(
-                    f"/igloo/boot/hyp_file_op put {shlex.quote(file_path)} {shlex.quote(os.path.basename(shared_file_name))}")
-            script_lines.append("\n# Staging all files for patching")
+                    f"/igloo/boot/hyp_file_op put {shlex.quote(file_path)} "
+                    f"{shlex.quote(os.path.basename(shared_file_name))} "
+                    f"--range {base_off:#x} {win_len:#x}")
+            script_lines.append("\n# Staging patch windows")
             for cmd in patch_staging_cmds:
                 add_run_or_report(cmd)
 
@@ -486,9 +497,11 @@ class LiveImage(Plugin):
 
             for i, (file_path, _) in enumerate(self.patch_queue):
                 shared_file_name = f"patch_{i}"
+                base_off = self._patch_base_offset[i]
                 patch_return_cmds.append(
-                    f"/igloo/boot/hyp_file_op get {shlex.quote(shared_file_name)} {shlex.quote(file_path)}")
-            script_lines.append("\n# Moving all patched files back")
+                    f"/igloo/boot/hyp_file_op get {shlex.quote(shared_file_name)} "
+                    f"{shlex.quote(file_path)} --range {base_off:#x}")
+            script_lines.append("\n# Writing patched windows back")
             for cmd in patch_return_cmds:
                 add_run_or_report(cmd)
 
@@ -615,7 +628,7 @@ class LiveImage(Plugin):
             return None, f"invalid hex_bytes {entry['hex_bytes']!r}: {e}"
 
     def _verify_entry(self, original_content: bytes, entry: Dict,
-                      patch_bytes: bytes) -> Tuple[str, str]:
+                      patch_bytes: bytes, base_offset: int = 0) -> Tuple[str, str]:
         """Apply one edit's ``expect``/``on_mismatch`` policy against the
         pristine file bytes. Returns ``(status, detail)`` where status is
         'applied', 'skipped', or 'failed'.
@@ -623,18 +636,24 @@ class LiveImage(Plugin):
         ``expect`` is checked over its own length (which may differ from the
         patch length). If the bytes at the offset already equal the patch
         bytes, the edit is an idempotent skip under *every* policy.
+
+        ``base_offset`` is subtracted from the edit's ``file_offset`` before
+        indexing ``original_content``, so the caller can pass just a window of
+        the file (starting at ``base_offset``) instead of the whole thing;
+        recorded/reported offsets stay absolute. Defaults to 0 (whole file).
         """
         off = entry["file_offset"]
+        pos = off - base_offset
         if not entry.get("expect"):
             return "applied", ""
         try:
             expect_bytes = self._parse_hex(entry["expect"])
         except ValueError as e:
             return "failed", f"invalid expect {entry['expect']!r}: {e}"
-        current = original_content[off:off + len(expect_bytes)]
+        current = original_content[pos:pos + len(expect_bytes)]
         if current == expect_bytes:
             return "applied", ""
-        if original_content[off:off + len(patch_bytes)] == patch_bytes:
+        if original_content[pos:pos + len(patch_bytes)] == patch_bytes:
             return "skipped", "already patched (bytes at offset equal the patch bytes)"
         mismatch = (
             f"expected {expect_bytes.hex()} at offset {off:#x} "
@@ -661,8 +680,8 @@ class LiveImage(Plugin):
             rec["detail"] = detail
         return rec
 
-    def _apply_binary_patch(self, original_content: bytes,
-                            action: Dict) -> Tuple[Optional[bytes], list, bool]:
+    def _apply_binary_patch(self, original_content: bytes, action: Dict,
+                            base_offset: int = 0) -> Tuple[Optional[bytes], list, bool]:
         """Apply every edit of one binary_patch action to a single buffer.
 
         Returns ``(new_content, records, failed)``:
@@ -675,6 +694,12 @@ class LiveImage(Plugin):
         All edits are applied to one buffer in a single pass; overlapping write
         ranges are detected up front and rejected so no edit can silently
         clobber another.
+
+        ``base_offset`` is subtracted from each edit's ``file_offset`` before
+        indexing ``original_content``, so the caller may pass just a window of
+        the file (starting at ``base_offset``). ``new_content`` is then that
+        window with the edits applied; recorded offsets stay absolute. Defaults
+        to 0 (``original_content`` is the whole file).
         """
         entries, err = self._normalize_patch_entries(action)
         if err:
@@ -714,16 +739,48 @@ class LiveImage(Plugin):
                     "overlaps another patch to this file"))
                 failed = True
                 continue
-            status, detail = self._verify_entry(original_content, entry, patch_bytes)
+            status, detail = self._verify_entry(
+                original_content, entry, patch_bytes, base_offset)
             if status == "applied":
-                off = entry["file_offset"]
-                buf[off:off + len(patch_bytes)] = patch_bytes
+                pos = entry["file_offset"] - base_offset
+                buf[pos:pos + len(patch_bytes)] = patch_bytes
             elif status == "failed":
                 failed = True
             records.append(self._patch_record(entry, status, detail))
 
         new_content = None if failed else bytes(buf)
         return new_content, records, failed
+
+    def _patch_window(self, action: Dict) -> Tuple[int, int]:
+        """Compute the ``(base_offset, length)`` byte window that covers every
+        edit of one binary_patch action, so only that range is transferred
+        to/from the guest instead of the whole file. The window spans from the
+        lowest edit offset to the furthest byte any edit reads (``expect``) or
+        writes (patch). Raises ValueError on a malformed edit (bad bytes,
+        missing offset, both/neither hex_bytes+asm) so the run fails before
+        boot rather than aborting mid-build.
+        """
+        entries, err = self._normalize_patch_entries(action)
+        if err:
+            raise ValueError(err)
+        lo = hi = None
+        for entry in entries:
+            patch_bytes, perr = self._entry_patch_bytes(entry)
+            if perr is not None:
+                raise ValueError(
+                    f"binary_patch at offset {entry.get('file_offset')}: {perr}")
+            off = entry["file_offset"]
+            span = len(patch_bytes)
+            if entry.get("expect"):
+                try:
+                    span = max(span, len(self._parse_hex(entry["expect"])))
+                except ValueError as e:
+                    raise ValueError(
+                        f"binary_patch at offset {off:#x}: invalid expect "
+                        f"{entry['expect']!r}: {e}")
+            lo = off if lo is None else min(lo, off)
+            hi = off + span if hi is None else max(hi, off + span)
+        return lo, hi - lo
 
     def _gen_asm_patch_bytes(self, asm_code: str, user_mode: Optional[str]) -> Optional[bytes]:
         """Assembles assembly code into bytes using Keystone."""
@@ -779,9 +836,13 @@ class LiveImage(Plugin):
                 f"Patching guest file '{guest_path}' via staged file '{host_side_path}'")
 
             try:
-                original_content = host_side_path.read_bytes()
+                # original_content is only the window that was staged
+                # (hyp_file_op --range); base_offset rebases absolute edit
+                # offsets onto it.
+                window = host_side_path.read_bytes()
+                base_offset = self._patch_base_offset.get(i, 0)
                 new_content, recs, failed = self._apply_binary_patch(
-                    original_content, action)
+                    window, action, base_offset)
             except Exception as e:
                 self.logger.error(
                     f"Error during file patch of {host_side_path}: {e}", exc_info=True)

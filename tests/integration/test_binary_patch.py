@@ -302,9 +302,10 @@ def test_apply_skip_leaves_region_untouched_but_applies_others(li):
 
 
 # --- abort contract at the hypercall handler (#2) -------------------------
-def _prep_handler(li, tmp_path, queue):
+def _prep_handler(li, tmp_path, queue, base_offsets=None):
     li.staged_dir = str(tmp_path)
     li.patch_queue = queue
+    li._patch_base_offset = base_offsets or {}
     li.get_arg = lambda k: str(tmp_path) if k == "outdir" else None
     for i, (path, action, content) in enumerate(queue_files(queue)):
         (tmp_path / f"patch_{i}").write_bytes(content)
@@ -314,6 +315,61 @@ def queue_files(queue):
     # helper: yield (path, action, staged-content) using the action's own seed
     for path, action in queue:
         yield path, action, action.pop("_content")
+
+
+# --- windowed transfer (ranged hyp_file_op) -------------------------------
+def test_patch_window_inline_single(li):
+    assert li._patch_window({"file_offset": 0x10, "hex_bytes": "aabbccdd"}) == (0x10, 4)
+
+
+def test_patch_window_expect_extends_span(li):
+    # window must cover the longer of the patch (1 byte) and expect (4 bytes)
+    assert li._patch_window(
+        {"file_offset": 0x10, "hex_bytes": "aa", "expect": "01020304"}) == (0x10, 4)
+
+
+def test_patch_window_multi_disjoint(li):
+    base, length = li._patch_window({"patches": [
+        {"file_offset": 0, "hex_bytes": "aabb"},   # 0..2
+        {"file_offset": 8, "hex_bytes": "cc"},     # 8..9
+    ]})
+    assert (base, length) == (0, 9)
+
+
+def test_patch_window_raises_on_bad_edit(li):
+    with pytest.raises(ValueError):
+        li._patch_window({"file_offset": 0, "hex_bytes": "aa", "asm": "nop"})
+
+
+def test_apply_with_base_offset(li):
+    # original_content is only the window starting at base_offset=0x100
+    window = b"\xde\xad"
+    new, recs, failed = li._apply_binary_patch(
+        window, {"file_offset": 0x100, "hex_bytes": "aabb", "expect": "dead",
+                 "tag": "t", "why": "w"}, base_offset=0x100)
+    assert not failed and new == b"\xaa\xbb"
+    assert recs[0]["file_offset"] == "0x100"   # provenance offset stays absolute
+
+
+def test_verify_with_base_offset(li):
+    window = b"\x01\x02\x03\x04"
+    st, _ = li._verify_entry(window, {"file_offset": 0x1000, "expect": "0304"},
+                             b"\xff\xff", base_offset=0x1000 - 2)
+    assert st == "applied"  # expect '0304' checked at window pos 2
+
+
+def test_handler_windowed_roundtrip(li, tmp_path):
+    # staged file is the 2-byte window at offset 0x100; handler applies with the
+    # recorded base offset and writes the patched window back.
+    queue = [("/bin/foo", {"file_offset": 0x100, "hex_bytes": "aabb",
+                           "expect": "0102", "tag": "t", "why": "w",
+                           "_content": b"\x01\x02"})]
+    _prep_handler(li, tmp_path, queue, base_offsets={0: 0x100})
+    rc = li._on_batch_patch_hypercall()
+    assert rc == 0
+    assert (tmp_path / "patch_0").read_bytes() == b"\xaa\xbb"
+    report = yaml.safe_load((tmp_path / "binary_patches.yaml").read_text())
+    assert report[0]["result"] == "applied" and report[0]["file_offset"] == "0x100"
 
 
 def test_handler_success_writes_file_and_report(li, tmp_path):

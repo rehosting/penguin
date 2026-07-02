@@ -52,7 +52,61 @@ int main(int argc, char **argv) {
     char *path = malloc(path_len);
     require(path, "malloc failed for path");
     strcpy(path, path_arg);
+
+    // Optional trailing "--range <off> [len]": transfer only a byte window of
+    // the *local* (guest) file rather than the whole file. put reads
+    // [off, off+len) and uploads it; get downloads the staged window and writes
+    // it at off in the target without truncating. Used by binary_patch so a
+    // few patched bytes don't stream the whole target file both ways.
+    int has_range = 0;
+    uint64_t range_off = 0, range_len = 0;
+    for (int i = arg_offset; i < argc; i++) {
+        if (strcmp(argv[i], "--range") == 0) {
+            require(i + 1 < argc, "--range needs an offset");
+            range_off = strtoull(argv[i + 1], NULL, 0);
+            if (i + 2 < argc && strncmp(argv[i + 2], "--", 2) != 0)
+                range_len = strtoull(argv[i + 2], NULL, 0);
+            has_range = 1;
+            break;
+        }
+    }
+
     if (strcmp(op, "get") == 0) {
+        if (has_range) {
+            // Download the staged window (path = staged file) and write it into
+            // the local target at range_off, r+b so the file is NOT truncated.
+            const char *local_path = (argc - arg_offset > 2) ? argv[arg_offset + 2] : NULL;
+            require(local_path && strcmp(local_path, "-") != 0,
+                    "--range get requires a target file");
+            long staged_size = portal_callN(MAGIC_GETSIZE, 1, (uint64_t)path);
+            if (staged_size < 0) {
+                fprintf(stderr, "hyp_file_op: error: staged file '%s' missing\n", path);
+                free(path);
+                return 2;
+            }
+            uint8_t *buffer = malloc(staged_size > 0 ? (size_t)staged_size : 1);
+            require(buffer, "malloc failed");
+            size_t total = 0;
+            while (total < (size_t)staged_size) {
+                size_t chunk = (size_t)staged_size - total;
+                if (chunk > MAX_MALLOC_SIZE) chunk = MAX_MALLOC_SIZE;
+                int ret = portal_call4(MAGIC_GET, (uint64_t)path, total, chunk, (uint64_t)(buffer + total));
+                if (ret < 0) { free(buffer); free(path); return 2; }
+                if (ret == 0) break;
+                total += ret;
+            }
+            FILE *f = fopen(local_path, "r+b");
+            require(f, "failed to open target file for --range get (must exist)");
+            require(fseek(f, (long)range_off, SEEK_SET) == 0, "fseek failed on target file");
+            size_t wrote = fwrite(buffer, 1, total, f);
+            fclose(f);
+            free(buffer);
+            require(wrote == total, "short write applying patch window");
+            log_fmt("Applied %zu-byte window at offset %llu of '%s'", total,
+                    (unsigned long long)range_off, local_path);
+            free(path);
+            return 0;
+        }
         log_fmt("Requesting file size for '%s'", path);
         long file_size = portal_callN(MAGIC_GETSIZE, 1, (uint64_t)path);
         if (file_size == -1) {
@@ -126,6 +180,33 @@ int main(int argc, char **argv) {
         require(argc - arg_offset >= 3, "put requires source and dest arguments");
         const char *local_path = argv[arg_offset + 1];
         const char *remote_path = argv[arg_offset + 2];
+        if (has_range) {
+            // Upload only [range_off, range_off+range_len) of the local guest
+            // file to the staged file. A zero-length window still issues one
+            // MAGIC_PUT so the staged file is created (host reads it back).
+            FILE *rin = fopen(local_path, "rb");
+            require(rin, "failed to open input file for --range put");
+            require(fseek(rin, (long)range_off, SEEK_SET) == 0, "fseek failed on input file");
+            uint8_t *rbuf = malloc(range_len > 0 ? range_len : 1);
+            require(rbuf, "malloc failed");
+            size_t nread = range_len > 0 ? fread(rbuf, 1, range_len, rin) : 0;
+            fclose(rin);
+            size_t sent = 0;
+            while (1) {
+                size_t chunk = nread - sent;
+                if (chunk > MAX_MALLOC_SIZE) chunk = MAX_MALLOC_SIZE;
+                int ret = portal_call4(MAGIC_PUT, (uint64_t)remote_path, sent, chunk, (uint64_t)(rbuf + sent));
+                if (ret < 0) { free(rbuf); free(path); return 2; }
+                sent += (size_t)ret;
+                if (sent >= nread) break;   // also exits immediately when nread==0
+                if (ret == 0) break;        // safety: no forward progress
+            }
+            log_fmt("Uploaded %zu-byte window from offset %llu of '%s'", nread,
+                    (unsigned long long)range_off, local_path);
+            free(rbuf);
+            free(path);
+            return 0;
+        }
         log_fmt("Starting file upload: '%s' to remote '%s'", local_path, remote_path);
         FILE *in = strcmp(local_path, "-") == 0 ? stdin : fopen(local_path, "rb");
         char errbuf[256];
