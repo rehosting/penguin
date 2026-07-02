@@ -1,0 +1,27 @@
+plugins:
+  signal_monitor: {}
+  crashes: {}
+  verifier:
+    conditions:
+      crashes+pass:
+        type: file_contains
+        file: shared/tests/crashes.sh/stdout
+        string: "/tests/crashes.sh PASS"
+      crashes+recorded:
+        type: file_contains
+        file: crashes.yaml
+        string: "signame: SIGSEGV"
+
+static_files:
+  /tests/crashes.sh:
+    type: inline_file
+    contents: |
+      #!/igloo/utils/sh
+
+      echo "Starting crashes test..."
+      # Crash a child shell with a fatal signal; the crashes plugin should
+      # record the delivery in crashes.yaml.
+      /igloo/utils/sh -c '/igloo/utils/busybox kill -SEGV $$'
+      echo "Child crashed with SIGSEGV."
+      echo "/tests/crashes.sh PASS"
+    mode: 73

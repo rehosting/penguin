@@ -22,6 +22,24 @@ The file `coverage_tree.csv` stores this information with parent/child
 relationships to visualize as a tree. The file `coverage_transitions.csv`
 records all context switches between processes.
 
+## Crashes
+The `crashes` plugin records fatal signal deliveries to guest processes
+(userland crashes) in `crashes.yaml`. Each record includes the process name,
+pid, signal number and name, the faulting program counter, the time (host
+wall-clock seconds since emulation start) of the first occurrence, and a
+`count` de-duplicating identical `(proc, signal, pc)` deliveries. By default
+it records SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGFPE, and SIGSYS; the set is
+configurable via the `signals` argument (use signal names — numbering is
+resolved per guest architecture). The number of unique crash records is also
+reported (negated) as the `crashes` score category.
+
+Note that records are signal *deliveries*, not confirmed terminations: the
+driver hook fires when a signal is dequeued for delivery, before the kernel
+applies its disposition, and the event does not indicate whether the process
+has a handler installed. A process that catches a fatal-class signal and
+survives is still recorded. Deliveries that another plugin has already
+dropped (`event.drop`, e.g. a SIGILL-bypass consumer) are not recorded.
+
 ## Env
 The `env` plugin dynamically tracks linux environment variables accessed through
 `/proc/cmdline` and calls to `getenv`. It also tracks accesses to `/proc/mtd`

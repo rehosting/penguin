@@ -35,6 +35,7 @@ SCORE_CATEGORIES: list[str] = [
     "nopanic",
     "script_lines_covered",
     "blocked_signals",
+    "crashes",
 ]
 
 
@@ -104,6 +105,19 @@ def calculate_score(result_dir: str, have_console: bool = True) -> dict[str, int
     elif have_console:
         logger.warning(f"{console_log_path} not found - cannot check for kernel panic.")
 
+    # --- Userland crashes (crashes.yaml from the crashes plugin) ---
+    n_crashes = 0
+    crashes_path = os.path.join(result_dir, "crashes.yaml")
+    if os.path.isfile(crashes_path):
+        try:
+            with open(crashes_path) as f:
+                crash_data = yaml.safe_load(f) or {}
+            # De-duplicated records, not total deliveries: a crash-looping
+            # service counts once per unique (proc, signal, pc).
+            n_crashes = len(crash_data.get("crashes") or [])
+        except (IOError, yaml.YAMLError) as e:
+            logger.error(f"Could not read or parse {crashes_path}: {e}")
+
     # --- Shell coverage ---
     shell_cov_path = os.path.join(result_dir, "shell_cov.csv")
     if os.path.isfile(shell_cov_path):
@@ -148,6 +162,7 @@ def calculate_score(result_dir: str, have_console: bool = True) -> dict[str, int
         "script_lines_covered": shell_cov,
         "nopanic": 1 if not panic else 0,
         "blocked_signals": blocked_signals,  # Negative because we want to minimize!
+        "crashes": -n_crashes,  # Negative because we want to minimize!
     }
 
     for k in score.keys():
