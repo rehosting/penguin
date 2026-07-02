@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 import hashlib
 import tempfile
+import time
 import art
 
 from penguin import VERSION, getColoredLogger, yaml
@@ -18,6 +19,7 @@ from penguin import VERSION, getColoredLogger, yaml
 from .common import get_inits_from_proj
 from .gen_config import fakeroot_gen_config, fakeroot_refresh
 from .manager import PandaRunner, calculate_score
+from .run_summary import write_run_summary
 from penguin.penguin_config import load_config
 
 from .plugin_manager import find_local_plugins
@@ -117,6 +119,7 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
         extra_env["PENGUIN_SNAPSHOT_IGNORE_SAVED_CONFIG"] = "1"
     extra_env = extra_env or None
 
+    run_start = time.time()
     try:
         PandaRunner().run(
             config_path,
@@ -132,6 +135,7 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
     except RuntimeError:
         logger.error("No post-run analysis since there was no .run file")
         return
+    wallclock_s = time.time() - run_start
 
     # Single iteration: there is no best - don't report that
     # from manager import report_best_results
@@ -152,6 +156,12 @@ def run_from_config(proj_dir, config_path, output_dir, timeout=None, verbose=Fal
     with open(os.path.join(output_dir, "score.txt"), "w") as f:
         total_score = sum(best_scores.values())
         f.write(f"{total_score:.02f}\n")
+
+    try:
+        write_run_summary(output_dir, best_scores, wallclock_s=wallclock_s)
+    except Exception as e:
+        # Never let a summary failure (I/O or serialization) kill run teardown.
+        logger.error(f"Failed to write summary.json: {e}")
 
 
 def get_file_hash(filename):
