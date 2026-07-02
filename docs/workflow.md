@@ -288,10 +288,20 @@ see that some `ioctl` errors are reported instead for ioctl number 1074029569 (0
 
 ```yaml
 /dev/dsa:
-  ioctl:
-    1074029569:
-      count: 40
+  impact: {hits: 40, distinct_callers: 1, crashing_callers: 0}
+  callers: [dsad:412]
+  events:
+    ioctl:
+      1074029569:
+        count: 40
+  suggest:
+    ioctl:
+      '*': {model: return_const, val: 0}
 ```
+
+Entries are ranked by impact (crashing callers, then distinct callers, then raw
+hits), and each comes with a `suggest` block: a heuristic starting model you can
+paste directly under the path in your config's `pseudofiles:` section.
 
 We can update our `/dev/dsa` pseudofile to simply return 0 or "success" on this ioctl:
 

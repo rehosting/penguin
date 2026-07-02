@@ -8,16 +8,24 @@ plugins:
       pseudofile_ioctl+failures:
         type: yaml_contains 
         file: pseudofiles_failures.yaml
-        subkeys: 
+        subkeys:
           /dev/foo/present:
-            ioctl:
-              799: {}
+            events:
+              ioctl:
+                799: {}
           /dev/fs/present:
-            ioctl:
-              799: {}
+            events:
+              ioctl:
+                799: {}
           /dev/present:
-            ioctl:
-              799: {}
+            impact: {}
+            events:
+              ioctl:
+                799: {}
+            suggest:
+              ioctl:
+                '*':
+                  model: return_const
 
 pseudofiles:
   /dev/present: {}

@@ -14,10 +14,13 @@ plugins:
           -  /dev/foo/missing
           -  /proc/missing
           -  /proc/fs/missing
-          # -  /proc/foo/missing
+          -  /proc/foo/missing
           -  /sys/missing
           -  /sys/fs/missing
           -  /sys/foo/missing
+          # New impact/suggest schema keys (rank-by-impact + model suggestion)
+          -  "distinct_callers:"
+          -  "suggest:"
 
 static_files:
   /tests/pseudofile_missing.sh:
