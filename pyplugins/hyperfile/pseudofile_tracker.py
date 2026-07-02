@@ -57,6 +57,7 @@ from apis.syscalls import ValueFilter
 
 outfile_missing = "pseudofiles_failures.yaml"
 outfile_models = "pseudofiles_modeled.yaml"
+crashes_file = "crashes.yaml"  # written by the crashes plugin (may be absent)
 
 AT_FDCWD = -100
 
@@ -147,6 +148,46 @@ def open_access_intents(flags: int) -> set:
     if acc == O_RDWR:
         return {"read", "write"}
     return {"read"}
+
+
+def load_crashes(path: str):
+    """
+    Parse the crashes plugin's crashes.yaml into join keys.
+
+    Returns (pairs, names): the set of (proc, pid) tuples and the set of proc
+    names that crashed. Tolerates a missing/empty file (this plugin may run
+    without crash tracking) and both the `{crashes: [...]}` dict and a bare
+    list of records.
+    """
+    pairs, names = set(), set()
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+    except FileNotFoundError:
+        return pairs, names
+    if isinstance(data, dict):
+        data = data.get("crashes")
+    if not isinstance(data, list):
+        return pairs, names
+    for crash in data:
+        if not isinstance(crash, dict) or "proc" not in crash:
+            continue
+        names.add(crash["proc"])
+        if isinstance(crash.get("pid"), int):
+            pairs.add((crash["proc"], crash["pid"]))
+    return pairs, names
+
+
+def count_crashing_callers(callers: set, crash_pairs: set, crash_names: set) -> int:
+    """
+    Distinct callers of a path that later crashed. Prefer the exact
+    (proc, pid) match; fall back to the proc name alone so a crash whose pid
+    was recycled between the access and the fault still joins.
+    """
+    return sum(
+        1 for name, pid in callers
+        if (name, pid) in crash_pairs or name in crash_names
+    )
 
 
 def impact_score(impact: dict) -> int:
@@ -334,11 +375,11 @@ class PseudofileTracker(Plugin):
         return set()
 
     def _get_caller(self):
-        """Identify the current process as 'name:pid' (one portal round-trip)."""
+        """Identify the current process as (name, pid) (one portal round-trip)."""
         try:
             proc = yield from osi.get_proc()
             if proc is not None:
-                return f"{proc.name}:{proc.pid}"
+                return (proc.name, proc.pid)
         except Exception as e:
             self.logger.debug(f"Failed to resolve calling process: {e}")
         return None
@@ -409,19 +450,25 @@ class PseudofileTracker(Plugin):
 
     def _render_failures(self):
         """Shape internal state into the impact-ranked on-disk format."""
+        # Re-read on every flush so crashes that happen after an access are
+        # reflected in later dumps (and in the final one at uninit).
+        crash_pairs, crash_names = load_crashes(pjoin(self.outdir, crashes_file))
+
         rendered = {}
         for path, record in self.file_failures.items():
             events = sort_file_failures(record["events"])
             impact = {
                 "hits": get_total_counts(events),
                 "distinct_callers": len(record["callers"]),
-                # Joined against crashes.yaml once crash tracking lands;
-                # always emitted so consumers (summary.json) can rely on it.
-                "crashing_callers": 0,
+                "crashing_callers": count_crashing_callers(
+                    record["callers"], crash_pairs, crash_names
+                ),
             }
             entry = {"impact": impact}
             if record["callers"]:
-                entry["callers"] = sorted(record["callers"])
+                entry["callers"] = [
+                    f"{name}:{pid}" for name, pid in sorted(record["callers"])
+                ]
             entry["events"] = events
             suggest = suggest_models(record["events"], record["intents"])
             if suggest:
