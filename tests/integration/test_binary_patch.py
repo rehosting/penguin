@@ -91,7 +91,8 @@ def _load_live_image():
                 sys.modules[k] = v
 
 
-LI = _load_live_image().LiveImage
+_MOD = _load_live_image()
+LI = _MOD.LiveImage
 
 
 @pytest.fixture
@@ -339,6 +340,45 @@ def test_patch_window_multi_disjoint(li):
 def test_patch_window_raises_on_bad_edit(li):
     with pytest.raises(ValueError):
         li._patch_window({"file_offset": 0, "hex_bytes": "aa", "asm": "nop"})
+
+
+# --- bounds check against the static filesystem ---------------------------
+@pytest.mark.parametrize("base,win,size,expected", [
+    (0, 4, None, False),   # unknown size -> never flagged
+    (0, 4, 4, False),      # exactly fits
+    (0, 4, 3, True),       # 1 byte past EOF
+    (0x10, 4, 0x13, True),  # window 0x10..0x14 exceeds size 0x13
+    (0x10, 4, 0x14, False),  # window 0x10..0x14 exactly fits size 0x14
+])
+def test_window_exceeds_size(base, win, size, expected):
+    assert LI._window_exceeds_size(base, win, size) is expected
+
+
+def test_check_within_file_raises_when_out_of_bounds(li, monkeypatch):
+    monkeypatch.setattr(_MOD.plugins, "static_fs",
+                        types.SimpleNamespace(get_size=lambda p, transparent=None: 3),
+                        raising=False)
+    with pytest.raises(ValueError, match="exceeds file size"):
+        li._check_patch_within_file("/bin/foo", 0, 4)
+
+
+def test_check_within_file_ok_when_fits(li, monkeypatch):
+    monkeypatch.setattr(_MOD.plugins, "static_fs",
+                        types.SimpleNamespace(get_size=lambda p, transparent=None: 64),
+                        raising=False)
+    li._check_patch_within_file("/bin/foo", 0x10, 4)  # no raise
+
+
+def test_check_within_file_skips_when_size_unknown(li, monkeypatch):
+    monkeypatch.setattr(_MOD.plugins, "static_fs",
+                        types.SimpleNamespace(get_size=lambda p, transparent=None: None),
+                        raising=False)
+    li._check_patch_within_file("/bin/foo", 0, 999999)  # None -> skipped, no raise
+
+
+def test_check_within_file_skips_when_static_fs_unavailable(li):
+    # default stub _Plugins has no static_fs -> AttributeError caught -> skip
+    li._check_patch_within_file("/bin/foo", 0, 999999)  # no raise
 
 
 def test_apply_with_base_offset(li):

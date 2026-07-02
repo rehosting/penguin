@@ -483,6 +483,7 @@ class LiveImage(Plugin):
                 shared_file_name = f"patch_{i}"
                 base_off, win_len = self._patch_window(action)
                 self._patch_base_offset[i] = base_off
+                self._check_patch_within_file(file_path, base_off, win_len)
                 add_require_exists(file_path, "binary_patch")
                 patch_staging_cmds.append(
                     f"/igloo/boot/hyp_file_op put {shlex.quote(file_path)} "
@@ -781,6 +782,38 @@ class LiveImage(Plugin):
             lo = off if lo is None else min(lo, off)
             hi = off + span if hi is None else max(hi, off + span)
         return lo, hi - lo
+
+    @staticmethod
+    def _window_exceeds_size(base_off: int, win_len: int,
+                             size: Optional[int]) -> bool:
+        """True only when the size is known (not None) and the patch window
+        runs past the end of the file. Unknown size -> never flagged (skip)."""
+        return size is not None and base_off + win_len > size
+
+    def _check_patch_within_file(self, file_path: str, base_off: int,
+                                 win_len: int) -> None:
+        """Fail before boot if a patch window falls past the end of its target
+        file, when the size can be determined from the static filesystem.
+
+        Uses the ``static_fs`` view, which composes the base rootfs with
+        config operations (``host_file``/``inline_file``) and resolves symlinks;
+        ``binary_patch`` is passed through as an in-place edit so we read the
+        underlying file's size. If the size can't be determined (target not in
+        the rootfs, static_fs unavailable), the check is skipped rather than
+        failing — this catches out-of-bounds offsets without false positives,
+        and is complementary to per-edit ``expect`` verification.
+        """
+        try:
+            size = plugins.static_fs.get_size(file_path, transparent={"binary_patch"})
+        except Exception as e:
+            self.logger.debug(
+                f"binary_patch: size check skipped for {file_path}: {e}")
+            return
+        if self._window_exceeds_size(base_off, win_len, size):
+            raise ValueError(
+                f"binary_patch {file_path}: patch window "
+                f"{base_off:#x}..{base_off + win_len:#x} exceeds file size "
+                f"{size} bytes — wrong offset or wrong target file?")
 
     def _gen_asm_patch_bytes(self, asm_code: str, user_mode: Optional[str]) -> Optional[bytes]:
         """Assembles assembly code into bytes using Keystone."""
