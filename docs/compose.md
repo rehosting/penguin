@@ -136,6 +136,7 @@ The authoritative schema lives in `src/penguin/compose.py` (`load_compose`,
       server/                       # runner's output dir for this device
         console.log
         netbinds.csv
+        summary.json                # per-device machine-readable run digest
         ...
       client/
         console.log
