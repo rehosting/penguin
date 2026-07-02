@@ -30,10 +30,17 @@ class StaticFS(Plugin):
             norm_path = "/" + norm_path
         return norm_path
 
-    def _resolve_path(self, path: str, max_depth: int = 40) -> Tuple[Optional[str], Optional[FileInfo]]:
+    def _resolve_path(self, path: str, max_depth: int = 40,
+                      transparent: frozenset = frozenset()) -> Tuple[Optional[str], Optional[FileInfo]]:
         """
         Resolves symlinks in both static_files and ratarmountcore up to a max_depth limit.
         Returns a tuple of the resolved path and its FileInfo (if applicable).
+
+        ``transparent`` names static_files action *types* that modify an
+        existing file in place (e.g. ``binary_patch``) rather than defining a
+        new one. For those, resolution falls through to the underlying file
+        instead of treating the action as a concrete/opaque entry, so callers
+        can query the real file (its size, bytes, ...).
         """
         norm_path = self._normalize_path(path)
 
@@ -41,7 +48,8 @@ class StaticFS(Plugin):
             # Check static files first (they take precedence)
             static_action = self._config.get("static_files", {}).get(norm_path)
             if static_action:
-                if static_action.get("type") == "symlink":
+                atype = static_action.get("type")
+                if atype == "symlink":
                     link_target = static_action.get("target")
                     if not link_target:
                         return None, None  # Invalid symlink
@@ -50,8 +58,9 @@ class StaticFS(Plugin):
                     else:
                         norm_path = self._normalize_path(os.path.join(os.path.dirname(norm_path), link_target))
                     continue   # Follow the symlink defined in config
-                else:
+                elif atype not in transparent:
                     return norm_path, None  # Found a concrete static file
+                # else: in-place action -> fall through to the underlying file
 
             # Lookup with cache for ratarmountcore
             if norm_path not in self._fileinfo_cache:
@@ -88,17 +97,22 @@ class StaticFS(Plugin):
         self._exists_cache[norm_path] = exists
         return exists
 
-    def get_size(self, path: str) -> Optional[int]:
+    def get_size(self, path: str, transparent: frozenset = frozenset()) -> Optional[int]:
         """
         Returns the size of the file in bytes without opening it.
+
+        ``transparent`` (see :meth:`_resolve_path`) lets in-place action types
+        such as ``binary_patch`` resolve to the underlying file's size instead
+        of the action's (0-byte) placeholder.
         """
-        resolved_path, fileInfo = self._resolve_path(path)
+        resolved_path, fileInfo = self._resolve_path(path, transparent=transparent)
         if not resolved_path:
             return None
 
-        # Check static_files first
-        if resolved_path in self._config.get("static_files", {}):
-            action = self._config["static_files"][resolved_path]
+        # Check static_files first, unless this path is only an in-place
+        # (transparent) action, in which case use the underlying file below.
+        action = self._config.get("static_files", {}).get(resolved_path)
+        if action is not None and action.get("type") not in transparent:
             if action.get("type") == "inline_file":
                 contents = action.get("contents", b"")
                 if isinstance(contents, str):
