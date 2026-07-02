@@ -114,7 +114,10 @@ Logs are written to `nmap_{protocol}_{port}.log`
 
 ## Pseudofiles
 This plugin tracks accesses and interactions with files in `/dev/` and `/proc/`.
-In `pseudofiles_failures.yaml` details of failed interactions are reported.
+In `pseudofiles_failures.yaml` details of failed interactions are reported,
+ranked by impact (`crashing_callers` >> `distinct_callers` > `hits`), with the
+observed calling processes and a suggested starting model per path that can be
+pasted directly into the `pseudofiles` config section.
 
 Users can add pseudofiles and configure models for reads, writes, and IOCTLs on
 these files by adding entries into the `pseudofiles` config section. See the
