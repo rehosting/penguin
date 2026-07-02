@@ -9,8 +9,31 @@ Purpose
 -------
 
 - Monitors syscalls for -ENOENT and -ENOTTY to track missing pseudofile accesses.
-- Logs access attempts to missing files in `pseudofiles_failures.yaml`.
+- Logs access attempts to missing files in `pseudofiles_failures.yaml`, ranked
+  by impact and annotated with a suggested starting model per path.
 - Exports the currently configured pseudofile models to `pseudofiles_modeled.yaml`.
+
+Output format
+-------------
+
+Entries in `pseudofiles_failures.yaml` are ranked by impact
+(crashing_callers >> distinct_callers > hits):
+
+```yaml
+/dev/watchdog:
+  impact: {hits: 243, distinct_callers: 2, crashing_callers: 1, crashing_callers_by_name: 0}
+  callers: [init:1, watchdogd:412]
+  events:
+    ioctl:
+      2147768064: {count: 240}
+    open: {count: 3}
+  suggest:
+    read: {model: zero}
+    ioctl: {'*': {model: return_const, val: 0}}
+```
+
+`suggest` is a valid `pseudofiles:` value: paste it into your config as
+`pseudofiles: {<path>: <suggest block>}` and refine from there.
 
 Usage
 -----
@@ -34,8 +57,36 @@ from apis.syscalls import ValueFilter
 
 outfile_missing = "pseudofiles_failures.yaml"
 outfile_models = "pseudofiles_modeled.yaml"
+crashes_file = "crashes.yaml"  # written by the crashes plugin (may be absent)
 
 AT_FDCWD = -100
+
+O_ACCMODE = 0o3
+O_WRONLY = 0o1
+O_RDWR = 0o2
+
+# Impact-score weights: an exactly-matched crashing caller outranks any
+# realistic number of distinct callers, which in turn outrank any raw hit
+# count. Name-only crash matches (pid recycled or comm changed between the
+# access and the fault) are weighted far lower so a single crash of a common
+# name (sh, init, busybox) can't reorder the whole file.
+SCORE_CRASHING_CALLER = 1_000_000
+SCORE_CRASHING_BY_NAME = 10_000
+SCORE_DISTINCT_CALLER = 1_000
+
+failures_header = """\
+# Guest accesses to unmodeled /dev, /proc, and /sys paths, ranked by impact
+# (crashing_callers >> crashing_callers_by_name >> distinct_callers > hits).
+#
+# Each entry's `suggest` block is a heuristic starting model and is a valid
+# `pseudofiles:` value -- paste it into your config as:
+#   pseudofiles:
+#     <path>:
+#       <suggest block>
+# then refine: swap a `zero` read for `const_buf` with real contents when a
+# parser consumes the file, and confirm ioctl return values against the real
+# driver's semantics.
+"""
 
 mem = plugins.mem
 syscalls = plugins.syscalls
@@ -91,6 +142,94 @@ def sort_file_failures(d):
         )
         if isinstance(d, dict) else d
     )
+
+
+def open_access_intents(flags: int) -> set:
+    """Map open(2) flags to the access intents implied by O_ACCMODE."""
+    acc = flags & O_ACCMODE
+    if acc == O_WRONLY:
+        return {"write"}
+    if acc == O_RDWR:
+        return {"read", "write"}
+    return {"read"}
+
+
+def load_crashes(path: str):
+    """
+    Parse the crashes plugin's crashes.yaml into join keys.
+
+    Returns (pairs, names): the set of (proc, pid) tuples and the set of proc
+    names that crashed. Tolerates a missing/empty file (this plugin may run
+    without crash tracking) and both the `{crashes: [...]}` dict and a bare
+    list of records.
+    """
+    pairs, names = set(), set()
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+    except FileNotFoundError:
+        return pairs, names
+    if isinstance(data, dict):
+        data = data.get("crashes")
+    if not isinstance(data, list):
+        return pairs, names
+    for crash in data:
+        if not isinstance(crash, dict) or "proc" not in crash:
+            continue
+        names.add(crash["proc"])
+        if isinstance(crash.get("pid"), int):
+            pairs.add((crash["proc"], crash["pid"]))
+    return pairs, names
+
+
+def count_crashing_callers(callers: set, crash_pairs: set, crash_names: set):
+    """
+    Distinct callers of a path that later crashed, as (exact, by_name):
+    callers whose (proc, pid) matches a crash record, and callers matching a
+    crashed proc name only (pid recycled between the access and the fault).
+    Reported and weighted separately -- a name-only match is a much weaker
+    signal.
+    """
+    exact = by_name = 0
+    for name, pid in callers:
+        if (name, pid) in crash_pairs:
+            exact += 1
+        elif name in crash_names:
+            by_name += 1
+    return exact, by_name
+
+
+def impact_score(impact: dict) -> int:
+    return (
+        impact["crashing_callers"] * SCORE_CRASHING_CALLER
+        + impact["crashing_callers_by_name"] * SCORE_CRASHING_BY_NAME
+        + impact["distinct_callers"] * SCORE_DISTINCT_CALLER
+        + impact["hits"]
+    )
+
+
+def suggest_models(events: dict, intents: set) -> dict:
+    """
+    Heuristic starting model for a failing path, shaped as a valid
+    `pseudofiles:` value so it pastes straight into a config.
+
+    - open/stat ENOENT with read intent (or unknown intent) -> read: zero.
+      The failure happens at open time, before any read size is observable,
+      so small vs. large reads can't be distinguished here; `zero` (a
+      one-byte "0" then EOF) is the safe default and the file header points
+      users at const_buf when real contents matter.
+    - open ENOENT with write intent -> write: discard.
+    - ioctl ENOTTY -> catch-all return_const 0.
+    """
+    suggest = {}
+    if "open" in events:
+        if not intents or "read" in intents:
+            suggest["read"] = {"model": "zero"}
+        if "write" in intents:
+            suggest["write"] = {"model": "discard"}
+    if "ioctl" in events:
+        suggest["ioctl"] = {"*": {"model": "return_const", "val": 0}}
+    return suggest
 
 
 class PseudofileTracker(Plugin):
@@ -202,7 +341,7 @@ class PseudofileTracker(Plugin):
             filename = yield from mem.read_str(filename_ptr)
             if filename:
                 path = yield from self._resolve_absolute_path(AT_FDCWD, filename)
-                self.centralized_log(path, "open")
+                yield from self._log_open_failure(proto, path, args)
 
     def _handle_enoent_arg1(self, regs, proto, syscall, dfd_raw, filename_ptr, *args):
         """Triggered when arg1 syscalls fail with -ENOENT."""
@@ -213,15 +352,47 @@ class PseudofileTracker(Plugin):
             filename = yield from mem.read_str(filename_ptr)
             if filename:
                 path = yield from self._resolve_absolute_path(dfd, filename)
-                self.centralized_log(path, "open")
+                yield from self._log_open_failure(proto, path, args)
 
     def _handle_ioctl_enotty(self, regs, proto, syscall, fd_arg, cmd, arg):
         """Triggered when ioctl returns -ENOTTY (-25)."""
         ret = self.panda.from_unsigned_guest(syscall.retval)
         if ret == -25:
             path = yield from osi.get_fd_name(fd_arg)
-            if path and path_interesting(path):
-                self.log_ioctl_failure(path, cmd)
+            if not path or not path_interesting(path):
+                return
+            if ignore_ioctl_path(path) or ignore_cmd(cmd):
+                return
+            caller = yield from self._get_caller()
+            self.log_ioctl_failure(path, cmd, caller=caller)
+
+    def _log_open_failure(self, proto, path, args):
+        """Filter, attribute, and record an -ENOENT path failure."""
+        path = self._normalize_path(path)
+        if path is None:
+            return
+        caller = yield from self._get_caller()
+        self.centralized_log(path, "open", caller=caller,
+                             intents=self._open_intents(proto, args))
+
+    def _open_intents(self, proto, args) -> set:
+        """Access intents from the failing syscall, when it exposes them."""
+        if proto.name in ("sys_open", "sys_openat") and args:
+            return open_access_intents(args[0])
+        if proto.name == "sys_creat":
+            return {"write"}
+        # stat/access/readlink and openat2 carry no O_ACCMODE flags
+        return set()
+
+    def _get_caller(self):
+        """Identify the current process as (name, pid) (one portal round-trip)."""
+        try:
+            proc = yield from osi.get_proc()
+            if proc is not None:
+                return (proc.name, proc.pid)
+        except Exception as e:
+            self.logger.debug(f"Failed to resolve calling process: {e}")
+        return None
 
     def record_default_hit(self, path, op, details=None):
         """Record that a synthesized default model actively served an access.
@@ -233,53 +404,56 @@ class PseudofileTracker(Plugin):
         """
         if not self.log_missing:
             return
+        path = self._normalize_path(path)
+        if path is None:
+            return
         event = f"default_{op}"
-        self.centralized_log(path, event, details or None)
+        self.centralized_log(path, event, event_details=details or None)
         self.logger.debug(f"Default model served {op} on {path} {details or ''}")
         self.dump_results()
 
     # --- Telemetry & Logging Methods ---
 
-    def centralized_log(self, path, event, event_details=None):
+    def _normalize_path(self, path):
+        """Filter to pseudofile candidates; collapse PID paths to prevent log explosion."""
         if not path_interesting(path):
-            return
+            return None
+        return re.sub(r"/proc/\d+", "/proc/PID", path)
 
-        if path.startswith("/proc/"):
-            # Collapse PID paths to prevent log explosion
-            path = re.sub(r"/proc/\d+", "/proc/PID", path)
+    def _record_for(self, path):
+        return self.file_failures.setdefault(
+            path, {"events": {}, "callers": set(), "intents": set()}
+        )
 
-        if path not in self.file_failures:
-            self.file_failures[path] = {}
+    def centralized_log(self, path, event, caller=None, intents=None, event_details=None):
+        record = self._record_for(path)
 
-        if event not in self.file_failures[path]:
-            self.file_failures[path][event] = {"count": 0}
+        first = event not in record["events"]
+        ev = record["events"].setdefault(event, {"count": 0})
+        ev["count"] += 1
 
-        if "count" not in self.file_failures[path][event]:
-            self.file_failures[path][event]["count"] = 0
-
-        self.file_failures[path][event]["count"] += 1
+        if caller:
+            record["callers"].add(caller)
+        if intents:
+            record["intents"].update(intents)
 
         if event_details is not None:
-            if "details" not in self.file_failures[path][event]:
-                self.file_failures[path][event]["details"] = []
-            self.file_failures[path][event]["details"].append(event_details)
+            ev.setdefault("details", []).append(event_details)
 
-    def log_ioctl_failure(self, path, cmd):
-        if ignore_ioctl_path(path) or ignore_cmd(cmd):
-            return
+        if first and self.log_missing:
+            # Flush eagerly so results survive runs that never reach uninit
+            # (SIGKILL, emulator crash) -- see rehosting/penguin#175.
+            self.dump_results()
 
-        if path not in self.file_failures:
-            self.file_failures[path] = {}
+    def log_ioctl_failure(self, path, cmd, caller=None):
+        record = self._record_for(path)
+        ioctls = record["events"].setdefault("ioctl", {})
 
-        if "ioctl" not in self.file_failures[path]:
-            self.file_failures[path]["ioctl"] = {}
+        first = cmd not in ioctls
+        ioctls.setdefault(cmd, {"count": 0})["count"] += 1
 
-        first = False
-        if cmd not in self.file_failures[path]["ioctl"]:
-            self.file_failures[path]["ioctl"][cmd] = {"count": 0}
-            first = True
-
-        self.file_failures[path]["ioctl"][cmd]["count"] += 1
+        if caller:
+            record["callers"].add(caller)
 
         if first:
             # Output intermediate results when a new missing IOCTL is detected
@@ -287,13 +461,58 @@ class PseudofileTracker(Plugin):
                 self.dump_results()
             self.logger.debug(f"New ioctl failure observed: {cmd:x} on {path}")
 
+    def _render_failures(self):
+        """Shape internal state into the impact-ranked on-disk format."""
+        # Re-read on every flush so crashes that happen after an access are
+        # reflected in later dumps (and in the final one at uninit).
+        crash_pairs, crash_names = load_crashes(pjoin(self.outdir, crashes_file))
+
+        rendered = {}
+        for path, record in self.file_failures.items():
+            events = sort_file_failures(record["events"])
+            crashing, crashing_by_name = count_crashing_callers(
+                record["callers"], crash_pairs, crash_names
+            )
+            impact = {
+                "hits": get_total_counts(events),
+                "distinct_callers": len(record["callers"]),
+                "crashing_callers": crashing,
+                "crashing_callers_by_name": crashing_by_name,
+            }
+            entry = {"impact": impact}
+            if record["callers"]:
+                entry["callers"] = [
+                    f"{name}:{pid}" for name, pid in sorted(record["callers"])
+                ]
+            entry["events"] = events
+            suggest = suggest_models(record["events"], record["intents"])
+            if suggest:
+                entry["suggest"] = suggest
+            rendered[path] = entry
+
+        return dict(
+            sorted(
+                rendered.items(),
+                key=lambda pair: impact_score(pair[1]["impact"]),
+                reverse=True,
+            )
+        )
+
     def dump_results(self):
-        """Flushes the sorted failures telemetry to disk."""
+        """Flushes the impact-ranked failures telemetry to disk."""
         if not self.outdir:
             return
+        text = yaml.dump(self._render_failures(), sort_keys=False)
+        # PyYAML can't emit comments, so annotate the suggest keys post-hoc.
+        text = re.sub(
+            r"^(\s+suggest:)$",
+            r"\1  # TODO: heuristic starting point -- verify before relying on it",
+            text,
+            flags=re.MULTILINE,
+        )
         with open(pjoin(self.outdir, outfile_missing), "w") as f:
-            out = sort_file_failures(self.file_failures)
-            yaml.dump(out, f, sort_keys=False)
+            f.write(failures_header)
+            f.write(text)
 
     def uninit(self):
         """Plugin teardown logic ensures final metrics are written."""
