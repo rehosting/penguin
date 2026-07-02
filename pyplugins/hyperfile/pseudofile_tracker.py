@@ -21,7 +21,7 @@ Entries in `pseudofiles_failures.yaml` are ranked by impact
 
 ```yaml
 /dev/watchdog:
-  impact: {hits: 243, distinct_callers: 2, crashing_callers: 0}
+  impact: {hits: 243, distinct_callers: 2, crashing_callers: 1, crashing_callers_by_name: 0}
   callers: [init:1, watchdogd:412]
   events:
     ioctl:
@@ -65,14 +65,18 @@ O_ACCMODE = 0o3
 O_WRONLY = 0o1
 O_RDWR = 0o2
 
-# Impact-score weights: any crashing caller outranks any realistic number of
-# distinct callers, which in turn outrank any raw hit count.
+# Impact-score weights: an exactly-matched crashing caller outranks any
+# realistic number of distinct callers, which in turn outrank any raw hit
+# count. Name-only crash matches (pid recycled or comm changed between the
+# access and the fault) are weighted far lower so a single crash of a common
+# name (sh, init, busybox) can't reorder the whole file.
 SCORE_CRASHING_CALLER = 1_000_000
+SCORE_CRASHING_BY_NAME = 10_000
 SCORE_DISTINCT_CALLER = 1_000
 
 failures_header = """\
 # Guest accesses to unmodeled /dev, /proc, and /sys paths, ranked by impact
-# (crashing_callers >> distinct_callers > hits).
+# (crashing_callers >> crashing_callers_by_name >> distinct_callers > hits).
 #
 # Each entry's `suggest` block is a heuristic starting model and is a valid
 # `pseudofiles:` value -- paste it into your config as:
@@ -178,21 +182,27 @@ def load_crashes(path: str):
     return pairs, names
 
 
-def count_crashing_callers(callers: set, crash_pairs: set, crash_names: set) -> int:
+def count_crashing_callers(callers: set, crash_pairs: set, crash_names: set):
     """
-    Distinct callers of a path that later crashed. Prefer the exact
-    (proc, pid) match; fall back to the proc name alone so a crash whose pid
-    was recycled between the access and the fault still joins.
+    Distinct callers of a path that later crashed, as (exact, by_name):
+    callers whose (proc, pid) matches a crash record, and callers matching a
+    crashed proc name only (pid recycled between the access and the fault).
+    Reported and weighted separately -- a name-only match is a much weaker
+    signal.
     """
-    return sum(
-        1 for name, pid in callers
-        if (name, pid) in crash_pairs or name in crash_names
-    )
+    exact = by_name = 0
+    for name, pid in callers:
+        if (name, pid) in crash_pairs:
+            exact += 1
+        elif name in crash_names:
+            by_name += 1
+    return exact, by_name
 
 
 def impact_score(impact: dict) -> int:
     return (
         impact["crashing_callers"] * SCORE_CRASHING_CALLER
+        + impact["crashing_callers_by_name"] * SCORE_CRASHING_BY_NAME
         + impact["distinct_callers"] * SCORE_DISTINCT_CALLER
         + impact["hits"]
     )
@@ -394,8 +404,11 @@ class PseudofileTracker(Plugin):
         """
         if not self.log_missing:
             return
+        path = self._normalize_path(path)
+        if path is None:
+            return
         event = f"default_{op}"
-        self.centralized_log(path, event, details or None)
+        self.centralized_log(path, event, event_details=details or None)
         self.logger.debug(f"Default model served {op} on {path} {details or ''}")
         self.dump_results()
 
@@ -457,12 +470,14 @@ class PseudofileTracker(Plugin):
         rendered = {}
         for path, record in self.file_failures.items():
             events = sort_file_failures(record["events"])
+            crashing, crashing_by_name = count_crashing_callers(
+                record["callers"], crash_pairs, crash_names
+            )
             impact = {
                 "hits": get_total_counts(events),
                 "distinct_callers": len(record["callers"]),
-                "crashing_callers": count_crashing_callers(
-                    record["callers"], crash_pairs, crash_names
-                ),
+                "crashing_callers": crashing,
+                "crashing_callers_by_name": crashing_by_name,
             }
             entry = {"impact": impact}
             if record["callers"]:

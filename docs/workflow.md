@@ -288,7 +288,7 @@ see that some `ioctl` errors are reported instead for ioctl number 1074029569 (0
 
 ```yaml
 /dev/dsa:
-  impact: {hits: 40, distinct_callers: 1, crashing_callers: 0}
+  impact: {hits: 40, distinct_callers: 1, crashing_callers: 0, crashing_callers_by_name: 0}
   callers: [dsad:412]
   events:
     ioctl:
