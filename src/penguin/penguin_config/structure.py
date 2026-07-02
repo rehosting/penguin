@@ -1,6 +1,7 @@
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union, ClassVar
 from pydantic import BaseModel, Field, RootModel, field_validator, model_validator
 from pydantic.config import ConfigDict
+from pydantic.functional_validators import AfterValidator
 from pydantic_partial import PartialModelMixin, create_partial_model
 
 '''
@@ -10,6 +11,40 @@ functions that use them.
 '''
 
 ENV_MAGIC_VAL = "DYNVALDYNVALDYNVAL"
+
+
+def normalize_hex_string(value: str) -> str:
+    """Normalize a user-supplied hex byte string: strip whitespace, allow an
+    optional ``0x``/``0X`` prefix, and drop internal spaces. Returns lowercase
+    hex with no separators. Raises ``ValueError`` if it is not valid hex or has
+    an odd digit count. Shared by the schema validator and the patch applier so
+    both accept exactly the same inputs."""
+    s = value.strip()
+    if s[:2].lower() == "0x":
+        s = s[2:]
+    s = s.replace(" ", "")
+    # bytes.fromhex validates both the alphabet and the even-length requirement.
+    bytes.fromhex(s)
+    return s.lower()
+
+
+def _validate_hex_string(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return value
+    try:
+        normalize_hex_string(value)
+    except ValueError as e:
+        raise ValueError(
+            f"expected an even-length hex byte string (optionally 0x-prefixed, "
+            f"spaces allowed), got {value!r}: {e}"
+        )
+    return value
+
+
+# A hex byte string that is validated at config-load time (so a typo fails with
+# a clear message instead of a raw fromhex error during image build). The
+# original text is preserved; callers normalize with normalize_hex_string.
+HexStr = Annotated[str, AfterValidator(_validate_hex_string)]
 
 
 class StrSep(RootModel):
@@ -1186,6 +1221,57 @@ class LibInject(PartialModelMixin, BaseModel):
     ]
 
 
+class BinaryPatchEntry(PartialModelMixin, BaseModel):
+    """A single edit within a ``binary_patch`` action: bytes to write at one
+    file offset, optionally guarded by an ``expect`` check. Multiple entries can
+    target one file via the action's ``patches`` list; they are applied
+    host-side to one buffer in a single pass, and overlapping write ranges are
+    rejected."""
+
+    model_config = ConfigDict(title="Binary patch entry", extra="forbid")
+
+    file_offset: Annotated[int, Field(title="File offset (integer)")]
+    hex_bytes: Annotated[
+        Optional[HexStr],
+        Field(default=None, title="Bytes to write at offset (hex string)",
+              examples=["DEADBEEF", "90 90"]),
+    ] = None
+    asm: Annotated[
+        Optional[str],
+        Field(default=None,
+              title="Assembly code to write at offset (runs through keystone)",
+              examples=["nop", "mov r0, #0xdeadbeef"]),
+    ] = None
+    mode: Annotated[
+        Optional[str],
+        Field(default=None, title="Assembly mode", examples=["arm", "thumb"]),
+    ] = None
+    expect: Annotated[
+        Optional[HexStr],
+        Field(default=None,
+              title="Expected bytes at offset before patching (hex string)",
+              description="If set, the current bytes at file_offset are compared against this hex string (over its own length, which may differ from the patch length) before the patch is written. If the bytes at the offset already equal the patch bytes, the patch is skipped (idempotent re-run); otherwise the on_mismatch policy applies.",
+              examples=["0102 0304", "DEADBEEF"]),
+    ] = None
+    on_mismatch: Annotated[
+        Literal["fail", "skip", "warn"],
+        Field(default="fail", title="Policy when 'expect' does not match",
+              description="fail: abort the run (default, safest). skip: leave the file unpatched and continue. warn: log a warning and write the patch anyway. Only meaningful when 'expect' is set."),
+    ] = "fail"
+    why: Annotated[
+        Optional[str],
+        Field(default=None,
+              title="Rationale for this patch, recorded in the run's binary_patches.yaml",
+              examples=["NOP out the secure-boot check"]),
+    ] = None
+    tag: Annotated[
+        Optional[str],
+        Field(default=None,
+              title="Label grouping related patches, recorded in the run's binary_patches.yaml",
+              examples=["secureboot"]),
+    ] = None
+
+
 StaticFileAction = _union(
     class_name="StaticFileAction",
     title="Static filesystem action",
@@ -1276,16 +1362,19 @@ StaticFileAction = _union(
         dict(
             discrim_val="binary_patch",
             title="Patch binary file",
-            description="Make a patch to a binary file at the specified offset. This can either be arbitrary bytes specified as a hex string, or assembly code that will be automatically assembled in the specified mode.",
+            description="Patch a binary file at one or more offsets. A single edit is given inline (file_offset + one of hex_bytes/asm); multiple edits to the same file go in the 'patches' list (applied together in one host-side pass, with overlapping write ranges rejected). Each edit may verify the bytes currently at its offset first (expect/on_mismatch) so the patch is idempotent and safe across firmware variants, and record rationale (why/tag); every edit's outcome is written to binary_patches.yaml in the run output.",
             fields=(
                 (
                     "file_offset",
-                    int,
-                    Field(title="File offset (integer)"),
+                    Optional[int],
+                    Field(
+                        default=None,
+                        title="File offset (integer) — for a single inline edit; omit when using 'patches'",
+                    ),
                 ),
                 (
                     "hex_bytes",
-                    Optional[str],
+                    Optional[HexStr],
                     Field(
                         default=None,
                         title="Bytes to write at offset (hex string)",
@@ -1308,6 +1397,52 @@ StaticFileAction = _union(
                         default=None,
                         title="Assembly mode",
                         examples=["arm", "thumb"],
+                    ),
+                ),
+                (
+                    "expect",
+                    Optional[HexStr],
+                    Field(
+                        default=None,
+                        title="Expected bytes at offset before patching (hex string)",
+                        description="If set, the current bytes at file_offset are compared against this hex string (over its own length, which may differ from the patch length) before the patch is written. If the bytes at the offset already equal the patch bytes, the patch is skipped (idempotent re-run); otherwise the on_mismatch policy applies.",
+                        examples=["0102 0304", "DEADBEEF"],
+                    ),
+                ),
+                (
+                    "on_mismatch",
+                    Literal["fail", "skip", "warn"],
+                    Field(
+                        default="fail",
+                        title="Policy when 'expect' does not match",
+                        description="fail: abort the run (default, safest). skip: leave the file unpatched and continue. warn: log a warning and write the patch anyway. Only meaningful when 'expect' is set.",
+                    ),
+                ),
+                (
+                    "why",
+                    Optional[str],
+                    Field(
+                        default=None,
+                        title="Rationale for this patch, recorded in the run's binary_patches.yaml",
+                        examples=["NOP out the secure-boot check"],
+                    ),
+                ),
+                (
+                    "tag",
+                    Optional[str],
+                    Field(
+                        default=None,
+                        title="Label grouping related patches, recorded in the run's binary_patches.yaml",
+                        examples=["secureboot"],
+                    ),
+                ),
+                (
+                    "patches",
+                    Optional[List[BinaryPatchEntry]],
+                    Field(
+                        default=None,
+                        title="Multiple edits to this file",
+                        description="A list of edits applied to this one file in a single host-side pass. Use this instead of the inline file_offset/hex_bytes/asm fields when patching a binary at more than one offset. Overlapping write ranges are rejected.",
                     ),
                 ),
             )

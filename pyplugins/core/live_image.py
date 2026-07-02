@@ -12,6 +12,9 @@ Overview
 - Supports various file actions: delete, move, shim, dir, host_file, inline_file, binary_patch, dev, symlink.
 - Efficient setup script generation using hyp_file_op for file transfer.
 - Batch processing of binary patches via a single hypercall.
+- Optional pre-patch verification of expected bytes (``expect`` /
+  ``on_mismatch``) and per-patch provenance (``why`` / ``tag``), recorded in
+  ``binary_patches.yaml`` in the run output directory.
 - Handles permissions, symlinks, device nodes, and error reporting.
 
 Usage
@@ -32,7 +35,8 @@ Classes
 
 """
 
-from penguin import Plugin, plugins
+from penguin import Plugin, plugins, yaml
+from penguin.penguin_config.structure import normalize_hex_string
 from penguin.plugin_manager import resolve_bound_method_from_class
 from penguin.defaults import static_dir as STATIC_DIR
 from penguin.utils import get_arch_subdir
@@ -558,27 +562,168 @@ class LiveImage(Plugin):
         add_run_or_report(f"/igloo/boot/send_portalcall {GEN_LIVE_IMAGE_ACTION_FINISHED:#x}")
         return "\n".join(script_lines) + "\n"
 
-    def _apply_patch_to_file_content(self, original_content: bytes, action: Dict) -> Optional[bytes]:
-        """Applies a patch to a byte string and returns the new bytes."""
-        if bool(action.get('hex_bytes')) == bool(action.get('asm')):
-            self.logger.error(
-                "Binary patch must have exactly one of 'hex_bytes' or 'asm'.")
-            return None
+    @staticmethod
+    def _parse_hex(s: str) -> bytes:
+        """Parse a hex byte string, allowing an optional 0x prefix and spaces.
+        Delegates to the schema's normalize_hex_string so the config-load
+        validator and this build-time parser accept exactly the same inputs.
+        Raises ValueError on invalid/odd-length hex."""
+        return bytes.fromhex(normalize_hex_string(s))
 
-        if action.get('asm'):
-            patch_bytes = self._gen_asm_patch_bytes(
-                action['asm'], action.get('mode'))
-            if patch_bytes is None:
-                return None
-        else:
-            patch_bytes = bytes.fromhex(action['hex_bytes'].replace(" ", ""))
+    def _normalize_patch_entries(self, action: Dict) -> Tuple[Optional[list], Optional[str]]:
+        """Expand a binary_patch action into a flat list of per-offset edit
+        dicts. An action uses *either* the inline single-edit form
+        (file_offset + hex_bytes/asm) *or* the ``patches`` list, not both.
+        Returns ``(entries, error)``."""
+        patches = action.get("patches")
+        # Per-edit fields carried at the action level are meaningless once
+        # 'patches' is used (each entry carries its own), so reject that mix
+        # loudly. on_mismatch is omitted here: it defaults to "fail" in the
+        # schema, so an action-level value can't be told apart from the default.
+        action_level = [k for k in ("file_offset", "hex_bytes", "asm", "mode",
+                                    "expect", "why", "tag")
+                        if action.get(k) is not None]
+        if patches:
+            if action_level:
+                return None, ("binary_patch: per-edit fields must go inside each "
+                              f"'patches' entry, not at the action level "
+                              f"(saw action-level {action_level})")
+            return list(patches), None
+        if action.get("file_offset") is None:
+            return None, ("binary_patch: needs 'file_offset' (inline single edit) "
+                          "or a non-empty 'patches' list")
+        # Inline single edit: reuse every patch-relevant field from the action
+        # (all but the wrapper keys) so new fields flow through automatically.
+        entry = {k: v for k, v in action.items() if k not in ("type", "patches")}
+        return [entry], None
 
-        file_offset = action['file_offset']
-        return (
-            original_content[:file_offset] +
-            patch_bytes +
-            original_content[file_offset + len(patch_bytes):]
-        )
+    def _entry_patch_bytes(self, entry: Dict) -> Tuple[Optional[bytes], Optional[str]]:
+        """Compute the bytes one edit writes (assemble asm or parse hex).
+        Returns ``(patch_bytes, error)``."""
+        has_hex = bool(entry.get("hex_bytes"))
+        has_asm = bool(entry.get("asm"))
+        if has_hex == has_asm:
+            return None, "must have exactly one of 'hex_bytes' or 'asm'"
+        if has_asm:
+            pb = self._gen_asm_patch_bytes(entry["asm"], entry.get("mode"))
+            if pb is None:
+                return None, "failed to assemble asm"
+            return pb, None
+        try:
+            return self._parse_hex(entry["hex_bytes"]), None
+        except ValueError as e:
+            return None, f"invalid hex_bytes {entry['hex_bytes']!r}: {e}"
+
+    def _verify_entry(self, original_content: bytes, entry: Dict,
+                      patch_bytes: bytes) -> Tuple[str, str]:
+        """Apply one edit's ``expect``/``on_mismatch`` policy against the
+        pristine file bytes. Returns ``(status, detail)`` where status is
+        'applied', 'skipped', or 'failed'.
+
+        ``expect`` is checked over its own length (which may differ from the
+        patch length). If the bytes at the offset already equal the patch
+        bytes, the edit is an idempotent skip under *every* policy.
+        """
+        off = entry["file_offset"]
+        if not entry.get("expect"):
+            return "applied", ""
+        try:
+            expect_bytes = self._parse_hex(entry["expect"])
+        except ValueError as e:
+            return "failed", f"invalid expect {entry['expect']!r}: {e}"
+        current = original_content[off:off + len(expect_bytes)]
+        if current == expect_bytes:
+            return "applied", ""
+        if original_content[off:off + len(patch_bytes)] == patch_bytes:
+            return "skipped", "already patched (bytes at offset equal the patch bytes)"
+        mismatch = (
+            f"expected {expect_bytes.hex()} at offset {off:#x} "
+            f"but found {current.hex() or '<EOF>'} "
+            f"(file is {len(original_content)} bytes)")
+        policy = entry.get("on_mismatch") or "fail"
+        if policy == "skip":
+            return "skipped", mismatch
+        if policy == "warn":
+            return "applied", f"patched despite mismatch: {mismatch}"
+        return "failed", mismatch
+
+    @staticmethod
+    def _patch_record(entry: Dict, result: str, detail: str) -> Dict:
+        """Build one provenance record (ordered: offset, result, tag, why, detail)."""
+        rec = {}
+        if entry.get("file_offset") is not None:
+            rec["file_offset"] = hex(entry["file_offset"])
+        rec["result"] = result
+        for k in ("tag", "why"):
+            if entry.get(k):
+                rec[k] = entry[k]
+        if detail:
+            rec["detail"] = detail
+        return rec
+
+    def _apply_binary_patch(self, original_content: bytes,
+                            action: Dict) -> Tuple[Optional[bytes], list, bool]:
+        """Apply every edit of one binary_patch action to a single buffer.
+
+        Returns ``(new_content, records, failed)``:
+          - ``records``: one provenance dict per edit.
+          - ``new_content``: the patched bytes, or None if any edit failed.
+          - ``failed``: True if any edit failed (fail-policy mismatch, bad
+            bytes, or an overlapping write range). The caller must then abort
+            and leave the file untouched.
+
+        All edits are applied to one buffer in a single pass; overlapping write
+        ranges are detected up front and rejected so no edit can silently
+        clobber another.
+        """
+        entries, err = self._normalize_patch_entries(action)
+        if err:
+            return None, [{"result": "failed", "detail": err}], True
+
+        # Compute the bytes each edit writes first — needed both to apply and to
+        # compute write ranges for overlap detection.
+        computed = [(entry, *self._entry_patch_bytes(entry)) for entry in entries]
+
+        # Reject overlapping write ranges [off, off+len). Verifying against the
+        # pristine buffer below is only equivalent to "verify against original"
+        # because disjoint ranges cannot perturb one another. Compared pairwise
+        # (not just adjacent) so a range fully contained in another is caught
+        # too; patch lists are short, so O(n^2) is fine.
+        ranges = [(entry["file_offset"], entry["file_offset"] + len(pb), id(entry))
+                  for entry, pb, perr in computed if pb is not None]
+        overlapping = set()
+        for i, a in enumerate(ranges):
+            for b in ranges[i + 1:]:
+                if a[0] < b[1] and b[0] < a[1]:
+                    overlapping.add(a[2])
+                    overlapping.add(b[2])
+
+        buf = bytearray(original_content)
+        records = []
+        failed = False
+        for entry, patch_bytes, perr in computed:
+            if perr is not None:
+                records.append(self._patch_record(entry, "failed", perr))
+                failed = True
+                continue
+            if id(entry) in overlapping:
+                off = entry["file_offset"]
+                records.append(self._patch_record(
+                    entry, "failed",
+                    f"write range {off:#x}..{off + len(patch_bytes):#x} "
+                    "overlaps another patch to this file"))
+                failed = True
+                continue
+            status, detail = self._verify_entry(original_content, entry, patch_bytes)
+            if status == "applied":
+                off = entry["file_offset"]
+                buf[off:off + len(patch_bytes)] = patch_bytes
+            elif status == "failed":
+                failed = True
+            records.append(self._patch_record(entry, status, detail))
+
+        new_content = None if failed else bytes(buf)
+        return new_content, records, failed
 
     def _gen_asm_patch_bytes(self, asm_code: str, user_mode: Optional[str]) -> Optional[bytes]:
         """Assembles assembly code into bytes using Keystone."""
@@ -625,6 +770,7 @@ class LiveImage(Plugin):
         if staged_dir is None:
             staged_dir = tempfile.gettempdir()
 
+        records = []
         for i, (guest_path, action) in enumerate(self.patch_queue):
             shared_file_name = f"patch_{i}"
             host_side_path = Path(staged_dir) / shared_file_name
@@ -634,23 +780,56 @@ class LiveImage(Plugin):
 
             try:
                 original_content = host_side_path.read_bytes()
-                patched_content = self._apply_patch_to_file_content(
+                new_content, recs, failed = self._apply_binary_patch(
                     original_content, action)
-
-                if patched_content is None:
-                    self.logger.error(
-                        f"Failed to generate patch for {guest_path}")
-                    return -1
-
-                host_side_path.write_bytes(patched_content)
-
             except Exception as e:
                 self.logger.error(
                     f"Error during file patch of {host_side_path}: {e}", exc_info=True)
-                return -1
+                new_content, recs, failed = None, [{"result": "failed",
+                                                    "detail": str(e)}], True
 
+            for r in recs:
+                r = {"file": guest_path, **r}
+                records.append(r)
+                offset = r.get("file_offset", "?")
+                provenance = "".join(f" [{k}={r[k]}]"
+                                     for k in ("tag", "why") if k in r)
+                detail = r.get("detail")
+                line = (f"binary_patch {guest_path} @ {offset}{provenance}: "
+                        f"{r['result']}" + (f" ({detail})" if detail else ""))
+                if r["result"] == "failed":
+                    self.logger.error(line)
+                elif detail:
+                    self.logger.warning(line)
+                else:
+                    self.logger.info(line)
+
+            # Only persist the patched file when every edit succeeded; on
+            # failure we abort so the guest never copies back a half-patched
+            # file. Returning -1 propagates through send_portalcall's exit code
+            # to run_or_report, which halts the image build.
+            if failed:
+                self._write_patch_report(records)
+                self.logger.error(
+                    f"Aborting: binary patch of '{guest_path}' failed.")
+                return -1
+            if new_content is not None:
+                host_side_path.write_bytes(new_content)
+
+        self._write_patch_report(records)
         self.logger.info("Batch patching completed successfully.")
         return 0
+
+    def _write_patch_report(self, records):
+        """Record patch provenance (offset, tag, why, result) in the run output."""
+        outdir = self.get_arg("outdir")
+        if not outdir or not records:
+            return
+        try:
+            with open(Path(outdir) / "binary_patches.yaml", "w") as f:
+                yaml.dump(records, f, sort_keys=False)
+        except Exception as e:
+            self.logger.error(f"Could not write binary_patches.yaml: {e}")
 
     @plugins.portalcall.portalcall(GEN_LIVE_IMAGE_ACTION_FINISHED)
     def _on_live_image_finished(self):

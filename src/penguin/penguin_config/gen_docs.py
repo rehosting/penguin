@@ -48,6 +48,11 @@ def gen_docs_literal_arg(a):
 def gen_docs_type_name(t):
     """Convert the Python type `t` to a string for use in generated docs."""
 
+    # Strip Annotated[...] metadata (e.g. AfterValidator-carrying type aliases)
+    # down to the underlying type for naming purposes.
+    if hasattr(t, "__metadata__"):
+        return gen_docs_type_name(typing.get_args(t)[0])
+
     og = typing.get_origin(t)
     args = typing.get_args(t)
 
@@ -58,7 +63,17 @@ def gen_docs_type_name(t):
     elif og is Literal:
         return " or ".join([gen_docs_literal_arg(a) for a in args])
     elif og in (list, tuple) or t in (list, tuple):
-        return "list of " + gen_docs_type_name(args[0]) if args else "list"
+        if not args:
+            return "list"
+        inner = args[0]
+        if hasattr(inner, "model_fields"):
+            # Name a model element by its title so `list of <Model>` renders;
+            # the element's own fields are documented by the list branch in
+            # gen_docs. (Models are otherwise left to raise in this function so
+            # type_has_simple_name can detect them.)
+            title = getattr(inner, "model_config", {}).get("title")
+            return "list of " + (title or inner.__name__)
+        return "list of " + gen_docs_type_name(inner)
     elif og is dict or t is dict:
         if len(args) >= 2:
             return f"mapping from {gen_docs_type_name(args[0])} to {gen_docs_type_name(args[1])}"
@@ -290,11 +305,35 @@ def gen_docs(path=[], docs_field=DocsField.from_type(structure.Main)):
             path=path + [f"<{key_type_str}>"],
             docs_field=DocsField.from_type(val_type),
         )
-    elif type_origin is Union and first_model_arg is not None:
-        # The type is `Optional[T]`. Try again with just `T`.
+    elif type_origin is Union:
+        # The type is `Optional[T]` (or a wider Union). Re-dispatch on the inner
+        # type so nested structure is documented — including `Optional[list[T]]`,
+        # whose inner `list[T]` is handled by the list branch below.
+        non_none = [a for a in type_args if a is not NoneType]
+        inner = non_none[0] if len(non_none) == 1 else None
+        inner_is_recursable = inner is not None and (
+            hasattr(inner, "model_fields")
+            or (typing.get_origin(inner) in (list, tuple)
+                and any(hasattr(x, "model_fields") for x in typing.get_args(inner)))
+        )
+        if inner_is_recursable:
+            out += gen_docs(
+                path=path,
+                docs_field=DocsField.from_type(inner).merge(docs_field),
+            )
+        elif first_model_arg is not None:
+            out += gen_docs(
+                path=path,
+                docs_field=DocsField.from_type(first_model_arg).merge(docs_field),
+            )
+        else:
+            out += gen_docs_field(path, docs_field)
+    elif type_origin in (list, tuple) and first_model_arg is not None:
+        # The type is `list[Model]`. Name the list here, then document one item.
+        out += gen_docs_field(path=path, docs_field=docs_field)
         out += gen_docs(
-            path=path,
-            docs_field=DocsField.from_type(first_model_arg).merge(docs_field),
+            path=path + ["<item>"],
+            docs_field=DocsField.from_type(first_model_arg),
         )
     else:
         # The type does not inherit from `BaseModel` and it doesn't have an argument that does.
