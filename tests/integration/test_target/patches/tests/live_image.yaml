@@ -130,6 +130,16 @@ static_files:
         expect: "0809"
         why: "second edit at offset 8"
         tag: livetest
+  /testfile7.bin:                # inline_file placed AND patched in one entry
+    type: inline_file
+    contents: "ORIGINAL"
+    mode: 0o644
+    patches:
+      - file_offset: 0
+        hex_bytes: "50"          # 'P' -> "PRIGINAL"
+        expect: "4f"             # 'O', the byte inline_file placed
+        why: "patch a freshly placed inline_file"
+        tag: livetest
   /shim.txt:
     type: shim
     target: /shimtarget.txt
@@ -242,6 +252,10 @@ static_files:
       # Check /testfile6.bin got BOTH edits from the patches list (offsets 0 and 8)
       if ! /igloo/utils/busybox head -c 10 /testfile6.bin | /igloo/utils/busybox hexdump -v -e '10/1 "%02X"' | /igloo/utils/busybox grep -q "AABB020304050607CCDD"; then
         echo "/testfile6.bin multi-patch failed"; exit 1
+      fi
+      # Check /testfile7.bin (inline_file placed, then binary-patched at offset 0)
+      if [ "$(/igloo/utils/busybox head -c 8 /testfile7.bin)" != "PRIGINAL" ]; then
+        echo "/testfile7.bin inline_file+patch failed"; exit 1
       fi
       # Check shim
       if ! /igloo/utils/busybox grep target /shim.txt ; then

@@ -219,6 +219,50 @@ def test_normalize_inline_keeps_all_fields(li):
     assert "type" not in e and e["on_mismatch"] == "warn" and e["why"] == "w"
 
 
+# --- _synth_file_patch_action (Option B: patch a placed file) -------------
+def test_synth_none_without_patches(li):
+    # a plain host_file/inline_file with no patches produces nothing to queue
+    assert li._synth_file_patch_action("/foo", {"type": "host_file",
+                                                 "host_path": "x"}) is None
+    assert li._synth_file_patch_action("/foo", {"type": "inline_file",
+                                                 "contents": "x"}) is None
+
+
+def test_synth_builds_binary_patch_action(li):
+    patches = [{"file_offset": 0, "hex_bytes": "50", "expect": "4f"}]
+    synth = li._synth_file_patch_action(
+        "/testfile7.bin", {"type": "inline_file", "contents": "ORIGINAL",
+                           "patches": patches})
+    assert synth["type"] == "binary_patch"
+    assert synth["patches"] == patches
+    # it must feed the existing pipeline cleanly (no action-level-mix error)
+    entries, err = li._normalize_patch_entries(synth)
+    assert err is None and len(entries) == 1 and entries[0]["file_offset"] == 0
+
+
+def test_synth_copies_patches_list(li):
+    # the synthetic action must not alias the config's list
+    patches = [{"file_offset": 0, "hex_bytes": "aa"}]
+    synth = li._synth_file_patch_action(
+        "/f", {"type": "host_file", "host_path": "x", "patches": patches})
+    assert synth["patches"] is not patches and synth["patches"] == patches
+
+
+@pytest.mark.parametrize("file_path,action", [
+    ("/dir/*", {"type": "host_file", "host_path": "src/bin",
+                "patches": [{"file_offset": 0, "hex_bytes": "aa"}]}),
+    ("/dir/f?", {"type": "host_file", "host_path": "src/bin",
+                 "patches": [{"file_offset": 0, "hex_bytes": "aa"}]}),
+    ("/f", {"type": "host_file", "host_path": "src/*.bin",
+            "patches": [{"file_offset": 0, "hex_bytes": "aa"}]}),
+    ("/f", {"type": "host_file", "host_path": "src/b?n",
+            "patches": [{"file_offset": 0, "hex_bytes": "aa"}]}),
+])
+def test_synth_rejects_glob_targets(li, file_path, action):
+    with pytest.raises(ValueError, match="ambiguous"):
+        li._synth_file_patch_action(file_path, action)
+
+
 # --- _entry_patch_bytes ---------------------------------------------------
 def test_entry_bytes_hex(li):
     pb, err = li._entry_patch_bytes({"file_offset": 0, "hex_bytes": "0x aa bb"})

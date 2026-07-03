@@ -314,6 +314,14 @@ class LiveImage(Plugin):
                         if 'mode' in action:
                             record_mode(file_path, action['mode'])
 
+                # A placed host_file/inline_file may carry 'patches' to apply
+                # after it lands in the guest. Expand them into the same Phase 4
+                # binary_patch pipeline by queueing a synthetic binary_patch
+                # against this path (which now resolves to the staged file).
+                synth = self._synth_file_patch_action(file_path, action)
+                if synth is not None:
+                    self.patch_queue.append((file_path, synth))
+
             # Queue or generate commands for post-tar execution
             elif action_type == "binary_patch":
                 self.patch_queue.append((file_path, action))
@@ -583,6 +591,31 @@ class LiveImage(Plugin):
         validator and this build-time parser accept exactly the same inputs.
         Raises ValueError on invalid/odd-length hex."""
         return bytes.fromhex(normalize_hex_string(s))
+
+    @staticmethod
+    def _synth_file_patch_action(file_path: str, action: Dict) -> Optional[Dict]:
+        """Turn a placed ``host_file``/``inline_file`` that carries a
+        ``patches`` list into the equivalent standalone ``binary_patch`` action
+        to queue against its staged path, so both go through one pipeline.
+
+        Returns ``None`` when the action has no patches. Raises ValueError if
+        the file uses a glob source or destination, since the patch target
+        would then be ambiguous (which of the matched files?). Glob detection
+        matches the staging code, which only treats a wildcard in the final
+        path component (``dest_path.name`` / source ``name``) as a glob.
+        """
+        patches = action.get("patches")
+        if not patches:
+            return None
+        dest_name = os.path.basename(file_path)
+        src_name = os.path.basename(action.get("host_path") or "")
+        if any(c in dest_name or c in src_name for c in ("*", "?")):
+            raise ValueError(
+                f"static_files {action.get('type')} {file_path}: 'patches' "
+                "cannot be combined with a glob source or destination — the "
+                "patch target would be ambiguous. Give each file its own "
+                "host_file/inline_file entry with its own patches.")
+        return {"type": "binary_patch", "patches": list(patches)}
 
     def _normalize_patch_entries(self, action: Dict) -> Tuple[Optional[list], Optional[str]]:
         """Expand a binary_patch action into a flat list of per-offset edit

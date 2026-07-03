@@ -1272,6 +1272,29 @@ class BinaryPatchEntry(PartialModelMixin, BaseModel):
     ] = None
 
 
+# Shared 'patches' field for the file-producing actions (inline_file /
+# host_file). Placing a file and patching it are orthogonal — the file's
+# 'type' says what it is, 'patches' modifies what was placed — so patching is
+# expressed as an operation on those actions rather than a mutually-exclusive
+# type. The edits funnel into the same host-side pipeline as the standalone
+# 'binary_patch' action, applied after the file is staged into the guest.
+_PLACED_FILE_PATCHES = (
+    "patches",
+    Optional[List[BinaryPatchEntry]],
+    Field(
+        default=None,
+        title="Binary patches to apply after this file is placed",
+        description="A list of binary edits applied to this file after it is "
+        "staged into the guest, in a single host-side pass (same semantics as "
+        "the standalone 'binary_patch' action). Each edit may verify the bytes "
+        "currently at its offset (expect/on_mismatch) and record rationale "
+        "(why/tag); every outcome is written to binary_patches.yaml in the run "
+        "output. Overlapping write ranges are rejected. Cannot be combined with "
+        "a glob source or destination (the patch target would be ambiguous).",
+    ),
+)
+
+
 StaticFileAction = _union(
     class_name="StaticFileAction",
     title="Static filesystem action",
@@ -1286,6 +1309,7 @@ StaticFileAction = _union(
             fields=(
                 ("mode", int, Field(0o644, title="Permissions of file")),
                 ("contents", str, Field(title="Contents of file")),
+                _PLACED_FILE_PATCHES,
             ),
         ),
         dict(
@@ -1295,6 +1319,7 @@ StaticFileAction = _union(
             fields=(
                 ("mode", int, Field(0o755, title="Permissions of file")),
                 ("host_path", str, Field(title="Host path")),
+                _PLACED_FILE_PATCHES,
             ),
         ),
         dict(
