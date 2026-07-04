@@ -9,13 +9,20 @@ fws/
 results/
 projects/
 compose_projects/
-tests/unit_tests/test_target/config.yaml
-tests/unit_tests/test_target/nvram_state.yaml
+tests/integration/test_target/config.yaml
+tests/integration/test_target/nvram_state.yaml
 penguin.sif
 fw
-# Generated at build time (setuptools_scm) and by the unit-test conftest.
+# Generated during the container build; absent in source checkouts (penguin
+# __init__ falls back to a dev version, so the unit tests don't need it).
 src/penguin/version.txt
+# Editable-install / build metadata (pip install -e src -e pengutils).
+*.egg-info/
+src/build/
+pengutils/build/
 db/events.*
 local_packages/*
 # keep the dir present so `COPY ./local_package[s]` works under podman/buildah
 !local_packages/.gitkeep
+# coverage.py data
+.coverage

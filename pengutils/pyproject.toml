@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pengutils"
+version = "0.1"
+authors = [{ name = "MIT Lincoln Laboratory", email = "luke.craig@mit.edu" }]
+description = "Pengutils plugins and utilities for IGLOO"
+license = { text = "MIT" }
+keywords = ["igloo"]
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+]
+# Preserved from setup.cfg install_requires.
+dependencies = [
+    "sqlalchemy",
+    "rich",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/rehosting/penguin"
+
+[project.scripts]
+breakpoint = "pengutils.utils.cli_breakpoint:breakpoint_cli"
+pengutils = "pengutils.utils.cli_pengutils:main"
+guest_cmd = "pengutils.utils.cli_guest_cmd:guest_cmd"
+db = "pengutils.utils.cli_db:db_cli"
+plugins = "pengutils.utils.cli_plugins:plugins"
+snapshot = "pengutils.utils.cli_snapshot:snapshot_cli"
+
+[tool.setuptools]
+zip-safe = false
+include-package-data = true
+
+[tool.setuptools.packages.find]
+# packages = find: (setup.cfg) — discover from the pengutils/ project root.
