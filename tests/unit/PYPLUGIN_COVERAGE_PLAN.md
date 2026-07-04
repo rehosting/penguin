@@ -59,14 +59,17 @@ never hits.
 
 Ordered most-valuable first. Percentages are current host coverage.
 
-1. **`analysis/netbinds.py`** (199 lines, 18%) — netbinds.csv shaping incl. the
-   state column (listening/transient/closed) and VPN connect files. Highest-value:
-   many `test_target` fixtures assert on this file.
-2. **Pseudofile ranking/suggest** — `init/pseudofile_patches.py` (78%) and
+1. ✅ **`analysis/netbinds.py`** — done (`test_pyplugin_harness.py`): IPv4 and
+   IPv6 (the latter via a `mem` double), dedup, lifecycle CSV.
+2. ✅ **`analysis/env.py`** (`EnvTracker`) — done (`test_env_tracker.py`): getenv
+   tracking, config-known filtering, uboot capture via strstr, YAML on teardown.
+3. **Pseudofile ranking/suggest** — `init/pseudofile_patches.py` (78%) and
    `hyperfile/models/*` are partly covered by `test_pseudofile_models.py`; extend
    to the ranking/`suggest` heuristics written into `pseudofiles_failures.yaml`.
-3. **`analysis/env.py`** (141, 24%), **`analysis/health.py`** (73, 18%),
-   **`analysis/interfaces.py`**, **`analysis/ficd.py`** — event → file writers.
+4. **`analysis/health.py`** (73, 18%), **`analysis/interfaces.py`**,
+   **`analysis/ficd.py`** — event → file writers. `interfaces` uses a
+   `@plugins.syscalls.syscall` generator + `plugins.mem.read_str`, so it needs a
+   `mem` double (see netbinds IPv6) and exercises the portalcall/syscall path.
 4. **`loggers/`** (`db.py` 18%, `rw_logger.py` 20%, `exec_logger.py` 26%) —
    pairs with the record/replay seam (same trace feeds both the logger and the
    `core.strace`/`core.ltrace` replacement work).

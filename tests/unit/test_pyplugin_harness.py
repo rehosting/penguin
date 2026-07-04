@@ -6,6 +6,7 @@ This is the proof that the harness subsumes the old per-file `sys.modules`
 stubbing: a plugin is loaded where it lives, fed events, and asserted on by the
 file it writes.
 """
+import socket
 from pathlib import Path
 
 import pytest
@@ -107,3 +108,29 @@ def test_netbinds_lifecycle_written_on_finalize(tmp_path):
     assert not (tmp_path / "netbinds_lifecycle.csv").exists()
     lp.finalize()  # uninit() flushes the lifecycle summary
     assert (tmp_path / "netbinds_lifecycle.csv").exists()
+
+
+class _FakeMem:
+    """Sibling double for the IPv6 path: netbinds reads the 16-byte address out
+    of guest memory via ``plugins.mem.read_bytes_panda``."""
+
+    def __init__(self, raw: bytes):
+        self._raw = raw
+
+    def read_bytes_panda(self, cpu, addr, length):
+        return self._raw[:length]
+
+
+def test_netbinds_ipv6_uses_mem_double(tmp_path):
+    # Exercises load_pyplugin(doubles=...): the IPv6 setup handler dereferences
+    # plugins.mem, which the harness resolves to our fake instead of a stub.
+    raw = socket.inet_pton(socket.AF_INET6, "fe80::1")
+    lp = load_pyplugin(
+        str(NETBINDS), outdir=tmp_path, args={"shutdown_on_www": False},
+        endianness="little", doubles={"mem": _FakeMem(raw)},
+    )
+    lp.dispatch("igloo_ipv6_setup", None, "dnsd", 0)  # addr arg -> read via mem double
+    lp.dispatch("igloo_ipv6_bind", None, f"{socket.htons(53)}:7", False)  # UDP
+
+    fields = (tmp_path / "netbinds.csv").read_text().splitlines()[1].split(",")
+    assert fields[:6] == ["dnsd", "6", "udp", "[fe80::1]", "53", "7"]
