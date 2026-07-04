@@ -1,4 +1,4 @@
-# tests/unit_tests/test_target/patches/tests/sysctl_test.yaml
+# tests/integration/test_target/patches/tests/sysctl_test.yaml
 plugins:
   sysctl_test: {} 
   verifier:

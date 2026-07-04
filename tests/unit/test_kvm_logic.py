@@ -108,6 +108,11 @@ class TestKVMQemu(unittest.TestCase):
         def read_memory(cpu, addr, buf, length, is_write):
             if is_write:
                 return -1
+            # The real callback crosses the C ABI, so cpu_memory_rw_debug now
+            # receives addr/len as cffi CData (vaddr / size_t) rather than plain
+            # ints; coerce before slicing.
+            addr = int(addr)
+            length = int(length)
             data = memory[addr:addr + length]
             if len(data) != length:
                 return -1

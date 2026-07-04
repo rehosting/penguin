@@ -257,7 +257,7 @@ def run_optout(image, arch, kernel):
                 "snapshot still restored + bridges replayed")
 
 
-# Mirror tests/unit_tests/test_target/test.py's known-good arch/kernel matrix.
+# Mirror tests/integration/test_target/test.py's known-good arch/kernel matrix.
 DEFAULT_KERNELS = ["4.10", "6.13"]
 DEFAULT_ARCHES = ["armel", "aarch64", "mipsel", "mipseb",
                   "mips64el", "mips64eb", "x86_64"]

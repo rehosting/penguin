@@ -84,7 +84,7 @@ class ArchSpec:
 
 
 # One entry per architecture. Values transcribed from the previous scattered
-# tables; parity tests (tests/unit_tests/test_config.py) assert no regression.
+# tables; parity tests (tests/unit/test_config.py) assert no regression.
 _SPECS = (
     ArchSpec(
         canonical="armel",

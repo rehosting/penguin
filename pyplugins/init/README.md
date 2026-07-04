@@ -77,6 +77,6 @@ completes with whatever succeeded.
 
 - File basenames must be unique across all of `pyplugins/` (the plugin
   manager's recursive lookup rejects ambiguous names) — enforced by
-  `tests/unit_tests/test_init_discovery.py`.
+  `tests/unit/test_init_discovery.py`.
 - Don't call `plugins.load_plugin()` from `patch()`/analyses — all loading
   happens on the main thread before execution.

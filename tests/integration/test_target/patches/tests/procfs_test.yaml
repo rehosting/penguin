@@ -1,4 +1,4 @@
-# tests/unit_tests/test_target/patches/tests/procfs_test.yaml
+# tests/integration/test_target/patches/tests/procfs_test.yaml
 plugins:
   procfs_test: {} 
   verifier:
