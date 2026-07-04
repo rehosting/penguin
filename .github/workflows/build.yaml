@@ -83,6 +83,47 @@ jobs:
       run: |
         flake8
 
+  unit_tests:
+    # Host-side pytest suite (tests/unit/test_*.py + pengutils): no PANDA,
+    # no guest boot, no per-arch matrix. Runs on a bare runner in seconds and
+    # fails a PR long before the ~20m guest-boot matrix would. Gated on the same
+    # run_tests filter as the matrix, but depends only on `changes` (not on the
+    # image build) so it is a genuine fast lane.
+    needs: changes
+    runs-on: rehosting-arc
+    if: ${{ !github.event.pull_request.draft }}
+    steps:
+      - name: Checkout code
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+      - name: Set up Python
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10.12"
+      # Editable install of the two modules we own, with their [test] extras.
+      # The extras pull the package's runtime deps (pydantic, coloredlogs,
+      # pyelftools, ...) plus pytest. No emulator, no guest image, no Docker —
+      # the suite runs entirely host-side. See tests/unit/README.
+      - name: Install penguin + pengutils (editable, with test extras)
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        run: pip install -e "src[test]" -e "pengutils[test]"
+      - name: Run host-side unit tests
+        if: ${{ needs.changes.outputs.run_tests == 'true' }}
+        run: |
+          python3 -m pytest tests/unit/ pengutils/ \
+            --junitxml=unit-test-results.xml -q
+      - name: Unit test report
+        uses: dorny/test-reporter@v2.1.1
+        if: ${{ needs.changes.outputs.run_tests == 'true' && ((success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository) }}
+        with:
+          name: unit-test-results
+          path: unit-test-results.xml
+          reporter: java-junit
+
   build_container:
     runs-on: rehosting-arc
     needs: [changes, lint]
@@ -182,14 +223,14 @@ jobs:
 
       - name: Basic test for ${{ matrix.arch }}
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/unit_tests/basic_target/test.py --arch ${{ matrix.arch }}
+        run: timeout 10m python3 $GITHUB_WORKSPACE/tests/integration/basic_target/test.py --arch ${{ matrix.arch }}
           
       - name: Test for ${{ matrix.arch }} all kernels
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
         # 20m (was 10m): the test_target suite now drives full CPython per
         # python test instead of micropython, which pushes slow-emulated arches
         # (powerpc64, loongarch64) past the old 10m budget.
-        run: timeout 20m python3 $GITHUB_WORKSPACE/tests/unit_tests/test_target/test.py --arch ${{ matrix.arch }}
+        run: timeout 20m python3 $GITHUB_WORKSPACE/tests/integration/test_target/test.py --arch ${{ matrix.arch }}
       
       - name: Test Report
         uses: dorny/test-reporter@v2.1.1
@@ -197,7 +238,7 @@ jobs:
         with: 
           name: ${{ matrix.arch }}-test-results
           # Update the glob pattern here to only match numbered folders
-          path: ${{ github.workspace }}/tests/unit_tests/test_target/results/[0-9]*/verifier.xml
+          path: ${{ github.workspace }}/tests/integration/test_target/results/[0-9]*/verifier.xml
           reporter: java-junit
 
       - name: Debug info
@@ -209,8 +250,8 @@ jobs:
           # Capture both suites: a basic_target failure aborts before
           # test_target runs, so its results/ would otherwise never be uploaded.
           path: |
-            ${{ github.workspace }}/tests/unit_tests/basic_target/projects/empty_fs/results/latest/
-            ${{ github.workspace }}/tests/unit_tests/test_target/results/latest/
+            ${{ github.workspace }}/tests/integration/basic_target/projects/empty_fs/results/latest/
+            ${{ github.workspace }}/tests/integration/test_target/results/latest/
 
   run_compose:
     # Compose's mcast plumbing is arch-independent, so this runs once outside
@@ -268,11 +309,11 @@ jobs:
 
       - name: Compose test (armel)
         if: ${{ needs.changes.outputs.run_tests == 'true' }}
-        run: timeout 8m python3 $GITHUB_WORKSPACE/tests/unit_tests/compose/test.py --arch armel
+        run: timeout 8m python3 $GITHUB_WORKSPACE/tests/integration/compose/test.py --arch armel
 
       - name: Compose debug info
         if: ${{ needs.changes.outputs.run_tests == 'true' && failure() }}
         uses: actions/upload-artifact@v4
         with:
           name: compose-artifacts
-          path: ${{ github.workspace }}/tests/unit_tests/compose/compose_projects/
+          path: ${{ github.workspace }}/tests/integration/compose/compose_projects/
