@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "penguin"
+authors = [{ name = "MIT Lincoln Laboratory", email = "luke.craig@mit.edu" }]
+description = "Automated IGLOO rehosting"
+readme = "README.md"
+license = { text = "MIT" }
+keywords = ["igloo"]
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+]
+# Preserved verbatim from setup.cfg install_requires. The penguin package
+# imports more than this at runtime (pydantic, coloredlogs, click, pyelftools,
+# ...); in the container those are provided by the Dockerfile's python_builder
+# wheel set rather than by this list, so they are declared in the [test] extra
+# below (enough to run the host-side suite) instead of being forced onto every
+# release install.
+dependencies = [
+    "pyyaml",
+    "jsonschema",
+    "jinja2",
+]
+# version is read from penguin/version.txt at build time by setup.py, with a
+# dev fallback when the file is absent (source checkouts / editable installs).
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/rehosting/penguin"
+
+[project.optional-dependencies]
+# Everything needed to run tests/unit/ on a bare host (no emulator, no
+# guest): the package's own runtime deps (provisioned by the Dockerfile in the
+# real image) plus the test runner.
+test = [
+    "pydantic",
+    "pydantic-partial",
+    "coloredlogs",
+    "click",
+    "yamlcore",
+    "networkx",
+    "pyvis",
+    "pyelftools",
+    "art",
+    "cffi",
+    "bs4",
+    "lxml",
+    "pytest",
+]
+
+[project.scripts]
+penguin_run = "penguin.penguin_run:main"
+penguin = "penguin.__main__:cli"
+penguin_mgr = "penguin.manager:main"
+gen_image = "penguin.gen_image:makeImage"
+gen_config = "penguin.gen_config:main"
+
+[tool.setuptools]
+zip-safe = false
+include-package-data = true
+
+[tool.setuptools.packages.find]
+# packages = find: (setup.cfg) — discover from the src/ project root.
+
+[tool.setuptools.package-data]
+penguin = ["scripts/*.sh", "resources/*"]
