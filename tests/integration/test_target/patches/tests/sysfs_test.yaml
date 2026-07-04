@@ -1,4 +1,4 @@
-# tests/unit_tests/test_target/patches/tests/sysfs_test.yaml
+# tests/integration/test_target/patches/tests/sysfs_test.yaml
 plugins:
   # Load your custom python plugin that registers the sysfs files
   sysfs_test: {} 

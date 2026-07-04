@@ -595,7 +595,7 @@ def test_ast_field_set_matches_imported_model(plugin_dir):
 
 
 def _shipped_pyplugins_dir():
-    # tests/unit_tests/test_config.py -> repo root -> pyplugins/
+    # tests/unit/test_config.py -> repo root -> pyplugins/
     d = Path(__file__).resolve().parents[2] / "pyplugins"
     return str(d) if d.is_dir() else None
 
@@ -686,12 +686,12 @@ def test_legacy_at_placeholders_untouched():
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("arch,arch_dir,dylib_dir", [
     ("armel", "armel", "armel"),
-    ("aarch64", "aarch64", "arm64"),
+    ("aarch64", "aarch64", "aarch64"),
     ("intel64", "x86_64", "x86_64"),
-    ("powerpc64le", "powerpc64", "ppc64el"),
-    ("powerpc", "powerpc", "ppc"),
+    ("powerpc64le", "powerpc64", "powerpc64le"),
+    ("powerpc", "powerpc", "powerpc"),
     ("mipsel", "mipsel", "mipsel"),
-    ("loongarch64", "loongarch64", "loongarch"),
+    ("loongarch64", "loongarch64", "loongarch64"),
 ])
 def test_arch_derived_context_vars(arch, arch_dir, dylib_dir):
     from penguin.arch_registry import normalize_arch
@@ -703,8 +703,8 @@ def test_arch_derived_context_vars(arch, arch_dir, dylib_dir):
 
 def test_get_dylib_subdir_matches_context():
     from penguin.arch import get_dylib_subdir
-    assert get_dylib_subdir("aarch64") == "arm64"
-    assert get_dylib_subdir("powerpc64le") == "ppc64el"
+    assert get_dylib_subdir("aarch64") == "aarch64"
+    assert get_dylib_subdir("powerpc64le") == "powerpc64le"
     assert get_dylib_subdir("mipsel") == "mipsel"
 
 
@@ -719,7 +719,7 @@ def test_arch_dir_template_resolves_in_patch():
         },
     }
     out = templating.substitute(patch, templating.build_context(patch))
-    assert out["static_files"]["/igloo/dylibs/*"]["host_path"] == "/s/dylibs/arm64/*"
+    assert out["static_files"]["/igloo/dylibs/*"]["host_path"] == "/s/dylibs/aarch64/*"
     assert out["static_files"]["/igloo/utils/*"]["host_path"] == "/s/aarch64/*"
 
 
@@ -882,28 +882,17 @@ def _old_arch_subdir(a):
     return a
 
 
-def _old_dylib(a):
-    if a == "aarch64":
-        return "arm64"
-    if a == "intel64":
-        return "x86_64"
-    if a == "loongarch64":
-        return "loongarch"
-    if a == "powerpc64le":
-        return "ppc64el"
-    if "powerpc" in a:
-        return a.replace("powerpc", "ppc")
-    return _old_arch_subdir(a)
-
-
 @pytest.mark.parametrize("arch", [
     "armel", "aarch64", "mipsel", "mipseb", "mips64el", "mips64eb",
     "powerpc", "powerpc64", "powerpc64le", "riscv64", "loongarch64", "intel64",
 ])
 def test_subdir_dylib_parity_with_old(arch):
-    # intel64 (legacy config name) and x86_64 (new canonical) must agree.
+    # arch_subdir still consolidates the ppc64le variants onto powerpc64 and
+    # maps the intel64 alias to x86_64 (the "old" hardcoded scheme).
     assert arch_registry.arch_subdir(arch) == _old_arch_subdir(arch)
-    assert arch_registry.dylib_subdir(arch) == _old_dylib(arch)
+    # dylib_subdir was flipped off the hyperfs-era names (arm64/ppc64el/...) to
+    # the canonical arch name: it must now equal normalize_arch for every arch.
+    assert arch_registry.dylib_subdir(arch) == arch_registry.normalize_arch(arch)
     assert arch_registry.arch_subdir(arch) == arch_registry.arch_subdir(arch_registry.normalize_arch(arch))
 
 
@@ -933,7 +922,7 @@ def test_abi_info_rekeyed_and_normalizes():
 def test_dropin_dylib_dir_consolidated():
     from penguin.dropin_compile import _dylib_dir
     assert _dylib_dir("intel64") == "x86_64" == _dylib_dir("x86_64")
-    assert _dylib_dir("aarch64") == "arm64"
+    assert _dylib_dir("aarch64") == "aarch64"
 
 
 def test_load_config_arch_alias_normalized():
@@ -971,7 +960,7 @@ def test_templating_arch_alias_canonical_and_derived():
     assert out["x"] == "x86_64 x86_64 x86_64"
     raw2 = {"core": {"arch": "arm64"}, "x": "{{ arch }} {{ dylib_dir }}"}
     out2, _ = templating.render_config(raw2)
-    assert out2["x"] == "aarch64 arm64"
+    assert out2["x"] == "aarch64 aarch64"
 
 
 # --------------------------------------------------------------------------- #
