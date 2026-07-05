@@ -63,23 +63,32 @@ Ordered most-valuable first. Percentages are current host coverage.
    IPv6 (the latter via a `mem` double), dedup, lifecycle CSV.
 2. ✅ **`analysis/env.py`** (`EnvTracker`) — done (`test_env_tracker.py`): getenv
    tracking, config-known filtering, uboot capture via strstr, YAML on teardown.
-3. **Pseudofile ranking/suggest** — `init/pseudofile_patches.py` (78%) and
+3. ✅ **`analysis/health.py`** — done (`test_health.py`): distinct bind/exec/
+   device-open tallies to health_final.yaml + device/proc lists.
+4. **Pseudofile ranking/suggest** — `init/pseudofile_patches.py` (78%) and
    `hyperfile/models/*` are partly covered by `test_pseudofile_models.py`; extend
    to the ranking/`suggest` heuristics written into `pseudofiles_failures.yaml`.
-4. **`analysis/health.py`** (73, 18%), **`analysis/ficd.py`** — event → file
-   writers that don't import the `apis.syscalls`/portal layer; good next targets.
-5. **`analysis/interfaces.py`** — ⚠️ **past the cheap boundary.** It does
-   `from apis.syscalls import ValueFilter`, which transitively imports the whole
-   API/portal stack: `apis/__init__` → `hyper.portal` → `hyper.consts` (builds
-   enums from `plugins.kffi.get_enum_dict(...)` at import) and
-   `wrappers.ptregs_wrap` → `dwarffi`. Loading it needs (a) `dwarffi` installed
-   and (b) a `kffi` double returning the **real** `value_filter_type` enum
-   members (`ValueFilter.__init__` reads `vft.SYSCALLS_HC_FILTER_EXACT` as a
-   default-arg at class-definition time). Faking those faithfully = maintaining
-   the C enum tables. Treat this whole class of `apis.syscalls`-importing
-   analyses as a **separate follow-on**: build a checked-in enum-table fixture
-   (or a lightweight real-kffi shim) as a `kffi` double, add the API-layer deps
-   to the `[test]` extra, then these unlock together.
+5. **`analysis/ficd.py`** — the next clean (no apis/portal) event→file writer.
+6. **`loggers/`** (`db.py` 18%, `rw_logger.py` 20%, `exec_logger.py` 26%) —
+   pairs with the record/replay seam (same trace feeds both the logger and the
+   `core.strace`/`core.ltrace` replacement work).
+7. **`interventions/`** (`nvram2.py` 18%, `lifeguard.py` 20%, `kmods.py` 21%,
+   `mount.py` 27%) — where each is host-decidable vs guest-round-trip needs the
+   per-plugin scope call above.
+8. **Sibling Phase-0 plugins** as they land on this branch: `crashes.yaml`
+   (draft 01) and `summary.json` (draft 02) aggregation — the harness is their
+   natural host-side test.
+9. **`analysis/interfaces.py` + the `apis.syscalls`-importing class** — ⚠️ **past
+   the cheap boundary; separate follow-on.** `from apis.syscalls import
+   ValueFilter` transitively imports the API/portal stack: `apis/__init__` →
+   `hyper.portal` → `hyper.consts` (builds enums from
+   `plugins.kffi.get_enum_dict(...)` at import) and `wrappers.ptregs_wrap` →
+   `dwarffi`. Loading it needs (a) `dwarffi` installed and (b) a `kffi` double
+   returning the **real** `value_filter_type` enum members
+   (`ValueFilter.__init__` reads `vft.SYSCALLS_HC_FILTER_EXACT` as a default-arg
+   at class-definition time). Faking those faithfully = maintaining the C enum
+   tables. Unlock the whole class together: a checked-in enum-table fixture (or a
+   lightweight real-kffi shim) as a `kffi` double + the API-layer deps in `[test]`.
 
 ### Harness capabilities (as landed)
 
@@ -90,15 +99,6 @@ imports (`from apis import ...` — pyplugins root goes on `sys.path`), and bind
 class-body-subscribed handlers to the instance on `dispatch`. Not yet handled:
 driving a `@plugins.syscalls.syscall` **generator** handler (needs a portal-read
 pump), and faithful FFI enums at import (the interfaces boundary above).
-4. **`loggers/`** (`db.py` 18%, `rw_logger.py` 20%, `exec_logger.py` 26%) —
-   pairs with the record/replay seam (same trace feeds both the logger and the
-   `core.strace`/`core.ltrace` replacement work).
-5. **`interventions/`** (`nvram2.py` 18%, `lifeguard.py` 20%, `kmods.py` 21%,
-   `mount.py` 27%) — where each is host-decidable vs guest-round-trip needs the
-   per-plugin scope call above.
-6. **Sibling Phase-0 plugins** as they land on this branch: `crashes.yaml`
-   (draft 01) and `summary.json` (draft 02) aggregation — the harness is their
-   natural host-side test.
 
 ## Sequencing
 
