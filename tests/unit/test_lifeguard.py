@@ -14,9 +14,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 LIFEGUARD = REPO_ROOT / "pyplugins" / "interventions" / "lifeguard.py"
 
 
-def _load(tmp_path, blocked):
+def _load(tmp_path, blocked, doubles=None):
     return load_pyplugin(str(LIFEGUARD), outdir=tmp_path,
-                         args={"conf": {"blocked_signals": blocked}})
+                         args={"conf": {"blocked_signals": blocked}},
+                         doubles=doubles)
 
 
 class _Deliver:
@@ -57,3 +58,62 @@ def test_no_delivery_subscription_when_only_syscall_only_signals(tmp_path):
     lp = _load(tmp_path, [9])  # SIGKILL only -> no delivery hook path
     assert lp.plugin.delivery_blocked_signals == set()
     assert not any(ev == "signal_deliver" for (_p, ev, _c) in lp.subscriptions)
+
+
+# --- signal-send syscall interception, driven through the harness pump --------
+
+class _Proto:
+    def __init__(self, name, vals):
+        self.name = name
+        self._vals = vals
+
+    def arg_value(self, args, *names, fallback_index=None):
+        for n in names:
+            if n in self._vals:
+                return self._vals[n]
+        return None
+
+
+class _OSI:
+    def get_proc(self):
+        yield from ()
+        return type("P", (), {"pid": 100})()
+
+    def get_proc_name(self, target=None):
+        yield from ()
+        return "victim" if target else "attacker"
+
+
+class _SC:
+    def __init__(self):
+        self.skip_syscall = False
+        self.retval = None
+
+
+def test_kill_syscall_blocks_configured_signal(tmp_path):
+    lp = _load(tmp_path, [15], doubles={"osi": _OSI()})
+    sc = _SC()
+    proto = _Proto("sys_kill", {"sig": 15, "pid": 100})
+    lp.dispatch_syscall("kill", None, proto, sc, on_return=False)
+    assert sc.skip_syscall is True and sc.retval == 0
+    assert (tmp_path / "lifeguard.csv").read_text().splitlines()[-1] == \
+        "15,100,1,syscall:kill"
+
+
+def test_kill_syscall_passes_through_unblocked_signal(tmp_path):
+    lp = _load(tmp_path, [15], doubles={"osi": _OSI()})
+    sc = _SC()
+    proto = _Proto("sys_kill", {"sig": 2, "pid": 100})  # SIGINT not blocked
+    lp.dispatch_syscall("kill", None, proto, sc, on_return=False)
+    assert sc.skip_syscall is False
+    assert (tmp_path / "lifeguard.csv").read_text().splitlines()[-1] == \
+        "2,100,0,syscall:kill"
+
+
+def test_sigkill_is_blocked_at_syscall_level(tmp_path):
+    # SIGKILL can't be caught, so the only place to suppress it is the send syscall.
+    lp = _load(tmp_path, [9], doubles={"osi": _OSI()})
+    sc = _SC()
+    proto = _Proto("sys_kill", {"sig": 9, "pid": 100})
+    lp.dispatch_syscall("kill", None, proto, sc, on_return=False)
+    assert sc.skip_syscall is True and sc.retval == 0

@@ -392,6 +392,7 @@ def load_pyplugin(
     class_name: Optional[str] = None,
     endianness: str = "little",
     pyplugins_dir: Optional[str] = None,
+    call_init: bool = True,
 ) -> LoadedPlugin:
     """Load and construct a pyplugin against a null backend, ready to drive.
 
@@ -410,6 +411,12 @@ def load_pyplugin(
         more than one. Defaults to the sole subclass.
     endianness : ``self.panda.endianness`` value ("little" or "big").
     pyplugins_dir : directory to resolve a bare ``path_or_name`` against.
+    call_init : run the plugin's ``__init__`` (default). Set False for plugins
+        whose ``__init__`` does host-impossible I/O (e.g. nvram2 shells out to
+        ``clang-20`` to compile lib_inject) — the class still imports (so
+        class-body ``@subscribe``/``@syscall`` decorators register), the instance
+        is ``__new__``/``__preinit__``-wired, and the test sets the handful of
+        attributes the handlers need before driving them.
     """
     args = dict(args or {})
     if outdir is not None:
@@ -432,7 +439,7 @@ def load_pyplugin(
     with _plugin_root_on_path(root):
         classes = dict(_exec_plugin_module(path, manager, panda))
         cls = _pick_class(classes, class_name, path)
-        plugin = _construct(cls, manager, panda, args)
+        plugin = _construct(cls, manager, panda, args, call_init=call_init)
     manager.plugins[cls.__name__] = plugin
     doubles.setdefault(cls.__name__, plugin)
     return LoadedPlugin(plugin, manager, panda, log)
@@ -483,11 +490,16 @@ def _pick_class(classes: Dict[str, type], class_name: Optional[str], path: str) 
 
 
 def _construct(cls: type, manager: NullManager, panda: NullPanda,
-               args: Dict[str, Any]) -> Plugin:
+               args: Dict[str, Any], call_init: bool = True) -> Plugin:
     """Construct a plugin the way IGLOOPluginManager.load does: __new__, then
-    __preinit__ (wires manager/panda/args), then __init__ (0- or 1-arg)."""
+    __preinit__ (wires manager/panda/args), then __init__ (0- or 1-arg).
+
+    ``call_init=False`` stops after ``__preinit__`` (used for plugins whose
+    ``__init__`` does host-impossible I/O); the caller sets handler-needed attrs."""
     obj = cls.__new__(cls)
     obj.__preinit__(manager, args)
+    if not call_init:
+        return obj
     nparams = len(inspect.signature(obj.__init__).parameters)
     if nparams == 1:
         obj.__init__(panda)

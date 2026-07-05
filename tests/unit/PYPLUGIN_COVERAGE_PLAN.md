@@ -82,17 +82,19 @@ Ordered most-valuable first. Percentages are current host coverage.
 7. **`interventions/`** — `mount.py` ✅ done (`test_mount.py`, the exec-driven
    log path); `kmods.py` ✅ done (`test_kmods.py`, 21→75% — name/allow/deny +
    modules.log, plus the `init_module`/`finit_module` **generator** handlers via
-   the syscall pump); `lifeguard.py` ✅ done (`test_lifeguard.py`, 20→51% —
+   the syscall pump); `lifeguard.py` ✅ done (`test_lifeguard.py`, 20→82% —
    signal classification syscall-only vs delivery, delivery-drop + CSV,
-   no-subscription case). Lifeguard's remaining misses are its `_cstr`/proto
-   arg-parsing on the syscall-send path (needs a `proto` double). `nvram2.py`
-   (18%) is
-   **not** a cheap target: its `__init__` compiles lib_inject via `clang-20`
-   (subprocess, needs the toolchain image), so it can't be loaded host-side
-   without either the toolchain or a manual bypass-`__init__` construction — the
-   pure `on_nvram_*`/`log_write` handlers are testable but only after that. Note
-   the syscall-return hooks (e.g. mount's `post_mount`) are portal **generators**,
-   still out of scope until the harness gains a portal-read pump.
+   no-subscription case, plus the `kill` syscall-send **generator** interception
+   via the pump + a `_Proto` double with `arg_value`); `nvram2.py` ✅ done
+   (`test_nvram2.py`, 18→31% — get-hit/miss, set, clear, tmpfs-key
+   normalization, logging-mask query). Nvram2's `__init__` compiles lib_inject
+   via `clang-20` (host-impossible), so it loads with the new **`call_init=False`**
+   seam and the test sets the handful of attributes the handlers use; the ~140
+   lines of remaining misses are that `add_lib_inject_*`/`prep_config` build
+   machinery, genuinely out of host scope (needs the toolchain image / a
+   `tests/integration/` fixture). Note the syscall-**return** hooks (e.g. mount's
+   `post_mount`) also run through the pump now via `dispatch_syscall(...,
+   on_return=True)`.
 8. **Sibling Phase-0 plugins** as they land on this branch: `crashes.yaml`
    (draft 01) and `summary.json` (draft 02) aggregation — the harness is their
    natural host-side test.
