@@ -54,6 +54,7 @@ test = [
     "cffi",
     "bs4",
     "lxml",
+    "Levenshtein",
     "pytest",
 ]
 

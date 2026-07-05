@@ -68,13 +68,17 @@ Ordered most-valuable first. Percentages are current host coverage.
 4. **Pseudofile ranking/suggest** — `init/pseudofile_patches.py` (78%) and
    `hyperfile/models/*` are partly covered by `test_pseudofile_models.py`; extend
    to the ranking/`suggest` heuristics written into `pseudofiles_failures.yaml`.
-5. **`analysis/ficd.py`** — the next clean (no apis/portal) event→file writer.
-6. **`loggers/`** (`db.py` 18%, `rw_logger.py` 20%, `exec_logger.py` 26%) —
-   pairs with the record/replay seam (same trace feeds both the logger and the
-   `core.strace`/`core.ltrace` replacement work).
-7. **`interventions/`** (`nvram2.py` 18%, `lifeguard.py` 20%, `kmods.py` 21%,
-   `mount.py` 27%) — where each is host-decidable vs guest-round-trip needs the
-   per-plugin scope call above.
+5. ✅ **`analysis/ficd.py`** — done (`test_ficd.py`): Levenshtein unique/not-unique
+   dedup + ifin-not-reached YAML on teardown (drives `on_exec` directly; the
+   execve syscall handler just feeds it).
+6. **`loggers/`** — `exec_logger.py` ✅ done (`test_exec_logger.py`, via a `DB`
+   double). Remaining: `db.py` (18%), `rw_logger.py` (20%) — pair with the
+   record/replay seam (same trace feeds the logger and the strace/ltrace work).
+7. **`interventions/`** — `mount.py` ✅ done (`test_mount.py`, the exec-driven
+   log path). Remaining: `nvram2.py` (18%), `lifeguard.py` (20%), `kmods.py`
+   (21%) — each needs the host-decidable vs guest-round-trip scope call. Note the
+   syscall-return hooks (e.g. mount's `post_mount`) are portal **generators**,
+   still out of scope until the harness gains a portal-read pump.
 8. **Sibling Phase-0 plugins** as they land on this branch: `crashes.yaml`
    (draft 01) and `summary.json` (draft 02) aggregation — the harness is their
    natural host-side test.
